@@ -68,6 +68,24 @@
         shaped
       >
         <v-list-item
+          to="/"
+          link
+        >
+          <v-list-item-content>
+            <v-list-item-title>Main</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/about"
+          link
+        >
+          <v-list-item-content>
+            <v-list-item-title>About</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
           v-for="n in 5"
           :key="n"
           link
@@ -78,12 +96,6 @@
         </v-list-item>
       </v-list>
 
-      <div id="old-app">
-        <div id="old-nav">
-          <router-link to="/">Home</router-link> |
-          <router-link to="/about">About</router-link>
-        </div>
-      </div>
     </v-navigation-drawer>
 
     <v-navigation-drawer
