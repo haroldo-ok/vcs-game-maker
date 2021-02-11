@@ -1,5 +1,17 @@
 <template>
   <v-container>
+	<v-select :items="testItems">
+		<template slot="selection" slot-scope="data">
+			<!-- HTML that describe how select should render selected items -->
+			{{ data.item }}
+		</template>
+		<template slot="item" slot-scope="data">
+			<!-- HTML that describe how select should render items when the select is open -->
+			<v-icon>mdi-checkbox-marked-circle</v-icon>
+			{{ data.item }}
+		</template>
+	</v-select>
+	
     <v-row class="text-center">
       <v-col cols="12">
         <v-img
@@ -96,6 +108,8 @@
     name: 'HelloWorld',
 
     data: () => ({
+      testItems: [ 'One item', 'Another item' ],
+
       ecosystem: [
         {
           text: 'vuetify-loader',
