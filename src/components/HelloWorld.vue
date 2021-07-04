@@ -8,13 +8,8 @@
 		</template>
 		<template slot="item" slot-scope="data">
 			<!-- HTML that describe how select should render items when the select is open -->
-      <v-badge :color="data.item.color" bordered>
-        <template v-slot:badge>
-          <v-icon color="white">mdi-alpha-x</v-icon>
-        </template>
-
-        <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
-      </v-badge>
+      <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
+      <v-icon :color="data.item.color" v-if="data.item.subIcon">{{ data.item.subIcon }}</v-icon>
 			{{ data.item.name }}
 		</template>
 	</v-select>
@@ -123,6 +118,12 @@
         },
         {
           icon: 'mdi-account',
+          subIcon: 'mdi-alpha-x',
+          color: 'red',
+          name: 'Player 1 X'
+        },
+        {
+          icon: 'mdi-account',
           color: 'blue',
           name: 'Player 2'
         },
@@ -140,6 +141,12 @@
           icon: 'mdi-tennis-ball',
           color: 'orange',
           name: 'Ball'
+        },
+        {
+          icon: 'mdi-tennis-ball',
+          subIcon: 'mdi-human-male-height',
+          color: 'orange',
+          name: 'Ball Height'
         }
       ],
 
