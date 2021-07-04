@@ -3,12 +3,13 @@
 	<v-select :items="testItems">
 		<template slot="selection" slot-scope="data">
 			<!-- HTML that describe how select should render selected items -->
-			{{ data.item }}
+			<v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
+			{{ data.item.name }}
 		</template>
 		<template slot="item" slot-scope="data">
 			<!-- HTML that describe how select should render items when the select is open -->
-			<v-icon>mdi-checkbox-marked-circle</v-icon>
-			{{ data.item }}
+			<v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
+			{{ data.item.name }}
 		</template>
 	</v-select>
 	
@@ -108,7 +109,33 @@
     name: 'HelloWorld',
 
     data: () => ({
-      testItems: [ 'One item', 'Another item' ],
+      testItems: [
+        {
+          icon: 'mdi-account',
+          color: 'red',
+          name: 'Player 1'
+        },
+        {
+          icon: 'mdi-account',
+          color: 'blue',
+          name: 'Player 2'
+        },
+        {
+          icon: 'mdi-rocket',
+          color: 'red',
+          name: 'Missile 1'
+        },
+        {
+          icon: 'mdi-rocket',
+          color: 'blue',
+          name: 'Missile 2'
+        },
+        {
+          icon: 'mdi-tennis-ball',
+          color: 'orange',
+          name: 'Ball'
+        }
+      ],
 
       ecosystem: [
         {
