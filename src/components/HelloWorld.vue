@@ -8,7 +8,13 @@
 		</template>
 		<template slot="item" slot-scope="data">
 			<!-- HTML that describe how select should render items when the select is open -->
-			<v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
+      <v-badge :color="data.item.color" bordered>
+        <template v-slot:badge>
+          <v-icon color="white">mdi-alpha-x</v-icon>
+        </template>
+
+        <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
+      </v-badge>
 			{{ data.item.name }}
 		</template>
 	</v-select>
