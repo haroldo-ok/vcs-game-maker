@@ -93,6 +93,64 @@ export const baseVariables = [
       variable: 'ballheight',
       subIcon: 'mdi-human-male-height',
       name: 'Ball height'
+    },
+  ]),
+
+  // Joystick 0
+  ...assembleDeclarations({ icon: 'mdi-gamepad-round', color: 'red' }, [
+    {
+      variable: 'joy0up',
+      icon: 'mdi-gamepad-round-up',
+      name: 'Joystick 0 up'
+    },
+    {
+      variable: 'joy0down',
+      icon: 'mdi-gamepad-round-down',
+      name: 'Joystick 0 down'
+    },
+    {
+      variable: 'joy0left',
+      icon: 'mdi-gamepad-round-left',
+      name: 'Joystick 0 left'
+    },
+    {
+      variable: 'joy0right',
+      icon: 'mdi-gamepad-round-right',
+      name: 'Joystick 0 right'
+    },
+    {
+      variable: 'joy0fire',
+      icon: 'mdi-pistol',
+      name: 'Joystick 0 fire'
     }
   ]),
+
+  // Joystick 1
+  ...assembleDeclarations({ icon: 'mdi-gamepad-round', color: 'blue' }, [
+    {
+      variable: 'joy1up',
+      icon: 'mdi-gamepad-round-up',
+      name: 'Joystick 1 up'
+    },
+    {
+      variable: 'joy1down',
+      icon: 'mdi-gamepad-round-down',
+      name: 'Joystick 1 down'
+    },
+    {
+      variable: 'joy1left',
+      icon: 'mdi-gamepad-round-left',
+      name: 'Joystick 1 left'
+    },
+    {
+      variable: 'joy1right',
+      icon: 'mdi-gamepad-round-right',
+      name: 'Joystick 1 right'
+    },
+    {
+      variable: 'joy1fire',
+      icon: 'mdi-pistol',
+      name: 'Joystick 1 fire'
+    }
+  ])    
 ]
