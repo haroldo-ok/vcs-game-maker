@@ -1,21 +1,6 @@
 <template>
   <v-container>
-  <v-select :items="testItems">
-    <template slot="selection" slot-scope="data">
-      <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
-      <v-icon :color="data.item.color" v-if="data.item.subIcon">
-        {{ data.item.subIcon }}
-      </v-icon>
-      {{ data.item.name }}
-    </template>
-    <template slot="item" slot-scope="data">
-      <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
-      <v-icon :color="data.item.color" v-if="data.item.subIcon">
-        {{ data.item.subIcon }}
-      </v-icon>
-      {{ data.item.name }}
-    </template>
-  </v-select>
+    <variable-select :items="testItems" />
 
     <v-row class="text-center">
       <v-col cols="12">
@@ -110,8 +95,10 @@
 
 <script>
 import {baseVariables} from '../services/variables';
+import VariableSelect from './VariableSelect.vue';
 
 export default {
+  components: {VariableSelect},
   name: 'HelloWorld',
 
   data: () => ({
