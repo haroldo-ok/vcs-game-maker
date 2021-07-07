@@ -117,7 +117,7 @@
     </v-navigation-drawer>
 
     <v-main>
-		<router-view/>
+      <router-view/>
     </v-main>
 
     <v-footer
@@ -139,7 +139,7 @@
 </template>
 
 <script>
-  export default {
-    data: () => ({ drawer: null }),
-  }
+export default {
+  data: () => ({drawer: null}),
+};
 </script>

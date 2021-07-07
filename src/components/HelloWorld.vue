@@ -1,19 +1,22 @@
 <template>
   <v-container>
-	<v-select :items="testItems">
-		<template slot="selection" slot-scope="data">
-			<!-- HTML that describe how select should render selected items -->
-			<v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
-			{{ data.item.name }}
-		</template>
-		<template slot="item" slot-scope="data">
-			<!-- HTML that describe how select should render items when the select is open -->
+  <v-select :items="testItems">
+    <template slot="selection" slot-scope="data">
       <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
-      <v-icon :color="data.item.color" v-if="data.item.subIcon">{{ data.item.subIcon }}</v-icon>
-			{{ data.item.name }}
-		</template>
-	</v-select>
-	
+      <v-icon :color="data.item.color" v-if="data.item.subIcon">
+        {{ data.item.subIcon }}
+      </v-icon>
+      {{ data.item.name }}
+    </template>
+    <template slot="item" slot-scope="data">
+      <v-icon :color="data.item.color">{{ data.item.icon }}</v-icon>
+      <v-icon :color="data.item.color" v-if="data.item.subIcon">
+        {{ data.item.subIcon }}
+      </v-icon>
+      {{ data.item.name }}
+    </template>
+  </v-select>
+
     <v-row class="text-center">
       <v-col cols="12">
         <v-img
@@ -106,64 +109,64 @@
 </template>
 
 <script>
-  import { baseVariables } from '../services/variables'
+import {baseVariables} from '../services/variables';
 
-  export default {
-    name: 'HelloWorld',
+export default {
+  name: 'HelloWorld',
 
-    data: () => ({
-      testItems: baseVariables,
+  data: () => ({
+    testItems: baseVariables,
 
-      ecosystem: [
-        {
-          text: 'vuetify-loader',
-          href: 'https://github.com/vuetifyjs/vuetify-loader',
-        },
-        {
-          text: 'github',
-          href: 'https://github.com/vuetifyjs/vuetify',
-        },
-        {
-          text: 'awesome-vuetify',
-          href: 'https://github.com/vuetifyjs/awesome-vuetify',
-        },
-      ],
-      importantLinks: [
-        {
-          text: 'Documentation',
-          href: 'https://vuetifyjs.com',
-        },
-        {
-          text: 'Chat',
-          href: 'https://community.vuetifyjs.com',
-        },
-        {
-          text: 'Made with Vuetify',
-          href: 'https://madewithvuejs.com/vuetify',
-        },
-        {
-          text: 'Twitter',
-          href: 'https://twitter.com/vuetifyjs',
-        },
-        {
-          text: 'Articles',
-          href: 'https://medium.com/vuetify',
-        },
-      ],
-      whatsNext: [
-        {
-          text: 'Explore components',
-          href: 'https://vuetifyjs.com/components/api-explorer',
-        },
-        {
-          text: 'Select a layout',
-          href: 'https://vuetifyjs.com/getting-started/pre-made-layouts',
-        },
-        {
-          text: 'Frequently Asked Questions',
-          href: 'https://vuetifyjs.com/getting-started/frequently-asked-questions',
-        },
-      ],
-    }),
-  }
+    ecosystem: [
+      {
+        text: 'vuetify-loader',
+        href: 'https://github.com/vuetifyjs/vuetify-loader',
+      },
+      {
+        text: 'github',
+        href: 'https://github.com/vuetifyjs/vuetify',
+      },
+      {
+        text: 'awesome-vuetify',
+        href: 'https://github.com/vuetifyjs/awesome-vuetify',
+      },
+    ],
+    importantLinks: [
+      {
+        text: 'Documentation',
+        href: 'https://vuetifyjs.com',
+      },
+      {
+        text: 'Chat',
+        href: 'https://community.vuetifyjs.com',
+      },
+      {
+        text: 'Made with Vuetify',
+        href: 'https://madewithvuejs.com/vuetify',
+      },
+      {
+        text: 'Twitter',
+        href: 'https://twitter.com/vuetifyjs',
+      },
+      {
+        text: 'Articles',
+        href: 'https://medium.com/vuetify',
+      },
+    ],
+    whatsNext: [
+      {
+        text: 'Explore components',
+        href: 'https://vuetifyjs.com/components/api-explorer',
+      },
+      {
+        text: 'Select a layout',
+        href: 'https://vuetifyjs.com/getting-started/pre-made-layouts',
+      },
+      {
+        text: 'Frequently Asked Questions',
+        href: 'https://vuetifyjs.com/getting-started/frequently-asked-questions',
+      },
+    ],
+  }),
+};
 </script>
