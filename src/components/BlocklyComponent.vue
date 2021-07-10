@@ -11,7 +11,7 @@
 <script>
 /**
  * @license
- * 
+ *
  * Copyright 2019 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,19 +37,19 @@ import Blockly from 'blockly';
 export default {
   name: 'BlocklyComponent',
   props: ['options'],
-  data(){
+  data() {
     return {
-      workspace: null
-    }
+      workspace: null,
+    };
   },
   mounted() {
-    var options = this.$props.options || {};
+    const options = this.$props.options || {};
     if (!options.toolbox) {
-      options.toolbox = this.$refs["blocklyToolbox"];
+      options.toolbox = this.$refs['blocklyToolbox'];
     }
-    this.workspace = Blockly.inject(this.$refs["blocklyDiv"], options);
-  }
-}
+    this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
+  },
+};
 </script>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
