@@ -48,41 +48,41 @@ Blockly.JavaScript.addReservedWords(
  * Order of operation ENUMs.
  * https://developer.mozilla.org/en/JavaScript/Reference/Operators/Operator_Precedence
  */
-Blockly.JavaScript.ORDER_ATOMIC = 0;           // 0 "" ...
-Blockly.JavaScript.ORDER_NEW = 1.1;            // new
-Blockly.JavaScript.ORDER_MEMBER = 1.2;         // . []
-Blockly.JavaScript.ORDER_FUNCTION_CALL = 2;    // ()
-Blockly.JavaScript.ORDER_INCREMENT = 3;        // ++
-Blockly.JavaScript.ORDER_DECREMENT = 3;        // --
-Blockly.JavaScript.ORDER_BITWISE_NOT = 4.1;    // ~
-Blockly.JavaScript.ORDER_UNARY_PLUS = 4.2;     // +
+Blockly.JavaScript.ORDER_ATOMIC = 0; // 0 "" ...
+Blockly.JavaScript.ORDER_NEW = 1.1; // new
+Blockly.JavaScript.ORDER_MEMBER = 1.2; // . []
+Blockly.JavaScript.ORDER_FUNCTION_CALL = 2; // ()
+Blockly.JavaScript.ORDER_INCREMENT = 3; // ++
+Blockly.JavaScript.ORDER_DECREMENT = 3; // --
+Blockly.JavaScript.ORDER_BITWISE_NOT = 4.1; // ~
+Blockly.JavaScript.ORDER_UNARY_PLUS = 4.2; // +
 Blockly.JavaScript.ORDER_UNARY_NEGATION = 4.3; // -
-Blockly.JavaScript.ORDER_LOGICAL_NOT = 4.4;    // !
-Blockly.JavaScript.ORDER_TYPEOF = 4.5;         // typeof
-Blockly.JavaScript.ORDER_VOID = 4.6;           // void
-Blockly.JavaScript.ORDER_DELETE = 4.7;         // delete
-Blockly.JavaScript.ORDER_AWAIT = 4.8;          // await
+Blockly.JavaScript.ORDER_LOGICAL_NOT = 4.4; // !
+Blockly.JavaScript.ORDER_TYPEOF = 4.5; // typeof
+Blockly.JavaScript.ORDER_VOID = 4.6; // void
+Blockly.JavaScript.ORDER_DELETE = 4.7; // delete
+Blockly.JavaScript.ORDER_AWAIT = 4.8; // await
 Blockly.JavaScript.ORDER_EXPONENTIATION = 5.0; // **
 Blockly.JavaScript.ORDER_MULTIPLICATION = 5.1; // *
-Blockly.JavaScript.ORDER_DIVISION = 5.2;       // /
-Blockly.JavaScript.ORDER_MODULUS = 5.3;        // %
-Blockly.JavaScript.ORDER_SUBTRACTION = 6.1;    // -
-Blockly.JavaScript.ORDER_ADDITION = 6.2;       // +
-Blockly.JavaScript.ORDER_BITWISE_SHIFT = 7;    // << >> >>>
-Blockly.JavaScript.ORDER_RELATIONAL = 8;       // < <= > >=
-Blockly.JavaScript.ORDER_IN = 8;               // in
-Blockly.JavaScript.ORDER_INSTANCEOF = 8;       // instanceof
-Blockly.JavaScript.ORDER_EQUALITY = 9;         // == != === !==
-Blockly.JavaScript.ORDER_BITWISE_AND = 10;     // &
-Blockly.JavaScript.ORDER_BITWISE_XOR = 11;     // ^
-Blockly.JavaScript.ORDER_BITWISE_OR = 12;      // |
-Blockly.JavaScript.ORDER_LOGICAL_AND = 13;     // &&
-Blockly.JavaScript.ORDER_LOGICAL_OR = 14;      // ||
-Blockly.JavaScript.ORDER_CONDITIONAL = 15;     // ?:
-Blockly.JavaScript.ORDER_ASSIGNMENT = 16;      // = += -= **= *= /= %= <<= >>= ...
-Blockly.JavaScript.ORDER_YIELD = 17;           // yield
-Blockly.JavaScript.ORDER_COMMA = 18;           // ,
-Blockly.JavaScript.ORDER_NONE = 99;            // (...)
+Blockly.JavaScript.ORDER_DIVISION = 5.2; // /
+Blockly.JavaScript.ORDER_MODULUS = 5.3; // %
+Blockly.JavaScript.ORDER_SUBTRACTION = 6.1; // -
+Blockly.JavaScript.ORDER_ADDITION = 6.2; // +
+Blockly.JavaScript.ORDER_BITWISE_SHIFT = 7; // << >> >>>
+Blockly.JavaScript.ORDER_RELATIONAL = 8; // < <= > >=
+Blockly.JavaScript.ORDER_IN = 8; // in
+Blockly.JavaScript.ORDER_INSTANCEOF = 8; // instanceof
+Blockly.JavaScript.ORDER_EQUALITY = 9; // == != === !==
+Blockly.JavaScript.ORDER_BITWISE_AND = 10; // &
+Blockly.JavaScript.ORDER_BITWISE_XOR = 11; // ^
+Blockly.JavaScript.ORDER_BITWISE_OR = 12; // |
+Blockly.JavaScript.ORDER_LOGICAL_AND = 13; // &&
+Blockly.JavaScript.ORDER_LOGICAL_OR = 14; // ||
+Blockly.JavaScript.ORDER_CONDITIONAL = 15; // ?:
+Blockly.JavaScript.ORDER_ASSIGNMENT = 16; // = += -= **= *= /= %= <<= >>= ...
+Blockly.JavaScript.ORDER_YIELD = 17; // yield
+Blockly.JavaScript.ORDER_COMMA = 18; // ,
+Blockly.JavaScript.ORDER_NONE = 99; // (...)
 
 /**
  * List of outer-inner pairings that do NOT require parentheses.
@@ -112,7 +112,7 @@ Blockly.JavaScript.ORDER_OVERRIDES = [
   // a && (b && c) -> a && b && c
   [Blockly.JavaScript.ORDER_LOGICAL_AND, Blockly.JavaScript.ORDER_LOGICAL_AND],
   // a || (b || c) -> a || b || c
-  [Blockly.JavaScript.ORDER_LOGICAL_OR, Blockly.JavaScript.ORDER_LOGICAL_OR]
+  [Blockly.JavaScript.ORDER_LOGICAL_OR, Blockly.JavaScript.ORDER_LOGICAL_OR],
 ];
 
 /**
@@ -139,17 +139,17 @@ Blockly.JavaScript.init = function(workspace) {
   this.nameDB_.populateVariables(workspace);
   this.nameDB_.populateProcedures(workspace);
 
-  var defvars = [];
+  const defvars = [];
   // Add developer variables (not created or named by the user).
-  var devVarList = Blockly.Variables.allDeveloperVariables(workspace);
-  for (var i = 0; i < devVarList.length; i++) {
+  const devVarList = Blockly.Variables.allDeveloperVariables(workspace);
+  for (let i = 0; i < devVarList.length; i++) {
     defvars.push(this.nameDB_.getName(devVarList[i],
         Blockly.Names.DEVELOPER_VARIABLE_TYPE));
   }
 
   // Add user variables, but only ones that are being used.
-  var variables = Blockly.Variables.allUsedVarModels(workspace);
-  for (var i = 0; i < variables.length; i++) {
+  const variables = Blockly.Variables.allUsedVarModels(workspace);
+  for (let i = 0; i < variables.length; i++) {
     defvars.push(this.nameDB_.getName(variables[i].getId(),
         Blockly.VARIABLE_CATEGORY_NAME));
   }
@@ -168,7 +168,7 @@ Blockly.JavaScript.init = function(workspace) {
  */
 Blockly.JavaScript.finish = function(code) {
   // Convert the definitions dictionary into a list.
-  var definitions = Blockly.utils.object.values(this.definitions_);
+  const definitions = Blockly.utils.object.values(this.definitions_);
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
   this.isInitialized = false;
@@ -198,8 +198,8 @@ Blockly.JavaScript.quote_ = function(string) {
   // Can't use goog.string.quote since Google's style guide recommends
   // JS string literals use single quotes.
   string = string.replace(/\\/g, '\\\\')
-                 .replace(/\n/g, '\\\n')
-                 .replace(/'/g, '\\\'');
+      .replace(/\n/g, '\\\n')
+      .replace(/'/g, '\\\'');
   return '\'' + string + '\'';
 };
 
@@ -213,7 +213,7 @@ Blockly.JavaScript.quote_ = function(string) {
 Blockly.JavaScript.multiline_quote_ = function(string) {
   // Can't use goog.string.quote since Google's style guide recommends
   // JS string literals use single quotes.
-  var lines = string.split(/\n/g).map(this.quote_);
+  const lines = string.split(/\n/g).map(this.quote_);
   return lines.join(' + \'\\n\' +\n');
 };
 
@@ -223,25 +223,25 @@ Blockly.JavaScript.multiline_quote_ = function(string) {
  * Calls any statements following this block.
  * @param {!Blockly.Block} block The current block.
  * @param {string} code The JavaScript code created for this block.
- * @param {boolean=} opt_thisOnly True to generate code for only this statement.
+ * @param {boolean=} optThisOnly True to generate code for only this statement.
  * @return {string} JavaScript code with comments and subsequent blocks added.
  * @protected
  */
-Blockly.JavaScript.scrub_ = function(block, code, opt_thisOnly) {
-  var commentCode = '';
+Blockly.JavaScript.scrub_ = function(block, code, optThisOnly) {
+  let commentCode = '';
   // Only collect comments for blocks that aren't inline.
   if (!block.outputConnection || !block.outputConnection.targetConnection) {
     // Collect comment for this block.
-    var comment = block.getCommentText();
+    let comment = block.getCommentText();
     if (comment) {
       comment = Blockly.utils.string.wrap(comment, this.COMMENT_WRAP - 3);
       commentCode += this.prefixLines(comment + '\n', '// ');
     }
     // Collect comments for all value arguments.
     // Don't collect comments for nested statements.
-    for (var i = 0; i < block.inputList.length; i++) {
+    for (let i = 0; i < block.inputList.length; i++) {
       if (block.inputList[i].type == Blockly.inputTypes.VALUE) {
-        var childBlock = block.inputList[i].connection.targetBlock();
+        const childBlock = block.inputList[i].connection.targetBlock();
         if (childBlock) {
           comment = this.allNestedComments(childBlock);
           if (comment) {
@@ -251,8 +251,8 @@ Blockly.JavaScript.scrub_ = function(block, code, opt_thisOnly) {
       }
     }
   }
-  var nextBlock = block.nextConnection && block.nextConnection.targetBlock();
-  var nextCode = opt_thisOnly ? '' : this.blockToCode(nextBlock);
+  const nextBlock = block.nextConnection && block.nextConnection.targetBlock();
+  const nextCode = optThisOnly ? '' : this.blockToCode(nextBlock);
   return commentCode + code + nextCode;
 };
 
@@ -260,54 +260,56 @@ Blockly.JavaScript.scrub_ = function(block, code, opt_thisOnly) {
  * Gets a property and adjusts the value while taking into account indexing.
  * @param {!Blockly.Block} block The block.
  * @param {string} atId The property ID of the element to get.
- * @param {number=} opt_delta Value to add.
- * @param {boolean=} opt_negate Whether to negate the value.
- * @param {number=} opt_order The highest order acting on this value.
+ * @param {number=} optDelta Value to add.
+ * @param {boolean=} optNegate Whether to negate the value.
+ * @param {number=} optOrder The highest order acting on this value.
  * @return {string|number}
  */
-Blockly.JavaScript.getAdjusted = function(block, atId, opt_delta, opt_negate,
-    opt_order) {
-  var delta = opt_delta || 0;
-  var order = opt_order || this.ORDER_NONE;
+Blockly.JavaScript.getAdjusted = function(block, atId, optDelta, optNegate,
+    optOrder) {
+  let delta = optDelta || 0;
+  let order = optOrder || this.ORDER_NONE;
   if (block.workspace.options.oneBasedIndex) {
     delta--;
   }
-  var defaultAtIndex = block.workspace.options.oneBasedIndex ? '1' : '0';
+  const defaultAtIndex = block.workspace.options.oneBasedIndex ? '1' : '0';
+  let at;
   if (delta > 0) {
-    var at = this.valueToCode(block, atId,
+    at = this.valueToCode(block, atId,
         this.ORDER_ADDITION) || defaultAtIndex;
   } else if (delta < 0) {
-    var at = this.valueToCode(block, atId,
+    at = this.valueToCode(block, atId,
         this.ORDER_SUBTRACTION) || defaultAtIndex;
-  } else if (opt_negate) {
-    var at = this.valueToCode(block, atId,
+  } else if (optNegate) {
+    at = this.valueToCode(block, atId,
         this.ORDER_UNARY_NEGATION) || defaultAtIndex;
   } else {
-    var at = this.valueToCode(block, atId, order) || defaultAtIndex;
+    at = this.valueToCode(block, atId, order) || defaultAtIndex;
   }
 
   if (Blockly.isNumber(at)) {
     // If the index is a naked number, adjust it right now.
     at = Number(at) + delta;
-    if (opt_negate) {
+    if (optNegate) {
       at = -at;
     }
   } else {
     // If the index is dynamic, adjust it in code.
+    let innerOrder;
     if (delta > 0) {
       at = at + ' + ' + delta;
-      var innerOrder = this.ORDER_ADDITION;
+      innerOrder = this.ORDER_ADDITION;
     } else if (delta < 0) {
       at = at + ' - ' + -delta;
-      var innerOrder = this.ORDER_SUBTRACTION;
+      innerOrder = this.ORDER_SUBTRACTION;
     }
-    if (opt_negate) {
+    if (optNegate) {
       if (delta) {
         at = '-(' + at + ')';
       } else {
         at = '-' + at;
       }
-      var innerOrder = this.ORDER_UNARY_NEGATION;
+      innerOrder = this.ORDER_UNARY_NEGATION;
     }
     innerOrder = Math.floor(innerOrder);
     order = Math.floor(order);
