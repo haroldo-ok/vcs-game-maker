@@ -10,23 +10,23 @@
  */
 'use strict';
 
-goog.provide('Blockly.JavaScript.variables');
+goog.provide('Blockly.BBasic.variables');
 
-goog.require('Blockly.JavaScript');
+goog.require('Blockly.BBasic');
 
 
-Blockly.JavaScript['variables_get'] = function(block) {
+Blockly.BBasic['variables_get'] = function(block) {
   // Variable getter.
-  const code = Blockly.JavaScript.nameDB_.getName(block.getFieldValue('VAR'),
+  const code = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
       Blockly.VARIABLE_CATEGORY_NAME);
-  return [code, Blockly.JavaScript.ORDER_ATOMIC];
+  return [code, Blockly.BBasic.ORDER_ATOMIC];
 };
 
-Blockly.JavaScript['variables_set'] = function(block) {
+Blockly.BBasic['variables_set'] = function(block) {
   // Variable setter.
-  const argument0 = Blockly.JavaScript.valueToCode(block, 'VALUE',
-      Blockly.JavaScript.ORDER_ASSIGNMENT) || '0';
-  const varName = Blockly.JavaScript.nameDB_.getName(
+  const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
+      Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+  const varName = Blockly.BBasic.nameDB_.getName(
       block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
   return varName + ' = ' + argument0 + ';\n';
 };

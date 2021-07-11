@@ -10,14 +10,14 @@
  */
 'use strict';
 
-goog.provide('Blockly.JavaScript.variablesDynamic');
+goog.provide('Blockly.BBasic.variablesDynamic');
 
-goog.require('Blockly.JavaScript');
-goog.require('Blockly.JavaScript.variables');
+goog.require('Blockly.BBasic');
+goog.require('Blockly.BBasic.variables');
 
 
 // JavaScript is dynamically typed.
-Blockly.JavaScript['variables_get_dynamic'] =
-    Blockly.JavaScript['variables_get'];
-Blockly.JavaScript['variables_set_dynamic'] =
-    Blockly.JavaScript['variables_set'];
+Blockly.BBasic['variables_get_dynamic'] =
+    Blockly.BBasic['variables_get'];
+Blockly.BBasic['variables_set_dynamic'] =
+    Blockly.BBasic['variables_set'];
