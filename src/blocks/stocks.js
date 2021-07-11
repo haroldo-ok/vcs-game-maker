@@ -88,7 +88,7 @@ Blockly.JavaScript['stock_buy_prog'] = function(block) {
       'NAME',
       Blockly.JavaScript.ORDER_ATOMIC,
   );
-  return c`buy(${valueNumber},${valueName},${valueName});\n`;
+  return `buy(${valueNumber},${valueName},${valueName});\n`;
 };
 
 Blockly.Blocks['stock_fetch_price'] = {
