@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.procedures');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['procedures_defreturn'] = function(block) {

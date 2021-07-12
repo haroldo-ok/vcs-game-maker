@@ -10,10 +10,12 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.variablesDynamic');
 
 goog.require('Blockly.BBasic');
 goog.require('Blockly.BBasic.variables');
+*/
 
 
 // JavaScript is dynamically typed.

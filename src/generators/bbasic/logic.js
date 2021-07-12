@@ -10,10 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.logic');
 
 goog.require('Blockly.BBasic');
-
+*/
 
 Blockly.BBasic['controls_if'] = function(block) {
   // If/elseif/else condition.

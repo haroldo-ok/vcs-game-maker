@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.loops');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['controls_repeat_ext'] = function(block) {

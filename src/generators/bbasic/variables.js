@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.variables');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['variables_get'] = function(block) {

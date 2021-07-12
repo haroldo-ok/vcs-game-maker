@@ -10,6 +10,7 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic');
 
 goog.require('Blockly.Generator');
@@ -17,13 +18,15 @@ goog.require('Blockly.inputTypes');
 goog.require('Blockly.utils.global');
 goog.require('Blockly.utils.object');
 goog.require('Blockly.utils.string');
+*/
 
+import {Generator, utils} from 'blockly/core';
 
 /**
  * JavaScript code generator.
  * @type {!Blockly.Generator}
  */
-Blockly.BBasic = new Blockly.Generator('BBasic');
+Blockly.BBasic = new Generator('BBasic');
 
 /**
  * List of illegal variable names.
@@ -42,7 +45,7 @@ Blockly.BBasic.addReservedWords(
     // Magic variable.
     'arguments,' +
     // Everything in the current environment (835 items in Chrome, 104 in Node).
-    Object.getOwnPropertyNames(Blockly.utils.global).join(','));
+    Object.getOwnPropertyNames(utils.global).join(','));
 
 /**
  * Order of operation ENUMs.

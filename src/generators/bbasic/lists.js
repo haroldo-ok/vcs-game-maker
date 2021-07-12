@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.lists');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['lists_create_empty'] = function(block) {

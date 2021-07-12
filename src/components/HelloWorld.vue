@@ -52,6 +52,7 @@ import BlocklyComponent from './BlocklyComponent.vue';
 import '../blocks/stocks';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyJS from 'blockly/javascript';
+import '../generators/bbasic';
 
 export default {
   components: {VariableSelect, BlocklyComponent},

@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.colour');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['colour_picker'] = function(block) {

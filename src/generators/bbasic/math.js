@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.math');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['math_number'] = function(block) {

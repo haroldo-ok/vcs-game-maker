@@ -10,9 +10,11 @@
  */
 'use strict';
 
+/*
 goog.provide('Blockly.BBasic.texts');
 
 goog.require('Blockly.BBasic');
+*/
 
 
 Blockly.BBasic['text'] = function(block) {
