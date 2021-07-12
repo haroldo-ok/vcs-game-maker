@@ -38,7 +38,7 @@
     <BlocklyComponent id="blockly2" :options="options" ref="foo"></BlocklyComponent>
 
     <p id="code">
-      <button v-on:click="showCode()">Show JavaScript</button>
+      <button v-on:click="showCode()">Show bBasic</button>
       <pre v-html="code"></pre>
     </p>
   </v-container>
@@ -51,8 +51,7 @@ import BlocklyComponent from './BlocklyComponent.vue';
 
 import '../blocks/stocks';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
-import BlocklyJS from 'blockly/javascript';
-import '../generators/bbasic';
+import BlocklyBB from '../generators/bbasic';
 
 export default {
   components: {VariableSelect, BlocklyComponent},
@@ -76,7 +75,7 @@ export default {
   }),
   methods: {
     showCode() {
-      this.code = BlocklyJS.workspaceToCode(this.$refs['foo'].workspace);
+      this.code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
     },
   },
 };

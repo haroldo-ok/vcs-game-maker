@@ -16,115 +16,117 @@ goog.provide('Blockly.BBasic.logic');
 goog.require('Blockly.BBasic');
 */
 
-Blockly.BBasic['controls_if'] = function(block) {
+export default (Blockly) => {
+  Blockly.BBasic['controls_if'] = function(block) {
   // If/elseif/else condition.
-  let n = 0;
-  let code = ''; let branchCode; let conditionCode;
-  if (Blockly.BBasic.STATEMENT_PREFIX) {
+    let n = 0;
+    let code = ''; let branchCode; let conditionCode;
+    if (Blockly.BBasic.STATEMENT_PREFIX) {
     // Automatic prefix insertion is switched off for this block.  Add manually.
-    code += Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_PREFIX,
-        block);
-  }
-  do {
-    conditionCode = Blockly.BBasic.valueToCode(block, 'IF' + n,
-        Blockly.BBasic.ORDER_NONE) || 'false';
-    branchCode = Blockly.BBasic.statementToCode(block, 'DO' + n);
-    if (Blockly.BBasic.STATEMENT_SUFFIX) {
-      branchCode = Blockly.BBasic.prefixLines(
-          Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
-              block), Blockly.BBasic.INDENT) + branchCode;
+      code += Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_PREFIX,
+          block);
     }
-    code += (n > 0 ? ' else ' : '') +
+    do {
+      conditionCode = Blockly.BBasic.valueToCode(block, 'IF' + n,
+          Blockly.BBasic.ORDER_NONE) || 'false';
+      branchCode = Blockly.BBasic.statementToCode(block, 'DO' + n);
+      if (Blockly.BBasic.STATEMENT_SUFFIX) {
+        branchCode = Blockly.BBasic.prefixLines(
+            Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
+                block), Blockly.BBasic.INDENT) + branchCode;
+      }
+      code += (n > 0 ? ' else ' : '') +
         'if (' + conditionCode + ') {\n' + branchCode + '}';
-    ++n;
-  } while (block.getInput('IF' + n));
+      ++n;
+    } while (block.getInput('IF' + n));
 
-  if (block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX) {
-    branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
-    if (Blockly.BBasic.STATEMENT_SUFFIX) {
-      branchCode = Blockly.BBasic.prefixLines(
-          Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
-              block), Blockly.BBasic.INDENT) + branchCode;
+    if (block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX) {
+      branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
+      if (Blockly.BBasic.STATEMENT_SUFFIX) {
+        branchCode = Blockly.BBasic.prefixLines(
+            Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
+                block), Blockly.BBasic.INDENT) + branchCode;
+      }
+      code += ' else {\n' + branchCode + '}';
     }
-    code += ' else {\n' + branchCode + '}';
-  }
-  return code + '\n';
-};
-
-Blockly.BBasic['controls_ifelse'] = Blockly.BBasic['controls_if'];
-
-Blockly.BBasic['logic_compare'] = function(block) {
-  // Comparison operator.
-  const OPERATORS = {
-    'EQ': '==',
-    'NEQ': '!=',
-    'LT': '<',
-    'LTE': '<=',
-    'GT': '>',
-    'GTE': '>=',
+    return code + '\n';
   };
-  const operator = OPERATORS[block.getFieldValue('OP')];
-  const order = (operator == '==' || operator == '!=') ?
+
+  Blockly.BBasic['controls_ifelse'] = Blockly.BBasic['controls_if'];
+
+  Blockly.BBasic['logic_compare'] = function(block) {
+  // Comparison operator.
+    const OPERATORS = {
+      'EQ': '==',
+      'NEQ': '!=',
+      'LT': '<',
+      'LTE': '<=',
+      'GT': '>',
+      'GTE': '>=',
+    };
+    const operator = OPERATORS[block.getFieldValue('OP')];
+    const order = (operator == '==' || operator == '!=') ?
       Blockly.BBasic.ORDER_EQUALITY : Blockly.BBasic.ORDER_RELATIONAL;
-  const argument0 = Blockly.BBasic.valueToCode(block, 'A', order) || '0';
-  const argument1 = Blockly.BBasic.valueToCode(block, 'B', order) || '0';
-  const code = argument0 + ' ' + operator + ' ' + argument1;
-  return [code, order];
-};
+    const argument0 = Blockly.BBasic.valueToCode(block, 'A', order) || '0';
+    const argument1 = Blockly.BBasic.valueToCode(block, 'B', order) || '0';
+    const code = argument0 + ' ' + operator + ' ' + argument1;
+    return [code, order];
+  };
 
-Blockly.BBasic['logic_operation'] = function(block) {
+  Blockly.BBasic['logic_operation'] = function(block) {
   // Operations 'and', 'or'.
-  const operator = (block.getFieldValue('OP') == 'AND') ? '&&' : '||';
-  const order = (operator == '&&') ? Blockly.BBasic.ORDER_LOGICAL_AND :
+    const operator = (block.getFieldValue('OP') == 'AND') ? '&&' : '||';
+    const order = (operator == '&&') ? Blockly.BBasic.ORDER_LOGICAL_AND :
       Blockly.BBasic.ORDER_LOGICAL_OR;
-  let argument0 = Blockly.BBasic.valueToCode(block, 'A', order);
-  let argument1 = Blockly.BBasic.valueToCode(block, 'B', order);
-  if (!argument0 && !argument1) {
+    let argument0 = Blockly.BBasic.valueToCode(block, 'A', order);
+    let argument1 = Blockly.BBasic.valueToCode(block, 'B', order);
+    if (!argument0 && !argument1) {
     // If there are no arguments, then the return value is false.
-    argument0 = 'false';
-    argument1 = 'false';
-  } else {
+      argument0 = 'false';
+      argument1 = 'false';
+    } else {
     // Single missing arguments have no effect on the return value.
-    const defaultArgument = (operator == '&&') ? 'true' : 'false';
-    if (!argument0) {
-      argument0 = defaultArgument;
+      const defaultArgument = (operator == '&&') ? 'true' : 'false';
+      if (!argument0) {
+        argument0 = defaultArgument;
+      }
+      if (!argument1) {
+        argument1 = defaultArgument;
+      }
     }
-    if (!argument1) {
-      argument1 = defaultArgument;
-    }
-  }
-  const code = argument0 + ' ' + operator + ' ' + argument1;
-  return [code, order];
-};
+    const code = argument0 + ' ' + operator + ' ' + argument1;
+    return [code, order];
+  };
 
-Blockly.BBasic['logic_negate'] = function(block) {
+  Blockly.BBasic['logic_negate'] = function(block) {
   // Negation.
-  const order = Blockly.BBasic.ORDER_LOGICAL_NOT;
-  const argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', order) ||
+    const order = Blockly.BBasic.ORDER_LOGICAL_NOT;
+    const argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', order) ||
       'true';
-  const code = '!' + argument0;
-  return [code, order];
-};
+    const code = '!' + argument0;
+    return [code, order];
+  };
 
-Blockly.BBasic['logic_boolean'] = function(block) {
+  Blockly.BBasic['logic_boolean'] = function(block) {
   // Boolean values true and false.
-  const code = (block.getFieldValue('BOOL') == 'TRUE') ? 'true' : 'false';
-  return [code, Blockly.BBasic.ORDER_ATOMIC];
-};
+    const code = (block.getFieldValue('BOOL') == 'TRUE') ? 'true' : 'false';
+    return [code, Blockly.BBasic.ORDER_ATOMIC];
+  };
 
-Blockly.BBasic['logic_null'] = function(block) {
+  Blockly.BBasic['logic_null'] = function(block) {
   // Null data type.
-  return ['null', Blockly.BBasic.ORDER_ATOMIC];
-};
+    return ['null', Blockly.BBasic.ORDER_ATOMIC];
+  };
 
-Blockly.BBasic['logic_ternary'] = function(block) {
+  Blockly.BBasic['logic_ternary'] = function(block) {
   // Ternary operator.
-  const valueIf = Blockly.BBasic.valueToCode(block, 'IF',
-      Blockly.BBasic.ORDER_CONDITIONAL) || 'false';
-  const valueThen = Blockly.BBasic.valueToCode(block, 'THEN',
-      Blockly.BBasic.ORDER_CONDITIONAL) || 'null';
-  const valueElse = Blockly.BBasic.valueToCode(block, 'ELSE',
-      Blockly.BBasic.ORDER_CONDITIONAL) || 'null';
-  const code = valueIf + ' ? ' + valueThen + ' : ' + valueElse;
-  return [code, Blockly.BBasic.ORDER_CONDITIONAL];
+    const valueIf = Blockly.BBasic.valueToCode(block, 'IF',
+        Blockly.BBasic.ORDER_CONDITIONAL) || 'false';
+    const valueThen = Blockly.BBasic.valueToCode(block, 'THEN',
+        Blockly.BBasic.ORDER_CONDITIONAL) || 'null';
+    const valueElse = Blockly.BBasic.valueToCode(block, 'ELSE',
+        Blockly.BBasic.ORDER_CONDITIONAL) || 'null';
+    const code = valueIf + ' ? ' + valueThen + ' : ' + valueElse;
+    return [code, Blockly.BBasic.ORDER_CONDITIONAL];
+  };
 };

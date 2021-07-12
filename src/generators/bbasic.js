@@ -20,13 +20,13 @@ goog.require('Blockly.utils.object');
 goog.require('Blockly.utils.string');
 */
 
-import {Generator, utils} from 'blockly/core';
+import Blockly from 'blockly/core';
 
 /**
  * JavaScript code generator.
  * @type {!Blockly.Generator}
  */
-Blockly.BBasic = new Generator('BBasic');
+Blockly.BBasic = new Blockly.Generator('BBasic');
 
 /**
  * List of illegal variable names.
@@ -45,7 +45,7 @@ Blockly.BBasic.addReservedWords(
     // Magic variable.
     'arguments,' +
     // Everything in the current environment (835 items in Chrome, 104 in Node).
-    Object.getOwnPropertyNames(utils.global).join(','));
+    Object.getOwnPropertyNames(Blockly.utils.global).join(','));
 
 /**
  * Order of operation ENUMs.
@@ -322,3 +322,9 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
   }
   return at;
 };
+
+import logic from './bbasic/logic';
+
+logic(Blockly);
+
+export default Blockly.BBasic;
