@@ -323,8 +323,18 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
   return at;
 };
 
+import colour from './bbasic/colour';
 import logic from './bbasic/logic';
+import loops from './bbasic/loops';
+import math from './bbasic/math';
+import procedures from './bbasic/procedures';
+import text from './bbasic/text';
+import variables from './bbasic/variables';
 
-logic(Blockly);
+[colour, logic, loops, math, procedures, text, variables]
+    .forEach((init) => init(Blockly));
+// colour(Blockly);
+// lists(Blockly);
+// logic(Blockly);
 
 export default Blockly.BBasic;
