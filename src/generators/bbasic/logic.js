@@ -23,7 +23,7 @@ export default (Blockly) => {
 
     const conditionCode = Blockly.BBasic.valueToCode(block, 'IF',
         Blockly.BBasic.ORDER_NONE) || '0';
-    branchCode = Blockly.BBasic.statementToCode(block, 'DO0').replace(/\s*;\s*/g, ' : ').trim()
+    branchCode = Blockly.BBasic.statementToCode(block, 'DO0').replace(/\s*\n\s*/g, ' : ').trim()
         .replace(/\s*:\s*$/g, '');
     if (!branchCode.trim()) {
       branchCode = 'a = a';
