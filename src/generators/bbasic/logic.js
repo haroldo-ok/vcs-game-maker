@@ -23,11 +23,12 @@ export default (Blockly) => {
 
     const conditionCode = Blockly.BBasic.valueToCode(block, 'IF',
         Blockly.BBasic.ORDER_NONE) || '0';
-    branchCode = Blockly.BBasic.statementToCode(block, 'DO0');
+    branchCode = Blockly.BBasic.statementToCode(block, 'DO0').replace(/\s*;\s*/g, ' : ').trim()
+        .replace(/\s*:\s*$/g, '');
     if (!branchCode.trim()) {
       branchCode = 'a = a';
     }
-    code += '  if ' + conditionCode + ' then ' + branchCode + '\n';
+    code += '  if ' + conditionCode + ' then ' + branchCode;
 
     if (block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX) {
       branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');

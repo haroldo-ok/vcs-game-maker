@@ -333,8 +333,5 @@ import variables from './bbasic/variables';
 
 [colour, logic, loops, math, procedures, text, variables]
     .forEach((init) => init(Blockly));
-// colour(Blockly);
-// lists(Blockly);
-// logic(Blockly);
 
 export default Blockly.BBasic;
