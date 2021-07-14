@@ -19,26 +19,15 @@ goog.require('Blockly.BBasic');
 export default (Blockly) => {
   Blockly.BBasic['controls_if'] = function(block) {
   // If/elseif/else condition.
-    let n = 0;
-    let code = ''; let branchCode; let conditionCode;
-    if (Blockly.BBasic.STATEMENT_PREFIX) {
-    // Automatic prefix insertion is switched off for this block.  Add manually.
-      code += Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_PREFIX,
-          block);
+    let code = ''; let branchCode;
+
+    const conditionCode = Blockly.BBasic.valueToCode(block, 'IF',
+        Blockly.BBasic.ORDER_NONE) || '0';
+    branchCode = Blockly.BBasic.statementToCode(block, 'DO0');
+    if (!branchCode.trim()) {
+      branchCode = 'a = a';
     }
-    do {
-      conditionCode = Blockly.BBasic.valueToCode(block, 'IF' + n,
-          Blockly.BBasic.ORDER_NONE) || 'false';
-      branchCode = Blockly.BBasic.statementToCode(block, 'DO' + n);
-      if (Blockly.BBasic.STATEMENT_SUFFIX) {
-        branchCode = Blockly.BBasic.prefixLines(
-            Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
-                block), Blockly.BBasic.INDENT) + branchCode;
-      }
-      code += (n > 0 ? ' else ' : '') +
-        'if (' + conditionCode + ') {\n' + branchCode + '}';
-      ++n;
-    } while (block.getInput('IF' + n));
+    code += '  if ' + conditionCode + ' then ' + branchCode + '\n';
 
     if (block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX) {
       branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
