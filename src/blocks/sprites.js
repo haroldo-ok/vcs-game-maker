@@ -1,9 +1,12 @@
 import * as Blockly from 'blockly/core';
 
+const PLAYER_ICON = String.fromCodePoint(0x1F642);
+const COLOR_ICON = String.fromCodePoint(0x1F3A8);
+
 const buildPlayerOptions = (name) => [
   ['\u2195 X', `${name}x`],
   ['\u2195 Y', `${name}y`],
-  [String.fromCodePoint(0x1F3A8) + ' Color', `${name}color`],
+  [COLOR_ICON + ' Color', `${name}color`],
 ];
 
 const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
@@ -70,7 +73,15 @@ const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
 buildSpriteBlocks({
   name: 'player0',
   description: 'Player 0',
-  icon: String.fromCodePoint(0x1F642),
+  icon: PLAYER_ICON,
   colour: 'red',
   options: buildPlayerOptions('player0'),
+});
+
+buildSpriteBlocks({
+  name: 'player1',
+  description: 'Player 1',
+  icon: PLAYER_ICON,
+  colour: 'blue',
+  options: buildPlayerOptions('player1'),
 });
