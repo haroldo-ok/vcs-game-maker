@@ -328,10 +328,11 @@ import logic from './bbasic/logic';
 import loops from './bbasic/loops';
 import math from './bbasic/math';
 import procedures from './bbasic/procedures';
+import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[colour, logic, loops, math, procedures, text, variables]
+[colour, logic, loops, math, procedures, sprites, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
