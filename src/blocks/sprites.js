@@ -44,4 +44,29 @@ Blockly.defineBlocksWithJsonArray([ // BEGIN JSON EXTRACT
     'colour': 'red',
     'tooltip': 'Updates information about player zero',
   },
+  // Block for adding to a Player 0 variable in place.
+  {
+    'type': 'sprite_player0_change',
+    'message0': String.fromCodePoint(0x1F642) + ' Player 0: %{BKY_MATH_CHANGE_TITLE}',
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': [
+          ['\u2195 X', 'player0x'],
+          ['\u2195 Y', 'player0y'],
+          [String.fromCodePoint(0x1F3A8) + ' Color', 'player0color'],
+        ],
+      },
+      {
+        'type': 'input_value',
+        'name': 'DELTA',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'red',
+    'extensions': ['math_change_tooltip'],
+  },
 ]);

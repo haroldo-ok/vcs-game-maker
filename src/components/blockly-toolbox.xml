@@ -28,5 +28,12 @@
     <category name="Sprites" colour="red">
         <block type="sprite_player0_get"></block>
         <block type="sprite_player0_set"></block>
+        <block type="sprite_player0_change">
+            <value name="DELTA">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
     </category>
 </xml>
