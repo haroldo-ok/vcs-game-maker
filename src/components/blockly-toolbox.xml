@@ -27,5 +27,6 @@
     </category>
     <category name="Sprites" colour="red">
         <block type="sprite_player0_get"></block>
+        <block type="sprite_player0_set"></block>
     </category>
 </xml>
