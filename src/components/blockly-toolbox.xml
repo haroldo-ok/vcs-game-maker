@@ -25,4 +25,7 @@
     </category>
     <category name="Variables" custom="VARIABLE" colour="%{BKY_VARIABLES_HUE}">
     </category>
+    <category name="Sprites" colour="red">
+        <block type="sprite_player0_get"></block>
+    </category>
 </xml>

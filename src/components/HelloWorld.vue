@@ -50,6 +50,7 @@ import VariableSelect from './VariableSelect.vue';
 import BlocklyComponent from './BlocklyComponent.vue';
 
 import '../blocks/stocks';
+import '../blocks/sprites';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
 
