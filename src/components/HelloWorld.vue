@@ -34,20 +34,68 @@
           </tbody>
         </template>
     </v-simple-table>
+
+    <BlocklyComponent id="blockly2" :options="options" ref="foo"></BlocklyComponent>
+
+    <p id="code">
+      <button v-on:click="showCode()">Show bBasic</button>
+      <pre v-html="code"></pre>
+    </p>
   </v-container>
 </template>
 
 <script>
 import {baseVariables} from '../services/variables';
 import VariableSelect from './VariableSelect.vue';
+import BlocklyComponent from './BlocklyComponent.vue';
+
+import '../blocks/stocks';
+import '../blocks/sprites';
+import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
+import BlocklyBB from '../generators/bbasic';
 
 export default {
-  components: {VariableSelect},
+  components: {VariableSelect, BlocklyComponent},
   name: 'HelloWorld',
 
   data: () => ({
     testItems: baseVariables,
     selectedItem: null,
+
+    code: '',
+    options: {
+      media: 'media/',
+      grid: {
+        spacing: 25,
+        length: 3,
+        colour: '#ccc',
+        snap: true,
+      },
+      toolbox: blocklyToolbox,
+    },
   }),
+  methods: {
+    showCode() {
+      this.code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+    },
+  },
 };
 </script>
+<style scoped>
+#code {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 50%;
+  margin: 0;
+  background-color: beige;
+}
+#blockly2 {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+}
+</style>

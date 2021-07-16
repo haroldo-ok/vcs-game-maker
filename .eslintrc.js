@@ -21,5 +21,7 @@ module.exports = {
     'vue',
   ],
   'rules': {
+    'linebreak-style': 0,
+    'max-len': 'off',
   },
 };
