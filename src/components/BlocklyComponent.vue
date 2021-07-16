@@ -33,6 +33,7 @@
  */
 
 import Blockly from 'blockly';
+import {debounce} from 'lodash';
 
 export default {
   name: 'BlocklyComponent',
@@ -48,6 +49,8 @@ export default {
       options.toolbox = this.$refs['blocklyToolbox'];
     }
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
+
+    this.workspace.addChangeListener(debounce(() => console.info('Changed!!!')));
   },
 };
 </script>
