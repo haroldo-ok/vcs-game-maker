@@ -35,7 +35,13 @@
         </template>
     </v-simple-table>
 
-    <BlocklyComponent id="blockly2" :options="options" ref="foo"></BlocklyComponent>
+    <BlocklyComponent
+      id="blockly2"
+      :options="options"
+      ref="foo"
+      v-model="workspaceData"
+    >
+    </BlocklyComponent>
 
     <p id="code">
       <button v-on:click="showCode()">Show bBasic</button>
@@ -53,6 +59,7 @@ import '../blocks/stocks';
 import '../blocks/sprites';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
+import {useLocalStorage} from '../hooks';
 
 export default {
   components: {VariableSelect, BlocklyComponent},
@@ -73,10 +80,26 @@ export default {
       },
       toolbox: blocklyToolbox,
     },
+    workspaceStorage: useLocalStorage('vcs-game-maker.workspace'),
   }),
   methods: {
     showCode() {
       this.code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+    },
+  },
+  computed: {
+    workspaceData: {
+      get() {
+        try {
+          return this.workspaceStorage.value||'';
+        } catch (e) {
+          console.error('Error loading workspace from local storage', e);
+          return '';
+        }
+      },
+      set(value) {
+        this.workspaceStorage.value = value;
+      },
     },
   },
 };

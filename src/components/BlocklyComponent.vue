@@ -33,13 +33,15 @@
  */
 
 import Blockly from 'blockly';
+import {debounce} from 'lodash';
 
 export default {
   name: 'BlocklyComponent',
-  props: ['options'],
+  props: ['options', 'value'],
   data() {
     return {
       workspace: null,
+      lastSavedWorkspace: null,
     };
   },
   mounted() {
@@ -47,7 +49,31 @@ export default {
     if (!options.toolbox) {
       options.toolbox = this.$refs['blocklyToolbox'];
     }
+
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
+    this.workspace.addChangeListener(debounce(() => this.handleChange()));
+    this.loadWorkspace(this.value);
+  },
+  methods: {
+    loadWorkspace(value) {
+      if (!value) return;
+
+      const xml = Blockly.Xml.textToDom(value);
+      Blockly.Xml.domToWorkspace(this.workspace, xml);
+    },
+    handleChange() {
+      const xml = Blockly.Xml.workspaceToDom(this.workspace);
+      const text = Blockly.Xml.domToText(xml);
+      this.lastSavedWorkspace = text;
+      this.$emit('input', text);
+    },
+  },
+  watch: {
+    value(newVal, oldVal) {
+      if (newVal !== this.lastSavedWorkspace) {
+        this.loadWorkspace(newVal);
+      }
+    },
   },
 };
 </script>
