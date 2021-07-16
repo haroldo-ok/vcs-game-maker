@@ -35,7 +35,13 @@
         </template>
     </v-simple-table>
 
-    <BlocklyComponent id="blockly2" :options="options" ref="foo"></BlocklyComponent>
+    <BlocklyComponent
+      id="blockly2"
+      :options="options"
+      ref="foo"
+      v-model="workspaceData"
+    >
+    </BlocklyComponent>
 
     <p id="code">
       <button v-on:click="showCode()">Show bBasic</button>
@@ -77,6 +83,16 @@ export default {
   methods: {
     showCode() {
       this.code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+    },
+  },
+  computed: {
+    workspaceData: {
+      get() {
+        return '';
+      },
+      set(value) {
+        console.info('Workspace data', value);
+      },
     },
   },
 };

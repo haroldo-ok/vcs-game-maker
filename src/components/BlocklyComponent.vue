@@ -37,7 +37,7 @@ import {debounce} from 'lodash';
 
 export default {
   name: 'BlocklyComponent',
-  props: ['options'],
+  props: ['options', 'value'],
   data() {
     return {
       workspace: null,
@@ -50,7 +50,14 @@ export default {
     }
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
 
-    this.workspace.addChangeListener(debounce(() => console.info('Changed!!!')));
+    this.workspace.addChangeListener(debounce(() => this.handleChange()));
+  },
+  methods: {
+    handleChange() {
+      const xml = Blockly.Xml.workspaceToDom(this.workspace);
+      const text = Blockly.Xml.domToText(xml);
+      this.$emit('input', text);
+    },
   },
 };
 </script>
