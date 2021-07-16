@@ -32,31 +32,8 @@
     <v-navigation-drawer
       v-model="drawer"
       app
-      width="300"
+      width="200"
     >
-      <v-navigation-drawer
-        v-model="drawer"
-        absolute
-        color="grey lighten-3"
-        mini-variant
-      >
-        <v-avatar
-          class="d-block text-center mx-auto mt-4"
-          color="grey darken-1"
-          size="36"
-        ></v-avatar>
-
-        <v-divider class="mx-3 my-5"></v-divider>
-
-        <v-avatar
-          v-for="n in 6"
-          :key="n"
-          class="d-block text-center mx-auto mb-9"
-          color="grey lighten-1"
-          size="28"
-        ></v-avatar>
-      </v-navigation-drawer>
-
       <v-sheet
         color="grey lighten-5"
         height="128"
@@ -64,7 +41,6 @@
       ></v-sheet>
 
       <v-list
-        class="pl-14"
         shaped
       >
         <v-list-item
@@ -72,7 +48,7 @@
           link
         >
           <v-list-item-content>
-            <v-list-item-title>Main</v-list-item-title>
+            <v-list-item-title>Actions</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -81,17 +57,34 @@
           link
         >
           <v-list-item-content>
-            <v-list-item-title>About</v-list-item-title>
+            <v-list-item-title>Player 0</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item
-          v-for="n in 5"
-          :key="n"
+          to="/about"
           link
         >
           <v-list-item-content>
-            <v-list-item-title>Item {{ n }}</v-list-item-title>
+            <v-list-item-title>Player 1</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/about"
+          link
+        >
+          <v-list-item-content>
+            <v-list-item-title>Background</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/about"
+          link
+        >
+          <v-list-item-content>
+            <v-list-item-title>Sound</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
       </v-list>
