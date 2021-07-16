@@ -70,7 +70,6 @@ export default {
   },
   watch: {
     value(newVal, oldVal) {
-      console.info('Changed value', {newVal, oldVal});
       if (newVal !== this.lastSavedWorkspace) {
         this.loadWorkspace(newVal);
       }

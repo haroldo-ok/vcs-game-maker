@@ -91,16 +91,13 @@ export default {
     workspaceData: {
       get() {
         try {
-          const data = this.workspaceStorage.value||'';
-          console.info('Loaded workspace', data);
-          return data;
+          return this.workspaceStorage.value||'';
         } catch (e) {
           console.error('Error loading workspace from local storage', e);
           return '';
         }
       },
       set(value) {
-        console.info('Workspace data', value);
         this.workspaceStorage.value = value;
       },
     },
