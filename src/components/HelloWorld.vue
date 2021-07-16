@@ -59,6 +59,7 @@ import '../blocks/stocks';
 import '../blocks/sprites';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
+import {useLocalStorage} from '../hooks';
 
 export default {
   components: {VariableSelect, BlocklyComponent},
@@ -79,6 +80,7 @@ export default {
       },
       toolbox: blocklyToolbox,
     },
+    workspaceStorage: useLocalStorage('vcs-game-maker.workspace'),
   }),
   methods: {
     showCode() {
@@ -88,10 +90,18 @@ export default {
   computed: {
     workspaceData: {
       get() {
-        return '';
+        try {
+          const data = this.workspaceStorage||'';
+          console.info('Loaded workspace', data);
+          return data;
+        } catch (e) {
+          console.error('Error loading workspace from local storage', e);
+          return '';
+        }
       },
       set(value) {
         console.info('Workspace data', value);
+        this.workspaceStorage = value;
       },
     },
   },
