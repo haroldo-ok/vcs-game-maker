@@ -91,7 +91,7 @@ export default {
     workspaceData: {
       get() {
         try {
-          const data = this.workspaceStorage||'';
+          const data = this.workspaceStorage.value||'';
           console.info('Loaded workspace', data);
           return data;
         } catch (e) {
@@ -101,7 +101,7 @@ export default {
       },
       set(value) {
         console.info('Workspace data', value);
-        this.workspaceStorage = value;
+        this.workspaceStorage.value = value;
       },
     },
   },

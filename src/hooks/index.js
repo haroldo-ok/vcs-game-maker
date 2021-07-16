@@ -8,6 +8,6 @@ export const useLocalStorage = (key) => computed({
     return localStorage.getItem(key);
   },
   set(value) {
-    localStorage.setItem(key);
+    localStorage.setItem(key, value);
   },
 });
