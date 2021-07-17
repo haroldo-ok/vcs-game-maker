@@ -32,31 +32,8 @@
     <v-navigation-drawer
       v-model="drawer"
       app
-      width="300"
+      width="200"
     >
-      <v-navigation-drawer
-        v-model="drawer"
-        absolute
-        color="grey lighten-3"
-        mini-variant
-      >
-        <v-avatar
-          class="d-block text-center mx-auto mt-4"
-          color="grey darken-1"
-          size="36"
-        ></v-avatar>
-
-        <v-divider class="mx-3 my-5"></v-divider>
-
-        <v-avatar
-          v-for="n in 6"
-          :key="n"
-          class="d-block text-center mx-auto mb-9"
-          color="grey lighten-1"
-          size="28"
-        ></v-avatar>
-      </v-navigation-drawer>
-
       <v-sheet
         color="grey lighten-5"
         height="128"
@@ -64,34 +41,71 @@
       ></v-sheet>
 
       <v-list
-        class="pl-14"
         shaped
+        class="navigation-list"
       >
         <v-list-item
           to="/"
           link
+          class="actions-item"
         >
+          <v-list-item-icon>
+            <v-icon>mdi-chart-scatter-plot</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Main</v-list-item-title>
+            <v-list-item-title>Actions</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item
-          to="/about"
+          to="/player0"
           link
+          class="player0-item"
         >
+          <v-list-item-icon>
+            <v-icon>mdi-human-handsup</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>About</v-list-item-title>
+            <v-list-item-title>Player 0</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item
-          v-for="n in 5"
-          :key="n"
+          to="/player1"
           link
+          class="player1-item"
         >
+          <v-list-item-icon>
+            <v-icon>mdi-human-handsup</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Item {{ n }}</v-list-item-title>
+            <v-list-item-title>Player 1</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/background"
+          link
+          class="background-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-map</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Background</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/sound"
+          link
+          class="sound-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-speaker</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Sound</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
       </v-list>
@@ -143,3 +157,51 @@ export default {
   data: () => ({drawer: null}),
 };
 </script>
+<style scoped>
+.v-list-item__icon {
+  margin-right: 12px !important;
+}
+
+.navigation-list > .v-list-item:not(.v-list-item--active) {
+  border-left: 8px solid;
+}
+
+.navigation-list > .v-list-item:not(.v-list-item--active) {
+  opacity: 0.65;
+}
+
+.actions-item,
+.actions-item > .v-list-item__icon > .theme--light.v-icon,
+.actions-item > .v-list-item__content {
+  color: rgb(76, 175, 80) !important;
+  border-left-color: rgb(76, 175, 80) !important;
+}
+
+.player0-item,
+.player0-item > .v-list-item__icon > .theme--light.v-icon,
+.player0-item > .v-list-item__content {
+  color: rgb(244, 67, 54) !important;
+  border-left-color: rgb(244, 67, 54) !important;
+}
+
+.player1-item,
+.player1-item > .v-list-item__icon > .theme--light.v-icon,
+.player1-item > .v-list-item__content {
+  color: rgb(33, 150, 243) !important;
+  border-left-color: rgb(33, 150, 243) !important;
+}
+
+.background-item,
+.background-item > .v-list-item__icon > .theme--light.v-icon,
+.background-item > .v-list-item__content {
+  color: rgb(255, 152, 0) !important;
+  border-left-color: rgb(255, 152, 0) !important;
+}
+
+.sound-item,
+.sound-item > .v-list-item__icon > .theme--light.v-icon,
+.sound-item > .v-list-item__content {
+  color: rgb(156, 39, 176) !important;
+  border-left-color: rgb(156, 39, 176) !important;
+}
+</style>
