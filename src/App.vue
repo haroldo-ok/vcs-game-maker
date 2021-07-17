@@ -47,6 +47,9 @@
           to="/"
           link
         >
+          <v-list-item-icon>
+            <v-icon>mdi-chart-scatter-plot</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Actions</v-list-item-title>
           </v-list-item-content>
@@ -56,6 +59,9 @@
           to="/about"
           link
         >
+          <v-list-item-icon>
+            <v-icon>mdi-human-handsup</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Player 0</v-list-item-title>
           </v-list-item-content>
@@ -65,6 +71,9 @@
           to="/about"
           link
         >
+          <v-list-item-icon>
+            <v-icon>mdi-human-handsup</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Player 1</v-list-item-title>
           </v-list-item-content>
@@ -74,6 +83,9 @@
           to="/about"
           link
         >
+          <v-list-item-icon>
+            <v-icon>mdi-map</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Background</v-list-item-title>
           </v-list-item-content>
@@ -83,6 +95,9 @@
           to="/about"
           link
         >
+          <v-list-item-icon>
+            <v-icon>mdi-speaker</v-icon>
+          </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Sound</v-list-item-title>
           </v-list-item-content>
@@ -136,3 +151,8 @@ export default {
   data: () => ({drawer: null}),
 };
 </script>
+<style scoped>
+.v-list-item__icon {
+  margin-right: 12px !important;
+}
+</style>
