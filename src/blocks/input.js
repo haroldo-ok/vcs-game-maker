@@ -38,3 +38,11 @@ buildInputBlocks({
   options: buildInputOptions('joy0'),
   colour: 'red',
 });
+
+buildInputBlocks({
+  name: 'joy1',
+  description: 'Joystick 1',
+  icon: JOYSTICK_ICON,
+  options: buildInputOptions('joy1'),
+  colour: 'blue',
+});
