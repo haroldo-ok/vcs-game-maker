@@ -78,4 +78,7 @@
         </block>
 
     </category>
+    <category name="Input" colour="green">
+        <block type="input_joy0_get"></block>
+    </category>
 </xml>
