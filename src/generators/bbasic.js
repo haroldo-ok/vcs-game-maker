@@ -10,17 +10,11 @@
  */
 'use strict';
 
-/*
-goog.provide('Blockly.BBasic');
-
-goog.require('Blockly.Generator');
-goog.require('Blockly.inputTypes');
-goog.require('Blockly.utils.global');
-goog.require('Blockly.utils.object');
-goog.require('Blockly.utils.string');
-*/
-
 import Blockly from 'blockly/core';
+import templateText from 'raw-loader!./bbasic.bb.hbs';
+import Handlebars from 'handlebars';
+
+const handlebarsTemplate = Handlebars.compile(templateText);
 
 /**
  * JavaScript code generator.
@@ -177,7 +171,8 @@ Blockly.BBasic.finish = function(code) {
   this.isInitialized = false;
 
   this.nameDB_.reset();
-  return definitions.join('\n\n') + '\n\n\n' + code;
+  const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
+  return handlebarsTemplate({generatedBody});
 };
 
 /**
