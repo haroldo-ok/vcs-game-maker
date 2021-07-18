@@ -65,7 +65,9 @@ export default {
       const xml = Blockly.Xml.workspaceToDom(this.workspace);
       const text = Blockly.Xml.domToText(xml);
       this.lastSavedWorkspace = text;
-      this.$emit('input', text);
+      this.$emit('input', text, {
+        workspace: this.workspace,
+      });
     },
   },
   watch: {

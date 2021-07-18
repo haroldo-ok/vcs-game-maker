@@ -40,11 +40,11 @@
       :options="options"
       ref="foo"
       v-model="workspaceData"
+      @input="showCode"
     >
     </BlocklyComponent>
 
     <p id="code">
-      <button v-on:click="showCode()">Show bBasic</button>
       <pre v-html="code"></pre>
     </p>
   </v-container>
