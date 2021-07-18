@@ -1,21 +1,4 @@
-/**
- * @license
- * Copyright 2012 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
-/**
- * @fileoverview Generating JavaScript for variable blocks.
- * @author fraser@google.com (Neil Fraser)
- */
 'use strict';
-
-/*
-goog.provide('Blockly.BBasic.variables');
-
-goog.require('Blockly.BBasic');
-*/
-
 
 export default (Blockly) => {
   const createGeneratorForSprite = (name) => {

@@ -324,6 +324,7 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
 };
 
 import colour from './bbasic/colour';
+import input from './bbasic/input';
 import logic from './bbasic/logic';
 import loops from './bbasic/loops';
 import math from './bbasic/math';
@@ -332,7 +333,7 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[colour, logic, loops, math, procedures, sprites, text, variables]
+[colour, input, logic, loops, math, procedures, sprites, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
