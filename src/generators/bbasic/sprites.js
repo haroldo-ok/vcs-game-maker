@@ -24,7 +24,9 @@ export default (Blockly) => {
           Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
       const varName = Blockly.BBasic.nameDB_.getName(
           block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
-      return varName + ' = ' + varName + ' + ' + argument0 + '\n';
+      const isNegativeConstant = /^\s*-\s*\d+\s*$/.test(argument0);
+      const operator = isNegativeConstant ? '' : '+';
+      return `${varName} = ${varName} ${operator} ${argument0}\n`;
     };
   };
 
