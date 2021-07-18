@@ -21,7 +21,7 @@ export default (Blockly) => {
   // If/elseif/else condition.
     let code = ''; let branchCode;
 
-    const conditionCode = Blockly.BBasic.valueToCode(block, 'IF',
+    const conditionCode = Blockly.BBasic.valueToCode(block, 'IF0',
         Blockly.BBasic.ORDER_NONE) || '0';
     branchCode = Blockly.BBasic.statementToCode(block, 'DO0').replace(/\s*\n\s*/g, ' : ').trim()
         .replace(/\s*:\s*$/g, '');
