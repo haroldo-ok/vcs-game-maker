@@ -20,6 +20,7 @@
 <script>
 import {component as VueCodeHighlight} from 'vue-code-highlight';
 import 'vue-code-highlight/themes/duotone-sea.css';
+import bBasic from 'batari-basic';
 
 import BlocklyComponent from './BlocklyComponent.vue';
 
@@ -50,6 +51,13 @@ export default {
   methods: {
     showCode() {
       this.code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+      try {
+        console.warn('Indexof ;', this.code.indexOf(';'));
+        const compiledResult = bBasic(this.code);
+        Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
+      } catch (e) {
+        console.error('Error while compiling bBasic code.', e);
+      }
     },
   },
   computed: {
