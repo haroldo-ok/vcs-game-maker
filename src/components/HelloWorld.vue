@@ -45,12 +45,17 @@
     </BlocklyComponent>
 
     <p id="code">
-      <pre v-html="code"></pre>
+      <vue-code-highlight language="basic">
+        <pre v-html="code"></pre>
+      </vue-code-highlight>
     </p>
   </v-container>
 </template>
 
 <script>
+import {component as VueCodeHighlight} from 'vue-code-highlight';
+import 'vue-code-highlight/themes/duotone-sea.css';
+
 import {baseVariables} from '../services/variables';
 import VariableSelect from './VariableSelect.vue';
 import BlocklyComponent from './BlocklyComponent.vue';
@@ -62,7 +67,7 @@ import BlocklyBB from '../generators/bbasic';
 import {useLocalStorage} from '../hooks';
 
 export default {
-  components: {VariableSelect, BlocklyComponent},
+  components: {VariableSelect, BlocklyComponent, VueCodeHighlight},
   name: 'HelloWorld',
 
   data: () => ({
