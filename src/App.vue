@@ -118,6 +118,9 @@
       right
     >
       <div id="javatari-target-container"></div>
+      <v-btn block color="primary">
+        Get generated ROM
+      </v-btn>
     </v-navigation-drawer>
 
     <v-main>
