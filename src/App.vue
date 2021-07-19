@@ -118,7 +118,7 @@
       right
     >
       <div id="javatari-target-container"></div>
-      <v-btn block color="primary">
+      <v-btn block color="primary" @click="handleRomDownload">
         Get generated ROM
       </v-btn>
     </v-navigation-drawer>
@@ -153,6 +153,15 @@ export default {
     const javatariScreen = document.getElementById('javatari-screen');
     document.getElementById('javatari-target-container').appendChild(javatariScreen);
     javatariScreen.style = '';
+  },
+  methods: {
+    handleRomDownload() {
+      const blob = new Blob([Javatari.compiledResult.output], {type: 'application/octet-stream'});
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'compiled-rom.bin';
+      link.click();
+    },
   },
 };
 </script>

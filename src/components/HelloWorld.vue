@@ -55,6 +55,9 @@ export default {
         console.warn('Indexof ;', this.code.indexOf(';'));
         const compiledResult = bBasic(this.code);
         Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
+
+        // TODO: Implement this without a global variable
+        Javatari.compiledResult = compiledResult;
       } catch (e) {
         console.error('Error while compiling bBasic code.', e);
       }
