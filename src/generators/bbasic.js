@@ -182,7 +182,7 @@ Blockly.BBasic.finish = function(code) {
  * @return {string} Legal line of code.
  */
 Blockly.BBasic.scrubNakedValue = function(line) {
-  return line + ';\n';
+  return `  rem Found naked value: ${line}`;
 };
 
 /**
@@ -318,6 +318,7 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
   return at;
 };
 
+import collision from './bbasic/collision';
 import colour from './bbasic/colour';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
@@ -328,7 +329,7 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[colour, input, logic, loops, math, procedures, sprites, text, variables]
+[collision, colour, input, logic, loops, math, procedures, sprites, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
