@@ -13,7 +13,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the getter.
   {
     'type': `collision_get`,
-    'message0': `Collision %1 and %2`,
+    'message0': `Collided %1 and %2`,
     'args0': [
       {
         'type': 'field_dropdown',
