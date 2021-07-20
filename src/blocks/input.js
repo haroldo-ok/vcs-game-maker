@@ -1,7 +1,6 @@
 import * as Blockly from 'blockly/core';
 
-const JOYSTICK_ICON = String.fromCodePoint(0x1F579);
-const FIRE_ICON = String.fromCodePoint(0x1F518);
+import {JOYSTICK_ICON, FIRE_ICON} from './icon';
 
 const buildInputOptions = (name) => [
   ['\u2B06 Up', `${name}up`],

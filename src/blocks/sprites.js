@@ -1,10 +1,6 @@
 import * as Blockly from 'blockly/core';
 
-const PLAYER_ICON = String.fromCodePoint(0x1F642);
-const MISSILE_ICON = String.fromCodePoint(0x1F680);
-const BALL_ICON = String.fromCodePoint(0x26BD);
-const COLOR_ICON = String.fromCodePoint(0x1F3A8);
-const HEIGHT_ICON = String.fromCodePoint(0x1F4CF);
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON} from './icon';
 
 const buildPlayerOptions = (name) => [
   ['\u2195 X', `${name}x`],
