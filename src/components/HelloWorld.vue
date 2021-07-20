@@ -24,6 +24,7 @@ import bBasic from 'batari-basic';
 
 import BlocklyComponent from './BlocklyComponent.vue';
 
+import '../blocks/collision';
 import '../blocks/input';
 import '../blocks/sprites';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';

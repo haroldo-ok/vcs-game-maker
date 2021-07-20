@@ -81,5 +81,7 @@
     <category name="Input" colour="green">
         <block type="input_joy0_get"></block>
         <block type="input_joy1_get"></block>
+
+        <block type="collision_get"></block>
     </category>
 </xml>
