@@ -5,3 +5,4 @@ export const COLOR_ICON = String.fromCodePoint(0x1F3A8);
 export const HEIGHT_ICON = String.fromCodePoint(0x1F4CF);
 export const JOYSTICK_ICON = String.fromCodePoint(0x1F579);
 export const FIRE_ICON = String.fromCodePoint(0x1F518);
+export const PLAYFIELD_ICON = String.fromCodePoint(0x1F5FA);

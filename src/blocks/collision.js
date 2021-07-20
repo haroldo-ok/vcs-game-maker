@@ -1,12 +1,14 @@
 import * as Blockly from 'blockly/core';
 
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, PLAYFIELD_ICON} from './icon';
+
 const options = [
-  ['Player 0', 'player0'],
-  ['Player 1', 'player1'],
-  ['Missile 0', 'missile0'],
-  ['Missile 1', 'missile1'],
-  ['Ball', 'ball'],
-  ['Playfield', 'playfield'],
+  [PLAYER_ICON + ' Player 0', 'player0'],
+  [PLAYER_ICON + ' Player 1', 'player1'],
+  [MISSILE_ICON + ' Missile 0', 'missile0'],
+  [MISSILE_ICON + ' Missile 1', 'missile1'],
+  [BALL_ICON + ' Ball', 'ball'],
+  [PLAYFIELD_ICON + ' Playfield', 'playfield'],
 ];
 
 Blockly.defineBlocksWithJsonArray([
