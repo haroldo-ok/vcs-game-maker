@@ -153,7 +153,9 @@ Blockly.BBasic.init = function(workspace) {
 
   // Declare all of the variables.
   if (defvars.length) {
-    this.definitions_['variables'] = 'var ' + defvars.join(', ') + ';';
+    this.definitions_['variables'] = defvars
+        .map((v, i) => ` dim ${v} = ${String.fromCharCode('a'.charCodeAt(0) + i)}`)
+        .join('\n');
   }
   this.isInitialized = true;
 };
