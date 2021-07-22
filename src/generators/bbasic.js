@@ -154,7 +154,7 @@ Blockly.BBasic.init = function(workspace) {
   // Declare all of the variables.
   if (defvars.length) {
     this.definitions_['variables'] = defvars
-        .map((v, i) => ` dim ${v} = ${String.fromCharCode('a'.charCodeAt(0) + i)}`)
+        .map((v, i) => `  dim ${v} = ${String.fromCharCode('a'.charCodeAt(0) + i)}`)
         .join('\n');
   }
   this.isInitialized = true;
@@ -170,6 +170,8 @@ Blockly.BBasic.finish = function(code) {
   const definitions = Blockly.utils.object.values(this.definitions_);
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
+  code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
+
   this.isInitialized = false;
 
   this.nameDB_.reset();
