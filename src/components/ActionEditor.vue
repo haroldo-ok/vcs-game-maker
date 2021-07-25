@@ -75,20 +75,11 @@ export default {
 };
 </script>
 <style scoped>
-#code {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 50%;
-  margin: 0;
-  background-color: beige;
-}
 #blockly2 {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 50%;
+  right: 0;
 }
 </style>
