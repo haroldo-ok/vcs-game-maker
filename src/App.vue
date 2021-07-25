@@ -108,6 +108,19 @@
             <v-list-item-title>Sound</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
+
+        <v-list-item
+          to="/generated"
+          link
+          class="generated-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-card-text</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Generated</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
       </v-list>
 
     </v-navigation-drawer>
@@ -211,5 +224,12 @@ export default {
 .sound-item > .v-list-item__content {
   color: rgb(156, 39, 176) !important;
   border-left-color: rgb(156, 39, 176) !important;
+}
+
+.generated-item,
+.generated-item > .v-list-item__icon > .theme--light.v-icon,
+.generated-item > .v-list-item__content {
+  color: rgb(39, 176, 136) !important;
+  border-left-color: rgb(39, 176, 136) !important;
 }
 </style>
