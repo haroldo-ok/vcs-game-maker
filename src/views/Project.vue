@@ -15,6 +15,7 @@
 </template>
 <script>
 import {defineComponent} from '@vue/composition-api';
+import {saveAs} from 'file-saver';
 
 import {useWorkspaceStorage} from '../hooks/project';
 
@@ -26,6 +27,8 @@ export default defineComponent({
   methods: {
     handleSaveProject() {
       console.info('Salvando projeto', this.workspaceStorage);
+      const workspaceBlob = new Blob([this.workspaceStorage], {type: 'text/xml'});
+      saveAs(workspaceBlob, 'project.xml');
     },
   },
 });
