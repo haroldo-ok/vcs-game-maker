@@ -63,7 +63,7 @@ export default {
     },
     handleChange() {
       const xml = Blockly.Xml.workspaceToDom(this.workspace);
-      const text = Blockly.Xml.domToText(xml);
+      const text = Blockly.Xml.domToPrettyText(xml);
       this.lastSavedWorkspace = text;
       this.$emit('input', text, {
         workspace: this.workspace,
