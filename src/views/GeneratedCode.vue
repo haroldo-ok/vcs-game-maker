@@ -1,7 +1,7 @@
 <template>
     <div>
       <h1>Generated bBasic code</h1>
-      <vue-code-highlight language="basic">
+      <vue-code-highlight language="basic" class="code-container">
         <pre v-html="generatedBasic">Test!!!</pre>
       </vue-code-highlight>
     </div>
@@ -22,3 +22,12 @@ export default defineComponent({
   },
 });
 </script>
+<style scoped>
+.code-container {
+  position: absolute;
+  overflow: auto;
+  top: 3em;
+  bottom: 0;
+  width: 100%;
+}
+</style>
