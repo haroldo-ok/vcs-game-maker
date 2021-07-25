@@ -16,6 +16,7 @@
 <script>
 import {defineComponent} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
+import AdmZip from 'adm-zip';
 
 import {useWorkspaceStorage} from '../hooks/project';
 
@@ -25,10 +26,14 @@ export default defineComponent({
     return {workspaceStorage};
   },
   methods: {
-    handleSaveProject() {
-      console.info('Salvando projeto', this.workspaceStorage);
+    async handleSaveProject() {
       const workspaceBlob = new Blob([this.workspaceStorage], {type: 'text/xml'});
-      saveAs(workspaceBlob, 'project.xml');
+
+      const zip = new AdmZip();
+      zip.addFile('blockly-workspace.xml', await workspaceBlob.arrayBuffer());
+
+      const zipBuffer = zip.toBuffer();
+      saveAs(new Blob([Uint8Array.from(zipBuffer)], {type: 'application/octet-stream'}), 'project.vcs-gm.zip');
     },
   },
 });
