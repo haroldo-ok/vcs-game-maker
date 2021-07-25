@@ -21,7 +21,7 @@ import '../blocks/input';
 import '../blocks/sprites';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
-import {useLocalStorage} from '../hooks/storage';
+import {useWorkspaceStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 
 export default {
@@ -40,7 +40,7 @@ export default {
       },
       toolbox: blocklyToolbox,
     },
-    workspaceStorage: useLocalStorage('vcs-game-maker.workspace'),
+    workspaceStorage: useWorkspaceStorage(),
   }),
   methods: {
     showCode() {
