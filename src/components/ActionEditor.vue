@@ -8,18 +8,10 @@
       @input="showCode"
     >
     </BlocklyComponent>
-
-    <p id="code">
-      <vue-code-highlight language="basic">
-        <pre v-html="code"></pre>
-      </vue-code-highlight>
-    </p>
   </v-container>
 </template>
 
 <script>
-import {component as VueCodeHighlight} from 'vue-code-highlight';
-import 'vue-code-highlight/themes/duotone-sea.css';
 import bBasic from 'batari-basic';
 
 import BlocklyComponent from './BlocklyComponent.vue';
@@ -29,14 +21,15 @@ import '../blocks/input';
 import '../blocks/sprites';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
-import {useLocalStorage} from '../hooks';
+import {useLocalStorage} from '../hooks/storage';
+import {useGeneratedBasic} from '../hooks/generated';
 
 export default {
-  components: {BlocklyComponent, VueCodeHighlight},
+  components: {BlocklyComponent},
   name: 'HelloWorld',
 
   data: () => ({
-    code: '',
+    generatedBasic: useGeneratedBasic(),
     options: {
       media: 'media/',
       grid: {
@@ -51,10 +44,10 @@ export default {
   }),
   methods: {
     showCode() {
-      this.code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+      const code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+      this.generatedBasic.value = code;
       try {
-        console.warn('Indexof ;', this.code.indexOf(';'));
-        const compiledResult = bBasic(this.code);
+        const compiledResult = bBasic(code);
         Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
 
         // TODO: Implement this without a global variable
