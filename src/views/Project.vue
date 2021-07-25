@@ -16,9 +16,12 @@
 <script>
 import {defineComponent} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
-import AdmZip from 'adm-zip';
+import YAML from 'yaml';
 
 import {useWorkspaceStorage} from '../hooks/project';
+
+const FORMAT_TYPE = 'VCS Game Maker Project';
+const FORMAT_VERSION = 1.0;
 
 export default defineComponent({
   setup() {
@@ -27,13 +30,15 @@ export default defineComponent({
   },
   methods: {
     async handleSaveProject() {
-      const workspaceBlob = new Blob([this.workspaceStorage], {type: 'text/xml'});
+      const projectYaml = YAML.stringify({
+        'type': FORMAT_TYPE,
+        'format-version': FORMAT_VERSION,
+        'generation-time': new Date(),
+        'blockly-workspace': this.workspaceStorage,
+      });
 
-      const zip = new AdmZip();
-      zip.addFile('blockly-workspace.xml', await workspaceBlob.arrayBuffer());
-
-      const zipBuffer = zip.toBuffer();
-      saveAs(new Blob([Uint8Array.from(zipBuffer)], {type: 'application/octet-stream'}), 'project.vcs-gm.zip');
+      const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
+      saveAs(projectBlob, 'project.vcsgm');
     },
   },
 });
