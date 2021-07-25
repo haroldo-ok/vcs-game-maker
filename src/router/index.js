@@ -24,6 +24,11 @@ const routes = [
     name: 'Generated',
     component: () => import('../views/GeneratedCode.vue'),
   },
+  {
+    path: '/project',
+    name: 'Project',
+    component: () => import('../views/Project.vue'),
+  },
 ];
 
 const router = new VueRouter({
