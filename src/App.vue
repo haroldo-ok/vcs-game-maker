@@ -121,6 +121,19 @@
             <v-list-item-title>Generated</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
+
+        <v-list-item
+          to="/project"
+          link
+          class="project-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-pencil-ruler</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Project</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
       </v-list>
 
     </v-navigation-drawer>
@@ -215,5 +228,12 @@ export default {
 .generated-item > .v-list-item__content {
   color: rgb(39, 176, 136) !important;
   border-left-color: rgb(39, 176, 136) !important;
+}
+
+.project-item,
+.project-item > .v-list-item__icon > .theme--light.v-icon,
+.project-item > .v-list-item__content {
+  color: rgb(39, 136, 176) !important;
+  border-left-color: rgb(39, 136, 176) !important;
 }
 </style>

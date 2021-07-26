@@ -1,6 +1,6 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -12,12 +12,14 @@
     "batari-basic": "^0.0.1",
     "blockly": "^6.20210701.0",
     "core-js": "^3.6.5",
+    "file-saver": "^2.0.5",
     "handlebars": "^4.7.7",
     "lodash": "^4.17.21",
     "vue": "^2.6.11",
     "vue-code-highlight": "^0.7.8",
     "vue-router": "^3.2.0",
-    "vuetify": "^2.4.0"
+    "vuetify": "^2.4.0",
+    "yaml": "^1.10.2"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "~4.5.0",
