@@ -30,10 +30,11 @@ const FORMAT_TYPE = 'VCS Game Maker Project';
 const FORMAT_VERSION = 1.0;
 
 export default defineComponent({
-  setup() {
+  setup(props, context) {
     const data = reactive({fileToImport: null});
+    const router = context.root.$router;
     const workspaceStorage = useWorkspaceStorage();
-    return {data, workspaceStorage};
+    return {data, router, workspaceStorage};
   },
   methods: {
     handleSaveProject() {
@@ -72,6 +73,8 @@ export default defineComponent({
         }
 
         this.workspaceStorage = project['blockly-workspace'];
+
+        this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
       this.data.fileToImport = null;
