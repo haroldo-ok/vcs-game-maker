@@ -1,6 +1,9 @@
 <template>
   <div>
-    <canvas ref="editor" class="editor-canvas" />
+    <div class="proportion-wrapper">
+      <div class="proportion-wrapper-stretcher" />
+      <canvas ref="editor" class="editor-canvas" />
+    </div>
     <button @click="editor.tool = eraser">Eraser</button>
     <button @click="editor.tool = pencil">Pencil</button>
     <button @click="() => editor.undo()">Undo</button>
@@ -19,7 +22,7 @@ export default {
   },
   mounted() {
     const canvas = this.$refs.editor;
-    this.editor = new PixelEditor(canvas, 64, 64, this.pencil);
+    this.editor = new PixelEditor(canvas, 32, 12, this.pencil);
   },
 };
 </script>
@@ -31,5 +34,21 @@ export default {
   image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
   image-rendering: pixelated;                 /* Awesome future-browsers       */
   -ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  height: 100%;
+}
+
+.proportion-wrapper {
+  position: relative;
+  max-width: 320px;
+}
+.proportion-wrapper-stretcher {
+  width: 100%;
+  padding-bottom: 75%;
 }
 </style>
