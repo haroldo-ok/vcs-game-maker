@@ -1,25 +1,52 @@
 <template>
-  <div @click="handleMouse">
-    <div class="proportion-wrapper">
-      <div
-        class="proportion-wrapper-stretcher"
-        :style="{'padding-bottom': 100 / aspectRatio + '%'}"
-      />
-      <canvas
-        ref="editor"
-        class="editor-canvas"
-        @mousedown="handleMouse"
-        @mouseenter="handleMouse"
-        @mouseleave="handleMouse"
-        @mouseup="handleMouse"
-        @mousemove="handleMouse"
-      />
-    </div>
-    <button @click="editor.tool = eraser">Eraser</button>
-    <button @click="editor.tool = pencil">Pencil</button>
-    <button @click="() => editor.undo()">Undo</button>
-    <button @click="() => editor.redo()">Redo</button>
-  </div>
+  <v-card @click="handleMouse" :ripple="false">
+    <v-card-text>
+      <div class="proportion-wrapper">
+        <div
+          class="proportion-wrapper-stretcher"
+          :style="{'padding-bottom': 100 / aspectRatio + '%'}"
+        />
+        <canvas
+          ref="editor"
+          class="editor-canvas"
+          @mousedown="handleMouse"
+          @mouseenter="handleMouse"
+          @mouseleave="handleMouse"
+          @mouseup="handleMouse"
+          @mousemove="handleMouse"
+        />
+      </div>
+    </v-card-text>
+    <v-card-actions>
+      <v-btn-toggle v-model="toggledTool">
+        <v-btn
+          title="Eraser"
+          @click="editor.tool = eraser"
+        >
+          <v-icon>mdi-eraser</v-icon>
+        </v-btn>
+        <v-btn
+          title="Pencil"
+          @click="editor.tool = pencil"
+        >
+          <v-icon>mdi-pencil</v-icon>
+        </v-btn>
+      </v-btn-toggle>
+      <v-divider class="mx-4" vertical />
+      <v-btn
+        title="Undo"
+        @click="() => editor.undo()"
+      >
+        <v-icon>mdi-undo</v-icon>
+      </v-btn>
+      <v-btn
+        title="Redo"
+        @click="() => editor.redo()"
+      >
+        <v-icon>mdi-redo</v-icon>
+      </v-btn>
+    </v-card-actions>
+  </v-card>
 </template>
 <script>
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
@@ -36,6 +63,7 @@ export default {
     return {
       pencil: new Pencil('black'),
       eraser: new Pencil(),
+      toggledTool: 1,
     };
   },
   mounted() {
@@ -64,6 +92,8 @@ export default {
   bottom: 0;
   right: 0;
   height: 100%;
+
+  border: 1px solid;
 }
 
 .proportion-wrapper {
