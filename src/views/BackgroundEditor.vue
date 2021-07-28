@@ -2,7 +2,9 @@
   <v-card>
     <v-card-title>Backgrounds</v-card-title>
     <v-card-text>
-      <pixel-editor />
+      <div class="pixel-editor-container">
+        <pixel-editor />
+      </div>
     </v-card-text>
   </v-card>
 </template>
@@ -17,3 +19,8 @@ export default defineComponent({
   },
 });
 </script>
+<style scoped>
+.pixel-editor-container {
+  max-width: 320px;
+}
+</style>

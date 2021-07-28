@@ -1,7 +1,10 @@
 <template>
   <div @click="handleMouse">
     <div class="proportion-wrapper">
-      <div class="proportion-wrapper-stretcher" />
+      <div
+        class="proportion-wrapper-stretcher"
+        :style="{'padding-bottom': 100 / aspectRatio + '%'}"
+      />
       <canvas
         ref="editor"
         class="editor-canvas"
@@ -24,10 +27,10 @@ import {debounce} from 'lodash';
 
 export default {
   props: {
-    value: {
-      type: Array,
-      default: null,
-    },
+    value: {type: Array, default: null},
+    width: {type: Number, default: 32},
+    height: {type: Number, default: 12},
+    aspectRatio: {type: Number, default: 4.0 / 3},
   },
   data() {
     return {
@@ -37,7 +40,7 @@ export default {
   },
   mounted() {
     const canvas = this.$refs.editor;
-    this.editor = new PixelEditor(canvas, 32, 12, this.pencil);
+    this.editor = new PixelEditor(canvas, this.width, this.height, this.pencil);
   },
   methods: {
     handleMouse: debounce(function() {
@@ -65,10 +68,8 @@ export default {
 
 .proportion-wrapper {
   position: relative;
-  max-width: 320px;
 }
 .proportion-wrapper-stretcher {
   width: 100%;
-  padding-bottom: 75%;
 }
 </style>
