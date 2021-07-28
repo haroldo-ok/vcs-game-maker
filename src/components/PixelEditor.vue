@@ -1,8 +1,16 @@
 <template>
-  <div>
+  <div @click="handleMouse">
     <div class="proportion-wrapper">
       <div class="proportion-wrapper-stretcher" />
-      <canvas ref="editor" class="editor-canvas" />
+      <canvas
+        ref="editor"
+        class="editor-canvas"
+        @mousedown="handleMouse"
+        @mouseenter="handleMouse"
+        @mouseleave="handleMouse"
+        @mouseup="handleMouse"
+        @mousemove="handleMouse"
+      />
     </div>
     <button @click="editor.tool = eraser">Eraser</button>
     <button @click="editor.tool = pencil">Pencil</button>
@@ -12,8 +20,15 @@
 </template>
 <script>
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
+import {debounce} from 'lodash';
 
 export default {
+  props: {
+    value: {
+      type: Array,
+      default: null,
+    },
+  },
   data() {
     return {
       pencil: new Pencil('black'),
@@ -23,6 +38,11 @@ export default {
   mounted() {
     const canvas = this.$refs.editor;
     this.editor = new PixelEditor(canvas, 32, 12, this.pencil);
+  },
+  methods: {
+    handleMouse: debounce(function() {
+      console.info('Mouse event');
+    }, 300),
   },
 };
 </script>
