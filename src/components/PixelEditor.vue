@@ -58,17 +58,34 @@ export default {
     width: {type: Number, default: 32},
     height: {type: Number, default: 12},
     aspectRatio: {type: Number, default: 4.0 / 3},
+    fgColor: {type: String, default: 'white'},
+    bgColor: {type: String, default: 'black'},
   },
   data() {
     return {
-      pencil: new Pencil('black'),
-      eraser: new Pencil(),
+      pencil: new Pencil(this.fgColor),
+      eraser: new Pencil(this.bgColor),
       toggledTool: 1,
     };
   },
   mounted() {
     const canvas = this.$refs.editor;
     this.editor = new PixelEditor(canvas, this.width, this.height, this.pencil);
+
+    // TODO: Just for testing
+    window.testEditor = this.editor;
+    window.testPx = this;
+  },
+  computed: {
+    pixels: {
+      get() {
+        const pixelMatrix = new Array(this.height).fill(0).map(() => new Array(this.width).fill(0));
+        this.editor.pixels.forEach((px) => {
+          pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
+        });
+        return pixelMatrix;
+      },
+    },
   },
   methods: {
     handleMouse: debounce(function() {
