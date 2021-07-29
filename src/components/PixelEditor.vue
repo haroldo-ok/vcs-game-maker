@@ -52,6 +52,8 @@
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
 import {debounce} from 'lodash';
 
+import {isMatrixEqual} from '../utils/array';
+
 export default {
   props: {
     value: {type: Array, default: null},
@@ -71,29 +73,42 @@ export default {
   mounted() {
     const canvas = this.$refs.editor;
     this.editor = new PixelEditor(canvas, this.width, this.height, this.pencil);
-  },
-  computed: {
-    pixels: {
-      get() {
-        const pixelMatrix = new Array(this.height).fill(0).map(() => new Array(this.width).fill(0));
-        this.editor.pixels.forEach((px) => {
-          pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
-        });
-        return pixelMatrix;
-      },
-      set(pixelMatrix) {
-        const editorPixels = [];
-        pixelMatrix.forEach((line, y) => line.forEach((bit, x) => {
-          editorPixels.push({x, y, color: bit ? this.fgColor : this.bgColor});
-        }));
-        this.editor.set(editorPixels);
-      },
-    },
+    this.setPixels(this.value);
+    this.handleMouse();
+
+    // TODO: Just for testing
+    window.isMatrixEqual = isMatrixEqual;
   },
   methods: {
     handleMouse: debounce(function() {
-      console.info('Mouse event');
+      // eslint-disable-next-line no-invalid-this
+      const pixels = this.getPixels();
+      // eslint-disable-next-line no-invalid-this
+      if (!isMatrixEqual(this.value, pixels)) {
+        // eslint-disable-next-line no-invalid-this
+        this.$emit('input', pixels);
+      }
     }, 300),
+
+    createEmptyPixelMatrix() {
+      return new Array(this.height).fill(0).map(() => new Array(this.width).fill(0));
+    },
+
+    getPixels() {
+      const pixelMatrix = this.createEmptyPixelMatrix();
+      this.editor.pixels.forEach((px) => {
+        pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
+      });
+      return pixelMatrix;
+    },
+    setPixels(pixelMatrix) {
+      pixelMatrix = pixelMatrix || this.createEmptyPixelMatrix();
+      const editorPixels = [];
+      pixelMatrix.forEach((line, y) => line.forEach((bit, x) => {
+        editorPixels.push({x, y, color: bit ? this.fgColor : this.bgColor});
+      }));
+      this.editor.set(editorPixels);
+    },
   },
 };
 </script>
