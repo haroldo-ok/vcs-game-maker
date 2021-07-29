@@ -71,10 +71,6 @@ export default {
   mounted() {
     const canvas = this.$refs.editor;
     this.editor = new PixelEditor(canvas, this.width, this.height, this.pencil);
-
-    // TODO: Just for testing
-    window.testEditor = this.editor;
-    window.testPx = this;
   },
   computed: {
     pixels: {
@@ -84,6 +80,13 @@ export default {
           pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
         });
         return pixelMatrix;
+      },
+      set(pixelMatrix) {
+        const editorPixels = [];
+        pixelMatrix.forEach((line, y) => line.forEach((bit, x) => {
+          editorPixels.push({x, y, color: bit ? this.fgColor : this.bgColor});
+        }));
+        this.editor.set(editorPixels);
       },
     },
   },
