@@ -10,7 +10,7 @@
               </v-list-item-title>
               <v-list-item-subtitle>
                 <div class="pixel-editor-container">
-                  <pixel-editor v-model="background.pixels" />
+                  <pixel-editor v-model="background.pixels" fgColor="orange" />
                 </div>
               </v-list-item-subtitle>
           </v-list-item-content>
