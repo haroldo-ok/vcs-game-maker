@@ -3,14 +3,18 @@
     <v-card-title>Backgrounds</v-card-title>
     <v-card-text>
       <v-list>
-        <v-list-item v-for="background in backgrounds" v-bind:key="background.id">
+        <v-list-item v-for="background in state.backgrounds" v-bind:key="background.id">
           <v-list-item-content>
               <v-list-item-title>
                 <v-text-field label="Background name" v-model="background.name" />
               </v-list-item-title>
               <v-list-item-subtitle>
                 <div class="pixel-editor-container">
-                  <pixel-editor v-model="background.pixels" fgColor="orange" />
+                  <pixel-editor
+                    v-model="background.pixels"
+                    fgColor="orange"
+                    @input="handleChildChange"
+                  />
                 </div>
               </v-list-item-subtitle>
           </v-list-item-content>
@@ -20,27 +24,51 @@
   </v-card>
 </template>
 <script>
-import {defineComponent, ref} from '@vue/composition-api';
+import {computed, defineComponent} from '@vue/composition-api';
 
 import PixelEditor from '../components/PixelEditor.vue';
+import {useBackgroundsStorage} from '../hooks/project';
 
 export default defineComponent({
   components: {PixelEditor},
   setup() {
-    const backgrounds = ref([
-      {
-        id: 1,
-        name: 'Test 1',
-        pixels: null,
+    const defaultBackgrounds = {
+      backgrounds: [
+        {
+          id: 1,
+          name: 'Test 1',
+          pixels: null,
+        },
+        {
+          id: 2,
+          name: 'Test 2',
+          pixels: null,
+        },
+      ],
+    };
+
+    const backgroundsStorage = useBackgroundsStorage();
+    const state = computed({
+      get() {
+        try {
+          const text = backgroundsStorage.value;
+          return (text && JSON.parse(text)) || defaultBackgrounds;
+        } catch (e) {
+          console.error('Error loading backgrounds from local storage', e);
+          return defaultBackgrounds;
+        }
       },
-      {
-        id: 2,
-        name: 'Test 2',
-        pixels: null,
+
+      set(newState) {
+        backgroundsStorage.value = JSON.stringify(newState);
       },
-    ]);
-    const pixels = ref(null);
-    return {pixels, backgrounds};
+    });
+
+    const handleChildChange = () => {
+      state.value = state.value;
+    };
+
+    return {state, handleChildChange};
   },
 });
 </script>
