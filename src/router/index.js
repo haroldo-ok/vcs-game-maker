@@ -20,6 +20,11 @@ const routes = [
         '../views/About.vue'),
   },
   {
+    path: '/background',
+    name: 'Background',
+    component: () => import('../views/BackgroundEditor.vue'),
+  },
+  {
     path: '/generated',
     name: 'Generated',
     component: () => import('../views/GeneratedCode.vue'),

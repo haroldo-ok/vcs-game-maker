@@ -11,3 +11,13 @@ export const useLocalStorage = (key) => computed({
     localStorage.setItem(key, value);
   },
 });
+
+export const useJsonLocalStorage = (key) => computed({
+  get() {
+    const jsonText = localStorage.getItem(key);
+    return jsonText ? JSON.parse(jsonText) : null;
+  },
+  set(value) {
+    localStorage.setItem(key, JSON.stringify(value));
+  },
+});
