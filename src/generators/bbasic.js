@@ -14,6 +14,8 @@ import Blockly from 'blockly/core';
 import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 
+import {useBackgroundsStorage} from '../hooks/project';
+
 const handlebarsTemplate = Handlebars.compile(templateText);
 
 /**
@@ -172,11 +174,13 @@ Blockly.BBasic.finish = function(code) {
   code = Object.getPrototypeOf(this).finish.call(this, code);
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
 
+  const playField = Blockly.BBasic.generateBackgrounds();
+
   this.isInitialized = false;
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody});
+  return handlebarsTemplate({generatedBody, playField});
 };
 
 /**
@@ -320,6 +324,39 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
     }
   }
   return at;
+};
+
+Blockly.BBasic.generateBackgrounds = function() {
+  const backgroundsStorage = useBackgroundsStorage();
+
+  let backgroundData = null;
+  try {
+    backgroundData = backgroundsStorage.value;
+  } catch (e) {
+    console.error('Failed to load backgrounds', e);
+  }
+
+  const backgrounds = backgroundData && backgroundData.backgrounds;
+  let playField =
+    'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
+    'X....X...................X....X\n' +
+    'X.............................X\n' +
+    'X.............................X\n' +
+    'X.............................X\n' +
+    'X.............................X\n' +
+    'X.............................X\n' +
+    'X.............................X\n' +
+    'X.............................X\n' +
+    'X....X...................X....X\n' +
+    'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+
+  if (backgrounds && backgrounds[0] && backgrounds[0].pixels) {
+    playField = backgrounds[0].pixels
+        .map((line) => line.map((pixel) => pixel ? 'X' : '.').join(''))
+        .join('\n');
+  }
+
+  return playField.split('\n').map((line) => '  ' + line).join('\n');
 };
 
 import collision from './bbasic/collision';
