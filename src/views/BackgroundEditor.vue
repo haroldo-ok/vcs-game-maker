@@ -11,6 +11,8 @@
               <v-list-item-subtitle>
                 <div class="pixel-editor-container">
                   <pixel-editor
+                    :width="32"
+                    :height="11"
                     v-model="background.pixels"
                     fgColor="orange"
                     @input="handleChildChange"
@@ -28,6 +30,7 @@ import {computed, defineComponent} from '@vue/composition-api';
 
 import PixelEditor from '../components/PixelEditor.vue';
 import {useBackgroundsStorage} from '../hooks/project';
+import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
   components: {PixelEditor},
@@ -37,12 +40,18 @@ export default defineComponent({
         {
           id: 1,
           name: 'Test 1',
-          pixels: null,
-        },
-        {
-          id: 2,
-          name: 'Test 2',
-          pixels: null,
+          pixels: playfieldToMatrix(
+              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
+              'X....X...................X....X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X....X...................X....X\n' +
+              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
         },
       ],
     };
