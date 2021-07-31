@@ -15,6 +15,7 @@ import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 
 import {useBackgroundsStorage} from '../hooks/project';
+import {matrixToPlayfield} from '../utils/pixels';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -351,9 +352,7 @@ Blockly.BBasic.generateBackgrounds = function() {
     'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
 
   if (backgrounds && backgrounds[0] && backgrounds[0].pixels) {
-    playField = backgrounds[0].pixels
-        .map((line) => line.map((pixel) => pixel ? 'X' : '.').join(''))
-        .join('\n');
+    playField = matrixToPlayfield(backgrounds[0].pixels);
   }
 
   return playField.split('\n').map((line) => '  ' + line).join('\n');

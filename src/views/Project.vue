@@ -24,7 +24,8 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useWorkspaceStorage} from '../hooks/project';
+import {matrixToPlayfield} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
 const FORMAT_VERSION = 1.0;
@@ -33,16 +34,27 @@ export default defineComponent({
   setup(props, context) {
     const data = reactive({fileToImport: null});
     const router = context.root.$router;
+
+    const backgroundsStorage = useBackgroundsStorage();
     const workspaceStorage = useWorkspaceStorage();
-    return {data, router, workspaceStorage};
+
+    return {data, router, backgroundsStorage, workspaceStorage};
   },
   methods: {
     handleSaveProject() {
+      const backgrounds = !this.backgroundsStorage ? null :
+        {
+          ...this.backgroundsStorage,
+          backgrounds: this.backgroundsStorage.backgrounds
+              .map((bkg) => ({...bkg, pixels: matrixToPlayfield(bkg.pixels)})),
+        };
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
         'generation-time': new Date(),
         'blockly-workspace': this.workspaceStorage,
+        backgrounds,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
