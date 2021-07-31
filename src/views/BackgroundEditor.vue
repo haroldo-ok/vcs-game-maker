@@ -51,8 +51,7 @@ export default defineComponent({
     const state = computed({
       get() {
         try {
-          const text = backgroundsStorage.value;
-          return (text && JSON.parse(text)) || defaultBackgrounds;
+          return backgroundsStorage.value || defaultBackgrounds;
         } catch (e) {
           console.error('Error loading backgrounds from local storage', e);
           return defaultBackgrounds;
@@ -60,7 +59,7 @@ export default defineComponent({
       },
 
       set(newState) {
-        backgroundsStorage.value = JSON.stringify(newState);
+        backgroundsStorage.value = newState;
       },
     });
 
