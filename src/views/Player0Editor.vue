@@ -37,6 +37,7 @@
 import {defineComponent, ref} from '@vue/composition-api';
 
 import PixelEditor from '../components/PixelEditor.vue';
+import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
   components: {PixelEditor},
@@ -50,12 +51,28 @@ export default defineComponent({
             {
               id: 1,
               duration: 10,
-              pixels: null,
+              pixels: playfieldToMatrix(
+                  '...XXX..\n' +
+                  '...XXX..\n' +
+                  '...XXX..\n' +
+                  '..X.X...\n' +
+                  '..XXXXX.\n' +
+                  '....X.X.\n' +
+                  '...X.X..\n' +
+                  '..X...X.'),
             },
             {
               id: 2,
               duration: 10,
-              pixels: null,
+              pixels: playfieldToMatrix(
+                  '...XXX..\n' +
+                  '...XXX..\n' +
+                  '...XXX..\n' +
+                  '....X.X.\n' +
+                  '..XXXXX.\n' +
+                  '..X.X...\n' +
+                  '...X.X..\n' +
+                  '...X.X..'),
             },
           ],
         },
