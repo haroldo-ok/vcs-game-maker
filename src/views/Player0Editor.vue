@@ -3,7 +3,7 @@
     <v-card-title>Player 0</v-card-title>
     <v-card-text>
       <v-list>
-        <v-list-item v-for="animation in animationData.animations" v-bind:key="animation.id">
+        <v-list-item v-for="animation in state.animations" v-bind:key="animation.id">
           <v-list-item-content>
               <v-list-item-title>
                 <v-text-field label="Animation name" v-model="animation.name" />
@@ -23,6 +23,7 @@
                       :aspectRatio="160/192"
                       v-model="frame.pixels"
                       fgColor="red"
+                      @input="handleChildChange"
                     />
                   </div>
                 </v-list-item>
@@ -34,15 +35,16 @@
   </v-card>
 </template>
 <script>
-import {defineComponent, ref} from '@vue/composition-api';
+import {computed, defineComponent} from '@vue/composition-api';
 
 import PixelEditor from '../components/PixelEditor.vue';
+import {usePlayer0Storage} from '../hooks/project';
 import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
   components: {PixelEditor},
   setup() {
-    const animationData = ref({
+    const defaultAnimationData = {
       animations: [
         {
           id: 1,
@@ -77,9 +79,29 @@ export default defineComponent({
           ],
         },
       ],
+    };
+
+    const playerStorage = usePlayer0Storage();
+    const state = computed({
+      get() {
+        try {
+          return playerStorage.value || defaultAnimationData;
+        } catch (e) {
+          console.error('Error loading player 0 from local storage', e);
+          return defaultAnimationData;
+        }
+      },
+
+      set(newState) {
+        playerStorage.value = newState;
+      },
     });
 
-    return {animationData};
+    const handleChildChange = () => {
+      state.value = state.value;
+    };
+
+    return {state, handleChildChange};
   },
 });
 </script>
