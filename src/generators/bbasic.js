@@ -14,7 +14,7 @@ import Blockly from 'blockly/core';
 import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 
-import {useBackgroundsStorage} from '../hooks/project';
+import {useBackgroundsStorage, usePlayer0Storage} from '../hooks/project';
 import {matrixToPlayfield} from '../utils/pixels';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -176,11 +176,12 @@ Blockly.BBasic.finish = function(code) {
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
 
   const playField = Blockly.BBasic.generateBackgrounds();
+  const animation = Blockly.BBasic.generateAnimations();
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
-  const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
+  const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, playField});
 };
 
@@ -356,6 +357,36 @@ Blockly.BBasic.generateBackgrounds = function() {
   }
 
   return playField.split('\n').map((line) => '  ' + line).join('\n');
+};
+
+Blockly.BBasic.generateAnimations = function() {
+  const playerStorage = usePlayer0Storage();
+
+  let playerData = null;
+  try {
+    playerData = playerStorage.value;
+  } catch (e) {
+    console.error('Failed to load player data', e);
+  }
+
+  if (!playerData) {
+    return '';
+  }
+
+  const animation = playerData.animations[0];
+  if (!animation) {
+    return '';
+  }
+
+  const stateMachine = animation.frames.map((frame) => {
+    const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
+    return '  player0:\n' +
+      pixelSource.join('\n') +
+      '\nend';
+  });
+
+  return `  rem Animation ${animation.name}:\n\n` +
+    stateMachine.join('\n\n');
 };
 
 import collision from './bbasic/collision';
