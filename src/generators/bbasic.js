@@ -13,6 +13,7 @@
 import Blockly from 'blockly/core';
 import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
+import {sumBy} from 'lodash';
 
 import {useBackgroundsStorage, usePlayer0Storage} from '../hooks/project';
 import {matrixToPlayfield} from '../utils/pixels';
@@ -378,15 +379,29 @@ Blockly.BBasic.generateAnimations = function() {
     return '';
   }
 
-  const stateMachine = animation.frames.map((frame) => {
+  const totalDuration = sumBy(animation.frames, (frame) => frame.duration || 0);
+
+  let frameLimit = 0;
+  const stateMachine = animation.frames.map((frame, frameIndex) => {
+    frameLimit += frame.duration || 0;
     const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
-    return '  player0:\n' +
+    const endLabel = `player0frame${frameIndex}End`;
+    const skipCondition = `  if player0frame > ${frameLimit} then goto ${endLabel}\n`;
+
+    return skipCondition +
+      '  player0:\n' +
       pixelSource.join('\n') +
-      '\nend';
+      '\nend\n' +
+      '  goto player0animationEnd\n' +
+      endLabel;
   });
 
-  return `  rem Animation ${animation.name}:\n\n` +
-    stateMachine.join('\n\n');
+  return `  rem Animation ${animation.name}:\n` +
+    '  dim player0frame = z\n\n' +
+    '  player0frame = player0frame + 1\n' +
+    `  if player0frame = ${totalDuration} then player0frame = 0\n\n` +
+    stateMachine.join('\n\n') +
+    '\n\nplayer0animationEnd';
 };
 
 import collision from './bbasic/collision';
