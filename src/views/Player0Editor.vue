@@ -9,7 +9,11 @@
                 <v-text-field label="Animation name" v-model="animation.name" />
               </v-list-item-title>
               <v-list>
-                <v-list-item v-for="frame in animation.frames" v-bind:key="frame.id">
+                <v-list-item
+                  v-for="frame in animation.frames"
+                  v-bind:key="frame.id"
+                  class="pixel-editor-parent-container"
+                >
                   <div class="pixel-editor-container">
                     <v-text-field
                       label="Duration"
@@ -112,5 +116,9 @@ export default defineComponent({
   top: 3em;
   bottom: 0;
   width: 100%;
+}
+
+.pixel-editor-parent-container {
+  display: inline-block;
 }
 </style>
