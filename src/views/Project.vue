@@ -24,7 +24,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, usePlayer0Storage, useWorkspaceStorage} from '../hooks/project';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -36,9 +36,10 @@ export default defineComponent({
     const router = context.root.$router;
 
     const backgroundsStorage = useBackgroundsStorage();
+    const player0Storage = usePlayer0Storage();
     const workspaceStorage = useWorkspaceStorage();
 
-    return {data, router, backgroundsStorage, workspaceStorage};
+    return {data, router, backgroundsStorage, player0Storage, workspaceStorage};
   },
   methods: {
     handleSaveProject() {
@@ -49,16 +50,30 @@ export default defineComponent({
               .map((bkg) => ({...bkg, pixels: matrixToPlayfield(bkg.pixels)})),
         };
 
+      const player0 = !this.player0Storage ? null :
+        {
+          ...this.player0Storage,
+          animations: this.player0Storage.animations.map((animation) => ({
+            ...animation,
+            frames: animation.frames.map((frame) => ({
+              ...frame,
+              pixels: matrixToPlayfield(frame.pixels),
+            })),
+          })),
+        };
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
         'generation-time': new Date(),
         'blockly-workspace': this.workspaceStorage,
+        player0,
         backgrounds,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
-      saveAs(projectBlob, 'project.vcsgm');
+      const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
+      saveAs(projectBlob, `project-${dateInfix}.vcsgm`);
     },
 
     handleLoadProject() {
