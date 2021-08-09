@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card class="editor-container">
     <v-card-title>Player 0</v-card-title>
     <v-card-text>
       <v-list>
@@ -105,3 +105,12 @@ export default defineComponent({
   },
 });
 </script>
+<style scoped>
+.editor-container {
+  position: absolute;
+  overflow: auto;
+  top: 3em;
+  bottom: 0;
+  width: 100%;
+}
+</style>
