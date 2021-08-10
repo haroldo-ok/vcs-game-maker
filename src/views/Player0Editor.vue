@@ -1,111 +1,20 @@
 <template>
-  <v-card class="editor-container">
-    <v-card-title>Player 0</v-card-title>
-    <v-card-text>
-      <v-list>
-        <v-list-item v-for="animation in state.animations" v-bind:key="animation.id">
-          <v-list-item-content>
-              <v-list-item-title>
-                <v-text-field label="Animation name" v-model="animation.name" />
-              </v-list-item-title>
-              <v-list>
-                <v-list-item
-                  v-for="frame in animation.frames"
-                  v-bind:key="frame.id"
-                  class="pixel-editor-parent-container"
-                >
-                  <div class="pixel-editor-container">
-                    <v-text-field
-                      label="Duration"
-                      v-model.number="frame.duration"
-                      hide-details
-                      type="number"
-                    />
-                    <pixel-editor
-                      :width="8"
-                      :height="8"
-                      :aspectRatio="160/192"
-                      v-model="frame.pixels"
-                      fgColor="red"
-                      @input="handleChildChange"
-                    />
-                  </div>
-                </v-list-item>
-              </v-list>
-          </v-list-item-content>
-        </v-list-item>
-      </v-list>
-    </v-card-text>
-  </v-card>
+  <player-editor
+    :storageFactory="usePlayer0Storage"
+    :title="'Player 0'"
+    fgColor="red"
+  />
 </template>
 <script>
-import {computed, defineComponent} from '@vue/composition-api';
+import {defineComponent} from '@vue/composition-api';
 
-import PixelEditor from '../components/PixelEditor.vue';
+import PlayerEditor from '../components/PlayerEditor.vue';
 import {usePlayer0Storage} from '../hooks/project';
-import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
-  components: {PixelEditor},
+  components: {PlayerEditor},
   setup() {
-    const defaultAnimationData = {
-      animations: [
-        {
-          id: 1,
-          name: 'Example1',
-          frames: [
-            {
-              id: 1,
-              duration: 10,
-              pixels: playfieldToMatrix(
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '..X.X...\n' +
-                  '..XXXXX.\n' +
-                  '....X.X.\n' +
-                  '...X.X..\n' +
-                  '..X...X.'),
-            },
-            {
-              id: 2,
-              duration: 10,
-              pixels: playfieldToMatrix(
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '....X.X.\n' +
-                  '..XXXXX.\n' +
-                  '..X.X...\n' +
-                  '...X.X..\n' +
-                  '...X.X..'),
-            },
-          ],
-        },
-      ],
-    };
-
-    const playerStorage = usePlayer0Storage();
-    const state = computed({
-      get() {
-        try {
-          return playerStorage.value || defaultAnimationData;
-        } catch (e) {
-          console.error('Error loading player 0 from local storage', e);
-          return defaultAnimationData;
-        }
-      },
-
-      set(newState) {
-        playerStorage.value = newState;
-      },
-    });
-
-    const handleChildChange = () => {
-      state.value = state.value;
-    };
-
-    return {state, handleChildChange};
+    return {usePlayer0Storage};
   },
 });
 </script>
