@@ -24,7 +24,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from '../hooks/project';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -36,9 +36,11 @@ export default defineComponent({
     const router = context.root.$router;
 
     const backgroundsStorage = useBackgroundsStorage();
+    const player0Storage = usePlayer0Storage();
+    const player1Storage = usePlayer1Storage();
     const workspaceStorage = useWorkspaceStorage();
 
-    return {data, router, backgroundsStorage, workspaceStorage};
+    return {data, router, backgroundsStorage, player0Storage, player1Storage, workspaceStorage};
   },
   methods: {
     handleSaveProject() {
@@ -49,16 +51,34 @@ export default defineComponent({
               .map((bkg) => ({...bkg, pixels: matrixToPlayfield(bkg.pixels)})),
         };
 
+      const preparePlayerSave = (playerStorage) => !playerStorage ? null :
+        {
+          ...playerStorage,
+          animations: playerStorage.animations.map((animation) => ({
+            ...animation,
+            frames: animation.frames.map((frame) => ({
+              ...frame,
+              pixels: matrixToPlayfield(frame.pixels),
+            })),
+          })),
+        };
+
+      const player0 = preparePlayerSave(this.player0Storage);
+      const player1 = preparePlayerSave(this.player1Storage);
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
         'generation-time': new Date(),
         'blockly-workspace': this.workspaceStorage,
+        'player-0': player0,
+        'player-1': player1,
         backgrounds,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
-      saveAs(projectBlob, 'project.vcsgm');
+      const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
+      saveAs(projectBlob, `project-${dateInfix}.vcsgm`);
     },
 
     handleLoadProject() {
@@ -84,6 +104,27 @@ export default defineComponent({
         }
 
         this.workspaceStorage = project['blockly-workspace'];
+
+        const preparePlayerLoad = (playerData) => playerData && {
+          ...playerData,
+          animations: playerData.animations.map((animation) => ({
+            ...animation,
+            frames: animation.frames.map((frame) => ({
+              ...frame,
+              pixels: playfieldToMatrix(frame.pixels),
+            })),
+          })),
+        };
+
+        const player0 = preparePlayerLoad(project['player-0']);
+        if (player0) {
+          this.player0Storage = player0;
+        }
+
+        const player1 = preparePlayerLoad(project['player-1']);
+        if (player1) {
+          this.player1Storage = player1;
+        }
 
         if (project.backgrounds) {
           const backgrounds = {

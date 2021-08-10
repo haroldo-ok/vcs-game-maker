@@ -13,8 +13,9 @@
 import Blockly from 'blockly/core';
 import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
+import {sumBy} from 'lodash';
 
-import {useBackgroundsStorage} from '../hooks/project';
+import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
 import {matrixToPlayfield} from '../utils/pixels';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -176,11 +177,12 @@ Blockly.BBasic.finish = function(code) {
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
 
   const playField = Blockly.BBasic.generateBackgrounds();
+  const animation = Blockly.BBasic.generateAnimations();
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
-  const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
+  const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, playField});
 };
 
@@ -356,6 +358,53 @@ Blockly.BBasic.generateBackgrounds = function() {
   }
 
   return playField.split('\n').map((line) => '  ' + line).join('\n');
+};
+
+Blockly.BBasic.generateAnimations = function() {
+  const processAnimation = (name, playerStorage) => {
+    let playerData = null;
+    try {
+      playerData = playerStorage.value;
+    } catch (e) {
+      console.error(`Failed to load ${name} data`, e);
+    }
+
+    if (!playerData) {
+      return '';
+    }
+
+    const animation = playerData.animations[0];
+    if (!animation) {
+      return '';
+    }
+
+    const totalDuration = sumBy(animation.frames, (frame) => frame.duration || 0);
+
+    let frameLimit = 0;
+    const stateMachine = animation.frames.map((frame, frameIndex) => {
+      frameLimit += frame.duration || 0;
+      const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
+      const endLabel = `${name}frame${frameIndex}End`;
+      const skipCondition = `  if ${name}frame > ${frameLimit} then goto ${endLabel}\n`;
+
+      return skipCondition +
+        `  ${name}:\n` +
+        pixelSource.join('\n') +
+        '\nend\n' +
+        `  goto ${name}animationEnd\n` +
+        endLabel;
+    });
+
+    return `  rem Animation ${animation.name}:\n` +
+      `  ${name}frame = ${name}frame + 1\n` +
+      `  if ${name}frame = ${totalDuration} then ${name}frame = 0\n\n` +
+      stateMachine.join('\n\n') +
+      `\n\n${name}animationEnd`;
+  };
+
+  const player0Code = processAnimation('player0', usePlayer0Storage());
+  const player1Code = processAnimation('player1', usePlayer1Storage());
+  return player0Code + '\n\n\n' + player1Code;
 };
 
 import collision from './bbasic/collision';
