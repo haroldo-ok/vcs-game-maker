@@ -67,7 +67,7 @@ export default defineComponent({
         'format-version': FORMAT_VERSION,
         'generation-time': new Date(),
         'blockly-workspace': this.workspaceStorage,
-        player0,
+        'player-0': player0,
         backgrounds,
       });
 
@@ -99,6 +99,22 @@ export default defineComponent({
         }
 
         this.workspaceStorage = project['blockly-workspace'];
+
+        const playerData = project['player-0'];
+        if (playerData) {
+          const player0 = {
+            ...playerData,
+            animations: playerData.animations.map((animation) => ({
+              ...animation,
+              frames: animation.frames.map((frame) => ({
+                ...frame,
+                pixels: playfieldToMatrix(frame.pixels),
+              })),
+            })),
+          };
+
+          this.player0Storage = player0;
+        }
 
         if (project.backgrounds) {
           const backgrounds = {
