@@ -24,7 +24,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, usePlayer0Storage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from '../hooks/project';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -37,9 +37,10 @@ export default defineComponent({
 
     const backgroundsStorage = useBackgroundsStorage();
     const player0Storage = usePlayer0Storage();
+    const player1Storage = usePlayer1Storage();
     const workspaceStorage = useWorkspaceStorage();
 
-    return {data, router, backgroundsStorage, player0Storage, workspaceStorage};
+    return {data, router, backgroundsStorage, player0Storage, player1Storage, workspaceStorage};
   },
   methods: {
     handleSaveProject() {
@@ -50,10 +51,10 @@ export default defineComponent({
               .map((bkg) => ({...bkg, pixels: matrixToPlayfield(bkg.pixels)})),
         };
 
-      const player0 = !this.player0Storage ? null :
+      const preparePlayerSave = (playerStorage) => !playerStorage ? null :
         {
-          ...this.player0Storage,
-          animations: this.player0Storage.animations.map((animation) => ({
+          ...playerStorage,
+          animations: playerStorage.animations.map((animation) => ({
             ...animation,
             frames: animation.frames.map((frame) => ({
               ...frame,
@@ -62,12 +63,16 @@ export default defineComponent({
           })),
         };
 
+      const player0 = preparePlayerSave(this.player0Storage);
+      const player1 = preparePlayerSave(this.player1Storage);
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
         'generation-time': new Date(),
         'blockly-workspace': this.workspaceStorage,
         'player-0': player0,
+        'player-1': player1,
         backgrounds,
       });
 
