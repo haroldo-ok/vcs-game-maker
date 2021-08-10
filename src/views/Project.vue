@@ -105,20 +105,25 @@ export default defineComponent({
 
         this.workspaceStorage = project['blockly-workspace'];
 
-        const playerData = project['player-0'];
-        if (playerData) {
-          const player0 = {
-            ...playerData,
-            animations: playerData.animations.map((animation) => ({
-              ...animation,
-              frames: animation.frames.map((frame) => ({
-                ...frame,
-                pixels: playfieldToMatrix(frame.pixels),
-              })),
+        const preparePlayerLoad = (playerData) => playerData && {
+          ...playerData,
+          animations: playerData.animations.map((animation) => ({
+            ...animation,
+            frames: animation.frames.map((frame) => ({
+              ...frame,
+              pixels: playfieldToMatrix(frame.pixels),
             })),
-          };
+          })),
+        };
 
+        const player0 = preparePlayerLoad(project['player-0']);
+        if (player0) {
           this.player0Storage = player0;
+        }
+
+        const player1 = preparePlayerLoad(project['player-1']);
+        if (player1) {
+          this.player1Storage = player1;
         }
 
         if (project.backgrounds) {
