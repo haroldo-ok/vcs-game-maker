@@ -15,7 +15,7 @@ import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 import {sumBy} from 'lodash';
 
-import {useBackgroundsStorage, usePlayer0Storage} from '../hooks/project';
+import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
 import {matrixToPlayfield} from '../utils/pixels';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -361,47 +361,50 @@ Blockly.BBasic.generateBackgrounds = function() {
 };
 
 Blockly.BBasic.generateAnimations = function() {
-  const playerStorage = usePlayer0Storage();
+  const processAnimation = (name, playerStorage) => {
+    let playerData = null;
+    try {
+      playerData = playerStorage.value;
+    } catch (e) {
+      console.error(`Failed to load ${name} data`, e);
+    }
 
-  let playerData = null;
-  try {
-    playerData = playerStorage.value;
-  } catch (e) {
-    console.error('Failed to load player data', e);
-  }
+    if (!playerData) {
+      return '';
+    }
 
-  if (!playerData) {
-    return '';
-  }
+    const animation = playerData.animations[0];
+    if (!animation) {
+      return '';
+    }
 
-  const animation = playerData.animations[0];
-  if (!animation) {
-    return '';
-  }
+    const totalDuration = sumBy(animation.frames, (frame) => frame.duration || 0);
 
-  const totalDuration = sumBy(animation.frames, (frame) => frame.duration || 0);
+    let frameLimit = 0;
+    const stateMachine = animation.frames.map((frame, frameIndex) => {
+      frameLimit += frame.duration || 0;
+      const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
+      const endLabel = `${name}frame${frameIndex}End`;
+      const skipCondition = `  if ${name}frame > ${frameLimit} then goto ${endLabel}\n`;
 
-  let frameLimit = 0;
-  const stateMachine = animation.frames.map((frame, frameIndex) => {
-    frameLimit += frame.duration || 0;
-    const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
-    const endLabel = `player0frame${frameIndex}End`;
-    const skipCondition = `  if player0frame > ${frameLimit} then goto ${endLabel}\n`;
+      return skipCondition +
+        `  ${name}:\n` +
+        pixelSource.join('\n') +
+        '\nend\n' +
+        `  goto ${name}animationEnd\n` +
+        endLabel;
+    });
 
-    return skipCondition +
-      '  player0:\n' +
-      pixelSource.join('\n') +
-      '\nend\n' +
-      '  goto player0animationEnd\n' +
-      endLabel;
-  });
+    return `  rem Animation ${animation.name}:\n` +
+      `  ${name}frame = ${name}frame + 1\n` +
+      `  if ${name}frame = ${totalDuration} then ${name}frame = 0\n\n` +
+      stateMachine.join('\n\n') +
+      `\n\n${name}animationEnd`;
+  };
 
-  return `  rem Animation ${animation.name}:\n` +
-    '  dim player0frame = z\n\n' +
-    '  player0frame = player0frame + 1\n' +
-    `  if player0frame = ${totalDuration} then player0frame = 0\n\n` +
-    stateMachine.join('\n\n') +
-    '\n\nplayer0animationEnd';
+  const player0Code = processAnimation('player0', usePlayer0Storage());
+  const player1Code = processAnimation('player1', usePlayer1Storage());
+  return player0Code + '\n\n\n' + player1Code;
 };
 
 import collision from './bbasic/collision';
