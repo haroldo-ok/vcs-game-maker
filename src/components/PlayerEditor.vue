@@ -55,7 +55,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import PixelEditor from '../components/PixelEditor.vue';
@@ -122,26 +122,31 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    const instance = getCurrentInstance();
     const handleAddFrame = () => {
       const frames = state.value.animations[0].frames;
       const maxId = max(frames.map((o) => o.id)) || 0;
-      state.value.animations[0].frames = [...frames, {
-        id: maxId + 1,
+      const newFrame = {
+        id: maxId+1,
         duration: 10,
         pixels: playfieldToMatrix(
-            '........\n' +
-            '........\n' +
-            '........\n' +
-            '........\n' +
-            '........\n' +
-            '........\n' +
-            '........\n' +
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
             '........'),
-      }];
+      };
+
+      state.value.animations[0].frames.push(newFrame);
 
       console.info('Added frame', state.value.animations[0].frames);
+      console.info('Blah', state.value);
 
       handleChildChange();
+      instance.proxy.$forceUpdate();
     };
 
     return {state, handleChildChange, handleAddFrame, props};
