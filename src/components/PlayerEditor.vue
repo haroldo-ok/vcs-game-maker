@@ -48,6 +48,7 @@
       absolute
       right
       fab
+      @click="handleAddFrame"
     >
       <v-icon>mdi-plus</v-icon>
     </v-btn>
@@ -55,6 +56,7 @@
 </template>
 <script>
 import {computed, defineComponent} from '@vue/composition-api';
+import {max} from 'lodash';
 
 import PixelEditor from '../components/PixelEditor.vue';
 import {playfieldToMatrix} from '../utils/pixels';
@@ -120,7 +122,29 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    return {state, handleChildChange, props};
+    const handleAddFrame = () => {
+      const frames = state.value.animations[0].frames;
+      const maxId = max(frames.map((o) => o.id)) || 0;
+      state.value.animations[0].frames = [...frames, {
+        id: maxId + 1,
+        duration: 10,
+        pixels: playfieldToMatrix(
+            '........\n' +
+            '........\n' +
+            '........\n' +
+            '........\n' +
+            '........\n' +
+            '........\n' +
+            '........\n' +
+            '........'),
+      }];
+
+      console.info('Added frame', state.value.animations[0].frames);
+
+      handleChildChange();
+    };
+
+    return {state, handleChildChange, handleAddFrame, props};
   },
 });
 </script>
