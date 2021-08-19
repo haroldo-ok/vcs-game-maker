@@ -38,7 +38,7 @@
                         <v-card>
                           <v-card-title>Delete this frame?</v-card-title>
                           <v-list>
-                            <v-list-item>
+                            <v-list-item @click="handleDeleteFrame(animation, frame)">
                               <v-list-item-icon>
                                 <v-icon>mdi-check</v-icon>
                               </v-list-item-icon>
@@ -180,14 +180,18 @@ export default defineComponent({
 
       state.value.animations[0].frames.push(newFrame);
 
-      console.info('Added frame', state.value.animations[0].frames);
-      console.info('Blah', state.value);
-
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddFrame, props};
+    const handleDeleteFrame = (animation, frame) => {
+      animation.frames = animation.frames.filter(({id}) => id != frame.id);
+      console.info('Deleted ', frame);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    return {state, handleChildChange, handleAddFrame, handleDeleteFrame, props};
   },
 });
 </script>
