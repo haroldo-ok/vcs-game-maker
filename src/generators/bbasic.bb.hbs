@@ -43,15 +43,16 @@ end
  player1x = 75 : player1y = 25
  ballx = 0 : bally = 0
 
+ player1color = $80
+ player0color = $40
+ COLUBK = $C4
+ COLUPF = $0E
+
  rem **************************************************************************
  rem Main loop: 
  rem - set colors and record last coordinates of player sprites
  rem **************************************************************************
 main
- COLUP1 = $80
- COLUP0 = $40
- COLUBK = $C4
- COLUPF = $0E
 
  rem **************************************************************************
  rem Draw loop: 
@@ -59,6 +60,8 @@ main
  rem - the ball's position and handles collisions
  rem **************************************************************************
 draw
+ COLUP1 = player1color
+ COLUP0 = player0color
  drawscreen
 
  rem **************************************************************************
