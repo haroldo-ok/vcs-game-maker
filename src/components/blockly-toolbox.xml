@@ -28,7 +28,13 @@
     <category name="Sprites" colour="red">
 
         <block type="sprite_player0_get"></block>
-        <block type="sprite_player0_set"></block>
+        <block type="sprite_player0_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_player0_change">
             <value name="DELTA">
                 <shadow type="math_number">
@@ -38,7 +44,13 @@
         </block>
 
         <block type="sprite_player1_get"></block>
-        <block type="sprite_player1_set"></block>
+        <block type="sprite_player1_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_player1_change">
             <value name="DELTA">
                 <shadow type="math_number">
@@ -48,7 +60,13 @@
         </block>
 
         <block type="sprite_missile0_get"></block>
-        <block type="sprite_missile0_set"></block>
+        <block type="sprite_missile0_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_missile0_change">
             <value name="DELTA">
                 <shadow type="math_number">
@@ -58,7 +76,13 @@
         </block>
 
         <block type="sprite_missile1_get"></block>
-        <block type="sprite_missile1_set"></block>
+        <block type="sprite_missile1_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_missile1_change">
             <value name="DELTA">
                 <shadow type="math_number">
@@ -68,7 +92,13 @@
         </block>
 
         <block type="sprite_ball_get"></block>
-        <block type="sprite_ball_set"></block>
+        <block type="sprite_ball_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_ball_change">
             <value name="DELTA">
                 <shadow type="math_number">
@@ -86,7 +116,13 @@
     </category>
     <category name="Score" colour="#f2691e">
         <block type="score_get"></block>
-        <block type="score_set"></block>
+        <block type="score_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="score_change">
             <value name="DELTA">
                 <shadow type="math_number">
