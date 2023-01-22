@@ -19,6 +19,7 @@ import BlocklyComponent from './BlocklyComponent.vue';
 import '../blocks/collision';
 import '../blocks/input';
 import '../blocks/sprites';
+import '../blocks/score';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage} from '../hooks/project';
