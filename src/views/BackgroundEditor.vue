@@ -1,32 +1,48 @@
 <template>
-  <v-card class="editor-container">
-    <v-card-title>Backgrounds</v-card-title>
-    <v-card-text>
-      <v-list>
-        <v-list-item v-for="background in state.backgrounds" v-bind:key="background.id">
-          <v-list-item-content>
-              <v-list-item-title>
-                <v-text-field label="Background name" v-model="background.name" />
-              </v-list-item-title>
-              <v-list-item-subtitle>
-                <div class="pixel-editor-container">
-                  <pixel-editor
-                    :width="32"
-                    :height="11"
-                    v-model="background.pixels"
-                    fgColor="orange"
-                    @input="handleChildChange"
-                  />
-                </div>
-              </v-list-item-subtitle>
-          </v-list-item-content>
-        </v-list-item>
-      </v-list>
-    </v-card-text>
-  </v-card>
+  <div>
+    <v-card class="editor-container">
+      <v-card-title>Backgrounds</v-card-title>
+      <v-card-text>
+        <v-list>
+          <v-list-item v-for="background in state.backgrounds" v-bind:key="background.id">
+            <v-list-item-content>
+                <v-list-item-title>
+                  <v-text-field label="Background name" v-model="background.name" />
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  <div class="pixel-editor-container">
+                    <pixel-editor
+                      :width="32"
+                      :height="11"
+                      v-model="background.pixels"
+                      fgColor="orange"
+                      @input="handleChildChange"
+                    />
+                  </div>
+                </v-list-item-subtitle>
+            </v-list-item-content>
+          </v-list-item>
+        </v-list>
+      </v-card-text>
+    </v-card>
+
+    <v-btn
+      class="add-frame-buttom"
+      color="primary"
+      title="Add animation frame"
+      dark
+      absolute
+      right
+      fab
+      @click="handleAddBackground"
+    >
+      <v-icon>mdi-plus</v-icon>
+    </v-btn>
+  </div>
 </template>
 <script>
-import {computed, defineComponent} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {max} from 'lodash';
 
 import PixelEditor from '../components/PixelEditor.vue';
 import {useBackgroundsStorage} from '../hooks/project';
@@ -76,7 +92,34 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    return {state, handleChildChange};
+    const instance = getCurrentInstance();
+    const handleAddBackground = () => {
+      const backgrounds = state.value.backgrounds;
+      const maxId = max(backgrounds.map((o) => o.id)) || 0;
+      const newBackground = {
+        id: maxId+1,
+        duration: 10,
+        pixels: playfieldToMatrix(
+            'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
+            'X....X...................X....X\n' +
+            'X.............................X\n' +
+            'X.............................X\n' +
+            'X.............................X\n' +
+            'X.............................X\n' +
+            'X.............................X\n' +
+            'X.............................X\n' +
+            'X.............................X\n' +
+            'X....X...................X....X\n' +
+            'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
+      };
+
+      state.value.backgrounds.push(newBackground);
+
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    return {state, handleChildChange, handleAddBackground};
   },
 });
 </script>
@@ -91,5 +134,9 @@ export default defineComponent({
   top: 3em;
   bottom: 0;
   width: 100%;
+}
+
+.add-frame-buttom {
+  bottom: 8px;
 }
 </style>
