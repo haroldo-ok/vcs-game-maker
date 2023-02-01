@@ -6,11 +6,24 @@ import {BACKGROUND_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
 
+const buildPlayerOptions = (name) => [
+  ['\u2195 X', `${name}x`],
+  ['\u2195 Y', `${name}y`],
+  [1111 + ' Color', `${name}color`],
+];
+
 Blockly.defineBlocksWithJsonArray([
   // Block for selecting a background.
   {
     'type': `background_select`,
-    'message0': `${BACKGROUND_ICON} Background`,
+    'message0': `${BACKGROUND_ICON} Background: %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': buildPlayerOptions('bob'),
+      },
+    ],
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
     'tooltip': `Selects a background`,
