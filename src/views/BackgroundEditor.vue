@@ -135,8 +135,8 @@ export default defineComponent({
       const backgrounds = state.value.backgrounds;
       const maxId = max(backgrounds.map((o) => o.id)) || 0;
       const newBackground = {
-        id: maxId+1,
-        duration: 10,
+        id: maxId + 1,
+        name: `Background ${maxId + 1}`,
         pixels: playfieldToMatrix(
             'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
             'X....X...................X....X\n' +
