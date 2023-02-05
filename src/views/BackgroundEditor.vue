@@ -7,7 +7,7 @@
           <v-list-item v-for="background in state.backgrounds" v-bind:key="background.id">
             <v-list-item-content>
                 <v-list-item-title>
-                  <v-text-field label="Background name" v-model="background.name" />
+                  <v-text-field label="Background name" v-model="background.name" @input="handleChildChange" />
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <div class="pixel-editor-container">
