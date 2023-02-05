@@ -12,6 +12,7 @@
                 <v-list-item-subtitle>
                   <div class="pixel-editor-container">
                     <v-menu
+                        v-if="state.backgrounds.length > 1"
                         top
                       >
                       <template v-slot:activator="{ on, attrs }">
