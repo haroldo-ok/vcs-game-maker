@@ -11,6 +11,43 @@
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <div class="pixel-editor-container">
+                    <v-menu
+                        top
+                      >
+                      <template v-slot:activator="{ on, attrs }">
+                        <v-btn
+                          color="red"
+                          title="Delete this background"
+                          fab
+                          small
+                          absolute
+                          top
+                          right
+                          v-bind="attrs"
+                          v-on="on"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </template>
+
+                      <v-card>
+                        <v-card-title>Delete this background?</v-card-title>
+                        <v-list>
+                          <v-list-item @click="handleDeleteBackground(background)">
+                            <v-list-item-icon>
+                              <v-icon>mdi-check</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>Yes, delete</v-list-item-title>
+                          </v-list-item>
+                          <v-list-item>
+                            <v-list-item-icon>
+                              <v-icon>mdi-cancel</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>No, don't delete</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-card>
+                    </v-menu>
                     <pixel-editor
                       :width="32"
                       :height="11"
@@ -119,7 +156,14 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddBackground};
+    const handleDeleteBackground = (background) => {
+      state.value.backgrounds = state.value.backgrounds.filter(({id}) => id != background.id);
+      console.info('Deleted ', background);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    return {state, handleChildChange, handleAddBackground, handleDeleteBackground};
   },
 });
 </script>
