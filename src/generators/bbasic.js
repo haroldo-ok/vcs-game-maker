@@ -176,14 +176,14 @@ Blockly.BBasic.finish = function(code) {
   code = Object.getPrototypeOf(this).finish.call(this, code);
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
 
-  const playField = Blockly.BBasic.generateBackgrounds();
+  const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, playField});
+  return handlebarsTemplate({generatedBody, generatedBackgrounds});
 };
 
 /**
@@ -340,24 +340,18 @@ Blockly.BBasic.generateBackgrounds = function() {
   }
 
   const backgrounds = backgroundData && backgroundData.backgrounds;
-  let playField =
-    'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
-    'X....X...................X....X\n' +
-    'X.............................X\n' +
-    'X.............................X\n' +
-    'X.............................X\n' +
-    'X.............................X\n' +
-    'X.............................X\n' +
-    'X.............................X\n' +
-    'X.............................X\n' +
-    'X....X...................X....X\n' +
-    'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
 
-  if (backgrounds && backgrounds[0] && backgrounds[0].pixels) {
-    playField = matrixToPlayfield(backgrounds[0].pixels);
-  }
+  const convertPlayfield = (playField) =>
+    playField.split('\n').map((line) => '  ' + line).join('\n');
 
-  return playField.split('\n').map((line) => '  ' + line).join('\n');
+  return backgrounds.map(({id, pixels}) => {
+    const endLabel = `background${id}end`;
+    return ` if newbackground <> ${id} then goto ${endLabel}` + '\n' +
+      ' playfield:\n' +
+      convertPlayfield(matrixToPlayfield(pixels)) + '\n' +
+      'end\n' +
+      endLabel;
+  }).join('\n\n');
 };
 
 Blockly.BBasic.generateAnimations = function() {
@@ -406,7 +400,7 @@ Blockly.BBasic.generateAnimations = function() {
   const player1Code = processAnimation('player1', usePlayer1Storage());
   return player0Code + '\n\n\n' + player1Code;
 };
-
+import background from './bbasic/background';
 import collision from './bbasic/collision';
 import colour from './bbasic/colour';
 import input from './bbasic/input';
@@ -419,7 +413,7 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[collision, colour, input, logic, loops, math, procedures, sprites, score, text, variables]
+[background, collision, colour, input, logic, loops, math, procedures, sprites, score, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
