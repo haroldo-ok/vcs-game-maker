@@ -74,20 +74,4 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Updates the score`,
   },
-  // Block for adding to a variable in place.
-  {
-    'type': `background_change`,
-    'message0': `${BACKGROUND_ICON} Background: change by: %1`,
-    'args0': [
-      {
-        'type': 'input_value',
-        'name': 'DELTA',
-        'check': 'Number',
-      },
-    ],
-    'previousStatement': null,
-    'nextStatement': null,
-    'colour': BACKGROUND_COLOR,
-    'extensions': ['math_change_tooltip'],
-  },
 ]);

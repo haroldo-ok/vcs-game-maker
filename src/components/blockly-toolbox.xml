@@ -118,14 +118,7 @@
         <block type="background_select"></block>
         <block type="background_set">
             <value name="VALUE">
-                <shadow type="math_number">
-                    <field name="NUM">1</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="background_change">
-            <value name="DELTA">
-                <shadow type="math_number">
+                <shadow type="background_select">
                     <field name="NUM">1</field>
                 </shadow>
             </value>

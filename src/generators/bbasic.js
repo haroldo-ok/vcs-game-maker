@@ -400,7 +400,7 @@ Blockly.BBasic.generateAnimations = function() {
   const player1Code = processAnimation('player1', usePlayer1Storage());
   return player0Code + '\n\n\n' + player1Code;
 };
-
+import background from './bbasic/background';
 import collision from './bbasic/collision';
 import colour from './bbasic/colour';
 import input from './bbasic/input';
@@ -413,7 +413,7 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[collision, colour, input, logic, loops, math, procedures, sprites, score, text, variables]
+[background, collision, colour, input, logic, loops, math, procedures, sprites, score, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
