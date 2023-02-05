@@ -2,15 +2,46 @@
 
 import * as Blockly from 'blockly/core';
 
+import {useBackgroundsStorage} from '../hooks/project';
+import {playfieldToMatrix} from '../utils/pixels';
 import {BACKGROUND_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
 
-const buildPlayerOptions = (name) => [
-  ['\u2195 X', `${name}x`],
-  ['\u2195 Y', `${name}y`],
-  [1111 + ' Color', `${name}color`],
-];
+const backgroundsStorage = useBackgroundsStorage();
+
+const buildBackgroundOptions = () => {
+  try {
+    // TODO: Share this constant with BackgroundEditor.vue
+    const defaultBackgrounds = {
+      backgrounds: [
+        {
+          id: 1,
+          name: 'Test 1',
+          pixels: playfieldToMatrix(
+              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
+              'X....X...................X....X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X.............................X\n' +
+              'X....X...................X....X\n' +
+              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
+        },
+      ],
+    };
+
+    const background = backgroundsStorage.value || defaultBackgrounds;
+
+    return background.backgrounds.map(({id, name}) => [name || `Unnamed ${id}`, `${id}`]);
+  } catch (e) {
+    console.error('Failed to list background options', e);
+    return [[1, 'Error']];
+  }
+};
 
 Blockly.defineBlocksWithJsonArray([
   // Block for selecting a background.
@@ -21,7 +52,7 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'field_dropdown',
         'name': 'VAR',
-        'options': buildPlayerOptions('bob'),
+        'options': buildBackgroundOptions(),
       },
     ],
     'output': 'Number',
