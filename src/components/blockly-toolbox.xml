@@ -123,6 +123,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_set_select"></block>
     </category>
     <category name="Score" colour="#f2691e">
         <block type="score_get"></block>

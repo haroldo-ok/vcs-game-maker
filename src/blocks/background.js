@@ -72,6 +72,22 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
-    'tooltip': `Updates the score`,
+    'tooltip': `Updates the background`,
+  },
+  // Block for the setter with an internal select
+  {
+    'type': `background_set_select`,
+    'message0': `${BACKGROUND_ICON} Background: %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': buildBackgroundOptions(),
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Updates the background`,
   },
 ]);
