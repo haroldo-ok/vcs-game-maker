@@ -33,4 +33,13 @@ export default (Blockly) => {
         block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
     return varName + ' = ' + argument0 + '\n';
   };
+
+  Blockly.BBasic['math_change'] = function(block) {
+    // Variable increment.
+    const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const varName = Blockly.BBasic.nameDB_.getName(
+        block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+    return varName + ' = ' + varName + ' + ' + argument0 + '\n';
+  };
 };
