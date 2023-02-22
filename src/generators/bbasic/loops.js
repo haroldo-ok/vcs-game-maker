@@ -32,18 +32,26 @@ export default (Blockly) => {
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block);
     let code = '';
+    /*
     const loopVar = Blockly.BBasic.nameDB_.getDistinctName(
         'count', Blockly.VARIABLE_CATEGORY_NAME);
+        */
     let endVar = repeats;
     if (!repeats.match(/^\w+$/) && !Blockly.isNumber(repeats)) {
       endVar = Blockly.BBasic.nameDB_.getDistinctName(
           'repeat_end', Blockly.VARIABLE_CATEGORY_NAME);
       code += 'var ' + endVar + ' = ' + repeats + ';\n';
     }
-    code += 'for (var ' + loopVar + ' = 0; ' +
-      loopVar + ' < ' + endVar + '; ' +
-      loopVar + '++) {\n' +
-      branch + '}\n';
+
+    if (!branch.trim()) {
+      branch = 'a = a';
+    }
+
+    branch = branch.replace(/\s*\n\s*/g, ' : ').trim().replace(/\s*:\s*$/g, '');
+    code += 'for loopcounter = 1 to ' + endVar + ': ' +
+      branch +
+      ' : next\n';
+
     return code;
   };
 
