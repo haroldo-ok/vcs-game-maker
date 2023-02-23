@@ -175,6 +175,7 @@ Blockly.BBasic.finish = function(code) {
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
+  code = code.replace(/^[\t ]*@/gm, '');
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();

@@ -61,22 +61,22 @@ export default (Blockly) => {
   Blockly.BBasic['controls_whileUntil'] = function(block) {
   // Do while/until loop.
     const labelName = Blockly.BBasic.nameDB_.getName('while', Blockly.PROCEDURE_CATEGORY_NAME);
-    const startLabelName = labelName + '_start';
-    const endLabelName = labelName + '_end';
+    const startLabelName = labelName + 'start';
+    const endLabelName = labelName + 'end';
     const until = block.getFieldValue('MODE') == 'UNTIL';
     let argument0 = Blockly.BBasic.valueToCode(block, 'BOOL',
       until ? Blockly.BBasic.ORDER_LOGICAL_NOT :
       Blockly.BBasic.ORDER_NONE) || 'false';
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
-    branch = Blockly.BBasic.addLoopTrap(branch, block);
+    branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
     if (!until) {
-      argument0 = '!' + argument0;
+      argument0 = '!' + argument0; // eslint-disable-line
     }
-    return startLabelName + '\n' +
+    return '@' + startLabelName + '\n' +
       'if ' + argument0 + ' then goto ' + endLabelName + '\n' +
       branch + '\n' +
       'goto ' + startLabelName + '\n' +
-      endLabelName;
+      '@' + endLabelName;
   };
 
   Blockly.BBasic['controls_for'] = function(block) {
