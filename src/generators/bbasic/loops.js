@@ -32,18 +32,26 @@ export default (Blockly) => {
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block);
     let code = '';
+    /*
     const loopVar = Blockly.BBasic.nameDB_.getDistinctName(
         'count', Blockly.VARIABLE_CATEGORY_NAME);
+        */
     let endVar = repeats;
     if (!repeats.match(/^\w+$/) && !Blockly.isNumber(repeats)) {
       endVar = Blockly.BBasic.nameDB_.getDistinctName(
           'repeat_end', Blockly.VARIABLE_CATEGORY_NAME);
       code += 'var ' + endVar + ' = ' + repeats + ';\n';
     }
-    code += 'for (var ' + loopVar + ' = 0; ' +
-      loopVar + ' < ' + endVar + '; ' +
-      loopVar + '++) {\n' +
-      branch + '}\n';
+
+    if (!branch.trim()) {
+      branch = 'a = a';
+    }
+
+    branch = branch.replace(/\s*\n\s*/g, ' : ').trim().replace(/\s*:\s*$/g, '');
+    code += 'for loopcounter = 1 to ' + endVar + ': ' +
+      branch +
+      ' : next\n';
+
     return code;
   };
 
@@ -52,16 +60,23 @@ export default (Blockly) => {
 
   Blockly.BBasic['controls_whileUntil'] = function(block) {
   // Do while/until loop.
+    const labelName = Blockly.BBasic.nameDB_.getName('while', Blockly.PROCEDURE_CATEGORY_NAME);
+    const startLabelName = labelName + 'start';
+    const endLabelName = labelName + 'end';
     const until = block.getFieldValue('MODE') == 'UNTIL';
     let argument0 = Blockly.BBasic.valueToCode(block, 'BOOL',
       until ? Blockly.BBasic.ORDER_LOGICAL_NOT :
       Blockly.BBasic.ORDER_NONE) || 'false';
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
-    branch = Blockly.BBasic.addLoopTrap(branch, block);
-    if (until) {
-      argument0 = '!' + argument0;
+    branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
+    if (!until) {
+      argument0 = '!' + argument0; // eslint-disable-line
     }
-    return 'while (' + argument0 + ') {\n' + branch + '}\n';
+    return '@' + startLabelName + '\n' +
+      'if ' + argument0 + ' then goto ' + endLabelName + '\n' +
+      branch + '\n' +
+      'goto ' + startLabelName + '\n' +
+      '@' + endLabelName;
   };
 
   Blockly.BBasic['controls_for'] = function(block) {
