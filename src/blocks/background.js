@@ -90,4 +90,14 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Updates the background`,
   },
+  // Block for drawing the screen
+  {
+    'type': `draw_screen`,
+    'message0': `Draw screen`,
+    'args0': [],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Draws the screen`,
+  },
 ]);
