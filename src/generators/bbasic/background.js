@@ -12,10 +12,18 @@ export default (Blockly) => {
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     return 'newbackground = ' + argument0 + '\n';
   };
+
   Blockly.BBasic[`background_set_select`] = function(block) {
     // Score setter.
     const argument0 = block.getFieldValue('VAR') || 0;
     return 'newbackground = ' + argument0 + '\n';
+  };
+
+  Blockly.BBasic[`draw_screen`] = function(block) {
+    // Draw screen.
+    return 'COLUP1 = player1color\n' +
+      'COLUP0 = player0color\n' +
+      'drawscreen\n';
   };
 };
 
