@@ -48,7 +48,7 @@ export default (Blockly) => {
   // Comparison operator.
     const OPERATORS = {
       'EQ': '=',
-      'NEQ': '!=',
+      'NEQ': '<>',
       'LT': '<',
       'LTE': '<=',
       'GT': '>',
