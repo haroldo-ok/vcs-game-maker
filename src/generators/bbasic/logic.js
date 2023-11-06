@@ -47,7 +47,7 @@ export default (Blockly) => {
   Blockly.BBasic['logic_compare'] = function(block) {
   // Comparison operator.
     const OPERATORS = {
-      'EQ': '==',
+      'EQ': '=',
       'NEQ': '!=',
       'LT': '<',
       'LTE': '<=',
