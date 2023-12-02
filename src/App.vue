@@ -163,6 +163,7 @@
       app
       clipped
       right
+      permanent
     >
       <div id="javatari-target-container"></div>
       <v-btn block color="primary" @click="handleRomDownload">
