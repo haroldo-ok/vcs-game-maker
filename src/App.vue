@@ -20,11 +20,32 @@
         flat
         class="navigation-list"
       >
-        <v-btn to="/" link class="actions-item" title="Actions">
+        <v-btn to="/" link class="actions-item" title="Actions" elevation="0">
           <v-icon>mdi-chart-scatter-plot</v-icon>
         </v-btn>
-        <v-btn to="/player0" link class="player0-item" title="Player 0">
+
+        <v-btn to="/player0" link class="player0-item" title="Player 0" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
+        </v-btn>
+
+        <v-btn to="/player1" link class="player1-item" title="Player 1" elevation="0">
+          <v-icon>mdi-human-handsup</v-icon>
+        </v-btn>
+
+        <v-btn to="/background" link class="background-item" title="Background" elevation="0">
+          <v-icon>mdi-map</v-icon>
+        </v-btn>
+
+        <v-btn to="/sound" link class="sound-item" title="Sound" elevation="0">
+          <v-icon>mdi-speaker</v-icon>
+        </v-btn>
+
+        <v-btn to="/generated" link class="generated-item" title="Generated" elevation="0">
+          <v-icon>mdi-card-text</v-icon>
+        </v-btn>
+
+        <v-btn to="/project" link class="project-item" title="Project" elevation="0">
+          <v-icon>mdi-pencil-ruler</v-icon>
         </v-btn>
       </v-toolbar>
     </v-app-bar>
