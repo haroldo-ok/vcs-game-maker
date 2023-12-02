@@ -16,18 +16,17 @@
       flat
       height="72"
     >
-      <v-spacer></v-spacer>
-      Insert here!
-
-      <v-responsive max-width="156">
-        <v-text-field
-          dense
-          flat
-          hide-details
-          rounded
-          solo-inverted
-        ></v-text-field>
-      </v-responsive>
+      <v-toolbar
+        flat
+        class="navigation-list"
+      >
+        <v-btn to="/" link class="actions-item" title="Actions">
+          <v-icon>mdi-chart-scatter-plot</v-icon>
+        </v-btn>
+        <v-btn to="/player0" link class="player0-item" title="Player 0">
+          <v-icon>mdi-human-handsup</v-icon>
+        </v-btn>
+      </v-toolbar>
     </v-app-bar>
 
     <v-navigation-drawer
