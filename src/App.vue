@@ -174,6 +174,12 @@
     <v-main>
       <router-view/>
     </v-main>
+
+    <v-footer class="error-message">
+      aaaaaaaa
+      bbbbb
+      cccc
+    </v-footer>
   </v-app>
 </template>
 
@@ -257,5 +263,13 @@ export default {
 .project-item > .v-list-item__content {
   color: rgb(39, 136, 176) !important;
   border-left-color: rgb(39, 136, 176) !important;
+}
+
+.error-message {
+  z-index: 3;
+}
+
+.theme--light.v-footer.error-message {
+  color: rgb(244, 67, 54);
 }
 </style>
