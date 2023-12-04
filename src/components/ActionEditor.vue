@@ -26,6 +26,11 @@ import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 
+const showError = (errorStorage, msg, e) => {
+  console.error(msg, e);
+  errorStorage.value = `${msg}: ${e}`;
+};
+
 export default {
   components: {BlocklyComponent},
   name: 'HelloWorld',
@@ -57,8 +62,7 @@ export default {
         // TODO: Implement this without a global variable
         Javatari.compiledResult = compiledResult;
       } catch (e) {
-        console.error('Error while compiling bBasic code.', e);
-        this.errorStorage.value = 'Error while compiling bBasic code: ' + e;
+        showError(this.errorStorage, 'Error while compiling bBasic code.', e);
       }
     },
   },
@@ -68,7 +72,7 @@ export default {
         try {
           return this.workspaceStorage.value||'';
         } catch (e) {
-          console.error('Error loading workspace from local storage', e);
+          showError(this.errorStorage, 'Error loading workspace from local storage', e);
           return '';
         }
       },
