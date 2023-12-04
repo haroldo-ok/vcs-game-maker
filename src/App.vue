@@ -273,6 +273,8 @@ export default {
 
 .error-message {
   z-index: 10;
+  max-height: 7em;
+  overflow-y: scroll;
 }
 
 .theme--light.v-footer.error-message {
