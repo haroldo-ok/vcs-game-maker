@@ -176,16 +176,19 @@
     </v-main>
 
     <v-footer class="error-message">
-      aaaaaaaa
-      bbbbb
-      cccc
+      <pre v-text="errorStorage"></pre>
     </v-footer>
   </v-app>
 </template>
 
 <script>
+import {useErrorStorage} from './hooks/project';
+
 export default {
-  data: () => ({drawer: null}),
+  data: () => ({
+    drawer: null,
+    errorStorage: useErrorStorage(),
+  }),
   mounted() {
     // Ugly hack in order to move the Javatari screen to a Vue component.
     const javatariScreen = document.getElementById('javatari-screen');
@@ -266,7 +269,7 @@ export default {
 }
 
 .error-message {
-  z-index: 3;
+  z-index: 10;
 }
 
 .theme--light.v-footer.error-message {

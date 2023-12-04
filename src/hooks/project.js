@@ -9,4 +9,4 @@ export const useWorkspaceStorage = () => useProjectStorage('workspace');
 export const useBackgroundsStorage = () => useJsonProjectStorage('backgrounds');
 export const usePlayer0Storage = () => useJsonProjectStorage('player0');
 export const usePlayer1Storage = () => useJsonProjectStorage('player1');
-
+export const useErrorStorage = () => useJsonProjectStorage('error');

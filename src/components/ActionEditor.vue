@@ -23,7 +23,7 @@ import '../blocks/sprites';
 import '../blocks/score';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
-import {useWorkspaceStorage} from '../hooks/project';
+import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 
 export default {
@@ -43,6 +43,7 @@ export default {
       toolbox: blocklyToolbox,
     },
     workspaceStorage: useWorkspaceStorage(),
+    errorStorage: useErrorStorage(),
   }),
   methods: {
     showCode() {
@@ -56,6 +57,7 @@ export default {
         Javatari.compiledResult = compiledResult;
       } catch (e) {
         console.error('Error while compiling bBasic code.', e);
+        this.errorStorage.value = 'Error while compiling bBasic code: ' + msg;
       }
     },
   },
