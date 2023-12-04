@@ -60,6 +60,7 @@ export default {
         console.error('Error while compiling bBasic code.', e);
         this.errorStorage.value = 'Error while compiling bBasic code: ' + e;
       }
+      this.$forceUpdate();
     },
   },
   computed: {
