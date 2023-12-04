@@ -187,8 +187,11 @@ import {useErrorStorage} from './hooks/project';
 export default {
   data: () => ({
     drawer: null,
-    errorStorage: useErrorStorage(),
   }),
+  setup() {
+    const errorStorage = useErrorStorage();
+    return {errorStorage};
+  },
   mounted() {
     // Ugly hack in order to move the Javatari screen to a Vue component.
     const javatariScreen = document.getElementById('javatari-screen');

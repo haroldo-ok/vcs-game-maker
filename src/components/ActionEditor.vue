@@ -50,6 +50,7 @@ export default {
       const code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
       this.generatedBasic.value = code;
       try {
+        this.errorStorage.value = '';
         const compiledResult = bBasic(code);
         Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
 
@@ -57,7 +58,7 @@ export default {
         Javatari.compiledResult = compiledResult;
       } catch (e) {
         console.error('Error while compiling bBasic code.', e);
-        this.errorStorage.value = 'Error while compiling bBasic code: ' + msg;
+        this.errorStorage.value = 'Error while compiling bBasic code: ' + e;
       }
     },
   },
