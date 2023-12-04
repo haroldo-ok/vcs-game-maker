@@ -26,9 +26,30 @@ import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 
-const showError = (errorStorage, msg, e) => {
+const preprocessError = (code, e) => {
+  if (!code) return e;
+  try {
+    const codeLines = code.split('\n');
+
+    return `${e}`.split('\n')
+        .map((line) => {
+          const parts = /^Line (\d+):\s*(.*)/g.exec(line);
+          if (!parts) return line;
+
+          const position = parseInt(parts[1]);
+          const rest = parts[2];
+          return `Line ${position}: ${rest}` + '\n' + codeLines[position - 1];
+        })
+        .join('\n');
+  } catch (e2) {
+    logger.warn('Error while preprocessing error message', e2);
+    return e;
+  }
+};
+
+const showError = (errorStorage, msg, code, e) => {
   console.error(msg, e);
-  errorStorage.value = `${msg}: ${e}`;
+  errorStorage.value = `${msg}: ${preprocessError(code, e)}`;
 };
 
 export default {
@@ -62,7 +83,7 @@ export default {
         // TODO: Implement this without a global variable
         Javatari.compiledResult = compiledResult;
       } catch (e) {
-        showError(this.errorStorage, 'Error while compiling bBasic code.', e);
+        showError(this.errorStorage, 'Error while compiling bBasic code.', code, e);
       }
     },
   },
@@ -72,7 +93,7 @@ export default {
         try {
           return this.workspaceStorage.value||'';
         } catch (e) {
-          showError(this.errorStorage, 'Error loading workspace from local storage', e);
+          showError(this.errorStorage, 'Error loading workspace from local storage', '', e);
           return '';
         }
       },
