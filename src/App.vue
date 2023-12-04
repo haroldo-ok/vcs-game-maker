@@ -174,12 +174,24 @@
     <v-main>
       <router-view/>
     </v-main>
+
+    <v-footer class="error-message">
+      <pre v-text="errorStorage"></pre>
+    </v-footer>
   </v-app>
 </template>
 
 <script>
+import {useErrorStorage} from './hooks/project';
+
 export default {
-  data: () => ({drawer: null}),
+  data: () => ({
+    drawer: null,
+  }),
+  setup() {
+    const errorStorage = useErrorStorage();
+    return {errorStorage};
+  },
   mounted() {
     // Ugly hack in order to move the Javatari screen to a Vue component.
     const javatariScreen = document.getElementById('javatari-screen');
@@ -257,5 +269,15 @@ export default {
 .project-item > .v-list-item__content {
   color: rgb(39, 136, 176) !important;
   border-left-color: rgb(39, 136, 176) !important;
+}
+
+.error-message {
+  z-index: 10;
+  max-height: 7em;
+  overflow-y: scroll;
+}
+
+.theme--light.v-footer.error-message {
+  color: rgb(244, 67, 54);
 }
 </style>
