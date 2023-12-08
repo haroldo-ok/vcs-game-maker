@@ -146,6 +146,7 @@
             </value>
         </block>
         <block type="background_set_select"></block>
+        <block type="background_set_color"></block>        
         <block type="draw_screen"></block>
     </category>
     <category name="Score" colour="#f2691e">
