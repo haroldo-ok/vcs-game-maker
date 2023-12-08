@@ -4,7 +4,7 @@ import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage} from '../hooks/project';
 import {playfieldToMatrix} from '../utils/pixels';
-import {BACKGROUND_ICON} from './icon';
+import {BACKGROUND_ICON, COLOR_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
 
@@ -89,6 +89,29 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Updates the background`,
+  },
+  // Block for the color setter.
+  {
+    'type': `background_set_color`,
+    'message0': `${BACKGROUND_ICON} Background: set %1 ${COLOR_ICON} color to: %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': [
+          ['Background', `COLUBK`],
+          ['Playfield', `COLUPF`],
+        ],
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Sets the background color`,
   },
   // Block for drawing the screen
   {

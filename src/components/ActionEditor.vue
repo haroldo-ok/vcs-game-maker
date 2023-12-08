@@ -73,7 +73,14 @@ export default {
   }),
   methods: {
     showCode() {
-      const code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+      let code;
+      try {
+        code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
+      } catch (e) {
+        showError(this.errorStorage, 'Error while generating bBasic code', code, e);
+        return;
+      }
+
       this.generatedBasic.value = code;
       try {
         this.errorStorage.value = '';
@@ -83,7 +90,7 @@ export default {
         // TODO: Implement this without a global variable
         Javatari.compiledResult = compiledResult;
       } catch (e) {
-        showError(this.errorStorage, 'Error while compiling bBasic code.', code, e);
+        showError(this.errorStorage, 'Error while compiling bBasic code', code, e);
       }
     },
   },
