@@ -93,8 +93,16 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the color setter.
   {
     'type': `background_set_color`,
-    'message0': `${BACKGROUND_ICON} Background: set ${COLOR_ICON} color of the ??? to: %1`,
+    'message0': `${BACKGROUND_ICON} Background: set %1 ${COLOR_ICON} color to: %2`,
     'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': [
+          ['Background', `COLUBK`],
+          ['Playfield', `COLUPF`],
+        ],
+      },
       {
         'type': 'input_value',
         'name': 'VALUE',
