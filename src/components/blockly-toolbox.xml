@@ -135,6 +135,7 @@
         <block type="input_joy1_get"></block>
 
         <block type="collision_get"></block>
+        <block type="random_get"></block>
     </category>
     <category name="Background" colour="#ffa500">
         <block type="background_select"></block>
