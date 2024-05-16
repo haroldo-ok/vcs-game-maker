@@ -21,6 +21,7 @@ import '../blocks/collision';
 import '../blocks/input';
 import '../blocks/sprites';
 import '../blocks/score';
+import '../blocks/random';
 import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
