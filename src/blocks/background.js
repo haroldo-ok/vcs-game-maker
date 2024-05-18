@@ -10,31 +10,38 @@ const BACKGROUND_COLOR = '#ffa500';
 
 const backgroundsStorage = useBackgroundsStorage();
 
+export const DEFAULT_BACKGROUNDS = {
+  backgrounds: [
+    {
+      id: 1,
+      name: 'Test 1',
+      pixels: playfieldToMatrix(
+          'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
+        'X....X...................X....X\n' +
+        'X.............................X\n' +
+        'X.............................X\n' +
+        'X.............................X\n' +
+        'X.............................X\n' +
+        'X.............................X\n' +
+        'X.............................X\n' +
+        'X.............................X\n' +
+        'X....X...................X....X\n' +
+        'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
+    },
+  ],
+};
+
+export const processBackgroundStorageDefaults = (backgroundsStorage) => {
+  const backgrounds = backgroundsStorage.value;
+  if (!backgrounds || !backgrounds.backgrounds || !backgrounds.backgrounds.length) {
+    return structuredClone(DEFAULT_BACKGROUNDS);
+  }
+  return backgrounds;
+};
+
 const buildBackgroundOptions = () => {
   try {
-    // TODO: Share this constant with BackgroundEditor.vue
-    const defaultBackgrounds = {
-      backgrounds: [
-        {
-          id: 1,
-          name: 'Test 1',
-          pixels: playfieldToMatrix(
-              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
-              'X....X...................X....X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X....X...................X....X\n' +
-              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
-        },
-      ],
-    };
-
-    const background = backgroundsStorage.value || defaultBackgrounds;
+    const background = processBackgroundStorageDefaults(backgroundsStorage);
 
     return background.backgrounds.map(({id, name}) => [name || `Unnamed ${id}`, `${id}`]);
   } catch (e) {
