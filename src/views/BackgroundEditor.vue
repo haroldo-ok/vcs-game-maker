@@ -85,39 +85,19 @@ import {max} from 'lodash';
 import PixelEditor from '../components/PixelEditor.vue';
 import {useBackgroundsStorage} from '../hooks/project';
 import {playfieldToMatrix} from '../utils/pixels';
+import {DEFAULT_BACKGROUNDS, processBacgroundStorageDefaults} from '../blocks/background';
 
 export default defineComponent({
   components: {PixelEditor},
   setup() {
-    const defaultBackgrounds = {
-      backgrounds: [
-        {
-          id: 1,
-          name: 'Test 1',
-          pixels: playfieldToMatrix(
-              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
-              'X....X...................X....X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X.............................X\n' +
-              'X....X...................X....X\n' +
-              'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
-        },
-      ],
-    };
-
     const backgroundsStorage = useBackgroundsStorage();
     const state = computed({
       get() {
         try {
-          return backgroundsStorage.value || defaultBackgrounds;
+          return processBacgroundStorageDefaults(backgroundsStorage);
         } catch (e) {
           console.error('Error loading backgrounds from local storage', e);
-          return defaultBackgrounds;
+          return DEFAULT_BACKGROUNDS;
         }
       },
 
