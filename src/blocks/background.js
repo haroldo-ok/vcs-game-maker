@@ -10,7 +10,7 @@ const BACKGROUND_COLOR = '#ffa500';
 
 const backgroundsStorage = useBackgroundsStorage();
 
-const DEFAULT_BACKGROUNDS = {
+export const DEFAULT_BACKGROUNDS = {
   backgrounds: [
     {
       id: 1,
@@ -31,12 +31,17 @@ const DEFAULT_BACKGROUNDS = {
   ],
 };
 
-export const processBacgroundStorageDefaults = (backgroundsStorage) =>
-  backgroundsStorage.value || DEFAULT_BACKGROUNDS;
+export const processBackgroundStorageDefaults = (backgroundsStorage) => {
+  const backgrounds = backgroundsStorage.value;
+  if (!backgrounds || !backgrounds.backgrounds || !backgrounds.backgrounds.length) {
+    return structuredClone(DEFAULT_BACKGROUNDS);
+  }
+  return backgrounds;
+};
 
 const buildBackgroundOptions = () => {
   try {
-    const background = processBacgroundStorageDefaults(backgroundsStorage);
+    const background = processBackgroundStorageDefaults(backgroundsStorage);
 
     return background.backgrounds.map(({id, name}) => [name || `Unnamed ${id}`, `${id}`]);
   } catch (e) {

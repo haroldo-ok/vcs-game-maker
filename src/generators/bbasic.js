@@ -16,6 +16,7 @@ import Handlebars from 'handlebars';
 import {sumBy} from 'lodash';
 
 import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
+import {processBackgroundStorageDefaults} from '../blocks/background';
 import {matrixToPlayfield} from '../utils/pixels';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -335,7 +336,7 @@ Blockly.BBasic.generateBackgrounds = function() {
 
   let backgroundData = null;
   try {
-    backgroundData = backgroundsStorage.value;
+    backgroundData = processBackgroundStorageDefaults(backgroundsStorage);
   } catch (e) {
     console.error('Failed to load backgrounds', e);
   }
