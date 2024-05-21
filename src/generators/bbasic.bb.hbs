@@ -40,7 +40,9 @@ end
  dim player1frame = z
  dim newbackground = y
  dim loopcounter = w
-
+ dim channnel0duration = v
+ dim channnel1duration = u
+ 
  newbackground = 1
 
  player0x = 75 : player0y = 75
@@ -87,6 +89,15 @@ backgroundchangeend
  rem End of generated code.
  rem **************************************************************************
  
+ rem **************************************************************************
+ rem Sound handling.
+ rem **************************************************************************
+
+ if channnel0duration = 1 then AUDV0 = 0
+ if channnel0duration <> 0 then channnel0duration = channnel0duration - 1
+
+ if channnel1duration = 1 then AUDV1 = 0
+ if channnel1duration <> 0 then channnel1duration = channnel1duration - 1
 
  goto main
  

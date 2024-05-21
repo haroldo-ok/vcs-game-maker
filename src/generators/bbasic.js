@@ -412,11 +412,12 @@ import math from './bbasic/math';
 import procedures from './bbasic/procedures';
 import random from './bbasic/random';
 import score from './bbasic/score';
+import sound from './bbasic/sound';
 import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[background, collision, colour, input, logic, loops, math, procedures, random, sprites, score, text, variables]
+[background, collision, colour, input, logic, loops, math, procedures, random, score, sound, sprites, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
