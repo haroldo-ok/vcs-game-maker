@@ -173,4 +173,7 @@
             </value>
         </block>
     </category>
+    <category name="Sound" colour="rgb(156, 39, 176)">
+        <block type="simple_sound_set"></block>
+    </category>
 </xml>
