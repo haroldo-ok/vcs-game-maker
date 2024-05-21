@@ -6,10 +6,12 @@ export default (Blockly) => {
     const audf = block.getFieldValue('AUDF');
     const audv = block.getFieldValue('AUDV');
     const channel = block.getFieldValue('CHANNEL');
+    const duration = block.getFieldValue('DURATION');
     const code = `AUDV${channel}=0\n` +
       `AUDC${channel}=${audc}\n` +
       `AUDF${channel}=${audf}\n` +
-      `AUDV${channel}=${audv}\n`;
+      `AUDV${channel}=${audv}\n` +
+      `channnel${channel}duration=${duration}\n`;
     return code;
   };
 };

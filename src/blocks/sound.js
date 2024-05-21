@@ -67,7 +67,7 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'field_number',
         'name': 'DURATION',
-        'value': 255,
+        'value': 20,
       },
       {
         'type': 'field_dropdown',
