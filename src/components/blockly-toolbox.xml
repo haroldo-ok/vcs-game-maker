@@ -176,4 +176,46 @@
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
     </category>
+    <category name="Examples" colour="cyan">
+        <category name="Player 0 movement" colour="red">
+            <category name="Player 0 simple left / right" colour="red">
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="input_joy0_get">
+                        <field name="VAR">joy0right</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="sprite_player0_change">
+                        <field name="VAR">player0x</field>
+                        <value name="DELTA">
+                            <shadow type="math_number">
+                            <field name="NUM">1</field>
+                            </shadow>
+                        </value>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="controls_if">
+                        <value name="IF0">
+                            <block type="input_joy0_get">
+                            <field name="VAR">joy0left</field>
+                            </block>
+                        </value>
+                        <statement name="DO0">
+                            <block type="sprite_player0_change">
+                            <field name="VAR">player0x</field>
+                            <value name="DELTA">
+                                <shadow type="math_number">
+                                <field name="NUM">-1</field>
+                                </shadow>
+                            </value>
+                            </block>
+                        </statement>
+                        </block>
+                    </next>
+                </block>
+            </category>
+        </category>
+    </category>
 </xml>
