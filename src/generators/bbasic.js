@@ -187,9 +187,8 @@ Blockly.BBasic.finish = function(code) {
   code = Object.getPrototypeOf(this).finish.call(this, code);
   // Normalize indents
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
-  code = code.replace(/^[\t ]*@/gm, '');
-  // Convert labels
-  code = code.replace(/^[\t ]*LABEL\s/gm, '');
+  // Convert indent for labels
+  code = code.replace(/^[\t ]*@\s*/gm, '');
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();

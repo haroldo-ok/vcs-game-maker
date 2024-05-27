@@ -33,10 +33,10 @@ export default (Blockly) => {
       branchCode = 'a = a';
     }
     code += [`  if ${conditionCode} then goto ${labelStart} else goto ${labelStart}_end`,
-      `LABEL ${labelStart}`,
+      `@ ${labelStart}`,
       branchCode +
       (hasElseBlock ? `\ngoto ${labelStart}_else_end` : ''),
-      `LABEL ${labelStart}_end`,
+      `@ ${labelStart}_end`,
     ].join('\n');
 
     if (hasElseBlock) {
@@ -47,7 +47,7 @@ export default (Blockly) => {
                 block), Blockly.BBasic.INDENT) + branchCode;
       }
       code += '\n' + branchCode +
-        `LABEL ${labelStart}_else_end`;
+        `@ ${labelStart}_else_end`;
     }
     return '\n' + code + '\n';
   };
