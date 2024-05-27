@@ -26,24 +26,28 @@ export default (Blockly) => {
 
     const conditionCode = Blockly.BBasic.valueToCode(block, 'IF0',
         Blockly.BBasic.ORDER_NONE) || '0';
+    const hasElseBlock = block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX;
+
     branchCode = Blockly.BBasic.statementToCode(block, 'DO0').trim();
     if (!branchCode.trim()) {
       branchCode = 'a = a';
     }
     code += [`  if ${conditionCode} then goto ${labelStart} else goto ${labelStart}_end`,
       `LABEL ${labelStart}`,
-      branchCode,
-      `\nLABEL ${labelStart}_end`,
+      branchCode +
+      (hasElseBlock ? `\ngoto ${labelStart}_else_end` : ''),
+      `LABEL ${labelStart}_end`,
     ].join('\n');
 
-    if (block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX) {
+    if (hasElseBlock) {
       branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
       if (Blockly.BBasic.STATEMENT_SUFFIX) {
         branchCode = Blockly.BBasic.prefixLines(
             Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
                 block), Blockly.BBasic.INDENT) + branchCode;
       }
-      code += ' else {\n' + branchCode + '}';
+      code += '\n' + branchCode +
+        `LABEL ${labelStart}_else_end`;
     }
     return '\n' + code + '\n';
   };
