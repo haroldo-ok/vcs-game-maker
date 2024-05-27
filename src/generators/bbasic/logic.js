@@ -19,27 +19,37 @@ goog.require('Blockly.BBasic');
 export default (Blockly) => {
   Blockly.BBasic['controls_if'] = function(block) {
   // If/elseif/else condition.
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelStart = `_if_${blockNumber}`;
+
     let code = ''; let branchCode;
 
     const conditionCode = Blockly.BBasic.valueToCode(block, 'IF0',
         Blockly.BBasic.ORDER_NONE) || '0';
-    branchCode = Blockly.BBasic.statementToCode(block, 'DO0').replace(/\s*\n\s*/g, ' : ').trim()
-        .replace(/\s*:\s*$/g, '');
+    const hasElseBlock = block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX;
+
+    branchCode = Blockly.BBasic.statementToCode(block, 'DO0').trim();
     if (!branchCode.trim()) {
       branchCode = 'a = a';
     }
-    code += '  if ' + conditionCode + ' then ' + branchCode;
+    code += [`  if ${conditionCode} then goto ${labelStart} else goto ${labelStart}_end`,
+      `@ ${labelStart}`,
+      branchCode +
+      (hasElseBlock ? `\ngoto ${labelStart}_else_end` : ''),
+      `@ ${labelStart}_end`,
+    ].join('\n');
 
-    if (block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX) {
+    if (hasElseBlock) {
       branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
       if (Blockly.BBasic.STATEMENT_SUFFIX) {
         branchCode = Blockly.BBasic.prefixLines(
             Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
                 block), Blockly.BBasic.INDENT) + branchCode;
       }
-      code += ' else {\n' + branchCode + '}';
+      code += '\n' + branchCode +
+        `@ ${labelStart}_else_end`;
     }
-    return code + '\n';
+    return '\n' + code + '\n';
   };
 
   Blockly.BBasic['controls_ifelse'] = Blockly.BBasic['controls_if'];
