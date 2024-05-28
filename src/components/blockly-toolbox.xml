@@ -176,4 +176,368 @@
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
     </category>
+    <category name="Examples" colour="cyan">
+        <category name="Player 0 movement" colour="red">
+
+            <category name="Player 0 simple left / right" colour="red">
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="input_joy0_get">
+                        <field name="VAR">joy0right</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="sprite_player0_change">
+                        <field name="VAR">player0x</field>
+                        <value name="DELTA">
+                            <shadow type="math_number">
+                            <field name="NUM">1</field>
+                            </shadow>
+                        </value>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="controls_if">
+                        <value name="IF0">
+                            <block type="input_joy0_get">
+                            <field name="VAR">joy0left</field>
+                            </block>
+                        </value>
+                        <statement name="DO0">
+                            <block type="sprite_player0_change">
+                            <field name="VAR">player0x</field>
+                            <value name="DELTA">
+                                <shadow type="math_number">
+                                <field name="NUM">-1</field>
+                                </shadow>
+                            </value>
+                            </block>
+                        </statement>
+                        </block>
+                    </next>
+                </block>
+            </category>
+
+            <category name="Player 0 left / right with background collision" colour="red">
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="logic_operation">
+                        <field name="OP">AND</field>
+                        <value name="A">
+                            <block type="variables_get">
+                            <field name="VAR">Player 0 X Speed</field>
+                            </block>
+                        </value>
+                        <value name="B">
+                            <block type="collision_get">
+                            <field name="VAR0">player0</field>
+                            <field name="VAR1">playfield</field>
+                            </block>
+                        </value>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="variables_set">
+                        <field name="VAR">Player 0 X Speed</field>
+                        <value name="VALUE">
+                            <block type="math_single">
+                            <field name="OP">NEG</field>
+                            <value name="NUM">
+                                <block type="variables_get">
+                                <field name="VAR">Player 0 X Speed</field>
+                                </block>
+                            </value>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="sprite_player0_change">
+                            <field name="VAR">player0x</field>
+                            <value name="DELTA">
+                                <shadow type="math_number">
+                                <field name="NUM">1</field>
+                                </shadow>
+                                <block type="variables_get">
+                                <field name="VAR">Player 0 X Speed</field>
+                                </block>
+                            </value>
+                            </block>
+                        </next>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="variables_set">
+                        <field name="VAR">Player 0 X Speed</field>
+                        <value name="VALUE">
+                            <block type="math_number">
+                            <field name="NUM">0</field>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="controls_if">
+                            <value name="IF0">
+                                <block type="input_joy0_get">
+                                <field name="VAR">joy0right</field>
+                                </block>
+                            </value>
+                            <statement name="DO0">
+                                <block type="variables_set">
+                                <field name="VAR">Player 0 X Speed</field>
+                                <value name="VALUE">
+                                    <block type="math_number">
+                                    <field name="NUM">1</field>
+                                    </block>
+                                </value>
+                                </block>
+                            </statement>
+                            <next>
+                                <block type="controls_if">
+                                <value name="IF0">
+                                    <block type="input_joy0_get">
+                                    <field name="VAR">joy0left</field>
+                                    </block>
+                                </value>
+                                <statement name="DO0">
+                                    <block type="variables_set">
+                                    <field name="VAR">Player 0 X Speed</field>
+                                    <value name="VALUE">
+                                        <block type="math_number">
+                                        <field name="NUM">255</field>
+                                        </block>
+                                    </value>
+                                    </block>
+                                </statement>
+                                <next>
+                                    <block type="sprite_player0_change">
+                                    <field name="VAR">player0x</field>
+                                    <value name="DELTA">
+                                        <shadow type="math_number">
+                                        <field name="NUM">1</field>
+                                        </shadow>
+                                        <block type="variables_get">
+                                        <field name="VAR">Player 0 X Speed</field>
+                                        </block>
+                                    </value>
+                                    </block>
+                                </next>
+                                </block>
+                            </next>
+                            </block>
+                        </next>
+                        </block>
+                    </next>
+                </block>
+            </category>
+
+            <category name="Player 0 up / down with background collision" colour="red">
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="logic_operation">
+                        <field name="OP">AND</field>
+                        <value name="A">
+                            <block type="variables_get">
+                            <field name="VAR">Player 0 Y Speed</field>
+                            </block>
+                        </value>
+                        <value name="B">
+                            <block type="collision_get">
+                            <field name="VAR0">player0</field>
+                            <field name="VAR1">playfield</field>
+                            </block>
+                        </value>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="variables_set">
+                        <field name="VAR">Player 0 Y Speed</field>
+                        <value name="VALUE">
+                            <block type="math_single">
+                            <field name="OP">NEG</field>
+                            <value name="NUM">
+                                <block type="variables_get">
+                                <field name="VAR">Player 0 Y Speed</field>
+                                </block>
+                            </value>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="sprite_player0_change">
+                            <field name="VAR">player0y</field>
+                            <value name="DELTA">
+                                <shadow xmlns="" type="math_number">
+                                <field name="NUM">1</field>
+                                </shadow>
+                                <block type="variables_get">
+                                <field name="VAR">Player 0 Y Speed</field>
+                                </block>
+                            </value>
+                            </block>
+                        </next>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="variables_set">
+                        <field name="VAR">Player 0 Y Speed</field>
+                        <value name="VALUE">
+                            <block type="math_number">
+                            <field name="NUM">0</field>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="controls_if">
+                            <value name="IF0">
+                                <block type="input_joy0_get">
+                                <field name="VAR">joy0down</field>
+                                </block>
+                            </value>
+                            <statement name="DO0">
+                                <block type="variables_set">
+                                <field name="VAR">Player 0 Y Speed</field>
+                                <value name="VALUE">
+                                    <block type="math_number">
+                                    <field name="NUM">1</field>
+                                    </block>
+                                </value>
+                                </block>
+                            </statement>
+                            <next>
+                                <block type="controls_if">
+                                <value name="IF0">
+                                    <block type="input_joy0_get">
+                                    <field name="VAR">joy0up</field>
+                                    </block>
+                                </value>
+                                <statement name="DO0">
+                                    <block type="variables_set">
+                                    <field name="VAR">Player 0 Y Speed</field>
+                                    <value name="VALUE">
+                                        <block type="math_number">
+                                        <field name="NUM">255</field>
+                                        </block>
+                                    </value>
+                                    </block>
+                                </statement>
+                                <next>
+                                    <block type="sprite_player0_change">
+                                    <field name="VAR">player0y</field>
+                                    <value name="DELTA">
+                                        <shadow xmlns="" type="math_number">
+                                        <field name="NUM">1</field>
+                                        </shadow>
+                                        <block type="variables_get">
+                                        <field name="VAR">Player 0 Y Speed</field>
+                                        </block>
+                                    </value>
+                                    </block>
+                                </next>
+                                </block>
+                            </next>
+                            </block>
+                        </next>
+                        </block>
+                    </next>
+                </block>
+            </category>
+
+            <category name="Player 0 shoots missile 0" colour="red">
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="logic_operation">
+                        <field name="OP">AND</field>
+                        <value name="A">
+                            <block type="input_joy0_get">
+                            <field name="VAR">joy0fire</field>
+                            </block>
+                        </value>
+                        <value name="B">
+                            <block type="logic_negate">
+                            <value name="BOOL">
+                                <block type="collision_get">
+                                <field name="VAR0">player0</field>
+                                <field name="VAR1">missile0</field>
+                                </block>
+                            </value>
+                            </block>
+                        </value>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="sprite_missile0_set">
+                        <field name="VAR">missile0x</field>
+                        <value name="VALUE">
+                            <shadow type="math_number">
+                            <field name="NUM">1</field>
+                            </shadow>
+                            <block type="math_arithmetic">
+                            <field name="OP">ADD</field>
+                            <value name="A">
+                                <block type="sprite_player0_get">
+                                <field name="VAR">player0x</field>
+                                </block>
+                            </value>
+                            <value name="B">
+                                <block type="math_number">
+                                <field name="NUM">5</field>
+                                </block>
+                            </value>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="sprite_missile0_set">
+                            <field name="VAR">missile0y</field>
+                            <value name="VALUE">
+                                <shadow type="math_number">
+                                <field name="NUM">1</field>
+                                </shadow>
+                                <block type="sprite_player0_get">
+                                <field name="VAR">player0y</field>
+                                </block>
+                            </value>
+                            <next>
+                                <block type="sprite_missile0_set">
+                                <field name="VAR">missile0height</field>
+                                <value name="VALUE">
+                                    <shadow type="math_number">
+                                    <field name="NUM">3</field>
+                                    </shadow>
+                                </value>
+                                </block>
+                            </next>
+                            </block>
+                        </next>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="controls_if">
+                        <value name="IF0">
+                            <block type="logic_compare">
+                            <field name="OP">GT</field>
+                            <value name="A">
+                                <block type="sprite_missile0_get">
+                                <field name="VAR">missile0y</field>
+                                </block>
+                            </value>
+                            <value name="B">
+                                <block type="math_number">
+                                <field name="NUM">0</field>
+                                </block>
+                            </value>
+                            </block>
+                        </value>
+                        <statement name="DO0">
+                            <block type="sprite_missile0_change">
+                            <field name="VAR">missile0y</field>
+                            <value name="DELTA">
+                                <shadow type="math_number">
+                                <field name="NUM">255</field>
+                                </shadow>
+                            </value>
+                            </block>
+                        </statement>
+                        </block>
+                    </next>
+                </block>
+            </category>
+
+        </category>
+    </category>
 </xml>
