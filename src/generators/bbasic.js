@@ -162,6 +162,15 @@ Blockly.BBasic.init = function(workspace) {
         .map((v, i) => `  dim ${v} = ${String.fromCharCode('a'.charCodeAt(0) + i)}`)
         .join('\n');
   }
+
+  this.blockNumbers = {
+    next: (type) => {
+      const value = (this.blockNumbers[type] || 0) + 1;
+      this.blockNumbers[type] = value;
+      return value;
+    },
+  };
+
   this.isInitialized = true;
 };
 
@@ -173,10 +182,13 @@ Blockly.BBasic.init = function(workspace) {
 Blockly.BBasic.finish = function(code) {
   // Convert the definitions dictionary into a list.
   const definitions = Blockly.utils.object.values(this.definitions_);
+
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
+  // Normalize indents
   code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
-  code = code.replace(/^[\t ]*@/gm, '');
+  // Convert indent for labels
+  code = code.replace(/^[\t ]*@\s*/gm, '');
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();
