@@ -40,6 +40,14 @@ export const DEFAULT_SPRITES={
   ],
 };
 
+export const processPlayerStorageDefaults = (playerStorage) => {
+  const player = playerStorage.value;
+  if (!player?.animations?.length) {
+    return structuredClone(DEFAULT_SPRITES);
+  }
+  return player;
+};
+
 export default (Blockly) => {
   const createGeneratorForSprite = (name) => {
     Blockly.BBasic[`sprite_${name}_get`] = function(block) {

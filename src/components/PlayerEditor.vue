@@ -97,7 +97,7 @@ import {computed, defineComponent, getCurrentInstance} from '@vue/composition-ap
 import {max} from 'lodash';
 
 import PixelEditor from '../components/PixelEditor.vue';
-import {DEFAULT_SPRITES} from '../generators/bbasic/sprites';
+import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
@@ -108,7 +108,7 @@ export default defineComponent({
     const state = computed({
       get() {
         try {
-          return playerStorage.value || DEFAULT_SPRITES;
+          return processPlayerStorageDefaults(playerStorage);
         } catch (e) {
           console.error('Error loading player 0 from local storage', e);
           return DEFAULT_SPRITES;
