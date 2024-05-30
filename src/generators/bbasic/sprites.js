@@ -1,5 +1,53 @@
 'use strict';
 
+import {playfieldToMatrix} from '../../utils/pixels';
+
+
+export const DEFAULT_SPRITES={
+  animations: [
+    {
+      id: 1,
+      name: 'Example1',
+      frames: [
+        {
+          id: 1,
+          duration: 10,
+          pixels: playfieldToMatrix(
+              '...XXX..\n'+
+            '...XXX..\n'+
+            '...XXX..\n'+
+            '..X.X...\n'+
+            '..XXXXX.\n'+
+            '....X.X.\n'+
+            '...X.X..\n'+
+            '..X...X.'),
+        },
+        {
+          id: 2,
+          duration: 10,
+          pixels: playfieldToMatrix(
+              '...XXX..\n'+
+            '...XXX..\n'+
+            '...XXX..\n'+
+            '....X.X.\n'+
+            '..XXXXX.\n'+
+            '..X.X...\n'+
+            '...X.X..\n'+
+            '...X.X..'),
+        },
+      ],
+    },
+  ],
+};
+
+export const processPlayerStorageDefaults = (playerStorage) => {
+  const player = playerStorage.value;
+  if (!player?.animations?.length) {
+    return structuredClone(DEFAULT_SPRITES);
+  }
+  return player;
+};
+
 export default (Blockly) => {
   const createGeneratorForSprite = (name) => {
     Blockly.BBasic[`sprite_${name}_get`] = function(block) {

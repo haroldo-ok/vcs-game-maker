@@ -97,57 +97,21 @@ import {computed, defineComponent, getCurrentInstance} from '@vue/composition-ap
 import {max} from 'lodash';
 
 import PixelEditor from '../components/PixelEditor.vue';
+import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
   components: {PixelEditor},
   props: ['storageFactory', 'title', 'fgColor'],
   setup(props) {
-    const defaultAnimationData = {
-      animations: [
-        {
-          id: 1,
-          name: 'Example1',
-          frames: [
-            {
-              id: 1,
-              duration: 10,
-              pixels: playfieldToMatrix(
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '..X.X...\n' +
-                  '..XXXXX.\n' +
-                  '....X.X.\n' +
-                  '...X.X..\n' +
-                  '..X...X.'),
-            },
-            {
-              id: 2,
-              duration: 10,
-              pixels: playfieldToMatrix(
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '...XXX..\n' +
-                  '....X.X.\n' +
-                  '..XXXXX.\n' +
-                  '..X.X...\n' +
-                  '...X.X..\n' +
-                  '...X.X..'),
-            },
-          ],
-        },
-      ],
-    };
-
     const playerStorage = props.storageFactory();
     const state = computed({
       get() {
         try {
-          return playerStorage.value || defaultAnimationData;
+          return processPlayerStorageDefaults(playerStorage);
         } catch (e) {
           console.error('Error loading player 0 from local storage', e);
-          return defaultAnimationData;
+          return DEFAULT_SPRITES;
         }
       },
 
