@@ -18,6 +18,7 @@ import {sumBy} from 'lodash';
 import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
 import {processBackgroundStorageDefaults} from '../blocks/background';
 import {matrixToPlayfield} from '../utils/pixels';
+import {processPlayerStorageDefaults} from './bbasic/sprites';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -372,7 +373,7 @@ Blockly.BBasic.generateAnimations = function() {
   const processAnimation = (name, playerStorage) => {
     let playerData = null;
     try {
-      playerData = playerStorage.value;
+      playerData = processPlayerStorageDefaults(playerStorage);
     } catch (e) {
       console.error(`Failed to load ${name} data`, e);
     }
