@@ -25,6 +25,13 @@ const PLAYER_SIZE_OPTIONS = [
   ['Quad-sized', '$7'],
 ];
 
+const MISSILE_SIZE_OPTIONS = [
+  ['1', '$00'],
+  ['2', '$10'],
+  ['4', '$20'],
+  ['8', '$30'],
+];
+
 const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for the getter.
@@ -91,12 +98,33 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
     // Block for changing a player's size and quantity.
     {
       'type': `sprite_${name}_size`,
-      'message0': `${icon} ${description} change width/quantity to %1`,
+      'message0': `${icon} ${description} set width/quantity to %1`,
       'args0': [
         {
           'type': 'field_dropdown',
           'name': 'SIZE',
           'options': PLAYER_SIZE_OPTIONS,
+        },
+      ],
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'extensions': ['math_change_tooltip'],
+    },
+  ]);
+};
+
+const buildMissileBlocks = ({name, description, icon, colour}) => {
+  Blockly.defineBlocksWithJsonArray([
+    // Block for changing a player's size and quantity.
+    {
+      'type': `sprite_${name}_size`,
+      'message0': `${icon} ${description} set width to %1 pixels`,
+      'args0': [
+        {
+          'type': 'field_dropdown',
+          'name': 'SIZE',
+          'options': MISSILE_SIZE_OPTIONS,
         },
       ],
       'previousStatement': null,
@@ -145,12 +173,26 @@ buildSpriteBlocks({
   options: buildMissileOptions('missile0'),
 });
 
+buildMissileBlocks({
+  name: 'missile0',
+  description: 'Missile 0',
+  icon: MISSILE_ICON,
+  colour: 'red',
+});
+
 buildSpriteBlocks({
   name: 'missile1',
   description: 'Missile 1',
   icon: MISSILE_ICON,
   colour: 'blue',
   options: buildMissileOptions('missile1'),
+});
+
+buildMissileBlocks({
+  name: 'missile1',
+  description: 'Missile 1',
+  icon: MISSILE_ICON,
+  colour: 'blue',
 });
 
 buildSpriteBlocks({

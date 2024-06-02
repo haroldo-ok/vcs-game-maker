@@ -98,6 +98,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="sprite_missile0_size" />
 
         <block type="sprite_missile1_get"></block>
         <block type="sprite_missile1_set">
@@ -114,6 +115,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="sprite_missile1_size" />
 
         <block type="sprite_ball_get"></block>
         <block type="sprite_ball_set">
