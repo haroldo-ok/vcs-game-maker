@@ -83,6 +83,11 @@ const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
       colour,
       'extensions': ['math_change_tooltip'],
     },
+  ]);
+};
+
+const buildPlayerBlocks = ({name, description, icon, colour}) => {
+  Blockly.defineBlocksWithJsonArray([
     // Block for changing a player's size and quantity.
     {
       'type': `sprite_${name}_size`,
@@ -110,12 +115,26 @@ buildSpriteBlocks({
   options: buildPlayerOptions('player0'),
 });
 
+buildPlayerBlocks({
+  name: 'player0',
+  description: 'Player 0',
+  icon: PLAYER_ICON,
+  colour: 'red',
+});
+
 buildSpriteBlocks({
   name: 'player1',
   description: 'Player 1',
   icon: PLAYER_ICON,
   colour: 'blue',
   options: buildPlayerOptions('player1'),
+});
+
+buildPlayerBlocks({
+  name: 'player1',
+  description: 'Player 1',
+  icon: PLAYER_ICON,
+  colour: 'blue',
 });
 
 buildSpriteBlocks({
