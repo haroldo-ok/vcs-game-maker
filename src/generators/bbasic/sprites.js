@@ -76,6 +76,12 @@ export default (Blockly) => {
       const operator = isNegativeConstant ? '' : '+';
       return `${varName} = ${varName} ${operator} ${argument0}\n`;
     };
+
+    Blockly.BBasic[`sprite_${name}_size`] = function(block) {
+      const size = block.getFieldValue('SIZE');
+      return `${name}size = ${name}size & $F0\n` +
+        `${name}size = ${name}size | ${size}\n`;
+    };
   };
 
   ['player0', 'player1', 'missile0', 'missile1', 'ball'].forEach(createGeneratorForSprite);

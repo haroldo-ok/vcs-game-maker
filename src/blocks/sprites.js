@@ -90,7 +90,7 @@ const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
       'args0': [
         {
           'type': 'field_dropdown',
-          'name': 'VAR',
+          'name': 'SIZE',
           'options': PLAYER_SIZE_OPTIONS,
         },
       ],
