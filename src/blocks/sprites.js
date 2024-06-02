@@ -14,6 +14,17 @@ const buildMissileOptions = (name) => [
   [HEIGHT_ICON + ' Height', `${name}height`],
 ];
 
+const PLAYER_SIZE_OPTIONS = [
+  ['1 copy of player and missile.', '$0'],
+  ['2 close-spaced copies of player and missile.', '$1'],
+  ['2 medium-spaced copies of player and missile.', '$2'],
+  ['3 close-spaced copies of player and missile.', '$3'],
+  ['2 wide-spaced copies of player and missile.', '$4'],
+  ['Double-sized player.', '$5'],
+  ['3 medium-spaced copies of player and missile.', '$6'],
+  ['Quad-sized', '$7'],
+];
+
 const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for the getter.
@@ -65,6 +76,22 @@ const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
           'type': 'input_value',
           'name': 'DELTA',
           'check': 'Number',
+        },
+      ],
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'extensions': ['math_change_tooltip'],
+    },
+    // Block for changing a player's size and quantity.
+    {
+      'type': `sprite_${name}_size`,
+      'message0': `${icon} ${description} change width/quantity to %1`,
+      'args0': [
+        {
+          'type': 'field_dropdown',
+          'name': 'VAR',
+          'options': PLAYER_SIZE_OPTIONS,
         },
       ],
       'previousStatement': null,
