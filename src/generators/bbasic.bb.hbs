@@ -33,7 +33,6 @@ end
  rem - set initial values
  rem **************************************************************************
  COLUBK = $0F
- NUSIZ0 = $30
  score = 00000 :  scorecolor = $08
 
  dim player0frame = x
@@ -42,6 +41,8 @@ end
  dim loopcounter = w
  dim channnel0duration = v
  dim channnel1duration = u
+ dim player0size = t
+ dim player1size = s
  
  newbackground = 1
 
@@ -51,6 +52,8 @@ end
 
  player1color = $80
  player0color = $40
+ player1size = $30
+ player0size = $30
  COLUBK = $C4
  COLUPF = $0E
 
@@ -68,6 +71,8 @@ main
 draw
  COLUP1 = player1color
  COLUP0 = player0color
+ NUSIZ0 = player0size
+ NUSIZ1 = player1size
  drawscreen
 
  rem **************************************************************************

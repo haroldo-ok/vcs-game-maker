@@ -78,5 +78,25 @@ export default (Blockly) => {
     };
   };
 
+  const createGeneratorForPlayer = (name) => {
+    Blockly.BBasic[`sprite_${name}_size`] = function(block) {
+      const size = block.getFieldValue('SIZE') || '0';
+      const varName = name + 'size';
+      return `${varName} = ${varName} & $F0\n` +
+        `${varName} = ${varName} | ${size}\n`;
+    };
+  };
+
+  const createGeneratorForMissile = (name) => {
+    Blockly.BBasic[`sprite_${name}_size`] = function(block) {
+      const size = block.getFieldValue('SIZE') || 0;
+      const varName = name.replace('missile', 'player') + 'size';
+      return `${varName} = ${varName} & $0F\n` +
+        `${varName} = ${varName} | ${size}\n`;
+    };
+  };
+
   ['player0', 'player1', 'missile0', 'missile1', 'ball'].forEach(createGeneratorForSprite);
+  ['player0', 'player1'].forEach(createGeneratorForPlayer);
+  ['missile0', 'missile1'].forEach(createGeneratorForMissile);
 };
