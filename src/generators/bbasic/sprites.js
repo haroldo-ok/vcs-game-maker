@@ -81,8 +81,9 @@ export default (Blockly) => {
   const createGeneratorForPlayer = (name) => {
     Blockly.BBasic[`sprite_${name}_size`] = function(block) {
       const size = block.getFieldValue('SIZE') || '0';
-      return `${name}size = ${name}size & $F0\n` +
-        `${name}size = ${name}size | ${size}\n`;
+      const varName = name + 'size';
+      return `${varName} = ${varName} & $F0\n` +
+        `${varName} = ${varName} | ${size}\n`;
     };
   };
 
