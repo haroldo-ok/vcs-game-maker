@@ -5,7 +5,7 @@ import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON} from './i
 const buildPlayerOptions = (name) => [
   ['\u2195 X', `${name}x`],
   ['\u2195 Y', `${name}y`],
-  [COLOR_ICON + ' Color', `${name}color`],
+  [COLOR_ICON + ' Color', `${name}realcolor`],
 ];
 
 const buildMissileOptions = (name) => [
