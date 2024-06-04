@@ -87,6 +87,19 @@
             </v-list-item-content>
           </v-list-item>
         </v-list>
+
+        <v-btn
+          color="secondary"
+          title="Add animation"
+          dark
+          absolute
+          right
+          rounded
+          @click="handleAddAnimation"
+        >
+          <v-icon>mdi-plus</v-icon>
+          <div>Add animation</div>
+        </v-btn>
       </v-card-text>
     </v-card>
 
@@ -156,7 +169,14 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddFrame, handleDeleteFrame, props};
+    const handleAddAnimation = () => {
+      const original = state.value.animations[state.value.animations.length-1];
+      state.value.animations.push(structuredClone(original));
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    return {state, handleChildChange, handleAddFrame, handleDeleteFrame, handleAddAnimation, props};
   },
 });
 </script>
