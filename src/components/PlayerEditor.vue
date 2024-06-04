@@ -8,6 +8,45 @@
             <v-list-item-content>
                 <v-list-item-title>
                   <v-text-field label="Animation name" v-model="animation.name" />
+
+                  <v-menu
+                        top
+                      >
+                    <template v-slot:activator="{ on, attrs }">
+                      <v-btn
+                        color="red"
+                        title="Delete this animation"
+                        fab
+                        small
+                        absolute
+                        top
+                        right
+                        v-bind="attrs"
+                        v-on="on"
+                      >
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </template>
+
+                    <v-card>
+                      <v-card-title>Delete this animation?</v-card-title>
+                      <v-list>
+                        <v-list-item @click="handleDeleteAnimation(animation)">
+                          <v-list-item-icon>
+                            <v-icon>mdi-check</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>Yes, delete</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-list-item-icon>
+                            <v-icon>mdi-cancel</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>No, don't delete</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-card>
+                  </v-menu>
+
                 </v-list-item-title>
                 <v-list>
                   <v-list-item
@@ -176,7 +215,13 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddFrame, handleDeleteFrame, handleAddAnimation, props};
+    const handleDeleteAnimation = (animation) => {
+    };
+
+    return {state, handleChildChange,
+      handleAddFrame, handleDeleteFrame,
+      handleAddAnimation, handleDeleteAnimation,
+      props};
   },
 });
 </script>
