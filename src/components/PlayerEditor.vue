@@ -71,6 +71,19 @@
                     </div>
                   </v-list-item>
                 </v-list>
+                <v-btn
+                  class="add-frame-buttom"
+                  color="primary"
+                  title="Add animation frame"
+                  dark
+                  absolute
+                  right
+                  rounded
+                  @click="handleAddFrame"
+                >
+                  <v-icon>mdi-plus</v-icon>
+                  <div>Add frame</div>
+                </v-btn>
             </v-list-item-content>
           </v-list-item>
         </v-list>
@@ -78,18 +91,6 @@
     </v-card>
 
 
-    <v-btn
-      class="add-frame-buttom"
-      color="primary"
-      title="Add animation frame"
-      dark
-      absolute
-      right
-      fab
-      @click="handleAddFrame"
-    >
-      <v-icon>mdi-plus</v-icon>
-    </v-btn>
   </div>
 </template>
 <script>
