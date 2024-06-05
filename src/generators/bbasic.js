@@ -370,19 +370,7 @@ Blockly.BBasic.generateBackgrounds = function() {
 };
 
 Blockly.BBasic.generateAnimations = function() {
-  const processAnimation = (name, playerStorage) => {
-    let playerData = null;
-    try {
-      playerData = processPlayerStorageDefaults(playerStorage);
-    } catch (e) {
-      console.error(`Failed to load ${name} data`, e);
-    }
-
-    if (!playerData) {
-      return '';
-    }
-
-    const animation = playerData.animations[0];
+  const processAnimation = (name, animation) => {
     if (!animation) {
       return '';
     }
@@ -411,8 +399,23 @@ Blockly.BBasic.generateAnimations = function() {
       `\n\n${name}animationEnd`;
   };
 
-  const player0Code = processAnimation('player0', usePlayer0Storage());
-  const player1Code = processAnimation('player1', usePlayer1Storage());
+  const processAnimations = (name, playerStorage) => {
+    let playerData = null;
+    try {
+      playerData = processPlayerStorageDefaults(playerStorage);
+    } catch (e) {
+      console.error(`Failed to load ${name} data`, e);
+    }
+
+    if (!playerData) {
+      return '';
+    }
+
+    return processAnimation(name, playerData.animations[0]);
+  };
+
+  const player0Code = processAnimations('player0', usePlayer0Storage());
+  const player1Code = processAnimations('player1', usePlayer1Storage());
   return player0Code + '\n\n\n' + player1Code;
 };
 import background from './bbasic/background';
