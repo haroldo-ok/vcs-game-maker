@@ -412,7 +412,15 @@ Blockly.BBasic.generateAnimations = function() {
       return '';
     }
 
-    return processAnimation(name, playerData.animations[0], 0);
+    const animationsLabel = `${name}animations`;
+    const animationsEndLabel = `\n\n${animationsLabel}End`;
+
+    return `  rem Animations for ${name}:` +
+      playerData.animations.map((animation, animationIndex) => {
+        debugger;
+        return processAnimation(name, animation, animationIndex) + `\n  rem aaaaa`;
+      }).join('\n\n') +
+      `\n\n${animationsEndLabel}`;
   };
 
   const player0Code = processAnimations('player0', usePlayer0Storage());
