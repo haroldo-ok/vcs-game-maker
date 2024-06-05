@@ -157,11 +157,23 @@ export default defineComponent({
   components: {PixelEditor},
   props: ['storageFactory', 'title', 'fgColor'],
   setup(props) {
+    const getMaxId = (elements) => {
+      return max(elements.map((o) => o.id))||0;
+    };
+
     const playerStorage = props.storageFactory();
     const state = computed({
       get() {
         try {
-          return processPlayerStorageDefaults(playerStorage);
+          const player = processPlayerStorageDefaults(playerStorage);
+          let nextId = getMaxId(player.animations);
+          for (const animation of player.animations) {
+            if (!animation.id) {
+              animation.id = nextId;
+              nextId++;
+            }
+          }
+          return player;
         } catch (e) {
           console.error('Error loading player 0 from local storage', e);
           return DEFAULT_SPRITES;
@@ -180,7 +192,7 @@ export default defineComponent({
     const instance = getCurrentInstance();
     const handleAddFrame = () => {
       const frames = state.value.animations[0].frames;
-      const maxId = max(frames.map((o) => o.id)) || 0;
+      const maxId = getMaxId(frames);
       const newFrame = {
         id: maxId+1,
         duration: 10,
@@ -209,8 +221,12 @@ export default defineComponent({
     };
 
     const handleAddAnimation = () => {
-      const original = state.value.animations[state.value.animations.length-1];
-      state.value.animations.push(structuredClone(original));
+      const newAnimation = structuredClone(state.value.animations[state.value.animations.length-1]);
+      state.value.animations.push({
+        ...newAnimation,
+        id: getMaxId(state.value.animations) + 1,
+      });
+
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
