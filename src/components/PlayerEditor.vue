@@ -11,6 +11,7 @@
 
                   <v-menu
                         top
+                        v-if="state.animations.length > 1"
                       >
                     <template v-slot:activator="{ on, attrs }">
                       <v-btn
@@ -57,6 +58,7 @@
                     <div class="pixel-editor-container">
                       <v-menu
                         top
+                        v-if="animation.frames.length > 1"
                       >
                         <template v-slot:activator="{ on, attrs }">
                           <v-btn
@@ -232,6 +234,10 @@ export default defineComponent({
     };
 
     const handleDeleteAnimation = (animation) => {
+      state.value.animations = state.value.animations.filter(({id}) => id != animation.id);
+      console.info('Deleted ', animation);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
     };
 
     return {state, handleChildChange,
