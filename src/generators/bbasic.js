@@ -413,12 +413,19 @@ Blockly.BBasic.generateAnimations = function() {
     }
 
     const animationsLabel = `${name}animations`;
-    const animationsEndLabel = `\n\n${animationsLabel}End`;
+    const animationsEndLabel = `${animationsLabel}End`;
+    const getAnimationStartLabel = (animationIndex) => `${name}animation${animationIndex}Start`;
 
-    return `  rem Animations for ${name}:` +
+    return `  rem Animations for ${name}:\n` +
       playerData.animations.map((animation, animationIndex) => {
-        debugger;
-        return processAnimation(name, animation, animationIndex) + `\n  rem aaaaa`;
+        if (!animationIndex) return '';
+        return `  if ${name}animation = ${animationIndex} then goto ${getAnimationStartLabel(animationIndex)}`;
+      }).join('\n') +
+      '\n\n' +
+      playerData.animations.map((animation, animationIndex) => {
+        return `${getAnimationStartLabel(animationIndex)}\n\n` +
+          processAnimation(name, animation, animationIndex) +
+          `\n  goto ${animationsEndLabel}`;
       }).join('\n\n') +
       `\n\n${animationsEndLabel}`;
   };
