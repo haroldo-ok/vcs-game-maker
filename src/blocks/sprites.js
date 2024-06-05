@@ -1,11 +1,12 @@
 import * as Blockly from 'blockly/core';
 
-import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON} from './icon';
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON} from './icon';
 
 const buildPlayerOptions = (name) => [
   ['\u2195 X', `${name}x`],
   ['\u2195 Y', `${name}y`],
   [COLOR_ICON + ' Color', `${name}realcolor`],
+  [ANIMATION_ICON + ' Animation', `${name}animation`],
 ];
 
 const buildMissileOptions = (name) => [
