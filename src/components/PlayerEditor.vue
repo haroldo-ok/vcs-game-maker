@@ -120,7 +120,7 @@
                   absolute
                   right
                   rounded
-                  @click="handleAddFrame"
+                  @click="handleAddFrame(animation, frame)"
                 >
                   <v-icon>mdi-plus</v-icon>
                   <div>Add frame</div>
@@ -192,8 +192,9 @@ export default defineComponent({
     };
 
     const instance = getCurrentInstance();
-    const handleAddFrame = () => {
-      const frames = state.value.animations[0].frames;
+
+    const handleAddFrame = (animation, frame) => {
+      const frames = animation.frames;
       const maxId = getMaxId(frames);
       const newFrame = {
         id: maxId+1,
@@ -209,7 +210,7 @@ export default defineComponent({
             '........'),
       };
 
-      state.value.animations[0].frames.push(newFrame);
+      animation.frames.push(newFrame);
 
       handleChildChange();
       instance.proxy.$forceUpdate();
