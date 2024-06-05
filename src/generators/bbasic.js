@@ -370,33 +370,34 @@ Blockly.BBasic.generateBackgrounds = function() {
 };
 
 Blockly.BBasic.generateAnimations = function() {
-  const processAnimation = (name, animation) => {
+  const processAnimation = (name, animation, animationIndex) => {
     if (!animation) {
       return '';
     }
 
+    const animationLabel = `${name}animation${animationIndex}`;
     const totalDuration = sumBy(animation.frames, (frame) => frame.duration || 0);
 
     let frameLimit = 0;
     const stateMachine = animation.frames.map((frame, frameIndex) => {
       frameLimit += frame.duration || 0;
       const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
-      const endLabel = `${name}frame${frameIndex}End`;
+      const endLabel = `${animationLabel}frame${frameIndex}End`;
       const skipCondition = `  if ${name}frame > ${frameLimit} then goto ${endLabel}\n`;
 
       return skipCondition +
         `  ${name}:\n` +
         pixelSource.join('\n') +
         '\nend\n' +
-        `  goto ${name}animationEnd\n` +
+        `  goto ${animationLabel}animationEnd\n` +
         endLabel;
     });
 
-    return `  rem Animation ${animation.name}:\n` +
+    return `  rem Animation ${animationIndex} ${animation.name} for ${name}:\n\n` +
       `  ${name}frame = ${name}frame + 1\n` +
       `  if ${name}frame = ${totalDuration} then ${name}frame = 0\n\n` +
       stateMachine.join('\n\n') +
-      `\n\n${name}animationEnd`;
+      `\n\n${animationLabel}animationEnd`;
   };
 
   const processAnimations = (name, playerStorage) => {
@@ -411,7 +412,7 @@ Blockly.BBasic.generateAnimations = function() {
       return '';
     }
 
-    return processAnimation(name, playerData.animations[0]);
+    return processAnimation(name, playerData.animations[0], 0);
   };
 
   const player0Code = processAnimations('player0', usePlayer0Storage());
