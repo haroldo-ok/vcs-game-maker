@@ -8,6 +8,46 @@
             <v-list-item-content>
                 <v-list-item-title>
                   <v-text-field label="Animation name" v-model="animation.name" />
+
+                  <v-menu
+                        top
+                        v-if="state.animations.length > 1"
+                      >
+                    <template v-slot:activator="{ on, attrs }">
+                      <v-btn
+                        color="red"
+                        title="Delete this animation"
+                        fab
+                        small
+                        absolute
+                        top
+                        right
+                        v-bind="attrs"
+                        v-on="on"
+                      >
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </template>
+
+                    <v-card>
+                      <v-card-title>Delete this animation?</v-card-title>
+                      <v-list>
+                        <v-list-item @click="handleDeleteAnimation(animation)">
+                          <v-list-item-icon>
+                            <v-icon>mdi-check</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>Yes, delete</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-list-item-icon>
+                            <v-icon>mdi-cancel</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>No, don't delete</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-card>
+                  </v-menu>
+
                 </v-list-item-title>
                 <v-list>
                   <v-list-item
@@ -18,6 +58,7 @@
                     <div class="pixel-editor-container">
                       <v-menu
                         top
+                        v-if="animation.frames.length > 1"
                       >
                         <template v-slot:activator="{ on, attrs }">
                           <v-btn
@@ -71,25 +112,39 @@
                     </div>
                   </v-list-item>
                 </v-list>
+                <v-btn
+                  class="add-frame-buttom"
+                  color="primary"
+                  title="Add animation frame"
+                  dark
+                  absolute
+                  right
+                  rounded
+                  @click="handleAddFrame(animation, frame)"
+                >
+                  <v-icon>mdi-plus</v-icon>
+                  <div>Add frame</div>
+                </v-btn>
             </v-list-item-content>
           </v-list-item>
         </v-list>
+
+        <v-btn
+          color="secondary"
+          title="Add animation"
+          dark
+          absolute
+          right
+          rounded
+          @click="handleAddAnimation"
+        >
+          <v-icon>mdi-plus</v-icon>
+          <div>Add animation</div>
+        </v-btn>
       </v-card-text>
     </v-card>
 
 
-    <v-btn
-      class="add-frame-buttom"
-      color="primary"
-      title="Add animation frame"
-      dark
-      absolute
-      right
-      fab
-      @click="handleAddFrame"
-    >
-      <v-icon>mdi-plus</v-icon>
-    </v-btn>
   </div>
 </template>
 <script>
@@ -104,11 +159,23 @@ export default defineComponent({
   components: {PixelEditor},
   props: ['storageFactory', 'title', 'fgColor'],
   setup(props) {
+    const getMaxId = (elements) => {
+      return max(elements.map((o) => o.id))||0;
+    };
+
     const playerStorage = props.storageFactory();
     const state = computed({
       get() {
         try {
-          return processPlayerStorageDefaults(playerStorage);
+          const player = processPlayerStorageDefaults(playerStorage);
+          let nextId = getMaxId(player.animations);
+          for (const animation of player.animations) {
+            if (!animation.id) {
+              animation.id = nextId;
+              nextId++;
+            }
+          }
+          return player;
         } catch (e) {
           console.error('Error loading player 0 from local storage', e);
           return DEFAULT_SPRITES;
@@ -125,9 +192,10 @@ export default defineComponent({
     };
 
     const instance = getCurrentInstance();
-    const handleAddFrame = () => {
-      const frames = state.value.animations[0].frames;
-      const maxId = max(frames.map((o) => o.id)) || 0;
+
+    const handleAddFrame = (animation, frame) => {
+      const frames = animation.frames;
+      const maxId = getMaxId(frames);
       const newFrame = {
         id: maxId+1,
         duration: 10,
@@ -142,7 +210,7 @@ export default defineComponent({
             '........'),
       };
 
-      state.value.animations[0].frames.push(newFrame);
+      animation.frames.push(newFrame);
 
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -155,7 +223,28 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddFrame, handleDeleteFrame, props};
+    const handleAddAnimation = () => {
+      const newAnimation = structuredClone(state.value.animations[state.value.animations.length-1]);
+      state.value.animations.push({
+        ...newAnimation,
+        id: getMaxId(state.value.animations) + 1,
+      });
+
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    const handleDeleteAnimation = (animation) => {
+      state.value.animations = state.value.animations.filter(({id}) => id != animation.id);
+      console.info('Deleted ', animation);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    return {state, handleChildChange,
+      handleAddFrame, handleDeleteFrame,
+      handleAddAnimation, handleDeleteAnimation,
+      props};
   },
 });
 </script>

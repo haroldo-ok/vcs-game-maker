@@ -10,3 +10,4 @@ export const SCORE_ICON = String.fromCodePoint(0x1F4AF);
 export const BACKGROUND_ICON = String.fromCodePoint(0x1F304);
 export const DICE_ICON = String.fromCodePoint(0x1F3B2);
 export const SOUND_ICON = String.fromCodePoint(0x1F509);
+export const ANIMATION_ICON = String.fromCodePoint(0x1F3AC);
