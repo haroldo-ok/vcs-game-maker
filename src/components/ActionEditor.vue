@@ -12,6 +12,8 @@
 </template>
 
 <script>
+import Handlebars from 'handlebars';
+
 import bBasic from 'batari-basic';
 
 import BlocklyComponent from './BlocklyComponent.vue';
@@ -23,7 +25,7 @@ import '../blocks/score';
 import '../blocks/sound';
 import '../blocks/sprites';
 import '../blocks/random';
-import blocklyToolbox from 'raw-loader!./blockly-toolbox.xml';
+import blocklyToolboxTemplate from 'raw-loader!./blockly-toolbox.xml.hbs';
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
@@ -68,7 +70,7 @@ export default {
         colour: '#ccc',
         snap: true,
       },
-      toolbox: blocklyToolbox,
+      toolbox: Handlebars.compile(blocklyToolboxTemplate)({}),
     },
     workspaceStorage: useWorkspaceStorage(),
     errorStorage: useErrorStorage(),
