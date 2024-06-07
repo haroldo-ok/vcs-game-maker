@@ -26,6 +26,7 @@ import '../blocks/sound';
 import '../blocks/sprites';
 import '../blocks/random';
 import blocklyToolboxTemplate from 'raw-loader!./blockly-toolbox.xml.hbs';
+import blocklyToolboxPlayer0Movement from 'raw-loader!./blockly-toolbox-player0-movement.xml';
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
@@ -70,7 +71,7 @@ export default {
         colour: '#ccc',
         snap: true,
       },
-      toolbox: Handlebars.compile(blocklyToolboxTemplate)({}),
+      toolbox: Handlebars.compile(blocklyToolboxTemplate)({blocklyToolboxPlayer0Movement}),
     },
     workspaceStorage: useWorkspaceStorage(),
     errorStorage: useErrorStorage(),
