@@ -18,33 +18,53 @@
       </div>
     </v-card-text>
     <v-card-actions>
-      <v-btn-toggle v-model="toggledTool">
-        <v-btn
-          title="Eraser"
-          @click="editor.tool = eraser"
-        >
-          <v-icon>mdi-eraser</v-icon>
-        </v-btn>
-        <v-btn
-          title="Pencil"
-          @click="editor.tool = pencil"
-        >
-          <v-icon>mdi-pencil</v-icon>
-        </v-btn>
-      </v-btn-toggle>
-      <v-divider class="mx-4" vertical />
-      <v-btn
-        title="Undo"
-        @click="() => editor.undo()"
-      >
-        <v-icon>mdi-undo</v-icon>
-      </v-btn>
-      <v-btn
-        title="Redo"
-        @click="() => editor.redo()"
-      >
-        <v-icon>mdi-redo</v-icon>
-      </v-btn>
+      <v-col>
+        <v-row>
+          <v-btn-toggle v-model="toggledTool">
+            <v-btn
+              title="Eraser"
+              @click="editor.tool = eraser"
+            >
+              <v-icon>mdi-eraser</v-icon>
+            </v-btn>
+            <v-btn
+              title="Pencil"
+              @click="editor.tool = pencil"
+            >
+              <v-icon>mdi-pencil</v-icon>
+            </v-btn>
+          </v-btn-toggle>
+          <v-divider class="mx-4" vertical />
+          <v-btn
+            title="Undo"
+            @click="() => editor.undo()"
+          >
+            <v-icon>mdi-undo</v-icon>
+          </v-btn>
+          <v-btn
+            title="Redo"
+            @click="() => editor.redo()"
+          >
+            <v-icon>mdi-redo</v-icon>
+          </v-btn>
+
+        </v-row>
+        <v-row>
+          <v-btn
+            title="Copy"
+            @click="() => editor.redo()"
+          >
+            <v-icon>mdi-content-copy</v-icon>
+          </v-btn>
+          <v-btn
+            title="Paste"
+            @click="() => editor.redo()"
+          >
+            <v-icon>mdi-content-paste</v-icon>
+          </v-btn>
+
+        </v-row>
+      </v-col>
     </v-card-actions>
   </v-card>
 </template>
