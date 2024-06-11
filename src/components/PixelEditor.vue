@@ -52,7 +52,7 @@
         <v-row>
           <v-btn
             title="Copy"
-            @click="() => editor.redo()"
+            @click="() => handleCopy()"
           >
             <v-icon>mdi-content-copy</v-icon>
           </v-btn>
@@ -109,6 +109,20 @@ export default {
         this.$emit('input', pixels);
       }
     }, 300),
+
+    handleCopy() {
+      const pixels = this.getPixels();
+      const text = pixels.map((row) => row.map((pixel) => pixel ? 'X' : '.')).join('\n');
+
+      // Adapted from https://stackoverflow.com/a/25275151/679240
+      const input = document.createElement('textarea');
+      document.body.appendChild(input);
+      input.value = text;
+      input.focus();
+      input.select();
+      document.execCommand('Copy');
+      input.remove();
+    },
 
     createEmptyPixelMatrix() {
       return new Array(this.height).fill(0).map(() => new Array(this.width).fill(0));
