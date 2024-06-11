@@ -62,6 +62,12 @@
           >
             <v-icon>mdi-content-paste</v-icon>
           </v-btn>
+          <v-btn
+            title="Export to image"
+            @click="() => handleExportImage()"
+          >
+            <v-icon>mdi-export</v-icon>
+          </v-btn>
 
         </v-row>
       </v-col>
@@ -71,6 +77,7 @@
 <script>
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
 import {debounce} from 'lodash';
+import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
 
@@ -133,6 +140,23 @@ export default {
       document.execCommand('Paste');
       console.info('Pasted text', input.value);
       input.remove();
+    },
+
+    handleExportImage() {
+      // Adapted from https://stackoverflow.com/a/28305948/679240
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 100;
+      canvas.height = 100;
+
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = 'red';
+      ctx.fillRect(100, 100, 50, 30);
+
+      canvas.toBlob(function(blob) {
+        saveAs(blob, 'temp4.png');
+      });
     },
 
     createEmptyPixelMatrix() {
