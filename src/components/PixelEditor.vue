@@ -51,24 +51,17 @@
         </v-row>
         <v-row>
           <v-btn
-            title="Copy"
-            @click="() => handleCopy()"
-          >
-            <v-icon>mdi-content-copy</v-icon>
-          </v-btn>
-          <v-btn
-            title="Paste"
-            @click="() => handlePaste()"
-          >
-            <v-icon>mdi-content-paste</v-icon>
-          </v-btn>
-          <v-btn
             title="Export to image"
             @click="() => handleExportImage()"
           >
             <v-icon>mdi-export</v-icon>
           </v-btn>
-
+          <v-btn
+            title="Import from image"
+            @click="() => handleImportImage()"
+          >
+            <v-icon>mdi-import</v-icon>
+          </v-btn>
         </v-row>
       </v-col>
     </v-card-actions>
@@ -117,31 +110,6 @@ export default {
       }
     }, 300),
 
-    handleCopy() {
-      const pixels = this.getPixels();
-      const text = pixels.map((row) => row.map((pixel) => pixel ? 'X' : '.')).join('\n');
-
-      // Adapted from https://stackoverflow.com/a/25275151/679240
-      const input = document.createElement('textarea');
-      document.body.appendChild(input);
-      input.value = text;
-      input.focus();
-      input.select();
-      document.execCommand('Copy');
-      input.remove();
-    },
-
-    handlePaste() {
-      // Adapted from https://stackoverflow.com/a/25275151/679240
-      const input = document.createElement('textarea');
-      document.body.appendChild(input);
-      input.focus();
-      input.select();
-      document.execCommand('Paste');
-      console.info('Pasted text', input.value);
-      input.remove();
-    },
-
     handleExportImage() {
       // Adapted from https://stackoverflow.com/a/28305948/679240
 
@@ -160,6 +128,18 @@ export default {
         const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
         saveAs(blob, `image-${dateInfix}.png`);
       });
+    },
+
+    handleImportImage() {
+      // Adapted from https://stackoverflow.com/a/72664569/679240
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.setAttribute('accept', 'image/*');
+      input.onchange = function(event) {
+        console.log(this.file);
+      };
+      input.click();
     },
 
     createEmptyPixelMatrix() {
