@@ -18,39 +18,66 @@
       </div>
     </v-card-text>
     <v-card-actions>
-      <v-btn-toggle v-model="toggledTool">
-        <v-btn
-          title="Eraser"
-          @click="editor.tool = eraser"
-        >
-          <v-icon>mdi-eraser</v-icon>
-        </v-btn>
-        <v-btn
-          title="Pencil"
-          @click="editor.tool = pencil"
-        >
-          <v-icon>mdi-pencil</v-icon>
-        </v-btn>
-      </v-btn-toggle>
-      <v-divider class="mx-4" vertical />
-      <v-btn
-        title="Undo"
-        @click="() => editor.undo()"
-      >
-        <v-icon>mdi-undo</v-icon>
-      </v-btn>
-      <v-btn
-        title="Redo"
-        @click="() => editor.redo()"
-      >
-        <v-icon>mdi-redo</v-icon>
-      </v-btn>
+      <v-col>
+        <v-row>
+          <v-btn-toggle v-model="toggledTool">
+            <v-btn
+              title="Eraser"
+              @click="editor.tool = eraser"
+            >
+              <v-icon>mdi-eraser</v-icon>
+            </v-btn>
+            <v-btn
+              title="Pencil"
+              @click="editor.tool = pencil"
+            >
+              <v-icon>mdi-pencil</v-icon>
+            </v-btn>
+          </v-btn-toggle>
+          <v-divider class="mx-4" vertical />
+          <v-btn
+            title="Undo"
+            @click="() => editor.undo()"
+          >
+            <v-icon>mdi-undo</v-icon>
+          </v-btn>
+          <v-btn
+            title="Redo"
+            @click="() => editor.redo()"
+          >
+            <v-icon>mdi-redo</v-icon>
+          </v-btn>
+
+        </v-row>
+        <v-row>
+          <v-btn
+            title="Copy"
+            @click="() => handleCopy()"
+          >
+            <v-icon>mdi-content-copy</v-icon>
+          </v-btn>
+          <v-btn
+            title="Paste"
+            @click="() => handlePaste()"
+          >
+            <v-icon>mdi-content-paste</v-icon>
+          </v-btn>
+          <v-btn
+            title="Export to image"
+            @click="() => handleExportImage()"
+          >
+            <v-icon>mdi-export</v-icon>
+          </v-btn>
+
+        </v-row>
+      </v-col>
     </v-card-actions>
   </v-card>
 </template>
 <script>
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
 import {debounce} from 'lodash';
+import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
 
@@ -89,6 +116,51 @@ export default {
         this.$emit('input', pixels);
       }
     }, 300),
+
+    handleCopy() {
+      const pixels = this.getPixels();
+      const text = pixels.map((row) => row.map((pixel) => pixel ? 'X' : '.')).join('\n');
+
+      // Adapted from https://stackoverflow.com/a/25275151/679240
+      const input = document.createElement('textarea');
+      document.body.appendChild(input);
+      input.value = text;
+      input.focus();
+      input.select();
+      document.execCommand('Copy');
+      input.remove();
+    },
+
+    handlePaste() {
+      // Adapted from https://stackoverflow.com/a/25275151/679240
+      const input = document.createElement('textarea');
+      document.body.appendChild(input);
+      input.focus();
+      input.select();
+      document.execCommand('Paste');
+      console.info('Pasted text', input.value);
+      input.remove();
+    },
+
+    handleExportImage() {
+      // Adapted from https://stackoverflow.com/a/28305948/679240
+
+      const canvas = document.createElement('canvas');
+      canvas.width = this.editor.width;
+      canvas.height = this.editor.height;
+
+      const ctx = canvas.getContext('2d');
+
+      this.editor.pixels.forEach((px) => {
+        ctx.fillStyle = px.color;
+        ctx.fillRect(px.x, px.y, 1, 1);
+      });
+
+      canvas.toBlob(function(blob) {
+        const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
+        saveAs(blob, `image-${dateInfix}.png`);
+      });
+    },
 
     createEmptyPixelMatrix() {
       return new Array(this.height).fill(0).map(() => new Array(this.width).fill(0));
