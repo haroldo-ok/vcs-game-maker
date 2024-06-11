@@ -146,16 +146,19 @@ export default {
       // Adapted from https://stackoverflow.com/a/28305948/679240
 
       const canvas = document.createElement('canvas');
-      canvas.width = 100;
-      canvas.height = 100;
+      canvas.width = this.editor.width;
+      canvas.height = this.editor.height;
 
       const ctx = canvas.getContext('2d');
 
-      ctx.fillStyle = 'red';
-      ctx.fillRect(100, 100, 50, 30);
+      this.editor.pixels.forEach((px) => {
+        ctx.fillStyle = px.color;
+        ctx.fillRect(px.x, px.y, 1, 1);
+      });
 
       canvas.toBlob(function(blob) {
-        saveAs(blob, 'temp4.png');
+        const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
+        saveAs(blob, `image-${dateInfix}.png`);
       });
     },
 
