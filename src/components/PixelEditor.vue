@@ -73,6 +73,7 @@ import {debounce} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
+import {openFileDialog} from '../utils/file';
 
 export default {
   props: {
@@ -131,15 +132,7 @@ export default {
     },
 
     handleImportImage() {
-      // Adapted from https://stackoverflow.com/a/72664569/679240
-
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.setAttribute('accept', 'image/*');
-      input.onchange = function(event) {
-        console.log(this.file);
-      };
-      input.click();
+      openFileDialog('image/*').then((file) => console.log(file));
     },
 
     createEmptyPixelMatrix() {
