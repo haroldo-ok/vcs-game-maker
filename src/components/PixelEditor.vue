@@ -69,7 +69,7 @@
 </template>
 <script>
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
-import {debounce} from 'lodash';
+import {chunk, debounce} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
@@ -134,7 +134,33 @@ export default {
     handleImportImage() {
       openFileDialog('image/*')
           .then(loadImageFromFile)
-          .then((img) => console.log(img));
+          .then((img) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = this.editor.width;
+            canvas.height = Math.round(img.height * canvas.width / img.width);
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Adapted from https://stackoverflow.com/a/667074/679240
+            // Get the CanvasPixelArray from the given coordinates and dimensions.
+            const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+            const imgPixels = imageData.data;
+
+            // Loop over each pixel
+            const pixelValues = [];
+            for (let i = 0, n = imgPixels.length; i < n; i += 4) {
+              const r = imgPixels[i]; // red
+              const g = imgPixels[i + 1]; // green
+              const b = imgPixels[i + 2]; // blue
+              // i+3 is alpha (the fourth element)
+
+              pixelValues.push((r + g + b) / 3);
+            }
+
+            const pixels = chunk(pixelValues.map((v) => v > 32 ? 1 : 0), canvas.width);
+            this.setPixels(pixels);
+          });
     },
 
     createEmptyPixelMatrix() {
