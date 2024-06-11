@@ -74,6 +74,7 @@ import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
 import {loadImageFromFile, openFileDialog} from '../utils/file';
+import {createResizedCanvas} from '../utils/image';
 
 export default {
   props: {
@@ -135,12 +136,9 @@ export default {
       openFileDialog('image/*')
           .then(loadImageFromFile)
           .then((img) => {
-            const canvas = document.createElement('canvas');
-            canvas.width = this.editor.width;
-            canvas.height = Math.round(img.height * canvas.width / img.width);
-
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const canvas = createResizedCanvas(img,
+                this.editor.width,
+                Math.round(img.height * this.editor.width / img.width));
 
             // Adapted from https://stackoverflow.com/a/667074/679240
             // Get the CanvasPixelArray from the given coordinates and dimensions.
