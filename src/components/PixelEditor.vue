@@ -73,7 +73,7 @@ import {debounce} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
-import {openFileDialog} from '../utils/file';
+import {loadImageFromFile, openFileDialog} from '../utils/file';
 
 export default {
   props: {
@@ -132,21 +132,9 @@ export default {
     },
 
     handleImportImage() {
-      openFileDialog('image/*').then((file) => {
-        // Adapted from https://stackoverflow.com/a/33112602/679240
-        const reader = new FileReader();
-        // load to image to get it's width/height
-        const img = new Image();
-        img.onload = function() {
-          console.log(img);
-        };
-        // this is to setup loading the image
-        reader.onloadend = function() {
-          img.src = reader.result;
-        };
-        // this is to read the file
-        reader.readAsDataURL(file);
-      });
+      openFileDialog('image/*')
+          .then(loadImageFromFile)
+          .then((img) => console.log(img));
     },
 
     createEmptyPixelMatrix() {

@@ -9,3 +9,20 @@ export const openFileDialog = (accept) => new Promise((resolve, reject) => {
   };
   input.click();
 });
+
+export const loadImageFromFile = (file) => new Promise((resolve, reject) => {
+  // Adapted from https://stackoverflow.com/a/33112602/679240
+  const reader = new FileReader();
+  // load to image to get it's width/height
+  const img = new Image();
+  img.onload = function() {
+    resolve(img);
+  };
+  img.onerror = reject;
+  // this is to setup loading the image
+  reader.onloadend = () => {
+    img.src = reader.result;
+  };
+  // this is to read the file
+  reader.readAsDataURL(file);
+});
