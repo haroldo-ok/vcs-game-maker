@@ -58,7 +58,7 @@
           </v-btn>
           <v-btn
             title="Paste"
-            @click="() => editor.redo()"
+            @click="() => handlePaste()"
           >
             <v-icon>mdi-content-paste</v-icon>
           </v-btn>
@@ -121,6 +121,17 @@ export default {
       input.focus();
       input.select();
       document.execCommand('Copy');
+      input.remove();
+    },
+
+    handlePaste() {
+      // Adapted from https://stackoverflow.com/a/25275151/679240
+      const input = document.createElement('textarea');
+      document.body.appendChild(input);
+      input.focus();
+      input.select();
+      document.execCommand('Paste');
+      console.info('Pasted text', input.value);
       input.remove();
     },
 
