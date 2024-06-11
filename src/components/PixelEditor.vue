@@ -132,7 +132,21 @@ export default {
     },
 
     handleImportImage() {
-      openFileDialog('image/*').then((file) => console.log(file));
+      openFileDialog('image/*').then((file) => {
+        // Adapted from https://stackoverflow.com/a/33112602/679240
+        const reader = new FileReader();
+        // load to image to get it's width/height
+        const img = new Image();
+        img.onload = function() {
+          console.log(img);
+        };
+        // this is to setup loading the image
+        reader.onloadend = function() {
+          img.src = reader.result;
+        };
+        // this is to read the file
+        reader.readAsDataURL(file);
+      });
     },
 
     createEmptyPixelMatrix() {
