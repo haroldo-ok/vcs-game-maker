@@ -136,9 +136,7 @@ export default {
       openFileDialog('image/*')
           .then(loadImageFromFile)
           .then((img) => {
-            const canvas = createResizedCanvas(img,
-                this.editor.width,
-                Math.round(img.height * this.editor.width / img.width));
+            const canvas = createResizedCanvas(img, this.editor.width, this.editor.height);
 
             // Adapted from https://stackoverflow.com/a/667074/679240
             // Get the CanvasPixelArray from the given coordinates and dimensions.
