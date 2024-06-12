@@ -73,6 +73,7 @@ import {chunk, debounce} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
+import {getDateInfix} from '../utils/date';
 import {loadImageFromFile, openFileDialog} from '../utils/file';
 import {createResizedCanvas} from '../utils/image';
 
@@ -127,8 +128,7 @@ export default {
       });
 
       canvas.toBlob(function(blob) {
-        const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
-        saveAs(blob, `image-${dateInfix}.png`);
+        saveAs(blob, `image-${getDateInfix()}.png`);
       });
     },
 
