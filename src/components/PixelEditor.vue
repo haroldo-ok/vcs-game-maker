@@ -51,24 +51,17 @@
         </v-row>
         <v-row>
           <v-btn
-            title="Copy"
-            @click="() => handleCopy()"
-          >
-            <v-icon>mdi-content-copy</v-icon>
-          </v-btn>
-          <v-btn
-            title="Paste"
-            @click="() => handlePaste()"
-          >
-            <v-icon>mdi-content-paste</v-icon>
-          </v-btn>
-          <v-btn
             title="Export to image"
             @click="() => handleExportImage()"
           >
             <v-icon>mdi-export</v-icon>
           </v-btn>
-
+          <v-btn
+            title="Import from image"
+            @click="() => handleImportImage()"
+          >
+            <v-icon>mdi-import</v-icon>
+          </v-btn>
         </v-row>
       </v-col>
     </v-card-actions>
@@ -76,10 +69,12 @@
 </template>
 <script>
 import {PixelEditor, Pencil} from '@curtishughes/pixel-editor';
-import {debounce} from 'lodash';
+import {chunk, debounce} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {isMatrixEqual} from '../utils/array';
+import {loadImageFromFile, openFileDialog} from '../utils/file';
+import {createResizedCanvas} from '../utils/image';
 
 export default {
   props: {
@@ -117,31 +112,6 @@ export default {
       }
     }, 300),
 
-    handleCopy() {
-      const pixels = this.getPixels();
-      const text = pixels.map((row) => row.map((pixel) => pixel ? 'X' : '.')).join('\n');
-
-      // Adapted from https://stackoverflow.com/a/25275151/679240
-      const input = document.createElement('textarea');
-      document.body.appendChild(input);
-      input.value = text;
-      input.focus();
-      input.select();
-      document.execCommand('Copy');
-      input.remove();
-    },
-
-    handlePaste() {
-      // Adapted from https://stackoverflow.com/a/25275151/679240
-      const input = document.createElement('textarea');
-      document.body.appendChild(input);
-      input.focus();
-      input.select();
-      document.execCommand('Paste');
-      console.info('Pasted text', input.value);
-      input.remove();
-    },
-
     handleExportImage() {
       // Adapted from https://stackoverflow.com/a/28305948/679240
 
@@ -160,6 +130,33 @@ export default {
         const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
         saveAs(blob, `image-${dateInfix}.png`);
       });
+    },
+
+    handleImportImage() {
+      openFileDialog('image/*')
+          .then(loadImageFromFile)
+          .then((img) => {
+            const canvas = createResizedCanvas(img, this.editor.width, this.editor.height);
+
+            // Adapted from https://stackoverflow.com/a/667074/679240
+            // Get the CanvasPixelArray from the given coordinates and dimensions.
+            const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+            const imgPixels = imageData.data;
+
+            // Loop over each pixel
+            const pixelValues = [];
+            for (let i = 0, n = imgPixels.length; i < n; i += 4) {
+              const r = imgPixels[i]; // red
+              const g = imgPixels[i + 1]; // green
+              const b = imgPixels[i + 2]; // blue
+              // i+3 is alpha (the fourth element)
+
+              pixelValues.push((r + g + b) / 3);
+            }
+
+            const pixels = chunk(pixelValues.map((v) => v > 32 ? 1 : 0), canvas.width);
+            this.setPixels(pixels);
+          });
     },
 
     createEmptyPixelMatrix() {
