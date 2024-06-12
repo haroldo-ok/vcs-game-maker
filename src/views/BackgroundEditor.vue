@@ -52,6 +52,7 @@
                     <pixel-editor
                       :width="32"
                       :height="11"
+                      name="background"
                       v-model="background.pixels"
                       fgColor="orange"
                       @input="handleChildChange"

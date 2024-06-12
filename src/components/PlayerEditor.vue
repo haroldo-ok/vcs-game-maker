@@ -107,6 +107,7 @@
                         :aspectRatio="160/192"
                         v-model="frame.pixels"
                         :fgColor="fgColor"
+                        :name="name"
                         @input="handleChildChange"
                       />
                     </div>
@@ -157,7 +158,7 @@ import {playfieldToMatrix} from '../utils/pixels';
 
 export default defineComponent({
   components: {PixelEditor},
-  props: ['storageFactory', 'title', 'fgColor'],
+  props: ['storageFactory', 'title', 'fgColor', 'name'],
   setup(props) {
     const getMaxId = (elements) => {
       return max(elements.map((o) => o.id))||0;

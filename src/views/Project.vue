@@ -25,6 +25,7 @@ import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
 import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from '../hooks/project';
+import {getDateInfix} from '../utils/date';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -77,8 +78,7 @@ export default defineComponent({
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
-      const dateInfix = new Date().toISOString().replace(/\..*/, '').replace(/[T:]/g, '-');
-      saveAs(projectBlob, `project-${dateInfix}.vcsgm`);
+      saveAs(projectBlob, `project-${getDateInfix()}.vcsgm`);
     },
 
     handleLoadProject() {
