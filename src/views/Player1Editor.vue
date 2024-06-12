@@ -3,6 +3,7 @@
     :storageFactory="usePlayer1Storage"
     title="Player 1"
     fgColor="blue"
+    name="player1"
   />
 </template>
 <script>

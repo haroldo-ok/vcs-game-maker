@@ -85,6 +85,7 @@ export default {
     aspectRatio: {type: Number, default: 4.0 / 3},
     fgColor: {type: String, default: 'white'},
     bgColor: {type: String, default: 'black'},
+    name: {type: String, default: 'image'},
   },
   data() {
     return {
@@ -127,8 +128,8 @@ export default {
         ctx.fillRect(px.x, px.y, 1, 1);
       });
 
-      canvas.toBlob(function(blob) {
-        saveAs(blob, `image-${getDateInfix()}.png`);
+      canvas.toBlob((blob) => {
+        saveAs(blob, `${this.name}-${getDateInfix()}.png`);
       });
     },
 
