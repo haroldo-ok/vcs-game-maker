@@ -1,7 +1,8 @@
 import * as Blockly from 'blockly/core';
+import {START_ICON, SYSTEM_ICON} from './icon';
 
 const EVENT_OPTIONS = [
-  ['System start', `system_start`],
+  [`${SYSTEM_ICON} ${START_ICON} System start`, `system_start`],
 ];
 
 Blockly.defineBlocksWithJsonArray([
