@@ -20,11 +20,12 @@ import BlocklyComponent from './BlocklyComponent.vue';
 
 import '../blocks/background';
 import '../blocks/collision';
+import '../blocks/event';
 import '../blocks/input';
+import '../blocks/random';
 import '../blocks/score';
 import '../blocks/sound';
 import '../blocks/sprites';
-import '../blocks/random';
 
 import blocklyToolboxTemplate from 'raw-loader!./blockly-toolbox.xml.hbs';
 import blocklyToolboxPlayer0Movement from 'raw-loader!./blockly-toolbox-player0-movement.xml';
