@@ -172,6 +172,8 @@ Blockly.BBasic.init = function(workspace) {
     },
   };
 
+  this.gameEvents = {};
+
   this.isInitialized = true;
 };
 
@@ -187,9 +189,7 @@ Blockly.BBasic.finish = function(code) {
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
   // Normalize indents
-  code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
-  // Convert indent for labels
-  code = code.replace(/^[\t ]*@\s*/gm, '');
+  code = Blockly.BBasic.normalizeIndents(code);
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();
@@ -199,6 +199,13 @@ Blockly.BBasic.finish = function(code) {
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds});
+};
+
+Blockly.BBasic.normalizeIndents = function(code) {
+  code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
+  // Convert indent for labels
+  code = code.replace(/^[\t ]*@\s*/gm, '');
+  return code;
 };
 
 /**
@@ -455,3 +462,4 @@ import variables from './bbasic/variables';
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
+
