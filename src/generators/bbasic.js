@@ -193,6 +193,7 @@ Blockly.BBasic.finish = function(code) {
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();
+  console.info('gameEvents', this.gameEvents);
 
   this.isInitialized = false;
 
@@ -349,6 +350,19 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
     }
   }
   return at;
+};
+
+Blockly.BBasic.getGameEvent = function(eventName, code) {
+  let eventCode = this.gameEvents[eventName];
+  if (!eventCode) {
+    eventCode = [];
+    this.gameEvents[eventName] = eventCode;
+  }
+  return eventCode;
+};
+
+Blockly.BBasic.addGameEvent = function(eventName, code) {
+  this.getGameEvent(eventName).push(code);
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
