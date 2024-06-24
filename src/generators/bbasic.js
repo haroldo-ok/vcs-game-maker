@@ -172,6 +172,8 @@ Blockly.BBasic.init = function(workspace) {
     },
   };
 
+  this.gameEvents = {};
+
   this.isInitialized = true;
 };
 
@@ -187,18 +189,24 @@ Blockly.BBasic.finish = function(code) {
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
   // Normalize indents
-  code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
-  // Convert indent for labels
-  code = code.replace(/^[\t ]*@\s*/gm, '');
+  code = Blockly.BBasic.normalizeIndents(code);
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const animation = Blockly.BBasic.generateAnimations();
+  const systemStartEvent = this.generateGameEvent('system_start');
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, generatedBackgrounds});
+  return handlebarsTemplate({generatedBody, generatedBackgrounds, systemStartEvent});
+};
+
+Blockly.BBasic.normalizeIndents = function(code) {
+  code = code.replace(/^[\t ]*/gm, Blockly.BBasic.INDENT);
+  // Convert indent for labels
+  code = code.replace(/^[\t ]*@\s*/gm, '');
+  return code;
 };
 
 /**
@@ -344,6 +352,29 @@ Blockly.BBasic.getAdjusted = function(block, atId, optDelta, optNegate,
   return at;
 };
 
+Blockly.BBasic.getGameEvent = function(eventName, code) {
+  let eventCode = this.gameEvents[eventName];
+  if (!eventCode) {
+    eventCode = [];
+    this.gameEvents[eventName] = eventCode;
+  }
+  return eventCode;
+};
+
+Blockly.BBasic.addGameEvent = function(eventName, code) {
+  this.getGameEvent(eventName).push(code);
+};
+
+Blockly.BBasic.generateGameEvent = function(eventName) {
+  const eventCode = this.getGameEvent(eventName).join('\n\n');
+  return this.normalizeIndents([
+    'rem **************************************************************************',
+    `rem Event: ${eventName}.`,
+    'rem **************************************************************************',
+    eventCode,
+  ].join('\n'));
+};
+
 Blockly.BBasic.generateBackgrounds = function() {
   const backgroundsStorage = useBackgroundsStorage();
 
@@ -437,6 +468,7 @@ Blockly.BBasic.generateAnimations = function() {
 import background from './bbasic/background';
 import collision from './bbasic/collision';
 import colour from './bbasic/colour';
+import event from './bbasic/event';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
 import loops from './bbasic/loops';
@@ -449,7 +481,9 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[background, collision, colour, input, logic, loops, math, procedures, random, score, sound, sprites, text, variables]
+[background, collision, colour, event, input, logic, loops, math, procedures,
+  random, score, sound, sprites, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;
+
