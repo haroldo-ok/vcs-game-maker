@@ -8,4 +8,11 @@ export default (Blockly) => {
     Blockly.BBasic.addGameEvent(eventName, code);
     return '';
   };
+
+  Blockly.BBasic['event_change_state'] = function(block) {
+    // Change game state
+    const stateName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('STATE'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    return `goto ${stateName}_start_begin`;
+  };
 };
