@@ -64,9 +64,14 @@ end
 
 {{{ systemStartEvent }}}
 
+fullgameloop
+
+{{{ titleStartEvent }}}
+
+{{{ gamePlayStartEvent }}}
+
  rem **************************************************************************
  rem Main loop: 
- rem - set colors and record last coordinates of player sprites
  rem **************************************************************************
 main
 
@@ -85,6 +90,9 @@ main
 
  goto main
  
+{{{ gameOverStartEvent }}}
+
+ goto fullgameloop
 
  rem **************************************************************************
  rem Common game logic subroutine.

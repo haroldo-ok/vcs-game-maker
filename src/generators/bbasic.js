@@ -193,13 +193,18 @@ Blockly.BBasic.finish = function(code) {
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
+
   const systemStartEvent = this.generateGameEvent('system_start');
+  const titleStartEvent = this.generateGameEvent('title_start');
+  const gamePlayStartEvent = this.generateGameEvent('gameplay_start');
+  const gameOverStartEvent = this.generateGameEvent('gameover_start');
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations, systemStartEvent});
+  return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations,
+    systemStartEvent, titleStartEvent, gamePlayStartEvent, gameOverStartEvent});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -371,7 +376,9 @@ Blockly.BBasic.generateGameEvent = function(eventName) {
     'rem **************************************************************************',
     `rem Event: ${eventName}.`,
     'rem **************************************************************************',
+    `@${eventName}_begin`,
     eventCode,
+    `@${eventName}_end`,
   ].join('\n'));
 };
 
