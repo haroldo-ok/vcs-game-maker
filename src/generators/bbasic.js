@@ -192,14 +192,14 @@ Blockly.BBasic.finish = function(code) {
   code = Blockly.BBasic.normalizeIndents(code);
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
-  const animation = Blockly.BBasic.generateAnimations();
+  const generatedAnimations = Blockly.BBasic.generateAnimations();
   const systemStartEvent = this.generateGameEvent('system_start');
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
-  const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, generatedBackgrounds, systemStartEvent});
+  const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
+  return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations, systemStartEvent});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
