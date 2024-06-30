@@ -192,14 +192,22 @@ Blockly.BBasic.finish = function(code) {
   code = Blockly.BBasic.normalizeIndents(code);
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
-  const animation = Blockly.BBasic.generateAnimations();
+  const generatedAnimations = Blockly.BBasic.generateAnimations();
+
   const systemStartEvent = this.generateGameEvent('system_start');
+  const titleStartEvent = this.generateGameEvent('title_start');
+  const titleUpdateEvent = this.generateGameLoopEvent('title_update');
+  const gamePlayStartEvent = this.generateGameEvent('gameplay_start');
+  const gameOverStartEvent = this.generateGameEvent('gameover_start');
+  const gameOverUpdateEvent = this.generateGameEvent('gameover_update');
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
-  const generatedBody = definitions.join('\n\n') + '\n\n\n' + animation + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, generatedBackgrounds, systemStartEvent});
+  const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
+  return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations,
+    systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
+    gameOverStartEvent, gameOverUpdateEvent});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -365,14 +373,30 @@ Blockly.BBasic.addGameEvent = function(eventName, code) {
   this.getGameEvent(eventName).push(code);
 };
 
-Blockly.BBasic.generateGameEvent = function(eventName) {
-  const eventCode = this.getGameEvent(eventName).join('\n\n');
+Blockly.BBasic.generateGameEvent = function(eventName,
+    codeGenerator = (eventName, eventCode) => eventCode.join('\n\n')) {
+  const eventCode = codeGenerator(eventName, this.getGameEvent(eventName));
   return this.normalizeIndents([
     'rem **************************************************************************',
     `rem Event: ${eventName}.`,
     'rem **************************************************************************',
+    `@${eventName}_begin`,
     eventCode,
+    `@${eventName}_end`,
   ].join('\n'));
+};
+
+Blockly.BBasic.generateGameLoopEvent = function(eventName) {
+  return this.generateGameEvent(eventName, (eventName, eventCode) => {
+    const innerCode = eventCode.join('\n\n');
+    if (!innerCode.trim()) return '';
+    return [
+      'gosub commongamelogic',
+      'drawscreen',
+      innerCode,
+      `goto ${eventName}_begin`,
+    ].join('\n');
+  });
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
