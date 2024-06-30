@@ -70,6 +70,18 @@ end
  rem **************************************************************************
 main
 
+ 
+ rem **************************************************************************
+ rem Sound handling.
+ rem **************************************************************************
+
+ if channnel0duration = 1 then AUDV0 = 0
+ if channnel0duration <> 0 then channnel0duration = channnel0duration - 1
+
+ if channnel1duration = 1 then AUDV1 = 0
+ if channnel1duration <> 0 then channnel1duration = channnel1duration - 1
+
+
  rem **************************************************************************
  rem Draw loop: 
  rem - Draws the screen and handles user input. Moves the sprites and
@@ -100,16 +112,6 @@ backgroundchangeend
  rem **************************************************************************
  rem End of generated code.
  rem **************************************************************************
- 
- rem **************************************************************************
- rem Sound handling.
- rem **************************************************************************
-
- if channnel0duration = 1 then AUDV0 = 0
- if channnel0duration <> 0 then channnel0duration = channnel0duration - 1
-
- if channnel1duration = 1 then AUDV1 = 0
- if channnel1duration <> 0 then channnel1duration = channnel1duration - 1
 
  goto main
  
