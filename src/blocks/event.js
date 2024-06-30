@@ -10,8 +10,14 @@ const EVENT_OPTIONS = [
   [`${GAMEOVER_ICON} ${UPDATE_ICON} Gameover update`, `gameover_update`],
 ];
 
+const STATE_OPTIONS = [
+  [`${TITLE_ICON} Title screen`, 'title'],
+  [`${GAME_ICON} Gameplay`, 'gameplay'],
+  [`${GAMEOVER_ICON} Gameover`, 'gameover'],
+];
+
 Blockly.defineBlocksWithJsonArray([
-  // Block for startup code
+  // Block for events
   {
     'type': 'event_block',
     'message0': 'On %1',
@@ -30,6 +36,22 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': 'rgb(39, 176, 176)',
-    'tooltip': 'Will be executed exactly one time when the ROM boots up',
+    'tooltip': 'Will be executed when a given event happens',
+  },
+  // Block for changing game state
+  {
+    'type': 'event_change_state',
+    'message0': 'Change state to %1',
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'STATE',
+        'options': STATE_OPTIONS,
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'rgb(39, 176, 176)',
+    'tooltip': 'Change game state to a given one',
   },
 ]);
