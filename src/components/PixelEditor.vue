@@ -62,6 +62,13 @@
           >
             <v-icon>mdi-import</v-icon>
           </v-btn>
+          <v-btn
+            title="Set height"
+            @click="() => handleImportImage()"
+          >
+            <v-icon>mdi-human-male-height-variant</v-icon>
+            {{value.length}}
+          </v-btn>
         </v-row>
       </v-col>
     </v-card-actions>
