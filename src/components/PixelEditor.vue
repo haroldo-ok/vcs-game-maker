@@ -252,6 +252,10 @@ export default {
       if (this.heightMenuValue < this.value.length) {
         pixels.length = this.heightMenuValue;
         this.editor.height = this.heightMenuValue;
+
+        const canvas = this.$refs.editor;
+        this.editor = new PixelEditor(canvas, this.width, this.heightMenuValue, this.pencil);
+
         this.setPixels(pixels);
       }
 
