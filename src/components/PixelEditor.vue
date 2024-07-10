@@ -75,6 +75,7 @@
                     title="Set height"
                     v-bind="attrs"
                     v-on="on"
+                    @click="heightMenuValue = value.length"
                   >
                     <v-icon>mdi-human-male-height-variant</v-icon>
                     {{value.length}}
@@ -130,9 +131,9 @@
                     <v-btn
                       color="primary"
                       text
-                      @click="heightMenuVisible = false"
+                      @click="handleSetHeight()"
                     >
-                      Save
+                      Set height
                     </v-btn>
                   </v-card-actions>
                 </v-card>
@@ -177,7 +178,7 @@ export default {
   },
   mounted() {
     const canvas = this.$refs.editor;
-    this.editor = new PixelEditor(canvas, this.width, this.height, this.pencil);
+    this.editor = new PixelEditor(canvas, this.width, this.value.length, this.pencil);
     this.setPixels(this.value);
     this.handleMouse();
 
@@ -239,6 +240,22 @@ export default {
             const pixels = chunk(pixelValues.map((v) => v > 32 ? 1 : 0), canvas.width);
             this.setPixels(pixels);
           });
+    },
+
+    handleSetHeight() {
+      this.heightMenuValue = this.heightMenuValue || 0;
+      this.heightMenuValue = Math.max(1, Math.min(64, this.heightMenuValue));
+
+      const pixels = this.getPixels();
+      console.log('heightMenuValue', this.heightMenuValue);
+      console.log('editor.height', this.editor.height);
+      if (this.heightMenuValue < this.value.length) {
+        pixels.length = this.heightMenuValue;
+        this.editor.height = this.heightMenuValue;
+        this.setPixels(pixels);
+      }
+
+      this.heightMenuVisible = false;
     },
 
     createEmptyPixelMatrix() {
