@@ -62,13 +62,83 @@
           >
             <v-icon>mdi-import</v-icon>
           </v-btn>
-          <v-btn
-            title="Set height"
-            @click="() => handleImportImage()"
-          >
-            <v-icon>mdi-human-male-height-variant</v-icon>
-            {{value.length}}
-          </v-btn>
+
+          <template>
+            <div class="text-center">
+              <v-menu
+                v-model="heightMenuVisible"
+                :close-on-content-click="false"
+                offset-x
+              >
+                <template v-slot:activator="{ on, attrs }">
+                  <v-btn
+                    title="Set height"
+                    v-bind="attrs"
+                    v-on="on"
+                  >
+                    <v-icon>mdi-human-male-height-variant</v-icon>
+                    {{value.length}}
+                  </v-btn>
+                </template>
+
+                <v-card>
+                  <v-list>
+                    <v-list-item>
+                      <v-list-item-content>
+                        <v-list-item-title>Set height for this frame</v-list-item-title>
+                      </v-list-item-content>
+                    </v-list-item>
+                  </v-list>
+
+                  <v-divider></v-divider>
+
+                  <v-list>
+                    <v-list-item>
+                      <v-list-item-action>
+
+                        <v-slider
+                          v-model="heightMenuValue"
+                          :min="1"
+                          :max="64"
+                          label="Height"
+                          class="align-center"
+                          style="width: 400px"
+                        >
+                          <template v-slot:append>
+                            <v-text-field
+                              v-model="heightMenuValue"
+                              class="mt-0 pt-0"
+                              type="number"
+                              style="width: 60px"
+                            ></v-text-field>
+                          </template>
+                        </v-slider>
+
+                      </v-list-item-action>
+                    </v-list-item>
+                  </v-list>
+
+                  <v-card-actions>
+                    <v-spacer></v-spacer>
+
+                    <v-btn
+                      text
+                      @click="heightMenuVisible = false"
+                    >
+                      Cancel
+                    </v-btn>
+                    <v-btn
+                      color="primary"
+                      text
+                      @click="heightMenuVisible = false"
+                    >
+                      Save
+                    </v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
         </v-row>
       </v-col>
     </v-card-actions>
@@ -98,6 +168,10 @@ export default {
     return {
       pencil: new Pencil(this.fgColor),
       eraser: new Pencil(this.bgColor),
+
+      heightMenuVisible: false,
+      heightMenuValue: 0,
+
       toggledTool: 1,
     };
   },
