@@ -247,8 +247,6 @@ export default {
       this.heightMenuValue = Math.max(1, Math.min(64, this.heightMenuValue));
 
       const pixels = this.getPixels();
-      console.log('heightMenuValue', this.heightMenuValue);
-      console.log('editor.height', this.editor.height);
       if (this.heightMenuValue < this.value.length) {
         pixels.length = this.heightMenuValue;
         this.editor.height = this.heightMenuValue;
@@ -257,6 +255,7 @@ export default {
         this.editor = new PixelEditor(canvas, this.width, this.heightMenuValue, this.pencil);
 
         this.setPixels(pixels);
+        this.$emit('input', pixels);
       }
 
       this.heightMenuVisible = false;
