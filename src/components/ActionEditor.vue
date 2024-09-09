@@ -30,6 +30,7 @@ import '../blocks/sprites';
 import blocklyToolboxTemplate from 'raw-loader!./blockly-toolbox.xml.hbs';
 import blocklyToolboxPlayer0Movement from 'raw-loader!./blockly-toolbox-player0-movement.xml';
 import blocklyToolboxPlayer1Movement from 'raw-loader!./blockly-toolbox-player1-movement.xml';
+import blocklyToolboxBallMovement from 'raw-loader!./blockly-toolbox-ball-movement.xml';
 
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
@@ -78,6 +79,7 @@ export default {
       toolbox: Handlebars.compile(blocklyToolboxTemplate)({
         blocklyToolboxPlayer0Movement,
         blocklyToolboxPlayer1Movement,
+        blocklyToolboxBallMovement,
       }),
     },
     workspaceStorage: useWorkspaceStorage(),
