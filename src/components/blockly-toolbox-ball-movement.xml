@@ -1,4 +1,156 @@
 <category name="Ball movement" colour="#ff8800">
-    <category name="Player 0 simple left / right" colour="#ff8800">
+    <category name="Vertically bouncing ball" colour="#ff8800">
+        
+        <block type="controls_if">
+        <value name="IF0">
+            <block type="logic_negate">
+            <value name="BOOL">
+                <block type="variables_get">
+                <field name="VAR">Ball Y Speed</field>
+                </block>
+            </value>
+            </block>
+        </value>
+        <statement name="DO0">
+            <block type="variables_set">
+            <field name="VAR">Ball X Speed</field>
+            <value name="VALUE">
+                <block type="math_number">
+                <field name="NUM">0</field>
+                </block>
+            </value>
+            <next>
+                <block type="variables_set">
+                <field name="VAR">Ball Y Speed</field>
+                <value name="VALUE">
+                    <block type="math_number">
+                    <field name="NUM">1</field>
+                    </block>
+                </value>
+                <next>
+                    <block type="sprite_ball_set">
+                    <field name="VAR">ballx</field>
+                    <value name="VALUE">
+                        <shadow type="math_number">
+                        <field name="NUM">80</field>
+                        </shadow>
+                    </value>
+                    <next>
+                        <block type="sprite_ball_set">
+                        <field name="VAR">bally</field>
+                        <value name="VALUE">
+                            <shadow type="math_number">
+                            <field name="NUM">64</field>
+                            </shadow>
+                        </value>
+                        <next>
+                            <block type="sprite_ball_set">
+                            <field name="VAR">ballheight</field>
+                            <value name="VALUE">
+                                <shadow type="math_number">
+                                <field name="NUM">6</field>
+                                </shadow>
+                            </value>
+                            </block>
+                        </next>
+                        </block>
+                    </next>
+                    </block>
+                </next>
+                </block>
+            </next>
+            </block>
+        </statement>
+        <next>
+            <block type="sprite_ball_change">
+            <field name="VAR">bally</field>
+            <value name="DELTA">
+                <shadow type="math_number">
+                <field name="NUM">1</field>
+                </shadow>
+                <block type="variables_get">
+                <field name="VAR">Ball Y Speed</field>
+                </block>
+            </value>
+            <next>
+                <block type="controls_if">
+                <value name="IF0">
+                    <block type="collision_get">
+                    <field name="VAR0">playfield</field>
+                    <field name="VAR1">ball</field>
+                    </block>
+                </value>
+                <statement name="DO0">
+                    <block type="controls_if">
+                    <mutation else="1"></mutation>
+                    <value name="IF0">
+                        <block type="logic_compare">
+                        <field name="OP">LT</field>
+                        <value name="A">
+                            <block type="variables_get">
+                            <field name="VAR">Ball Y Speed</field>
+                            </block>
+                        </value>
+                        <value name="B">
+                            <block type="math_number">
+                            <field name="NUM">2</field>
+                            </block>
+                        </value>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="variables_set">
+                        <field name="VAR">Ball Y Speed</field>
+                        <value name="VALUE">
+                            <block type="math_number">
+                            <field name="NUM">255</field>
+                            </block>
+                        </value>
+                        </block>
+                    </statement>
+                    <statement name="ELSE">
+                        <block type="variables_set">
+                        <field name="VAR">Ball Y Speed</field>
+                        <value name="VALUE">
+                            <block type="math_number">
+                            <field name="NUM">1</field>
+                            </block>
+                        </value>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="sprite_ball_change">
+                        <field name="VAR">bally</field>
+                        <value name="DELTA">
+                            <shadow type="math_number">
+                            <field name="NUM">1</field>
+                            </shadow>
+                            <block type="variables_get">
+                            <field name="VAR">Ball Y Speed</field>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="sprite_ball_change">
+                            <field name="VAR">bally</field>
+                            <value name="DELTA">
+                                <shadow type="math_number">
+                                <field name="NUM">1</field>
+                                </shadow>
+                                <block type="variables_get">
+                                <field name="VAR">Ball Y Speed</field>
+                                </block>
+                            </value>
+                            </block>
+                        </next>
+                        </block>
+                    </next>
+                    </block>
+                </statement>
+                </block>
+            </next>
+            </block>
+        </next>
+        </block>
+
     </category>
 </category>
