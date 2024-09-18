@@ -59,6 +59,11 @@ const preprocessError = (code, e) => {
 
 const showError = (errorStorage, msg, code, e) => {
   console.error(msg, e);
+
+  console.groupCollapsed('Offending code:');
+  console.warn(code);
+  console.groupEnd();
+
   errorStorage.value = `${msg}: ${preprocessError(code, e)}`;
 };
 
