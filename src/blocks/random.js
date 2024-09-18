@@ -2,6 +2,11 @@ import * as Blockly from 'blockly/core';
 
 import {DICE_ICON} from './icon';
 
+const RAND_OPTIONS = [
+  ['1 to 32', '(rand/8) + 1'],
+  ['0 to 63', '(rand/4)'],
+];
+
 Blockly.defineBlocksWithJsonArray([
   // Block for the getter.
   {
@@ -19,17 +24,12 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the getter.
   {
     'type': `random_range_get`,
-    'message0': `Random from %1 to %2`,
+    'message0': `Random %1`,
     'args0': [
       {
-        'type': 'field_number',
-        'name': 'RANGE_START',
-        'value': 1,
-      },
-      {
-        'type': 'field_number',
-        'name': 'RANGE_END',
-        'value': 32,
+        'type': 'field_dropdown',
+        'name': 'RAND_CODE',
+        'options': RAND_OPTIONS,
       },
     ],
     'icon': DICE_ICON,

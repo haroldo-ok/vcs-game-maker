@@ -7,13 +7,10 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic[`random_range_get`] = function(block) {
-    const rangeStart = block.getFieldValue('RANGE_START');
-    const rangeEnd = block.getFieldValue('RANGE_END');
+    const randCode = block.getFieldValue('RAND_CODE');
 
     const code =
-      `rem ${rangeStart} to ${rangeEnd}\n` +
-      `temp1 = rand \n` +
-      `player0x = rand / 4 + 20`;
+      `player0x = (${randCode})`;
     return code;
   };
 };
