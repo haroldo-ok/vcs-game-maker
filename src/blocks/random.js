@@ -28,11 +28,10 @@ Blockly.defineBlocksWithJsonArray([
       },
       {
         'type': 'field_number',
-        'name': 'RANGE_START',
+        'name': 'RANGE_END',
         'value': 32,
       },
     ],
-    'output': 'Number',
     'icon': DICE_ICON,
     'colour': 'purple',
     'tooltip': `Generates a random number between the given numbers.`,
