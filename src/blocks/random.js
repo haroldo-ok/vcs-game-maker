@@ -44,6 +44,7 @@ Blockly.defineBlocksWithJsonArray([
         'options': RAND_OPTIONS,
       },
     ],
+    'output': 'Number',
     'icon': DICE_ICON,
     'colour': 'purple',
     'tooltip': `Generates a random number between the given numbers.`,

@@ -9,8 +9,6 @@ export default (Blockly) => {
   Blockly.BBasic[`random_range_get`] = function(block) {
     const randCode = block.getFieldValue('RAND_CODE');
 
-    const code =
-      `player0x = (${randCode})`;
-    return code;
+    return [`${randCode}`, Blockly.BBasic.ORDER_ATOMIC];
   };
 };
