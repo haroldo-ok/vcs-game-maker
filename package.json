@@ -18,6 +18,7 @@
     "batari-basic": "^0.0.1",
     "blockly": "^6.20210701.0",
     "core-js": "^3.6.5",
+    "dialogs": "^2.0.1",
     "file-saver": "^2.0.5",
     "handlebars": "^4.7.7",
     "lodash": "^4.17.21",
