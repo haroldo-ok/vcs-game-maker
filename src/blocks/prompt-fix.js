@@ -1,9 +1,10 @@
 import * as Blockly from 'blockly/core';
-const Dialogs = require('dialogs');
 
-// eslint-disable-next-line new-cap
-const dialogs = Dialogs();
+const smalltalk = require('smalltalk');
 
 Blockly.prompt = function(message, defaultValue, callback) {
-  dialogs.prompt(message, defaultValue, callback);
+  smalltalk
+      .prompt('Prompt', message, defaultValue)
+      .then(callback)
+      .catch(() => {});
 };
