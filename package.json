@@ -1,6 +1,6 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.25.1",
+  "version": "0.25.2",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -21,6 +21,7 @@
     "file-saver": "^2.0.5",
     "handlebars": "^4.7.7",
     "lodash": "^4.17.21",
+    "smalltalk": "^4.1.2",
     "vue": "^2.6.14",
     "vue-code-highlight": "^0.7.8",
     "vue-router": "^3.2.0",
