@@ -46,8 +46,11 @@ export default (Blockly) => {
             Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
                 block), Blockly.BBasic.INDENT) + branchCode;
       }
-      code += '\n' + branchCode +
-        `@ ${labelStart}_else_end`;
+      code += [
+        '\n',
+        branchCode,
+        `@ ${labelStart}_else_end`,
+      ].join('\n');
     }
     return '\n' + code + '\n';
   };
