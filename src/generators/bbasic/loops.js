@@ -60,7 +60,8 @@ export default (Blockly) => {
 
   Blockly.BBasic['controls_whileUntil'] = function(block) {
   // Do while/until loop.
-    const labelName = Blockly.BBasic.nameDB_.getName('while', Blockly.PROCEDURE_CATEGORY_NAME);
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelName = `_while_${blockNumber}_`;
     const startLabelName = labelName + 'start';
     const endLabelName = labelName + 'end';
     const until = block.getFieldValue('MODE') == 'UNTIL';
