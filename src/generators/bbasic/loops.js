@@ -65,9 +65,7 @@ export default (Blockly) => {
     const startLabelName = labelName + 'start';
     const endLabelName = labelName + 'end';
     const until = block.getFieldValue('MODE') == 'UNTIL';
-    let argument0 = Blockly.BBasic.valueToCode(block, 'BOOL',
-      until ? Blockly.BBasic.ORDER_LOGICAL_NOT :
-      Blockly.BBasic.ORDER_NONE) || 'false';
+    let argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', Blockly.BBasic.ORDER_NONE) || 'false';
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
     if (!until) {
