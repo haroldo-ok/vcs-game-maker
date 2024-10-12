@@ -77,7 +77,7 @@ export default (Blockly) => {
       'if ' + argument0 + ' then goto ' + endLabelName + '\n' +
       branch + '\n' +
       'goto ' + startLabelName + '\n' +
-      '@' + endLabelName;
+      '@' + endLabelName + '\n';
   };
 
   Blockly.BBasic['controls_for'] = function(block) {
