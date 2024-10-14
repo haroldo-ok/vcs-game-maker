@@ -61,21 +61,23 @@ export default (Blockly) => {
   Blockly.BBasic['controls_whileUntil'] = function(block) {
   // Do while/until loop.
     const blockNumber = Blockly.BBasic.blockNumbers.next();
-    const labelName = `_while_${blockNumber}_`;
+    const isUntil = block.getFieldValue('MODE') == 'UNTIL';
+
+    const labelType = isUntil ? 'until' : 'while';
+    const labelName = `_${labelType}_${blockNumber}_`;
     const startLabelName = labelName + 'start';
     const endLabelName = labelName + 'end';
-    const until = block.getFieldValue('MODE') == 'UNTIL';
-    let argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', Blockly.BBasic.ORDER_NONE) || 'false';
+    const argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', Blockly.BBasic.ORDER_NONE) || 'false';
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
-    if (!until) {
-      argument0 = '!' + argument0; // eslint-disable-line
-    }
-    return '@' + startLabelName + '\n' +
-      'if ' + argument0 + ' then goto ' + endLabelName + '\n' +
-      branch + '\n' +
-      'goto ' + startLabelName + '\n' +
-      '@' + endLabelName + '\n';
+
+    return [
+      '@' + startLabelName,
+      'if ' + argument0 + ' then goto ' + endLabelName,
+      branch,
+      'goto ' + startLabelName,
+      '@' + endLabelName,
+    ].join('\n') + '\n';
   };
 
   Blockly.BBasic['controls_for'] = function(block) {
