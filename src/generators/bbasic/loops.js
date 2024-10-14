@@ -73,8 +73,8 @@ export default (Blockly) => {
     branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
 
     const codeForCondition = isUntil ?
-      'if ' + argument0 + ' then goto ' + endLabelName :
-      'if ' + argument0 + ' then goto ' + loopLabelName + ' else goto ' + endLabelName;
+      `if ${argument0} then goto ${endLabelName}` :
+      `if ${argument0} then goto ${loopLabelName} else goto ${endLabelName}`;
 
     return [
       '@' + startLabelName,
