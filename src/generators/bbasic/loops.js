@@ -66,14 +66,20 @@ export default (Blockly) => {
     const labelType = isUntil ? 'until' : 'while';
     const labelName = `_${labelType}_${blockNumber}_`;
     const startLabelName = labelName + 'start';
+    const loopLabelName = labelName + 'loop';
     const endLabelName = labelName + 'end';
     const argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', Blockly.BBasic.ORDER_NONE) || 'false';
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
 
+    const codeForCondition = isUntil ?
+      'if ' + argument0 + ' then goto ' + endLabelName :
+      'if ' + argument0 + ' then goto ' + loopLabelName + ' else goto ' + endLabelName;
+
     return [
       '@' + startLabelName,
-      'if ' + argument0 + ' then goto ' + endLabelName,
+      codeForCondition,
+      '@' + loopLabelName,
       branch,
       'goto ' + startLabelName,
       '@' + endLabelName,
