@@ -15,4 +15,27 @@ export default (Blockly) => {
         Blockly.VARIABLE_CATEGORY_NAME);
     return `goto ${stateName}_start_begin`;
   };
+
+  Blockly.BBasic['event_frame_even_odd'] = function(block) {
+    // Block for even/odd frames
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+
+    const labelStart = `_if_${blockNumber}`;
+    const labelOdd = `${labelStart}_odd`;
+    const labelEnd = `${labelStart}_end`;
+
+    const evenCode = Blockly.BBasic.statementToCode(block, 'DO_EVEN').trim();
+    const oddCode = Blockly.BBasic.statementToCode(block, 'DO_ODD').trim();
+    return '\n' +
+    [
+      'temp1 = framecounter & 1',
+      `if temp1 then goto ${labelOdd}`,
+      evenCode,
+      `goto ${labelEnd}`,
+      `@ ${labelOdd}`,
+      oddCode,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
 };
