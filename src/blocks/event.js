@@ -16,8 +16,8 @@ const STATE_OPTIONS = [
   [`${GAMEOVER_ICON} Gameover`, 'gameover'],
 ];
 
-const FRAME_OPTIONS = [...Array(8).keys()]
-    .map((n) => Math.pow(2, n))
+const FRAME_OPTIONS = [...Array(7).keys()]
+    .map((n) => Math.pow(2, n + 1))
     .map((n) => [`${n}`, `${n - 1}`]);
 
 Blockly.defineBlocksWithJsonArray([

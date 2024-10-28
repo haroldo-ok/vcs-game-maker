@@ -38,4 +38,25 @@ export default (Blockly) => {
     ].join('\n') +
     '\n';
   };
+
+  Blockly.BBasic['event_frame_every_n'] = function(block) {
+    // Every n frames
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+
+    const labelStart = `_frame_every_n_${blockNumber}`;
+    const labelEnd = `${labelStart}_end`;
+
+    const frameMask = block.getFieldValue('MASK');
+    const frameDelta = block.getFieldValue('DELTA');
+    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+
+    return '\n' +
+    [
+      `temp1 = (framecounter + ${frameDelta}) & ${frameMask}`,
+      `if temp1 then goto ${labelEnd}`,
+      code,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
 };
