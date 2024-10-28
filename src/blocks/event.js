@@ -38,6 +38,7 @@ Blockly.defineBlocksWithJsonArray([
     'colour': 'rgb(39, 176, 176)',
     'tooltip': 'Will be executed when a given event happens',
   },
+
   // Block for changing game state
   {
     'type': 'event_change_state',
@@ -54,4 +55,26 @@ Blockly.defineBlocksWithJsonArray([
     'colour': 'rgb(39, 176, 176)',
     'tooltip': 'Change game state to a given one',
   },
+
+  // Block for even/odd frames
+  {
+    'type': 'event_frame_even_odd',
+    'message0': 'On even frames',
+    'message1': '%1',
+    'args1': [{
+      'type': 'input_statement',
+      'name': 'DO_EVEN',
+    }],
+    'message2': 'On odd frames',
+    'message3': '%1',
+    'args3': [{
+      'type': 'input_statement',
+      'name': 'DO_ODD',
+    }],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'rgb(39, 176, 176)',
+    'tooltip': 'Change game state to a given one',
+  },
+
 ]);
