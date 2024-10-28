@@ -20,7 +20,7 @@ export default (Blockly) => {
     // Block for even/odd frames
     const blockNumber = Blockly.BBasic.blockNumbers.next();
 
-    const labelStart = `_if_${blockNumber}`;
+    const labelStart = `_frame_even_odd_${blockNumber}`;
     const labelOdd = `${labelStart}_odd`;
     const labelEnd = `${labelStart}_end`;
 
