@@ -24,6 +24,7 @@
  dim player1realcolor = q
  dim player0animation = p
  dim player1animation = o
+ dim framecounter = n
 
  newbackground = 1
 
@@ -80,6 +81,9 @@ main
  rem **************************************************************************
 
 commongamelogic
+
+ framecounter = framecounter + 1
+
  rem **************************************************************************
  rem Sound handling.
  rem **************************************************************************
