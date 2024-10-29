@@ -63,6 +63,9 @@ export default (Blockly) => {
           Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
       const varName = Blockly.BBasic.nameDB_.getName(
           block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+      if (varName === 'ballwidth') {
+        return 'CTRLPF = (' + argument0 + ') * 16 + 1\n';
+      }
       return varName + ' = ' + argument0 + '\n';
     };
 
