@@ -33,7 +33,7 @@ const MISSILE_SIZE_OPTIONS = [
   ['8', '$30'],
 ];
 
-const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
+const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOptions=[], colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for the getter.
     {
@@ -58,7 +58,7 @@ const buildSpriteBlocks = ({name, description, icon, options, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'VAR',
-          options,
+          'options': [...options, ...writeOnlyOptions],
         },
         {
           'type': 'input_value',
@@ -201,8 +201,8 @@ buildSpriteBlocks({
   description: 'Ball',
   icon: BALL_ICON,
   colour: '#ff8800',
-  options: [
-    ...buildMissileOptions('ball'),
+  options: buildMissileOptions('ball'),
+  writeOnlyOptions: [
     [HEIGHT_ICON + ' Width', 'ballwidth'],
   ],
 });
