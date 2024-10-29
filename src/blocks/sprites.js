@@ -201,5 +201,8 @@ buildSpriteBlocks({
   description: 'Ball',
   icon: BALL_ICON,
   colour: '#ff8800',
-  options: buildMissileOptions('ball'),
+  options: [
+    ...buildMissileOptions('ball'),
+    [HEIGHT_ICON + ' Width', 'ballwidth'],
+  ],
 });
