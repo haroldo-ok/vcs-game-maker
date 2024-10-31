@@ -360,53 +360,53 @@
     </category>
 
     <category name="Player 0 platformer" colour="red">
-        <block type="event_frame_even_odd" id="ieIZUBG!?JwkS%ecDJ)H" x="-437" y="-237">
+        <block type="event_frame_even_odd" x="-437" y="-237">
             <statement name="DO_EVEN">
-            <block type="variables_set" id="xjxlHKYI(~$]({sRZ!p2">
-                <field name="VAR" id="my),!V)`z/q%ABtY1fX5">Player 0 on Ground</field>
+            <block type="variables_set">
+                <field name="VAR">Player 0 on Ground</field>
                 <value name="VALUE">
-                <block type="logic_boolean" id="LiN`Lmv1U}lMmMNp*gN~">
+                <block type="logic_boolean">
                     <field name="BOOL">FALSE</field>
                 </block>
                 </value>
                 <next>
-                <block type="controls_if" id="*vGHTqi/-}JMN%oLC)b9">
+                <block type="controls_if">
                     <value name="IF0">
-                    <block type="collision_get" id="JC`K:)?%{/dTasH+n[gc">
+                    <block type="collision_get">
                         <field name="VAR0">player0</field>
                         <field name="VAR1">playfield</field>
                     </block>
                     </value>
                     <statement name="DO0">
-                    <block type="controls_if" id="vqfsO~K}/Z%LG0q(8e(j">
+                    <block type="controls_if">
                         <value name="IF0">
-                        <block type="logic_operation" id="ZtWj{DpWx6,V_T%).fpR">
+                        <block type="logic_operation">
                             <field name="OP">AND</field>
                             <value name="A">
-                            <block type="logic_compare" id="upv,wTo8%7k=%E|Rp@2C">
+                            <block type="logic_compare">
                                 <field name="OP">GT</field>
                                 <value name="A">
-                                <block type="variables_get" id="|92oN?.z]P@wD46MbJqe">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                                 <value name="B">
-                                <block type="math_number" id="S3O;=U:VxlznT341a1E4">
+                                <block type="math_number">
                                     <field name="NUM">0</field>
                                 </block>
                                 </value>
                             </block>
                             </value>
                             <value name="B">
-                            <block type="logic_compare" id="(^$[8[q~L|Y/-s3~q+]b">
+                            <block type="logic_compare">
                                 <field name="OP">LT</field>
                                 <value name="A">
-                                <block type="variables_get" id="v{)+k*bnq6YLjKh[R#qG">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                                 <value name="B">
-                                <block type="math_number" id="n`Vv|8V-(YrjI[=2*-h,">
+                                <block type="math_number">
                                     <field name="NUM">128</field>
                                 </block>
                                 </value>
@@ -415,44 +415,44 @@
                         </block>
                         </value>
                         <statement name="DO0">
-                        <block type="variables_set" id="o/jUxYYMRK5(t^$}Z()X">
-                            <field name="VAR" id="my),!V)`z/q%ABtY1fX5">Player 0 on Ground</field>
+                        <block type="variables_set">
+                            <field name="VAR">Player 0 on Ground</field>
                             <value name="VALUE">
-                            <block type="logic_boolean" id="FM%9|PM{(![[5sKm(2PS">
+                            <block type="logic_boolean">
                                 <field name="BOOL">TRUE</field>
                             </block>
                             </value>
                         </block>
                         </statement>
                         <next>
-                        <block type="variables_set" id="2z^H+}5u}grB*[{,kgQ)">
-                            <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                        <block type="variables_set">
+                            <field name="VAR">Player 0 Y Speed</field>
                             <value name="VALUE">
-                            <block type="math_single" id="sC{9YwCR,6c$XjlvGQlQ">
+                            <block type="math_single">
                                 <field name="OP">NEG</field>
                                 <value name="NUM">
-                                <block type="variables_get" id="!|8w|Fc4RO)OBgh^zn1s">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                             </block>
                             </value>
                             <next>
-                            <block type="sprite_player0_change" id="aZHW!TPr3/5EcY6dfa3G">
+                            <block type="sprite_player0_change">
                                 <field name="VAR">player0y</field>
                                 <value name="DELTA">
-                                <shadow type="math_number" id="61V)QQU6{z@)b^Eltmi?">
+                                <shadow type="math_number">
                                     <field name="NUM">1</field>
                                 </shadow>
-                                <block type="variables_get" id="^AN_]m(mzili@s3yy`(2">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                                 <next>
-                                <block type="variables_set" id="J!tQOHdCqKoe+0j/IyVp">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_set">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                     <value name="VALUE">
-                                    <block type="math_number" id="-+S/%W35o]k`1[2yWtb|">
+                                    <block type="math_number">
                                         <field name="NUM">0</field>
                                     </block>
                                     </value>
@@ -465,56 +465,56 @@
                     </block>
                     </statement>
                     <next>
-                    <block type="variables_set" id="pGRt!Xkiu07[K=7)(V~|">
-                        <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                    <block type="variables_set">
+                        <field name="VAR">Player 0 X Speed</field>
                         <value name="VALUE">
-                        <block type="math_number" id="xikvvZ)^{gH=R[vFCH9x">
+                        <block type="math_number">
                             <field name="NUM">0</field>
                         </block>
                         </value>
                         <next>
-                        <block type="controls_if" id="_Zd`1RY!3!L6,c(XME8-">
+                        <block type="controls_if">
                             <value name="IF0">
-                            <block type="input_joy0_get" id="$A+q7($kY,Rlj.Pco^;i">
+                            <block type="input_joy0_get">
                                 <field name="VAR">joy0left</field>
                             </block>
                             </value>
                             <statement name="DO0">
-                            <block type="variables_set" id="~|nL8VQZk-]-n+k?#.t%">
-                                <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                            <block type="variables_set">
+                                <field name="VAR">Player 0 X Speed</field>
                                 <value name="VALUE">
-                                <block type="math_number" id="qW!#[#!ABYDa5g01}:yQ">
+                                <block type="math_number">
                                     <field name="NUM">254</field>
                                 </block>
                                 </value>
                             </block>
                             </statement>
                             <next>
-                            <block type="controls_if" id="o6GZ2qCrS0IPU_5_d|FC">
+                            <block type="controls_if">
                                 <value name="IF0">
-                                <block type="input_joy0_get" id="@V6gAKlwD-[WuX^z]$k~">
+                                <block type="input_joy0_get">
                                     <field name="VAR">joy0right</field>
                                 </block>
                                 </value>
                                 <statement name="DO0">
-                                <block type="variables_set" id="`rZR/wRzu^6Y(oToo^jE">
-                                    <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                                <block type="variables_set">
+                                    <field name="VAR">Player 0 X Speed</field>
                                     <value name="VALUE">
-                                    <block type="math_number" id="O3_=iy}jnp7{lKiQJAnF">
+                                    <block type="math_number">
                                         <field name="NUM">2</field>
                                     </block>
                                     </value>
                                 </block>
                                 </statement>
                                 <next>
-                                <block type="sprite_player0_change" id="YVYE^J8|zz4lFs?T~MNS">
+                                <block type="sprite_player0_change">
                                     <field name="VAR">player0x</field>
                                     <value name="DELTA">
-                                    <shadow type="math_number" id="amqmn9esn+OzoH^|3.CK">
+                                    <shadow type="math_number">
                                         <field name="NUM">1</field>
                                     </shadow>
-                                    <block type="variables_get" id="w1a2,;EwLa/X.:qeKItR">
-                                        <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                                    <block type="variables_get">
+                                        <field name="VAR">Player 0 X Speed</field>
                                     </block>
                                     </value>
                                 </block>
@@ -530,42 +530,42 @@
             </block>
             </statement>
             <statement name="DO_ODD">
-            <block type="controls_if" id="Ww@GFMD}a;Hvsw*AFReN">
+            <block type="controls_if">
                 <value name="IF0">
-                <block type="collision_get" id="ip/,|NR28$yhu6z|1m{-">
+                <block type="collision_get">
                     <field name="VAR0">player0</field>
                     <field name="VAR1">playfield</field>
                 </block>
                 </value>
                 <statement name="DO0">
-                <block type="controls_if" id="S1Pmt*(t3Rk,3.=lKP?/">
+                <block type="controls_if">
                     <value name="IF0">
-                    <block type="variables_get" id="g+K!N%1wti6RBNSc,fXo">
-                        <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                    <block type="variables_get">
+                        <field name="VAR">Player 0 X Speed</field>
                     </block>
                     </value>
                     <statement name="DO0">
-                    <block type="variables_set" id="]hq{bP?`IFhyVOh}X,S/">
-                        <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                    <block type="variables_set">
+                        <field name="VAR">Player 0 X Speed</field>
                         <value name="VALUE">
-                        <block type="math_single" id="~gwpO!Vm!r,vn)).:rGz">
+                        <block type="math_single">
                             <field name="OP">NEG</field>
                             <value name="NUM">
-                            <block type="variables_get" id="ekp7wj80l4Z!6r[h3s*$">
-                                <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                            <block type="variables_get">
+                                <field name="VAR">Player 0 X Speed</field>
                             </block>
                             </value>
                         </block>
                         </value>
                         <next>
-                        <block type="sprite_player0_change" id="xl505_U:Zpetw!|],sn$">
+                        <block type="sprite_player0_change">
                             <field name="VAR">player0x</field>
                             <value name="DELTA">
-                            <shadow type="math_number" id="j.{H!Xuk,l;{ndR?/jJ/">
+                            <shadow type="math_number">
                                 <field name="NUM">1</field>
                             </shadow>
-                            <block type="variables_get" id="~t:|~k?=wW5$V`EU9ML-">
-                                <field name="VAR" id="kG8i6@l6g:WX{VnRJFU@">Player 0 X Speed</field>
+                            <block type="variables_get">
+                                <field name="VAR">Player 0 X Speed</field>
                             </block>
                             </value>
                         </block>
@@ -575,43 +575,43 @@
                 </block>
                 </statement>
                 <next>
-                <block type="math_change" id="4*(NIo8H0Mm/XutynK.;">
-                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                <block type="math_change">
+                    <field name="VAR">Player 0 Y Speed</field>
                     <value name="DELTA">
-                    <shadow type="math_number" id="ZKAPE|KSy{zoa19TN_Ow">
+                    <shadow type="math_number">
                         <field name="NUM">1</field>
                     </shadow>
                     </value>
                     <next>
-                    <block type="controls_if" id="b}or-Atd}+!j*[yIDh]T">
+                    <block type="controls_if">
                         <value name="IF0">
-                        <block type="logic_operation" id="+07LvHU7iil+nQCC-QB{">
+                        <block type="logic_operation">
                             <field name="OP">AND</field>
                             <value name="A">
-                            <block type="logic_compare" id="?J.5J](B3#)!1yt-RC8n">
+                            <block type="logic_compare">
                                 <field name="OP">GT</field>
                                 <value name="A">
-                                <block type="variables_get" id="Vj3:3+aWHh=23p_TCEZ1">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                                 <value name="B">
-                                <block type="math_number" id="WY!({b@K{$RuCp6hkH7f">
+                                <block type="math_number">
                                     <field name="NUM">6</field>
                                 </block>
                                 </value>
                             </block>
                             </value>
                             <value name="B">
-                            <block type="logic_compare" id=")jP3FKP]aNhPZ+nxbGow">
+                            <block type="logic_compare">
                                 <field name="OP">LT</field>
                                 <value name="A">
-                                <block type="variables_get" id="0b5K$ZO41YKresKh_s77">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                                 <value name="B">
-                                <block type="math_number" id="Y^dFHd5:#S|cu*Mg5t;B">
+                                <block type="math_number">
                                     <field name="NUM">128</field>
                                 </block>
                                 </value>
@@ -620,42 +620,42 @@
                         </block>
                         </value>
                         <statement name="DO0">
-                        <block type="variables_set" id="VT.AO{AAHAD?k4~os:#4">
-                            <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                        <block type="variables_set">
+                            <field name="VAR">Player 0 Y Speed</field>
                             <value name="VALUE">
-                            <block type="math_number" id="SN-Tb|)R]agx9)9l7cvq">
+                            <block type="math_number">
                                 <field name="NUM">6</field>
                             </block>
                             </value>
                         </block>
                         </statement>
                         <next>
-                        <block type="controls_if" id="5eTqT,,pVyDD~m$_D,65">
+                        <block type="controls_if">
                             <value name="IF0">
-                            <block type="variables_get" id="uOn|R-D{RI}h[9M:niHy">
-                                <field name="VAR" id="my),!V)`z/q%ABtY1fX5">Player 0 on Ground</field>
+                            <block type="variables_get">
+                                <field name="VAR">Player 0 on Ground</field>
                             </block>
                             </value>
                             <statement name="DO0">
-                            <block type="controls_if" id=".zD4`od7yVhFf@QDTxvb">
+                            <block type="controls_if">
                                 <value name="IF0">
-                                <block type="input_joy0_get" id="Q}DkJYmmq8rzPRN+$T^R">
+                                <block type="input_joy0_get">
                                     <field name="VAR">joy0fire</field>
                                 </block>
                                 </value>
                                 <statement name="DO0">
-                                <block type="variables_set" id="FsB4(*,ZVW=k%T*#$JuE">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_set">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                     <value name="VALUE">
-                                    <block type="math_number" id="illuxyzJ/-Unp%]vVO%q">
+                                    <block type="math_number">
                                         <field name="NUM">250</field>
                                     </block>
                                     </value>
                                     <next>
-                                    <block type="variables_set" id="?)%cRY7Yy/u_%@z:KEaK">
-                                        <field name="VAR" id="my),!V)`z/q%ABtY1fX5">Player 0 on Ground</field>
+                                    <block type="variables_set">
+                                        <field name="VAR">Player 0 on Ground</field>
                                         <value name="VALUE">
-                                        <block type="logic_boolean" id="^o]0*5e:qn,mO?1G9ja8">
+                                        <block type="logic_boolean">
                                             <field name="BOOL">FALSE</field>
                                         </block>
                                         </value>
@@ -666,14 +666,14 @@
                             </block>
                             </statement>
                             <next>
-                            <block type="sprite_player0_change" id="Ddt;j?@AG3VRkt;FTGM.">
+                            <block type="sprite_player0_change">
                                 <field name="VAR">player0y</field>
                                 <value name="DELTA">
                                 <shadow type="math_number">
                                     <field name="NUM">1</field>
                                 </shadow>
-                                <block type="variables_get" id="C?SGS^EdJLWOdy.F[6nJ">
-                                    <field name="VAR" id="fHutD)EkON2kAJ%I%aYv">Player 0 Y Speed</field>
+                                <block type="variables_get">
+                                    <field name="VAR">Player 0 Y Speed</field>
                                 </block>
                                 </value>
                             </block>
