@@ -156,7 +156,7 @@
     </category>
 
     <category name="Diagonally bouncing ball" colour="#ff8800">
-        <block type="controls_if" y="-62">
+        <block type="controls_if">
         <value name="IF0">
             <block type="logic_negate">
             <value name="BOOL">
@@ -234,43 +234,18 @@
                     <field name="DURATION">5</field>
                     <field name="CHANNEL">0</field>
                     <next>
-                        <block type="controls_if">
-                        <mutation else="1"></mutation>
-                        <value name="IF0">
-                            <block type="logic_compare">
-                            <field name="OP">EQ</field>
-                            <value name="A">
+                        <block type="variables_set">
+                        <field name="VAR">Ball Y Speed</field>
+                        <value name="VALUE">
+                            <block type="math_single">
+                            <field name="OP">NEG</field>
+                            <value name="NUM">
                                 <block type="variables_get">
                                 <field name="VAR">Ball Y Speed</field>
                                 </block>
                             </value>
-                            <value name="B">
-                                <block type="math_number">
-                                <field name="NUM">1</field>
-                                </block>
-                            </value>
                             </block>
                         </value>
-                        <statement name="DO0">
-                            <block type="variables_set">
-                            <field name="VAR">Ball Y Speed</field>
-                            <value name="VALUE">
-                                <block type="math_number">
-                                <field name="NUM">255</field>
-                                </block>
-                            </value>
-                            </block>
-                        </statement>
-                        <statement name="ELSE">
-                            <block type="variables_set">
-                            <field name="VAR">Ball Y Speed</field>
-                            <value name="VALUE">
-                                <block type="math_number">
-                                <field name="NUM">1</field>
-                                </block>
-                            </value>
-                            </block>
-                        </statement>
                         <next>
                             <block type="sprite_ball_change">
                             <field name="VAR">bally</field>
@@ -319,43 +294,18 @@
                     <field name="DURATION">5</field>
                     <field name="CHANNEL">0</field>
                     <next>
-                        <block type="controls_if">
-                        <mutation else="1"></mutation>
-                        <value name="IF0">
-                            <block type="logic_compare">
-                            <field name="OP">EQ</field>
-                            <value name="A">
+                        <block type="variables_set">
+                        <field name="VAR">Ball X Speed</field>
+                        <value name="VALUE">
+                            <block type="math_single">
+                            <field name="OP">NEG</field>
+                            <value name="NUM">
                                 <block type="variables_get">
                                 <field name="VAR">Ball X Speed</field>
                                 </block>
                             </value>
-                            <value name="B">
-                                <block type="math_number">
-                                <field name="NUM">1</field>
-                                </block>
-                            </value>
                             </block>
                         </value>
-                        <statement name="DO0">
-                            <block type="variables_set">
-                            <field name="VAR">Ball X Speed</field>
-                            <value name="VALUE">
-                                <block type="math_number">
-                                <field name="NUM">255</field>
-                                </block>
-                            </value>
-                            </block>
-                        </statement>
-                        <statement name="ELSE">
-                            <block type="variables_set">
-                            <field name="VAR">Ball X Speed</field>
-                            <value name="VALUE">
-                                <block type="math_number">
-                                <field name="NUM">1</field>
-                                </block>
-                            </value>
-                            </block>
-                        </statement>
                         <next>
                             <block type="sprite_ball_change">
                             <field name="VAR">ballx</field>
