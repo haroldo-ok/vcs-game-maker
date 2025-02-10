@@ -1,4 +1,101 @@
 <category name="Event" colour="rgb(39, 176, 176)">
     <category name="Title screen" colour="rgb(39, 176, 176)">
+        <block type="event_block">
+        <field name="EVENT">title_start</field>
+        <statement name="DO">
+            <block type="background_set_select">
+            <field name="VAR">2</field>
+            <next>
+                <block type="sprite_player0_set">
+                <field name="VAR">player0y</field>
+                <value name="VALUE">
+                    <shadow type="math_number">
+                    <field name="NUM">0</field>
+                    </shadow>
+                </value>
+                <next>
+                    <block type="sprite_player1_set">
+                    <field name="VAR">player1y</field>
+                    <value name="VALUE">
+                        <shadow type="math_number">
+                        <field name="NUM">0</field>
+                        </shadow>
+                    </value>
+                    </block>
+                </next>
+                </block>
+            </next>
+            </block>
+        </statement>
+        <next>
+            <block type="event_block">
+            <field name="EVENT">title_update</field>
+            <statement name="DO">
+                <block type="controls_if">
+                <value name="IF0">
+                    <block type="input_joy0_get">
+                    <field name="VAR">joy0fire</field>
+                    </block>
+                </value>
+                <statement name="DO0">
+                    <block type="event_change_state">
+                    <field name="STATE">gameplay</field>
+                    </block>
+                </statement>
+                </block>
+            </statement>
+            <next>
+                <block type="event_block">
+                <field name="EVENT">gameplay_start</field>
+                <statement name="DO">
+                    <block type="background_set_select">
+                    <field name="VAR">1</field>
+                    <next>
+                        <block type="sprite_player0_set">
+                        <field name="VAR">player0y</field>
+                        <value name="VALUE">
+                            <shadow type="math_number">
+                            <field name="NUM">80</field>
+                            </shadow>
+                        </value>
+                        <next>
+                            <block type="sprite_player1_set">
+                            <field name="VAR">player1y</field>
+                            <value name="VALUE">
+                                <shadow type="math_number">
+                                <field name="NUM">20</field>
+                                </shadow>
+                            </value>
+                            </block>
+                        </next>
+                        </block>
+                    </next>
+                    </block>
+                </statement>
+                <next>
+                    <block type="sprite_player0_change">
+                    <field name="VAR">player0x</field>
+                    <value name="DELTA">
+                        <shadow type="math_number">
+                        <field name="NUM">1</field>
+                        </shadow>
+                    </value>
+                    <next>
+                        <block type="sprite_player1_change">
+                        <field name="VAR">player1x</field>
+                        <value name="DELTA">
+                            <shadow type="math_number">
+                            <field name="NUM">255</field>
+                            </shadow>
+                        </value>
+                        </block>
+                    </next>
+                    </block>
+                </next>
+                </block>
+            </next>
+            </block>
+        </next>
+        </block>
     </category>
 </category>
