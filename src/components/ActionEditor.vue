@@ -34,6 +34,7 @@ import blocklyToolboxPlayer0Movement from 'raw-loader!./blockly-toolbox-player0-
 import blocklyToolboxPlayer1Movement from 'raw-loader!./blockly-toolbox-player1-movement.xml';
 import blocklyToolboxBallMovement from 'raw-loader!./blockly-toolbox-ball-movement.xml';
 import blocklyToolboxBackground from 'raw-loader!./blockly-toolbox-background.xml';
+import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-event.xml';
 
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
@@ -84,6 +85,7 @@ export default {
         blocklyToolboxPlayer1Movement,
         blocklyToolboxBallMovement,
         blocklyToolboxBackground,
+        blocklyToolboxExampleEvent,
       }),
     },
     workspaceStorage: useWorkspaceStorage(),
