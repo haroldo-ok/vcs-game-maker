@@ -2,7 +2,7 @@
     <div>
       <h1>Generated bBasic code</h1>
       <vue-code-highlight language="basic" class="code-container">
-        <pre v-html="generatedBasic">Test!!!</pre>
+        <pre v-html="generatedBasic"></pre>
       </vue-code-highlight>
     </div>
 </template>
