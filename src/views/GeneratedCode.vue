@@ -17,6 +17,7 @@
 </template>
 <script>
 import {defineComponent} from '@vue/composition-api';
+import {saveAs} from 'file-saver';
 import {component as VueCodeHighlight} from 'vue-code-highlight';
 import 'vue-code-highlight/themes/duotone-sea.css';
 
