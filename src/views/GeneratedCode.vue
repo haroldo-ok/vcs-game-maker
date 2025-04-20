@@ -6,7 +6,7 @@
         color="primary"
         @click="handleSaveGeneratedCode"
       >
-          Save Project
+          Save Generated Code
       </v-btn>
     </h1>
     <vue-code-highlight language="basic" class="code-container">
@@ -20,6 +20,7 @@ import {component as VueCodeHighlight} from 'vue-code-highlight';
 import 'vue-code-highlight/themes/duotone-sea.css';
 
 import {useGeneratedBasic} from '../hooks/generated';
+import {getDateInfix} from '../utils/date';
 
 export default defineComponent({
   name: 'GeneratedCode',
@@ -30,6 +31,8 @@ export default defineComponent({
   },
   methods: {
     handleSaveGeneratedCode() {
+      const textBlob = new Blob([this.generatedBasic], {type: 'text/plain'});
+      saveAs(textBlob, `project-${getDateInfix()}.bas`);
     },
   },
 });
