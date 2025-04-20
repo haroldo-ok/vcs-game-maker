@@ -1,10 +1,19 @@
 <template>
-    <div>
-      <h1>Generated bBasic code</h1>
-      <vue-code-highlight language="basic" class="code-container">
-        <pre v-html="generatedBasic">Test!!!</pre>
-      </vue-code-highlight>
-    </div>
+  <div>
+    <h1>
+      Generated bBasic code
+
+      <v-btn
+        color="primary"
+        @click="handleSaveGeneratedCode"
+      >
+          Save Generated Code
+      </v-btn>
+    </h1>
+    <vue-code-highlight language="basic" class="code-container">
+      <pre v-html="generatedBasic"></pre>
+    </vue-code-highlight>
+  </div>
 </template>
 <script>
 import {defineComponent} from '@vue/composition-api';
@@ -12,6 +21,7 @@ import {component as VueCodeHighlight} from 'vue-code-highlight';
 import 'vue-code-highlight/themes/duotone-sea.css';
 
 import {useGeneratedBasic} from '../hooks/generated';
+import {getDateInfix} from '../utils/date';
 
 export default defineComponent({
   name: 'GeneratedCode',
@@ -19,6 +29,12 @@ export default defineComponent({
   setup() {
     const generatedBasic = useGeneratedBasic();
     return {generatedBasic};
+  },
+  methods: {
+    handleSaveGeneratedCode() {
+      const textBlob = new Blob([this.generatedBasic], {type: 'text/plain'});
+      saveAs(textBlob, `generated-bBasic-${getDateInfix()}.bas`);
+    },
   },
 });
 </script>
