@@ -2,6 +2,7 @@
   <div>
     <h1>
       Generated bBasic code
+
       <v-btn
         color="primary"
         @click="handleSaveGeneratedCode"
@@ -32,7 +33,7 @@ export default defineComponent({
   methods: {
     handleSaveGeneratedCode() {
       const textBlob = new Blob([this.generatedBasic], {type: 'text/plain'});
-      saveAs(textBlob, `project-${getDateInfix()}.bas`);
+      saveAs(textBlob, `generated-bBasic-${getDateInfix()}.bas`);
     },
   },
 });
