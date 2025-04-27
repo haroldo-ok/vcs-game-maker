@@ -103,7 +103,7 @@
                       />
                       <pixel-editor
                         :width="8"
-                        :height="8"
+                        :height="frame.pixels.length"
                         :aspectRatio="160/192"
                         v-model="frame.pixels"
                         :fgColor="fgColor"
