@@ -247,8 +247,14 @@ export default {
       this.heightMenuValue = Math.max(1, Math.min(64, this.heightMenuValue));
 
       const pixels = this.getPixels();
-      if (this.heightMenuValue < this.value.length) {
+      if (this.heightMenuValue != this.value.length) {
         pixels.length = this.heightMenuValue;
+        for (let rowNumber = 0; rowNumber < pixels.length; rowNumber++) {
+          if (!pixels[rowNumber]) {
+            pixels[rowNumber] = new Array(this.editor.width).fill(0);
+          }
+        }
+
         this.editor.height = this.heightMenuValue;
 
         const canvas = this.$refs.editor;
