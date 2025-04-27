@@ -16,6 +16,10 @@ const STATE_OPTIONS = [
   [`${GAMEOVER_ICON} Gameover`, 'gameover'],
 ];
 
+const FRAME_OPTIONS = [...Array(7).keys()]
+    .map((n) => Math.pow(2, n + 1))
+    .map((n) => [`${n}`, `${n - 1}`]);
+
 Blockly.defineBlocksWithJsonArray([
   // Block for events
   {
@@ -38,6 +42,7 @@ Blockly.defineBlocksWithJsonArray([
     'colour': 'rgb(39, 176, 176)',
     'tooltip': 'Will be executed when a given event happens',
   },
+
   // Block for changing game state
   {
     'type': 'event_change_state',
@@ -54,4 +59,53 @@ Blockly.defineBlocksWithJsonArray([
     'colour': 'rgb(39, 176, 176)',
     'tooltip': 'Change game state to a given one',
   },
+
+  // Block for even/odd frames
+  {
+    'type': 'event_frame_even_odd',
+    'message0': 'On even frames',
+    'message1': '%1',
+    'args1': [{
+      'type': 'input_statement',
+      'name': 'DO_EVEN',
+    }],
+    'message2': 'On odd frames',
+    'message3': '%1',
+    'args3': [{
+      'type': 'input_statement',
+      'name': 'DO_ODD',
+    }],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'rgb(39, 176, 176)',
+    'tooltip': 'Change game state to a given one',
+  },
+
+  // Block for executing every "n" frames
+  {
+    'type': 'event_frame_every_n',
+    'message0': 'Every %1 frames, plus %2',
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'MASK',
+        'options': FRAME_OPTIONS,
+      },
+      {
+        'type': 'field_number',
+        'name': 'DELTA',
+        'value': 0,
+      },
+    ],
+    'message1': '%1',
+    'args1': [{
+      'type': 'input_statement',
+      'name': 'DO',
+    }],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'rgb(39, 176, 176)',
+    'tooltip': 'Execute code every few frames',
+  },
+
 ]);

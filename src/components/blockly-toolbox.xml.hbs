@@ -139,7 +139,33 @@
         <block type="input_joy1_get"></block>
 
         <block type="collision_get"></block>
+
         <block type="random_get"></block>
+        <block type="random_range_get"></block>
+
+        <block type="sprite_player0_set">
+            <field name="VAR">player0x</field>
+            <value name="VALUE">
+                <shadow type="math_number">
+                <field name="NUM">1</field>
+                </shadow>
+                <block type="random_range_get">
+                <field name="RAND_CODE">(rand/4) + 1</field>
+                </block>
+            </value>
+        </block>
+
+        <block type="sprite_player1_set">
+            <field name="VAR">player1y</field>
+            <value name="VALUE">
+                <shadow type="math_number">
+                <field name="NUM">1</field>
+                </shadow>
+                <block type="random_range_get">
+                <field name="RAND_CODE">(rand/8)</field>
+                </block>
+            </value>
+        </block>
     </category>
     <category name="Background" colour="#ffa500">
         <block type="background_select"></block>
@@ -204,12 +230,21 @@
             </block>
           </statement>
         </block>
+
+        <block type="event_frame_even_odd"></block>
+        <block type="event_frame_every_n"></block>
     </category>
     <category name="Examples" colour="cyan">
 
         {{{blocklyToolboxPlayer0Movement}}}
 
         {{{blocklyToolboxPlayer1Movement}}}
+
+        {{{blocklyToolboxBallMovement}}}
+
+        {{{blocklyToolboxBackground}}}
+
+        {{{blocklyToolboxExampleEvent}}}
 
     </category>
 </xml>

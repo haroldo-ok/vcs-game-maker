@@ -1,31 +1,5 @@
  set tv ntsc
  set romsize 4k
- rem **************************************************************************
- rem Playfield and players setup:
- rem - shape of the playfield and player sprites
- rem **************************************************************************
-
- player0:
- %00100010
- %00010100
- %00001010
- %00111110
- %00101000
- %00011100
- %00011100
- %00011100
-end
-
- player1:
- %01000100
- %00101000
- %01010000
- %01111100
- %00010100
- %00111000
- %00111000
- %00111000
-end
 
 
  rem **************************************************************************
@@ -34,6 +8,9 @@ end
  rem **************************************************************************
  COLUBK = $0F
  score = 00000 :  scorecolor = $08
+
+ const true = 1
+ const false = 0
 
  dim player0frame = x
  dim player1frame = z
@@ -47,6 +24,7 @@ end
  dim player1realcolor = q
  dim player0animation = p
  dim player1animation = o
+ dim framecounter = n
 
  newbackground = 1
 
@@ -103,6 +81,9 @@ main
  rem **************************************************************************
 
 commongamelogic
+
+ framecounter = framecounter + 1
+
  rem **************************************************************************
  rem Sound handling.
  rem **************************************************************************

@@ -18,6 +18,8 @@ import bBasic from 'batari-basic';
 
 import BlocklyComponent from './BlocklyComponent.vue';
 
+import '../blocks/prompt-fix';
+
 import '../blocks/background';
 import '../blocks/collision';
 import '../blocks/event';
@@ -30,6 +32,9 @@ import '../blocks/sprites';
 import blocklyToolboxTemplate from 'raw-loader!./blockly-toolbox.xml.hbs';
 import blocklyToolboxPlayer0Movement from 'raw-loader!./blockly-toolbox-player0-movement.xml';
 import blocklyToolboxPlayer1Movement from 'raw-loader!./blockly-toolbox-player1-movement.xml';
+import blocklyToolboxBallMovement from 'raw-loader!./blockly-toolbox-ball-movement.xml';
+import blocklyToolboxBackground from 'raw-loader!./blockly-toolbox-background.xml';
+import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-event.xml';
 
 import BlocklyBB from '../generators/bbasic';
 import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
@@ -78,6 +83,9 @@ export default {
       toolbox: Handlebars.compile(blocklyToolboxTemplate)({
         blocklyToolboxPlayer0Movement,
         blocklyToolboxPlayer1Movement,
+        blocklyToolboxBallMovement,
+        blocklyToolboxBackground,
+        blocklyToolboxExampleEvent,
       }),
     },
     workspaceStorage: useWorkspaceStorage(),

@@ -1,6 +1,6 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.23.0",
+  "version": "0.31.1",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -21,6 +21,7 @@
     "file-saver": "^2.0.5",
     "handlebars": "^4.7.7",
     "lodash": "^4.17.21",
+    "smalltalk": "^4.1.2",
     "vue": "^2.6.14",
     "vue-code-highlight": "^0.7.8",
     "vue-router": "^3.2.0",
@@ -37,7 +38,7 @@
     "browserify-fs": "^1.0.0",
     "buffer": "^4.9.2",
     "crypto-browserify": "^3.12.0",
-    "electron": "^13.0.0",
+    "electron": "^22.3.25",
     "electron-devtools-installer": "^3.1.0",
     "eslint": "^7.30.0",
     "eslint-config-google": "^0.14.0",
