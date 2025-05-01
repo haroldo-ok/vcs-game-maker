@@ -274,6 +274,9 @@ export default {
     getPixels() {
       const pixelMatrix = this.createEmptyPixelMatrix();
       this.editor.pixels.forEach((px) => {
+        while (pixelMatrix.length <= px.y) {
+          pixelMatrix.push(new Array(this.width).fill(0));
+        }
         pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
       });
       return pixelMatrix;
