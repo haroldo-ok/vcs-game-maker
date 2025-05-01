@@ -55,6 +55,7 @@
                       name="background"
                       v-model="background.pixels"
                       fgColor="orange"
+                      :allowChangingHeight="false"
                       @input="handleChildChange"
                     />
                   </div>

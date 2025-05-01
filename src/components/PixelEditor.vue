@@ -63,7 +63,7 @@
             <v-icon>mdi-import</v-icon>
           </v-btn>
 
-          <template>
+          <template v-if="allowChangingHeight">
             <div class="text-center">
               <v-menu
                 v-model="heightMenuVisible"
@@ -164,6 +164,7 @@ export default {
     fgColor: {type: String, default: 'white'},
     bgColor: {type: String, default: 'black'},
     name: {type: String, default: 'image'},
+    allowChangingHeight: {type: Boolean, default: true},
   },
   data() {
     return {
