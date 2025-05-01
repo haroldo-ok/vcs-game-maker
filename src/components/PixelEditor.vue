@@ -258,11 +258,10 @@ export default {
 
         this.editor.height = this.heightMenuValue;
 
-        const canvas = this.$refs.editor;
-        this.editor = new PixelEditor(canvas, this.width, this.heightMenuValue, this.pencil);
-
         this.setPixels(pixels);
         this.$emit('input', pixels);
+
+        this.$router.go(0);
       }
 
       this.heightMenuVisible = false;
