@@ -62,6 +62,84 @@
           >
             <v-icon>mdi-import</v-icon>
           </v-btn>
+
+          <template v-if="allowChangingHeight">
+            <div class="text-center">
+              <v-menu
+                v-model="heightMenuVisible"
+                :close-on-content-click="false"
+                offset-x
+              >
+                <template v-slot:activator="{ on, attrs }">
+                  <v-btn
+                    title="Set height"
+                    v-bind="attrs"
+                    v-on="on"
+                    @click="heightMenuValue = value.length"
+                  >
+                    <v-icon>mdi-human-male-height-variant</v-icon>
+                    {{value.length}}
+                  </v-btn>
+                </template>
+
+                <v-card>
+                  <v-list>
+                    <v-list-item>
+                      <v-list-item-content>
+                        <v-list-item-title>Set height for this frame</v-list-item-title>
+                      </v-list-item-content>
+                    </v-list-item>
+                  </v-list>
+
+                  <v-divider></v-divider>
+
+                  <v-list>
+                    <v-list-item>
+                      <v-list-item-action>
+
+                        <v-slider
+                          v-model="heightMenuValue"
+                          :min="1"
+                          :max="64"
+                          label="Height"
+                          class="align-center"
+                          style="width: 400px"
+                        >
+                          <template v-slot:append>
+                            <v-text-field
+                              v-model="heightMenuValue"
+                              class="mt-0 pt-0"
+                              type="number"
+                              style="width: 60px"
+                            ></v-text-field>
+                          </template>
+                        </v-slider>
+
+                      </v-list-item-action>
+                    </v-list-item>
+                  </v-list>
+
+                  <v-card-actions>
+                    <v-spacer></v-spacer>
+
+                    <v-btn
+                      text
+                      @click="heightMenuVisible = false"
+                    >
+                      Cancel
+                    </v-btn>
+                    <v-btn
+                      color="primary"
+                      text
+                      @click="handleSetHeight()"
+                    >
+                      Set height
+                    </v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-menu>
+            </div>
+          </template>
         </v-row>
       </v-col>
     </v-card-actions>
@@ -86,17 +164,22 @@ export default {
     fgColor: {type: String, default: 'white'},
     bgColor: {type: String, default: 'black'},
     name: {type: String, default: 'image'},
+    allowChangingHeight: {type: Boolean, default: true},
   },
   data() {
     return {
       pencil: new Pencil(this.fgColor),
       eraser: new Pencil(this.bgColor),
+
+      heightMenuVisible: false,
+      heightMenuValue: 0,
+
       toggledTool: 1,
     };
   },
   mounted() {
     const canvas = this.$refs.editor;
-    this.editor = new PixelEditor(canvas, this.width, this.height, this.pencil);
+    this.editor = new PixelEditor(canvas, this.width, this.value.length, this.pencil);
     this.setPixels(this.value);
     this.handleMouse();
 
@@ -160,6 +243,30 @@ export default {
           });
     },
 
+    handleSetHeight() {
+      this.heightMenuValue = this.heightMenuValue || 0;
+      this.heightMenuValue = Math.max(1, Math.min(64, this.heightMenuValue));
+
+      const pixels = this.getPixels();
+      if (this.heightMenuValue != this.value.length) {
+        pixels.length = this.heightMenuValue;
+        for (let rowNumber = 0; rowNumber < pixels.length; rowNumber++) {
+          if (!pixels[rowNumber]) {
+            pixels[rowNumber] = new Array(this.editor.width).fill(0);
+          }
+        }
+
+        this.editor.height = this.heightMenuValue;
+
+        this.setPixels(pixels);
+        this.$emit('input', pixels);
+
+        this.$router.go(0);
+      }
+
+      this.heightMenuVisible = false;
+    },
+
     createEmptyPixelMatrix() {
       return new Array(this.height).fill(0).map(() => new Array(this.width).fill(0));
     },
@@ -167,6 +274,7 @@ export default {
     getPixels() {
       const pixelMatrix = this.createEmptyPixelMatrix();
       this.editor.pixels.forEach((px) => {
+        if (px.y >= pixelMatrix.length) return;
         pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
       });
       return pixelMatrix;
