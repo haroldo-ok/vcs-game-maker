@@ -195,7 +195,7 @@ export default {
         // eslint-disable-next-line no-invalid-this
         this.$emit('input', pixels);
       }
-    }, 300),
+    }, 10),
 
     handleExportImage() {
       // Adapted from https://stackoverflow.com/a/28305948/679240
