@@ -11,7 +11,7 @@
       </v-btn>
     </h1>
     <vue-code-highlight language="basic" class="code-container">
-      <pre v-html="generatedBasic.value"></pre>
+      <pre v-html="generatedBasic"></pre>
     </vue-code-highlight>
   </div>
 </template>
@@ -33,7 +33,7 @@ export default defineComponent({
   },
   methods: {
     handleSaveGeneratedCode() {
-      const textBlob = new Blob([this.generatedBasic.value], {type: 'text/plain'});
+      const textBlob = new Blob([this.generatedBasic], {type: 'text/plain'});
       saveAs(textBlob, `generated-bBasic-${getDateInfix()}.bas`);
     },
   },

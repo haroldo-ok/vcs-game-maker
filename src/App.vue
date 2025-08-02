@@ -176,7 +176,7 @@
     </v-main>
 
     <v-footer class="error-message">
-      <pre v-text="errorStorage.value"></pre>
+      <pre v-text="errorStorage"></pre>
     </v-footer>
   </v-app>
 </template>
