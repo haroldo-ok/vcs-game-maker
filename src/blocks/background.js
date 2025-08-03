@@ -123,8 +123,19 @@ Blockly.defineBlocksWithJsonArray([
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,
-    'message0': `[flip] background pixel at X [1] and Y [2]`,
-    'args0': [],
+    'message0': `[flip] background pixel at X %1 and Y %2`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'X',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'Y',
+        'check': 'Number',
+      },
+    ],
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
