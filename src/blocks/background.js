@@ -136,6 +136,7 @@ Blockly.defineBlocksWithJsonArray([
         'check': 'Number',
       },
     ],
+    'inputsInline': true,
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
