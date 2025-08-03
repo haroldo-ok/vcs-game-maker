@@ -129,7 +129,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,
-    'message0': `%1 background pixel at X %2 and Y %3`,
+    'message0': `${BACKGROUND_ICON} Background: %1 pixel at X %2 and Y %3`,
     'args0': [
       {
         'type': 'field_dropdown',
