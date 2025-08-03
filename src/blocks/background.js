@@ -120,6 +120,16 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Sets the background color`,
   },
+  // Block for setting a playfield pixel
+  {
+    'type': `background_change_pixel`,
+    'message0': `[flip] background pixel at X [1] and Y [2]`,
+    'args0': [],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Changes a pixel of the background`,
+  },
   // Block for drawing the screen
   {
     'type': `draw_screen`,
