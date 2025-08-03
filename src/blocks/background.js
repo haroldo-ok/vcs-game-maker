@@ -8,6 +8,12 @@ import {BACKGROUND_ICON, COLOR_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
 
+const BACKGROUND_PFPIXEL_OPTIONS = [
+  ['Set', 'on'],
+  ['Clear', 'off'],
+  ['Flip', 'flip'],
+];
+
 const backgroundsStorage = useBackgroundsStorage();
 
 export const DEFAULT_BACKGROUNDS = {
@@ -123,8 +129,13 @@ Blockly.defineBlocksWithJsonArray([
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,
-    'message0': `[flip] background pixel at X %1 and Y %2`,
+    'message0': `%1 background pixel at X %2 and Y %3`,
     'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'OPERATION',
+        'options': BACKGROUND_PFPIXEL_OPTIONS,
+      },
       {
         'type': 'input_value',
         'name': 'X',
