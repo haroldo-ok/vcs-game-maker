@@ -4,14 +4,14 @@ import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage} from '../hooks/project';
 import {playfieldToMatrix} from '../utils/pixels';
-import {BACKGROUND_ICON, COLOR_ICON} from './icon';
+import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
 
 const BACKGROUND_PFPIXEL_OPTIONS = [
-  ['Set', 'on'],
-  ['Clear', 'off'],
-  ['Flip', 'flip'],
+  [`${CHECKBOX_CHECKED_ICON} Set`, 'on'],
+  [`${CHECKBOX_CLEAR_ICON} Clear`, 'off'],
+  [`${FLIP_ICON} Flip`, 'flip'],
 ];
 
 const backgroundsStorage = useBackgroundsStorage();
