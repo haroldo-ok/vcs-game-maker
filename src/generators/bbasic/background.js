@@ -28,6 +28,17 @@ export default (Blockly) => {
     return varName + ' = ' + argument0 + '\n';
   };
 
+  Blockly.BBasic[`background_change_pixel`] = function(block) {
+    // Block for setting a playfield pixel
+    const operation = block.getFieldValue('OPERATION');
+    const argumentX = Blockly.BBasic.valueToCode(block, 'X',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+
+    return `pfpixel ${argumentX} ${argumentY} ${operation}\n`;
+  };
+
   Blockly.BBasic[`draw_screen`] = function(block) {
     // Draw screen.
     return 'COLUP1 = player1color\n' +
