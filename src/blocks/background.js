@@ -4,9 +4,15 @@ import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage} from '../hooks/project';
 import {playfieldToMatrix} from '../utils/pixels';
-import {BACKGROUND_ICON, COLOR_ICON} from './icon';
+import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
+
+const BACKGROUND_PFPIXEL_OPTIONS = [
+  [`${CHECKBOX_CHECKED_ICON} Set`, 'on'],
+  [`${CHECKBOX_CLEAR_ICON} Clear`, 'off'],
+  [`${FLIP_ICON} Flip`, 'flip'],
+];
 
 const backgroundsStorage = useBackgroundsStorage();
 
@@ -119,6 +125,33 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Sets the background color`,
+  },
+  // Block for setting a playfield pixel
+  {
+    'type': `background_change_pixel`,
+    'message0': `${BACKGROUND_ICON} Background: %1 pixel at X %2 and Y %3`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'OPERATION',
+        'options': BACKGROUND_PFPIXEL_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'X',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'Y',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Changes a pixel of the background`,
   },
   // Block for drawing the screen
   {
