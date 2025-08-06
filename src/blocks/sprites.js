@@ -7,6 +7,7 @@ const buildPlayerOptions = (name) => [
   ['\u2195 Y', `${name}y`],
   [COLOR_ICON + ' Color', `${name}realcolor`],
   [ANIMATION_ICON + ' Animation', `${name}animation`],
+  [PLAYER_ICON + ' Difficulty B', `switchleftb`],
 ];
 
 const buildMissileOptions = (name) => [
