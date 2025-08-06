@@ -7,7 +7,11 @@ const buildPlayerOptions = (name) => [
   ['\u2195 Y', `${name}y`],
   [COLOR_ICON + ' Color', `${name}realcolor`],
   [ANIMATION_ICON + ' Animation', `${name}animation`],
-  [PLAYER_ICON + ' Difficulty B', `switchleftb`],
+];
+
+const buildDifficultySwitchOptions = (name) => [
+  [PLAYER_ICON + ' Difficulty A', `(not ${name})`],
+  [PLAYER_ICON + ' Difficulty B', `${name}`],
 ];
 
 const buildMissileOptions = (name) => [
@@ -142,7 +146,7 @@ buildSpriteBlocks({
   description: 'Player 0',
   icon: PLAYER_ICON,
   colour: 'red',
-  options: buildPlayerOptions('player0'),
+  options: [...buildPlayerOptions('player0'), ...buildDifficultySwitchOptions('switchleftb')],
 });
 
 buildPlayerBlocks({
