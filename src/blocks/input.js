@@ -8,6 +8,7 @@ const buildInputOptions = (name, difficultySwitchName) => [
   ['\u2B05 Left', `${name}left`],
   ['\u27A1 Right', `${name}right`],
   [FIRE_ICON + ' Fire', `${name}fire`],
+  [PLAYER_ICON + ' Difficulty A', `not ${difficultySwitchName}`],
   [PLAYER_ICON + ' Difficulty B', `${difficultySwitchName}`],
 ];
 
