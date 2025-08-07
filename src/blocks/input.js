@@ -1,6 +1,6 @@
 import * as Blockly from 'blockly/core';
 
-import {JOYSTICK_ICON, FIRE_ICON, PLAYER_ICON} from './icon';
+import {JOYSTICK_ICON, FIRE_ICON, DIFFICULTY_BEGINNER_ICON, DIFFICULTY_ADVANCED_ICON} from './icon';
 
 const buildInputOptions = (name, difficultySwitchName) => [
   ['\u2B06 Up', `${name}up`],
@@ -8,8 +8,8 @@ const buildInputOptions = (name, difficultySwitchName) => [
   ['\u2B05 Left', `${name}left`],
   ['\u27A1 Right', `${name}right`],
   [FIRE_ICON + ' Fire', `${name}fire`],
-  [PLAYER_ICON + ' Difficulty A', `not ${difficultySwitchName}`],
-  [PLAYER_ICON + ' Difficulty B', `${difficultySwitchName}`],
+  [DIFFICULTY_ADVANCED_ICON + ' Difficulty A', `not ${difficultySwitchName}`],
+  [DIFFICULTY_BEGINNER_ICON + ' Difficulty B', `${difficultySwitchName}`],
 ];
 
 const buildInputBlocks = ({name, description, icon, options, colour}) => {
