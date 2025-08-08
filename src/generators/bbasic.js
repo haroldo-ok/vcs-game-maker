@@ -191,7 +191,7 @@ Blockly.BBasic.finish = function(code) {
   // Normalize indents
   code = Blockly.BBasic.normalizeIndents(code);
   // Workaround negation that's not working
-  code = code.replaceAll(/not_(switch\w+)/g, '!$1');
+  code = code.replaceAll(/(\W)not_(switch\w+(\W?))/g, '$1 !$2');
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
