@@ -190,6 +190,8 @@ Blockly.BBasic.finish = function(code) {
   code = Object.getPrototypeOf(this).finish.call(this, code);
   // Normalize indents
   code = Blockly.BBasic.normalizeIndents(code);
+  // Workaround negation that's not working
+  code = code.replaceAll(/(\W)not_(switch\w+(\W?))/g, '$1 !$2');
 
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
