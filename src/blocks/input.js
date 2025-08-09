@@ -1,6 +1,10 @@
 import * as Blockly from 'blockly/core';
 
-import {JOYSTICK_ICON, FIRE_ICON, DIFFICULTY_BEGINNER_ICON, DIFFICULTY_ADVANCED_ICON} from './icon';
+import {
+  JOYSTICK_ICON, FIRE_ICON, DIFFICULTY_BEGINNER_ICON, DIFFICULTY_ADVANCED_ICON,
+  CONSOLE_SWITCH_ICON, CONSOLE_SWITCH_RESET_ICON, CONSOLE_SWITCH_SELECT_ICON,
+  CONSOLE_SWITCH_COLOR_ICON, CONSOLE_SWITCH_BW_ICON,
+} from './icon';
 
 const buildInputOptions = (name, difficultySwitchName) => [
   ['\u2B06 Up', `${name}up`],
@@ -13,10 +17,10 @@ const buildInputOptions = (name, difficultySwitchName) => [
 ];
 
 const CONSOLE_SWITCH_OPTIONS = [
-  [FIRE_ICON + ' Reset', 'switchreset'],
-  [FIRE_ICON + ' Select', 'switchselect'],
-  [FIRE_ICON + ' Color', 'not switchbw'],
-  [FIRE_ICON + ' Black/White', 'switchbw'],
+  [CONSOLE_SWITCH_RESET_ICON + ' Reset', 'switchreset'],
+  [CONSOLE_SWITCH_SELECT_ICON + ' Select', 'switchselect'],
+  [CONSOLE_SWITCH_COLOR_ICON + ' Color', 'not switchbw'],
+  [CONSOLE_SWITCH_BW_ICON + ' Black/White', 'switchbw'],
 ];
 
 const buildInputBlocks = ({name, description, icon, options, colour}) => {
@@ -59,7 +63,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the getter.
   {
     'type': 'input_console_switch_get',
-    'message0': 'aaaaaaa %1',
+    'message0': `${CONSOLE_SWITCH_ICON} Switch %1`,
     'args0': [
       {
         'type': 'field_dropdown',
