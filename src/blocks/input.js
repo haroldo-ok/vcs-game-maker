@@ -12,6 +12,13 @@ const buildInputOptions = (name, difficultySwitchName) => [
   [DIFFICULTY_BEGINNER_ICON + ' Difficulty B', `${difficultySwitchName}`],
 ];
 
+const CONSOLE_SWITCH_OPTIONS = [
+  [FIRE_ICON + ' Reset', 'switchreset'],
+  [FIRE_ICON + ' Select', 'switchselect'],
+  [FIRE_ICON + ' Color', 'not switchbw'],
+  [FIRE_ICON + ' Black/White', 'switchbw'],
+];
+
 const buildInputBlocks = ({name, description, icon, options, colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for the getter.
@@ -47,3 +54,21 @@ buildInputBlocks({
   options: buildInputOptions('joy1', 'switchrightb'),
   colour: 'blue',
 });
+
+Blockly.defineBlocksWithJsonArray([
+  // Block for the getter.
+  {
+    'type': 'input_console_switch_get',
+    'message0': 'aaaaaaa %1',
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'SWITCH',
+        'options': CONSOLE_SWITCH_OPTIONS,
+      },
+    ],
+    'output': 'Boolean',
+    'colour': 'purple',
+    'tooltip': 'Reads status of the console switches',
+  },
+]);
