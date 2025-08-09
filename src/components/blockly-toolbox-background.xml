@@ -145,4 +145,84 @@
             </next>
         </block>
     </category>
+
+    <category name="Change colors according to switches" colour="#ffa500">    
+    
+        <block type="controls_if" id="_{(yJk4buk7=,EzhJ{PA" x="113" y="138">
+            <value name="IF0">
+                <block type="input_console_switch_get" id="k5W/zddr5idO5kMZ$,zZ">
+                    <field name="SWITCH">switchreset</field>
+                </block>
+            </value>
+            <statement name="DO0">
+                <block type="background_set_color" id="~:(SS.M#Ofy%FU]8XPJ~">
+                    <field name="VAR">COLUPF</field>
+                    <value name="VALUE">
+                        <shadow type="math_number" id="8)Upf;,#rhtN@dqxm1$0">
+                            <field name="NUM">31</field>
+                        </shadow>
+                    </value>
+                </block>
+            </statement>
+            <next>
+                <block type="controls_if" id="xS_Vr;pwtC*-fpiFE[[/">
+                    <value name="IF0">
+                        <block type="input_console_switch_get" id="g3,9i{iO/%.F(%8aBQsU">
+                            <field name="SWITCH">switchselect</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="background_set_color" id="%]FmKA;;G#MA~4({qk7I">
+                            <field name="VAR">COLUPF</field>
+                            <value name="VALUE">
+                                <shadow type="math_number" id="LtG*)6yzQv~nnA/_-,T7">
+                                    <field name="NUM">50</field>
+                                </shadow>
+                            </value>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="controls_if" id="|8X?X$./jEqn56NAa|KI">
+                            <value name="IF0">
+                                <block type="input_console_switch_get" id="BmZ0oFFs_[E^T+1Dx)Pi">
+                                    <field name="SWITCH">not switchbw</field>
+                                </block>
+                            </value>
+                            <statement name="DO0">
+                                <block type="background_set_color" id="z1kNuh]TJ:{VCMbyV7w?">
+                                    <field name="VAR">COLUBK</field>
+                                    <value name="VALUE">
+                                        <shadow type="math_number" id="q:DOj/I.htzkJ{gW0LRk">
+                                            <field name="NUM">210</field>
+                                        </shadow>
+                                    </value>
+                                </block>
+                            </statement>
+                            <next>
+                                <block type="controls_if" id="^oZh-oTR@ItWU,|v%+jL">
+                                    <value name="IF0">
+                                        <block type="input_console_switch_get" id="-02AiA}aMJ$MxyuTkOsp">
+                                            <field name="SWITCH">switchbw</field>
+                                        </block>
+                                    </value>
+                                    <statement name="DO0">
+                                        <block type="background_set_color" id="9=Z9_XTf(fn[3P@7K:Bo">
+                                            <field name="VAR">COLUBK</field>
+                                            <value name="VALUE">
+                                                <shadow type="math_number" id="oov3*+I;!IJ__f:]7[Y}">
+                                                    <field name="NUM">4</field>
+                                                </shadow>
+                                            </value>
+                                        </block>
+                                    </statement>
+                                </block>
+                            </next>
+                        </block>
+                    </next>
+                </block>
+            </next>
+        </block>
+    
+    </category>
+
 </category>

@@ -22,4 +22,9 @@ export const CHECKBOX_CLEAR_ICON = String.fromCodePoint(0x2610);
 export const FLIP_ICON = String.fromCodePoint(0x2194);
 export const DIFFICULTY_ADVANCED_ICON = String.fromCodePoint(0x1F631);
 export const DIFFICULTY_BEGINNER_ICON = String.fromCodePoint(0x1F476);
+export const CONSOLE_SWITCH_ICON = String.fromCodePoint(0x1F39A) + String.fromCodePoint(0xFE0F);
+export const CONSOLE_SWITCH_RESET_ICON = String.fromCodePoint(0x267B) + String.fromCodePoint(0xFE0F);
+export const CONSOLE_SWITCH_SELECT_ICON = String.fromCodePoint(0x2754);
+export const CONSOLE_SWITCH_COLOR_ICON = String.fromCodePoint(0x1F7E5);
+export const CONSOLE_SWITCH_BW_ICON = String.fromCodePoint(0x1F532);
 
