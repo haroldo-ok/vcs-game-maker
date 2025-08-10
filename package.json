@@ -6,7 +6,10 @@
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
-    "electron:run": "electron ."
+    "electron:run": "electron .",
+    "electron:start": "electron-forge start",
+    "electron:package": "electron-forge package",
+    "electron:make": "electron-forge make"
   },
   "main": "background.js",
   "dependencies": {
@@ -15,6 +18,7 @@
     "batari-basic": "^0.0.1",
     "blockly": "^6.20210701.0",
     "core-js": "^3.6.5",
+    "electron-squirrel-startup": "^1.0.1",
     "file-saver": "^2.0.5",
     "handlebars": "^4.7.7",
     "lodash": "^4.17.21",
@@ -27,6 +31,13 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.8.3",
+    "@electron-forge/maker-deb": "^7.8.3",
+    "@electron-forge/maker-rpm": "^7.8.3",
+    "@electron-forge/maker-squirrel": "^7.8.3",
+    "@electron-forge/maker-zip": "^7.8.3",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.8.3",
+    "@electron-forge/plugin-fuses": "^7.8.3",
+    "@electron/fuses": "^1.8.0",
     "@vue/cli-plugin-babel": "~5.0.0",
     "@vue/cli-plugin-eslint": "~5.0.0",
     "@vue/cli-plugin-router": "~5.0.0",
