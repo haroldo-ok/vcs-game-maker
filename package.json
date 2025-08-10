@@ -56,7 +56,6 @@
     "stream-browserify": "^2.0.2",
     "stream-http": "^2.8.3",
     "url": "^0.11.3",
-    "vue-cli-plugin-electron-builder": "~2.1.1",
     "vue-cli-plugin-vuetify": "~2.1.0",
     "vue-template-compiler": "^2.6.14",
     "vuetify-loader": "^1.7.2"
