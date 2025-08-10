@@ -10,6 +10,7 @@ protocol.registerSchemesAsPrivileged([
   {scheme: 'app', privileges: {secure: true, standard: true}},
 ]);
 
+// eslint-disable-next-line require-jsdoc
 async function createWindow() {
   // Create the browser window.
   const win = new BrowserWindow({
