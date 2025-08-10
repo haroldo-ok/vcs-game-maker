@@ -1,15 +1,15 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.35.0",
+  "version": "0.35.1",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
-    "electron:build": "vue-cli-service electron:build",
-    "electron:serve": "vue-cli-service electron:serve",
-    "postinstall": "electron-builder install-app-deps",
-    "postuninstall": "electron-builder install-app-deps"
+    "electron:run": "electron .",
+    "electron:start": "electron-forge start",
+    "electron:package": "electron-forge package",
+    "electron:make": "electron-forge make"
   },
   "main": "background.js",
   "dependencies": {
@@ -18,6 +18,7 @@
     "batari-basic": "^0.0.1",
     "blockly": "^6.20210701.0",
     "core-js": "^3.6.5",
+    "electron-squirrel-startup": "^1.0.1",
     "file-saver": "^2.0.5",
     "handlebars": "^4.7.7",
     "lodash": "^4.17.21",
@@ -29,6 +30,14 @@
     "yaml": "^1.10.2"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.8.3",
+    "@electron-forge/maker-deb": "^7.8.3",
+    "@electron-forge/maker-rpm": "^7.8.3",
+    "@electron-forge/maker-squirrel": "^7.8.3",
+    "@electron-forge/maker-zip": "^7.8.3",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.8.3",
+    "@electron-forge/plugin-fuses": "^7.8.3",
+    "@electron/fuses": "^1.8.0",
     "@vue/cli-plugin-babel": "~5.0.0",
     "@vue/cli-plugin-eslint": "~5.0.0",
     "@vue/cli-plugin-router": "~5.0.0",
@@ -38,7 +47,7 @@
     "browserify-fs": "^1.0.0",
     "buffer": "^4.9.2",
     "crypto-browserify": "^3.12.0",
-    "electron": "^22.3.25",
+    "electron": "^22.3.27",
     "electron-devtools-installer": "^3.1.0",
     "eslint": "^7.30.0",
     "eslint-config-google": "^0.14.0",
@@ -55,7 +64,6 @@
     "stream-browserify": "^2.0.2",
     "stream-http": "^2.8.3",
     "url": "^0.11.3",
-    "vue-cli-plugin-electron-builder": "~2.1.1",
     "vue-cli-plugin-vuetify": "~2.1.0",
     "vue-template-compiler": "^2.6.14",
     "vuetify-loader": "^1.7.2"
