@@ -1,3 +1,4 @@
+/* eslint-disable require-jsdoc */
 import * as Blockly from 'blockly/core';
 import '@blockly/field-grid-dropdown';
 
@@ -61,6 +62,14 @@ buildInputBlocks({
   colour: 'blue',
 });
 
+/*
+const createColorElement = () => {
+  const div = document.createElement('div');
+  div.innerHTML = 'aaaa';
+  return div;
+};
+*/
+
 Blockly.defineBlocksWithJsonArray([
   // Block for console switch getter.
   {
@@ -84,9 +93,9 @@ Blockly.defineBlocksWithJsonArray([
     'args0': [
       {
         'type': 'field_grid_dropdown',
-        'name': 'FIELDNAME',
+        'name': 'COLOR',
         'options': [
-          ['Aaa', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'],
+          ['Aaaa', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'],
           ['E', 'E'], ['F', 'F'], ['G', 'G'], ['H', 'H'],
         ],
       },
@@ -95,5 +104,40 @@ Blockly.defineBlocksWithJsonArray([
     'icon': COLOR_ICON,
     'colour': 'purple',
     'tooltip': 'Select a color to use.',
+    'extensions': ['flag_with_text_extension'],
   },
 ]);
+
+Blockly.Extensions.register('flag_with_text_extension',
+    function(a) {
+      function createFlagWithTextDiv(text, src) {
+        const div = document.createElement('div');
+        div.setAttribute('style', 'width: 75px;');
+        div.setAttribute('title', text);
+        const img = document.createElement('img');
+        img.setAttribute('src', src);
+        img.setAttribute('style', 'height: 25px; display: block; margin: auto;');
+        div.appendChild(img);
+        const para = document.createElement('p');
+        para.innerText = text;
+        para.setAttribute('style', 'text-align: center; margin: 5px;');
+        div.appendChild(para);
+        return div;
+      }
+
+      const canadaDiv = createFlagWithTextDiv('Canada', 'canada.png');
+      const usaDiv = createFlagWithTextDiv('USA', 'usa.png');
+      const mexicoDiv = createFlagWithTextDiv('Mexico', 'mexico.png');
+      const options = [
+        ['none', 'NONE'],
+        [canadaDiv, 'CANADA'],
+        [usaDiv, 'USA'],
+        [mexicoDiv, 'MEXICO'],
+      ];
+
+      // eslint-disable-next-line no-invalid-this
+      const b = this;
+      console.log('!!', {b, a});
+
+      b.getField('COLOR').setOptions(options);
+    });
