@@ -22,6 +22,7 @@ import '../blocks/prompt-fix';
 
 import '../blocks/background';
 import '../blocks/collision';
+import '../blocks/color';
 import '../blocks/event';
 import '../blocks/input';
 import '../blocks/random';
