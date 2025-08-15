@@ -493,6 +493,7 @@ Blockly.BBasic.generateAnimations = function() {
 };
 import background from './bbasic/background';
 import collision from './bbasic/collision';
+import color from './bbasic/color';
 import colour from './bbasic/colour';
 import event from './bbasic/event';
 import input from './bbasic/input';
@@ -507,7 +508,7 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[background, collision, colour, event, input, logic, loops, math, procedures,
+[background, collision, color, colour, event, input, logic, loops, math, procedures,
   random, score, sound, sprites, text, variables]
     .forEach((init) => init(Blockly));
 

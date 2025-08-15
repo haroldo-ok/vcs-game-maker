@@ -1,9 +1,7 @@
 import * as Blockly from 'blockly/core';
 import '@blockly/field-grid-dropdown';
 
-import {
-  COLOR_ICON,
-} from './icon';
+import {COLOR_ICON} from './icon';
 
 const NTSC_COLORS = [
   '000000', '131313', '373737', '5f5f5f', '7a7a7a', 'a1a1a1', 'c5c5c5', 'ededed',
