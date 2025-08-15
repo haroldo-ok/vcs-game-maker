@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly/core';
+import '@blockly/field-grid-dropdown';
 
 import {
   JOYSTICK_ICON, FIRE_ICON, DIFFICULTY_BEGINNER_ICON, DIFFICULTY_ADVANCED_ICON,
@@ -60,7 +61,7 @@ buildInputBlocks({
 });
 
 Blockly.defineBlocksWithJsonArray([
-  // Block for the getter.
+  // Block for console switch getter.
   {
     'type': 'input_console_switch_get',
     'message0': `${CONSOLE_SWITCH_ICON} Switch %1`,

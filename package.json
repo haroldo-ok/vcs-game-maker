@@ -1,6 +1,6 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.35.1",
+  "version": "0.36.0",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -13,6 +13,7 @@
   },
   "main": "background.js",
   "dependencies": {
+    "@blockly/field-grid-dropdown": "^1.0.25",
     "@curtishughes/pixel-editor": "^4.0.1",
     "@vue/composition-api": "^1.0.0-rc.13",
     "batari-basic": "^0.0.1",

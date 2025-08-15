@@ -65,6 +65,14 @@
             </value>
         </block>
         <block type="sprite_player0_size" />
+        <block type="sprite_player0_set">
+            <field name="VAR">player0realcolor</field>
+            <value name="VALUE">
+                <block type="color_get">
+                    <field name="COLOR">158</field>
+                </block>
+            </value>
+        </block>
 
         <block type="sprite_player1_get"></block>
         <block type="sprite_player1_set">
@@ -82,6 +90,14 @@
             </value>
         </block>
         <block type="sprite_player1_size" />
+        <block type="sprite_player1_set">
+            <field name="VAR">player1realcolor</field>
+            <value name="VALUE">
+                <block type="color_get">
+                    <field name="COLOR">90</field>
+                </block>
+            </value>
+        </block>
 
         <block type="sprite_missile0_get"></block>
         <block type="sprite_missile0_set">
@@ -140,6 +156,7 @@
 
         <block type="collision_get"></block>
         <block type="input_console_switch_get"></block>
+        <block type="color_get"></block>
 
         <block type="random_get"></block>
         <block type="random_range_get"></block>
