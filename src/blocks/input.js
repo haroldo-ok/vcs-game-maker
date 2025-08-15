@@ -1,9 +1,11 @@
 import * as Blockly from 'blockly/core';
+import '@blockly/field-grid-dropdown';
 
 import {
   JOYSTICK_ICON, FIRE_ICON, DIFFICULTY_BEGINNER_ICON, DIFFICULTY_ADVANCED_ICON,
   CONSOLE_SWITCH_ICON, CONSOLE_SWITCH_RESET_ICON, CONSOLE_SWITCH_SELECT_ICON,
   CONSOLE_SWITCH_COLOR_ICON, CONSOLE_SWITCH_BW_ICON,
+  COLOR_ICON,
 } from './icon';
 
 const buildInputOptions = (name, difficultySwitchName) => [
@@ -60,7 +62,7 @@ buildInputBlocks({
 });
 
 Blockly.defineBlocksWithJsonArray([
-  // Block for the getter.
+  // Block for console switch getter.
   {
     'type': 'input_console_switch_get',
     'message0': `${CONSOLE_SWITCH_ICON} Switch %1`,
@@ -74,5 +76,24 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Boolean',
     'colour': 'purple',
     'tooltip': 'Reads status of the console switches',
+  },
+
+  {
+    'type': 'color_get',
+    'message0': 'Color %1',
+    'args0': [
+      {
+        'type': 'field_grid_dropdown',
+        'name': 'FIELDNAME',
+        'options': [
+          ['Aaa', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'],
+          ['E', 'E'], ['F', 'F'], ['G', 'G'], ['H', 'H'],
+        ],
+      },
+    ],
+    'output': 'Number',
+    'icon': COLOR_ICON,
+    'colour': 'purple',
+    'tooltip': 'Select a color to use.',
   },
 ]);
