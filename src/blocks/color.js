@@ -40,7 +40,7 @@ const NTSC_COLOR_OPTIONS = NTSC_COLORS.map((color, idx) => ([
     width: 16,
     height: 16,
   },
-  `${idx}`,
+  `${idx << 1}`,
 ]));
 
 Blockly.defineBlocksWithJsonArray([
