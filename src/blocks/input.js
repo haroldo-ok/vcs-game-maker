@@ -61,6 +61,18 @@ buildInputBlocks({
   colour: 'blue',
 });
 
+const colorToDataURL = () => {
+  const canvas = window.document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#3b82f6';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  return canvas.toDataURL();
+};
+
 Blockly.defineBlocksWithJsonArray([
   // Block for console switch getter.
   {
@@ -86,7 +98,7 @@ Blockly.defineBlocksWithJsonArray([
         'type': 'field_grid_dropdown',
         'name': 'COLOR',
         'options': [
-          ['Aaaa', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'],
+          [{src: colorToDataURL(), width: 16, height: 16}, 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'],
           ['E', 'E'], ['F', 'F'], ['G', 'G'], ['H', 'H'],
         ],
       },
