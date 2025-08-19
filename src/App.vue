@@ -1,6 +1,8 @@
 <template>
   <v-app id="inspire">
     <v-system-bar app>
+      <v-card-text>Version should be here</v-card-text>
+
       <v-spacer></v-spacer>
 
       <v-icon>mdi-square</v-icon>
