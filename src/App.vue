@@ -1,6 +1,8 @@
 <template>
   <v-app id="inspire">
     <v-system-bar app>
+      <v-card-text>{{ name }} {{ version }}</v-card-text>
+
       <v-spacer></v-spacer>
 
       <v-icon>mdi-square</v-icon>
@@ -183,6 +185,7 @@
 
 <script>
 import {useErrorStorage} from './hooks/project';
+import {name, version} from '../package.json';
 
 export default {
   data: () => ({
@@ -190,7 +193,8 @@ export default {
   }),
   setup() {
     const errorStorage = useErrorStorage();
-    return {errorStorage};
+    console.info('Text', version);
+    return {errorStorage, name, version};
   },
   mounted() {
     // Ugly hack in order to move the Javatari screen to a Vue component.
