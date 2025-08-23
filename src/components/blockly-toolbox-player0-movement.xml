@@ -752,4 +752,67 @@
 
     </category>
 
+    <category name="Use difficulty switches to change player visibility" colour="red">
+    
+        <block type="controls_if">
+            <mutation else="1"></mutation>
+            <value name="IF0">
+                <block type="input_joy0_get">
+                    <field name="VAR">not switchleftb</field>
+                </block>
+            </value>
+            <statement name="DO0">
+                <block type="sprite_player0_set">
+                    <field name="VAR">player0visibility</field>
+                    <value name="VALUE">
+                        <shadow type="logic_boolean">
+                            <field name="BOOL">FALSE</field>
+                        </shadow>
+                    </value>
+                </block>
+            </statement>
+            <statement name="ELSE">
+                <block type="sprite_player0_set">
+                    <field name="VAR">player0visibility</field>
+                    <value name="VALUE">
+                        <shadow type="logic_boolean">
+                            <field name="BOOL">TRUE</field>
+                        </shadow>
+                    </value>
+                </block>
+            </statement>
+            <next>
+                <block type="controls_if">
+                    <mutation else="1"></mutation>
+                    <value name="IF0">
+                        <block type="input_joy1_get">
+                            <field name="VAR">not switchrightb</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="sprite_player1_set">
+                            <field name="VAR">player1visibility</field>
+                            <value name="VALUE">
+                                <shadow type="logic_boolean">
+                                    <field name="BOOL">FALSE</field>
+                                </shadow>
+                            </value>
+                        </block>
+                    </statement>
+                    <statement name="ELSE">
+                        <block type="sprite_player1_set">
+                            <field name="VAR">player1visibility</field>
+                            <value name="VALUE">
+                                <shadow type="logic_boolean">
+                                    <field name="BOOL">TRUE</field>
+                                </shadow>
+                            </value>
+                        </block>
+                    </statement>
+                </block>
+            </next>
+        </block>
+
+    </category>
+
 </category>
