@@ -1,17 +1,17 @@
 import * as Blockly from 'blockly/core';
 
-import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON} from './icon';
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON} from './icon';
 
 const buildPlayerOptions = (name) => [
-  ['\u2195 X', `${name}x`],
-  ['\u2195 Y', `${name}y`],
+  [HORIZONTAL_ICON + ' X', `${name}x`],
+  [VERTICAL_ICON + ' Y', `${name}y`],
   [COLOR_ICON + ' Color', `${name}realcolor`],
   [ANIMATION_ICON + ' Animation', `${name}animation`],
 ];
 
 const buildMissileOptions = (name) => [
-  ['\u2195 X', `${name}x`],
-  ['\u2195 Y', `${name}y`],
+  [HORIZONTAL_ICON + ' X', `${name}x`],
+  [VERTICAL_ICON + ' Y', `${name}y`],
   [HEIGHT_ICON + ' Height', `${name}height`],
 ];
 
@@ -142,6 +142,9 @@ buildSpriteBlocks({
   icon: PLAYER_ICON,
   colour: 'red',
   options: buildPlayerOptions('player0'),
+  writeOnlyOptions: [
+    [VISIBILITY_ICON + ' Visibility', 'player0visibility'],
+  ],
 });
 
 buildPlayerBlocks({
@@ -157,6 +160,9 @@ buildSpriteBlocks({
   icon: PLAYER_ICON,
   colour: 'blue',
   options: buildPlayerOptions('player1'),
+  writeOnlyOptions: [
+    [VISIBILITY_ICON + ' Visibility', 'player1visibility'],
+  ],
 });
 
 buildPlayerBlocks({
