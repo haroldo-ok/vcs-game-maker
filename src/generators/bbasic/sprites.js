@@ -66,8 +66,16 @@ export default (Blockly) => {
       if (varName === 'ballwidth') {
         return 'CTRLPF = (' + argument0 + ') * 16 + 1\n';
       } else if (varName.endsWith('visibility')) {
+        const blockNumber = Blockly.BBasic.blockNumbers.next();
+        const baseLabel = `_visibility_${blockNumber}`;
+
         const frameVarName = varName.replace('visibility', 'frame');
-        return `if !${argument0} then ${frameVarName} = 255 else if ${frameVarName} = 255 then ${frameVarName} = 0\n`;
+        return [
+          `if ${argument0} then goto ${baseLabel}_visible else ${frameVarName} = 255 : goto ${baseLabel}_end`,
+          `@ ${baseLabel}_visible`,
+          `if ${frameVarName} = 255 then ${frameVarName} = 0`,
+          `@ ${baseLabel}_end`,
+        ].join('\n') + '\n\n';
       }
       return varName + ' = ' + argument0 + '\n';
     };
