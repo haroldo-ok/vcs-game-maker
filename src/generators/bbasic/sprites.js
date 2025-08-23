@@ -65,6 +65,9 @@ export default (Blockly) => {
           block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
       if (varName === 'ballwidth') {
         return 'CTRLPF = (' + argument0 + ') * 16 + 1\n';
+      } else if (varName.endsWith('visibility')) {
+        const frameVarName = varName.replace('visibility', 'frame');
+        return `if !${argument0} then ${frameVarName} = 255 else if ${frameVarName} = 255 then ${frameVarName} = 0`;
       }
       return varName + ' = ' + argument0 + '\n';
     };
