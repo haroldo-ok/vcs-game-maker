@@ -7,7 +7,6 @@ const buildPlayerOptions = (name) => [
   [VERTICAL_ICON + ' Y', `${name}y`],
   [COLOR_ICON + ' Color', `${name}realcolor`],
   [ANIMATION_ICON + ' Animation', `${name}animation`],
-  [VISIBILITY_ICON + ' Visibility', `${name}visibility`],
 ];
 
 const buildMissileOptions = (name) => [
@@ -143,6 +142,9 @@ buildSpriteBlocks({
   icon: PLAYER_ICON,
   colour: 'red',
   options: buildPlayerOptions('player0'),
+  writeOnlyOptions: [
+    [VISIBILITY_ICON + ' Visibility', 'player0visibility'],
+  ],
 });
 
 buildPlayerBlocks({
@@ -158,6 +160,9 @@ buildSpriteBlocks({
   icon: PLAYER_ICON,
   colour: 'blue',
   options: buildPlayerOptions('player1'),
+  writeOnlyOptions: [
+    [VISIBILITY_ICON + ' Visibility', 'player1visibility'],
+  ],
 });
 
 buildPlayerBlocks({
