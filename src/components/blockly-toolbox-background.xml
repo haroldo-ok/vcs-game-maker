@@ -225,4 +225,92 @@
     
     </category>
 
+    <category name="Scroll with joystick" colour="#ffa500">
+
+        <block type="controls_if">
+            <value name="IF0">
+                <block type="input_joy0_get">
+                    <field name="VAR">joy0down</field>
+                </block>
+            </value>
+            <statement name="DO0">
+                <block type="controls_if">
+                    <mutation else="1"></mutation>
+                    <value name="IF0">
+                        <block type="input_joy0_get">
+                            <field name="VAR">joy0fire</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="background_scroll">
+                            <field name="DIRECTION">upup</field>
+                        </block>
+                    </statement>
+                    <statement name="ELSE">
+                        <block type="background_scroll">
+                            <field name="DIRECTION">up</field>
+                        </block>
+                    </statement>
+                </block>
+            </statement>
+            <next>
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="input_joy0_get">
+                            <field name="VAR">joy0up</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="controls_if">
+                            <mutation else="1"></mutation>
+                            <value name="IF0">
+                                <block type="input_joy0_get">
+                                    <field name="VAR">joy0fire</field>
+                                </block>
+                            </value>
+                            <statement name="DO0">
+                                <block type="background_scroll">
+                                    <field name="DIRECTION">downdown</field>
+                                </block>
+                            </statement>
+                            <statement name="ELSE">
+                                <block type="background_scroll">
+                                    <field name="DIRECTION">down</field>
+                                </block>
+                            </statement>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="controls_if">
+                            <value name="IF0">
+                                <block type="input_joy0_get">
+                                    <field name="VAR">joy0left</field>
+                                </block>
+                            </value>
+                            <statement name="DO0">
+                                <block type="background_scroll">
+                                    <field name="DIRECTION">right</field>
+                                </block>
+                            </statement>
+                            <next>
+                                <block type="controls_if">
+                                    <value name="IF0">
+                                        <block type="input_joy0_get">
+                                            <field name="VAR">joy0right</field>
+                                        </block>
+                                    </value>
+                                    <statement name="DO0">
+                                        <block type="background_scroll">
+                                            <field name="DIRECTION">left</field>
+                                        </block>
+                                    </statement>
+                                </block>
+                            </next>
+                        </block>
+                    </next>
+                </block>
+            </next>
+        </block>
+
+    </category>
 </category>
