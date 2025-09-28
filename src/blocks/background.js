@@ -4,7 +4,7 @@ import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage} from '../hooks/project';
 import {playfieldToMatrix} from '../utils/pixels';
-import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON} from './icon';
+import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
 
@@ -12,6 +12,15 @@ const BACKGROUND_PFPIXEL_OPTIONS = [
   [`${CHECKBOX_CHECKED_ICON} Set`, 'on'],
   [`${CHECKBOX_CLEAR_ICON} Clear`, 'off'],
   [`${FLIP_ICON} Flip`, 'flip'],
+];
+
+const BACKGROUND_PFSCROLL_OPTIONS = [
+  [`${BACKGROUND_PFSCROLL_LEFT_ICON} Left`, 'left'],
+  [`${BACKGROUND_PFSCROLL_RIGHT_ICON} Right`, 'right'],
+  [`${BACKGROUND_PFSCROLL_UP_ICON} Up`, 'up'],
+  [`${BACKGROUND_PFSCROLL_DOWN_ICON} Down`, 'down'],
+  [`${BACKGROUND_PFSCROLL_UP2X_ICON} Up (2x)`, 'upup'],
+  [`${BACKGROUND_PFSCROLL_DOWN2X_ICON} Down (2x)`, 'downdown'],
 ];
 
 const backgroundsStorage = useBackgroundsStorage();
@@ -152,6 +161,23 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Changes a pixel of the background`,
+  },
+  // Block for scrolling the background
+  {
+    'type': `background_scroll`,
+    'message0': `${BACKGROUND_ICON} Background: scroll %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'DIRECTION',
+        'options': BACKGROUND_PFSCROLL_OPTIONS,
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Scrolls the background on a certain direction`,
   },
   // Block for drawing the screen
   {
