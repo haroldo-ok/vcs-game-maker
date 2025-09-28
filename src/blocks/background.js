@@ -14,6 +14,15 @@ const BACKGROUND_PFPIXEL_OPTIONS = [
   [`${FLIP_ICON} Flip`, 'flip'],
 ];
 
+const BACKGROUND_PFSCROLL_OPTIONS = [
+  [`Left`, 'left'],
+  [`Right`, 'right'],
+  [`Up`, 'up'],
+  [`Down`, 'down'],
+  [`Up (2x)`, 'upup'],
+  [`Down (2x)`, 'downdown'],
+];
+
 const backgroundsStorage = useBackgroundsStorage();
 
 export const DEFAULT_BACKGROUNDS = {
@@ -152,6 +161,23 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Changes a pixel of the background`,
+  },
+  // Block for scrolling the background
+  {
+    'type': `background_scroll`,
+    'message0': `${BACKGROUND_ICON} Background: scroll %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'OPERATION',
+        'options': BACKGROUND_PFSCROLL_OPTIONS,
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Scrolls the background on a certain direction`,
   },
   // Block for drawing the screen
   {
