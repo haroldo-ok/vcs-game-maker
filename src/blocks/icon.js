@@ -23,6 +23,7 @@ export const GAMEOVER_ICON = String.fromCodePoint(0x2620) + String.fromCodePoint
 export const CHECKBOX_CHECKED_ICON = String.fromCodePoint(0x2611);
 export const CHECKBOX_CLEAR_ICON = String.fromCodePoint(0x2610);
 export const FLIP_ICON = String.fromCodePoint(0x2194);
+
 export const DIFFICULTY_ADVANCED_ICON = String.fromCodePoint(0x1F631);
 export const DIFFICULTY_BEGINNER_ICON = String.fromCodePoint(0x1F476);
 export const CONSOLE_SWITCH_ICON = String.fromCodePoint(0x1F39A) + String.fromCodePoint(0xFE0F);
@@ -30,4 +31,9 @@ export const CONSOLE_SWITCH_RESET_ICON = String.fromCodePoint(0x267B) + String.f
 export const CONSOLE_SWITCH_SELECT_ICON = String.fromCodePoint(0x2754);
 export const CONSOLE_SWITCH_COLOR_ICON = String.fromCodePoint(0x1F7E5);
 export const CONSOLE_SWITCH_BW_ICON = String.fromCodePoint(0x1F532);
-
+export const BACKGROUND_PFSCROLL_LEFT_ICON = String.fromCodePoint(0x2190);
+export const BACKGROUND_PFSCROLL_RIGHT_ICON = String.fromCodePoint(0x2192);
+export const BACKGROUND_PFSCROLL_UP_ICON = String.fromCodePoint(0x2191);
+export const BACKGROUND_PFSCROLL_DOWN_ICON = String.fromCodePoint(0x2193);
+export const BACKGROUND_PFSCROLL_UP2X_ICON = String.fromCodePoint(0x21C8);
+export const BACKGROUND_PFSCROLL_DOWN2X_ICON = String.fromCodePoint(0x21CA);
