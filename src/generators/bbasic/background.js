@@ -39,6 +39,13 @@ export default (Blockly) => {
     return `pfpixel ${argumentX} ${argumentY} ${operation}\n`;
   };
 
+  Blockly.BBasic[`background_scroll`] = function(block) {
+    // Block for scrolling the background on a certain direction
+    const direction = block.getFieldValue('DIRECTION');
+
+    return `pfscroll ${direction}\n`;
+  };
+
   Blockly.BBasic[`draw_screen`] = function(block) {
     // Draw screen.
     return 'COLUP1 = player1color\n' +

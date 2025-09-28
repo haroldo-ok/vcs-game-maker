@@ -169,7 +169,7 @@ Blockly.defineBlocksWithJsonArray([
     'args0': [
       {
         'type': 'field_dropdown',
-        'name': 'OPERATION',
+        'name': 'DIRECTION',
         'options': BACKGROUND_PFSCROLL_OPTIONS,
       },
     ],
