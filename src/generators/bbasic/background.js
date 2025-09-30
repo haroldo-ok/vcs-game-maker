@@ -39,6 +39,21 @@ export default (Blockly) => {
     return `pfpixel ${argumentX} ${argumentY} ${operation}\n`;
   };
 
+  Blockly.BBasic[`background_change_hv_line`] = function(block) {
+    // Block for drawing an horizontal/vertical line
+    const direction = block.getFieldValue('DIRECTION');
+    const operation = block.getFieldValue('OPERATION');
+    const argumentLineLength = Blockly.BBasic.valueToCode(block, 'LENGTH',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '2';
+    const argumentX = Blockly.BBasic.valueToCode(block, 'X',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+
+    return `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? argumentX : argumentY} - 1\n` +
+      `${direction} ${argumentX} ${argumentY} temp1 ${operation}\n`;
+  };
+
   Blockly.BBasic[`background_scroll`] = function(block) {
     // Block for scrolling the background on a certain direction
     const direction = block.getFieldValue('DIRECTION');

@@ -14,6 +14,11 @@ const BACKGROUND_PFPIXEL_OPTIONS = [
   [`${FLIP_ICON} Flip`, 'flip'],
 ];
 
+const BACKGROUND_LINE_DIRECTION_OPTIONS = [
+  [`Horizontally`, 'pfhline'],
+  [`Vertically`, 'pfvline'],
+];
+
 const BACKGROUND_PFSCROLL_OPTIONS = [
   [`${BACKGROUND_PFSCROLL_LEFT_ICON} Left`, 'left'],
   [`${BACKGROUND_PFSCROLL_RIGHT_ICON} Right`, 'right'],
@@ -161,6 +166,43 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Changes a pixel of the background`,
+  },
+  // Block for drawing an horizontal/vertical line
+  {
+    'type': `background_change_hv_line`,
+    'message0': `${BACKGROUND_ICON} Background:  %1 %2 %3 pixels at X %4 and Y %5`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'DIRECTION',
+        'options': BACKGROUND_LINE_DIRECTION_OPTIONS,
+      },
+      {
+        'type': 'field_dropdown',
+        'name': 'OPERATION',
+        'options': BACKGROUND_PFPIXEL_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'LENGTH',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'X',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'Y',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Draws an horizontal/vertical line.`,
   },
   // Block for scrolling the background
   {
