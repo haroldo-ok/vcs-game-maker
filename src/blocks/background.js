@@ -15,8 +15,8 @@ const BACKGROUND_PFPIXEL_OPTIONS = [
 ];
 
 const BACKGROUND_LINE_DIRECTION_OPTIONS = [
-  [`Horizontal`, 'pfhline'],
-  [`Vertical`, 'pfvline'],
+  [`Horizontally`, 'pfhline'],
+  [`Vertically`, 'pfvline'],
 ];
 
 const BACKGROUND_PFSCROLL_OPTIONS = [
@@ -202,7 +202,7 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
-    'tooltip': `Changes a pixel of the background`,
+    'tooltip': `Draws an horizontal/vertical line.`,
   },
   // Block for scrolling the background
   {
