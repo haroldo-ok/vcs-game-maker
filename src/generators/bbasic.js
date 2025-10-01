@@ -277,7 +277,7 @@ Blockly.BBasic.scrub_ = function(block, code, optThisOnly) {
     let comment = block.getCommentText();
     if (comment) {
       comment = Blockly.utils.string.wrap(comment, this.COMMENT_WRAP - 3);
-      commentCode += this.prefixLines(comment + '\n', '// ');
+      commentCode += this.prefixLines(comment + '\n', 'rem ');
     }
     // Collect comments for all value arguments.
     // Don't collect comments for nested statements.
