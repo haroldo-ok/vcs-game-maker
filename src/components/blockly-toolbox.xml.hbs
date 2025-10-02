@@ -259,6 +259,22 @@
                 </shadow>
             </value>
         </block>
+
+        <block type="score_color_get"></block>
+        <block type="score_color_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">146</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_color_change">
+            <value name="DELTA">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
     </category>
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
