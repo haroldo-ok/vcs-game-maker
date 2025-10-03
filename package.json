@@ -1,6 +1,6 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.41.1",
+  "version": "0.42.0",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
