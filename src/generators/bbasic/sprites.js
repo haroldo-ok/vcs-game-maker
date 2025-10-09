@@ -76,6 +76,9 @@ export default (Blockly) => {
           `if ${frameVarName} = 255 then ${frameVarName} = 0`,
           `@ ${baseLabel}_end`,
         ].join('\n') + '\n\n';
+      } else if (varName.endsWith('size_3_')) {
+        const bitVarName = varName.replace('__', '').replace('_3_', '{3}');
+        return bitVarName + ' = ' + argument0 + '\n';
       }
       return varName + ' = ' + argument0 + '\n';
     };
