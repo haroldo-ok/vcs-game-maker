@@ -99,7 +99,7 @@ export default (Blockly) => {
     Blockly.BBasic[`sprite_${name}_size`] = function(block) {
       const size = block.getFieldValue('SIZE') || '0';
       const varName = name + 'size';
-      return `${varName} = ${varName} & $F0\n` +
+      return `${varName} = ${varName} & $F8\n` +
         `${varName} = ${varName} | ${size}\n`;
     };
   };
