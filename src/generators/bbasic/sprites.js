@@ -78,7 +78,7 @@ export default (Blockly) => {
         ].join('\n') + '\n\n';
       } else if (varName.endsWith('size_3_')) {
         const bitVarName = varName.replace('__', '').replace('_3_', '{3}');
-        return bitVarName + ' = ' + argument0 + '\n';
+        return `if ${argument0} then ${bitVarName} = 1 else ${bitVarName} = 0\n`;
       }
       return varName + ' = ' + argument0 + '\n';
     };
