@@ -14,6 +14,7 @@ export const DICE_ICON = String.fromCodePoint(0x1F3B2);
 export const SOUND_ICON = String.fromCodePoint(0x1F509);
 export const ANIMATION_ICON = String.fromCodePoint(0x1F3AC);
 export const VISIBILITY_ICON = String.fromCodePoint(0x1F440);
+export const MIRROR_ICON = String.fromCodePoint(0x1FA9E);
 export const SYSTEM_ICON = String.fromCodePoint(0x1F3AB);
 export const START_ICON = String.fromCodePoint(0x25B6) + String.fromCodePoint(0xFE0F);
 export const TITLE_ICON = String.fromCodePoint(0x1F4FA);

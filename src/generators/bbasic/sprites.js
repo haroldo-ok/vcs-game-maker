@@ -76,6 +76,9 @@ export default (Blockly) => {
           `if ${frameVarName} = 255 then ${frameVarName} = 0`,
           `@ ${baseLabel}_end`,
         ].join('\n') + '\n\n';
+      } else if (varName.endsWith('size_3_')) {
+        const bitVarName = varName.replace('__', '').replace('_3_', '{3}');
+        return `if ${argument0} then ${bitVarName} = 1 else ${bitVarName} = 0\n`;
       }
       return varName + ' = ' + argument0 + '\n';
     };
@@ -96,7 +99,7 @@ export default (Blockly) => {
     Blockly.BBasic[`sprite_${name}_size`] = function(block) {
       const size = block.getFieldValue('SIZE') || '0';
       const varName = name + 'size';
-      return `${varName} = ${varName} & $F0\n` +
+      return `${varName} = ${varName} & $F8\n` +
         `${varName} = ${varName} | ${size}\n`;
     };
   };
