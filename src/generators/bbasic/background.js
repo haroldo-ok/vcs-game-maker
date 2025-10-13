@@ -28,6 +28,17 @@ export default (Blockly) => {
     return varName + ' = ' + argument0 + '\n';
   };
 
+  Blockly.BBasic[`background_get_pixel`] = function(block) {
+    // Block for getting a playfield pixel
+    const argumentX = Blockly.BBasic.valueToCode(block, 'X',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+
+    const code = `pfread(${argumentX}, ${argumentY})`;
+    return [code, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   Blockly.BBasic[`background_change_pixel`] = function(block) {
     // Block for setting a playfield pixel
     const operation = block.getFieldValue('OPERATION');
