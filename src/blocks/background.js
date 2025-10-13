@@ -140,6 +140,27 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Sets the background color`,
   },
+  // Block for reading a playfield pixel
+  {
+    'type': `background_get_pixel`,
+    'message0': `${BACKGROUND_ICON} Background: get pixel at X %1 and Y %2`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'X',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'Y',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'output': 'Boolean',
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Reads a pixel of the background; can only be used on "if" statements`,
+  },
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,
