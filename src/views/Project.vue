@@ -30,7 +30,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
@@ -46,8 +46,10 @@ export default defineComponent({
     const player0Storage = usePlayer0Storage();
     const player1Storage = usePlayer1Storage();
     const workspaceStorage = useWorkspaceStorage();
+    const configurationStorage = useConfigurationStorage();
 
-    return {data, router, backgroundsStorage, player0Storage, player1Storage, workspaceStorage};
+    return {data, router, backgroundsStorage, player0Storage, player1Storage,
+      workspaceStorage, configurationStorage};
   },
   methods: {
     handleSaveProject() {
