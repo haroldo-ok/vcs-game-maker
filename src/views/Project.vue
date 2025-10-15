@@ -17,7 +17,13 @@
           Save Project
       </v-btn>
     </v-card-actions>
-  </v-card>
+    <v-card-title>Options</v-card-title>
+    <v-card-text>
+      <v-switch
+        label="Show score at bottom of screen"
+      />
+    </v-card-text>
+    </v-card>
 </template>
 <script>
 import {defineComponent, reactive} from '@vue/composition-api';
