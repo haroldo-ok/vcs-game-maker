@@ -26,7 +26,7 @@
     </v-card>
 </template>
 <script>
-import {defineComponent, reactive} from '@vue/composition-api';
+import {computed, defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
@@ -48,8 +48,28 @@ export default defineComponent({
     const workspaceStorage = useWorkspaceStorage();
     const configurationStorage = useConfigurationStorage();
 
+    const configurationState = computed({
+      get() {
+        const DEFAULT_CONFIGURATION = {
+          showScore: true,
+        };
+
+        try {
+          const {showScore} = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
+          return {showScore: showScore ?? true};
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return structuredClone(DEFAULT_CONFIGURATION);
+        }
+      },
+
+      set(newState) {
+        configurationStorage.value = newState;
+      },
+    });
+
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationStorage};
+      workspaceStorage, configurationState};
   },
   methods: {
     handleSaveProject() {
