@@ -21,6 +21,7 @@
     <v-card-text>
       <v-switch
         v-model="configurationState.showScore"
+        @click="handleChangeConfiguration"
         label="Show score at bottom of screen"
       />
     </v-card-text>
@@ -69,8 +70,12 @@ export default defineComponent({
       },
     });
 
-    return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationState};
+    const handleChangeConfiguration = () => {
+      configurationState.value = configurationState.value;
+    };
+
+    return {data, router, backgroundsStorage, player0Storage, player1Storage, workspaceStorage,
+      configurationState, handleChangeConfiguration};
   },
   methods: {
     handleSaveProject() {
