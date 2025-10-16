@@ -20,6 +20,7 @@
     <v-card-title>Options</v-card-title>
     <v-card-text>
       <v-switch
+        v-model="configurationState.showScore"
         label="Show score at bottom of screen"
       />
     </v-card-text>
