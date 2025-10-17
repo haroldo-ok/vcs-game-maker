@@ -409,7 +409,7 @@ Blockly.BBasic.generateConfiguration = function() {
   }
 
   const scoreConfigurationCode = configurationStorage.showScore ? '' : 'const noscore = 1';
-  return scoreConfigurationCode ? '' : '';
+  return scoreConfigurationCode;
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
