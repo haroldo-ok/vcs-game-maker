@@ -17,18 +17,10 @@
           Save Project
       </v-btn>
     </v-card-actions>
-    <v-card-title>Options</v-card-title>
-    <v-card-text>
-      <v-switch
-        v-model="configurationState.showScore"
-        @click="handleChangeConfiguration"
-        label="Show score at bottom of screen"
-      />
-    </v-card-text>
-    </v-card>
+  </v-card>
 </template>
 <script>
-import {computed, defineComponent, reactive} from '@vue/composition-api';
+import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
@@ -50,32 +42,8 @@ export default defineComponent({
     const workspaceStorage = useWorkspaceStorage();
     const configurationStorage = useConfigurationStorage();
 
-    const configurationState = computed({
-      get() {
-        const DEFAULT_CONFIGURATION = {
-          showScore: true,
-        };
-
-        try {
-          const {showScore} = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
-          return {showScore: showScore ?? true};
-        } catch (e) {
-          console.error('Error loading configuration from local storage', e);
-          return structuredClone(DEFAULT_CONFIGURATION);
-        }
-      },
-
-      set(newState) {
-        configurationStorage.value = newState;
-      },
-    });
-
-    const handleChangeConfiguration = () => {
-      configurationState.value = configurationState.value;
-    };
-
-    return {data, router, backgroundsStorage, player0Storage, player1Storage, workspaceStorage,
-      configurationState, handleChangeConfiguration};
+    return {data, router, backgroundsStorage, player0Storage, player1Storage,
+      workspaceStorage, configurationStorage};
   },
   methods: {
     handleSaveProject() {
