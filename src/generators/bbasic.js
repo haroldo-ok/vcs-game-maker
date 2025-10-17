@@ -15,7 +15,7 @@ import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 import {sumBy} from 'lodash';
 
-import {useBackgroundsStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
 import {processBackgroundStorageDefaults} from '../blocks/background';
 import {matrixToPlayfield} from '../utils/pixels';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
@@ -193,6 +193,7 @@ Blockly.BBasic.finish = function(code) {
   // Workaround negation that's not working
   code = code.replaceAll(/(\W)not_(switch\w+(\W?))/g, '$1 !$2');
 
+  const generatedConfiguration = Blockly.BBasic.generateConfiguration();
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
 
@@ -209,7 +210,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent});
+    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -399,6 +400,16 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
       `goto ${eventName}_begin`,
     ].join('\n');
   });
+};
+
+Blockly.BBasic.generateConfiguration = function() {
+  const configurationStorage = useConfigurationStorage();
+  if (!configurationStorage) {
+    return '';
+  }
+
+  const scoreConfigurationCode = configurationStorage.showScore ? '' : 'const noscore = 1';
+  return scoreConfigurationCode ? '' : '';
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
