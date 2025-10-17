@@ -47,6 +47,10 @@ export default defineComponent({
   },
   methods: {
     handleSaveProject() {
+      const configuration = !this.configurationStorage ? null : {
+        ...this.configurationStorage,
+      };
+
       const backgrounds = !this.backgroundsStorage ? null :
         {
           ...this.backgroundsStorage,
@@ -73,6 +77,7 @@ export default defineComponent({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
         'generation-time': new Date(),
+        configuration,
         'blockly-workspace': this.workspaceStorage,
         'player-0': player0,
         'player-1': player1,
