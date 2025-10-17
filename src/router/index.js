@@ -35,6 +35,11 @@ const routes = [
     component: () => import('../views/BackgroundEditor.vue'),
   },
   {
+    path: '/configuration',
+    name: 'Options',
+    component: () => import('../views/Configuration.vue'),
+  },
+  {
     path: '/generated',
     name: 'Generated',
     component: () => import('../views/GeneratedCode.vue'),
