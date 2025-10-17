@@ -42,6 +42,10 @@
           <v-icon>mdi-speaker</v-icon>
         </v-btn>
 
+        <v-btn to="/configuration" link class="configuration-item" title="Options" elevation="0">
+          <v-icon>mdi-cog</v-icon>
+        </v-btn>
+
         <v-btn to="/generated" link class="generated-item" title="Generated" elevation="0">
           <v-icon>mdi-card-text</v-icon>
         </v-btn>
@@ -129,6 +133,19 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Sound</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/configuration"
+          link
+          class="configuration-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-cog</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Options</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -259,6 +276,13 @@ export default {
 .sound-item > .v-list-item__content {
   color: rgb(156, 39, 176) !important;
   border-left-color: rgb(156, 39, 176) !important;
+}
+
+.configuration-item,
+.configuration-item > .v-list-item__icon > .theme--light.v-icon,
+.configuration-item > .v-list-item__content {
+  color: rgb(96, 96, 244) !important;
+  border-left-color: rgb(96, 96, 244) !important;
 }
 
 .generated-item,
