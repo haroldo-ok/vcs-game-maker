@@ -142,6 +142,10 @@ export default defineComponent({
           this.backgroundsStorage = backgrounds;
         }
 
+        if (project.configuration) {
+          this.configurationStorage = project.configuration;
+        }
+
         this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
