@@ -32,7 +32,9 @@ export default defineComponent({
         };
 
         try {
-          const {showScore} = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
+          const {showScore, showBlankLines} =
+            configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
+
           return {
             showScore: showScore ?? true,
             showBlankLines: showBlankLines ?? true,
