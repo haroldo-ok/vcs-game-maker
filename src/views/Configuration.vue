@@ -32,13 +32,10 @@ export default defineComponent({
         };
 
         try {
-          const {showScore, showBlankLines} =
-            configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
+          const configuration = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
 
-          return {
-            showScore: showScore ?? true,
-            showBlankLines: showBlankLines ?? true,
-          };
+          return Object.fromEntries(Object.entries(DEFAULT_CONFIGURATION)
+              .map(([k, v]) => [k, configuration[k] ?? v]));
         } catch (e) {
           console.error('Error loading configuration from local storage', e);
           return structuredClone(DEFAULT_CONFIGURATION);
