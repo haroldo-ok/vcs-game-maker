@@ -408,8 +408,14 @@ Blockly.BBasic.generateConfiguration = function() {
     return '';
   }
 
-  const scoreConfigurationCode = configurationStorage.value.showScore ? '' : 'const noscore = 1';
-  return scoreConfigurationCode;
+  const {showScore, showBlankLines} = configurationStorage.value;
+
+  const kernelOptionsConfigurationCode = (showBlankLines ?? true) ? '' : 'set kernel_options no_blank_lines';
+  const scoreConfigurationCode = (showScore ?? true) ? '' : 'const noscore = 1';
+  return [
+    kernelOptionsConfigurationCode,
+    scoreConfigurationCode,
+  ].join('\n ');
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
