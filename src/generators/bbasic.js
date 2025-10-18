@@ -408,7 +408,7 @@ Blockly.BBasic.generateConfiguration = function() {
     return '';
   }
 
-  const scoreConfigurationCode = configurationStorage.showScore ? '' : 'const noscore = 1';
+  const scoreConfigurationCode = configurationStorage.value.showScore ? '' : 'const noscore = 1';
   return scoreConfigurationCode;
 };
 
