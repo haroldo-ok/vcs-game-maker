@@ -404,7 +404,7 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
 
 Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
-  if (!configurationStorage) {
+  if (!configurationStorage || !configurationStorage.value) {
     return '';
   }
 
