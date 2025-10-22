@@ -16,6 +16,12 @@
       >
           Save Project
       </v-btn>
+      <v-btn
+        color="secondary"
+        @click="handleSaveProject"
+      >
+          Create New Project
+      </v-btn>
     </v-card-actions>
   </v-card>
 </template>
