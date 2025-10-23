@@ -207,8 +207,12 @@ export default defineComponent({
     },
 
     handleNewProject() {
-      this.data.newProjectDialog = false;
+      this.configurationStorage = null;
       this.player0Storage = null;
+      this.player1Storage = null;
+      this.backgroundsStorage = null;
+
+      this.data.newProjectDialog = false;
       this.router.push('/');
     },
   },
