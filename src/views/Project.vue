@@ -51,7 +51,7 @@
                 <v-btn
                   color="primary"
                   text
-                  @click="data.newProjectDialog = false"
+                  @click="handleNewProject"
                 >
                   Yes, recreate the project
                 </v-btn>
@@ -204,6 +204,12 @@ export default defineComponent({
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
       this.data.fileToImport = null;
+    },
+
+    handleNewProject() {
+      this.data.newProjectDialog = false;
+      this.player0Storage = null;
+      this.router.push('/');
     },
   },
 });
