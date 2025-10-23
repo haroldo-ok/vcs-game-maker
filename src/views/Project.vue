@@ -16,6 +16,57 @@
       >
           Save Project
       </v-btn>
+      <template>
+        <div class="text-center">
+          <v-dialog
+            v-model="data.newProjectDialog"
+            width="500"
+          >
+            <template v-slot:activator="{ on, attrs }">
+              <v-btn
+                color="secondary"
+                v-bind="attrs"
+                v-on="on"
+              >
+                Create New Project
+              </v-btn>
+            </template>
+
+            <v-card>
+              <v-card-title class="text-h5 grey lighten-2">
+                Do you really want to start a new project?
+              </v-card-title>
+
+              <v-card-text>
+                This will create a new project, clearing all the blocks on the actions tab,
+                all the graphics and animations on the player 0 and player 1 tab, all of the
+                backgrounds on the backgrounds tab and replace all the options with default
+                values.
+              </v-card-text>
+
+              <v-divider></v-divider>
+
+              <v-card-actions>
+                <v-spacer></v-spacer>
+                <v-btn
+                  color="primary"
+                  text
+                  @click="handleNewProject"
+                >
+                  Yes, recreate the project
+                </v-btn>
+                <v-btn
+                  color="secondary"
+                  text
+                  @click="data.newProjectDialog = false"
+                >
+                  No, nevermind
+                </v-btn>
+              </v-card-actions>
+            </v-card>
+          </v-dialog>
+        </div>
+      </template>
     </v-card-actions>
   </v-card>
 </template>
@@ -33,7 +84,10 @@ const FORMAT_VERSION = 1.0;
 
 export default defineComponent({
   setup(props, context) {
-    const data = reactive({fileToImport: null});
+    const data = reactive({
+      fileToImport: null,
+      newProjectDialog: false,
+    });
     const router = context.root.$router;
 
     const backgroundsStorage = useBackgroundsStorage();
@@ -150,6 +204,16 @@ export default defineComponent({
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
       this.data.fileToImport = null;
+    },
+
+    handleNewProject() {
+      this.configurationStorage = null;
+      this.player0Storage = null;
+      this.player1Storage = null;
+      this.backgroundsStorage = null;
+
+      this.data.newProjectDialog = false;
+      this.router.push('/');
     },
   },
 });
