@@ -19,7 +19,7 @@
       <template>
         <div class="text-center">
           <v-dialog
-            v-model="dialog"
+            v-model="data.newProjectDialog"
             width="500"
           >
             <template v-slot:activator="{ on, attrs }">
@@ -34,11 +34,14 @@
 
             <v-card>
               <v-card-title class="text-h5 grey lighten-2">
-                Privacy Policy
+                Do you really want to start a new project?
               </v-card-title>
 
               <v-card-text>
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+                This will create a new project, clearing all the blocks on the actions tab,
+                all the graphics and animations on the player 0 and player 1 tab, all of the
+                backgrounds on the backgrounds tab and replace all the options with default
+                values.
               </v-card-text>
 
               <v-divider></v-divider>
@@ -48,9 +51,16 @@
                 <v-btn
                   color="primary"
                   text
-                  @click="dialog = false"
+                  @click="data.newProjectDialog = false"
                 >
-                  I accept
+                  Yes, recreate the project
+                </v-btn>
+                <v-btn
+                  color="secondary"
+                  text
+                  @click="data.newProjectDialog = false"
+                >
+                  No, nevermind
                 </v-btn>
               </v-card-actions>
             </v-card>
@@ -74,7 +84,10 @@ const FORMAT_VERSION = 1.0;
 
 export default defineComponent({
   setup(props, context) {
-    const data = reactive({fileToImport: null});
+    const data = reactive({
+      fileToImport: null,
+      newProjectDialog: false,
+    });
     const router = context.root.$router;
 
     const backgroundsStorage = useBackgroundsStorage();
