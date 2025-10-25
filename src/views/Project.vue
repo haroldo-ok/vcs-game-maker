@@ -208,6 +208,7 @@ export default defineComponent({
 
     handleNewProject() {
       this.configurationStorage = null;
+      this.workspaceStorage = null;
       this.player0Storage = null;
       this.player1Storage = null;
       this.backgroundsStorage = null;
