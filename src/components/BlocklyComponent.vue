@@ -56,9 +56,8 @@ export default {
   },
   methods: {
     loadWorkspace(value) {
-      if (!value) return;
-
-      const xml = Blockly.Xml.textToDom(value);
+      const xml = Blockly.Xml.textToDom(value && value !== 'null' ?
+          value : '<xml xmlns="https://developers.google.com/blockly/xml"/>');
       Blockly.Xml.domToWorkspace(this.workspace, xml);
     },
     handleChange() {
