@@ -3,11 +3,12 @@
     <v-card class="editor-container">
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text>
+        <editor-zoom v-model="zoom" />
         <v-list>
           <v-list-item v-for="animation in state.animations" v-bind:key="animation.id">
             <v-list-item-content>
                 <v-list-item-title>
-                  <v-text-field label="Animation name" v-model="animation.name" />
+                  <v-text-field label="Animation name" v-model="animation.name" @change="handleChildChange" />
 
                   <v-menu
                         top
@@ -55,7 +56,7 @@
                     v-bind:key="frame.id"
                     class="pixel-editor-parent-container"
                   >
-                    <div class="pixel-editor-container">
+                    <div class="pixel-editor-container" :style="{width: editorWidth}">
                       <v-menu
                         top
                         v-if="animation.frames.length > 1"
@@ -100,6 +101,7 @@
                         v-model.number="frame.duration"
                         hide-details
                         type="number"
+                        @change="handleChildChange"
                       />
                       <pixel-editor
                         :width="8"
@@ -152,14 +154,23 @@
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
+import {useEditorZoom} from '../hooks/zoom';
 import {playfieldToMatrix} from '../utils/pixels';
 
+// Width of one frame editor at 100% zoom. The container is normally sized by
+// its own contents, so this pins it before the zoom factor is applied.
+const EDITOR_BASE_WIDTH = 275;
+
 export default defineComponent({
-  components: {PixelEditor},
+  components: {EditorZoom, PixelEditor},
   props: ['storageFactory', 'title', 'fgColor', 'name'],
   setup(props) {
+    // Player 0 and Player 1 are separate instances, so each keeps its own zoom.
+    const zoom = useEditorZoom(props.name);
+    const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
     const getMaxId = (elements) => {
       return max(elements.map((o) => o.id))||0;
     };
@@ -197,18 +208,25 @@ export default defineComponent({
     const handleAddFrame = (animation, frame) => {
       const frames = animation.frames;
       const maxId = getMaxId(frames);
+      // Prefill the new frame with the previous frame's graphic (a copy, so
+      // editing it does not change the frame it came from), falling back to an
+      // empty grid when the animation has no frames yet.
+      const previousFrame = frames[frames.length - 1];
+      const pixels = previousFrame ?
+        structuredClone(previousFrame.pixels) :
+        playfieldToMatrix(
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........\n'+
+            '........');
       const newFrame = {
         id: maxId+1,
         duration: 10,
-        pixels: playfieldToMatrix(
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........'),
+        pixels,
       };
 
       animation.frames.push(newFrame);
@@ -245,6 +263,7 @@ export default defineComponent({
     return {state, handleChildChange,
       handleAddFrame, handleDeleteFrame,
       handleAddAnimation, handleDeleteAnimation,
+      zoom, editorWidth,
       props};
   },
 });

@@ -28,8 +28,6 @@ const BACKGROUND_PFSCROLL_OPTIONS = [
   [`${BACKGROUND_PFSCROLL_DOWN2X_ICON} Down (2x)`, 'downdown'],
 ];
 
-const backgroundsStorage = useBackgroundsStorage();
-
 export const DEFAULT_BACKGROUNDS = {
   backgrounds: [
     {
@@ -59,33 +57,48 @@ export const processBackgroundStorageDefaults = (backgroundsStorage) => {
   return backgrounds;
 };
 
+// Read the backgrounds afresh rather than through the module level storage:
+// that is a computed over localStorage, which is not reactive, so it caches the
+// first value it ever read and would keep serving stale names.
 const buildBackgroundOptions = () => {
   try {
-    const background = processBackgroundStorageDefaults(backgroundsStorage);
+    const background = processBackgroundStorageDefaults(useBackgroundsStorage());
 
     return background.backgrounds.map(({id, name}) => [name || `Unnamed ${id}`, `${id}`]);
   } catch (e) {
     console.error('Failed to list background options', e);
-    return [[1, 'Error']];
+    return [['Error', '1']];
   }
 };
 
-Blockly.defineBlocksWithJsonArray([
-  // Block for selecting a background.
-  {
-    'type': `background_select`,
-    'message0': `${BACKGROUND_ICON} Background: %1`,
-    'args0': [
-      {
-        'type': 'field_dropdown',
-        'name': 'VAR',
-        'options': buildBackgroundOptions(),
-      },
-    ],
-    'output': 'Number',
-    'colour': BACKGROUND_COLOR,
-    'tooltip': `Selects a background`,
+// These two are defined below instead of in the JSON array, because a JSON
+// definition can only take a fixed list of options. Passing the function to
+// FieldDropdown lets Blockly rebuild the list every time the dropdown opens, so
+// renamed, added and deleted backgrounds show up without reloading the page.
+Blockly.Blocks['background_select'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BACKGROUND_ICON} Background:`)
+        .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR');
+    this.setOutput(true, 'Number');
+    this.setColour(BACKGROUND_COLOR);
+    this.setTooltip('Selects a background');
   },
+};
+
+Blockly.Blocks['background_set_select'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BACKGROUND_ICON} Background:`)
+        .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(BACKGROUND_COLOR);
+    this.setTooltip('Updates the background');
+  },
+};
+
+Blockly.defineBlocksWithJsonArray([
   // Block for the setter.
   {
     'type': `background_set`,
@@ -94,22 +107,6 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'input_value',
         'name': 'VALUE',
-      },
-    ],
-    'previousStatement': null,
-    'nextStatement': null,
-    'colour': BACKGROUND_COLOR,
-    'tooltip': `Updates the background`,
-  },
-  // Block for the setter with an internal select
-  {
-    'type': `background_set_select`,
-    'message0': `${BACKGROUND_ICON} Background: %1`,
-    'args0': [
-      {
-        'type': 'field_dropdown',
-        'name': 'VAR',
-        'options': buildBackgroundOptions(),
       },
     ],
     'previousStatement': null,

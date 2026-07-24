@@ -17,31 +17,39 @@
         />
       </div>
     </v-card-text>
-    <v-card-actions>
+    <v-card-actions class="pixel-editor-tools">
       <v-col>
         <v-row>
-          <v-btn-toggle v-model="toggledTool">
+          <v-btn-toggle v-model="toggledTool" borderless>
             <v-btn
+              icon
+              small
               title="Eraser"
               @click="editor.tool = eraser"
             >
               <v-icon>mdi-eraser</v-icon>
             </v-btn>
             <v-btn
+              icon
+              small
               title="Pencil"
               @click="editor.tool = pencil"
             >
               <v-icon>mdi-pencil</v-icon>
             </v-btn>
           </v-btn-toggle>
-          <v-divider class="mx-4" vertical />
+          <v-divider class="mx-2" vertical />
           <v-btn
+            icon
+            small
             title="Undo"
             @click="() => editor.undo()"
           >
             <v-icon>mdi-undo</v-icon>
           </v-btn>
           <v-btn
+            icon
+            small
             title="Redo"
             @click="() => editor.redo()"
           >
@@ -51,12 +59,16 @@
         </v-row>
         <v-row>
           <v-btn
+            icon
+            small
             title="Export to image"
             @click="() => handleExportImage()"
           >
             <v-icon>mdi-export</v-icon>
           </v-btn>
           <v-btn
+            icon
+            small
             title="Import from image"
             @click="() => handleImportImage()"
           >
@@ -72,6 +84,9 @@
               >
                 <template v-slot:activator="{ on, attrs }">
                   <v-btn
+                    text
+                    small
+                    class="pixel-editor-height-btn"
                     title="Set height"
                     v-bind="attrs"
                     v-on="on"
@@ -314,5 +329,69 @@ export default {
 }
 .proportion-wrapper-stretcher {
   width: 100%;
+}
+
+/* Flat icon buttons: no grey box, no elevation, and a hit area only a little
+   larger than the icon itself. */
+.pixel-editor-tools >>> .v-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+  margin: 0 1px;
+}
+
+/* Vuetify paints its own grey hover/focus overlay here, which is the box we
+   are removing; the states below replace it. */
+.pixel-editor-tools >>> .v-btn::before {
+  display: none;
+}
+
+/* Vuetify makes button icons inherit the button colour at a higher
+   specificity, so these need to be forced. */
+.pixel-editor-tools >>> .v-btn .v-icon {
+  font-size: 19px;
+  color: rgba(0, 0, 0, 0.55) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.pixel-editor-tools >>> .v-btn:hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.pixel-editor-tools >>> .v-btn:active .v-icon {
+  transform: scale(0.82);
+}
+
+/* The selected drawing tool, which previously read as the pressed grey box. */
+.pixel-editor-tools >>> .v-btn.v-btn--active .v-icon {
+  color: #1976d2 !important;
+}
+
+/* This one also shows the height next to its icon, so it needs the extra room. */
+.pixel-editor-tools >>> .v-btn.pixel-editor-height-btn {
+  width: auto;
+  padding: 0 4px;
+  font-size: 0.75rem;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.pixel-editor-tools >>> .v-btn.pixel-editor-height-btn:hover {
+  color: rgba(0, 0, 0, 0.87);
+}
+
+/* Tighten the rows now that the buttons no longer carry their own padding. */
+.pixel-editor-tools >>> .row {
+  margin: 0;
+}
+
+.pixel-editor-tools >>> .col {
+  padding: 4px 8px;
+}
+
+.pixel-editor-tools >>> .v-btn-toggle {
+  background-color: transparent !important;
 }
 </style>

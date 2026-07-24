@@ -58,6 +58,16 @@ export default (Blockly) => {
   Blockly.BBasic['controls_repeat'] =
     Blockly.BBasic['controls_repeat_ext'];
 
+  Blockly.BBasic['wait_frames'] = function(block) {
+  // Wait a number of video frames. Each frame runs the same per-frame work as
+  // the main loop (gosub commongamelogic : drawscreen) so sprite colors, sizes,
+  // animations and sound keep updating and the screen keeps drawing normally
+  // during the wait, instead of freezing or losing the sprites.
+    const argument0 = Blockly.BBasic.valueToCode(block, 'FRAMES',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
+    return `for loopcounter = 1 to ${argument0} : gosub commongamelogic : drawscreen : next\n`;
+  };
+
   Blockly.BBasic['controls_whileUntil'] = function(block) {
   // Do while/until loop.
     const blockNumber = Blockly.BBasic.blockNumbers.next();

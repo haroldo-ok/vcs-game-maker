@@ -18,6 +18,7 @@ import {sumBy} from 'lodash';
 import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
 import {processBackgroundStorageDefaults} from '../blocks/background';
 import {matrixToPlayfield} from '../utils/pixels';
+import {CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -194,6 +195,7 @@ Blockly.BBasic.finish = function(code) {
   code = code.replaceAll(/(\W)not_(switch\w+(\W?))/g, '$1 !$2');
 
   const generatedConfiguration = Blockly.BBasic.generateConfiguration();
+  const generatedRomSize = Blockly.BBasic.generateRomSize();
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
 
@@ -210,7 +212,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration});
+    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -408,14 +410,31 @@ Blockly.BBasic.generateConfiguration = function() {
     return '';
   }
 
-  const {showScore, showBlankLines} = configurationStorage.value;
+  const {showScore, showBlankLines, scoreFont} = configurationStorage.value;
 
   const kernelOptionsConfigurationCode = (showBlankLines ?? true) ? '' : 'set kernel_options no_blank_lines';
   const scoreConfigurationCode = (showScore ?? true) ? '' : 'const noscore = 1';
+  // The bundled compiler ignores this and gets its digits swapped in directly
+  // instead, but it keeps the generated source correct for real batari Basic.
+  // Custom digits live in the compiler's include, so there is no directive that
+  // would carry them into an exported source file.
+  const scoreFontConfigurationCode = !scoreFont ? '' :
+    scoreFont === CUSTOM_SCORE_FONT ?
+      'rem Custom score font: digits are supplied by the compiler include.' :
+      `const font = ${scoreFont}`;
   return [
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
+    scoreFontConfigurationCode,
   ].join('\n ');
+};
+
+const SUPPORTED_ROM_SIZES = ['2k', '4k', '8k', '16k', '32k'];
+
+Blockly.BBasic.generateRomSize = function() {
+  const configurationStorage = useConfigurationStorage();
+  const romSize = configurationStorage && configurationStorage.value && configurationStorage.value.romSize;
+  return `set romsize ${SUPPORTED_ROM_SIZES.includes(romSize) ? romSize : '4k'}`;
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
@@ -467,9 +486,14 @@ Blockly.BBasic.generateAnimations = function() {
         endLabel;
     });
 
+    // Bit 6 of the size variable is the pause flag (see the playback block):
+    // while it is set, the frame counter is frozen, holding the current frame.
+    const pauseSkipLabel = `${animationLabel}pauseSkip`;
     return `  rem Animation ${animationIndex} ${animation.name} for ${name}:\n\n` +
+      `  if ${name}size{6} then goto ${pauseSkipLabel}\n` +
       `  ${name}frame = ${name}frame + 1\n` +
-      `  if ${name}frame >= ${totalDuration} then ${name}frame = 0\n\n` +
+      `  if ${name}frame >= ${totalDuration} then ${name}frame = 0\n` +
+      `${pauseSkipLabel}\n\n` +
       stateMachine.join('\n\n') +
       `\n\n${animationLabel}animationEnd`;
   };
@@ -520,6 +544,7 @@ Blockly.BBasic.generateAnimations = function() {
   return player0Code + '\n\n\n' + player1Code;
 };
 import background from './bbasic/background';
+import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';
 import colour from './bbasic/colour';
@@ -536,7 +561,7 @@ import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[background, collision, color, colour, event, input, logic, loops, math, procedures,
+[background, bit, collision, color, colour, event, input, logic, loops, math, procedures,
   random, score, sound, sprites, text, variables]
     .forEach((init) => init(Blockly));
 

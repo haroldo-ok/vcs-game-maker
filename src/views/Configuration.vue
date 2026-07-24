@@ -12,6 +12,12 @@
         @click="handleChangeConfiguration"
         label="Show blank lines between background rows"
       />
+      <v-select
+        v-model="configurationState.romSize"
+        @change="handleChangeConfiguration"
+        :items="romSizeOptions"
+        label="ROM size"
+      />
     </v-card-text>
     </v-card>
 </template>
@@ -20,15 +26,21 @@ import {computed, defineComponent} from '@vue/composition-api';
 
 import {useConfigurationStorage} from '../hooks/project';
 
+const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
+
 export default defineComponent({
   setup(props, context) {
     const configurationStorage = useConfigurationStorage();
 
     const configurationState = computed({
       get() {
+        // scoreFont is chosen on the Score tab, but is kept here so that
+        // changing any other option round-trips it instead of dropping it.
         const DEFAULT_CONFIGURATION = {
           showScore: true,
           showBlankLines: true,
+          romSize: '4k',
+          scoreFont: '',
         };
 
         try {
@@ -51,7 +63,11 @@ export default defineComponent({
       configurationState.value = configurationState.value;
     };
 
-    return {configurationState, handleChangeConfiguration};
+    return {
+      configurationState,
+      handleChangeConfiguration,
+      romSizeOptions: ROM_SIZE_OPTIONS,
+    };
   },
   methods: {
   },

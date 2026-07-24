@@ -75,7 +75,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
@@ -95,9 +95,10 @@ export default defineComponent({
     const player1Storage = usePlayer1Storage();
     const workspaceStorage = useWorkspaceStorage();
     const configurationStorage = useConfigurationStorage();
+    const scoreFontStorage = useScoreFontStorage();
 
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationStorage};
+      workspaceStorage, configurationStorage, scoreFontStorage};
   },
   methods: {
     handleSaveProject() {
@@ -127,6 +128,11 @@ export default defineComponent({
       const player0 = preparePlayerSave(this.player0Storage);
       const player1 = preparePlayerSave(this.player1Storage);
 
+      const scoreFont = !this.scoreFontStorage ? null : {
+        ...this.scoreFontStorage,
+        digits: this.scoreFontStorage.digits.map(matrixToPlayfield),
+      };
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
@@ -136,6 +142,7 @@ export default defineComponent({
         'player-0': player0,
         'player-1': player1,
         backgrounds,
+        'score-font': scoreFont,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
@@ -187,6 +194,13 @@ export default defineComponent({
           this.player1Storage = player1;
         }
 
+        if (project['score-font']) {
+          this.scoreFontStorage = {
+            ...project['score-font'],
+            digits: project['score-font'].digits.map(playfieldToMatrix),
+          };
+        }
+
         if (project.backgrounds) {
           const backgrounds = {
             ...project.backgrounds,
@@ -212,6 +226,7 @@ export default defineComponent({
       this.player0Storage = null;
       this.player1Storage = null;
       this.backgroundsStorage = null;
+      this.scoreFontStorage = null;
 
       this.data.newProjectDialog = false;
       this.router.push('/');

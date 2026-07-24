@@ -20,6 +20,14 @@
         </block>
         <block type="controls_whileUntil"></block>
 
+        <block type="wait_frames">
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+
         <block type="controls_repeat_ext">
             <value name="TIMES">
                 <block type="math_number">
@@ -69,6 +77,8 @@
             </value>
         </block>
         <block type="sprite_player0_size" />
+        <block type="sprite_player0_animation_select"></block>
+        <block type="sprite_player0_animation_playback"></block>
         <block type="sprite_player0_set">
             <field name="VAR">player0realcolor</field>
             <value name="VALUE">
@@ -94,6 +104,8 @@
             </value>
         </block>
         <block type="sprite_player1_size" />
+        <block type="sprite_player1_animation_select"></block>
+        <block type="sprite_player1_animation_playback"></block>
         <block type="sprite_player1_set">
             <field name="VAR">player1realcolor</field>
             <value name="VALUE">
@@ -164,6 +176,15 @@
 
         <block type="random_get"></block>
         <block type="random_range_get"></block>
+
+        <block type="bit_get"></block>
+        <block type="bit_set">
+            <value name="VALUE">
+                <shadow type="logic_boolean">
+                    <field name="BOOL">TRUE</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="sprite_player0_set">
             <field name="VAR">player0x</field>
@@ -285,6 +306,31 @@
             </value>
         </block>
         <block type="score_color_change">
+            <value name="DELTA">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+
+        <block type="score_digit_get"></block>
+        <block type="score_digit_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+
+        <block type="score_bar_get"></block>
+        <block type="score_bar_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">255</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_bar_change">
             <value name="DELTA">
                 <shadow type="math_number">
                     <field name="NUM">1</field>

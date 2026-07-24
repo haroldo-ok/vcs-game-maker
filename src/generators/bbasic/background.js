@@ -20,11 +20,16 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic[`background_set_color`] = function(block) {
-    // Background color setter.
+    // Background/playfield color setter.
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const rawVar = block.getFieldValue('VAR');
+    // COLUPF is overwritten every frame by the score digit routine (and by the
+    // playfield score bars, if enabled), so it's tracked and restored each
+    // frame from playfieldrealcolor, just like COLUP0/COLUP1 are.
+    const targetVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' : rawVar;
     const varName = Blockly.BBasic.nameDB_.getName(
-        block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+        targetVar, Blockly.VARIABLE_CATEGORY_NAME);
     return varName + ' = ' + argument0 + '\n';
   };
 

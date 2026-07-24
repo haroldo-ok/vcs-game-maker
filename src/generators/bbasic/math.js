@@ -19,10 +19,25 @@ goog.require('Blockly.BBasic');
 
 export default (Blockly) => {
   Blockly.BBasic['math_number'] = function(block) {
-  // Numeric value.
-    const code = Number(block.getFieldValue('NUM'));
-    const order = code >= 0 ? Blockly.BBasic.ORDER_ATOMIC :
-              Blockly.BBasic.ORDER_UNARY_NEGATION;
+  // Numeric value. Accepts decimal, hexadecimal written as $1F or 0x1F, and
+  // binary written as %1010 or 0b1010.
+    const raw = String(block.getFieldValue('NUM')).trim();
+    let code;
+    let negative = false;
+    if (/^\$[0-9a-fA-F]+$/.test(raw)) {
+      code = raw;
+    } else if (/^0[xX][0-9a-fA-F]+$/.test(raw)) {
+      code = '$' + raw.slice(2);
+    } else if (/^%[01]+$/.test(raw)) {
+      code = raw;
+    } else if (/^0[bB][01]+$/.test(raw)) {
+      code = '%' + raw.slice(2);
+    } else {
+      code = Number(raw);
+      negative = code < 0;
+    }
+    const order = negative ? Blockly.BBasic.ORDER_UNARY_NEGATION :
+              Blockly.BBasic.ORDER_ATOMIC;
     return [code, order];
   };
 

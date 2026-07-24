@@ -35,6 +35,11 @@ const routes = [
     component: () => import('../views/BackgroundEditor.vue'),
   },
   {
+    path: '/scorefont',
+    name: 'Score',
+    component: () => import('../views/ScoreFontEditor.vue'),
+  },
+  {
     path: '/configuration',
     name: 'Options',
     component: () => import('../views/Configuration.vue'),

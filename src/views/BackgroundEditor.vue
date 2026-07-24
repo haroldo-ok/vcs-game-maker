@@ -3,14 +3,15 @@
     <v-card class="editor-container">
       <v-card-title>Backgrounds</v-card-title>
       <v-card-text>
+        <editor-zoom v-model="zoom" />
         <v-list>
           <v-list-item v-for="background in state.backgrounds" v-bind:key="background.id">
             <v-list-item-content>
                 <v-list-item-title>
-                  <v-text-field label="Background name" v-model="background.name" @input="handleChildChange" />
+                  <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  <div class="pixel-editor-container">
+                  <div class="pixel-editor-container" :style="{maxWidth: editorWidth}">
                     <v-menu
                         v-if="state.backgrounds.length > 1"
                         top
@@ -84,15 +85,22 @@
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import {useBackgroundsStorage} from '../hooks/project';
+import {useEditorZoom} from '../hooks/zoom';
 import {playfieldToMatrix} from '../utils/pixels';
 import {DEFAULT_BACKGROUNDS, processBackgroundStorageDefaults} from '../blocks/background';
 
+// Width of one background editor at 100% zoom.
+const EDITOR_BASE_WIDTH = 480;
+
 export default defineComponent({
-  components: {PixelEditor},
+  components: {EditorZoom, PixelEditor},
   setup() {
     const backgroundsStorage = useBackgroundsStorage();
+    const zoom = useEditorZoom('background');
+    const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
     const state = computed({
       get() {
         try {
@@ -146,14 +154,13 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddBackground, handleDeleteBackground};
+    return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
+      zoom, editorWidth};
   },
 });
 </script>
 <style scoped>
-.pixel-editor-container {
-  max-width: 480px;
-}
+/* max-width is set inline from the zoom factor. */
 
 .editor-container {
   position: absolute;

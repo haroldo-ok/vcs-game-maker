@@ -38,3 +38,7 @@ export const BACKGROUND_PFSCROLL_UP_ICON = String.fromCodePoint(0x2191);
 export const BACKGROUND_PFSCROLL_DOWN_ICON = String.fromCodePoint(0x2193);
 export const BACKGROUND_PFSCROLL_UP2X_ICON = String.fromCodePoint(0x21C8);
 export const BACKGROUND_PFSCROLL_DOWN2X_ICON = String.fromCodePoint(0x21CA);
+export const BIT_ICON = String.fromCodePoint(0x1F522);
+export const FRAME_ICON = String.fromCodePoint(0x1F39E) + String.fromCodePoint(0xFE0F);
+export const PLAY_ICON = String.fromCodePoint(0x25B6) + String.fromCodePoint(0xFE0F);
+export const PAUSE_ICON = String.fromCodePoint(0x23F8) + String.fromCodePoint(0xFE0F);

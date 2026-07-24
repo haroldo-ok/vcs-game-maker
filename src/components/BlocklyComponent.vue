@@ -53,6 +53,19 @@ export default {
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
     this.workspace.addChangeListener(debounce(() => this.handleChange()));
     this.loadWorkspace(this.value);
+
+    // Keep the Blockly SVG sized to its container. The surrounding layout can
+    // resize the container after inject (Blockly only reflows on window
+    // resize), which would otherwise leave the SVG mis-sized and its zoom and
+    // trashcan controls anchored off-screen.
+    this.resizeObserver = new ResizeObserver(() => Blockly.svgResize(this.workspace));
+    this.resizeObserver.observe(this.$refs['blocklyDiv']);
+  },
+  beforeDestroy() {
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
   },
   methods: {
     loadWorkspace(value) {
