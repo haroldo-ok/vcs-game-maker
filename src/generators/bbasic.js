@@ -416,25 +416,21 @@ Blockly.BBasic.getBackgroundsData = function() {
 };
 
 // Whether generated code should include per-row playfield colors (pfcolors).
-// Requires the global "enablePfColors" option, at least one background to
-// actually define row colors, and Superchip RAM to be off - pfcolors and
-// Superchip's higher-resolution playfield (pfres) have an unresolved bug when
-// combined (the row colors render at the wrong vertical offset), so pfcolors
-// output is suppressed while Superchip is enabled even though backgrounds may
-// still have row colors set in the editor, in case the bug gets fixed later.
-// When true the pfcolors kernel option is enabled and every colored
-// background emits a pfcolors table (see generateBackgrounds), so switching
-// backgrounds also switches colors.
+// This is an all-or-nothing project setting (the "enablePfColors" option on
+// the Options tab): once it's on, the Background editor requires every
+// background to have its own row color list, since the compiled kernel
+// always draws every background's playfield from the same color table.
+// Off while Superchip RAM is enabled - pfcolors and Superchip's
+// higher-resolution playfield (pfres) have an unresolved bug when combined
+// (the row colors render at the wrong vertical offset), so pfcolors output
+// is suppressed (and its Options tab toggle disabled) while Superchip is on,
+// even though backgrounds may still have row colors set in the editor, in
+// case the bug gets fixed later.
 Blockly.BBasic.usePlayfieldRowColors = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  if (!(config.enablePfColors ?? true)) return false;
   if (config.enableSuperchip) return false;
-
-  const data = this.getBackgroundsData();
-  const backgrounds = data && data.backgrounds;
-  if (!backgrounds) return false;
-  return backgrounds.some((bg) => Array.isArray(bg.rowColors) && bg.rowColors.length);
+  return config.enablePfColors ?? true;
 };
 
 Blockly.BBasic.generateConfiguration = function() {
@@ -487,6 +483,9 @@ Blockly.BBasic.generateBackgrounds = function() {
   const backgroundData = this.getBackgroundsData();
   const backgrounds = backgroundData && backgroundData.backgrounds;
 
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+
   const convertPlayfield = (playField) =>
     playField.split('\n').map((line) => '  ' + line).join('\n');
 
@@ -503,13 +502,28 @@ Blockly.BBasic.generateBackgrounds = function() {
   // assigning that same variable here, once, when a colored background is
   // selected, makes the existing per-frame restore also carry the correct top
   // row color - no need to re-run pfcolors: every frame.
+  //
+  // The compiler has a second, separate bug at the *bottom* row, but only in
+  // the default kernel (blank lines shown, i.e. "no_blank_lines" off):
+  // compiling a pfcolors: block special-cases row 1 (into the COLUPF write
+  // above) and stores the remaining rows in a ROM table, but the kernel's
+  // last scanline read of that table reads one slot past the end of it -
+  // landing on whatever ROM bytes happen to follow, hence the black bottom
+  // row - instead of the color that was actually meant to keep displaying
+  // there. Confirmed by compiling a test program and inspecting the
+  // generated assembly directly. Repeating the last row's color as one extra
+  // entry gives that stray read a valid (and correct) value to land on.
   const usePfColors = this.usePlayfieldRowColors();
+  const needsBottomRowDuplicate = config.showBlankLines ?? true;
   const buildPfcolors = (pixels, rowColors) => {
     const rows = [];
     for (let i = 0; i < pixels.length; i++) {
       const byte = (rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_ROW_COLOR;
       rows.push('  ' + colorByteToBBasic(byte));
     }
+    const lastByte = (rowColors && rowColors[pixels.length - 1] != null) ?
+      rowColors[pixels.length - 1] : DEFAULT_ROW_COLOR;
+    if (needsBottomRowDuplicate) rows.push('  ' + colorByteToBBasic(lastByte));
     const topRowByte = (rowColors && rowColors[0] != null) ? rowColors[0] : DEFAULT_ROW_COLOR;
     return ' pfcolors:\n' + rows.join('\n') + '\nend\n' +
       ` playfieldrealcolor = ${colorByteToBBasic(topRowByte)}\n`;

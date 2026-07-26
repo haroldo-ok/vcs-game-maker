@@ -11,14 +11,6 @@
                   <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  <v-switch
-                    :input-value="!!background.rowColors"
-                    label="Per-row playfield colors (pfcolors)"
-                    dense
-                    hide-details
-                    class="row-colors-switch mt-0 pt-0"
-                    @change="(val) => handleToggleRowColors(background, val)"
-                  />
                   <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
                     <v-menu
                         v-if="state.backgrounds.length > 1"
@@ -69,7 +61,7 @@
                       :allowChangingHeight="false"
                       @input="handleChildChange"
                     >
-                      <template v-if="background.rowColors" v-slot:sidebar>
+                      <template v-if="pfColorsEnabled" v-slot:sidebar>
                         <playfield-color-strip
                           :value="background.rowColors"
                           @input="(colors) => handleRowColorsInput(background, colors)"
@@ -144,10 +136,33 @@ export default defineComponent({
     // background can override individually.
     const backgroundRows = computed(() =>
       effectiveBackgroundRows(configurationStorage && configurationStorage.value));
+
+    // Per-row playfield colors (batari Basic pfcolors) are an all-or-nothing,
+    // project-wide setting (see the Options tab) - once it's on, every
+    // background needs its own color list, since the compiled kernel always
+    // draws every background's playfield from that color table.
+    const pfColorsEnabled = computed(() =>
+      (configurationStorage && configurationStorage.value && configurationStorage.value.enablePfColors) ?? true);
+
+    // Fills in a missing/mismatched-length row color list so every background
+    // has one whenever per-row colors are enabled, without clobbering colors
+    // the user already picked. Left alone (not deleted) while the option is
+    // off, so re-enabling it doesn't lose prior work.
+    const ensureRowColors = (background, rows) => {
+      if (!pfColorsEnabled.value) return;
+      const existing = background.rowColors || [];
+      if (existing.length === rows) return;
+      const next = existing.slice(0, rows);
+      while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
+      background.rowColors = next;
+    };
+
     const state = computed({
       get() {
         try {
-          return processBackgroundStorageDefaults(backgroundsStorage);
+          const data = processBackgroundStorageDefaults(backgroundsStorage);
+          data.backgrounds.forEach((background) => ensureRowColors(background, background.pixels.length));
+          return data;
         } catch (e) {
           console.error('Error loading backgrounds from local storage', e);
           return DEFAULT_BACKGROUNDS;
@@ -163,20 +178,6 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Per-row playfield colors (batari Basic pfcolors). Toggling on seeds one
-    // color byte per playfield row; toggling off drops the array, which is what
-    // the code generator uses to decide whether to emit a pfcolors table.
-    const handleToggleRowColors = (background, enabled) => {
-      if (enabled) {
-        const rowCount = background.pixels.length;
-        background.rowColors = new Array(rowCount).fill(DEFAULT_ROW_COLOR);
-      } else {
-        delete background.rowColors;
-      }
-      handleChildChange();
-      instance.proxy.$forceUpdate();
-    };
-
     const handleRowColorsInput = (background, colors) => {
       background.rowColors = colors;
       handleChildChange();
@@ -187,11 +188,11 @@ export default defineComponent({
     };
 
     // CSS colors passed to the pixel editor so it can tint each row. Returns
-    // null when the background has no per-row colors (uniform fgColor). A pure
-    // black row ($00) is nudged to near-black so the editor still counts those
-    // pixels as "on" rather than reading them as the black background.
+    // null when per-row colors are off (uniform fgColor). A pure black row
+    // ($00) is nudged to near-black so the editor still counts those pixels
+    // as "on" rather than reading them as the black background.
     const editorRowColors = (background) => {
-      if (!background.rowColors) {
+      if (!pfColorsEnabled.value || !background.rowColors) {
         return null;
       }
       return background.rowColors.map((byte) => {
@@ -224,17 +225,13 @@ export default defineComponent({
     };
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
-      handleToggleRowColors, handleRowColorsInput, editorRowColors,
-      zoom, editorWidth, backgroundRows};
+      handleRowColorsInput, editorRowColors,
+      zoom, editorWidth, backgroundRows, pfColorsEnabled};
   },
 });
 </script>
 <style scoped>
 /* max-width is set inline from the zoom factor. */
-
-.row-colors-switch {
-  margin-bottom: 4px;
-}
 
 /* Vuetify sets overflow: hidden on list-item content/subtitle (for text
    ellipsis), which clips the pixel editor card's shadow on the flush left and
@@ -257,10 +254,14 @@ export default defineComponent({
    the card instead. */
 .delete-btn-inset {
   top: 8px !important;
-  box-shadow: none !important;
 }
 
 .add-frame-buttom {
   bottom: 8px;
+}
+
+/* No drop shadow on floating (absolute-positioned) buttons - delete, add, etc. */
+.v-btn--absolute {
+  box-shadow: none !important;
 }
 </style>

@@ -28,7 +28,7 @@
         v-model="configurationState.enablePfColors"
         @change="handleChangeConfiguration"
         label="Enable per-row playfield colors (pfcolors)"
-        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code."
+        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Forced off while Superchip RAM is on - see below."
         persistent-hint
         class="option-switch"
       />
@@ -104,8 +104,20 @@ export default defineComponent({
       },
     });
 
+    // pfcolors and Superchip's higher-resolution playfield don't render
+    // correctly together yet (see the pfcolors switch's hint), so the two
+    // options can't both be on - enforced here (rather than via a disabled
+    // switch, which didn't reactively re-enable without navigating away and
+    // back to this tab) so it applies no matter which switch was just used.
+    const enforceSuperchipPfColorsExclusivity = (state) => {
+      if (state.enableSuperchip) {
+        state.enablePfColors = false;
+      }
+      return state;
+    };
+
     const handleChangeConfiguration = () => {
-      configurationState.value = configurationState.value;
+      configurationState.value = enforceSuperchipPfColorsExclusivity(configurationState.value);
     };
 
     // The playfield's vertical resolution (pfres) is a single setting for the
@@ -118,7 +130,7 @@ export default defineComponent({
       if (state.enableSuperchip && ROM_SIZE_OPTIONS.indexOf(state.romSize) < MIN_SUPERCHIP_ROM_SIZE_INDEX) {
         state.romSize = ROM_SIZE_OPTIONS[MIN_SUPERCHIP_ROM_SIZE_INDEX];
       }
-      configurationState.value = state;
+      configurationState.value = enforceSuperchipPfColorsExclusivity(state);
 
       reflowBackgroundsToHeight(backgroundsStorage, effectiveBackgroundRows(state));
     };

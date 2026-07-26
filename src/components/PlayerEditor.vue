@@ -116,30 +116,29 @@
                       />
                     </div>
                   </v-list-item>
+                  <v-list-item class="add-frame-list-item">
+                    <v-btn
+                      class="add-frame-buttom"
+                      color="primary"
+                      title="Add animation frame"
+                      dark
+                      rounded
+                      @click="handleAddFrame(animation)"
+                    >
+                      <v-icon>mdi-plus</v-icon>
+                      <div>Add frame</div>
+                    </v-btn>
+                  </v-list-item>
                 </v-list>
-                <v-btn
-                  class="add-frame-buttom"
-                  color="primary"
-                  title="Add animation frame"
-                  dark
-                  absolute
-                  right
-                  rounded
-                  @click="handleAddFrame(animation, frame)"
-                >
-                  <v-icon>mdi-plus</v-icon>
-                  <div>Add frame</div>
-                </v-btn>
             </v-list-item-content>
           </v-list-item>
         </v-list>
 
         <v-btn
+          class="add-animation-buttom"
           color="secondary"
           title="Add animation"
           dark
-          absolute
-          right
           rounded
           @click="handleAddAnimation"
         >
@@ -207,7 +206,7 @@ export default defineComponent({
 
     const instance = getCurrentInstance();
 
-    const handleAddFrame = (animation, frame) => {
+    const handleAddFrame = (animation) => {
       const frames = animation.frames;
       const maxId = getMaxId(frames);
       // Prefill the new frame with the previous frame's graphic (a copy, so
@@ -281,6 +280,7 @@ export default defineComponent({
 
 .pixel-editor-parent-container {
   display: inline-block;
+  vertical-align: middle;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on its container's top
@@ -288,10 +288,25 @@ export default defineComponent({
    pull it down so the whole button is visible instead. */
 .delete-btn-inset {
   top: 8px !important;
-  box-shadow: none !important;
 }
 
-.add-frame-buttom {
-  bottom: 8px;
+/* Sits inline after the last frame, vertically centered against the frame
+   cards' height via vertical-align (rather than the list item's own default
+   flex centering, which only centers within its own row). */
+.add-frame-list-item {
+  display: inline-block;
+  vertical-align: middle;
+  width: auto;
+}
+
+/* The "Add animation" button flows in normal layout under the last
+   animation, rather than floating fixed in a corner. */
+.add-animation-buttom {
+  margin: 8px 0;
+}
+
+/* No drop shadow on floating (absolute-positioned) buttons - delete, add, etc. */
+.v-btn--absolute {
+  box-shadow: none !important;
 }
 </style>
