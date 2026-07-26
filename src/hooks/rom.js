@@ -20,22 +20,32 @@ export {markRomOutdated, useRomOutdated};
 
 const EMPTY_WORKSPACE = '<xml xmlns="https://developers.google.com/blockly/xml"/>';
 
-// The generated bBasic bakes in the backgrounds, animations and score font read
-// from storage, so it has to be regenerated from the current project at build
-// time; a graphics edit alone would otherwise leave the cached code stale.
-// Generated headlessly so this works from any tab, not just the editor.
-const regenerateCode = () => {
+// Loads the stored workspace headlessly (so this works from any tab, not
+// just the editor) and runs it through the given callback, disposing it
+// afterwards either way.
+const withHeadlessWorkspace = (callback) => {
   const xmlText = useWorkspaceStorage().value;
   const workspace = new Blockly.Workspace();
   try {
     const dom = Blockly.Xml.textToDom(
         xmlText && xmlText !== 'null' ? xmlText : EMPTY_WORKSPACE);
     Blockly.Xml.domToWorkspace(dom, workspace);
-    return BlocklyBB.workspaceToCode(workspace);
+    return callback(workspace);
   } finally {
     workspace.dispose();
   }
 };
+
+// The generated bBasic bakes in the backgrounds, animations and score font read
+// from storage, so it has to be regenerated from the current project at build
+// time; a graphics edit alone would otherwise leave the cached code stale.
+const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.workspaceToCode(workspace));
+
+// How many user-created variables the current project actually uses - needed
+// to check whether disabling Superchip RAM would leave too few letters free
+// for them (see Configuration.vue).
+export const countUsedVariables = () =>
+  withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
 
 /**
  * Compiles the current project into a ROM and loads it into the emulator.

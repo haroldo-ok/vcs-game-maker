@@ -24,6 +24,43 @@ import {processPlayerStorageDefaults} from './bbasic/sprites';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
+// The app's own bookkeeping variables, and the letters they're aliased to on
+// the standard (non-Superchip) kernel. Without Superchip RAM, batari Basic's
+// playfield buffer physically occupies the same zero-page bytes as var0-var43
+// (playfieldbase = var0's address), so those "var" slots aren't safe to use -
+// only 26 single letters are available, and these 14 claim most of them.
+//
+// With Superchip enabled, the playfield buffer moves to the separate SARA
+// chip RAM page instead, freeing var0-var43 (plus var44-var47, which are
+// always free). Moving these system variables into var0-13 there instead of
+// letters frees all 26 letters for user variables - see generateSystemDims
+// and the letter pool below.
+export const SYSTEM_VARIABLES = [
+  ['player0frame', 'x'],
+  ['player1frame', 'z'],
+  ['newbackground', 'y'],
+  ['loopcounter', 'w'],
+  ['channnel0duration', 'v'],
+  ['channnel1duration', 'u'],
+  ['player0size', 't'],
+  ['player1size', 's'],
+  ['player0realcolor', 'r'],
+  ['player1realcolor', 'q'],
+  ['playfieldrealcolor', 'm'],
+  ['player0animation', 'p'],
+  ['player1animation', 'o'],
+  ['framecounter', 'n'],
+];
+
+const ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
+const SYSTEM_VARIABLE_LETTERS = SYSTEM_VARIABLES.map(([, letter]) => letter);
+
+// Letters left over for user-created variables when Superchip is off (the
+// system variables above claim the rest). All 26 are available when
+// Superchip is on, since the system variables move into var0-13 instead.
+export const USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP =
+  ALL_LETTERS.filter((letter) => !SYSTEM_VARIABLE_LETTERS.includes(letter));
+
 /**
  * JavaScript code generator.
  * @type {!Blockly.Generator}
@@ -159,10 +196,21 @@ Blockly.BBasic.init = function(workspace) {
         Blockly.VARIABLE_CATEGORY_NAME));
   }
 
-  // Declare all of the variables.
+  // Declare all of the variables. Without Superchip, the system variables
+  // above claim most of the alphabet, leaving only
+  // USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free; with it, the system
+  // variables move into var0-13 instead, freeing every letter.
   if (defvars.length) {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const availableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
+    if (defvars.length > availableLetters.length) {
+      throw new Error(`Too many variables: this project defines ${defvars.length}, but only ` +
+        `${availableLetters.length} are available${config.enableSuperchip ? '' :
+          ' (enable Superchip RAM on the Options tab to unlock more)'}.`);
+    }
     this.definitions_['variables'] = defvars
-        .map((v, i) => `  dim ${v} = ${String.fromCharCode('a'.charCodeAt(0) + i)}`)
+        .map((v, i) => `  dim ${v} = ${availableLetters[i]}`)
         .join('\n');
   }
 
@@ -197,6 +245,7 @@ Blockly.BBasic.finish = function(code) {
 
   const generatedConfiguration = Blockly.BBasic.generateConfiguration();
   const generatedRomSize = Blockly.BBasic.generateRomSize();
+  const generatedSystemDims = Blockly.BBasic.generateSystemDims();
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
 
@@ -213,7 +262,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize});
+    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -477,6 +526,19 @@ Blockly.BBasic.generateRomSize = function() {
   // enabled by appending SC to the rom size, e.g. "set romsize 8kSC".
   const superchipSuffix = config.enableSuperchip ? 'SC' : '';
   return `set romsize ${romSize}${superchipSuffix}`;
+};
+
+// See the SYSTEM_VARIABLES comment above: without Superchip these bookkeeping
+// variables sit on letters, since the standard kernel's playfield buffer
+// occupies var0-43; with Superchip that buffer moves to the SARA chip RAM
+// page instead, so these move into var0-13, freeing every letter for user
+// variables (see Blockly.BBasic.init).
+Blockly.BBasic.generateSystemDims = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  return SYSTEM_VARIABLES
+      .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
+      .join('\n');
 };
 
 Blockly.BBasic.generateBackgrounds = function() {

@@ -27,16 +27,17 @@
       <v-switch
         v-model="configurationState.enablePfColors"
         @change="handleChangeConfiguration"
+        :disabled="configurationState.enableSuperchip"
         label="Enable per-row playfield colors (pfcolors)"
-        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Forced off while Superchip RAM is on - see below."
+        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Disabled while Superchip RAM is on - see below."
         persistent-hint
         class="option-switch"
       />
       <v-switch
         v-model="configurationState.enableSuperchip"
-        @change="handleChangeResolution"
+        @change="handleToggleSuperchip"
         label="Enable Superchip RAM for higher-resolution playfields"
-        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed."
+        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables instead of just 12."
         persistent-hint
         class="option-switch"
       />
@@ -57,7 +58,9 @@
 <script>
 import {computed, defineComponent} from '@vue/composition-api';
 
-import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
+import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
+import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage} from '../hooks/project';
+import {countUsedVariables} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
@@ -106,9 +109,7 @@ export default defineComponent({
 
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together yet (see the pfcolors switch's hint), so the two
-    // options can't both be on - enforced here (rather than via a disabled
-    // switch, which didn't reactively re-enable without navigating away and
-    // back to this tab) so it applies no matter which switch was just used.
+    // options can't both be on.
     const enforceSuperchipPfColorsExclusivity = (state) => {
       if (state.enableSuperchip) {
         state.enablePfColors = false;
@@ -135,10 +136,32 @@ export default defineComponent({
       reflowBackgroundsToHeight(backgroundsStorage, effectiveBackgroundRows(state));
     };
 
+    // With Superchip off, the app's own bookkeeping variables have to live on
+    // letters, leaving only USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free for
+    // user-created ones (see bbasic.js's SYSTEM_VARIABLES comment) - turning
+    // Superchip off is blocked if the project already uses more variables
+    // than that, since there'd be nowhere left to put them.
+    const handleToggleSuperchip = () => {
+      const state = configurationState.value;
+      if (!state.enableSuperchip) {
+        const usedVariables = countUsedVariables();
+        if (usedVariables > USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP.length) {
+          state.enableSuperchip = true;
+          configurationState.value = state;
+          useErrorStorage().value = `Can't disable Superchip RAM: this project uses ${usedVariables} ` +
+            `variables, but only ${USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP.length} letters are available ` +
+            'without it. Remove some variables first.';
+          return;
+        }
+      }
+      handleChangeResolution();
+    };
+
     return {
       configurationState,
       handleChangeConfiguration,
       handleChangeResolution,
+      handleToggleSuperchip,
       romSizeOptions: ROM_SIZE_OPTIONS,
     };
   },
