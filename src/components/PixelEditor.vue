@@ -202,10 +202,7 @@ export default {
     };
   },
   mounted() {
-    const canvas = this.$refs.editor;
-    this.editor = new PixelEditor(canvas, this.width, this.value.length, this.pencil);
-    this.setPixels(this.value);
-    this.handleMouse();
+    this.initEditor(this.value.length, this.value);
 
     // TODO: Just for testing
     window.isMatrixEqual = isMatrixEqual;
@@ -285,7 +282,20 @@ export default {
 
             const pixels = chunk(pixelValues.map((v) => v > 32 ? 1 : 0), canvas.width);
             this.setPixels(pixels);
+            this.$emit('input', pixels);
           });
+    },
+
+    // The underlying PixelEditor library is sized once at construction and
+    // doesn't support changing its row count afterwards, so changing height
+    // means building a fresh instance in place - rather than the full page
+    // reload this used to do, which (via main.js's "start empty" reset on
+    // every launch) was wiping the entire project, not just this frame.
+    initEditor(rowCount, pixelMatrix) {
+      const canvas = this.$refs.editor;
+      this.editor = new PixelEditor(canvas, this.width, rowCount, this.pencil);
+      this.setPixels(pixelMatrix);
+      this.handleMouse();
     },
 
     handleSetHeight() {
@@ -301,12 +311,8 @@ export default {
           }
         }
 
-        this.editor.height = this.heightMenuValue;
-
-        this.setPixels(pixels);
         this.$emit('input', pixels);
-
-        this.$router.go(0);
+        this.initEditor(this.heightMenuValue, pixels);
       }
 
       this.heightMenuVisible = false;

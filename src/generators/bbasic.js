@@ -565,30 +565,43 @@ Blockly.BBasic.generateBackgrounds = function() {
   // selected, makes the existing per-frame restore also carry the correct top
   // row color - no need to re-run pfcolors: every frame.
   //
-  // The compiler has a second, separate bug at the *bottom* row, but only in
-  // the default kernel (blank lines shown, i.e. "no_blank_lines" off):
-  // compiling a pfcolors: block special-cases row 1 (into the COLUPF write
-  // above) and stores the remaining rows in a ROM table, but the kernel's
-  // last scanline read of that table reads one slot past the end of it -
-  // landing on whatever ROM bytes happen to follow, hence the black bottom
-  // row - instead of the color that was actually meant to keep displaying
-  // there. Confirmed by compiling a test program and inspecting the
-  // generated assembly directly. Repeating the last row's color as one extra
-  // entry gives that stray read a valid (and correct) value to land on.
+  // The compiler's row/color table is actually sized for 12 rows, not 11 -
+  // the standard kernel's default is documented as effectively pfres=12: 11
+  // visible rows plus one further row that's technically off-screen (used
+  // to keep pfscroll smooth). Supplying only 11 colors leaves that 12th slot
+  // reading whatever ROM byte happens to follow, which shows up as two
+  // different-looking bugs depending on which kernel is drawing the
+  // playfield:
+  //
+  // - Blank lines shown (the default, "no_blank_lines" off): compiling a
+  //   pfcolors: block special-cases row 1 (into the COLUPF write above) and
+  //   stores the remaining rows in a ROM table, but the kernel's last
+  //   scanline read of that table reads one slot past the end of it -
+  //   landing on that stray byte, hence a black bottom row instead of the
+  //   color that was meant to keep displaying there. Confirmed by compiling
+  //   a test program and inspecting the generated assembly directly.
+  //   Repeating the last row's color as a 12th entry gives that stray read
+  //   a valid (and correct) value to land on.
+  //
+  // - "no_blank_lines" on: the missing 12th entry instead crushes the FIRST
+  //   row's real display height down to a couple of scanlines, making it
+  //   barely visible (confirmed by precise pixel sampling in the emulator).
+  //   Duplicating the first row's color as an extra leading entry - keeping
+  //   all 11 original colors after it, none dropped - fixes it the same
+  //   way: the sliver and the row after it read as one normal first row.
   const usePfColors = this.usePlayfieldRowColors();
-  const needsBottomRowDuplicate = config.showBlankLines ?? true;
+  const blankLinesShown = config.showBlankLines ?? true;
   const buildPfcolors = (pixels, rowColors) => {
-    const rows = [];
+    const resolved = [];
     for (let i = 0; i < pixels.length; i++) {
-      const byte = (rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_ROW_COLOR;
-      rows.push('  ' + colorByteToBBasic(byte));
+      resolved.push((rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_ROW_COLOR);
     }
-    const lastByte = (rowColors && rowColors[pixels.length - 1] != null) ?
-      rowColors[pixels.length - 1] : DEFAULT_ROW_COLOR;
-    if (needsBottomRowDuplicate) rows.push('  ' + colorByteToBBasic(lastByte));
-    const topRowByte = (rowColors && rowColors[0] != null) ? rowColors[0] : DEFAULT_ROW_COLOR;
+    const outputBytes = blankLinesShown ?
+      resolved.concat([resolved[resolved.length - 1]]) :
+      [resolved[0]].concat(resolved);
+    const rows = outputBytes.map((byte) => '  ' + colorByteToBBasic(byte));
     return ' pfcolors:\n' + rows.join('\n') + '\nend\n' +
-      ` playfieldrealcolor = ${colorByteToBBasic(topRowByte)}\n`;
+      ` playfieldrealcolor = ${colorByteToBBasic(resolved[0])}\n`;
   };
 
   return backgrounds.map(({id, pixels, rowColors}) => {
