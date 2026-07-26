@@ -1,25 +1,29 @@
 <template>
   <v-card @click="handleMouse" :ripple="false">
     <v-card-text>
-      <div class="proportion-wrapper">
-        <div
-          class="proportion-wrapper-stretcher"
-          :style="{'padding-bottom': 100 / aspectRatio + '%'}"
-        />
-        <canvas
-          ref="editor"
-          class="editor-canvas"
-          @mousedown="handleMouse"
-          @mouseenter="handleMouse"
-          @mouseleave="handleMouse"
-          @mouseup="handleMouse"
-          @mousemove="handleMouse"
-        />
+      <div class="editor-with-sidebar">
+        <div v-if="$slots.sidebar" class="editor-sidebar">
+          <slot name="sidebar" />
+        </div>
+        <div class="proportion-wrapper">
+          <div
+            class="proportion-wrapper-stretcher"
+            :style="{'padding-bottom': 100 / aspectRatio + '%'}"
+          />
+          <canvas
+            ref="editor"
+            class="editor-canvas"
+            @mousedown="handleMouse"
+            @mouseenter="handleMouse"
+            @mouseleave="handleMouse"
+            @mouseup="handleMouse"
+            @mousemove="handleMouse"
+          />
+        </div>
       </div>
     </v-card-text>
     <v-card-actions class="pixel-editor-tools">
-      <v-col>
-        <v-row>
+      <div class="pixel-editor-toolbar-row">
           <v-btn-toggle v-model="toggledTool" borderless>
             <v-btn
               icon
@@ -38,7 +42,7 @@
               <v-icon>mdi-pencil</v-icon>
             </v-btn>
           </v-btn-toggle>
-          <v-divider class="mx-2" vertical />
+          <v-divider class="mx-1" vertical />
           <v-btn
             icon
             small
@@ -56,8 +60,8 @@
             <v-icon>mdi-redo</v-icon>
           </v-btn>
 
-        </v-row>
-        <v-row>
+          <v-divider class="mx-1" vertical />
+
           <v-btn
             icon
             small
@@ -76,6 +80,8 @@
           </v-btn>
 
           <template v-if="allowChangingHeight">
+            <v-divider class="mx-1" vertical />
+
             <div class="text-center">
               <v-menu
                 v-model="heightMenuVisible"
@@ -155,8 +161,7 @@
               </v-menu>
             </div>
           </template>
-        </v-row>
-      </v-col>
+      </div>
     </v-card-actions>
   </v-card>
 </template>
@@ -178,6 +183,10 @@ export default {
     aspectRatio: {type: Number, default: 4.0 / 3},
     fgColor: {type: String, default: 'white'},
     bgColor: {type: String, default: 'black'},
+    // Optional per-row CSS colors for "on" pixels (one entry per row). When
+    // provided, each row's set pixels are drawn in its own color instead of
+    // fgColor, so the playfield preview reflects the batari Basic pfcolors.
+    rowColors: {type: Array, default: null},
     name: {type: String, default: 'image'},
     allowChangingHeight: {type: Boolean, default: true},
   },
@@ -201,6 +210,15 @@ export default {
     // TODO: Just for testing
     window.isMatrixEqual = isMatrixEqual;
   },
+  watch: {
+    // Recolor the existing pixels when the row colors change (e.g. the user
+    // picks a new color in the strip) without disturbing the drawn shape.
+    rowColors() {
+      if (this.editor) {
+        this.setPixels(this.getPixels());
+      }
+    },
+  },
   methods: {
     handleMouse: debounce(function() {
       // eslint-disable-next-line no-invalid-this
@@ -209,8 +227,20 @@ export default {
       if (!isMatrixEqual(this.value, pixels)) {
         // eslint-disable-next-line no-invalid-this
         this.$emit('input', pixels);
+        // Pixels are drawn in the pencil's fixed color; recolor them so newly
+        // drawn cells adopt their row color instead of staying the draw color.
+        // eslint-disable-next-line no-invalid-this
+        if (this.rowColors) {
+          // eslint-disable-next-line no-invalid-this
+          this.setPixels(pixels);
+        }
       }
     }, 10),
+
+    // The color used for an "on" pixel on the given row.
+    onColorForRow(y) {
+      return (this.rowColors && this.rowColors[y]) || this.fgColor;
+    },
 
     handleExportImage() {
       // Adapted from https://stackoverflow.com/a/28305948/679240
@@ -290,7 +320,9 @@ export default {
       const pixelMatrix = this.createEmptyPixelMatrix();
       this.editor.pixels.forEach((px) => {
         if (px.y >= pixelMatrix.length) return;
-        pixelMatrix[px.y][px.x] = px.color == this.fgColor ? 1 : 0;
+        // An "on" pixel is any that isn't the background color. Comparing
+        // against fgColor would misread per-row colored pixels as empty.
+        pixelMatrix[px.y][px.x] = px.color !== this.bgColor ? 1 : 0;
       });
       return pixelMatrix;
     },
@@ -298,7 +330,7 @@ export default {
       pixelMatrix = pixelMatrix || this.createEmptyPixelMatrix();
       const editorPixels = [];
       pixelMatrix.forEach((line, y) => line.forEach((bit, x) => {
-        editorPixels.push({x, y, color: bit ? this.fgColor : this.bgColor});
+        editorPixels.push({x, y, color: bit ? this.onColorForRow(y) : this.bgColor});
       }));
       this.editor.set(editorPixels);
     },
@@ -324,8 +356,32 @@ export default {
   border: 1px solid;
 }
 
+/* Vuetify's default v-card-text padding leaves a wide gap between the canvas
+   and the toolbar below it; tighten it to a consistent 8px. */
+.v-card >>> .v-card__text {
+  padding-bottom: 8px;
+}
+
+.pixel-editor-tools {
+  padding-top: 0;
+}
+
+/* Lays the optional color sidebar beside the canvas. align-items: stretch makes
+   the sidebar exactly as tall as the canvas, so its rows line up 1:1. */
+.editor-with-sidebar {
+  display: flex;
+  align-items: stretch;
+}
+
+.editor-sidebar {
+  flex: 0 0 auto;
+  display: flex;
+}
+
 .proportion-wrapper {
   position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .proportion-wrapper-stretcher {
   width: 100%;
@@ -373,22 +429,28 @@ export default {
 /* This one also shows the height next to its icon, so it needs the extra room. */
 .pixel-editor-tools >>> .v-btn.pixel-editor-height-btn {
   width: auto;
-  padding: 0 4px;
+  min-width: 0;
+  padding: 0 2px;
   font-size: 0.75rem;
   color: rgba(0, 0, 0, 0.55);
+}
+
+.pixel-editor-tools >>> .v-btn.pixel-editor-height-btn .v-icon {
+  font-size: 16px;
 }
 
 .pixel-editor-tools >>> .v-btn.pixel-editor-height-btn:hover {
   color: rgba(0, 0, 0, 0.87);
 }
 
-/* Tighten the rows now that the buttons no longer carry their own padding. */
-.pixel-editor-tools >>> .row {
-  margin: 0;
-}
-
-.pixel-editor-tools >>> .col {
-  padding: 4px 8px;
+/* A plain flex row instead of Vuetify's v-row/v-col: their grid negative
+   margins are meant for full-width layouts and wrap prematurely in this
+   narrow, fixed-width card even when the buttons would otherwise fit. */
+.pixel-editor-toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 8px;
 }
 
 .pixel-editor-tools >>> .v-btn-toggle {

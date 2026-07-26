@@ -8,6 +8,53 @@ import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON,
 
 const BACKGROUND_COLOR = '#ffa500';
 
+// Default color byte for a playfield row when per-row colors (pfcolors) are
+// enabled: $0E, the same light grey the playfield uses by default, so switching
+// the feature on doesn't visibly change an untouched background.
+export const DEFAULT_ROW_COLOR = 0x0E;
+
+// Row count used when Superchip RAM's higher-resolution playfield (pfres) is
+// not enabled. This is the app's own established default, one row short of
+// standard batari Basic's implicit pfres=12 (11 visible + 1 hidden scroll
+// row); kept as-is so existing projects don't change shape.
+export const DEFAULT_BACKGROUND_ROWS = 11;
+
+// The editable/visible row count for the current configuration. Confirmed
+// against a known-working reference program (compiled and run in the
+// emulator) that pfres rows of playfield: data - not pfres-1 - render
+// correctly, so the Superchip case uses pfres directly.
+export const effectiveBackgroundRows = (config) => {
+  const cfg = config || {};
+  return cfg.enableSuperchip ? Math.max(1, Number(cfg.pfres) || DEFAULT_BACKGROUND_ROWS) :
+    DEFAULT_BACKGROUND_ROWS;
+};
+
+// Pads or truncates every background's pixel matrix (and per-row colors, if
+// set) to exactly targetRows. Used when the global playfield resolution
+// (pfres) changes, since that setting reshapes every background's playfield
+// RAM layout at once - there is no per-background override.
+export const reflowBackgroundsToHeight = (backgroundsStorage, targetRows) => {
+  const data = processBackgroundStorageDefaults(backgroundsStorage);
+  const reflowRows = (rows, emptyRow) => {
+    const next = rows.slice(0, targetRows);
+    while (next.length < targetRows) next.push(emptyRow());
+    return next;
+  };
+
+  const backgrounds = data.backgrounds.map((background) => {
+    if (background.pixels.length === targetRows) return background;
+    const width = background.pixels[0] ? background.pixels[0].length : 32;
+    return {
+      ...background,
+      pixels: reflowRows(background.pixels, () => new Array(width).fill(0)),
+      rowColors: background.rowColors ?
+        reflowRows(background.rowColors, () => DEFAULT_ROW_COLOR) : background.rowColors,
+    };
+  });
+
+  backgroundsStorage.value = {...data, backgrounds};
+};
+
 const BACKGROUND_PFPIXEL_OPTIONS = [
   [`${CHECKBOX_CHECKED_ICON} Set`, 'on'],
   [`${CHECKBOX_CLEAR_ICON} Clear`, 'off'],

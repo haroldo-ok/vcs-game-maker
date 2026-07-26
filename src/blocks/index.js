@@ -17,4 +17,5 @@ import './math';
 import './random';
 import './score';
 import './sound';
+import './soundfx';
 import './sprites';

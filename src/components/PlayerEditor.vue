@@ -23,6 +23,7 @@
                         absolute
                         top
                         right
+                        class="delete-btn-inset"
                         v-bind="attrs"
                         v-on="on"
                       >
@@ -70,6 +71,7 @@
                             absolute
                             top
                             right
+                            class="delete-btn-inset"
                             v-bind="attrs"
                             v-on="on"
                           >
@@ -279,6 +281,14 @@ export default defineComponent({
 
 .pixel-editor-parent-container {
   display: inline-block;
+}
+
+/* Vuetify's fab+absolute+top combo centers the button on its container's top
+   edge, poking half of it out (and clipped there by the list item's overflow);
+   pull it down so the whole button is visible instead. */
+.delete-btn-inset {
+  top: 8px !important;
+  box-shadow: none !important;
 }
 
 .add-frame-buttom {

@@ -16,8 +16,9 @@ import Handlebars from 'handlebars';
 import {sumBy} from 'lodash';
 
 import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
-import {processBackgroundStorageDefaults} from '../blocks/background';
+import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults} from '../blocks/background';
 import {matrixToPlayfield} from '../utils/pixels';
+import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 
@@ -404,15 +405,51 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
   });
 };
 
+// Reads the stored backgrounds, applying defaults, or null if they can't load.
+Blockly.BBasic.getBackgroundsData = function() {
+  try {
+    return processBackgroundStorageDefaults(useBackgroundsStorage());
+  } catch (e) {
+    console.error('Failed to load backgrounds', e);
+    return null;
+  }
+};
+
+// Whether generated code should include per-row playfield colors (pfcolors).
+// Requires the global "enablePfColors" option, at least one background to
+// actually define row colors, and Superchip RAM to be off - pfcolors and
+// Superchip's higher-resolution playfield (pfres) have an unresolved bug when
+// combined (the row colors render at the wrong vertical offset), so pfcolors
+// output is suppressed while Superchip is enabled even though backgrounds may
+// still have row colors set in the editor, in case the bug gets fixed later.
+// When true the pfcolors kernel option is enabled and every colored
+// background emits a pfcolors table (see generateBackgrounds), so switching
+// backgrounds also switches colors.
+Blockly.BBasic.usePlayfieldRowColors = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (!(config.enablePfColors ?? true)) return false;
+  if (config.enableSuperchip) return false;
+
+  const data = this.getBackgroundsData();
+  const backgrounds = data && data.backgrounds;
+  if (!backgrounds) return false;
+  return backgrounds.some((bg) => Array.isArray(bg.rowColors) && bg.rowColors.length);
+};
+
 Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
-  if (!configurationStorage || !configurationStorage.value) {
-    return '';
-  }
+  const config = (configurationStorage && configurationStorage.value) || {};
 
-  const {showScore, showBlankLines, scoreFont} = configurationStorage.value;
+  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres} = config;
 
-  const kernelOptionsConfigurationCode = (showBlankLines ?? true) ? '' : 'set kernel_options no_blank_lines';
+  // batari Basic honours a single "set kernel_options" line, so every option
+  // has to go on it together.
+  const kernelOptions = [];
+  if (this.usePlayfieldRowColors()) kernelOptions.push('pfcolors');
+  if (!(showBlankLines ?? true)) kernelOptions.push('no_blank_lines');
+  const kernelOptionsConfigurationCode = kernelOptions.length ?
+    `set kernel_options ${kernelOptions.join(' ')}` : '';
   const scoreConfigurationCode = (showScore ?? true) ? '' : 'const noscore = 1';
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
@@ -422,10 +459,15 @@ Blockly.BBasic.generateConfiguration = function() {
     scoreFont === CUSTOM_SCORE_FONT ?
       'rem Custom score font: digits are supplied by the compiler include.' :
       `const font = ${scoreFont}`;
+  // pfres raises the playfield's vertical resolution above the standard
+  // kernel's default; it requires the extra RAM Superchip provides (see
+  // generateRomSize), and is a single ROM-wide setting, not per-background.
+  const pfresConfigurationCode = (enableSuperchip && pfres) ? `const pfres = ${pfres}` : '';
   return [
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
     scoreFontConfigurationCode,
+    pfresConfigurationCode,
   ].join('\n ');
 };
 
@@ -433,31 +475,54 @@ const SUPPORTED_ROM_SIZES = ['2k', '4k', '8k', '16k', '32k'];
 
 Blockly.BBasic.generateRomSize = function() {
   const configurationStorage = useConfigurationStorage();
-  const romSize = configurationStorage && configurationStorage.value && configurationStorage.value.romSize;
-  return `set romsize ${SUPPORTED_ROM_SIZES.includes(romSize) ? romSize : '4k'}`;
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const romSize = SUPPORTED_ROM_SIZES.includes(config.romSize) ? config.romSize : '4k';
+  // Superchip RAM (needed for pfres above the standard kernel's default) is
+  // enabled by appending SC to the rom size, e.g. "set romsize 8kSC".
+  const superchipSuffix = config.enableSuperchip ? 'SC' : '';
+  return `set romsize ${romSize}${superchipSuffix}`;
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
-  const backgroundsStorage = useBackgroundsStorage();
-
-  let backgroundData = null;
-  try {
-    backgroundData = processBackgroundStorageDefaults(backgroundsStorage);
-  } catch (e) {
-    console.error('Failed to load backgrounds', e);
-  }
-
+  const backgroundData = this.getBackgroundsData();
   const backgrounds = backgroundData && backgroundData.backgrounds;
 
   const convertPlayfield = (playField) =>
     playField.split('\n').map((line) => '  ' + line).join('\n');
 
-  return backgrounds.map(({id, pixels}) => {
+  // A "pfcolors:" block sets the playfield colors at runtime when execution
+  // reaches it, so emitting one inside each background's swap conditional gives
+  // every background its own colors. One color per playfield row, top to
+  // bottom. Rows without an explicit color fall back to the default so that
+  // switching to an uncolored background doesn't leave stale colors behind.
+  //
+  // batari Basic has a documented bug where the playfield's top row doesn't
+  // pick up the pfcolors table - it keeps showing whatever COLUPF already held
+  // when drawscreen ran. commongamelogic sets "COLUPF = playfieldrealcolor"
+  // every frame (to restore it after the score routine stomps on it), so
+  // assigning that same variable here, once, when a colored background is
+  // selected, makes the existing per-frame restore also carry the correct top
+  // row color - no need to re-run pfcolors: every frame.
+  const usePfColors = this.usePlayfieldRowColors();
+  const buildPfcolors = (pixels, rowColors) => {
+    const rows = [];
+    for (let i = 0; i < pixels.length; i++) {
+      const byte = (rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_ROW_COLOR;
+      rows.push('  ' + colorByteToBBasic(byte));
+    }
+    const topRowByte = (rowColors && rowColors[0] != null) ? rowColors[0] : DEFAULT_ROW_COLOR;
+    return ' pfcolors:\n' + rows.join('\n') + '\nend\n' +
+      ` playfieldrealcolor = ${colorByteToBBasic(topRowByte)}\n`;
+  };
+
+  return backgrounds.map(({id, pixels, rowColors}) => {
     const endLabel = `background${id}end`;
+    const pfcolorsBlock = usePfColors ? buildPfcolors(pixels, rowColors) : '';
     return ` if newbackground <> ${id} then goto ${endLabel}` + '\n' +
       ' playfield:\n' +
       convertPlayfield(matrixToPlayfield(pixels)) + '\n' +
       'end\n' +
+      pfcolorsBlock +
       endLabel;
   }).join('\n\n');
 };
@@ -557,12 +622,13 @@ import procedures from './bbasic/procedures';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
+import soundfx from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
 [background, bit, collision, color, colour, event, input, logic, loops, math, procedures,
-  random, score, sound, sprites, text, variables]
+  random, score, sound, soundfx, sprites, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;

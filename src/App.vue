@@ -38,8 +38,8 @@
           <v-icon>mdi-map</v-icon>
         </v-btn>
 
-        <v-btn to="/sound" link class="sound-item" title="Sound" elevation="0">
-          <v-icon>mdi-speaker</v-icon>
+        <v-btn to="/soundfx" link class="sound-item" title="SoundFX" elevation="0">
+          <v-icon>mdi-waveform</v-icon>
         </v-btn>
 
         <v-btn to="/scorefont" link class="scorefont-item" title="Score" elevation="0">
@@ -128,15 +128,15 @@
         </v-list-item>
 
         <v-list-item
-          to="/sound"
+          to="/soundfx"
           link
           class="sound-item"
         >
           <v-list-item-icon>
-            <v-icon>mdi-speaker</v-icon>
+            <v-icon>mdi-waveform</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Sound</v-list-item-title>
+            <v-list-item-title>SoundFX</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 

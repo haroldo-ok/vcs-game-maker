@@ -21,7 +21,7 @@ import {SOUND_ICON} from './icon';
 15 Electronic tones, mostly lows, extends to rumble.
 */
 
-const AUDC_OPTIONS = [
+export const AUDC_OPTIONS = [
   ['0 No sound (silent).', '0'],
   ['1 Buzzy tones.', '1'],
   ['2 Carries distortion 1 downward into a rumble.', '2'],
@@ -35,7 +35,7 @@ const AUDC_OPTIONS = [
   ['15 Electronic tones, mostly lows, extends to rumble.', '15'],
 ];
 
-const CHANNEL_OPTIONS = [
+export const CHANNEL_OPTIONS = [
   ['channel 0', '0'],
   ['channel 1', '1'],
 ];
