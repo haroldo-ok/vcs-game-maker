@@ -470,14 +470,16 @@ Blockly.BBasic.getBackgroundsData = function() {
 // background to have its own row color list, since the compiled kernel
 // always draws every background's playfield from the same color table.
 //
-// Combined with Superchip RAM (a custom "const pfres"), most rows render
-// correctly once buildRom's compiler-output patch corrects a wrong pointer
-// constant (see patchSuperchipPfColorsPointer in hooks/rom.js) - but the
-// very last playfield row still renders black regardless of pfres, root
-// cause not yet found.
+// Off while Superchip RAM is enabled. buildRom's compiler-output patch (see
+// patchSuperchipPfColorsPointer in hooks/rom.js) fixes most of the pfcolors +
+// Superchip breakage, but the very last row still renders black, and with
+// more than one background the colors come out wrong and the black area
+// returns - not fully root-caused yet, so the combination is disabled again
+// until that's sorted out.
 Blockly.BBasic.usePlayfieldRowColors = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
+  if (config.enableSuperchip) return false;
   return config.enablePfColors ?? true;
 };
 
