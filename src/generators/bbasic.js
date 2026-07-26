@@ -469,16 +469,15 @@ Blockly.BBasic.getBackgroundsData = function() {
 // the Options tab): once it's on, the Background editor requires every
 // background to have its own row color list, since the compiled kernel
 // always draws every background's playfield from the same color table.
-// Off while Superchip RAM is enabled - pfcolors and Superchip's
-// higher-resolution playfield (pfres) have an unresolved bug when combined
-// (the row colors render at the wrong vertical offset), so pfcolors output
-// is suppressed (and its Options tab toggle disabled) while Superchip is on,
-// even though backgrounds may still have row colors set in the editor, in
-// case the bug gets fixed later.
+//
+// Combined with Superchip RAM (a custom "const pfres"), most rows render
+// correctly once buildRom's compiler-output patch corrects a wrong pointer
+// constant (see patchSuperchipPfColorsPointer in hooks/rom.js) - but the
+// very last playfield row still renders black regardless of pfres, root
+// cause not yet found.
 Blockly.BBasic.usePlayfieldRowColors = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  if (config.enableSuperchip) return false;
   return config.enablePfColors ?? true;
 };
 

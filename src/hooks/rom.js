@@ -4,7 +4,7 @@ import Vue from 'vue';
 import VueCompositionApi from '@vue/composition-api';
 
 import Blockly from 'blockly';
-import bBasic from 'batari-basic';
+import {preprocessBatariBasic, compileBatariBasic, assembleDASM} from 'batari-basic/src/compiler';
 
 import '../blocks';
 import BlocklyBB from '../generators/bbasic';
@@ -47,6 +47,27 @@ const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.work
 export const countUsedVariables = () =>
   withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
 
+// The compiler hardcodes the pfcolors table pointer as "pfcolorlabelN-84",
+// which only lands on the right byte when the kernel's own row index starts
+// at 84 - true for the standard (pfres-less) kernel, but Superchip's
+// explicit "const pfres" changes that starting index to 132-pfres*4, which
+// only equals 84 when pfres is exactly 12. For any other pfres this pointer
+// is simply wrong, misaligning every row's color read - confirmed by
+// comparing resolved ROM addresses and compiling with the offset corrected
+// by hand. Patched here, after compiling and before assembling, since nothing
+// in the source-level template controls this constant.
+//
+// This does NOT fully fix pfcolors+Superchip - the very last playfield row
+// still renders black regardless of pfres. Root cause not yet found.
+const patchSuperchipPfColorsPointer = (assemblyFiles, config) => {
+  if (!config.enableSuperchip || !config.pfres) return assemblyFiles;
+  const correctOffset = 132 - config.pfres * 4;
+  return {
+    ...assemblyFiles,
+    'main.asm': assemblyFiles['main.asm'].replace(/pfcolorlabel(\d+)-84/g, `pfcolorlabel$1-${correctOffset}`),
+  };
+};
+
 /**
  * Compiles the current project into a ROM and loads it into the emulator.
  * @return {boolean} Whether the ROM was built.
@@ -68,7 +89,10 @@ export const buildRom = () => {
     // The compiler has no font support of its own, so point its score
     // digits at the selected font before building.
     applyScoreFont(useConfigurationStorage().value?.scoreFont);
-    const compiledResult = bBasic(code);
+    const config = useConfigurationStorage().value || {};
+    const preprocessed = preprocessBatariBasic(code);
+    const assemblyFiles = patchSuperchipPfColorsPointer(compileBatariBasic(preprocessed), config);
+    const compiledResult = assembleDASM(assemblyFiles);
     Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
 
     // TODO: Implement this without a global variable

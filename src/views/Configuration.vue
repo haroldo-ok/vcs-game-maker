@@ -27,9 +27,8 @@
       <v-switch
         v-model="configurationState.enablePfColors"
         @change="handleChangeConfiguration"
-        :disabled="configurationState.enableSuperchip"
         label="Enable per-row playfield colors (pfcolors)"
-        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Disabled while Superchip RAM is on - see below."
+        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Combined with Superchip RAM below, the very last playfield row currently renders black regardless of pfres - not yet fixed."
         persistent-hint
         class="option-switch"
       />
@@ -37,7 +36,7 @@
         v-model="configurationState.enableSuperchip"
         @change="handleToggleSuperchip"
         label="Enable Superchip RAM for higher-resolution playfields"
-        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables instead of just 12."
+        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables instead of just 12."
         persistent-hint
         class="option-switch"
       />
@@ -107,18 +106,8 @@ export default defineComponent({
       },
     });
 
-    // pfcolors and Superchip's higher-resolution playfield don't render
-    // correctly together yet (see the pfcolors switch's hint), so the two
-    // options can't both be on.
-    const enforceSuperchipPfColorsExclusivity = (state) => {
-      if (state.enableSuperchip) {
-        state.enablePfColors = false;
-      }
-      return state;
-    };
-
     const handleChangeConfiguration = () => {
-      configurationState.value = enforceSuperchipPfColorsExclusivity(configurationState.value);
+      configurationState.value = configurationState.value;
     };
 
     // The playfield's vertical resolution (pfres) is a single setting for the
@@ -131,7 +120,7 @@ export default defineComponent({
       if (state.enableSuperchip && ROM_SIZE_OPTIONS.indexOf(state.romSize) < MIN_SUPERCHIP_ROM_SIZE_INDEX) {
         state.romSize = ROM_SIZE_OPTIONS[MIN_SUPERCHIP_ROM_SIZE_INDEX];
       }
-      configurationState.value = enforceSuperchipPfColorsExclusivity(state);
+      configurationState.value = state;
 
       reflowBackgroundsToHeight(backgroundsStorage, effectiveBackgroundRows(state));
     };
