@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card outlined>
     <v-card-title>Project</v-card-title>
     <v-card-text>
         <v-file-input
@@ -17,7 +17,7 @@
           Save Project
       </v-btn>
       <template>
-        <div class="text-center">
+        <div class="text-center ml-2">
           <v-dialog
             v-model="data.newProjectDialog"
             width="500"

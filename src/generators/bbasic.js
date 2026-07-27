@@ -517,7 +517,8 @@ Blockly.BBasic.finish = function(code) {
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations, generatedDataTables,
+  return handlebarsTemplate({generatedBody, generatedBackgrounds,
+    generatedAnimations, generatedDataTables,
     generatedSubroutines, generatedRelocatedEvents,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims});
@@ -738,7 +739,26 @@ Blockly.BBasic.usePlayfieldRowColors = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
   if (config.enableSuperchip) return false;
-  return config.enablePfColors ?? true;
+  return config.enablePfColors ?? false;
+};
+
+// ROM sizes the standard kernel actually bankswitches (see
+// BANK_COUNT_BY_ROMSIZE in hooks/rom.js - duplicated here in miniature
+// rather than imported, since rom.js already imports from this file and
+// importing back would be circular).
+const BANKSWITCHED_ROM_SIZES = ['8k', '16k', '32k'];
+
+// Whether to inline calls to the random number generator ("set optimization
+// inlinerand") instead of calling a shared routine. The docs describe this
+// as "particularly useful for bankswitched games" (a shared rand routine
+// would otherwise need a bank-switching call every time), so the Options
+// tab only allows enabling it when the project's ROM size actually
+// bankswitches - see Configuration.vue.
+Blockly.BBasic.useInlineRand = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (!BANKSWITCHED_ROM_SIZES.includes(config.romSize)) return false;
+  return config.enableInlineRand ?? false;
 };
 
 Blockly.BBasic.generateConfiguration = function() {
@@ -767,11 +787,18 @@ Blockly.BBasic.generateConfiguration = function() {
   // kernel's default; it requires the extra RAM Superchip provides (see
   // generateRomSize), and is a single ROM-wide setting, not per-background.
   const pfresConfigurationCode = (enableSuperchip && pfres) ? `const pfres = ${pfres}` : '';
+  // Unlike kernel_options, "set optimization" lines can't be combined on one
+  // line - each option needs its own "set optimization X" statement.
+  const optimizationLines = [];
+  if (config.enableOptimizationSpeed) optimizationLines.push('set optimization speed');
+  if (this.useInlineRand()) optimizationLines.push('set optimization inlinerand');
+  const optimizationConfigurationCode = optimizationLines.join('\n ');
   return [
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
     scoreFontConfigurationCode,
     pfresConfigurationCode,
+    optimizationConfigurationCode,
   ].join('\n ');
 };
 

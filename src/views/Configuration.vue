@@ -52,6 +52,26 @@
         persistent-hint
         class="pfres-field"
       />
+
+      <v-divider class="mt-4 mb-2" />
+      <div class="text-subtitle-1">Kernel Optimization</div>
+      <v-switch
+        v-model="configurationState.enableOptimizationSpeed"
+        @change="handleChangeConfiguration"
+        label="Optimize for speed (set optimization speed)"
+        hint="May increase speed - particularly of multiplication and division - at the cost of code size."
+        persistent-hint
+        class="option-switch"
+      />
+      <v-switch
+        v-model="configurationState.enableInlineRand"
+        @change="handleChangeConfiguration"
+        :disabled="!romSizeIsBankswitched"
+        label="Inline random number calls (set optimization inlinerand)"
+        hint="Places calls to the random number generator inline with your code instead of as a shared routine, trading a small increase in code size for speed - most useful in a bankswitched game, where a shared routine call would otherwise have to switch banks. Requires a bankswitched ROM size (8k or larger) - see ROM size above."
+        persistent-hint
+        class="option-switch"
+      />
     </v-card-text>
     </v-card>
 </template>
@@ -60,7 +80,7 @@ import {computed, defineComponent} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
 import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage} from '../hooks/project';
-import {countUsedVariables} from '../hooks/rom';
+import {BANK_COUNT_BY_ROMSIZE, countUsedVariables} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
@@ -84,8 +104,10 @@ export default defineComponent({
         const DEFAULT_CONFIGURATION = {
           showScore: true,
           showBlankLines: true,
-          enablePfColors: true,
+          enablePfColors: false,
           enableSuperchip: false,
+          enableOptimizationSpeed: false,
+          enableInlineRand: false,
           pfres: 24,
           romSize: '4k',
           scoreFont: '',
@@ -107,13 +129,24 @@ export default defineComponent({
       },
     });
 
+    // Whether the selected ROM size actually bankswitches (see
+    // BANK_COUNT_BY_ROMSIZE in hooks/rom.js - 2k/4k never do).
+    const romSizeIsBankswitched = computed(() =>
+      Boolean(BANK_COUNT_BY_ROMSIZE[configurationState.value.romSize]));
+
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together (last row black, and with more than one background
     // the colors come out wrong and the black area returns), so the two
-    // options can't both be on.
+    // options can't both be on. Inlining random-number calls (see
+    // useInlineRand in bbasic.js) only makes sense on a bankswitched ROM
+    // size too, so it's forced off whenever the ROM size changes away from
+    // one.
     const enforceSuperchipPfColorsExclusivity = (state) => {
       if (state.enableSuperchip) {
         state.enablePfColors = false;
+      }
+      if (!BANK_COUNT_BY_ROMSIZE[state.romSize]) {
+        state.enableInlineRand = false;
       }
       return state;
     };
@@ -164,6 +197,7 @@ export default defineComponent({
       handleChangeResolution,
       handleToggleSuperchip,
       romSizeOptions: ROM_SIZE_OPTIONS,
+      romSizeIsBankswitched,
     };
   },
   methods: {

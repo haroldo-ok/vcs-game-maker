@@ -228,6 +228,7 @@
       <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
       <v-btn
         block
+        class="mt-2"
         :color="romOutdated ? 'warning' : 'primary'"
         :loading="building"
         @click="handleRomUpdate"
@@ -516,6 +517,25 @@ export default {
 #javatari-target-container > #javatari-screen {
   transform: scale(var(--emulator-scale, 1));
   transform-origin: top left;
+}
+
+/* App-wide: no drop shadow on any button or switch toggle - flat, matching
+   the outlined-card style used elsewhere, instead of Vuetify's default
+   elevated look. Global (not scoped) so it reaches every view/component's
+   buttons and switches without editing each one individually. */
+.v-btn {
+  box-shadow: none !important;
+}
+
+.v-input--switch__thumb {
+  box-shadow: none !important;
+}
+
+/* A switch that's off gets a grey outline on its thumb, the same grey as an
+   outlined card's border, so it doesn't read as a flat white blob against
+   the page background. */
+input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
+  border: thin solid rgba(0, 0, 0, 0.12);
 }
 </style>
 <style scoped>

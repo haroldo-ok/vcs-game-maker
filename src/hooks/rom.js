@@ -85,7 +85,7 @@ const isOverflowError = (e) => /segment overflow/i.test((e && e.message) || '');
 // bank, and cross-bank calls work identically regardless of which bank
 // number is used (confirmed for bank 2 directly against the compiler and
 // the emulator - see the bank-targeting feasibility notes).
-const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
+export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
 
 // Largest-first, across both relocatable kinds: relocating the biggest
 // still-inline unit (event OR graphics - a background, a player's default

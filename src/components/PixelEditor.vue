@@ -1,5 +1,5 @@
 <template>
-  <v-card @click="handleMouse" :ripple="false">
+  <v-card outlined @click="handleMouse" :ripple="false">
     <v-card-text>
       <div class="editor-with-sidebar">
         <div v-if="$slots.sidebar" class="editor-sidebar">

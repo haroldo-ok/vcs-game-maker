@@ -79,7 +79,7 @@
     <v-btn
       class="add-frame-buttom"
       color="primary"
-      title="Add animation frame"
+      title="Add background"
       dark
       absolute
       right
@@ -142,7 +142,7 @@ export default defineComponent({
     // background needs its own color list, since the compiled kernel always
     // draws every background's playfield from that color table.
     const pfColorsEnabled = computed(() =>
-      (configurationStorage && configurationStorage.value && configurationStorage.value.enablePfColors) ?? true);
+      (configurationStorage && configurationStorage.value && configurationStorage.value.enablePfColors) ?? false);
 
     // Fills in a missing/mismatched-length row color list so every background
     // has one whenever per-row colors are enabled, without clobbering colors
