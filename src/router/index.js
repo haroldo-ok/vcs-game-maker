@@ -45,6 +45,11 @@ const routes = [
     component: () => import('../views/ScoreFontEditor.vue'),
   },
   {
+    path: '/data',
+    name: 'Data',
+    component: () => import('../views/DataEditor.vue'),
+  },
+  {
     path: '/configuration',
     name: 'Options',
     component: () => import('../views/Configuration.vue'),

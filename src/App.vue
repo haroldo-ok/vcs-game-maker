@@ -46,6 +46,10 @@
           <v-icon>mdi-numeric</v-icon>
         </v-btn>
 
+        <v-btn to="/data" link class="data-item" title="Data" elevation="0">
+          <v-icon>mdi-table</v-icon>
+        </v-btn>
+
         <v-btn to="/configuration" link class="configuration-item" title="Options" elevation="0">
           <v-icon>mdi-cog</v-icon>
         </v-btn>
@@ -154,6 +158,19 @@
         </v-list-item>
 
         <v-list-item
+          to="/data"
+          link
+          class="data-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-table</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Data</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
           to="/configuration"
           link
           class="configuration-item"
@@ -220,6 +237,21 @@
       <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
         Get generated ROM
       </v-btn>
+      <div
+        v-if="romCapacityText"
+        class="rom-capacity"
+        :class="romCapacityLow ? 'rom-capacity-low' : ''"
+        :title="romCapacityTitle"
+      >
+        {{ romCapacityText }}
+      </div>
+      <div
+        v-if="autoRelocatedEventsText"
+        class="rom-capacity"
+        title="This project's code didn't fit in bank 1, so these were automatically moved to another bank to make room."
+      >
+        {{ autoRelocatedEventsText }}
+      </div>
     </v-navigation-drawer>
 
     <v-main class="app-main">
@@ -234,8 +266,12 @@
 
 <script>
 import {useErrorStorage} from './hooks/project';
-import {buildRom, useRomOutdated} from './hooks/rom';
+import {buildRom, useAutoRelocatedEvents, useRomCapacity, useRomOutdated} from './hooks/rom';
 import {name, version} from '../package.json';
+
+// Below this fraction of the bank's usable space remaining, the capacity
+// display switches to a warning color.
+const ROM_CAPACITY_LOW_THRESHOLD = 0.1;
 
 // Javatari renders at a fixed size and never reflows to fit its container, so
 // the emulator is scaled with a CSS transform instead. It picks that size from
@@ -270,7 +306,10 @@ export default {
   setup() {
     const errorStorage = useErrorStorage();
     console.info('Text', version);
-    return {errorStorage, romOutdated: useRomOutdated(), name, version};
+    return {
+      errorStorage, romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
+      autoRelocatedEvents: useAutoRelocatedEvents(), name, version,
+    };
   },
   mounted() {
     this.attachEmulator();
@@ -290,6 +329,45 @@ export default {
         '--emulator-scale': this.emulatorScale,
         'height': this.emulatorHeight === null ? null : `${this.emulatorHeight}px`,
       };
+    },
+    // Reflects the last successful build, not necessarily the current
+    // (possibly-edited-since) project - same staleness the "Update ROM"/"ROM
+    // up to date" button above already has, so no separate warning for it.
+    // Shows the total across every bank the ROM size actually provides (this
+    // is the number that grows when you pick a bigger ROM size), while the
+    // "low" warning still keys off bank 1 specifically - that's the one bank
+    // that always holds the project's unrelocatable main body, so it's the
+    // more actionable signal for "about to need relocation".
+    romCapacityText() {
+      const capacity = this.romCapacity;
+      if (!capacity) return '';
+      return `${capacity.total.freeBytes.toLocaleString()} bytes free`;
+    },
+    romCapacityTitle() {
+      const capacity = this.romCapacity;
+      if (!capacity) return '';
+      const totalUsed = capacity.total.usableBytes - capacity.total.freeBytes;
+      const bank1Used = capacity.bank1.usableBytes - capacity.bank1.freeBytes;
+      return `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
+        `across every bank (bank 1, which always holds your main code, is ` +
+        `${bank1Used.toLocaleString()} of ${capacity.bank1.usableBytes.toLocaleString()} used)`;
+    },
+    romCapacityLow() {
+      const capacity = this.romCapacity;
+      if (!capacity || !capacity.bank1.usableBytes) return false;
+      return capacity.bank1.freeBytes / capacity.bank1.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
+    },
+    autoRelocatedEventsText() {
+      const events = this.autoRelocatedEvents;
+      if (!events || !events.length) return '';
+      const byBank = {};
+      events.forEach(({name, bank}) => {
+        (byBank[bank] || (byBank[bank] = [])).push(name);
+      });
+      return Object.keys(byBank)
+          .sort((a, b) => a - b)
+          .map((bank) => `Bank ${bank}: ${byBank[bank].join(', ')}`)
+          .join(' | ');
     },
   },
   watch: {
@@ -519,6 +597,13 @@ export default {
   border-left-color: rgb(156, 39, 176) !important;
 }
 
+.data-item,
+.data-item > .v-list-item__icon > .theme--light.v-icon,
+.data-item > .v-list-item__content {
+  color: rgb(121, 85, 72) !important;
+  border-left-color: rgb(121, 85, 72) !important;
+}
+
 .scorefont-item,
 .scorefont-item > .v-list-item__icon > .theme--light.v-icon,
 .scorefont-item > .v-list-item__content {
@@ -545,6 +630,19 @@ export default {
 .project-item > .v-list-item__content {
   color: rgb(39, 136, 176) !important;
   border-left-color: rgb(39, 136, 176) !important;
+}
+
+.rom-capacity {
+  text-align: center;
+  font-size: 0.8em;
+  opacity: 0.7;
+  margin-top: 6px;
+}
+
+.rom-capacity-low {
+  opacity: 1;
+  color: rgb(244, 67, 54);
+  font-weight: bold;
 }
 
 .error-message {
