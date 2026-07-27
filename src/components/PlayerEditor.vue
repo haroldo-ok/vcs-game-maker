@@ -16,14 +16,13 @@
                       >
                     <template v-slot:activator="{ on, attrs }">
                       <v-btn
-                        color="red"
                         title="Delete this animation"
-                        fab
+                        icon
                         small
                         absolute
                         top
                         right
-                        class="delete-btn-inset"
+                        class="delete-btn-inset delete-icon-btn"
                         v-bind="attrs"
                         v-on="on"
                       >
@@ -64,14 +63,13 @@
                       >
                         <template v-slot:activator="{ on, attrs }">
                           <v-btn
-                            color="red"
                             title="Delete this frame"
-                            fab
+                            icon
                             small
                             absolute
                             top
                             right
-                            class="delete-btn-inset"
+                            class="frame-delete-btn delete-icon-btn"
                             v-bind="attrs"
                             v-on="on"
                           >
@@ -122,33 +120,31 @@
                       color="primary"
                       title="Add animation frame"
                       dark
-                      rounded
+                      fab
                       @click="handleAddFrame(animation)"
                     >
                       <v-icon>mdi-plus</v-icon>
-                      <div>Add frame</div>
                     </v-btn>
                   </v-list-item>
                 </v-list>
             </v-list-item-content>
           </v-list-item>
         </v-list>
-
-        <v-btn
-          class="add-animation-buttom"
-          color="secondary"
-          title="Add animation"
-          dark
-          rounded
-          @click="handleAddAnimation"
-        >
-          <v-icon>mdi-plus</v-icon>
-          <div>Add animation</div>
-        </v-btn>
       </v-card-text>
     </v-card>
 
-
+    <v-btn
+      class="add-animation-buttom"
+      color="primary"
+      title="Add animation"
+      dark
+      absolute
+      right
+      fab
+      @click="handleAddAnimation"
+    >
+      <v-icon>mdi-plus</v-icon>
+    </v-btn>
   </div>
 </template>
 <script>
@@ -290,6 +286,12 @@ export default defineComponent({
   top: 8px !important;
 }
 
+/* Pulled up further than delete-btn-inset - this one sits right above the
+   "Duration" field, which the smaller default offset overlapped. */
+.frame-delete-btn {
+  top: -8px !important;
+}
+
 /* Sits inline after the last frame, vertically centered against the frame
    cards' height via vertical-align (rather than the list item's own default
    flex centering, which only centers within its own row). */
@@ -299,10 +301,17 @@ export default defineComponent({
   width: auto;
 }
 
-/* The "Add animation" button flows in normal layout under the last
-   animation, rather than floating fixed in a corner. */
+/* Same circular style as "Add animation" below (and the Background tab's "+"
+   button), just sized down to the button's original pill-shape height
+   instead of Vuetify's default 56px fab. */
+.add-frame-buttom {
+  width: 36px;
+  height: 36px;
+}
+
+/* Floats bottom-right, matching the Background tab's "+" button. */
 .add-animation-buttom {
-  margin: 8px 0;
+  bottom: 8px;
 }
 
 /* No drop shadow on floating (absolute-positioned) buttons - delete, add, etc. */

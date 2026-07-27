@@ -18,14 +18,13 @@
                       >
                       <template v-slot:activator="{ on, attrs }">
                         <v-btn
-                          color="red"
                           title="Delete this background"
-                          fab
+                          icon
                           small
                           absolute
                           top
                           right
-                          class="delete-btn-inset"
+                          class="delete-btn-inset delete-icon-btn"
                           v-bind="attrs"
                           v-on="on"
                         >

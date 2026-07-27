@@ -13,14 +13,13 @@
                 >
                   <template v-slot:activator="{ on, attrs }">
                     <v-btn
-                      color="red"
                       title="Delete this table"
-                      fab
+                      icon
                       small
                       absolute
                       top
                       right
-                      class="data-delete-btn"
+                      class="data-delete-btn delete-icon-btn"
                       v-bind="attrs"
                       v-on="on"
                     >

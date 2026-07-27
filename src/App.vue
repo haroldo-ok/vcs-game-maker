@@ -537,6 +537,29 @@ export default {
 input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border: thin solid rgba(0, 0, 0, 0.12);
 }
+
+/* Shared with the pixel editor toolbar's icons (see PixelEditor.vue) so a
+   delete button's rest state matches them, instead of standing out as an
+   always-red trash can. */
+:root {
+  --editor-icon-rest-color: rgba(0, 0, 0, 0.38);
+}
+
+/* Delete buttons (trash icon, top-right of a graphics/data/sound card): the
+   same muted grey as the pixel editor toolbar icons at rest, turning red
+   only on hover - and never a filled circle behind it, at rest or on
+   hover (Vuetify's default hover/focus overlay is suppressed here). */
+.delete-icon-btn {
+  color: var(--editor-icon-rest-color) !important;
+}
+
+.delete-icon-btn:hover {
+  color: red !important;
+}
+
+.delete-icon-btn::before {
+  background-color: transparent !important;
+}
 </style>
 <style scoped>
 /* Vuetify animates the drawer's width over 200ms, but the emulator's scale is

@@ -99,7 +99,6 @@
                     @click="heightMenuValue = value.length"
                   >
                     <v-icon>mdi-human-male-height-variant</v-icon>
-                    {{value.length}}
                   </v-btn>
                 </template>
 
@@ -262,7 +261,14 @@ export default {
       openFileDialog('image/*')
           .then(loadImageFromFile)
           .then((img) => {
-            const canvas = createResizedCanvas(img, this.editor.width, this.editor.height);
+            // Where height can be changed (sprite frames, not backgrounds or
+            // the score font, which have a fixed row count - see
+            // allowChangingHeight), match the imported image's own height
+            // instead of squeezing it into whatever height this frame
+            // already happened to be, same range as the "Set height" slider.
+            const targetHeight = this.allowChangingHeight ?
+              Math.min(64, Math.max(1, Math.round(img.height))) : this.editor.height;
+            const canvas = createResizedCanvas(img, this.editor.width, targetHeight);
 
             // Adapted from https://stackoverflow.com/a/667074/679240
             // Get the CanvasPixelArray from the given coordinates and dimensions.
@@ -281,7 +287,11 @@ export default {
             }
 
             const pixels = chunk(pixelValues.map((v) => v > 32 ? 1 : 0), canvas.width);
-            this.setPixels(pixels);
+            if (targetHeight !== this.editor.height) {
+              this.initEditor(targetHeight, pixels);
+            } else {
+              this.setPixels(pixels);
+            }
             this.$emit('input', pixels);
           });
     },
@@ -415,7 +425,7 @@ export default {
    specificity, so these need to be forced. */
 .pixel-editor-tools >>> .v-btn .v-icon {
   font-size: 19px;
-  color: rgba(0, 0, 0, 0.55) !important;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
   transition: color 0.15s ease, transform 0.08s ease;
 }
 
