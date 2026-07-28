@@ -1,6 +1,6 @@
 {
   "name": "vcs-game-maker",
-  "version": "0.49.2",
+  "version": "0.49.3",
   "private": true,
   "description": "A no-code environment for creating Atari 2600 games using Blockly and batari Basic.",
   "author": "haroldo-ok, with contributions by AbstractPolygon",
@@ -18,7 +18,7 @@
     "@blockly/field-grid-dropdown": "^1.0.25",
     "@curtishughes/pixel-editor": "^4.0.1",
     "@vue/composition-api": "^1.0.0-rc.13",
-    "batari-basic": "^0.0.1",
+    "batari-basic": "^0.2.0",
     "blockly": "^6.20210701.0",
     "core-js": "^3.6.5",
     "electron-squirrel-startup": "^1.0.1",
