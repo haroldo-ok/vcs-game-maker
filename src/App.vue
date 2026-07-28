@@ -398,7 +398,7 @@ export default {
       }
       container.appendChild(javatariScreen);
       javatariScreen.style = '';
-      this.observeEmulatorSize(container);
+      this.observeEmulatorSize(container, javatariScreen);
       this.updateEmulatorScale();
     },
     // A single measurement is fragile: if it runs while the container's width
@@ -407,7 +407,15 @@ export default {
     // of the drawer. Re-measuring whenever the container's width actually
     // changes makes the height self-correct once layout settles, instead of
     // staying wrong until the user resizes.
-    observeEmulatorSize(container) {
+    //
+    // Also watches the Javatari screen element itself, not just the
+    // container: toggling Javatari's own fullscreen button changes the
+    // screen's *intrinsic* size (screen.offsetWidth/offsetHeight, what the
+    // scale is computed from), without necessarily changing the container's
+    // width - leaving the container-only check above blind to it, so the
+    // scale stayed stuck at whatever it was before fullscreen and the
+    // preview came back the wrong size after exiting.
+    observeEmulatorSize(container, screen) {
       if (this.emulatorResizeObserver || typeof ResizeObserver === 'undefined') {
         return;
       }
@@ -422,12 +430,21 @@ export default {
         window.requestAnimationFrame(() => {
           this.emulatorResizePending = false;
           const width = container.clientWidth;
-          if (width === this.lastEmulatorWidth) return;
+          const screenWidth = screen.offsetWidth;
+          const screenHeight = screen.offsetHeight;
+          if (width === this.lastEmulatorWidth &&
+              screenWidth === this.lastScreenWidth &&
+              screenHeight === this.lastScreenHeight) {
+            return;
+          }
           this.lastEmulatorWidth = width;
+          this.lastScreenWidth = screenWidth;
+          this.lastScreenHeight = screenHeight;
           this.updateEmulatorScale();
         });
       });
       this.emulatorResizeObserver.observe(container);
+      this.emulatorResizeObserver.observe(screen);
     },
     // Listener wrapper, so the event object is not taken as a retry count.
     handleWindowResize() {
@@ -489,6 +506,14 @@ export default {
           buildRom();
         } finally {
           this.building = false;
+          // Loading a new ROM sometimes leaves the preview looking like it
+          // vanished - re-running the same attach/observe logic used on
+          // mount is a cheap, safe way to re-sync regardless of the exact
+          // cause (it re-finds the screen element fresh rather than
+          // trusting a reference that may be stale, and re-attaching an
+          // already-attached element or re-observing an already-observed
+          // one is a no-op).
+          this.attachEmulator();
         }
       }, 0);
     },
