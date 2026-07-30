@@ -20,7 +20,7 @@ import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults} from '../blocks/bac
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
-import {CUSTOM_SCORE_FONT} from '../utils/score-font';
+import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -48,6 +48,7 @@ export const SYSTEM_VARIABLES = [
   ['player0realcolor', 'r'],
   ['player1realcolor', 'q'],
   ['playfieldrealcolor', 'm'],
+  ['backgroundrealcolor', 'l'],
   ['player0animation', 'p'],
   ['player1animation', 'o'],
   ['framecounter', 'n'],
@@ -171,6 +172,17 @@ Blockly.BBasic.isInitialized = false;
 Blockly.BBasic.init = function(workspace) {
   // Call Blockly.Generator's init.
   Object.getPrototypeOf(this).init.call(this);
+
+  // textMinikernelUsed/textMessages (see generators/bbasic/text-minikernel.js)
+  // are set as a side effect of generating each Text block's code, but
+  // nothing else ever clears them - without this reset, once any project
+  // used a Text block even once in this session, every later build (even of
+  // a workspace with no Text blocks at all) would keep emitting "const
+  // textbank"/"const fontstyle"/the TextIndex dim and the text12a.asm/
+  // text12b.asm inline forever, since this Generator instance is a shared
+  // singleton reused across every workspaceToCode() call.
+  this.textMinikernelUsed = false;
+  this.textMessages = [];
 
   if (!this.nameDB_) {
     this.nameDB_ = new Blockly.Names(this.RESERVED_WORDS_);
@@ -487,6 +499,12 @@ Blockly.BBasic.finish = function(code) {
   // Convert the definitions dictionary into a list.
   const definitions = Blockly.utils.object.values(this.definitions_);
 
+  // generateTextMinikernelDims() (called later, via generateSystemDims())
+  // needs to know whether Score Bar blocks turned pfscore on, but
+  // definitions_ itself is gone by then - Blockly.Generator's own finish()
+  // (called right below) deletes it.
+  this.pfscoreEnabledForTextMinikernel = !!this.definitions_['pfscore_enable'];
+
   // Call Blockly.Generator's finish.
   code = Object.getPrototypeOf(this).finish.call(this, code);
   // Normalize indents
@@ -512,6 +530,8 @@ Blockly.BBasic.finish = function(code) {
   const gameOverUpdateEvent = relocatable.gameover_update.inlineEvent;
   const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
+  const generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
+  const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults();
 
   this.isInitialized = false;
 
@@ -519,9 +539,10 @@ Blockly.BBasic.finish = function(code) {
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
     generatedAnimations, generatedDataTables,
-    generatedSubroutines, generatedRelocatedEvents,
+    generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims});
+    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
+    generatedTextMinikernelDefaults});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -765,7 +786,7 @@ Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
 
-  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres} = config;
+  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres, textBkColor} = config;
 
   // batari Basic honours a single "set kernel_options" line, so every option
   // has to go on it together.
@@ -774,15 +795,40 @@ Blockly.BBasic.generateConfiguration = function() {
   if (!(showBlankLines ?? true)) kernelOptions.push('no_blank_lines');
   const kernelOptionsConfigurationCode = kernelOptions.length ?
     `set kernel_options ${kernelOptions.join(' ')}` : '';
+  // text12a.asm (see generators/bbasic/text-minikernel.js) also writes
+  // "noscore = 1" itself at runtime whenever the Text Minikernel is active,
+  // but that's a plain variable assignment, not a redeclaration - it doesn't
+  // conflict with "noscore" being a compile-time const here (confirmed
+  // against the real toolchain), so the "showScore" toggle still controls
+  // this the same way with or without the Text Minikernel: unchecked, it
+  // frees up the standard kernel's now-redundant score-digit code (the Text
+  // Minikernel draws its own).
   const scoreConfigurationCode = (showScore ?? true) ? '' : 'const noscore = 1';
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that
   // would carry them into an exported source file.
-  const scoreFontConfigurationCode = !scoreFont ? '' :
+  const scoreFontConfigurationCode = (!scoreFont || scoreFont === SQUISH_SCORE_FONT || scoreFont === SQUISH_CUSTOM_SCORE_FONT) ? '' :
     scoreFont === CUSTOM_SCORE_FONT ?
       'rem Custom score font: digits are supplied by the compiler include.' :
       `const font = ${scoreFont}`;
+  // Squish (and Squish Custom, which starts from Squish's own digits and is
+  // then editable - see utils/score-font.js) are special score font options
+  // baked into the Text Minikernel's extended score_graphics.asm (swapped in
+  // whenever either is selected, or the Text Minikernel is active - see
+  // hooks/rom.js) rather than a byte-swappable preset like the others -
+  // selecting either is what shrinks the score row, independent of whether
+  // the Text Minikernel itself is in use.
+  const textFontConfigurationCode = (scoreFont === SQUISH_SCORE_FONT || scoreFont === SQUISH_CUSTOM_SCORE_FONT) ?
+    'const fontstyle = SQUISH' : '';
+  // "textbkcolor" (see ScoreFontEditor.vue) is read as an immediate value at
+  // several cycle-critical spots inside the Text Minikernel's own WSYNC-timed
+  // drawing loop (text12a.asm/text12b.asm), so it can only be a compile-time
+  // const, not a runtime-settable variable like TextColor - see the picker's
+  // own comment for why. Only emitted when the Text Minikernel is actually
+  // active, since the constant is otherwise unused.
+  const textBkColorConfigurationCode = (this.isTextMinikernelActive() && textBkColor) ?
+    `const textbkcolor = ${colorByteToBBasic(textBkColor)}` : '';
   // pfres raises the playfield's vertical resolution above the standard
   // kernel's default; it requires the extra RAM Superchip provides (see
   // generateRomSize), and is a single ROM-wide setting, not per-background.
@@ -797,6 +843,8 @@ Blockly.BBasic.generateConfiguration = function() {
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
     scoreFontConfigurationCode,
+    textFontConfigurationCode,
+    textBkColorConfigurationCode,
     pfresConfigurationCode,
     optimizationConfigurationCode,
   ].join('\n ');
@@ -822,9 +870,10 @@ Blockly.BBasic.generateRomSize = function() {
 Blockly.BBasic.generateSystemDims = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  return SYSTEM_VARIABLES
+  const systemDims = SYSTEM_VARIABLES
       .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
       .join('\n');
+  return systemDims + this.generateTextMinikernelDims();
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
@@ -1096,10 +1145,11 @@ import soundfx from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
+import textMinikernel from './bbasic/text-minikernel';
 import variables from './bbasic/variables';
 
 [background, bit, collision, color, colour, data, event, input, logic, loops, math, procedures,
-  random, score, sound, soundfx, sprites, subroutine, text, variables]
+  random, score, sound, soundfx, sprites, subroutine, text, textMinikernel, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;

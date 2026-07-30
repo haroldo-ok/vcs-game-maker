@@ -496,15 +496,15 @@ export default {
       // measure the previous layout.
       this.$nextTick(() => window.dispatchEvent(new Event('resize')));
     },
-    // Compiling blocks the main thread, so hand the browser a chance to paint
-    // the button's progress state before starting.
+    // buildRom() compiles via WASM asynchronously now (the real bB 1.9
+    // toolchain, run through an in-browser WASI shim - see hooks/bb-compiler.js),
+    // but the button's progress state still needs a paint before that starts,
+    // hence the same setTimeout(...,0) wrapper as when this was synchronous.
     handleRomUpdate() {
       if (this.building) return;
       this.building = true;
       window.setTimeout(() => {
-        try {
-          buildRom();
-        } finally {
+        buildRom().finally(() => {
           this.building = false;
           // Loading a new ROM sometimes leaves the preview looking like it
           // vanished - re-running the same attach/observe logic used on
@@ -514,7 +514,7 @@ export default {
           // already-attached element or re-observing an already-observed
           // one is a no-op).
           this.attachEmulator();
-        }
+        });
       }, 0);
     },
     handleRomDownload() {

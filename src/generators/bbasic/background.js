@@ -24,10 +24,13 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const rawVar = block.getFieldValue('VAR');
-    // COLUPF is overwritten every frame by the score digit routine (and by the
-    // playfield score bars, if enabled), so it's tracked and restored each
-    // frame from playfieldrealcolor, just like COLUP0/COLUP1 are.
-    const targetVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' : rawVar;
+    // COLUPF and COLUBK are both overwritten every frame by the score/text
+    // drawing routines (the standard kernel's score digits, the playfield
+    // score bars if enabled, and the Text Minikernel's own "sta COLUBK"),
+    // so both are tracked and restored each frame from a shadow variable,
+    // just like COLUP0/COLUP1 are.
+    const targetVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' :
+      rawVar === 'COLUBK' ? 'backgroundrealcolor' : rawVar;
     const varName = Blockly.BBasic.nameDB_.getName(
         targetVar, Blockly.VARIABLE_CATEGORY_NAME);
     return varName + ' = ' + argument0 + '\n';

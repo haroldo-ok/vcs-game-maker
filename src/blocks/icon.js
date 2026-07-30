@@ -23,6 +23,7 @@ export const GAME_ICON = String.fromCodePoint(0x1F47E);
 export const GAMEOVER_ICON = String.fromCodePoint(0x2620) + String.fromCodePoint(0xFE0F);
 export const CHECKBOX_CHECKED_ICON = String.fromCodePoint(0x2611);
 export const CHECKBOX_CLEAR_ICON = String.fromCodePoint(0x2610);
+export const TEXT_ICON = String.fromCodePoint(0x1F4DD);
 export const FLIP_ICON = String.fromCodePoint(0x2194);
 
 export const DIFFICULTY_ADVANCED_ICON = String.fromCodePoint(0x1F631);

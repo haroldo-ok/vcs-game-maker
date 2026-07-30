@@ -31,6 +31,8 @@ export const useConfigurationStorage = () =>
   withRomInvalidation(useJsonProjectStorage('configuration'));
 export const useScoreFontStorage = () =>
   withRomInvalidation(useJsonProjectStorage('scoreFont'));
+export const useSquishCustomScoreFontStorage = () =>
+  withRomInvalidation(useJsonProjectStorage('squishCustomScoreFont'));
 export const useSoundEffectsStorage = () =>
   withRomInvalidation(useJsonProjectStorage('soundEffects'));
 export const useDataTablesStorage = () =>

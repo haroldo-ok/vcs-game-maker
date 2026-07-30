@@ -1,6 +1,6 @@
 'use strict';
 
-import {preprocessBatariBasic, compileBatariBasic, assembleDASM} from 'batari-basic/src/compiler';
+import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from '../hooks/bb-compiler';
 
 // Attempts a full preprocess -> compile -> assemble pass over a candidate
 // bBasic source, without throwing. This is the safe-execution primitive an
@@ -15,11 +15,11 @@ import {preprocessBatariBasic, compileBatariBasic, assembleDASM} from 'batari-ba
 // those same cases instead throws an ordinary, catchable exception with a
 // normal error message. So a plain try/catch here is sufficient - no worker
 // isolation or other defensive sandboxing is needed.
-export const attemptBuild = (code) => {
+export const attemptBuild = async (code) => {
   try {
-    const preprocessed = preprocessBatariBasic(code);
-    const assemblyFiles = compileBatariBasic(preprocessed);
-    const compiledResult = assembleDASM(assemblyFiles);
+    const preprocessed = await preprocessBatariBasic(code);
+    const compiled = await compileBatariBasicToAsm(preprocessed, {});
+    const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir);
     return {success: true, compiledResult};
   } catch (e) {
     return {success: false, error: e};
