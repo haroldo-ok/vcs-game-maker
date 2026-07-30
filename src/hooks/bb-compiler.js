@@ -151,7 +151,7 @@ const prepareException = (mainMessage, errors) => {
 };
 
 export const preprocessBatariBasic = async (code) => {
-  const r = await runWasi('/bb19/preprocess.wasm', [], code, {});
+  const r = await runWasi('bb19/preprocess.wasm', [], code, {});
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while preprocessing.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
@@ -162,7 +162,7 @@ export const preprocessBatariBasic = async (code) => {
 let includesManifestPromise = null;
 const getIncludesManifest = () => {
   if (!includesManifestPromise) {
-    includesManifestPromise = fetch('/bb19/includes-manifest.json').then((r) => r.json());
+    includesManifestPromise = fetch('bb19/includes-manifest.json').then((r) => r.json());
   }
   return includesManifestPromise;
 };
@@ -174,7 +174,7 @@ const getIncludesManifest = () => {
 // real local compile.
 const compile = async (preprocessedCode, siblingFiles) => {
   const includes = await getIncludesManifest();
-  const r = await runWasi('/bb19/2600basic.wasm', ['-i', '/bbinc'], preprocessedCode, {
+  const r = await runWasi('bb19/2600basic.wasm', ['-i', '/bbinc'], preprocessedCode, {
     '.': {...(siblingFiles || {})},
     '/bbinc': includes,
   });
@@ -190,7 +190,7 @@ const postprocess = async (bBAsmContent, workDir) => {
   // 2600basic.sh writes 2600basic.wasm's stdout to a "bB.asm" *file* rather
   // than piping it - postprocess.wasm then opens "bB.asm" by name from ".",
   // the same way it opens every other include, rather than reading stdin.
-  const r = await runWasi('/bb19/postprocess.wasm', ['-i', '/bbinc'], '', {
+  const r = await runWasi('bb19/postprocess.wasm', ['-i', '/bbinc'], '', {
     '.': {...workDir, 'bB.asm': bBAsmContent},
     '/bbinc': includes,
   });
@@ -204,7 +204,7 @@ const postprocess = async (bBAsmContent, workDir) => {
 const assemble = async (mainAsmContent, workDir) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
-      '/bb19/dasm.wasm',
+      'bb19/dasm.wasm',
       ['main.asm', '-I.', '-I/bbinc/includes', '-f3', '-p20', '-lmain.lst', '-smain.sym', '-omain.bin'],
       '',
       {

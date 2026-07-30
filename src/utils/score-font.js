@@ -156,7 +156,7 @@ const customSquishFontBytes = () => {
 let pristineScoreGraphicsPromise = null;
 const getPristineScoreGraphics = () => {
   if (!pristineScoreGraphicsPromise) {
-    pristineScoreGraphicsPromise = fetch('/bb19/includes/score_graphics.asm').then((r) => r.text());
+    pristineScoreGraphicsPromise = fetch('bb19/includes/score_graphics.asm').then((r) => r.text());
   }
   return pristineScoreGraphicsPromise;
 };

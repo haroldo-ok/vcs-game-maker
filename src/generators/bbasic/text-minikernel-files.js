@@ -17,7 +17,7 @@ const fetchText = (path) => fetch(path).then((r) => r.text());
 let scoreGraphicsPromise = null;
 export const getExtendedScoreGraphics = () => {
   if (!scoreGraphicsPromise) {
-    scoreGraphicsPromise = fetchText('/bb19/text-minikernel/score_graphics_extended.asm');
+    scoreGraphicsPromise = fetchText('bb19/text-minikernel/score_graphics_extended.asm');
   }
   return scoreGraphicsPromise;
 };
@@ -26,8 +26,8 @@ let filesPromise = null;
 export const getTextMinikernelSiblingFiles = () => {
   if (!filesPromise) {
     filesPromise = Promise.all([
-      fetchText('/bb19/text-minikernel/text12a.asm'),
-      fetchText('/bb19/text-minikernel/text12b.asm'),
+      fetchText('bb19/text-minikernel/text12a.asm'),
+      fetchText('bb19/text-minikernel/text12b.asm'),
       getExtendedScoreGraphics(),
     ]).then(([text12a, text12b, scoreGraphics]) => ({
       'text12a.asm': text12a,
