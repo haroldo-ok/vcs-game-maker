@@ -2,7 +2,9 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
-import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON} from './icon';
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON} from './icon';
+
+const PRIORITY_COLOUR = '#009688';
 
 // The generated code dispatches on the animation's position in the list
 // ("if player0animation = 2 ..."), not on its id, so the option value is the
@@ -289,3 +291,29 @@ buildSpriteBlocks({
     [HEIGHT_ICON + ' Width', 'ballwidth'],
   ],
 });
+
+// The Atari 2600 only has one priority switch for the whole screen: it can't
+// be set per-sprite, only for all players/missiles/ball against the
+// playfield at once.
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'sprite_priority_set',
+    'message0': `${PRIORITY_ICON} Sprite priority: %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VALUE',
+        'options': [
+          ['Sprites above playfield (default)', '0'],
+          ['Playfield above sprites', '1'],
+        ],
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': PRIORITY_COLOUR,
+    'tooltip': `Chooses whether the playfield and ball are drawn in front of, or behind, all ` +
+      `players and missiles. This is a single switch for the whole screen - it can't be set ` +
+      `per-sprite - but it can be changed at any time during the game.`,
+  },
+]);

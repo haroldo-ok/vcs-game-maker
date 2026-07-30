@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card outlined>
     <v-card-title>Project</v-card-title>
     <v-card-text>
         <v-file-input
@@ -17,7 +17,7 @@
           Save Project
       </v-btn>
       <template>
-        <div class="text-center">
+        <div class="text-center ml-2">
           <v-dialog
             v-model="data.newProjectDialog"
             width="500"
@@ -75,7 +75,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
@@ -96,9 +96,10 @@ export default defineComponent({
     const workspaceStorage = useWorkspaceStorage();
     const configurationStorage = useConfigurationStorage();
     const scoreFontStorage = useScoreFontStorage();
+    const dataTablesStorage = useDataTablesStorage();
 
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationStorage, scoreFontStorage};
+      workspaceStorage, configurationStorage, scoreFontStorage, dataTablesStorage};
   },
   methods: {
     handleSaveProject() {
@@ -143,6 +144,7 @@ export default defineComponent({
         'player-1': player1,
         backgrounds,
         'score-font': scoreFont,
+        'data-tables': this.dataTablesStorage,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
@@ -214,6 +216,10 @@ export default defineComponent({
           this.configurationStorage = project.configuration;
         }
 
+        if (project['data-tables']) {
+          this.dataTablesStorage = project['data-tables'];
+        }
+
         this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
@@ -227,6 +233,7 @@ export default defineComponent({
       this.player1Storage = null;
       this.backgroundsStorage = null;
       this.scoreFontStorage = null;
+      this.dataTablesStorage = null;
 
       this.data.newProjectDialog = false;
       this.router.push('/');

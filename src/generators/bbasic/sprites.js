@@ -131,4 +131,12 @@ export default (Blockly) => {
   ['player0', 'player1', 'missile0', 'missile1', 'ball'].forEach(createGeneratorForSprite);
   ['player0', 'player1'].forEach(createGeneratorForPlayer);
   ['missile0', 'missile1'].forEach(createGeneratorForMissile);
+
+  // Bit 2 of CTRLPF. Set through the bit-index syntax rather than a full
+  // assignment so it doesn't clobber the other bits sprite_ball_set already
+  // packs into CTRLPF (reflection, ball width).
+  Blockly.BBasic['sprite_priority_set'] = function(block) {
+    const value = block.getFieldValue('VALUE');
+    return `CTRLPF{2} = ${value}\n`;
+  };
 };

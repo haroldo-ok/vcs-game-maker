@@ -138,4 +138,103 @@ export default (Blockly) => {
     const operator = isNegativeConstant ? '' : '+';
     return `${varName} = ${varName} ${operator} ${argument0}\n`;
   };
+
+  // A score bar's byte is a raw bit pattern read directly by the kernel, not
+  // a plain "N units" value - so building "N units filled, growing outward
+  // from the score" means constructing that pattern one step at a time, the
+  // same way the batari Basic docs' own "add a life"/"add to health" examples
+  // do (pfscoreN = pfscoreN*2|1 for a solid bar, pfscoreN = pfscoreN*4|2 for
+  // evenly spaced dots) - just run from a value of 0, N times, instead of
+  // once. Confirmed directly against the compiler and emulator: N=5 health
+  // renders as one solid block, N=3 lives renders as 3 evenly spaced dots,
+  // and N=0 safely loops zero times (no wraparound).
+  //
+  // temp1/temp2 are the compiler's own scratch registers, already reused
+  // this way elsewhere for one-off statement-local bookkeeping (see
+  // event_frame_even_odd) - nothing needs them to persist past this block.
+  const buildBarFillLoop = (varName, targetCode, stepExpression) => [
+    `${varName} = 0`,
+    `temp1 = ${targetCode}`,
+    'for temp2 = 1 to temp1',
+    `${varName} = ${stepExpression}`,
+    'next',
+  ].join('\n') + '\n';
+
+  Blockly.BBasic[`score_bar_set_health`] = function(block) {
+    // Fill a score bar with a solid block, N units wide (0-8).
+    Blockly.BBasic.definitions_['pfscore_enable'] = PFSCORE_ENABLE_CODE;
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return buildBarFillLoop(varName, argument0, `${varName}*2+1`);
+  };
+
+  Blockly.BBasic[`score_bar_set_lives`] = function(block) {
+    // Fill a score bar with N evenly spaced dots (0-4).
+    Blockly.BBasic.definitions_['pfscore_enable'] = PFSCORE_ENABLE_CODE;
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return buildBarFillLoop(varName, argument0, `${varName}*4+2`);
+  };
+
+  // Grows or shrinks a score bar by repeating its one-step doubling/halving
+  // move (see buildBarFillLoop above) a number of times, instead of just
+  // once like the docs' own "add a life"/"add to health" examples do.
+  //
+  // The existing raw score_bar_get already returns the bar's plain byte
+  // value (not BCD, a normal 0-255 number) - callers wanting a relative
+  // change from "the current value" read that directly and do the math
+  // themselves; this block only needs the delta, not the current value.
+  //
+  // A literal delta (the common case - a plain number typed into the
+  // block, matching the default shadow) has its direction known at
+  // generation time, so it compiles to a single fixed-count loop with no
+  // runtime branching at all. A non-literal delta (a variable/expression)
+  // can't be sign-branched safely with plain bB comparisons - these bytes
+  // are unsigned, so a "negative" runtime value is really a large positive
+  // one (two's complement wraparound), not something "temp < 0" can detect
+  // - so that case only supports growing the bar; shrinking always needs a
+  // literal negative number. Documented on the block's own tooltip.
+  const buildBarChangeLoop = (varName, deltaCode, growStep, shrinkStep) => {
+    const literalMatch = /^\s*(-?\d+)\s*$/.exec(deltaCode);
+    if (literalMatch) {
+      const n = parseInt(literalMatch[1], 10);
+      if (n === 0) return '';
+      const step = n > 0 ? growStep : shrinkStep;
+      return [
+        `for temp2 = 1 to ${Math.abs(n)}`,
+        `${varName} = ${step}`,
+        'next',
+      ].join('\n') + '\n';
+    }
+    return [
+      `temp1 = ${deltaCode}`,
+      'for temp2 = 1 to temp1',
+      `${varName} = ${growStep}`,
+      'next',
+    ].join('\n') + '\n';
+  };
+
+  Blockly.BBasic[`score_bar_change_health`] = function(block) {
+    // Change a health-style score bar by a number of units.
+    Blockly.BBasic.definitions_['pfscore_enable'] = PFSCORE_ENABLE_CODE;
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return buildBarChangeLoop(varName, argument0, `${varName}*2+1`, `${varName}/2`);
+  };
+
+  Blockly.BBasic[`score_bar_change_lives`] = function(block) {
+    // Change a lives-style score bar by a number of dots.
+    Blockly.BBasic.definitions_['pfscore_enable'] = PFSCORE_ENABLE_CODE;
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return buildBarChangeLoop(varName, argument0, `${varName}*4+2`, `${varName}/4`);
+  };
 };

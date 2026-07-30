@@ -11,20 +11,20 @@
                   <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  <div class="pixel-editor-container" :style="{maxWidth: editorWidth}">
+                  <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
                     <v-menu
                         v-if="state.backgrounds.length > 1"
                         top
                       >
                       <template v-slot:activator="{ on, attrs }">
                         <v-btn
-                          color="red"
                           title="Delete this background"
-                          fab
+                          icon
                           small
                           absolute
                           top
                           right
+                          class="delete-btn-inset delete-icon-btn"
                           v-bind="attrs"
                           v-on="on"
                         >
@@ -52,13 +52,21 @@
                     </v-menu>
                     <pixel-editor
                       :width="32"
-                      :height="11"
+                      :height="backgroundRows"
                       name="background"
                       v-model="background.pixels"
                       fgColor="orange"
+                      :rowColors="editorRowColors(background)"
                       :allowChangingHeight="false"
                       @input="handleChildChange"
-                    />
+                    >
+                      <template v-if="pfColorsEnabled" v-slot:sidebar>
+                        <playfield-color-strip
+                          :value="background.rowColors"
+                          @input="(colors) => handleRowColorsInput(background, colors)"
+                        />
+                      </template>
+                    </pixel-editor>
                   </div>
                 </v-list-item-subtitle>
             </v-list-item-content>
@@ -70,7 +78,7 @@
     <v-btn
       class="add-frame-buttom"
       color="primary"
-      title="Add animation frame"
+      title="Add background"
       dark
       absolute
       right
@@ -87,24 +95,73 @@ import {max} from 'lodash';
 
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
-import {useBackgroundsStorage} from '../hooks/project';
+import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
+import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
-import {playfieldToMatrix} from '../utils/pixels';
-import {DEFAULT_BACKGROUNDS, processBackgroundStorageDefaults} from '../blocks/background';
+import {colorByteToCss} from '../utils/palette';
+import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, effectiveBackgroundRows,
+  processBackgroundStorageDefaults} from '../blocks/background';
 
 // Width of one background editor at 100% zoom.
 const EDITOR_BASE_WIDTH = 480;
 
+// A simple rectangular border, sized to whatever the current playfield
+// resolution is. Used for new backgrounds instead of a fixed 11-row pattern,
+// since Superchip's pfres setting can make that row count anything from 11
+// to 32.
+const buildDefaultBackgroundPixels = (rows, cols = 32) => {
+  const matrix = new Array(rows).fill(0).map(() => new Array(cols).fill(0));
+  for (let x = 0; x < cols; x++) {
+    matrix[0][x] = 1;
+    matrix[rows - 1][x] = 1;
+  }
+  for (let y = 0; y < rows; y++) {
+    matrix[y][0] = 1;
+    matrix[y][cols - 1] = 1;
+  }
+  return matrix;
+};
+
 export default defineComponent({
-  components: {EditorZoom, PixelEditor},
+  components: {EditorZoom, PixelEditor, PlayfieldColorStrip},
   setup() {
     const backgroundsStorage = useBackgroundsStorage();
+    const configurationStorage = useConfigurationStorage();
     const zoom = useEditorZoom('background');
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
+
+    // The playfield's row count is a single setting for the whole ROM (see
+    // the Options tab's Superchip/pfres controls), not something each
+    // background can override individually.
+    const backgroundRows = computed(() =>
+      effectiveBackgroundRows(configurationStorage && configurationStorage.value));
+
+    // Per-row playfield colors (batari Basic pfcolors) are an all-or-nothing,
+    // project-wide setting (see the Options tab) - once it's on, every
+    // background needs its own color list, since the compiled kernel always
+    // draws every background's playfield from that color table.
+    const pfColorsEnabled = computed(() =>
+      (configurationStorage && configurationStorage.value && configurationStorage.value.enablePfColors) ?? false);
+
+    // Fills in a missing/mismatched-length row color list so every background
+    // has one whenever per-row colors are enabled, without clobbering colors
+    // the user already picked. Left alone (not deleted) while the option is
+    // off, so re-enabling it doesn't lose prior work.
+    const ensureRowColors = (background, rows) => {
+      if (!pfColorsEnabled.value) return;
+      const existing = background.rowColors || [];
+      if (existing.length === rows) return;
+      const next = existing.slice(0, rows);
+      while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
+      background.rowColors = next;
+    };
+
     const state = computed({
       get() {
         try {
-          return processBackgroundStorageDefaults(backgroundsStorage);
+          const data = processBackgroundStorageDefaults(backgroundsStorage);
+          data.backgrounds.forEach((background) => ensureRowColors(background, background.pixels.length));
+          return data;
         } catch (e) {
           console.error('Error loading backgrounds from local storage', e);
           return DEFAULT_BACKGROUNDS;
@@ -120,6 +177,29 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    const handleRowColorsInput = (background, colors) => {
+      background.rowColors = colors;
+      handleChildChange();
+      // The editors hold their own display state, so persisting isn't enough to
+      // repaint the preview — force a re-render so the pixel editor receives the
+      // updated row colors and recolors its canvas.
+      instance.proxy.$forceUpdate();
+    };
+
+    // CSS colors passed to the pixel editor so it can tint each row. Returns
+    // null when per-row colors are off (uniform fgColor). A pure black row
+    // ($00) is nudged to near-black so the editor still counts those pixels
+    // as "on" rather than reading them as the black background.
+    const editorRowColors = (background) => {
+      if (!pfColorsEnabled.value || !background.rowColors) {
+        return null;
+      }
+      return background.rowColors.map((byte) => {
+        const css = colorByteToCss(byte);
+        return css === '#000000' ? '#010101' : css;
+      });
+    };
+
     const instance = getCurrentInstance();
     const handleAddBackground = () => {
       const backgrounds = state.value.backgrounds;
@@ -127,18 +207,7 @@ export default defineComponent({
       const newBackground = {
         id: maxId + 1,
         name: `Background ${maxId + 1}`,
-        pixels: playfieldToMatrix(
-            'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
-            'X....X...................X....X\n' +
-            'X.............................X\n' +
-            'X.............................X\n' +
-            'X.............................X\n' +
-            'X.............................X\n' +
-            'X.............................X\n' +
-            'X.............................X\n' +
-            'X.............................X\n' +
-            'X....X...................X....X\n' +
-            'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
+        pixels: buildDefaultBackgroundPixels(backgroundRows.value),
       };
 
       state.value.backgrounds.push(newBackground);
@@ -155,12 +224,21 @@ export default defineComponent({
     };
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
-      zoom, editorWidth};
+      handleRowColorsInput, editorRowColors,
+      zoom, editorWidth, backgroundRows, pfColorsEnabled};
   },
 });
 </script>
 <style scoped>
 /* max-width is set inline from the zoom factor. */
+
+/* Vuetify sets overflow: hidden on list-item content/subtitle (for text
+   ellipsis), which clips the pixel editor card's shadow on the flush left and
+   bottom edges. Let it show. */
+.editor-container >>> .v-list-item__content,
+.editor-container >>> .v-list-item__subtitle {
+  overflow: visible;
+}
 
 .editor-container {
   position: absolute;
@@ -170,7 +248,19 @@ export default defineComponent({
   width: 100%;
 }
 
+/* Vuetify's fab+absolute+top combo centers the button on its container's top
+   edge, poking half of it out; pull it down so the whole button sits inside
+   the card instead. */
+.delete-btn-inset {
+  top: 8px !important;
+}
+
 .add-frame-buttom {
   bottom: 8px;
+}
+
+/* No drop shadow on floating (absolute-positioned) buttons - delete, add, etc. */
+.v-btn--absolute {
+  box-shadow: none !important;
 }
 </style>

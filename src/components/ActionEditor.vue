@@ -22,6 +22,7 @@ import '../blocks/background';
 import '../blocks/bit';
 import '../blocks/collision';
 import '../blocks/color';
+import '../blocks/data';
 import '../blocks/event';
 import '../blocks/input';
 import '../blocks/loops';

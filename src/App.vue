@@ -38,12 +38,16 @@
           <v-icon>mdi-map</v-icon>
         </v-btn>
 
-        <v-btn to="/sound" link class="sound-item" title="Sound" elevation="0">
-          <v-icon>mdi-speaker</v-icon>
+        <v-btn to="/soundfx" link class="sound-item" title="SoundFX" elevation="0">
+          <v-icon>mdi-waveform</v-icon>
         </v-btn>
 
         <v-btn to="/scorefont" link class="scorefont-item" title="Score" elevation="0">
           <v-icon>mdi-numeric</v-icon>
+        </v-btn>
+
+        <v-btn to="/data" link class="data-item" title="Data" elevation="0">
+          <v-icon>mdi-table</v-icon>
         </v-btn>
 
         <v-btn to="/configuration" link class="configuration-item" title="Options" elevation="0">
@@ -128,15 +132,15 @@
         </v-list-item>
 
         <v-list-item
-          to="/sound"
+          to="/soundfx"
           link
           class="sound-item"
         >
           <v-list-item-icon>
-            <v-icon>mdi-speaker</v-icon>
+            <v-icon>mdi-waveform</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Sound</v-list-item-title>
+            <v-list-item-title>SoundFX</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -150,6 +154,19 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Score</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/data"
+          link
+          class="data-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-table</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Data</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -211,6 +228,7 @@
       <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
       <v-btn
         block
+        class="mt-2"
         :color="romOutdated ? 'warning' : 'primary'"
         :loading="building"
         @click="handleRomUpdate"
@@ -220,6 +238,21 @@
       <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
         Get generated ROM
       </v-btn>
+      <div
+        v-if="romCapacityText"
+        class="rom-capacity"
+        :class="romCapacityLow ? 'rom-capacity-low' : ''"
+        :title="romCapacityTitle"
+      >
+        {{ romCapacityText }}
+      </div>
+      <div
+        v-if="autoRelocatedEventsText"
+        class="rom-capacity"
+        title="This project's code didn't fit in bank 1, so these were automatically moved to another bank to make room."
+      >
+        {{ autoRelocatedEventsText }}
+      </div>
     </v-navigation-drawer>
 
     <v-main class="app-main">
@@ -234,8 +267,12 @@
 
 <script>
 import {useErrorStorage} from './hooks/project';
-import {buildRom, useRomOutdated} from './hooks/rom';
+import {buildRom, useAutoRelocatedEvents, useRomCapacity, useRomOutdated} from './hooks/rom';
 import {name, version} from '../package.json';
+
+// Below this fraction of the bank's usable space remaining, the capacity
+// display switches to a warning color.
+const ROM_CAPACITY_LOW_THRESHOLD = 0.1;
 
 // Javatari renders at a fixed size and never reflows to fit its container, so
 // the emulator is scaled with a CSS transform instead. It picks that size from
@@ -270,7 +307,10 @@ export default {
   setup() {
     const errorStorage = useErrorStorage();
     console.info('Text', version);
-    return {errorStorage, romOutdated: useRomOutdated(), name, version};
+    return {
+      errorStorage, romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
+      autoRelocatedEvents: useAutoRelocatedEvents(), name, version,
+    };
   },
   mounted() {
     this.attachEmulator();
@@ -290,6 +330,45 @@ export default {
         '--emulator-scale': this.emulatorScale,
         'height': this.emulatorHeight === null ? null : `${this.emulatorHeight}px`,
       };
+    },
+    // Reflects the last successful build, not necessarily the current
+    // (possibly-edited-since) project - same staleness the "Update ROM"/"ROM
+    // up to date" button above already has, so no separate warning for it.
+    // Shows the total across every bank the ROM size actually provides (this
+    // is the number that grows when you pick a bigger ROM size), while the
+    // "low" warning still keys off bank 1 specifically - that's the one bank
+    // that always holds the project's unrelocatable main body, so it's the
+    // more actionable signal for "about to need relocation".
+    romCapacityText() {
+      const capacity = this.romCapacity;
+      if (!capacity) return '';
+      return `${capacity.total.freeBytes.toLocaleString()} bytes free`;
+    },
+    romCapacityTitle() {
+      const capacity = this.romCapacity;
+      if (!capacity) return '';
+      const totalUsed = capacity.total.usableBytes - capacity.total.freeBytes;
+      const bank1Used = capacity.bank1.usableBytes - capacity.bank1.freeBytes;
+      return `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
+        `across every bank (bank 1, which always holds your main code, is ` +
+        `${bank1Used.toLocaleString()} of ${capacity.bank1.usableBytes.toLocaleString()} used)`;
+    },
+    romCapacityLow() {
+      const capacity = this.romCapacity;
+      if (!capacity || !capacity.bank1.usableBytes) return false;
+      return capacity.bank1.freeBytes / capacity.bank1.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
+    },
+    autoRelocatedEventsText() {
+      const events = this.autoRelocatedEvents;
+      if (!events || !events.length) return '';
+      const byBank = {};
+      events.forEach(({name, bank}) => {
+        (byBank[bank] || (byBank[bank] = [])).push(name);
+      });
+      return Object.keys(byBank)
+          .sort((a, b) => a - b)
+          .map((bank) => `Bank ${bank}: ${byBank[bank].join(', ')}`)
+          .join(' | ');
     },
   },
   watch: {
@@ -319,7 +398,7 @@ export default {
       }
       container.appendChild(javatariScreen);
       javatariScreen.style = '';
-      this.observeEmulatorSize(container);
+      this.observeEmulatorSize(container, javatariScreen);
       this.updateEmulatorScale();
     },
     // A single measurement is fragile: if it runs while the container's width
@@ -328,7 +407,15 @@ export default {
     // of the drawer. Re-measuring whenever the container's width actually
     // changes makes the height self-correct once layout settles, instead of
     // staying wrong until the user resizes.
-    observeEmulatorSize(container) {
+    //
+    // Also watches the Javatari screen element itself, not just the
+    // container: toggling Javatari's own fullscreen button changes the
+    // screen's *intrinsic* size (screen.offsetWidth/offsetHeight, what the
+    // scale is computed from), without necessarily changing the container's
+    // width - leaving the container-only check above blind to it, so the
+    // scale stayed stuck at whatever it was before fullscreen and the
+    // preview came back the wrong size after exiting.
+    observeEmulatorSize(container, screen) {
       if (this.emulatorResizeObserver || typeof ResizeObserver === 'undefined') {
         return;
       }
@@ -343,12 +430,21 @@ export default {
         window.requestAnimationFrame(() => {
           this.emulatorResizePending = false;
           const width = container.clientWidth;
-          if (width === this.lastEmulatorWidth) return;
+          const screenWidth = screen.offsetWidth;
+          const screenHeight = screen.offsetHeight;
+          if (width === this.lastEmulatorWidth &&
+              screenWidth === this.lastScreenWidth &&
+              screenHeight === this.lastScreenHeight) {
+            return;
+          }
           this.lastEmulatorWidth = width;
+          this.lastScreenWidth = screenWidth;
+          this.lastScreenHeight = screenHeight;
           this.updateEmulatorScale();
         });
       });
       this.emulatorResizeObserver.observe(container);
+      this.emulatorResizeObserver.observe(screen);
     },
     // Listener wrapper, so the event object is not taken as a retry count.
     handleWindowResize() {
@@ -410,6 +506,14 @@ export default {
           buildRom();
         } finally {
           this.building = false;
+          // Loading a new ROM sometimes leaves the preview looking like it
+          // vanished - re-running the same attach/observe logic used on
+          // mount is a cheap, safe way to re-sync regardless of the exact
+          // cause (it re-finds the screen element fresh rather than
+          // trusting a reference that may be stale, and re-attaching an
+          // already-attached element or re-observing an already-observed
+          // one is a no-op).
+          this.attachEmulator();
         }
       }, 0);
     },
@@ -438,6 +542,48 @@ export default {
 #javatari-target-container > #javatari-screen {
   transform: scale(var(--emulator-scale, 1));
   transform-origin: top left;
+}
+
+/* App-wide: no drop shadow on any button or switch toggle - flat, matching
+   the outlined-card style used elsewhere, instead of Vuetify's default
+   elevated look. Global (not scoped) so it reaches every view/component's
+   buttons and switches without editing each one individually. */
+.v-btn {
+  box-shadow: none !important;
+}
+
+.v-input--switch__thumb {
+  box-shadow: none !important;
+}
+
+/* A switch that's off gets a grey outline on its thumb, the same grey as an
+   outlined card's border, so it doesn't read as a flat white blob against
+   the page background. */
+input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
+  border: thin solid rgba(0, 0, 0, 0.12);
+}
+
+/* Shared with the pixel editor toolbar's icons (see PixelEditor.vue) so a
+   delete button's rest state matches them, instead of standing out as an
+   always-red trash can. */
+:root {
+  --editor-icon-rest-color: rgba(0, 0, 0, 0.38);
+}
+
+/* Delete buttons (trash icon, top-right of a graphics/data/sound card): the
+   same muted grey as the pixel editor toolbar icons at rest, turning red
+   only on hover - and never a filled circle behind it, at rest or on
+   hover (Vuetify's default hover/focus overlay is suppressed here). */
+.delete-icon-btn {
+  color: var(--editor-icon-rest-color) !important;
+}
+
+.delete-icon-btn:hover {
+  color: red !important;
+}
+
+.delete-icon-btn::before {
+  background-color: transparent !important;
 }
 </style>
 <style scoped>
@@ -519,6 +665,13 @@ export default {
   border-left-color: rgb(156, 39, 176) !important;
 }
 
+.data-item,
+.data-item > .v-list-item__icon > .theme--light.v-icon,
+.data-item > .v-list-item__content {
+  color: rgb(121, 85, 72) !important;
+  border-left-color: rgb(121, 85, 72) !important;
+}
+
 .scorefont-item,
 .scorefont-item > .v-list-item__icon > .theme--light.v-icon,
 .scorefont-item > .v-list-item__content {
@@ -545,6 +698,19 @@ export default {
 .project-item > .v-list-item__content {
   color: rgb(39, 136, 176) !important;
   border-left-color: rgb(39, 136, 176) !important;
+}
+
+.rom-capacity {
+  text-align: center;
+  font-size: 0.8em;
+  opacity: 0.7;
+  margin-top: 6px;
+}
+
+.rom-capacity-low {
+  opacity: 1;
+  color: rgb(244, 67, 54);
+  font-weight: bold;
 }
 
 .error-message {

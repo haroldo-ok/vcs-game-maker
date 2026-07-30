@@ -13,15 +13,54 @@
 import Blockly from 'blockly/core';
 import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
-import {sumBy} from 'lodash';
+import {sumBy, chunk} from 'lodash';
 
-import {useBackgroundsStorage, useConfigurationStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
-import {processBackgroundStorageDefaults} from '../blocks/background';
+import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
+import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults} from '../blocks/background';
+import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
+import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
+
+// The app's own bookkeeping variables, and the letters they're aliased to on
+// the standard (non-Superchip) kernel. Without Superchip RAM, batari Basic's
+// playfield buffer physically occupies the same zero-page bytes as var0-var43
+// (playfieldbase = var0's address), so those "var" slots aren't safe to use -
+// only 26 single letters are available, and these 14 claim most of them.
+//
+// With Superchip enabled, the playfield buffer moves to the separate SARA
+// chip RAM page instead, freeing var0-var43 (plus var44-var47, which are
+// always free). Moving these system variables into var0-13 there instead of
+// letters frees all 26 letters for user variables - see generateSystemDims
+// and the letter pool below.
+export const SYSTEM_VARIABLES = [
+  ['player0frame', 'x'],
+  ['player1frame', 'z'],
+  ['newbackground', 'y'],
+  ['loopcounter', 'w'],
+  ['channnel0duration', 'v'],
+  ['channnel1duration', 'u'],
+  ['player0size', 't'],
+  ['player1size', 's'],
+  ['player0realcolor', 'r'],
+  ['player1realcolor', 'q'],
+  ['playfieldrealcolor', 'm'],
+  ['player0animation', 'p'],
+  ['player1animation', 'o'],
+  ['framecounter', 'n'],
+];
+
+const ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
+const SYSTEM_VARIABLE_LETTERS = SYSTEM_VARIABLES.map(([, letter]) => letter);
+
+// Letters left over for user-created variables when Superchip is off (the
+// system variables above claim the rest). All 26 are available when
+// Superchip is on, since the system variables move into var0-13 instead.
+export const USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP =
+  ALL_LETTERS.filter((letter) => !SYSTEM_VARIABLE_LETTERS.includes(letter));
 
 /**
  * JavaScript code generator.
@@ -158,10 +197,21 @@ Blockly.BBasic.init = function(workspace) {
         Blockly.VARIABLE_CATEGORY_NAME));
   }
 
-  // Declare all of the variables.
+  // Declare all of the variables. Without Superchip, the system variables
+  // above claim most of the alphabet, leaving only
+  // USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free; with it, the system
+  // variables move into var0-13 instead, freeing every letter.
   if (defvars.length) {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const availableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
+    if (defvars.length > availableLetters.length) {
+      throw new Error(`Too many variables: this project defines ${defvars.length}, but only ` +
+        `${availableLetters.length} are available${config.enableSuperchip ? '' :
+          ' (enable Superchip RAM on the Options tab to unlock more)'}.`);
+    }
     this.definitions_['variables'] = defvars
-        .map((v, i) => `  dim ${v} = ${String.fromCharCode('a'.charCodeAt(0) + i)}`)
+        .map((v, i) => `  dim ${v} = ${availableLetters[i]}`)
         .join('\n');
   }
 
@@ -175,7 +225,257 @@ Blockly.BBasic.init = function(workspace) {
 
   this.gameEvents = {};
 
+  // Bank-switching support (see getEventBank/bankJumpSuffix below): which
+  // event's blocks are currently being generated (null/unset means "the main
+  // per-frame loop", which is never relocatable - see the bank-targeting
+  // feasibility notes), and which banks each data table has actually been
+  // read from, discovered as data_get_element blocks are generated.
+  this.currentEventName = null;
+  this.dataTableBankUsage = {};
+
+  // Bank-switching support for graphics (see wrapRelocatableGraphics below):
+  // populated as generateBackgrounds()/generateAnimations() run during
+  // finish(), keyed by a per-background/per-animation unit key.
+  this.relocatableGraphicsUnits = {};
+
+  // User-defined subroutines (see generators/bbasic/subroutine.js): name ->
+  // body, populated as subroutine_define blocks are walked, then spliced
+  // into their own section by generateSubroutines() below.
+  this.subroutines = {};
+
   this.isInitialized = true;
+};
+
+// Every event defaults to bank 1 (the only bank this app used before
+// bank-switching support existed) unless the project's configuration
+// explicitly assigns it elsewhere. This is intentionally the only place that
+// reads eventBanks, so every other bank-aware call site stays correct
+// automatically as the assignment strategy evolves.
+Blockly.BBasic.getEventBank = function(eventName) {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const eventBanks = config.eventBanks || {};
+  return eventBanks[eventName] || 1;
+};
+
+// The bank the code currently being generated will end up in - either the
+// event currently being walked, or bank 1 if this is the main per-frame loop
+// (which is not relocatable; see the bank-targeting feasibility notes).
+Blockly.BBasic.getCurrentBank = function() {
+  return Blockly.BBasic.getEventBank(Blockly.BBasic.currentEventName || 'gameplay_start');
+};
+
+// batari Basic only crosses banks when a goto/gosub is explicitly tagged
+// with "bankN" - it never infers this, and there is no compiler check that
+// catches a missing or wrong tag (see the bank-targeting feasibility notes:
+// this is exactly the class of mistake the docs warn silently returns wrong
+// data/jumps to the wrong place). Centralizing the decision here means every
+// call site (event_change_state, data table reads, the relocated-event
+// template scaffolding) computes it identically.
+Blockly.BBasic.bankJumpSuffix = function(fromBank, toBank) {
+  return fromBank === toBank ? '' : ` bank${toBank}`;
+};
+
+// Every graphics unit (one per background, one per player's "hidden" default
+// frame, one per named animation - see wrapRelocatableGraphics) defaults to
+// bank 1 unless the project's configuration explicitly assigns it elsewhere,
+// mirroring getEventBank. A separate config key from eventBanks since the
+// unit keys (e.g. "background1", "player0animation0") are generated from
+// project content, not fixed like the event names.
+Blockly.BBasic.graphicsUnitBank = function(unitKey) {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const graphicsBanks = config.graphicsBanks || {};
+  return graphicsBanks[unitKey] || 1;
+};
+
+// Backgrounds and animations are each a single inline call site immediately
+// followed by a label the caller already places after the payload (an
+// "end-of-block" label, not a fallthrough neighbor the way events have) -
+// so unlike RELOCATABLE_EVENTS, there's no entryFallthroughBank/exit-target
+// bookkeeping needed here: relocating one of these only ever replaces its own
+// payload with a bank-tagged goto/return pair, never touches a neighbor.
+//
+// Always records the unit's payload (even when it stays in bank 1) so
+// estimateGraphicsUnitSize can measure it after generation - the allocator
+// needs sizes for units currently still in bank 1 to decide what to move
+// next (see rom.js's pickRelocationCandidate).
+Blockly.BBasic.wrapRelocatableGraphics = function(unitKey, payload) {
+  const bank = Blockly.BBasic.graphicsUnitBank(unitKey);
+  Blockly.BBasic.relocatableGraphicsUnits[unitKey] = {bank, payload};
+  if (bank === 1) return payload;
+
+  const entryLabel = `${unitKey}_reloc_entry`;
+  const returnLabel = `${unitKey}_reloc_return`;
+  return ` goto ${entryLabel} bank${bank}\n${returnLabel}`;
+};
+
+// A graphics unit's payload length, as a rough, fast proxy for its compiled
+// size - same rationale as estimateEventSize. Only meaningful after
+// generateBackgrounds()/generateAnimations() have populated
+// relocatableGraphicsUnits for the current build.
+Blockly.BBasic.estimateGraphicsUnitSize = function(unitKey) {
+  const unit = Blockly.BBasic.relocatableGraphicsUnits[unitKey];
+  return unit ? unit.payload.length : 0;
+};
+
+// Every graphics unit key seen in the current build - dynamic (depends on how
+// many backgrounds/animations the project defines), unlike
+// RELOCATABLE_EVENT_NAMES's fixed list. Only valid after a regenerateCode()
+// call.
+Blockly.BBasic.getGraphicsUnitKeys = function() {
+  return Object.keys(Blockly.BBasic.relocatableGraphicsUnits);
+};
+
+// Records that a data table was read while generating code for the given
+// bank, so generateDataTables() knows which banks need their own copy of it
+// (a table can only be read correctly from the same bank it's declared in -
+// see the bank-targeting feasibility notes and the Data tab's read-only
+// caveat). Tables never read from anywhere still get a bank 1 copy, matching
+// this app's behavior before bank-switching support existed.
+Blockly.BBasic.trackDataTableBank = function(tableId, bank) {
+  const usage = Blockly.BBasic.dataTableBankUsage[tableId] || (Blockly.BBasic.dataTableBankUsage[tableId] = new Set());
+  usage.add(bank);
+};
+
+// Fixed knowledge about how each of these five events is entered/exited in
+// the default, fully-inline template, needed to convert a physical
+// fallthrough into an explicit bank-tagged jump once relocation moves an
+// event away from its neighbor (system_start is not relocatable - it's tiny,
+// always runs first, right after fixed setup code with no label of its own
+// to jump from, and not a meaningful relocation target).
+//
+// Each event owns an independent splice point in bbasic.bb.hbs, so relocating
+// one only ever needs to change that event's OWN entry/exit - never a
+// neighbor's generated content. A neighbor that stays inline still just
+// falls through into whatever now physically occupies this event's slot
+// (real code, or a short redirect jump), and every cross-reference here is
+// by label, which DASM resolves globally regardless of physical position -
+// so neighbors never need to know or care whether this event moved.
+//
+// entryFallthroughBank: null means the event is only ever entered via
+// event_change_state (already bank-tagged on its own - see event.js), so
+// nothing physically falls into its splice point and relocating it just
+// empties that slot. Otherwise a function returning the bank of whatever
+// precedes it by fallthrough in the unrelocated template.
+//
+// exit: what it falls through to once its own code finishes - a fixed
+// template label (always bank 1) or another event's begin label. Always
+// applied when relocated, even for the looping title_update: normally its
+// self-loop never falls off the end, but if it's ever completely empty, the
+// wrapping in generateGameEvent still emits bare begin/end labels with
+// nothing between them, and without an explicit exit that would fall
+// straight into whatever follows in that bank (its own data tables, or the
+// bank-switch back to 1) as if it were code.
+const RELOCATABLE_EVENTS = {
+  title_start: {
+    loop: false,
+    entryFallthroughBank: () => 1, // precedes it: the fixed "fullgameloop" label
+    exit: {label: 'title_update_begin', bank: () => Blockly.BBasic.getEventBank('title_update')},
+  },
+  title_update: {
+    loop: true,
+    entryFallthroughBank: () => Blockly.BBasic.getEventBank('title_start'),
+    exit: {label: 'gameplay_start_begin', bank: () => Blockly.BBasic.getEventBank('gameplay_start')},
+  },
+  gameplay_start: {
+    loop: false,
+    entryFallthroughBank: () => Blockly.BBasic.getEventBank('title_update'),
+    exit: {label: 'main', bank: () => 1}, // fixed, always bank 1
+  },
+  gameover_start: {
+    loop: false,
+    entryFallthroughBank: null, // only entered via event_change_state; "goto main" always precedes this slot, never falling into it
+    exit: {label: 'gameover_update_begin', bank: () => Blockly.BBasic.getEventBank('gameover_update')},
+  },
+  gameover_update: {
+    loop: false,
+    entryFallthroughBank: () => Blockly.BBasic.getEventBank('gameover_start'),
+    exit: {label: 'fullgameloop', bank: () => 1}, // fixed, always bank 1
+  },
+};
+
+export const RELOCATABLE_EVENT_NAMES = Object.keys(RELOCATABLE_EVENTS);
+
+// A generated event's source length, as a rough, fast proxy for its compiled
+// size - used to rank relocation candidates without a full trial build for
+// each one. Not exact (bBasic source length only loosely tracks assembled
+// bytes), but cheap and good enough to pick "the biggest one" reasonably.
+Blockly.BBasic.estimateEventSize = function(eventName) {
+  const codeArray = Blockly.BBasic.gameEvents[eventName] || [];
+  return codeArray.join('\n\n').length;
+};
+
+// Normally (bank 1, the default) returns the event inlined exactly where it
+// has always been, unchanged. Once assigned elsewhere (see getEventBank),
+// the inline spot instead gets a single bank-tagged "goto" to it (or nothing
+// at all, for an event with no fallthrough entry), and the event's real code
+// - plus an explicit bank-tagged exit jump replacing the fallthrough it can
+// no longer rely on - is returned as "body" for the caller to place in that
+// bank's own section (see generateRelocatedEventSections): every event
+// sharing a bank has to land in ONE contiguous "bank N ... bank 1" block,
+// not one such block per event - confirmed directly against the compiler
+// that declaring the same bank number twice, non-contiguously, breaks
+// (reported as a segment overflow), presumably because the bank pseudo-op
+// continues addressing from wherever the source was up to, rather than
+// resuming that bank's own address range.
+Blockly.BBasic.generateRelocatableEvent = function(eventName) {
+  const spec = RELOCATABLE_EVENTS[eventName];
+  const bank = Blockly.BBasic.getEventBank(eventName);
+  const generate = () => spec.loop ?
+    Blockly.BBasic.generateGameLoopEvent(eventName) :
+    Blockly.BBasic.generateGameEvent(eventName);
+
+  if (bank === 1) {
+    return {inlineEvent: generate(), bank, body: ''};
+  }
+
+  const fromBank = spec.entryFallthroughBank ? spec.entryFallthroughBank() : null;
+  const inlineEvent = fromBank === null ? '' :
+    ` goto ${eventName}_begin${Blockly.BBasic.bankJumpSuffix(fromBank, bank)}`;
+
+  const eventCode = generate();
+  const exitJump = spec.exit ?
+    ` goto ${spec.exit.label}${Blockly.BBasic.bankJumpSuffix(bank, spec.exit.bank())}` : '';
+  const body = [eventCode, exitJump].filter(Boolean).join('\n\n');
+
+  return {inlineEvent, bank, body};
+};
+
+// Groups every relocated event's body (see generateRelocatableEvent) AND
+// every relocated graphics unit's payload (see wrapRelocatableGraphics) by
+// bank into one contiguous "bank N ... bank 1" section per bank actually
+// used, each including that bank's own copies of any data tables read from
+// it (generateDataTables(bank) already de-duplicates across everything
+// sharing the bank, so this calls it once per bank). Events and graphics
+// units sharing a bank have to land in the SAME section, not one each -
+// confirmed directly against the compiler that declaring the same bank
+// number twice, non-contiguously, breaks (reported as a segment overflow),
+// presumably because the bank pseudo-op continues addressing from wherever
+// the source was up to, rather than resuming that bank's own address range.
+Blockly.BBasic.generateRelocatedSections = function(eventResults) {
+  const graphicsUnits = Blockly.BBasic.relocatableGraphicsUnits;
+  const graphicsEntries = Object.entries(graphicsUnits);
+
+  const banks = [...new Set([
+    ...eventResults.map((r) => r.bank),
+    ...graphicsEntries.map(([, unit]) => unit.bank),
+  ])].filter((bank) => bank !== 1);
+
+  return banks.map((bank) => {
+    const eventBodies = eventResults.filter((r) => r.bank === bank).map((r) => r.body).filter(Boolean);
+    const graphicsBodies = graphicsEntries
+        .filter(([, unit]) => unit.bank === bank)
+        .map(([key, unit]) => `${key}_reloc_entry\n${unit.payload}\n goto ${key}_reloc_return bank1`);
+    const tablesForBank = Blockly.BBasic.generateDataTables(bank);
+    return [
+      ` bank ${bank}`,
+      ...eventBodies,
+      ...graphicsBodies,
+      tablesForBank,
+      ` bank 1`,
+    ].filter(Boolean).join('\n\n');
+  }).join('\n\n');
 };
 
 /**
@@ -196,23 +496,32 @@ Blockly.BBasic.finish = function(code) {
 
   const generatedConfiguration = Blockly.BBasic.generateConfiguration();
   const generatedRomSize = Blockly.BBasic.generateRomSize();
+  const generatedSystemDims = Blockly.BBasic.generateSystemDims();
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
+  const generatedDataTables = Blockly.BBasic.generateDataTables(1);
+  const generatedSubroutines = Blockly.BBasic.generateSubroutines();
 
   const systemStartEvent = this.generateGameEvent('system_start');
-  const titleStartEvent = this.generateGameEvent('title_start');
-  const titleUpdateEvent = this.generateGameLoopEvent('title_update');
-  const gamePlayStartEvent = this.generateGameEvent('gameplay_start');
-  const gameOverStartEvent = this.generateGameEvent('gameover_start');
-  const gameOverUpdateEvent = this.generateGameEvent('gameover_update');
+  const relocatable = Object.fromEntries(
+      RELOCATABLE_EVENT_NAMES.map((name) => [name, Blockly.BBasic.generateRelocatableEvent(name)]));
+  const titleStartEvent = relocatable.title_start.inlineEvent;
+  const titleUpdateEvent = relocatable.title_update.inlineEvent;
+  const gamePlayStartEvent = relocatable.gameplay_start.inlineEvent;
+  const gameOverStartEvent = relocatable.gameover_start.inlineEvent;
+  const gameOverUpdateEvent = relocatable.gameover_update.inlineEvent;
+  const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
+      RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
-  return handlebarsTemplate({generatedBody, generatedBackgrounds, generatedAnimations,
+  return handlebarsTemplate({generatedBody, generatedBackgrounds,
+    generatedAnimations, generatedDataTables,
+    generatedSubroutines, generatedRelocatedEvents,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize});
+    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims});
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -404,15 +713,67 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
   });
 };
 
+// Reads the stored backgrounds, applying defaults, or null if they can't load.
+Blockly.BBasic.getBackgroundsData = function() {
+  try {
+    return processBackgroundStorageDefaults(useBackgroundsStorage());
+  } catch (e) {
+    console.error('Failed to load backgrounds', e);
+    return null;
+  }
+};
+
+// Whether generated code should include per-row playfield colors (pfcolors).
+// This is an all-or-nothing project setting (the "enablePfColors" option on
+// the Options tab): once it's on, the Background editor requires every
+// background to have its own row color list, since the compiled kernel
+// always draws every background's playfield from the same color table.
+//
+// Off while Superchip RAM is enabled. buildRom's compiler-output patch (see
+// patchSuperchipPfColorsPointer in hooks/rom.js) fixes most of the pfcolors +
+// Superchip breakage, but the very last row still renders black, and with
+// more than one background the colors come out wrong and the black area
+// returns - not fully root-caused yet, so the combination is disabled again
+// until that's sorted out.
+Blockly.BBasic.usePlayfieldRowColors = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (config.enableSuperchip) return false;
+  return config.enablePfColors ?? false;
+};
+
+// ROM sizes the standard kernel actually bankswitches (see
+// BANK_COUNT_BY_ROMSIZE in hooks/rom.js - duplicated here in miniature
+// rather than imported, since rom.js already imports from this file and
+// importing back would be circular).
+const BANKSWITCHED_ROM_SIZES = ['8k', '16k', '32k'];
+
+// Whether to inline calls to the random number generator ("set optimization
+// inlinerand") instead of calling a shared routine. The docs describe this
+// as "particularly useful for bankswitched games" (a shared rand routine
+// would otherwise need a bank-switching call every time), so the Options
+// tab only allows enabling it when the project's ROM size actually
+// bankswitches - see Configuration.vue.
+Blockly.BBasic.useInlineRand = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (!BANKSWITCHED_ROM_SIZES.includes(config.romSize)) return false;
+  return config.enableInlineRand ?? false;
+};
+
 Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
-  if (!configurationStorage || !configurationStorage.value) {
-    return '';
-  }
+  const config = (configurationStorage && configurationStorage.value) || {};
 
-  const {showScore, showBlankLines, scoreFont} = configurationStorage.value;
+  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres} = config;
 
-  const kernelOptionsConfigurationCode = (showBlankLines ?? true) ? '' : 'set kernel_options no_blank_lines';
+  // batari Basic honours a single "set kernel_options" line, so every option
+  // has to go on it together.
+  const kernelOptions = [];
+  if (this.usePlayfieldRowColors()) kernelOptions.push('pfcolors');
+  if (!(showBlankLines ?? true)) kernelOptions.push('no_blank_lines');
+  const kernelOptionsConfigurationCode = kernelOptions.length ?
+    `set kernel_options ${kernelOptions.join(' ')}` : '';
   const scoreConfigurationCode = (showScore ?? true) ? '' : 'const noscore = 1';
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
@@ -422,10 +783,22 @@ Blockly.BBasic.generateConfiguration = function() {
     scoreFont === CUSTOM_SCORE_FONT ?
       'rem Custom score font: digits are supplied by the compiler include.' :
       `const font = ${scoreFont}`;
+  // pfres raises the playfield's vertical resolution above the standard
+  // kernel's default; it requires the extra RAM Superchip provides (see
+  // generateRomSize), and is a single ROM-wide setting, not per-background.
+  const pfresConfigurationCode = (enableSuperchip && pfres) ? `const pfres = ${pfres}` : '';
+  // Unlike kernel_options, "set optimization" lines can't be combined on one
+  // line - each option needs its own "set optimization X" statement.
+  const optimizationLines = [];
+  if (config.enableOptimizationSpeed) optimizationLines.push('set optimization speed');
+  if (this.useInlineRand()) optimizationLines.push('set optimization inlinerand');
+  const optimizationConfigurationCode = optimizationLines.join('\n ');
   return [
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
     scoreFontConfigurationCode,
+    pfresConfigurationCode,
+    optimizationConfigurationCode,
   ].join('\n ');
 };
 
@@ -433,32 +806,183 @@ const SUPPORTED_ROM_SIZES = ['2k', '4k', '8k', '16k', '32k'];
 
 Blockly.BBasic.generateRomSize = function() {
   const configurationStorage = useConfigurationStorage();
-  const romSize = configurationStorage && configurationStorage.value && configurationStorage.value.romSize;
-  return `set romsize ${SUPPORTED_ROM_SIZES.includes(romSize) ? romSize : '4k'}`;
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const romSize = SUPPORTED_ROM_SIZES.includes(config.romSize) ? config.romSize : '4k';
+  // Superchip RAM (needed for pfres above the standard kernel's default) is
+  // enabled by appending SC to the rom size, e.g. "set romsize 8kSC".
+  const superchipSuffix = config.enableSuperchip ? 'SC' : '';
+  return `set romsize ${romSize}${superchipSuffix}`;
+};
+
+// See the SYSTEM_VARIABLES comment above: without Superchip these bookkeeping
+// variables sit on letters, since the standard kernel's playfield buffer
+// occupies var0-43; with Superchip that buffer moves to the SARA chip RAM
+// page instead, so these move into var0-13, freeing every letter for user
+// variables (see Blockly.BBasic.init).
+Blockly.BBasic.generateSystemDims = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  return SYSTEM_VARIABLES
+      .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
+      .join('\n');
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
-  const backgroundsStorage = useBackgroundsStorage();
-
-  let backgroundData = null;
-  try {
-    backgroundData = processBackgroundStorageDefaults(backgroundsStorage);
-  } catch (e) {
-    console.error('Failed to load backgrounds', e);
-  }
-
+  const backgroundData = this.getBackgroundsData();
   const backgrounds = backgroundData && backgroundData.backgrounds;
+
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
 
   const convertPlayfield = (playField) =>
     playField.split('\n').map((line) => '  ' + line).join('\n');
 
-  return backgrounds.map(({id, pixels}) => {
+  // A "pfcolors:" block sets the playfield colors at runtime when execution
+  // reaches it, so emitting one inside each background's swap conditional gives
+  // every background its own colors. One color per playfield row, top to
+  // bottom. Rows without an explicit color fall back to the default so that
+  // switching to an uncolored background doesn't leave stale colors behind.
+  //
+  // batari Basic has a documented bug where the playfield's top row doesn't
+  // pick up the pfcolors table - it keeps showing whatever COLUPF already held
+  // when drawscreen ran. commongamelogic sets "COLUPF = playfieldrealcolor"
+  // every frame (to restore it after the score routine stomps on it), so
+  // assigning that same variable here, once, when a colored background is
+  // selected, makes the existing per-frame restore also carry the correct top
+  // row color - no need to re-run pfcolors: every frame.
+  //
+  // The compiler's row/color table is actually sized for 12 rows, not 11 -
+  // the standard kernel's default is documented as effectively pfres=12: 11
+  // visible rows plus one further row that's technically off-screen (used
+  // to keep pfscroll smooth). Supplying only 11 colors leaves that 12th slot
+  // reading whatever ROM byte happens to follow, which shows up as two
+  // different-looking bugs depending on which kernel is drawing the
+  // playfield:
+  //
+  // - Blank lines shown (the default, "no_blank_lines" off): compiling a
+  //   pfcolors: block special-cases row 1 (into the COLUPF write above) and
+  //   stores the remaining rows in a ROM table, but the kernel's last
+  //   scanline read of that table reads one slot past the end of it -
+  //   landing on that stray byte, hence a black bottom row instead of the
+  //   color that was meant to keep displaying there. Confirmed by compiling
+  //   a test program and inspecting the generated assembly directly.
+  //   Repeating the last row's color as a 12th entry gives that stray read
+  //   a valid (and correct) value to land on.
+  //
+  // - "no_blank_lines" on: the missing 12th entry instead crushes the FIRST
+  //   row's real display height down to a couple of scanlines, making it
+  //   barely visible (confirmed by precise pixel sampling in the emulator).
+  //   Duplicating the first row's color as an extra leading entry - keeping
+  //   all 11 original colors after it, none dropped - fixes it the same
+  //   way: the sliver and the row after it read as one normal first row.
+  const usePfColors = this.usePlayfieldRowColors();
+  const blankLinesShown = config.showBlankLines ?? true;
+  const buildPfcolors = (pixels, rowColors) => {
+    const resolved = [];
+    for (let i = 0; i < pixels.length; i++) {
+      resolved.push((rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_ROW_COLOR);
+    }
+    const outputBytes = blankLinesShown ?
+      resolved.concat([resolved[resolved.length - 1]]) :
+      [resolved[0]].concat(resolved);
+    const rows = outputBytes.map((byte) => '  ' + colorByteToBBasic(byte));
+    return ' pfcolors:\n' + rows.join('\n') + '\nend\n' +
+      ` playfieldrealcolor = ${colorByteToBBasic(resolved[0])}\n`;
+  };
+
+  return backgrounds.map(({id, pixels, rowColors}) => {
     const endLabel = `background${id}end`;
+    const pfcolorsBlock = usePfColors ? buildPfcolors(pixels, rowColors) : '';
+    const payloadLines = [
+      ' playfield:',
+      convertPlayfield(matrixToPlayfield(pixels)),
+      'end',
+    ];
+    if (pfcolorsBlock) payloadLines.push(pfcolorsBlock.replace(/\n$/, ''));
+    const payload = payloadLines.join('\n');
+    // Only the graphics payload itself is relocatable - the guard above and
+    // the endLabel below stay inline in bank 1 no matter what, since a
+    // conditional "goto" (like any goto) needs an explicit bank tag to cross
+    // banks, and neither of those ever does: this background's guard/label
+    // pair are only ever reached from within bank 1's own commongamelogic.
     return ` if newbackground <> ${id} then goto ${endLabel}` + '\n' +
-      ' playfield:\n' +
-      convertPlayfield(matrixToPlayfield(pixels)) + '\n' +
-      'end\n' +
+      Blockly.BBasic.wrapRelocatableGraphics(`background${id}`, payload) + '\n' +
       endLabel;
+  }).join('\n\n');
+};
+
+// Reads the stored data tables, applying defaults, or null if they can't
+// load.
+Blockly.BBasic.getDataTablesData = function() {
+  try {
+    return processDataTablesStorageDefaults(useDataTablesStorage());
+  } catch (e) {
+    console.error('Failed to load data tables', e);
+    return null;
+  }
+};
+
+// batari Basic's "data" statement declares a read-only ROM table, not
+// executable code - unlike playfield/pfcolors blocks, which are only safe
+// because generateBackgrounds() guards them with a runtime "goto" so they're
+// never fallen into. A data block has no such guard, so this only gets spliced
+// into a spot in bbasic.bb.hbs that is never reached by falling off the end of
+// the main loop (see the "Data tables" section at the end of that template).
+//
+// This string is spliced into the hbs template directly (like
+// generateBackgrounds()/generateAnimations()), never passing through
+// normalizeIndents() - so indentation has to be written literally here. The
+// compiler requires the opposite of what "end" needs elsewhere in this file:
+// "data <name>" and its value rows must be indented, but "end" must sit at
+// column 0 - confirmed by testing directly against the bundled compiler,
+// since getting either one backwards produces a graceful "Unknown keyword"
+// compile error rather than a parse failure.
+// A table can only be read correctly from the same bank it's declared in
+// (see dataTableSymbolName/trackDataTableBank), so each bank that reads a
+// table needs its own physical copy, emitted alongside whatever else lives
+// in that bank - callers pass the bank they're currently emitting content
+// for (bank 1's copies go in the shared "Data tables" section below; a
+// relocated event's own bank gets its copies alongside that event's code).
+// A table nothing ever read still gets a bank 1 copy, matching this app's
+// behavior before bank-switching support existed.
+Blockly.BBasic.generateDataTables = function(bank) {
+  const data = Blockly.BBasic.getDataTablesData();
+  if (!data) return '';
+
+  return data.dataTables
+      .filter((table) => table.values && table.values.length)
+      .filter((table) => {
+        const usage = Blockly.BBasic.dataTableBankUsage[table.id];
+        return usage ? usage.has(bank) : bank === 1;
+      })
+      .map((table) => {
+        const name = dataTableSymbolName(table, bank);
+        const rows = chunk(table.values, 16).map((row) => '  ' + row.join(', '));
+        return ` data ${name}\n${rows.join('\n')}\nend`;
+      })
+      .join('\n\n');
+};
+
+// Splices every user-defined subroutine (see subroutine_define in
+// generators/bbasic/subroutine.js) into its own "label / body / return"
+// block. Placed in bbasic.bb.hbs right after commongamelogic's own "return" -
+// the same never-fallen-into spot data tables use, for the same reason: nothing
+// above ever runs off the end into it, everything either loops back with
+// "goto" or returns from a "gosub".
+//
+// Each entry gets its own normalizeIndents() pass (like generateGameEvent) -
+// unlike generateBackgrounds/generateAnimations/generateDataTables, a
+// subroutine's body comes from ordinary statementToCode() output (block-level
+// generators returning un-normalized lines), not literal strings built by
+// hand, so it still needs the same indent pass every other block-sourced
+// body gets in the main code (see finish()).
+Blockly.BBasic.generateSubroutines = function() {
+  return Object.entries(Blockly.BBasic.subroutines).map(([name, body]) => {
+    return Blockly.BBasic.normalizeIndents([
+      `@${name}`,
+      body,
+      'return',
+    ].join('\n'));
   }).join('\n\n');
 };
 
@@ -515,11 +1039,15 @@ Blockly.BBasic.generateAnimations = function() {
     const animationsEndLabel = `${animationsLabel}End`;
     const getAnimationStartLabel = (animationIndex) => `${name}animation${animationIndex}Start`;
 
+    // Only the sprite payload itself is relocatable - the guard/label pair
+    // around it stays inline in bank 1 no matter what (see the matching note
+    // in generateBackgrounds): a bare "goto animationsStartLabel"/"goto
+    // animationsEndLabel" only ever needs a bank tag if the LABEL it targets
+    // physically moves, and neither of these ever does.
+    const hiddenPayload = [`  ${name}:`, `  %00000000`, `end`].join('\n');
     const hiddenplayerHandler = [
       `  if ${name}frame <> 255 then goto ${animationsStartLabel}`,
-      `  ${name}:`,
-      `  %00000000`,
-      `end`,
+      Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload),
       `  goto ${animationsEndLabel}\n`,
       animationsStartLabel,
     ].join('\n');
@@ -532,8 +1060,14 @@ Blockly.BBasic.generateAnimations = function() {
       }).join('\n') +
       '\n\n' +
       playerData.animations.map((animation, animationIndex) => {
+        const unitKey = `${name}animation${animationIndex}`;
+        const payload = processAnimation(name, animation, animationIndex);
+        // Same rationale as hiddenplayerHandler above: this label stays
+        // inline in bank 1 regardless of where the animation's own frames
+        // end up, so the dispatch conditions above (and this exit) never
+        // need a bank tag of their own.
         return `${getAnimationStartLabel(animationIndex)}\n\n` +
-          processAnimation(name, animation, animationIndex) +
+          Blockly.BBasic.wrapRelocatableGraphics(unitKey, payload) +
           `\n  goto ${animationsEndLabel}`;
       }).join('\n\n') +
       `\n\n${animationsEndLabel}`;
@@ -548,6 +1082,7 @@ import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';
 import colour from './bbasic/colour';
+import data from './bbasic/data';
 import event from './bbasic/event';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
@@ -557,12 +1092,14 @@ import procedures from './bbasic/procedures';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
+import soundfx from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
+import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
 import variables from './bbasic/variables';
 
-[background, bit, collision, color, colour, event, input, logic, loops, math, procedures,
-  random, score, sound, sprites, text, variables]
+[background, bit, collision, color, colour, data, event, input, logic, loops, math, procedures,
+  random, score, sound, soundfx, sprites, subroutine, text, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;

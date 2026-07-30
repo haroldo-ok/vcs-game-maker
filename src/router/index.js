@@ -35,9 +35,19 @@ const routes = [
     component: () => import('../views/BackgroundEditor.vue'),
   },
   {
+    path: '/soundfx',
+    name: 'SoundFX',
+    component: () => import('../views/SoundFXEditor.vue'),
+  },
+  {
     path: '/scorefont',
     name: 'Score',
     component: () => import('../views/ScoreFontEditor.vue'),
+  },
+  {
+    path: '/data',
+    name: 'Data',
+    component: () => import('../views/DataEditor.vue'),
   },
   {
     path: '/configuration',

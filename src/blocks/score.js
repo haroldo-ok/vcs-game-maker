@@ -186,4 +186,96 @@ Blockly.defineBlocksWithJsonArray([
     'colour': SCORE_COLOR,
     'extensions': ['math_change_tooltip'],
   },
+  // Block for setting a score bar as a plain "N units filled" health bar,
+  // instead of a raw binary pattern.
+  {
+    'type': `score_bar_set_health`,
+    'message0': `${SCORE_ICON} Score Bar %1: set health to: %2 (0-8)`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': SCORE_BAR_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Enables the playfield score bars, and fills a bar with a solid block of the given ` +
+      `width, growing outward from the score (0 = empty, 8 = completely full). Use 0 to 8.`,
+  },
+  // Block for setting a score bar as a plain "N lives" dot indicator,
+  // instead of a raw binary pattern.
+  {
+    'type': `score_bar_set_lives`,
+    'message0': `${SCORE_ICON} Score Bar %1: set lives to: %2 (0-4)`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': SCORE_BAR_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Enables the playfield score bars, and fills a bar with the given number of evenly ` +
+      `spaced dots, growing outward from the score. Use 0 to 4.`,
+  },
+  // Block for changing a health-style score bar by a number of units.
+  {
+    'type': `score_bar_change_health`,
+    'message0': `${SCORE_ICON} Score Bar %1: change health by: %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': SCORE_BAR_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'DELTA',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Grows or shrinks a health-style score bar by the given number of units (a literal ` +
+      `negative number shrinks it - a variable amount can only grow it, since the bar has no ` +
+      `separate stored "current value" to read a sign from).`,
+  },
+  // Block for changing a lives-style score bar by a number of dots.
+  {
+    'type': `score_bar_change_lives`,
+    'message0': `${SCORE_ICON} Score Bar %1: change lives by: %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': SCORE_BAR_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'DELTA',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Adds or removes dots from a lives-style score bar (a literal negative number ` +
+      `removes dots - a variable amount can only add dots, since the bar has no separate stored ` +
+      `"current value" to read a sign from).`,
+  },
 ]);

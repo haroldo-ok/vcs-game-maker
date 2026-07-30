@@ -4,7 +4,13 @@ export default (Blockly) => {
     // Event block
     const eventName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('EVENT'),
         Blockly.VARIABLE_CATEGORY_NAME);
+    // Tracks which event's blocks are currently being generated, so nested
+    // blocks (event_change_state, data table reads) know which bank they'll
+    // end up in - restored afterwards in case event blocks are ever nested.
+    const previousEventName = Blockly.BBasic.currentEventName;
+    Blockly.BBasic.currentEventName = eventName;
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+    Blockly.BBasic.currentEventName = previousEventName;
     Blockly.BBasic.addGameEvent(eventName, code);
     return '';
   };
@@ -13,7 +19,20 @@ export default (Blockly) => {
     // Change game state
     const stateName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('STATE'),
         Blockly.VARIABLE_CATEGORY_NAME);
-    return `goto ${stateName}_start_begin`;
+    const targetEvent = `${stateName}_start`;
+    // A state's "_start" event might live in a different bank than wherever
+    // this goto is - see getCurrentBank/bankJumpSuffix.
+    const suffix = Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getEventBank(targetEvent));
+    // A statement generator's own return value must include its trailing
+    // newline - Blockly.BBasic.scrub_ (see bbasic.js) concatenates sequential
+    // statements in a stack with no separator of its own, so a plain "goto"
+    // like this one would otherwise run straight into whatever statement
+    // follows it in the same block stack, on the same line. Pre-existing gap
+    // (unrelated to bank-switching): found because this is the first time a
+    // "change state" block was tested immediately followed by another
+    // statement inside the same event.
+    return `goto ${targetEvent}_begin${suffix}\n`;
   };
 
   Blockly.BBasic['event_frame_even_odd'] = function(block) {
