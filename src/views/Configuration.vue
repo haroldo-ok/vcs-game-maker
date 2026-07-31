@@ -8,6 +8,14 @@
         :items="romSizeOptions"
         label="ROM size"
       />
+      <v-switch
+        v-model="configurationState.muteAllAudio"
+        @change="handleChangeConfiguration"
+        label="Mute all in-game audio"
+        hint="Silences every sound effect and channel, overriding whatever any Sound block sets - useful for quick testing without needing to remove sound blocks."
+        persistent-hint
+        class="option-switch"
+      />
       <div v-if="textMinikernelUsed" class="text-bk-color">
         <span>Text Minikernel background color:</span>
         <v-menu offset-y :close-on-content-click="true">
@@ -64,7 +72,7 @@
         v-model="configurationState.enableSuperchip"
         @change="handleToggleSuperchip"
         label="Enable Superchip RAM for higher-resolution playfields"
-        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables instead of just 12."
+        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables."
         persistent-hint
         class="option-switch"
       />
@@ -72,10 +80,10 @@
         v-model.number="configurationState.pfres"
         @change="handleChangeResolution"
         type="number"
-        min="13"
+        min="1"
         max="32"
         label="Playfield vertical resolution (pfres)"
-        hint="From 13 to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
+        hint="Up to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
         persistent-hint
         class="pfres-field"
       />
@@ -113,7 +121,7 @@ import {isTextMinikernelUsedInProject} from '../utils/text-minikernel-usage';
 import {NTSC_COLORS, colorByteToCss, colorByteToBBasic} from '../utils/palette';
 
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
-const MIN_PFRES = 13;
+const MIN_PFRES = 1;
 const MAX_PFRES = 32;
 // Superchip RAM only works on a bankswitched ROM ("Superchip RAM is only used
 // in conjunction with bankswitching" - batari Basic docs); 2k/4k never
@@ -141,6 +149,7 @@ export default defineComponent({
           romSize: '4k',
           scoreFont: '',
           textBkColor: 0,
+          muteAllAudio: false,
         };
 
         try {

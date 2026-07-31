@@ -37,12 +37,14 @@ export const useSoundEffectsStorage = () =>
   withRomInvalidation(useJsonProjectStorage('soundEffects'));
 export const useDataTablesStorage = () =>
   withRomInvalidation(useJsonProjectStorage('dataTables'));
+export const useTextStringsStorage = () =>
+  withRomInvalidation(useJsonProjectStorage('textStrings'));
 
 // Everything that makes up a project. Kept in one place so starting fresh and
 // clearing on launch can't drift apart as new pieces are added.
 export const PROJECT_STORAGE_TYPES = [
   'workspace', 'backgrounds', 'player0', 'player1', 'configuration', 'scoreFont', 'soundEffects',
-  'dataTables',
+  'dataTables', 'textStrings',
 ];
 
 /**

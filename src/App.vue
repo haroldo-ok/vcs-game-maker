@@ -46,6 +46,10 @@
           <v-icon>mdi-numeric</v-icon>
         </v-btn>
 
+        <v-btn to="/text" link class="text-tab-item" title="Text" elevation="0">
+          <v-icon>mdi-card-text-outline</v-icon>
+        </v-btn>
+
         <v-btn to="/data" link class="data-item" title="Data" elevation="0">
           <v-icon>mdi-table</v-icon>
         </v-btn>
@@ -158,6 +162,19 @@
         </v-list-item>
 
         <v-list-item
+          to="/text"
+          link
+          class="text-tab-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-card-text-outline</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Text</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
           to="/data"
           link
           class="data-item"
@@ -259,7 +276,12 @@
       <router-view/>
     </v-main>
 
-    <v-footer class="error-message">
+    <v-footer class="error-message" :style="{height: errorHeight + 'px', maxHeight: errorHeight + 'px'}">
+      <div
+        class="error-resize-handle"
+        title="Drag to resize the error pane"
+        @mousedown.prevent="startResizeError"
+      ></div>
       <pre v-text="errorStorage"></pre>
     </v-footer>
   </v-app>
@@ -284,6 +306,15 @@ const EMULATOR_MAX_WIDTH = 900;
 // Keep enough room for the editor when dragging on smaller screens.
 const EDITOR_MIN_WIDTH = 320;
 const EMULATOR_WIDTH_KEY = 'vcs-game-maker.emulatorWidth';
+// Matches the footer's old fixed "max-height: 7em" (at the default 16px root
+// font size) as the default/minimum, so an unresized pane looks the same as
+// before this was made resizable.
+const ERROR_DEFAULT_HEIGHT = 112;
+const ERROR_MIN_HEIGHT = 112;
+// Leaves at least this much of the window for everything else (toolbar, main
+// content) when dragging the error pane very tall.
+const ERROR_MIN_REMAINING_HEIGHT = 150;
+const ERROR_HEIGHT_KEY = 'vcs-game-maker.errorHeight';
 // How long to keep waiting for Javatari to lay out before giving up. A timer
 // is used rather than an animation frame so this still settles when the window
 // is in the background.
@@ -295,6 +326,11 @@ const readStoredWidth = () => {
   return Number.isFinite(stored) ? stored : EMULATOR_DEFAULT_WIDTH;
 };
 
+const readStoredErrorHeight = () => {
+  const stored = parseInt(localStorage.getItem(ERROR_HEIGHT_KEY), 10);
+  return Number.isFinite(stored) ? stored : ERROR_DEFAULT_HEIGHT;
+};
+
 export default {
   data: () => ({
     drawer: null,
@@ -302,6 +338,8 @@ export default {
     emulatorScale: 1,
     emulatorHeight: null,
     resizing: false,
+    errorHeight: readStoredErrorHeight(),
+    resizingError: false,
     building: false,
   }),
   setup() {
@@ -496,6 +534,33 @@ export default {
       // measure the previous layout.
       this.$nextTick(() => window.dispatchEvent(new Event('resize')));
     },
+    startResizeError() {
+      this.resizingError = true;
+      window.addEventListener('mousemove', this.doResizeError);
+      window.addEventListener('mouseup', this.stopResizeError);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ns-resize';
+    },
+    doResizeError(event) {
+      const maxHeight = Math.max(
+          ERROR_MIN_HEIGHT, window.innerHeight - ERROR_MIN_REMAINING_HEIGHT);
+      const height = window.innerHeight - event.clientY;
+      this.errorHeight = Math.round(
+          Math.min(maxHeight, Math.max(ERROR_MIN_HEIGHT, height)));
+    },
+    stopResizeError() {
+      if (!this.resizingError) return;
+      this.resizingError = false;
+      window.removeEventListener('mousemove', this.doResizeError);
+      window.removeEventListener('mouseup', this.stopResizeError);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      localStorage.setItem(ERROR_HEIGHT_KEY, String(this.errorHeight));
+      // Same reflow nudge as stopResize() above, for the same reason: the
+      // Blockly canvas only re-measures its container (which just changed
+      // height) on a window resize event, not on its own.
+      this.$nextTick(() => window.dispatchEvent(new Event('resize')));
+    },
     // buildRom() compiles via WASM asynchronously now (the real bB 1.9
     // toolchain, run through an in-browser WASI shim - see hooks/bb-compiler.js),
     // but the button's progress state still needs a paint before that starts,
@@ -665,6 +730,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(156, 39, 176) !important;
 }
 
+.text-tab-item,
+.text-tab-item > .v-list-item__icon > .theme--light.v-icon,
+.text-tab-item > .v-list-item__content {
+  color: rgb(233, 30, 99) !important;
+  border-left-color: rgb(233, 30, 99) !important;
+}
+
 .data-item,
 .data-item > .v-list-item__icon > .theme--light.v-icon,
 .data-item > .v-list-item__content {
@@ -714,12 +786,26 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .error-message {
+  position: relative;
   z-index: 10;
-  max-height: 7em;
   overflow-y: scroll;
 }
 
 .theme--light.v-footer.error-message {
   color: rgb(244, 67, 54);
+}
+
+.error-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+
+.error-resize-handle:hover {
+  background-color: rgba(0, 0, 0, 0.15);
 }
 </style>

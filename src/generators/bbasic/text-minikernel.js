@@ -1,6 +1,7 @@
 'use strict';
 
 import {useConfigurationStorage} from '../../hooks/project';
+import {TEXT_MESSAGE_LENGTH, listTextStrings} from '../../blocks/text-strings';
 
 // The standard kernel's own code calls "jsr minikernel" as a plain,
 // same-bank call (never a bankswitched "BS_jsr") - so on a bankswitched ROM,
@@ -18,11 +19,6 @@ import {useConfigurationStorage} from '../../hooks/project';
 // heavy compiler chain into every generator file (same reasoning as
 // bbasic.js's own BANKSWITCHED_ROM_SIZES duplicate).
 const KERNEL_BANK_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
-
-// Every message the text minikernel can show is a single line, up to this
-// many characters, matching text12b.asm's TextPointersLoop (which always
-// reads exactly 12 bytes starting at TextIndex).
-export const TEXT_MESSAGE_LENGTH = 12;
 
 // Maps each supported character to the glyph constant name declared in
 // text12a.asm/text12b.asm's left_text/right_text tables. Anything not listed
@@ -56,30 +52,66 @@ export default (Blockly) => {
     Blockly.BBasic.textMinikernelUsed = true;
   };
 
-  // Registers a message (deduped) and returns its byte offset into the
-  // shared text_strings table - see generateTextMinikernel() below, which
-  // turns this list into the actual "data text_strings" block.
-  const registerTextMessage = (text) => {
-    markTextMinikernelUsed();
-    Blockly.BBasic.textMessages = Blockly.BBasic.textMessages || [];
-    const key = String(text || '');
-    let index = Blockly.BBasic.textMessages.indexOf(key);
+  // Every message defined on the Text tab occupies a FIXED table row, one
+  // more than its position in that list (row 0 is reserved blank - see
+  // generateTextMinikernel() below) - not assigned lazily as blocks happen
+  // to reference them. That's what makes "Show text with ID" possible at
+  // all: its number is only known at runtime, so there's no block-visitation
+  // moment to hang a lazy registration off of. A pure function of the Text
+  // tab's own stored order also means a compile-time reference (the "Show
+  // text" dropdown) and a runtime one (a variable someone sets to 1, 2, ...)
+  // always agree on which message a given position means - typing "2" gets
+  // you the second message listed on the Text tab, full stop.
+  const namedMessagePosition = (id) => {
+    const entries = listTextStrings();
+    const index = entries.findIndex((entry) => `${entry.id}` === `${id}`);
+    return index === -1 ? 0 : index + 1;
+  };
+
+  // Free-typed messages ("Show text: <literal>") have no Text tab entry to
+  // number them by, so they keep the old lazy, dedup-by-content scheme,
+  // appended after every Text tab entry's fixed row (see
+  // generateTextMinikernel()).
+  const registerFreeTypedMessage = (text) => {
+    Blockly.BBasic.freeTypedMessages = Blockly.BBasic.freeTypedMessages || [];
+    const messages = Blockly.BBasic.freeTypedMessages;
+    let index = messages.indexOf(text);
     if (index === -1) {
-      index = Blockly.BBasic.textMessages.length;
-      Blockly.BBasic.textMessages.push(key);
+      index = messages.length;
+      messages.push(text);
     }
-    return index * TEXT_MESSAGE_LENGTH;
+    return (listTextStrings().length + 1 + index) * TEXT_MESSAGE_LENGTH;
   };
 
   Blockly.BBasic['text_minikernel_show'] = function(block) {
+    markTextMinikernelUsed();
     const message = block.getFieldValue('TEXT');
-    const offset = registerTextMessage(message);
+    const offset = registerFreeTypedMessage(message);
     return `TextIndex = ${offset}\n`;
   };
 
-  Blockly.BBasic['text_minikernel_clear'] = function(block) {
-    const offset = registerTextMessage('');
+  Blockly.BBasic['text_minikernel_show_named'] = function(block) {
+    markTextMinikernelUsed();
+    const offset = namedMessagePosition(block.getFieldValue('TEXT_ID')) * TEXT_MESSAGE_LENGTH;
     return `TextIndex = ${offset}\n`;
+  };
+
+  Blockly.BBasic['text_minikernel_show_by_id'] = function(block) {
+    markTextMinikernelUsed();
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
+        Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
+    // Hand-written "*" rather than routing through the math_arithmetic
+    // block generator - see Blockly.BBasic.usesDivMul's own comment in
+    // bbasic.js: any multiply/divide has to flag usesDivMul itself so
+    // generateDivMul() knows to pull in div_mul.asm, since nothing else
+    // triggers on a "*" appearing in hand-written generator output.
+    Blockly.BBasic.usesDivMul = true;
+    return `TextIndex = (${argument0}) * ${TEXT_MESSAGE_LENGTH}\n`;
+  };
+
+  Blockly.BBasic['text_minikernel_clear'] = function(block) {
+    markTextMinikernelUsed();
+    return 'TextIndex = 0\n';
   };
 
   Blockly.BBasic['text_minikernel_set_color'] = function(block) {
@@ -150,10 +182,18 @@ export default (Blockly) => {
   Blockly.BBasic.generateTextMinikernel = function() {
     if (!this.isTextMinikernelActive()) return '';
 
-    const messages = this.textMessages && this.textMessages.length ?
-      this.textMessages : [''];
-    const rows = messages.map((message) =>
-      '  ' + encodeTextMessage(message).join(', '));
+    // Row 0: reserved blank - TextIndex lives in RAM the standard kernel
+    // clears to 0 at power-on, and stays 0 until some block explicitly
+    // assigns it, so this is what shows (nothing) before that happens,
+    // rather than whichever message happened to be defined first. Rows
+    // 1..N: every Text tab entry, in that same order (position N = row N -
+    // see namedMessagePosition() above and "Show text with ID"). Remaining
+    // rows: free-typed messages, in first-referenced order.
+    const namedTexts = listTextStrings().map(({text}) => text);
+    const freeTypedTexts = this.freeTypedMessages || [];
+    const allTexts = ['', ...namedTexts, ...freeTypedTexts];
+    const rows = allTexts.map((text) =>
+      '  ' + encodeTextMessage(text).join(', '));
     const dataTable = ` data text_strings\n${rows.join('\n')}\nend`;
 
     const block = [

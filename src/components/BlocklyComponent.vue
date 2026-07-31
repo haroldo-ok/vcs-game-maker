@@ -58,7 +58,25 @@ export default {
     // resize the container after inject (Blockly only reflows on window
     // resize), which would otherwise leave the SVG mis-sized and its zoom and
     // trashcan controls anchored off-screen.
-    this.resizeObserver = new ResizeObserver(() => Blockly.svgResize(this.workspace));
+    //
+    // The scrollbar specifically needs its own extra settle-and-recompute
+    // pass: ResizeObserver can fire mid-reflow (e.g. while a sibling panel's
+    // resize is still being applied across a couple of frames), and
+    // Blockly.svgResize()/workspace.resize() then caches the scrollbar's
+    // position from that in-between size instead of the final one - the SVG
+    // itself keeps tracking the container correctly (CSS does that on its
+    // own), so only the scrollbar (positioned from Blockly's own cached
+    // metrics, not live CSS) ends up visibly drawn in the wrong place versus
+    // where it actually receives clicks.
+    const resizeWorkspace = () => {
+      Blockly.svgResize(this.workspace);
+      if (this.workspace.scrollbar) this.workspace.scrollbar.resize();
+    };
+    this.resizeObserver = new ResizeObserver(() => {
+      resizeWorkspace();
+      clearTimeout(this.resizeSettleTimer);
+      this.resizeSettleTimer = setTimeout(resizeWorkspace, 100);
+    });
     this.resizeObserver.observe(this.$refs['blocklyDiv']);
   },
   beforeDestroy() {
@@ -66,6 +84,7 @@ export default {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
+    clearTimeout(this.resizeSettleTimer);
   },
   methods: {
     loadWorkspace(value) {

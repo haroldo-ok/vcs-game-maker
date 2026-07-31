@@ -13,7 +13,10 @@ import {useWorkspaceStorage} from '../hooks/project';
 
 const EMPTY_WORKSPACE = '<xml xmlns="https://developers.google.com/blockly/xml"/>';
 
-const TEXT_MINIKERNEL_BLOCK_TYPES = ['text_minikernel_show', 'text_minikernel_clear', 'text_minikernel_set_color'];
+const TEXT_MINIKERNEL_BLOCK_TYPES = [
+  'text_minikernel_show', 'text_minikernel_show_named', 'text_minikernel_show_by_id',
+  'text_minikernel_clear', 'text_minikernel_set_color',
+];
 
 export const isTextMinikernelUsedInProject = () => {
   const xmlText = useWorkspaceStorage().value;

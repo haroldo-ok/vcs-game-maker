@@ -50,7 +50,20 @@ export default (Blockly) => {
       'DIVIDE': [' / ', Blockly.BBasic.ORDER_DIVISION],
       'POWER': [null, Blockly.BBasic.ORDER_NONE], // Handle power separately.
     };
-    const tuple = OPERATORS[block.getFieldValue('OP')];
+    const op = block.getFieldValue('OP');
+    // "*"/"/" by a compile-time constant power of 2 gets optimized into a
+    // shift by the real toolchain, but any other multiply/divide (a runtime
+    // variable divisor, or a non-power-of-2 constant) compiles to "jsr
+    // mul8"/"jsr div8" - a shared routine that isn't bundled by default in
+    // real batari Basic (a .bas file has to "include div_mul.asm" itself to
+    // get it). Since Blockly projects can't add that by hand, flag any
+    // multiply/divide use here so generateConfiguration() can always pull it
+    // in (see Blockly.BBasic.usesDivMul below) - whether THIS specific one
+    // would have needed it isn't known until the real compiler decides, and
+    // the routine is a few bytes, so it's simplest to include it whenever
+    // either operator appears at all rather than replicate that decision.
+    if (op === 'MULTIPLY' || op === 'DIVIDE') Blockly.BBasic.usesDivMul = true;
+    const tuple = OPERATORS[op];
     const operator = tuple[0];
     const order = tuple[1];
     const argument0 = Blockly.BBasic.valueToCode(block, 'A', order) || '0';

@@ -183,6 +183,9 @@ Blockly.BBasic.init = function(workspace) {
   // singleton reused across every workspaceToCode() call.
   this.textMinikernelUsed = false;
   this.textMessages = [];
+  // Same reset reasoning as textMinikernelUsed above - see math.js's
+  // math_arithmetic handler, which sets this as a side effect.
+  this.usesDivMul = false;
 
   if (!this.nameDB_) {
     this.nameDB_ = new Blockly.Names(this.RESERVED_WORDS_);
@@ -532,6 +535,8 @@ Blockly.BBasic.finish = function(code) {
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
   const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults();
+  const generatedDivMul = Blockly.BBasic.generateDivMul();
+  const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
 
   this.isInitialized = false;
 
@@ -542,7 +547,33 @@ Blockly.BBasic.finish = function(code) {
     generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
-    generatedTextMinikernelDefaults});
+    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio});
+};
+
+// "*"/"/" by a non-power-of-2 constant or a runtime variable compiles to
+// "jsr mul8"/"jsr div8" (see math.js's math_arithmetic handler), a shared
+// routine real batari Basic programs pull in themselves with "include
+// div_mul.asm" - since Blockly projects have no way to add that by hand,
+// this splices the same file in (as a plain, unconditional "inline", not
+// wrapped in a "bank" switch like the Text Minikernel needs - mul8/div8 are
+// called with a plain same-bank "jsr" from wherever the multiply/divide
+// happens to compile to, which for an unrelocated project is always bank 1,
+// the same bank this ends up inlined into) whenever any multiply or divide
+// block is used. Placed in bbasic.bb.hbs's trailing "never fallen into"
+// section, same as generatedTextMinikernel and generatedDataTables, since -
+// like those - falling into "mul8"/"div8"'s own code from above would
+// execute it with whatever registers happened to be lying around instead of
+// the operands it expects.
+Blockly.BBasic.generateDivMul = function() {
+  if (!this.usesDivMul) return '';
+  return ' inline div_mul.asm';
+};
+
+// Whether the project uses multiply/divide (see math.js) - hooks/rom.js
+// needs this to know whether to fetch div_mul.asm as a compile sibling file,
+// the same way it checks isTextMinikernelActive() for text12a.asm/text12b.asm.
+Blockly.BBasic.usesDivMulRoutine = function() {
+  return !!this.usesDivMul;
 };
 
 Blockly.BBasic.normalizeIndents = function(code) {
@@ -761,6 +792,20 @@ Blockly.BBasic.usePlayfieldRowColors = function() {
   const config = (configurationStorage && configurationStorage.value) || {};
   if (config.enableSuperchip) return false;
   return config.enablePfColors ?? false;
+};
+
+// Spliced into bbasic.bb.hbs's main loop right after the user's own generated
+// code (not into commongamelogic, which runs before that code each frame -
+// putting it there would let a Sound block triggered later the same frame
+// re-enable audio, since AUDV0/AUDV1 are read by the TIA continuously rather
+// than only at drawscreen). Placed here, after every block for the frame has
+// had its say, this is genuinely the last word each frame, silencing both
+// channels outright regardless of what a Sound block set them to.
+Blockly.BBasic.generateMuteAudio = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (!config.muteAllAudio) return '';
+  return ' AUDV0 = 0\n AUDV1 = 0';
 };
 
 // ROM sizes the standard kernel actually bankswitches (see
