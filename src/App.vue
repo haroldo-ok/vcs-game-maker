@@ -465,6 +465,24 @@ export default {
       });
       this.emulatorReparentObserver.observe(document.body, {childList: true, subtree: true});
     },
+    // Root cause of the preview "vanishing" after "Update ROM": Javatari's
+    // own "Select Cartridge"/"Select ROM Format"/"Save/Load State" dialogs
+    // (all share the "jt-select-dialog" class, shown/hidden via the "jt-show"
+    // class) are drawn on TOP of the screen at a high z-index. If one is
+    // already open - most commonly the cartridge chooser, which Javatari
+    // opens on its own at startup whenever there's no cartridge inserted yet
+    // and it has recent ROMs to offer - loading a new ROM via
+    // fileLoader.loadFromContent() builds and runs it correctly underneath,
+    // but doesn't close whatever dialog happened to already be open, leaving
+    // it covering the now-running game. Removing "jt-show" from every such
+    // dialog closes them the same way Javatari's own Escape-key handler does,
+    // without triggering any of their side effects (loading a different ROM,
+    // opening a file picker, etc. - those only run from their own dialog
+    // button/key handlers, not from this class removal).
+    dismissEmulatorDialogs() {
+      document.querySelectorAll('.jt-select-dialog.jt-show')
+          .forEach((dialog) => dialog.classList.remove('jt-show'));
+    },
     // A single measurement is fragile: if it runs while the container's width
     // has not settled to the drawer width yet, the scale comes out too large,
     // the fixed container height too tall, and the ROM buttons get pushed out
@@ -603,7 +621,9 @@ export default {
           // cause (it re-finds the screen element fresh rather than
           // trusting a reference that may be stale, and re-attaching an
           // already-attached element or re-observing an already-observed
-          // one is a no-op).
+          // one is a no-op). dismissEmulatorDialogs() closes the actual
+          // confirmed cause - see its own comment.
+          this.dismissEmulatorDialogs();
           this.attachEmulator();
         });
       }, 0);
