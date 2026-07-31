@@ -12,7 +12,7 @@
         </p>
 
         <v-list>
-          <v-list-item v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
+          <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
               <v-card outlined class="text-card">
                 <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot;">
@@ -135,9 +135,16 @@ export default defineComponent({
 .editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* v-list-item's own default left padding stacks on top of v-card-text's,
+   pushing the message card in further than the Score tab's, which sits
+   directly in a v-card-text with no list-item wrapper. */
+.entry-list-item {
+  padding-left: 0;
 }
 
 .text-hint {

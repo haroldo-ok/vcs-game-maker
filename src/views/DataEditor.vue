@@ -4,7 +4,7 @@
       <v-card-title>Data</v-card-title>
       <v-card-text>
         <v-list>
-          <v-list-item v-for="table in state.dataTables" v-bind:key="table.id">
+          <v-list-item class="entry-list-item" v-for="table in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
               <v-card outlined class="data-card">
                 <v-menu
@@ -200,9 +200,16 @@ export default defineComponent({
 .editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* v-list-item's own default left padding stacks on top of v-card-text's,
+   pushing the data table card in further than the Score tab's, which sits
+   directly in a v-card-text with no list-item wrapper. */
+.entry-list-item {
+  padding-left: 0;
 }
 
 .data-card {

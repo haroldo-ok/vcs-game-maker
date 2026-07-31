@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card flat>
     <v-card-title>Score</v-card-title>
     <v-card-text>
       <v-select

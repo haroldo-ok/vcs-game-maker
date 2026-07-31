@@ -3,8 +3,31 @@
     <v-card class="editor-container">
       <v-card-title>SoundFX</v-card-title>
       <v-card-text>
+        <div class="dim-controls">
+          <v-switch
+            v-model="dimSoundFx"
+            label="DIM"
+            hide-details
+            class="dim-switch"
+          />
+          <v-slider
+            v-model="dimSoundFxPercent"
+            :disabled="!dimSoundFx"
+            min="0"
+            max="100"
+            step="1"
+            hide-details
+            class="dim-slider"
+          />
+          <span class="dim-percent">{{ dimSoundFxPercent }}%</span>
+        </div>
+        <p class="dim-hint">
+          When DIM is on, every sound effect plays at the volume above, as a
+          percentage of its own set volume. Off: sound effects play at their
+          own set volume.
+        </p>
         <v-list>
-          <v-list-item v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
+          <v-list-item class="entry-list-item" v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
             <v-list-item-content>
               <v-card outlined class="soundfx-card">
                 <v-menu
@@ -121,14 +144,38 @@
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
-import {useSoundEffectsStorage} from '../hooks/project';
+import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults} from '../blocks/soundfx';
+import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {previewSoundEffect} from '../utils/sound-preview';
 
 export default defineComponent({
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
+    const configurationStorage = useConfigurationStorage();
+    const dimSoundFx = computed({
+      get() {
+        return !!(configurationStorage.value || {}).dimSoundFx;
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          dimSoundFx: value,
+        };
+      },
+    });
+    const dimSoundFxPercent = computed({
+      get() {
+        return (configurationStorage.value || {}).dimSoundFxPercent ?? DEFAULT_DIM_PERCENT;
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          dimSoundFxPercent: value,
+        };
+      },
+    });
     const state = computed({
       get() {
         try {
@@ -174,11 +221,18 @@ export default defineComponent({
     };
 
     const handlePlaySoundEffect = (soundEffect) => {
-      previewSoundEffect(soundEffect);
+      // Matches what actually plays in the compiled ROM (see soundfx_play in
+      // generators/bbasic/soundfx.js) - previewing at the un-dimmed volume
+      // while DIM is on would make the preview lie about what the game
+      // actually sounds like.
+      const audv = dimSoundFx.value ?
+        dimVolume(soundEffect.audv, dimSoundFxPercent.value) : soundEffect.audv;
+      previewSoundEffect({...soundEffect, audv});
     };
 
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
+      dimSoundFx, dimSoundFxPercent,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
     };
   },
@@ -188,9 +242,56 @@ export default defineComponent({
 .editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* v-list-item's own default left padding stacks on top of v-card-text's,
+   pushing the sound effect card in further than the Score tab's, which sits
+   directly in a v-card-text with no list-item wrapper. */
+.entry-list-item {
+  padding-left: 0;
+}
+
+.dim-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Vuetify gives switches/checkboxes ("selection controls") a built-in
+   margin-top: 16px, meant for stacking them below other form fields - with
+   nothing above it here, that just pushes the switch down out of line with
+   the slider next to it (which has no such margin). !important because
+   Vuetify's own ".v-input--selection-controls" rule outweighs a single
+   custom class on specificity alone. */
+.dim-switch {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+}
+
+.dim-slider {
+  flex: 0 1 200px;
+  /* Pulls the "%" label below in closer than the row's own 16px gap - the
+     slider's own internal thumb padding already leaves visual space after
+     it, so the label doesn't need the full gap on top of that. */
+  margin-right: -12px;
+  /* The slider's track sits a few px higher within its own box than the
+     switch's toggle does within its box, even once both boxes are centered
+     against each other - nudge it down to actually line up. */
+  margin-top: 3px;
+}
+
+.dim-percent {
+  flex: 0 0 auto;
+  min-width: 2.5em;
+}
+
+.dim-hint {
+  margin-top: 8px;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 0.75rem;
 }
 
 .soundfx-card {

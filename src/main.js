@@ -7,6 +7,7 @@ import App from './App.vue';
 import vuetify from './plugins/vuetify';
 import router from './router';
 import {clearProjectStorage} from './hooks/project';
+import './registerServiceWorker';
 
 // A genuinely new session (a new tab/window, or a freshly launched desktop
 // app) starts from the empty/default project - the previous session's work

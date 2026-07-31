@@ -361,6 +361,10 @@ export default {
       this.emulatorResizeObserver.disconnect();
       this.emulatorResizeObserver = null;
     }
+    if (this.emulatorReparentObserver) {
+      this.emulatorReparentObserver.disconnect();
+      this.emulatorReparentObserver = null;
+    }
   },
   computed: {
     emulatorScaleStyle() {
@@ -437,7 +441,29 @@ export default {
       container.appendChild(javatariScreen);
       javatariScreen.style = '';
       this.observeEmulatorSize(container, javatariScreen);
+      this.observeEmulatorReparenting(container);
       this.updateEmulatorScale();
+    },
+    // Javatari sometimes re-inserts its own screen element back into its
+    // default location in the DOM (observed after loading a new ROM via
+    // "Update ROM") rather than leaving it where attachEmulator() moved it -
+    // since our layout only shows what's inside #javatari-target-container,
+    // this makes the preview appear to vanish. A single re-attach right after
+    // a build finishes (handleRomUpdate already does this) isn't reliable if
+    // Javatari does the move on its own schedule; watching for it and moving
+    // the screen back the moment it happens is more robust than reacting only
+    // once, after the fact.
+    observeEmulatorReparenting(container) {
+      if (this.emulatorReparentObserver) return;
+      this.emulatorReparentObserver = new MutationObserver(() => {
+        const screen = document.getElementById('javatari-screen');
+        if (screen && screen.parentElement !== container) {
+          container.appendChild(screen);
+          screen.style = '';
+          this.updateEmulatorScale();
+        }
+      });
+      this.emulatorReparentObserver.observe(document.body, {childList: true, subtree: true});
     },
     // A single measurement is fragile: if it runs while the container's width
     // has not settled to the drawer width yet, the scale comes out too large,

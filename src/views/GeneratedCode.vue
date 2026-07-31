@@ -1,18 +1,20 @@
 <template>
   <div>
-    <h1>
-      Generated bBasic code
-
-      <v-btn
-        color="primary"
-        @click="handleSaveGeneratedCode"
-      >
+    <v-card class="editor-container">
+      <v-card-title>
+        Generated bBasic code
+        <v-spacer />
+        <v-btn
+          color="primary"
+          @click="handleSaveGeneratedCode"
+        >
           Save Generated Code
-      </v-btn>
-    </h1>
-    <vue-code-highlight language="basic" class="code-container">
-      <pre v-html="generatedBasic"></pre>
-    </vue-code-highlight>
+        </v-btn>
+      </v-card-title>
+      <vue-code-highlight language="basic" class="code-container">
+        <pre v-html="generatedBasic"></pre>
+      </vue-code-highlight>
+    </v-card>
   </div>
 </template>
 <script>
@@ -40,11 +42,15 @@ export default defineComponent({
 });
 </script>
 <style scoped>
-.code-container {
+.editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
+}
+
+.code-container {
+  overflow: auto;
 }
 </style>

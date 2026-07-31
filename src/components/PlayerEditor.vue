@@ -5,7 +5,7 @@
       <v-card-text>
         <editor-zoom v-model="zoom" />
         <v-list>
-          <v-list-item v-for="animation in state.animations" v-bind:key="animation.id">
+          <v-list-item class="entry-list-item" v-for="animation in state.animations" v-bind:key="animation.id">
             <v-list-item-content>
                 <v-list-item-title>
                   <v-text-field label="Animation name" v-model="animation.name" @change="handleChildChange" />
@@ -269,14 +269,24 @@ export default defineComponent({
 .editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* v-list-item's own default left padding stacks on top of v-card-text's,
+   pushing everything in each row (name field and frame editors alike) in
+   further than the Score tab's graphic cards, which sit directly in a
+   v-card-text with no list-item wrapper. Zeroing it here brings both back to
+   the same left edge as Score. */
+.entry-list-item {
+  padding-left: 0;
 }
 
 .pixel-editor-parent-container {
   display: inline-block;
   vertical-align: middle;
+  padding-left: 0;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on its container's top

@@ -3,6 +3,40 @@ module.exports = {
     'vuetify',
   ],
   publicPath: './',
+  pwa: {
+    name: 'VCS Game Maker',
+    themeColor: '#1a1a2e',
+    msTileColor: '#1a1a2e',
+    appleMobileWebAppCapable: 'yes',
+    appleMobileWebAppStatusBarStyle: 'black-translucent',
+    manifestOptions: {
+      short_name: 'VCS Game Maker',
+      background_color: '#1a1a2e',
+      start_url: '.',
+      display: 'standalone',
+      icons: [
+        {src: './icons/icon-192.png', sizes: '192x192', type: 'image/png'},
+        {src: './icons/icon-512.png', sizes: '512x512', type: 'image/png'},
+      ],
+    },
+    iconPaths: {
+      faviconSVG: null,
+      favicon32: 'icons/favicon-32x32.png',
+      favicon16: 'icons/favicon-16x16.png',
+      appleTouchIcon: 'icons/apple-touch-icon.png',
+      maskIcon: null,
+      msTileImage: 'icons/mstile-150x150.png',
+    },
+    // The bundled toolchain (bb19/*.wasm, ~1.5MB total) and javatari.js
+    // (~650KB) rarely change between releases - precaching them means a
+    // repeat visit (or an offline one) skips re-downloading the whole
+    // toolchain, at the cost of the service worker needing an update
+    // whenever those assets do change (workbox's default revisioning
+    // handles that automatically via content hashing).
+    workboxOptions: {
+      exclude: [/\.map$/, /manifest\.json$/],
+    },
+  },
   configureWebpack: {
 	  resolve: {
 		fallback: {

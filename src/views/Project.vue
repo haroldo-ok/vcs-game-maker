@@ -1,5 +1,5 @@
 <template>
-  <v-card outlined>
+  <v-card flat>
     <v-card-title>Project</v-card-title>
     <v-card-text>
         <v-file-input
@@ -9,7 +9,7 @@
             @change="handleLoadProject"
         ></v-file-input>
     </v-card-text>
-    <v-card-actions>
+    <v-card-actions class="project-actions">
       <v-btn
         color="primary"
         @click="handleSaveProject"
@@ -241,3 +241,12 @@ export default defineComponent({
   },
 });
 </script>
+<style scoped>
+/* Matches v-card-text's own left padding (v-card-actions' default is
+   narrower), and sits right under the import field above it rather than
+   the wider gap v-card-actions normally leaves. */
+.project-actions {
+  padding-top: 0;
+  padding-left: 16px;
+}
+</style>
