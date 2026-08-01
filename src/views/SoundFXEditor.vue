@@ -30,6 +30,7 @@
           <v-list-item class="entry-list-item" v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
             <v-list-item-content>
               <v-card outlined class="soundfx-card">
+                <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
                 <v-menu
                   v-if="state.soundEffects.length > 1"
                   top
@@ -71,6 +72,7 @@
 
                 <v-card-text>
                   <v-text-field
+                    class="soundfx-name-field"
                     label="Sound effect name"
                     v-model="soundEffect.name"
                     @change="handleChildChange"
@@ -298,6 +300,24 @@ export default defineComponent({
   position: relative;
   width: 100%;
   max-width: 640px;
+}
+
+/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - sound effects are referenced by this same numeric id
+   (see findSoundEffectById in blocks/soundfx.js). */
+.soundfx-id-badge {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.6;
+}
+
+/* Same 12px reserved below the badge as PixelEditor.vue's
+   .editor-with-sidebar--has-badge (see PlayerEditor.vue's "FRAME: N"). */
+.soundfx-name-field {
+  margin-top: 12px;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top

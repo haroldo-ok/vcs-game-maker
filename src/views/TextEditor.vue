@@ -34,6 +34,7 @@
 
                 <v-card-text>
                   <v-text-field
+                    class="text-name-field"
                     label="Name"
                     v-model="entry.name"
                     @change="handleChildChange"
@@ -170,9 +171,15 @@ export default defineComponent({
   position: absolute;
   top: 8px;
   left: 16px;
-  font-size: 0.75em;
+  font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+}
+
+/* Same 12px reserved below the badge as the SoundFX tab's
+   .soundfx-name-field. */
+.text-name-field {
+  margin-top: 12px;
 }
 
 .add-text-button {

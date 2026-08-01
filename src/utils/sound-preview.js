@@ -137,6 +137,14 @@ export const previewSoundEffect = ({audc, audf, audv, duration}) => {
 
   const chipClockHz = shiftClockFor(audf, {slowClock: approximation.slowClock});
 
+  // gainNode always feeds the destination - AUDC values with a lowpass
+  // filter (2, 14, 15) instead used to route the filter straight to
+  // destination and leave gainNode as a dead end nothing ever played
+  // through, so AUDV (and DIM, which lowers it before this ever runs) had no
+  // audible effect for exactly those three types. Chaining the filter INTO
+  // gainNode instead of past it fixes that for both the plain and
+  // lowpass-filtered paths.
+  gainNode.connect(context.destination);
   let output = gainNode;
   if (approximation.lowpass) {
     const filter = context.createBiquadFilter();
@@ -145,7 +153,6 @@ export const previewSoundEffect = ({audc, audf, audv, duration}) => {
     filter.connect(gainNode);
     output = filter;
   }
-  output.connect(context.destination);
 
   let source;
   if (approximation.type === 'noise') {

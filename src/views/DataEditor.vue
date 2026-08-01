@@ -7,6 +7,7 @@
           <v-list-item class="entry-list-item" v-for="table in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
               <v-card outlined class="data-card">
+                <div class="data-id-badge">ID: {{ table.id }}</div>
                 <v-menu
                   v-if="state.dataTables.length > 1"
                   top
@@ -48,6 +49,7 @@
 
                 <v-card-text>
                   <v-text-field
+                    class="data-name-field"
                     label="Table name"
                     v-model="table.name"
                     @change="handleChildChange"
@@ -216,6 +218,24 @@ export default defineComponent({
   position: relative;
   width: 100%;
   max-width: 640px;
+}
+
+/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - data tables are referenced by this same numeric id
+   (see dataTableSymbolName in blocks/data.js). */
+.data-id-badge {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.6;
+}
+
+/* Same 12px reserved below the badge as the SoundFX tab's
+   .soundfx-name-field. */
+.data-name-field {
+  margin-top: 12px;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top

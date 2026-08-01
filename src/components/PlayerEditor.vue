@@ -8,6 +8,7 @@
           <v-list-item class="entry-list-item" v-for="animation in state.animations" v-bind:key="animation.id">
             <v-list-item-content>
                 <v-list-item-title>
+                  <div class="animation-id-badge">ID: {{ animation.id }}</div>
                   <v-text-field label="Animation name" v-model="animation.name" @change="handleChildChange" />
 
                   <v-menu
@@ -52,7 +53,7 @@
                 </v-list-item-title>
                 <v-list>
                   <v-list-item
-                    v-for="frame in animation.frames"
+                    v-for="(frame, frameIndex) in animation.frames"
                     v-bind:key="frame.id"
                     class="pixel-editor-parent-container"
                   >
@@ -111,7 +112,11 @@
                         :fgColor="fgColor"
                         :name="name"
                         @input="handleChildChange"
-                      />
+                      >
+                        <template v-slot:badge>
+                          <div class="frame-number-badge">FRAME: {{ frameIndex + 1 }}</div>
+                        </template>
+                      </pixel-editor>
                     </div>
                   </v-list-item>
                   <v-list-item class="add-frame-list-item">
@@ -287,6 +292,41 @@ export default defineComponent({
   display: inline-block;
   vertical-align: middle;
   padding-left: 0;
+}
+
+/* Same style as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - plain flow instead of that one's absolute positioning,
+   since here it needs to sit between the Duration field and the sprite
+   graphic rather than float over a corner. */
+/* Same placement as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - top-left corner of the card, via the "badge" slot
+   PixelEditor.vue exposes for exactly this. */
+/* Matches .animation-id-badge's style below - plain flow, not overlaid on
+   the card border. rem rather than em: this sits inside a smaller-font
+   ancestor (the nested pixel editor card) than the animation badge does, so
+   an em size came out smaller/fainter-looking there - rem ties both to the
+   same root size regardless of ancestor context. */
+.frame-number-badge {
+  text-align: left;
+  font-size: 0.75rem;
+  font-family: monospace;
+  /* Sits inside the nested pixel-editor card, a slightly different
+     background shade than .animation-id-badge's own card - the same
+     opacity (0.6) read lighter here, so it's bumped up to actually match. */
+  opacity: 0.75;
+  /* Pulls it up out of v-card-text's default 16px top padding - full padding
+     above this first line of text read as too much empty space. */
+  margin-top: -8px;
+}
+
+/* Same style as the other "ID: N"/"FRAME: N" badges, but in normal flow
+   (there's no bordered card around the whole animation entry to overlay
+   like the others sit on top of). */
+.animation-id-badge {
+  text-align: left;
+  font-size: 0.75em;
+  font-family: monospace;
+  opacity: 0.6;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on its container's top

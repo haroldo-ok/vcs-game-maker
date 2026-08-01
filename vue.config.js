@@ -3,6 +3,16 @@ module.exports = {
     'vuetify',
   ],
   publicPath: './',
+  // Drives the HTML <title>, which is what both the browser tab and (since
+  // background.js's BrowserWindow doesn't set its own "title" option) the
+  // Electron desktop window's title bar actually display - without this it
+  // falls back to package.json's npm-style "name" ("vcs-game-maker").
+  chainWebpack: (config) => {
+    config.plugin('html').tap((args) => {
+      args[0].title = 'VCS Game Maker';
+      return args;
+    });
+  },
   pwa: {
     name: 'VCS Game Maker',
     themeColor: '#1a1a2e',

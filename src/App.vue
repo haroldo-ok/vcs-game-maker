@@ -1,7 +1,7 @@
 <template>
   <v-app id="inspire">
     <v-system-bar app>
-      <v-card-text>{{ name }} {{ version }}</v-card-text>
+      <v-card-text>{{ productName }} {{ version }}</v-card-text>
 
       <v-spacer></v-spacer>
 
@@ -290,7 +290,7 @@
 <script>
 import {useErrorStorage} from './hooks/project';
 import {buildRom, useAutoRelocatedEvents, useRomCapacity, useRomOutdated} from './hooks/rom';
-import {name, version} from '../package.json';
+import {productName, version} from '../package.json';
 
 // Below this fraction of the bank's usable space remaining, the capacity
 // display switches to a warning color.
@@ -347,7 +347,7 @@ export default {
     console.info('Text', version);
     return {
       errorStorage, romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      autoRelocatedEvents: useAutoRelocatedEvents(), name, version,
+      autoRelocatedEvents: useAutoRelocatedEvents(), productName, version,
     };
   },
   mounted() {

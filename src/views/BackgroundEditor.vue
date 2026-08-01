@@ -8,48 +8,11 @@
           <v-list-item class="entry-list-item" v-for="background in state.backgrounds" v-bind:key="background.id">
             <v-list-item-content>
                 <v-list-item-title>
+                  <div class="background-id-badge">ID: {{ background.id }}</div>
                   <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
-                    <v-menu
-                        v-if="state.backgrounds.length > 1"
-                        top
-                      >
-                      <template v-slot:activator="{ on, attrs }">
-                        <v-btn
-                          title="Delete this background"
-                          icon
-                          small
-                          absolute
-                          top
-                          right
-                          class="delete-btn-inset delete-icon-btn"
-                          v-bind="attrs"
-                          v-on="on"
-                        >
-                          <v-icon>mdi-delete</v-icon>
-                        </v-btn>
-                      </template>
-
-                      <v-card>
-                        <v-card-title>Delete this background?</v-card-title>
-                        <v-list>
-                          <v-list-item @click="handleDeleteBackground(background)">
-                            <v-list-item-icon>
-                              <v-icon>mdi-check</v-icon>
-                            </v-list-item-icon>
-                            <v-list-item-title>Yes, delete</v-list-item-title>
-                          </v-list-item>
-                          <v-list-item>
-                            <v-list-item-icon>
-                              <v-icon>mdi-cancel</v-icon>
-                            </v-list-item-icon>
-                            <v-list-item-title>No, don't delete</v-list-item-title>
-                          </v-list-item>
-                        </v-list>
-                      </v-card>
-                    </v-menu>
                     <pixel-editor
                       :width="32"
                       :height="backgroundRows"
@@ -65,6 +28,40 @@
                           :value="background.rowColors"
                           @input="(colors) => handleRowColorsInput(background, colors)"
                         />
+                      </template>
+                      <template v-if="state.backgrounds.length > 1" v-slot:toolbar-end>
+                        <v-menu top>
+                          <template v-slot:activator="{ on, attrs }">
+                            <v-btn
+                              title="Delete this background"
+                              icon
+                              small
+                              class="delete-icon-btn"
+                              v-bind="attrs"
+                              v-on="on"
+                            >
+                              <v-icon>mdi-delete</v-icon>
+                            </v-btn>
+                          </template>
+
+                          <v-card>
+                            <v-card-title>Delete this background?</v-card-title>
+                            <v-list>
+                              <v-list-item @click="handleDeleteBackground(background)">
+                                <v-list-item-icon>
+                                  <v-icon>mdi-check</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-title>Yes, delete</v-list-item-title>
+                              </v-list-item>
+                              <v-list-item>
+                                <v-list-item-icon>
+                                  <v-icon>mdi-cancel</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-title>No, don't delete</v-list-item-title>
+                              </v-list-item>
+                            </v-list>
+                          </v-card>
+                        </v-menu>
                       </template>
                     </pixel-editor>
                   </div>
@@ -255,11 +252,13 @@ export default defineComponent({
   padding-left: 0;
 }
 
-/* Vuetify's fab+absolute+top combo centers the button on its container's top
-   edge, poking half of it out; pull it down so the whole button sits inside
-   the card instead. */
-.delete-btn-inset {
-  top: 8px !important;
+/* Same placement/style as the Player tabs' "ID: N" badge above the
+   "Animation name" field (PlayerEditor.vue's .animation-id-badge). */
+.background-id-badge {
+  text-align: left;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.6;
 }
 
 .add-frame-buttom {
