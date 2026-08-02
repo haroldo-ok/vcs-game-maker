@@ -8,7 +8,18 @@
           <v-list-item class="entry-list-item" v-for="animation in state.animations" v-bind:key="animation.id">
             <v-list-item-content>
                 <v-list-item-title>
-                  <div class="animation-id-badge">ID: {{ animation.id }}</div>
+                  <div class="animation-id-row">
+                    <v-btn
+                      :title="isCollapsed(animation) ? 'Expand this animation' : 'Collapse this animation'"
+                      icon
+                      small
+                      class="animation-collapse-btn"
+                      @click="() => toggleCollapsed(animation)"
+                    >
+                      <v-icon>{{ isCollapsed(animation) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                    </v-btn>
+                    <div class="animation-id-badge">ID: {{ animation.id }}</div>
+                  </div>
                   <v-text-field label="Animation name" v-model="animation.name" @change="handleChildChange" />
 
                   <v-menu
@@ -51,7 +62,7 @@
                   </v-menu>
 
                 </v-list-item-title>
-                <v-list>
+                <v-list v-if="!isCollapsed(animation)">
                   <v-list-item
                     v-for="(frame, frameIndex) in animation.frames"
                     v-bind:key="frame.id"
@@ -153,7 +164,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import EditorZoom from '../components/EditorZoom.vue';
@@ -203,6 +214,17 @@ export default defineComponent({
 
     const handleChildChange = () => {
       state.value = state.value;
+    };
+
+    // Purely a view preference - see TextEditor.vue's identical collapsedIds
+    // for why this lives in local component state and is reassigned wholesale.
+    const collapsedIds = ref({});
+    const isCollapsed = (animation) => !!collapsedIds.value[animation.id];
+    const toggleCollapsed = (animation) => {
+      collapsedIds.value = {
+        ...collapsedIds.value,
+        [animation.id]: !collapsedIds.value[animation.id],
+      };
     };
 
     const instance = getCurrentInstance();
@@ -265,6 +287,7 @@ export default defineComponent({
     return {state, handleChildChange,
       handleAddFrame, handleDeleteFrame,
       handleAddAnimation, handleDeleteAnimation,
+      isCollapsed, toggleCollapsed,
       zoom, editorWidth,
       props};
   },
@@ -319,9 +342,17 @@ export default defineComponent({
   margin-top: -8px;
 }
 
-/* Same style as the other "ID: N"/"FRAME: N" badges, but in normal flow
-   (there's no bordered card around the whole animation entry to overlay
-   like the others sit on top of). */
+/* Holds the collapse button and "ID: N" badge on one row - a plain flex
+   row rather than the Text/Data/SoundFX tabs' absolute-positioned button
+   overlaid on a card corner, since there's no bordered card around the
+   whole animation entry for those to sit on top of here. */
+.animation-id-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Same style as the other "ID: N"/"FRAME: N" badges. */
 .animation-id-badge {
   text-align: left;
   font-size: 0.75em;

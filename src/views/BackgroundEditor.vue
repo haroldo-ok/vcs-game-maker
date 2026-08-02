@@ -8,10 +8,21 @@
           <v-list-item class="entry-list-item" v-for="background in state.backgrounds" v-bind:key="background.id">
             <v-list-item-content>
                 <v-list-item-title>
-                  <div class="background-id-badge">ID: {{ background.id }}</div>
+                  <div class="background-id-row">
+                    <v-btn
+                      :title="isCollapsed(background) ? 'Expand this background' : 'Collapse this background'"
+                      icon
+                      small
+                      class="background-collapse-btn"
+                      @click="() => toggleCollapsed(background)"
+                    >
+                      <v-icon>{{ isCollapsed(background) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                    </v-btn>
+                    <div class="background-id-badge">ID: {{ background.id }}</div>
+                  </div>
                   <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
                 </v-list-item-title>
-                <v-list-item-subtitle>
+                <v-list-item-subtitle v-if="!isCollapsed(background)">
                   <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
                     <pixel-editor
                       :width="32"
@@ -87,7 +98,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import EditorZoom from '../components/EditorZoom.vue';
@@ -174,6 +185,17 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    // Purely a view preference - see TextEditor.vue's identical collapsedIds
+    // for why this lives in local component state and is reassigned wholesale.
+    const collapsedIds = ref({});
+    const isCollapsed = (background) => !!collapsedIds.value[background.id];
+    const toggleCollapsed = (background) => {
+      collapsedIds.value = {
+        ...collapsedIds.value,
+        [background.id]: !collapsedIds.value[background.id],
+      };
+    };
+
     const handleRowColorsInput = (background, colors) => {
       background.rowColors = colors;
       handleChildChange();
@@ -221,7 +243,7 @@ export default defineComponent({
     };
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
-      handleRowColorsInput, editorRowColors,
+      handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
       zoom, editorWidth, backgroundRows, pfColorsEnabled};
   },
 });
@@ -250,6 +272,14 @@ export default defineComponent({
    directly in a v-card-text with no list-item wrapper. */
 .entry-list-item {
   padding-left: 0;
+}
+
+/* Same layout as the Player tabs' collapse-button-plus-badge row
+   (PlayerEditor.vue's .animation-id-row). */
+.background-id-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Same placement/style as the Player tabs' "ID: N" badge above the

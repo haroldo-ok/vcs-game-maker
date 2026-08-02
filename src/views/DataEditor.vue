@@ -6,7 +6,19 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="table in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
-              <v-card outlined class="data-card">
+              <v-card outlined class="data-card" :class="{ 'data-card--collapsed': isCollapsed(table) }">
+                <v-btn
+                  :title="isCollapsed(table) ? 'Expand this table' : 'Collapse this table'"
+                  icon
+                  small
+                  absolute
+                  top
+                  left
+                  class="data-collapse-btn"
+                  @click="() => toggleCollapsed(table)"
+                >
+                  <v-icon>{{ isCollapsed(table) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                </v-btn>
                 <div class="data-id-badge">ID: {{ table.id }}</div>
                 <v-menu
                   v-if="state.dataTables.length > 1"
@@ -47,7 +59,7 @@
                   </v-card>
                 </v-menu>
 
-                <v-card-text>
+                <v-card-text v-if="!isCollapsed(table)">
                   <v-text-field
                     class="data-name-field"
                     label="Table name"
@@ -120,7 +132,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import {useDataTablesStorage} from '../hooks/project';
@@ -146,6 +158,17 @@ export default defineComponent({
 
     const handleChildChange = () => {
       state.value = state.value;
+    };
+
+    // Purely a view preference - see TextEditor.vue's identical collapsedIds
+    // for why this lives in local component state and is reassigned wholesale.
+    const collapsedIds = ref({});
+    const isCollapsed = (table) => !!collapsedIds.value[table.id];
+    const toggleCollapsed = (table) => {
+      collapsedIds.value = {
+        ...collapsedIds.value,
+        [table.id]: !collapsedIds.value[table.id],
+      };
     };
 
     const instance = getCurrentInstance();
@@ -193,6 +216,7 @@ export default defineComponent({
     return {
       state, handleChildChange, handleAddTable, handleDeleteTable,
       handleAddValue, handleDeleteValue, handleValueChange,
+      isCollapsed, toggleCollapsed,
       maxValues: MAX_DATA_TABLE_VALUES,
     };
   },
@@ -220,16 +244,34 @@ export default defineComponent({
   max-width: 640px;
 }
 
+/* With the fields hidden, nothing in normal flow gives the card any height
+   (the badge/buttons are all position:absolute) - this keeps the collapsed
+   header row itself visible instead of the card shrinking to nothing. */
+.data-card--collapsed {
+  min-height: 40px;
+}
+
 /* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
    .text-id-badge) - data tables are referenced by this same numeric id
-   (see dataTableSymbolName in blocks/data.js). */
+   (see dataTableSymbolName in blocks/data.js). Shifted right to clear
+   .data-collapse-btn, which sits in the same row to its left. */
 .data-id-badge {
   position: absolute;
   top: 8px;
-  left: 16px;
+  left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+}
+
+/* Same top-edge fix as .data-delete-btn, positioned at the opposite corner -
+   a smaller top offset than .data-delete-btn's, since this one has to line
+   up against .data-id-badge's own text baseline right next to it, not just
+   sit inside the card. */
+.data-collapse-btn {
+  top: 0 !important;
+  left: 4px !important;
+  box-shadow: none !important;
 }
 
 /* Same 12px reserved below the badge as the SoundFX tab's

@@ -29,7 +29,19 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
             <v-list-item-content>
-              <v-card outlined class="soundfx-card">
+              <v-card outlined class="soundfx-card" :class="{ 'soundfx-card--collapsed': isCollapsed(soundEffect) }">
+                <v-btn
+                  :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
+                  icon
+                  small
+                  absolute
+                  top
+                  left
+                  class="soundfx-collapse-btn"
+                  @click="() => toggleCollapsed(soundEffect)"
+                >
+                  <v-icon>{{ isCollapsed(soundEffect) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                </v-btn>
                 <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
                 <v-menu
                   v-if="state.soundEffects.length > 1"
@@ -70,7 +82,7 @@
                   </v-card>
                 </v-menu>
 
-                <v-card-text>
+                <v-card-text v-if="!isCollapsed(soundEffect)">
                   <v-text-field
                     class="soundfx-name-field"
                     label="Sound effect name"
@@ -143,7 +155,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
@@ -197,6 +209,17 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    // Purely a view preference - see TextEditor.vue's identical collapsedIds
+    // for why this lives in local component state and is reassigned wholesale.
+    const collapsedIds = ref({});
+    const isCollapsed = (soundEffect) => !!collapsedIds.value[soundEffect.id];
+    const toggleCollapsed = (soundEffect) => {
+      collapsedIds.value = {
+        ...collapsedIds.value,
+        [soundEffect.id]: !collapsedIds.value[soundEffect.id],
+      };
+    };
+
     const instance = getCurrentInstance();
     const handleAddSoundEffect = () => {
       const soundEffects = state.value.soundEffects;
@@ -234,6 +257,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
+      isCollapsed, toggleCollapsed,
       dimSoundFx, dimSoundFxPercent,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
     };
@@ -302,16 +326,34 @@ export default defineComponent({
   max-width: 640px;
 }
 
+/* With the fields hidden, nothing in normal flow gives the card any height
+   (the badge/buttons are all position:absolute) - this keeps the collapsed
+   header row itself visible instead of the card shrinking to nothing. */
+.soundfx-card--collapsed {
+  min-height: 40px;
+}
+
 /* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
    .text-id-badge) - sound effects are referenced by this same numeric id
-   (see findSoundEffectById in blocks/soundfx.js). */
+   (see findSoundEffectById in blocks/soundfx.js). Shifted right to clear
+   .soundfx-collapse-btn, which sits in the same row to its left. */
 .soundfx-id-badge {
   position: absolute;
   top: 8px;
-  left: 16px;
+  left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+}
+
+/* Same top-edge fix as .soundfx-delete-btn, positioned at the opposite
+   corner - a smaller top offset than .soundfx-delete-btn's, since this one
+   has to line up against .soundfx-id-badge's own text baseline right next to
+   it, not just sit inside the card. */
+.soundfx-collapse-btn {
+  top: 0 !important;
+  left: 4px !important;
+  box-shadow: none !important;
 }
 
 /* Same 12px reserved below the badge as PixelEditor.vue's
