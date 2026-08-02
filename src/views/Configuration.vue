@@ -9,6 +9,17 @@
         label="ROM size"
       />
       <v-switch
+        v-model="configurationState.muteBlocklySounds"
+        @change="handleChangeConfiguration"
+        label="Mute Blockly sounds"
+        hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; below for that."
+        persistent-hint
+        class="option-switch"
+      />
+
+      <v-divider class="mt-4 mb-2" />
+      <div class="text-subtitle-1">ROM Options</div>
+      <v-switch
         v-model="configurationState.muteAllAudio"
         @change="handleChangeConfiguration"
         label="Mute all in-game audio"
@@ -150,6 +161,7 @@ export default defineComponent({
           scoreFont: '',
           textBkColor: 0,
           muteAllAudio: false,
+          muteBlocklySounds: false,
         };
 
         try {

@@ -14,7 +14,19 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
-              <v-card outlined class="text-card">
+              <v-card outlined class="text-card" :class="{ 'text-card--collapsed': isCollapsed(entry) }">
+                <v-btn
+                  :title="isCollapsed(entry) ? 'Expand this message' : 'Collapse this message'"
+                  icon
+                  small
+                  absolute
+                  top
+                  left
+                  class="text-collapse-btn"
+                  @click="() => toggleCollapsed(entry)"
+                >
+                  <v-icon>{{ isCollapsed(entry) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                </v-btn>
                 <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot;">
                   ID: {{ index + 1 }}
                 </div>
@@ -32,7 +44,7 @@
                   <v-icon>mdi-delete</v-icon>
                 </v-btn>
 
-                <v-card-text>
+                <v-card-text v-if="!isCollapsed(entry)">
                   <v-text-field
                     class="text-name-field"
                     label="Name"
@@ -70,7 +82,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import {useTextStringsStorage} from '../hooks/project';
@@ -96,6 +108,21 @@ export default defineComponent({
 
     const handleChildChange = () => {
       state.value = state.value;
+    };
+
+    // Purely a view preference - which cards are collapsed has no bearing on
+    // the generated game, so it lives in local component state rather than
+    // the saved project data. Reassigning the whole object (rather than
+    // mutating a reactive({}) in place) - adding a brand new key to a plain
+    // reactive object isn't reliably tracked in Vue 2, and every entry's ID
+    // is a new key here the first time it's ever collapsed.
+    const collapsedIds = ref({});
+    const isCollapsed = (entry) => !!collapsedIds.value[entry.id];
+    const toggleCollapsed = (entry) => {
+      collapsedIds.value = {
+        ...collapsedIds.value,
+        [entry.id]: !collapsedIds.value[entry.id],
+      };
     };
 
     const instance = getCurrentInstance();
@@ -128,6 +155,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
+      isCollapsed, toggleCollapsed,
     };
   },
 });
@@ -159,6 +187,13 @@ export default defineComponent({
   max-width: 640px;
 }
 
+/* With the fields hidden, nothing in normal flow gives the card any height
+   (the badge/buttons are all position:absolute) - this keeps the collapsed
+   header row itself visible instead of the card shrinking to nothing. */
+.text-card--collapsed {
+  min-height: 40px;
+}
+
 /* Vuetify's fab+absolute+top combo centers the button on the card's top
    edge, poking half of it out (and clipped there); pull it down so the whole
    button sits inside the card instead. */
@@ -167,10 +202,22 @@ export default defineComponent({
   box-shadow: none !important;
 }
 
+/* Same top-edge fix as .text-delete-btn, positioned at the opposite corner -
+   a smaller top offset than .text-delete-btn's, since this one has to line
+   up against .text-id-badge's own text baseline right next to it, not just
+   sit inside the card. */
+.text-collapse-btn {
+  top: 0 !important;
+  left: 4px !important;
+  box-shadow: none !important;
+}
+
+/* Shifted right to clear .text-collapse-btn, which now sits in the same
+   row to its left. */
 .text-id-badge {
   position: absolute;
   top: 8px;
-  left: 16px;
+  left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;

@@ -1,5 +1,13 @@
 import * as Blockly from 'blockly/core';
-import {GAMEOVER_ICON, GAME_ICON, START_ICON, SYSTEM_ICON, TITLE_ICON, UPDATE_ICON} from './icon';
+import {COMMENT_ICON, GAMEOVER_ICON, GAME_ICON, START_ICON, SYSTEM_ICON, TITLE_ICON, UPDATE_ICON} from './icon';
+
+// Distinct from every other block colour in the app (see blocks/*.js's own
+// palette: purple, red, blue, background's orange, score's orange-red,
+// data's brown, text's brown, sound's magenta, sprites' teal, and this
+// category's own existing rgb(39, 176, 176) teal) - a comment has no effect
+// on the compiled program at all, so it reads as visually distinct from
+// every block that actually does something.
+const COMMENT_COLOR = '#607D8B';
 
 const EVENT_OPTIONS = [
   [`${SYSTEM_ICON} ${START_ICON} System start`, `system_start`],
@@ -106,6 +114,53 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': 'rgb(39, 176, 176)',
     'tooltip': 'Execute code every few frames',
+  },
+
+  // Block for inserting a plain comment into the generated bBasic code - has
+  // no effect on the compiled program whatsoever, purely a note for whoever
+  // reads the Generated tab later.
+  {
+    'type': 'event_comment',
+    'message0': `${COMMENT_ICON} %1`,
+    'args0': [
+      {
+        'type': 'field_input',
+        'name': 'TEXT',
+        'text': 'Add Comment',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': COMMENT_COLOR,
+    'tooltip': 'Inserts a comment into the generated bBasic code. Does not ' +
+      'affect how the game runs in any way - purely a note to yourself.',
+  },
+
+  // Wrapper version of the above - encloses a whole stack of blocks instead
+  // of standing alone, to label/group a section of logic. Whatever's
+  // connected inside runs exactly as if this wrapper weren't there at all -
+  // it only adds the comment line before it in the generated code.
+  {
+    'type': 'event_comment_wrapper',
+    'message0': `${COMMENT_ICON} %1`,
+    'args0': [
+      {
+        'type': 'field_input',
+        'name': 'TEXT',
+        'text': 'Add Comment',
+      },
+    ],
+    'message1': '%1',
+    'args1': [{
+      'type': 'input_statement',
+      'name': 'DO',
+    }],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': COMMENT_COLOR,
+    'tooltip': 'Groups the connected blocks under a comment label in the ' +
+      'generated bBasic code. Purely organizational - everything inside ' +
+      'still runs exactly as it would outside this wrapper.',
   },
 
 ]);

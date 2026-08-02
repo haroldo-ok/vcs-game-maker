@@ -3,7 +3,13 @@ import * as Blockly from 'blockly/core';
 import {COLOR_ICON, TEXT_ICON} from './icon';
 import {buildTextStringOptions} from './text-strings';
 
-const TEXT_COLOR = '#795548';
+// Was '#795548' - identical (down to the exact RGB triplet) to Data's own
+// 'rgb(121, 85, 72)', making Text and Data blocks indistinguishable by
+// colour alone. Indigo isn't used anywhere else in the app's palette (see
+// blocks/*.js: purple, red, blue, background's orange, score's orange-red,
+// data's brown, sound's magenta, sprites' teal, event's teal, comment's
+// blue-grey).
+const TEXT_COLOR = '#3F51B5';
 
 // Shows a message using the Text Minikernel (a five-line message drawn in
 // place of the score digits - see generators/bbasic/text-minikernel.js), the

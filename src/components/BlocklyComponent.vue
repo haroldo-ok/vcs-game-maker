@@ -87,6 +87,21 @@ export default {
     clearTimeout(this.resizeSettleTimer);
   },
   methods: {
+    setSoundsEnabled(enabled) {
+      const audioMgr = this.workspace.getAudioManager();
+      if (enabled) {
+        const pathToMedia = (this.$props.options || {}).media || 'media/';
+        audioMgr.load(
+            [pathToMedia + 'click.mp3', pathToMedia + 'click.wav', pathToMedia + 'click.ogg'], 'click');
+        audioMgr.load(
+            [pathToMedia + 'disconnect.wav', pathToMedia + 'disconnect.mp3', pathToMedia + 'disconnect.ogg'],
+            'disconnect');
+        audioMgr.load(
+            [pathToMedia + 'delete.mp3', pathToMedia + 'delete.ogg', pathToMedia + 'delete.wav'], 'delete');
+      } else {
+        audioMgr.SOUNDS_ = {};
+      }
+    },
     loadWorkspace(value) {
       const xml = Blockly.Xml.textToDom(value && value !== 'null' ?
           value : '<xml xmlns="https://developers.google.com/blockly/xml"/>');
@@ -105,6 +120,11 @@ export default {
     value(newVal, oldVal) {
       if (newVal !== this.lastSavedWorkspace) {
         this.loadWorkspace(newVal);
+      }
+    },
+    'options.sounds'(newVal) {
+      if (this.workspace) {
+        this.setSoundsEnabled(newVal);
       }
     },
   },

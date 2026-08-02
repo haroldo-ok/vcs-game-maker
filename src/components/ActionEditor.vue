@@ -41,7 +41,7 @@ import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-eve
 
 import BlocklyBB from '../generators/bbasic';
 import {showError} from '../utils/build-error';
-import {useWorkspaceStorage, useErrorStorage} from '../hooks/project';
+import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 import {markRomOutdated} from '../hooks/rom';
 
@@ -49,35 +49,40 @@ export default {
   components: {BlocklyComponent},
   name: 'HelloWorld',
 
-  data: () => ({
-    generatedBasic: useGeneratedBasic(),
-    options: {
-      media: 'media/',
-      grid: {
-        spacing: 25,
-        length: 3,
-        colour: '#ccc',
-        snap: true,
+  data() {
+    const configurationStorage = useConfigurationStorage();
+    return {
+      generatedBasic: useGeneratedBasic(),
+      options: {
+        media: 'media/',
+        sounds: !(configurationStorage.value || {}).muteBlocklySounds,
+        grid: {
+          spacing: 25,
+          length: 3,
+          colour: '#ccc',
+          snap: true,
+        },
+        zoom: {
+          controls: true,
+          wheel: true,
+          startScale: 1.0,
+          maxScale: 3,
+          minScale: 0.3,
+          scaleSpeed: 1.2,
+        },
+        toolbox: Handlebars.compile(blocklyToolboxTemplate)({
+          blocklyToolboxPlayer0Movement,
+          blocklyToolboxPlayer1Movement,
+          blocklyToolboxBallMovement,
+          blocklyToolboxBackground,
+          blocklyToolboxExampleEvent,
+        }),
       },
-      zoom: {
-        controls: true,
-        wheel: true,
-        startScale: 1.0,
-        maxScale: 3,
-        minScale: 0.3,
-        scaleSpeed: 1.2,
-      },
-      toolbox: Handlebars.compile(blocklyToolboxTemplate)({
-        blocklyToolboxPlayer0Movement,
-        blocklyToolboxPlayer1Movement,
-        blocklyToolboxBallMovement,
-        blocklyToolboxBackground,
-        blocklyToolboxExampleEvent,
-      }),
-    },
-    workspaceStorage: useWorkspaceStorage(),
-    errorStorage: useErrorStorage(),
-  }),
+      workspaceStorage: useWorkspaceStorage(),
+      errorStorage: useErrorStorage(),
+      configurationStorage,
+    };
+  },
   methods: {
     // Only the bBasic source is refreshed as blocks change; compiling it into a
     // ROM is left to the "Update ROM" button, since a build is slow and a
@@ -100,6 +105,9 @@ export default {
     },
   },
   computed: {
+    blocklySoundsEnabled() {
+      return !(this.configurationStorage.value || {}).muteBlocklySounds;
+    },
     workspaceData: {
       get() {
         try {
@@ -112,6 +120,11 @@ export default {
       set(value) {
         this.workspaceStorage.value = value;
       },
+    },
+  },
+  watch: {
+    blocklySoundsEnabled(newVal) {
+      this.options.sounds = newVal;
     },
   },
 };

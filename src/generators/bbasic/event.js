@@ -78,4 +78,25 @@ export default (Blockly) => {
     ].join('\n') +
     '\n';
   };
+
+  // "rem" runs to the end of the line, so a newline (shouldn't be reachable
+  // through a single-line text field, but nothing stops a pasted value)
+  // would otherwise let whatever's after it escape the comment and
+  // potentially assemble as code.
+  const sanitizeCommentText = (text) => text.replace(/[\r\n]+/g, ' ');
+
+  Blockly.BBasic['event_comment'] = function(block) {
+    return ` rem ${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
+  };
+
+  // Wrapper version - purely a label around whatever's connected inside
+  // "DO", which runs completely unchanged (statementToCode's own output,
+  // passed straight through with no gosub/goto/state tracking of any kind -
+  // unlike event_block, this doesn't represent a new event, just a labeled
+  // section of an existing one).
+  Blockly.BBasic['event_comment_wrapper'] = function(block) {
+    const comment = ` rem ${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
+    const code = Blockly.BBasic.statementToCode(block, 'DO');
+    return comment + code;
+  };
 };

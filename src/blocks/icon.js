@@ -45,3 +45,4 @@ export const FRAME_ICON = String.fromCodePoint(0x1F39E) + String.fromCodePoint(0
 export const PLAY_ICON = String.fromCodePoint(0x25B6) + String.fromCodePoint(0xFE0F);
 export const PAUSE_ICON = String.fromCodePoint(0x23F8) + String.fromCodePoint(0xFE0F);
 export const PRIORITY_ICON = String.fromCodePoint(0x1F5C2) + String.fromCodePoint(0xFE0F);
+export const COMMENT_ICON = String.fromCodePoint(0x1F4AC);
