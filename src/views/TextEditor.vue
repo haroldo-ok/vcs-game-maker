@@ -14,7 +14,7 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
-              <v-card outlined class="text-card" :class="{ 'text-card--collapsed': isCollapsed(entry) }">
+              <v-card outlined class="text-card">
                 <v-btn
                   :title="isCollapsed(entry) ? 'Expand this message' : 'Collapse this message'"
                   icon
@@ -44,14 +44,16 @@
                   <v-icon>mdi-delete</v-icon>
                 </v-btn>
 
-                <v-card-text v-if="!isCollapsed(entry)">
+                <v-card-text class="text-name-section">
                   <v-text-field
                     class="text-name-field"
                     label="Name"
                     v-model="entry.name"
                     @change="handleChildChange"
                   />
+                </v-card-text>
 
+                <v-card-text v-if="!isCollapsed(entry)" class="text-message-section">
                   <v-text-field
                     label="Text"
                     v-model="entry.text"
@@ -187,13 +189,6 @@ export default defineComponent({
   max-width: 640px;
 }
 
-/* With the fields hidden, nothing in normal flow gives the card any height
-   (the badge/buttons are all position:absolute) - this keeps the collapsed
-   header row itself visible instead of the card shrinking to nothing. */
-.text-card--collapsed {
-  min-height: 40px;
-}
-
 /* Vuetify's fab+absolute+top combo centers the button on the card's top
    edge, poking half of it out (and clipped there); pull it down so the whole
    button sits inside the card instead. */
@@ -227,6 +222,18 @@ export default defineComponent({
    .soundfx-name-field. */
 .text-name-field {
   margin-top: 12px;
+}
+
+/* Split from the rest of the card's content (text-message-section) so the
+   name field can stay visible while collapsed - v-card-text's own default
+   padding-bottom would otherwise open a gap between them that the original,
+   single v-card-text never had. */
+.text-name-section {
+  padding-bottom: 0;
+}
+
+.text-message-section {
+  padding-top: 0;
 }
 
 .add-text-button {

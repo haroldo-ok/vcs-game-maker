@@ -6,7 +6,7 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="table in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
-              <v-card outlined class="data-card" :class="{ 'data-card--collapsed': isCollapsed(table) }">
+              <v-card outlined class="data-card">
                 <v-btn
                   :title="isCollapsed(table) ? 'Expand this table' : 'Collapse this table'"
                   icon
@@ -19,10 +19,7 @@
                 >
                   <v-icon>{{ isCollapsed(table) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="data-header-row">
-                  <span class="data-id-badge">ID: {{ table.id }}</span>
-                  <span v-if="isCollapsed(table)" class="data-collapsed-name">{{ table.name }}</span>
-                </div>
+                <div class="data-id-badge">ID: {{ table.id }}</div>
                 <v-menu
                   v-if="state.dataTables.length > 1"
                   top
@@ -62,14 +59,16 @@
                   </v-card>
                 </v-menu>
 
-                <v-card-text v-if="!isCollapsed(table)">
+                <v-card-text class="data-name-section">
                   <v-text-field
                     class="data-name-field"
                     label="Table name"
                     v-model="table.name"
                     @change="handleChildChange"
                   />
+                </v-card-text>
 
+                <v-card-text v-if="!isCollapsed(table)" class="data-values-section">
                   <div class="data-caption">
                     {{ table.values.length }} / {{ maxValues }} values (0-255 each)
                   </div>
@@ -247,45 +246,17 @@ export default defineComponent({
   max-width: 640px;
 }
 
-/* With the fields hidden, nothing in normal flow gives the card any height
-   (the badge/buttons are all position:absolute) - this keeps the collapsed
-   header row itself visible instead of the card shrinking to nothing. */
-.data-card--collapsed {
-  min-height: 40px;
-}
-
-/* Same placement as the Text tab's "ID: N" badge (TextEditor.vue's
-   .text-id-badge) - shifted right to clear .data-collapse-btn, which sits
-   in the same row to its left. Holds the badge and, while collapsed, the
-   table's name (the name field itself is hidden along with the rest of
-   v-card-text then, so this is the only remaining way to tell tables apart
-   without expanding each one). */
-.data-header-row {
+/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - data tables are referenced by this same numeric id
+   (see dataTableSymbolName in blocks/data.js). Shifted right to clear
+   .data-collapse-btn, which sits in the same row to its left. */
+.data-id-badge {
   position: absolute;
   top: 8px;
   left: 32px;
-  right: 40px;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  overflow: hidden;
-}
-
-/* Data tables are referenced by this same numeric id (see
-   dataTableSymbolName in blocks/data.js). */
-.data-id-badge {
-  flex: 0 0 auto;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
-}
-
-.data-collapsed-name {
-  flex: 0 1 auto;
-  font-size: 0.85rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Same top-edge fix as .data-delete-btn, positioned at the opposite corner -
@@ -302,6 +273,18 @@ export default defineComponent({
    .soundfx-name-field. */
 .data-name-field {
   margin-top: 12px;
+}
+
+/* Split from the rest of the card's content (data-values-section) so the
+   name field can stay visible while collapsed - v-card-text's own default
+   padding-bottom would otherwise open a gap between them that the original,
+   single v-card-text never had. */
+.data-name-section {
+  padding-bottom: 0;
+}
+
+.data-values-section {
+  padding-top: 0;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top

@@ -29,7 +29,7 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
             <v-list-item-content>
-              <v-card outlined class="soundfx-card" :class="{ 'soundfx-card--collapsed': isCollapsed(soundEffect) }">
+              <v-card outlined class="soundfx-card">
                 <v-btn
                   :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
                   icon
@@ -42,10 +42,7 @@
                 >
                   <v-icon>{{ isCollapsed(soundEffect) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="soundfx-header-row">
-                  <span class="soundfx-id-badge">ID: {{ soundEffect.id }}</span>
-                  <span v-if="isCollapsed(soundEffect)" class="soundfx-collapsed-name">{{ soundEffect.name }}</span>
-                </div>
+                <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
                 <v-menu
                   v-if="state.soundEffects.length > 1"
                   top
@@ -85,14 +82,16 @@
                   </v-card>
                 </v-menu>
 
-                <v-card-text v-if="!isCollapsed(soundEffect)">
+                <v-card-text class="soundfx-name-section">
                   <v-text-field
                     class="soundfx-name-field"
                     label="Sound effect name"
                     v-model="soundEffect.name"
                     @change="handleChildChange"
                   />
+                </v-card-text>
 
+                <v-card-text v-if="!isCollapsed(soundEffect)" class="soundfx-fields-section">
                   <div class="soundfx-fields">
                     <v-select
                       label="Sound type"
@@ -329,45 +328,17 @@ export default defineComponent({
   max-width: 640px;
 }
 
-/* With the fields hidden, nothing in normal flow gives the card any height
-   (the badge/buttons are all position:absolute) - this keeps the collapsed
-   header row itself visible instead of the card shrinking to nothing. */
-.soundfx-card--collapsed {
-  min-height: 40px;
-}
-
-/* Same placement as the Text tab's "ID: N" badge (TextEditor.vue's
-   .text-id-badge) - shifted right to clear .soundfx-collapse-btn, which
-   sits in the same row to its left. Holds the badge and, while collapsed,
-   the sound effect's name (the name field itself is hidden along with the
-   rest of v-card-text then, so this is the only remaining way to tell
-   sound effects apart without expanding each one). */
-.soundfx-header-row {
+/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - sound effects are referenced by this same numeric id
+   (see findSoundEffectById in blocks/soundfx.js). Shifted right to clear
+   .soundfx-collapse-btn, which sits in the same row to its left. */
+.soundfx-id-badge {
   position: absolute;
   top: 8px;
   left: 32px;
-  right: 40px;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  overflow: hidden;
-}
-
-/* Sound effects are referenced by this same numeric id (see
-   findSoundEffectById in blocks/soundfx.js). */
-.soundfx-id-badge {
-  flex: 0 0 auto;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
-}
-
-.soundfx-collapsed-name {
-  flex: 0 1 auto;
-  font-size: 0.85rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Same top-edge fix as .soundfx-delete-btn, positioned at the opposite
@@ -384,6 +355,18 @@ export default defineComponent({
    .editor-with-sidebar--has-badge (see PlayerEditor.vue's "FRAME: N"). */
 .soundfx-name-field {
   margin-top: 12px;
+}
+
+/* Split from the rest of the card's content (soundfx-fields-section) so the
+   name field can stay visible while collapsed - v-card-text's own default
+   padding-bottom would otherwise open a gap between them that the original,
+   single v-card-text never had. */
+.soundfx-name-section {
+  padding-bottom: 0;
+}
+
+.soundfx-fields-section {
+  padding-top: 0;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top
