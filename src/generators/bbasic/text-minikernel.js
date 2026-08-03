@@ -196,11 +196,18 @@ export default (Blockly) => {
       '  ' + encodeTextMessage(text).join(', '));
     const dataTable = ` data text_strings\n${rows.join('\n')}\nend`;
 
+    // Matches the reference demo's own layout exactly: the data table comes
+    // first, then both inline files back to back with nothing between them.
+    // text12a.asm's own tail jumps to a label defined in text12b.asm, so
+    // splitting them with the data table in between doesn't break by
+    // address (DASM resolves that jump by label, not by physical position) -
+    // but nothing about combining the Text Minikernel with hardware
+    // collision has ever been tested against that arrangement, only this
+    // one, so there's no reason to keep the two files apart from each other.
     const block = [
-      ' inline text12a.asm',
-      '',
       dataTable,
       '',
+      ' inline text12a.asm',
       ' inline text12b.asm',
     ].join('\n');
 

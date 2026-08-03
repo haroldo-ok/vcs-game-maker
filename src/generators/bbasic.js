@@ -840,15 +840,19 @@ Blockly.BBasic.generateConfiguration = function() {
   if (!(showBlankLines ?? true)) kernelOptions.push('no_blank_lines');
   const kernelOptionsConfigurationCode = kernelOptions.length ?
     `set kernel_options ${kernelOptions.join(' ')}` : '';
-  // text12a.asm (see generators/bbasic/text-minikernel.js) also writes
-  // "noscore = 1" itself at runtime whenever the Text Minikernel is active,
-  // but that's a plain variable assignment, not a redeclaration - it doesn't
-  // conflict with "noscore" being a compile-time const here (confirmed
-  // against the real toolchain), so the "showScore" toggle still controls
-  // this the same way with or without the Text Minikernel: unchecked, it
-  // frees up the standard kernel's now-redundant score-digit code (the Text
-  // Minikernel draws its own).
-  const scoreConfigurationCode = (showScore ?? true) ? '' : 'const noscore = 1';
+  // "noscore" is a compile-time ifconst gate in the standard kernel - it
+  // decides whether the score-digit-drawing assembly is even assembled into
+  // the ROM at all, nothing runtime can override it after the fact. The Text
+  // Minikernel's own manual is explicit that "noscore" is NOT the option to
+  // pair with it: "Set this constant to 1 to turn off the score when using
+  // this minikernel instead of using the standard 'noscore' option" - i.e.
+  // "noscore" and the Text Minikernel don't actually work together, so with
+  // it active, unchecking "Show score" has to emit "noscoretxt" instead, or
+  // the standard kernel's score-digit code stays compiled in and keeps
+  // running (and drawing) every frame right alongside the Text Minikernel's
+  // own status row, regardless of this toggle.
+  const scoreConfigurationCode = (showScore ?? true) ? '' :
+    `const ${this.isTextMinikernelActive() ? 'noscoretxt' : 'noscore'} = 1`;
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that
