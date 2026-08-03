@@ -63,6 +63,22 @@ const SYSTEM_VARIABLE_LETTERS = SYSTEM_VARIABLES.map(([, letter]) => letter);
 export const USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP =
   ALL_LETTERS.filter((letter) => !SYSTEM_VARIABLE_LETTERS.includes(letter));
 
+// text12b.asm (see generators/bbasic/text-minikernel.js) uses the bare
+// single-letter symbol "B" as its own scratch byte ("sta B" / "ldx B",
+// confirmed 5 times in its always-active text-drawing routine, once per
+// displayed row, never gated behind "extendedtxt") - assuming, like a
+// hand-written batari Basic program would, that it's free to borrow. DASM
+// resolves that "B" to the exact same address as this app's own lowercase
+// "b" (2600basic.h defines single-letter variables case-insensitively), so
+// any user variable this app assigns to "b" gets silently overwritten every
+// frame the Text Minikernel draws - confirmed by direct RAM inspection: a
+// second movement-axis speed variable landing on "b" turned to garbage every
+// other frame with the Text Minikernel active, and stayed correct with it
+// disabled, all else unchanged. Reserved here as a normal-looking user
+// variable letter never actually is when the Text Minikernel is active -
+// same reasoning as aux1/aux2 being off-limits for pfcolors above.
+const TEXT_MINIKERNEL_RESERVED_LETTERS = ['b'];
+
 /**
  * JavaScript code generator.
  * @type {!Blockly.Generator}
@@ -187,6 +203,17 @@ Blockly.BBasic.init = function(workspace) {
   // math_arithmetic handler, which sets this as a side effect.
   this.usesDivMul = false;
 
+  // Normally textMinikernelUsed only becomes true as a side effect of a Text
+  // block's own generator running, which happens well after user variable
+  // letters are assigned below - too late to keep user variables away from
+  // TEXT_MINIKERNEL_RESERVED_LETTERS. A quick pre-scan (block types only, no
+  // code generation) determines this early enough to matter, and is
+  // harmless to redo: every text_minikernel_* block's own generator sets the
+  // same flag again later regardless.
+  if (workspace.getAllBlocks(false).some((block) => block.type.startsWith('text_minikernel_'))) {
+    this.textMinikernelUsed = true;
+  }
+
   if (!this.nameDB_) {
     this.nameDB_ = new Blockly.Names(this.RESERVED_WORDS_);
   } else {
@@ -215,11 +242,16 @@ Blockly.BBasic.init = function(workspace) {
   // Declare all of the variables. Without Superchip, the system variables
   // above claim most of the alphabet, leaving only
   // USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free; with it, the system
-  // variables move into var0-13 instead, freeing every letter.
+  // variables move into var0-13 instead, freeing every letter. With the Text
+  // Minikernel active, TEXT_MINIKERNEL_RESERVED_LETTERS also comes off the
+  // top regardless of Superchip - see its own comment for why.
   if (defvars.length) {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const availableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
+    const baseAvailableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
+    const availableLetters = this.isTextMinikernelActive() ?
+      baseAvailableLetters.filter((letter) => !TEXT_MINIKERNEL_RESERVED_LETTERS.includes(letter)) :
+      baseAvailableLetters;
     if (defvars.length > availableLetters.length) {
       throw new Error(`Too many variables: this project defines ${defvars.length}, but only ` +
         `${availableLetters.length} are available${config.enableSuperchip ? '' :
