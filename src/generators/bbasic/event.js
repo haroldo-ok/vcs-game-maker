@@ -79,6 +79,31 @@ export default (Blockly) => {
     '\n';
   };
 
+  Blockly.BBasic['event_run_once'] = function(block) {
+    // Run once - see bbasic.js's init() for where runOnceCounter/
+    // runOnceByteLetters come from: one bit per instance, packed 8 to a
+    // byte, in the same dimmed-and-lettered bytes every "Run once" block in
+    // the project shares.
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelEnd = `_run_once_${blockNumber}_end`;
+
+    const bitIndex = Blockly.BBasic.runOnceCounter++;
+    const byteIndex = Math.floor(bitIndex / 8);
+    const bitInByte = bitIndex % 8;
+    const flagByte = Blockly.BBasic.runOnceByteLetters[byteIndex];
+
+    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+
+    return '\n' +
+    [
+      `if ${flagByte}{${bitInByte}} then goto ${labelEnd}`,
+      `${flagByte}{${bitInByte}} = 1`,
+      code,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
+
   // "rem" runs to the end of the line, so a newline (shouldn't be reachable
   // through a single-line text field, but nothing stops a pasted value)
   // would otherwise let whatever's after it escape the comment and

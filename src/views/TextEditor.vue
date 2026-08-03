@@ -84,9 +84,10 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import {useCollapsedIds} from '../hooks/collapse';
 import {useTextStringsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH, processTextStringsStorageDefaults} from '../blocks/text-strings';
 
@@ -112,20 +113,7 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Purely a view preference - which cards are collapsed has no bearing on
-    // the generated game, so it lives in local component state rather than
-    // the saved project data. Reassigning the whole object (rather than
-    // mutating a reactive({}) in place) - adding a brand new key to a plain
-    // reactive object isn't reliably tracked in Vue 2, and every entry's ID
-    // is a new key here the first time it's ever collapsed.
-    const collapsedIds = ref({});
-    const isCollapsed = (entry) => !!collapsedIds.value[entry.id];
-    const toggleCollapsed = (entry) => {
-      collapsedIds.value = {
-        ...collapsedIds.value,
-        [entry.id]: !collapsedIds.value[entry.id],
-      };
-    };
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('text');
 
     const instance = getCurrentInstance();
     const handleAddEntry = () => {

@@ -214,6 +214,21 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
 
+  // Run-once blocks (see blocks/event.js's event_run_once) each need one bit
+  // of persistent state remembering whether they've already fired, packed 8
+  // to a byte rather than giving each its own - the same bit-packing trick
+  // this app's own generated projects use for boolean flags. Counted here,
+  // before variable letters are handed out below, for the same reason as
+  // the text minikernel pre-scan above: by the time a run_once block's own
+  // generator runs (see generators/bbasic/event.js), its flag byte's letter
+  // would already need to be decided. runOnceCounter is what that generator
+  // increments, one per instance, to assign each block its own bit.
+  this.runOnceCounter = 0;
+  const runOnceBlockCount = workspace.getAllBlocks(false)
+      .filter((block) => block.type === 'event_run_once').length;
+  const runOnceByteNames = [...Array(Math.ceil(runOnceBlockCount / 8)).keys()]
+      .map((i) => `RunOnceFlags${i}`);
+
   if (!this.nameDB_) {
     this.nameDB_ = new Blockly.Names(this.RESERVED_WORDS_);
   } else {
@@ -239,12 +254,19 @@ Blockly.BBasic.init = function(workspace) {
         Blockly.VARIABLE_CATEGORY_NAME));
   }
 
+  // Add the run-once flag bytes computed above, after user variables so an
+  // unrelated change in how many "Run once" blocks a project uses never
+  // shifts any user variable's own assigned letter.
+  const runOnceDefvarsStart = defvars.length;
+  defvars.push(...runOnceByteNames);
+
   // Declare all of the variables. Without Superchip, the system variables
   // above claim most of the alphabet, leaving only
   // USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free; with it, the system
   // variables move into var0-13 instead, freeing every letter. With the Text
   // Minikernel active, TEXT_MINIKERNEL_RESERVED_LETTERS also comes off the
   // top regardless of Superchip - see its own comment for why.
+  this.runOnceByteLetters = [];
   if (defvars.length) {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
@@ -260,6 +282,7 @@ Blockly.BBasic.init = function(workspace) {
     this.definitions_['variables'] = defvars
         .map((v, i) => `  dim ${v} = ${availableLetters[i]}`)
         .join('\n');
+    this.runOnceByteLetters = runOnceByteNames.map((_, i) => availableLetters[runOnceDefvarsStart + i]);
   }
 
   this.blockNumbers = {

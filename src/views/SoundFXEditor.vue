@@ -157,9 +157,10 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import {useCollapsedIds} from '../hooks/collapse';
 import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults} from '../blocks/soundfx';
@@ -211,16 +212,7 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Purely a view preference - see TextEditor.vue's identical collapsedIds
-    // for why this lives in local component state and is reassigned wholesale.
-    const collapsedIds = ref({});
-    const isCollapsed = (soundEffect) => !!collapsedIds.value[soundEffect.id];
-    const toggleCollapsed = (soundEffect) => {
-      collapsedIds.value = {
-        ...collapsedIds.value,
-        [soundEffect.id]: !collapsedIds.value[soundEffect.id],
-      };
-    };
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('soundfx');
 
     const instance = getCurrentInstance();
     const handleAddSoundEffect = () => {

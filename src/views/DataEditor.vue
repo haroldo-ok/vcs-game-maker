@@ -134,9 +134,10 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import {useCollapsedIds} from '../hooks/collapse';
 import {useDataTablesStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, MAX_DATA_TABLE_VALUES, processDataTablesStorageDefaults} from '../blocks/data';
 
@@ -162,16 +163,7 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Purely a view preference - see TextEditor.vue's identical collapsedIds
-    // for why this lives in local component state and is reassigned wholesale.
-    const collapsedIds = ref({});
-    const isCollapsed = (table) => !!collapsedIds.value[table.id];
-    const toggleCollapsed = (table) => {
-      collapsedIds.value = {
-        ...collapsedIds.value,
-        [table.id]: !collapsedIds.value[table.id],
-      };
-    };
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('data');
 
     const instance = getCurrentInstance();
     const handleAddTable = () => {

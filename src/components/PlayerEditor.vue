@@ -164,11 +164,12 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
+import {useCollapsedIds} from '../hooks/collapse';
 import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {useEditorZoom} from '../hooks/zoom';
 import {playfieldToMatrix} from '../utils/pixels';
@@ -216,16 +217,9 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Purely a view preference - see TextEditor.vue's identical collapsedIds
-    // for why this lives in local component state and is reassigned wholesale.
-    const collapsedIds = ref({});
-    const isCollapsed = (animation) => !!collapsedIds.value[animation.id];
-    const toggleCollapsed = (animation) => {
-      collapsedIds.value = {
-        ...collapsedIds.value,
-        [animation.id]: !collapsedIds.value[animation.id],
-      };
-    };
+    // Player 0 and Player 1 are separate instances, so each keeps its own
+    // set of collapsed animations - same reasoning as the zoom above.
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds(props.name);
 
     const instance = getCurrentInstance();
 

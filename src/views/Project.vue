@@ -75,7 +75,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useSoundEffectsStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
@@ -97,9 +97,12 @@ export default defineComponent({
     const configurationStorage = useConfigurationStorage();
     const scoreFontStorage = useScoreFontStorage();
     const dataTablesStorage = useDataTablesStorage();
+    const textStringsStorage = useTextStringsStorage();
+    const soundEffectsStorage = useSoundEffectsStorage();
 
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationStorage, scoreFontStorage, dataTablesStorage};
+      workspaceStorage, configurationStorage, scoreFontStorage, dataTablesStorage,
+      textStringsStorage, soundEffectsStorage};
   },
   methods: {
     handleSaveProject() {
@@ -145,6 +148,8 @@ export default defineComponent({
         backgrounds,
         'score-font': scoreFont,
         'data-tables': this.dataTablesStorage,
+        'text-strings': this.textStringsStorage,
+        'sound-effects': this.soundEffectsStorage,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
@@ -220,6 +225,14 @@ export default defineComponent({
           this.dataTablesStorage = project['data-tables'];
         }
 
+        if (project['text-strings']) {
+          this.textStringsStorage = project['text-strings'];
+        }
+
+        if (project['sound-effects']) {
+          this.soundEffectsStorage = project['sound-effects'];
+        }
+
         this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
@@ -234,6 +247,8 @@ export default defineComponent({
       this.backgroundsStorage = null;
       this.scoreFontStorage = null;
       this.dataTablesStorage = null;
+      this.textStringsStorage = null;
+      this.soundEffectsStorage = null;
 
       this.data.newProjectDialog = false;
       this.router.push('/');

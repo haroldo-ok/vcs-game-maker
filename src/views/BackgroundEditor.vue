@@ -98,9 +98,10 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import {useCollapsedIds} from '../hooks/collapse';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
@@ -185,16 +186,7 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Purely a view preference - see TextEditor.vue's identical collapsedIds
-    // for why this lives in local component state and is reassigned wholesale.
-    const collapsedIds = ref({});
-    const isCollapsed = (background) => !!collapsedIds.value[background.id];
-    const toggleCollapsed = (background) => {
-      collapsedIds.value = {
-        ...collapsedIds.value,
-        [background.id]: !collapsedIds.value[background.id],
-      };
-    };
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('background');
 
     const handleRowColorsInput = (background, colors) => {
       background.rowColors = colors;

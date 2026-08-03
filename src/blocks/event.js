@@ -116,6 +116,27 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': 'Execute code every few frames',
   },
 
+  // Wrapper block whose contents only run the first time it's reached -
+  // every time after, they're skipped entirely. Backed by one bit of
+  // persistent state per block instance (see generators/bbasic/event.js),
+  // so it works no matter how often the surrounding code runs it (every
+  // frame, from a subroutine called from several places, etc.).
+  {
+    'type': 'event_run_once',
+    'message0': '▶️ Run once',
+    'message1': '%1',
+    'args1': [{
+      'type': 'input_statement',
+      'name': 'DO',
+    }],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'rgb(39, 176, 176)',
+    'tooltip': 'Runs the connected blocks only the first time this is ' +
+      'reached. Every time after, they\'re skipped, no matter how often ' +
+      'the surrounding code runs.',
+  },
+
   // Block for inserting a plain comment into the generated bBasic code - has
   // no effect on the compiled program whatsoever, purely a note for whoever
   // reads the Generated tab later.
