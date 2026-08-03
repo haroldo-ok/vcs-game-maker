@@ -42,7 +42,10 @@
                 >
                   <v-icon>{{ isCollapsed(soundEffect) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
+                <div class="soundfx-header-row">
+                  <span class="soundfx-id-badge">ID: {{ soundEffect.id }}</span>
+                  <span v-if="isCollapsed(soundEffect)" class="soundfx-collapsed-name">{{ soundEffect.name }}</span>
+                </div>
                 <v-menu
                   v-if="state.soundEffects.length > 1"
                   top
@@ -333,17 +336,38 @@ export default defineComponent({
   min-height: 40px;
 }
 
-/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
-   .text-id-badge) - sound effects are referenced by this same numeric id
-   (see findSoundEffectById in blocks/soundfx.js). Shifted right to clear
-   .soundfx-collapse-btn, which sits in the same row to its left. */
-.soundfx-id-badge {
+/* Same placement as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - shifted right to clear .soundfx-collapse-btn, which
+   sits in the same row to its left. Holds the badge and, while collapsed,
+   the sound effect's name (the name field itself is hidden along with the
+   rest of v-card-text then, so this is the only remaining way to tell
+   sound effects apart without expanding each one). */
+.soundfx-header-row {
   position: absolute;
   top: 8px;
   left: 32px;
+  right: 40px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* Sound effects are referenced by this same numeric id (see
+   findSoundEffectById in blocks/soundfx.js). */
+.soundfx-id-badge {
+  flex: 0 0 auto;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+}
+
+.soundfx-collapsed-name {
+  flex: 0 1 auto;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Same top-edge fix as .soundfx-delete-btn, positioned at the opposite

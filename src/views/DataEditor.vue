@@ -19,7 +19,10 @@
                 >
                   <v-icon>{{ isCollapsed(table) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="data-id-badge">ID: {{ table.id }}</div>
+                <div class="data-header-row">
+                  <span class="data-id-badge">ID: {{ table.id }}</span>
+                  <span v-if="isCollapsed(table)" class="data-collapsed-name">{{ table.name }}</span>
+                </div>
                 <v-menu
                   v-if="state.dataTables.length > 1"
                   top
@@ -251,17 +254,38 @@ export default defineComponent({
   min-height: 40px;
 }
 
-/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
-   .text-id-badge) - data tables are referenced by this same numeric id
-   (see dataTableSymbolName in blocks/data.js). Shifted right to clear
-   .data-collapse-btn, which sits in the same row to its left. */
-.data-id-badge {
+/* Same placement as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - shifted right to clear .data-collapse-btn, which sits
+   in the same row to its left. Holds the badge and, while collapsed, the
+   table's name (the name field itself is hidden along with the rest of
+   v-card-text then, so this is the only remaining way to tell tables apart
+   without expanding each one). */
+.data-header-row {
   position: absolute;
   top: 8px;
   left: 32px;
+  right: 40px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* Data tables are referenced by this same numeric id (see
+   dataTableSymbolName in blocks/data.js). */
+.data-id-badge {
+  flex: 0 0 auto;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+}
+
+.data-collapsed-name {
+  flex: 0 1 auto;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Same top-edge fix as .data-delete-btn, positioned at the opposite corner -
