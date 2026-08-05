@@ -1,5 +1,5 @@
 <template>
-  <v-card outlined>
+  <v-card flat>
     <v-card-title>Project</v-card-title>
     <v-card-text>
         <v-file-input
@@ -9,7 +9,7 @@
             @change="handleLoadProject"
         ></v-file-input>
     </v-card-text>
-    <v-card-actions>
+    <v-card-actions class="project-actions">
       <v-btn
         color="primary"
         @click="handleSaveProject"
@@ -75,7 +75,7 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useSoundEffectsStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
@@ -97,9 +97,12 @@ export default defineComponent({
     const configurationStorage = useConfigurationStorage();
     const scoreFontStorage = useScoreFontStorage();
     const dataTablesStorage = useDataTablesStorage();
+    const textStringsStorage = useTextStringsStorage();
+    const soundEffectsStorage = useSoundEffectsStorage();
 
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationStorage, scoreFontStorage, dataTablesStorage};
+      workspaceStorage, configurationStorage, scoreFontStorage, dataTablesStorage,
+      textStringsStorage, soundEffectsStorage};
   },
   methods: {
     handleSaveProject() {
@@ -145,6 +148,8 @@ export default defineComponent({
         backgrounds,
         'score-font': scoreFont,
         'data-tables': this.dataTablesStorage,
+        'text-strings': this.textStringsStorage,
+        'sound-effects': this.soundEffectsStorage,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
@@ -220,6 +225,14 @@ export default defineComponent({
           this.dataTablesStorage = project['data-tables'];
         }
 
+        if (project['text-strings']) {
+          this.textStringsStorage = project['text-strings'];
+        }
+
+        if (project['sound-effects']) {
+          this.soundEffectsStorage = project['sound-effects'];
+        }
+
         this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
@@ -234,6 +247,8 @@ export default defineComponent({
       this.backgroundsStorage = null;
       this.scoreFontStorage = null;
       this.dataTablesStorage = null;
+      this.textStringsStorage = null;
+      this.soundEffectsStorage = null;
 
       this.data.newProjectDialog = false;
       this.router.push('/');
@@ -241,3 +256,12 @@ export default defineComponent({
   },
 });
 </script>
+<style scoped>
+/* Matches v-card-text's own left padding (v-card-actions' default is
+   narrower), and sits right under the import field above it rather than
+   the wider gap v-card-actions normally leaves. */
+.project-actions {
+  padding-top: 0;
+  padding-left: 16px;
+}
+</style>

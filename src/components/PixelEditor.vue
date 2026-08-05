@@ -1,6 +1,7 @@
 <template>
   <v-card outlined @click="handleMouse" :ripple="false">
     <v-card-text>
+      <slot name="badge" />
       <div class="editor-with-sidebar">
         <div v-if="$slots.sidebar" class="editor-sidebar">
           <slot name="sidebar" />
@@ -160,6 +161,8 @@
               </v-menu>
             </div>
           </template>
+          <v-spacer />
+          <slot name="toolbar-end" />
       </div>
     </v-card-actions>
   </v-card>
@@ -466,6 +469,11 @@ export default {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  /* v-card-actions is itself a flex container, so without this the row (its
+     one flex-item child) shrinks to fit its own icons instead of spanning
+     the full card width - leaving the "toolbar-end" slot's v-spacer nothing
+     to actually expand into. */
+  width: 100%;
   padding: 0 8px;
 }
 

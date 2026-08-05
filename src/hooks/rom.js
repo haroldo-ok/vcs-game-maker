@@ -4,11 +4,12 @@ import Vue from 'vue';
 import VueCompositionApi from '@vue/composition-api';
 
 import Blockly from 'blockly';
-import {preprocessBatariBasic, compileBatariBasic, assembleDASM} from 'batari-basic/src/compiler';
+import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from './bb-compiler';
 
 import '../blocks';
 import BlocklyBB, {RELOCATABLE_EVENT_NAMES} from '../generators/bbasic';
-import {applyScoreFont} from '../utils/score-font';
+import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../generators/bbasic/text-minikernel-files';
+import {buildScoreFontOverride, SQUISH_SCORE_FONT} from '../utils/score-font';
 import {showError} from '../utils/build-error';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
@@ -50,6 +51,7 @@ const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.work
 export const countUsedVariables = () =>
   withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
 
+
 // The compiler hardcodes the pfcolors table pointer as "pfcolorlabelN-84",
 // which only lands on the right byte when the kernel's own row index starts
 // at 84 - true for the standard (pfres-less) kernel, but Superchip's
@@ -62,13 +64,10 @@ export const countUsedVariables = () =>
 //
 // This does NOT fully fix pfcolors+Superchip - the very last playfield row
 // still renders black regardless of pfres. Root cause not yet found.
-const patchSuperchipPfColorsPointer = (assemblyFiles, config) => {
-  if (!config.enableSuperchip || !config.pfres) return assemblyFiles;
+const patchSuperchipPfColorsPointer = ({mainAsm, workDir}, config) => {
+  if (!config.enableSuperchip || !config.pfres) return {mainAsm, workDir};
   const correctOffset = 132 - config.pfres * 4;
-  return {
-    ...assemblyFiles,
-    'main.asm': assemblyFiles['main.asm'].replace(/pfcolorlabel(\d+)-84/g, `pfcolorlabel$1-${correctOffset}`),
-  };
+  return {mainAsm: mainAsm.replace(/pfcolorlabel(\d+)-84/g, `pfcolorlabel$1-${correctOffset}`), workDir};
 };
 
 // This is the only signature the underlying compiler gives for "your code
@@ -151,9 +150,9 @@ const MAX_RELOCATION_ATTEMPTS = 64;
  * currently holds the fewest relocated units, and retries - repeating until
  * it fits, every relocatable unit has been tried, or every bank the ROM size
  * provides is in use.
- * @return {boolean} Whether the ROM was built.
+ * @return {!Promise<boolean>} Whether the ROM was built.
  */
-export const buildRom = () => {
+export const buildRom = async () => {
   const errorStorage = useErrorStorage();
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
@@ -171,12 +170,36 @@ export const buildRom = () => {
     const config = configurationStorage.value || {};
     try {
       errorStorage.value = '';
+      // The Text Minikernel's text12a.asm/text12b.asm need to sit next to
+      // the source throughout the whole compile pipeline - see
+      // text-minikernel-files.js and compileBatariBasicToAsm.
+      const textMinikernelActive = BlocklyBB.isTextMinikernelActive();
+      // Copied rather than used directly: getTextMinikernelSiblingFiles()
+      // returns the same cached object every call, and this block below
+      // mutates whatever ends up in siblingFiles['score_graphics.asm'] - doing
+      // that in place used to corrupt the cache permanently (e.g. picking a
+      // preset font once would leave that override stuck there forever,
+      // masking the Text Minikernel's own extended file even after switching
+      // back to Squish or to a different project).
+      const siblingFiles = textMinikernelActive ? {...await getTextMinikernelSiblingFiles()} : {};
       // The compiler has no font support of its own, so point its score
-      // digits at the selected font before building.
-      applyScoreFont(config.scoreFont);
-      const preprocessed = preprocessBatariBasic(code);
-      const assemblyFiles = patchSuperchipPfColorsPointer(compileBatariBasic(preprocessed), config);
-      const compiledResult = assembleDASM(assemblyFiles);
+      // digits at the selected font by overriding score_graphics.asm.
+      // Squish is special (see utils/score-font.js/SQUISH_SCORE_FONT): it's
+      // the Text Minikernel's own extended score_graphics.asm, already
+      // placed above whenever the Text Minikernel is active, but selectable
+      // on its own too, independent of whether the Text Minikernel is used -
+      // combining it with one of the byte-swappable preset/custom fonts
+      // isn't supported, so those are skipped whenever Squish is picked.
+      if (config.scoreFont === SQUISH_SCORE_FONT) {
+        if (!textMinikernelActive) siblingFiles['score_graphics.asm'] = await getExtendedScoreGraphics();
+      } else {
+        const scoreFontOverride = await buildScoreFontOverride(config.scoreFont);
+        if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
+      }
+      const preprocessed = await preprocessBatariBasic(code);
+      const compiled = patchSuperchipPfColorsPointer(
+          await compileBatariBasicToAsm(preprocessed, siblingFiles), config);
+      const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir);
       Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
 
       // TODO: Implement this without a global variable

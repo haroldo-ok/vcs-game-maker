@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card flat>
     <v-card-title>Options</v-card-title>
     <v-card-text>
       <v-select
@@ -8,6 +8,52 @@
         :items="romSizeOptions"
         label="ROM size"
       />
+      <v-switch
+        v-model="configurationState.muteBlocklySounds"
+        @change="handleChangeConfiguration"
+        label="Mute Blockly sounds"
+        hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; below for that."
+        persistent-hint
+        class="option-switch"
+      />
+
+      <v-divider class="mt-4 mb-2" />
+      <div class="text-subtitle-1">ROM Options</div>
+      <v-switch
+        v-model="configurationState.muteAllAudio"
+        @change="handleChangeConfiguration"
+        label="Mute all in-game audio"
+        hint="Silences every sound effect and channel, overriding whatever any Sound block sets - useful for quick testing without needing to remove sound blocks."
+        persistent-hint
+        class="option-switch"
+      />
+      <div v-if="textMinikernelUsed" class="text-bk-color">
+        <span>Text Minikernel background color:</span>
+        <v-menu offset-y :close-on-content-click="true">
+          <template v-slot:activator="{ on, attrs }">
+            <div
+              class="text-bk-color-swatch"
+              :style="{backgroundColor: textBkColorCss}"
+              title="Click to change"
+              v-bind="attrs"
+              v-on="on"
+            />
+          </template>
+          <v-card class="palette-card">
+            <div class="palette-grid">
+              <div
+                v-for="(hex, paletteIndex) in palette"
+                :key="paletteIndex"
+                class="palette-swatch"
+                :class="{selected: (configurationState.textBkColor >> 1) === paletteIndex}"
+                :style="{backgroundColor: `#${hex}`}"
+                :title="bbasicLiteral(paletteIndex << 1)"
+                @click="handleChangeTextBkColor(paletteIndex << 1)"
+              />
+            </div>
+          </v-card>
+        </v-menu>
+      </div>
       <v-switch
         v-model="configurationState.showScore"
         @change="handleChangeConfiguration"
@@ -37,7 +83,7 @@
         v-model="configurationState.enableSuperchip"
         @change="handleToggleSuperchip"
         label="Enable Superchip RAM for higher-resolution playfields"
-        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables instead of just 12."
+        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables."
         persistent-hint
         class="option-switch"
       />
@@ -45,10 +91,10 @@
         v-model.number="configurationState.pfres"
         @change="handleChangeResolution"
         type="number"
-        min="13"
+        min="1"
         max="32"
         label="Playfield vertical resolution (pfres)"
-        hint="From 13 to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
+        hint="Up to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
         persistent-hint
         class="pfres-field"
       />
@@ -58,7 +104,7 @@
       <v-switch
         v-model="configurationState.enableOptimizationSpeed"
         @change="handleChangeConfiguration"
-        label="Optimize for speed (set optimization speed)"
+        label="Optimize for speed (speed)"
         hint="May increase speed - particularly of multiplication and division - at the cost of code size."
         persistent-hint
         class="option-switch"
@@ -67,7 +113,7 @@
         v-model="configurationState.enableInlineRand"
         @change="handleChangeConfiguration"
         :disabled="!romSizeIsBankswitched"
-        label="Inline random number calls (set optimization inlinerand)"
+        label="Inline random number calls (inlinerand)"
         hint="Places calls to the random number generator inline with your code instead of as a shared routine, trading a small increase in code size for speed - most useful in a bankswitched game, where a shared routine call would otherwise have to switch banks. Requires a bankswitched ROM size (8k or larger) - see ROM size above."
         persistent-hint
         class="option-switch"
@@ -82,9 +128,11 @@ import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
 import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage} from '../hooks/project';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
+import {isTextMinikernelUsedInProject} from '../utils/text-minikernel-usage';
+import {NTSC_COLORS, colorByteToCss, colorByteToBBasic} from '../utils/palette';
 
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
-const MIN_PFRES = 13;
+const MIN_PFRES = 1;
 const MAX_PFRES = 32;
 // Superchip RAM only works on a bankswitched ROM ("Superchip RAM is only used
 // in conjunction with bankswitching" - batari Basic docs); 2k/4k never
@@ -111,6 +159,9 @@ export default defineComponent({
           pfres: 24,
           romSize: '4k',
           scoreFont: '',
+          textBkColor: 0,
+          muteAllAudio: false,
+          muteBlocklySounds: false,
         };
 
         try {
@@ -133,6 +184,20 @@ export default defineComponent({
     // BANK_COUNT_BY_ROMSIZE in hooks/rom.js - 2k/4k never do).
     const romSizeIsBankswitched = computed(() =>
       Boolean(BANK_COUNT_BY_ROMSIZE[configurationState.value.romSize]));
+
+    // The Text Minikernel's background color ("textbkcolor" in
+    // text12a.asm/text12b.asm) is read as an immediate value at several
+    // cycle-critical spots inside the minikernel's own WSYNC-timed drawing
+    // loop, not a variable - so unlike TextColor, it can only be a compile-time
+    // setting (see generateConfiguration() in generators/bbasic.js), not a
+    // runtime action block.
+    const textMinikernelUsed = computed(() => isTextMinikernelUsedInProject());
+    const textBkColorCss = computed(() => colorByteToCss(configurationState.value.textBkColor));
+    const handleChangeTextBkColor = (colorByte) => {
+      const state = configurationState.value;
+      state.textBkColor = colorByte;
+      configurationState.value = state;
+    };
 
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together (last row black, and with more than one background
@@ -198,6 +263,11 @@ export default defineComponent({
       handleToggleSuperchip,
       romSizeOptions: ROM_SIZE_OPTIONS,
       romSizeIsBankswitched,
+      textMinikernelUsed,
+      textBkColorCss,
+      handleChangeTextBkColor,
+      palette: NTSC_COLORS,
+      bbasicLiteral: colorByteToBBasic,
     };
   },
   methods: {
@@ -216,5 +286,51 @@ export default defineComponent({
 .pfres-field {
   margin-left: 46px;
   max-width: calc(100% - 46px);
+}
+
+.text-bk-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.text-bk-color-swatch {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.text-bk-color-swatch:hover {
+  outline: 2px solid #1976d2;
+  outline-offset: -2px;
+}
+
+.palette-card {
+  padding: 4px;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 18px);
+  gap: 1px;
+}
+
+.palette-swatch {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.palette-swatch:hover {
+  outline: 2px solid #1976d2;
+  outline-offset: -2px;
+}
+
+.palette-swatch.selected {
+  outline: 2px solid #ffffff;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 1px #000;
 }
 </style>

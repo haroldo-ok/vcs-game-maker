@@ -78,4 +78,50 @@ export default (Blockly) => {
     ].join('\n') +
     '\n';
   };
+
+  Blockly.BBasic['event_run_once'] = function(block) {
+    // Run once - see bbasic.js's init() for where runOnceCounter/
+    // runOnceByteLetters come from: one bit per instance, packed 8 to a
+    // byte, in the same dimmed-and-lettered bytes every "Run once" block in
+    // the project shares.
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelEnd = `_run_once_${blockNumber}_end`;
+
+    const bitIndex = Blockly.BBasic.runOnceCounter++;
+    const byteIndex = Math.floor(bitIndex / 8);
+    const bitInByte = bitIndex % 8;
+    const flagByte = Blockly.BBasic.runOnceByteLetters[byteIndex];
+
+    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+
+    return '\n' +
+    [
+      `if ${flagByte}{${bitInByte}} then goto ${labelEnd}`,
+      `${flagByte}{${bitInByte}} = 1`,
+      code,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
+
+  // "rem" runs to the end of the line, so a newline (shouldn't be reachable
+  // through a single-line text field, but nothing stops a pasted value)
+  // would otherwise let whatever's after it escape the comment and
+  // potentially assemble as code.
+  const sanitizeCommentText = (text) => text.replace(/[\r\n]+/g, ' ');
+
+  Blockly.BBasic['event_comment'] = function(block) {
+    return ` rem ${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
+  };
+
+  // Wrapper version - purely a label around whatever's connected inside
+  // "DO", which runs completely unchanged (statementToCode's own output,
+  // passed straight through with no gosub/goto/state tracking of any kind -
+  // unlike event_block, this doesn't represent a new event, just a labeled
+  // section of an existing one).
+  Blockly.BBasic['event_comment_wrapper'] = function(block) {
+    const comment = ` rem ${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
+    const code = Blockly.BBasic.statementToCode(block, 'DO');
+    return comment + code;
+  };
 };

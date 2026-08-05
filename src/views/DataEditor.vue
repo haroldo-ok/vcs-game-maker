@@ -4,9 +4,22 @@
       <v-card-title>Data</v-card-title>
       <v-card-text>
         <v-list>
-          <v-list-item v-for="table in state.dataTables" v-bind:key="table.id">
+          <v-list-item class="entry-list-item" v-for="table in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
               <v-card outlined class="data-card">
+                <v-btn
+                  :title="isCollapsed(table) ? 'Expand this table' : 'Collapse this table'"
+                  icon
+                  small
+                  absolute
+                  top
+                  left
+                  class="data-collapse-btn"
+                  @click="() => toggleCollapsed(table)"
+                >
+                  <v-icon>{{ isCollapsed(table) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                </v-btn>
+                <div class="data-id-badge">ID: {{ table.id }}</div>
                 <v-menu
                   v-if="state.dataTables.length > 1"
                   top
@@ -46,13 +59,16 @@
                   </v-card>
                 </v-menu>
 
-                <v-card-text>
+                <v-card-text class="data-name-section">
                   <v-text-field
+                    class="data-name-field"
                     label="Table name"
                     v-model="table.name"
                     @change="handleChildChange"
                   />
+                </v-card-text>
 
+                <v-card-text v-if="!isCollapsed(table)" class="data-values-section">
                   <div class="data-caption">
                     {{ table.values.length }} / {{ maxValues }} values (0-255 each)
                   </div>
@@ -121,6 +137,7 @@
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import {useCollapsedIds} from '../hooks/collapse';
 import {useDataTablesStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, MAX_DATA_TABLE_VALUES, processDataTablesStorageDefaults} from '../blocks/data';
 
@@ -145,6 +162,8 @@ export default defineComponent({
     const handleChildChange = () => {
       state.value = state.value;
     };
+
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('data');
 
     const instance = getCurrentInstance();
     const handleAddTable = () => {
@@ -191,6 +210,7 @@ export default defineComponent({
     return {
       state, handleChildChange, handleAddTable, handleDeleteTable,
       handleAddValue, handleDeleteValue, handleValueChange,
+      isCollapsed, toggleCollapsed,
       maxValues: MAX_DATA_TABLE_VALUES,
     };
   },
@@ -200,15 +220,63 @@ export default defineComponent({
 .editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* v-list-item's own default left padding stacks on top of v-card-text's,
+   pushing the data table card in further than the Score tab's, which sits
+   directly in a v-card-text with no list-item wrapper. */
+.entry-list-item {
+  padding-left: 0;
 }
 
 .data-card {
   position: relative;
   width: 100%;
   max-width: 640px;
+}
+
+/* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
+   .text-id-badge) - data tables are referenced by this same numeric id
+   (see dataTableSymbolName in blocks/data.js). Shifted right to clear
+   .data-collapse-btn, which sits in the same row to its left. */
+.data-id-badge {
+  position: absolute;
+  top: 8px;
+  left: 32px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.6;
+}
+
+/* Same top-edge fix as .data-delete-btn, positioned at the opposite corner -
+   a smaller top offset than .data-delete-btn's, since this one has to line
+   up against .data-id-badge's own text baseline right next to it, not just
+   sit inside the card. */
+.data-collapse-btn {
+  top: 0 !important;
+  left: 4px !important;
+  box-shadow: none !important;
+}
+
+/* Same 12px reserved below the badge as the SoundFX tab's
+   .soundfx-name-field. */
+.data-name-field {
+  margin-top: 12px;
+}
+
+/* Split from the rest of the card's content (data-values-section) so the
+   name field can stay visible while collapsed - v-card-text's own default
+   padding-bottom would otherwise open a gap between them that the original,
+   single v-card-text never had. */
+.data-name-section {
+  padding-bottom: 0;
+}
+
+.data-values-section {
+  padding-top: 0;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top

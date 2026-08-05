@@ -5,6 +5,7 @@
 // builder), so the same set is always available regardless of which one loads
 // first.
 import './prompt-fix';
+import './trashcan-size';
 
 import './background';
 import './bit';
@@ -21,3 +22,4 @@ import './sound';
 import './soundfx';
 import './sprites';
 import './subroutine';
+import './text-minikernel';

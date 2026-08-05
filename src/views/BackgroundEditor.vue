@@ -5,51 +5,25 @@
       <v-card-text>
         <editor-zoom v-model="zoom" />
         <v-list>
-          <v-list-item v-for="background in state.backgrounds" v-bind:key="background.id">
+          <v-list-item class="entry-list-item" v-for="background in state.backgrounds" v-bind:key="background.id">
             <v-list-item-content>
                 <v-list-item-title>
+                  <div class="background-id-row">
+                    <v-btn
+                      :title="isCollapsed(background) ? 'Expand this background' : 'Collapse this background'"
+                      icon
+                      small
+                      class="background-collapse-btn"
+                      @click="() => toggleCollapsed(background)"
+                    >
+                      <v-icon>{{ isCollapsed(background) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                    </v-btn>
+                    <div class="background-id-badge">ID: {{ background.id }}</div>
+                  </div>
                   <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
                 </v-list-item-title>
-                <v-list-item-subtitle>
+                <v-list-item-subtitle v-if="!isCollapsed(background)">
                   <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
-                    <v-menu
-                        v-if="state.backgrounds.length > 1"
-                        top
-                      >
-                      <template v-slot:activator="{ on, attrs }">
-                        <v-btn
-                          title="Delete this background"
-                          icon
-                          small
-                          absolute
-                          top
-                          right
-                          class="delete-btn-inset delete-icon-btn"
-                          v-bind="attrs"
-                          v-on="on"
-                        >
-                          <v-icon>mdi-delete</v-icon>
-                        </v-btn>
-                      </template>
-
-                      <v-card>
-                        <v-card-title>Delete this background?</v-card-title>
-                        <v-list>
-                          <v-list-item @click="handleDeleteBackground(background)">
-                            <v-list-item-icon>
-                              <v-icon>mdi-check</v-icon>
-                            </v-list-item-icon>
-                            <v-list-item-title>Yes, delete</v-list-item-title>
-                          </v-list-item>
-                          <v-list-item>
-                            <v-list-item-icon>
-                              <v-icon>mdi-cancel</v-icon>
-                            </v-list-item-icon>
-                            <v-list-item-title>No, don't delete</v-list-item-title>
-                          </v-list-item>
-                        </v-list>
-                      </v-card>
-                    </v-menu>
                     <pixel-editor
                       :width="32"
                       :height="backgroundRows"
@@ -65,6 +39,40 @@
                           :value="background.rowColors"
                           @input="(colors) => handleRowColorsInput(background, colors)"
                         />
+                      </template>
+                      <template v-if="state.backgrounds.length > 1" v-slot:toolbar-end>
+                        <v-menu top>
+                          <template v-slot:activator="{ on, attrs }">
+                            <v-btn
+                              title="Delete this background"
+                              icon
+                              small
+                              class="delete-icon-btn"
+                              v-bind="attrs"
+                              v-on="on"
+                            >
+                              <v-icon>mdi-delete</v-icon>
+                            </v-btn>
+                          </template>
+
+                          <v-card>
+                            <v-card-title>Delete this background?</v-card-title>
+                            <v-list>
+                              <v-list-item @click="handleDeleteBackground(background)">
+                                <v-list-item-icon>
+                                  <v-icon>mdi-check</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-title>Yes, delete</v-list-item-title>
+                              </v-list-item>
+                              <v-list-item>
+                                <v-list-item-icon>
+                                  <v-icon>mdi-cancel</v-icon>
+                                </v-list-item-icon>
+                                <v-list-item-title>No, don't delete</v-list-item-title>
+                              </v-list-item>
+                            </v-list>
+                          </v-card>
+                        </v-menu>
                       </template>
                     </pixel-editor>
                   </div>
@@ -93,6 +101,7 @@
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import {useCollapsedIds} from '../hooks/collapse';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
@@ -177,6 +186,8 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('background');
+
     const handleRowColorsInput = (background, colors) => {
       background.rowColors = colors;
       handleChildChange();
@@ -224,7 +235,7 @@ export default defineComponent({
     };
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
-      handleRowColorsInput, editorRowColors,
+      handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
       zoom, editorWidth, backgroundRows, pfColorsEnabled};
   },
 });
@@ -243,16 +254,33 @@ export default defineComponent({
 .editor-container {
   position: absolute;
   overflow: auto;
-  top: 3em;
+  top: 0;
   bottom: 0;
   width: 100%;
 }
 
-/* Vuetify's fab+absolute+top combo centers the button on its container's top
-   edge, poking half of it out; pull it down so the whole button sits inside
-   the card instead. */
-.delete-btn-inset {
-  top: 8px !important;
+/* v-list-item's own default left padding stacks on top of v-card-text's,
+   pushing the graphic card in further than the Score tab's, which sits
+   directly in a v-card-text with no list-item wrapper. */
+.entry-list-item {
+  padding-left: 0;
+}
+
+/* Same layout as the Player tabs' collapse-button-plus-badge row
+   (PlayerEditor.vue's .animation-id-row). */
+.background-id-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Same placement/style as the Player tabs' "ID: N" badge above the
+   "Animation name" field (PlayerEditor.vue's .animation-id-badge). */
+.background-id-badge {
+  text-align: left;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.6;
 }
 
 .add-frame-buttom {

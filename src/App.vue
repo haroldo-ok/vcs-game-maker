@@ -1,7 +1,7 @@
 <template>
   <v-app id="inspire">
     <v-system-bar app>
-      <v-card-text>{{ name }} {{ version }}</v-card-text>
+      <v-card-text>{{ productName }} {{ version }}</v-card-text>
 
       <v-spacer></v-spacer>
 
@@ -44,6 +44,10 @@
 
         <v-btn to="/scorefont" link class="scorefont-item" title="Score" elevation="0">
           <v-icon>mdi-numeric</v-icon>
+        </v-btn>
+
+        <v-btn to="/text" link class="text-tab-item" title="Text" elevation="0">
+          <v-icon>mdi-card-text-outline</v-icon>
         </v-btn>
 
         <v-btn to="/data" link class="data-item" title="Data" elevation="0">
@@ -158,6 +162,19 @@
         </v-list-item>
 
         <v-list-item
+          to="/text"
+          link
+          class="text-tab-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-card-text-outline</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Text</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
           to="/data"
           link
           class="data-item"
@@ -259,7 +276,12 @@
       <router-view/>
     </v-main>
 
-    <v-footer class="error-message">
+    <v-footer class="error-message" :style="{height: errorHeight + 'px', maxHeight: errorHeight + 'px'}">
+      <div
+        class="error-resize-handle"
+        title="Drag to resize the error pane"
+        @mousedown.prevent="startResizeError"
+      ></div>
       <pre v-text="errorStorage"></pre>
     </v-footer>
   </v-app>
@@ -268,7 +290,7 @@
 <script>
 import {useErrorStorage} from './hooks/project';
 import {buildRom, useAutoRelocatedEvents, useRomCapacity, useRomOutdated} from './hooks/rom';
-import {name, version} from '../package.json';
+import {productName, version} from '../package.json';
 
 // Below this fraction of the bank's usable space remaining, the capacity
 // display switches to a warning color.
@@ -284,6 +306,15 @@ const EMULATOR_MAX_WIDTH = 900;
 // Keep enough room for the editor when dragging on smaller screens.
 const EDITOR_MIN_WIDTH = 320;
 const EMULATOR_WIDTH_KEY = 'vcs-game-maker.emulatorWidth';
+// Matches the footer's old fixed "max-height: 7em" (at the default 16px root
+// font size) as the default/minimum, so an unresized pane looks the same as
+// before this was made resizable.
+const ERROR_DEFAULT_HEIGHT = 112;
+const ERROR_MIN_HEIGHT = 112;
+// Leaves at least this much of the window for everything else (toolbar, main
+// content) when dragging the error pane very tall.
+const ERROR_MIN_REMAINING_HEIGHT = 150;
+const ERROR_HEIGHT_KEY = 'vcs-game-maker.errorHeight';
 // How long to keep waiting for Javatari to lay out before giving up. A timer
 // is used rather than an animation frame so this still settles when the window
 // is in the background.
@@ -295,6 +326,11 @@ const readStoredWidth = () => {
   return Number.isFinite(stored) ? stored : EMULATOR_DEFAULT_WIDTH;
 };
 
+const readStoredErrorHeight = () => {
+  const stored = parseInt(localStorage.getItem(ERROR_HEIGHT_KEY), 10);
+  return Number.isFinite(stored) ? stored : ERROR_DEFAULT_HEIGHT;
+};
+
 export default {
   data: () => ({
     drawer: null,
@@ -302,6 +338,8 @@ export default {
     emulatorScale: 1,
     emulatorHeight: null,
     resizing: false,
+    errorHeight: readStoredErrorHeight(),
+    resizingError: false,
     building: false,
   }),
   setup() {
@@ -309,7 +347,7 @@ export default {
     console.info('Text', version);
     return {
       errorStorage, romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      autoRelocatedEvents: useAutoRelocatedEvents(), name, version,
+      autoRelocatedEvents: useAutoRelocatedEvents(), productName, version,
     };
   },
   mounted() {
@@ -322,6 +360,10 @@ export default {
     if (this.emulatorResizeObserver) {
       this.emulatorResizeObserver.disconnect();
       this.emulatorResizeObserver = null;
+    }
+    if (this.emulatorReparentObserver) {
+      this.emulatorReparentObserver.disconnect();
+      this.emulatorReparentObserver = null;
     }
   },
   computed: {
@@ -399,7 +441,47 @@ export default {
       container.appendChild(javatariScreen);
       javatariScreen.style = '';
       this.observeEmulatorSize(container, javatariScreen);
+      this.observeEmulatorReparenting(container);
       this.updateEmulatorScale();
+    },
+    // Javatari sometimes re-inserts its own screen element back into its
+    // default location in the DOM (observed after loading a new ROM via
+    // "Update ROM") rather than leaving it where attachEmulator() moved it -
+    // since our layout only shows what's inside #javatari-target-container,
+    // this makes the preview appear to vanish. A single re-attach right after
+    // a build finishes (handleRomUpdate already does this) isn't reliable if
+    // Javatari does the move on its own schedule; watching for it and moving
+    // the screen back the moment it happens is more robust than reacting only
+    // once, after the fact.
+    observeEmulatorReparenting(container) {
+      if (this.emulatorReparentObserver) return;
+      this.emulatorReparentObserver = new MutationObserver(() => {
+        const screen = document.getElementById('javatari-screen');
+        if (screen && screen.parentElement !== container) {
+          container.appendChild(screen);
+          screen.style = '';
+          this.updateEmulatorScale();
+        }
+      });
+      this.emulatorReparentObserver.observe(document.body, {childList: true, subtree: true});
+    },
+    // Root cause of the preview "vanishing" after "Update ROM": Javatari's
+    // own "Select Cartridge"/"Select ROM Format"/"Save/Load State" dialogs
+    // (all share the "jt-select-dialog" class, shown/hidden via the "jt-show"
+    // class) are drawn on TOP of the screen at a high z-index. If one is
+    // already open - most commonly the cartridge chooser, which Javatari
+    // opens on its own at startup whenever there's no cartridge inserted yet
+    // and it has recent ROMs to offer - loading a new ROM via
+    // fileLoader.loadFromContent() builds and runs it correctly underneath,
+    // but doesn't close whatever dialog happened to already be open, leaving
+    // it covering the now-running game. Removing "jt-show" from every such
+    // dialog closes them the same way Javatari's own Escape-key handler does,
+    // without triggering any of their side effects (loading a different ROM,
+    // opening a file picker, etc. - those only run from their own dialog
+    // button/key handlers, not from this class removal).
+    dismissEmulatorDialogs() {
+      document.querySelectorAll('.jt-select-dialog.jt-show')
+          .forEach((dialog) => dialog.classList.remove('jt-show'));
     },
     // A single measurement is fragile: if it runs while the container's width
     // has not settled to the drawer width yet, the scale comes out too large,
@@ -496,15 +578,42 @@ export default {
       // measure the previous layout.
       this.$nextTick(() => window.dispatchEvent(new Event('resize')));
     },
-    // Compiling blocks the main thread, so hand the browser a chance to paint
-    // the button's progress state before starting.
+    startResizeError() {
+      this.resizingError = true;
+      window.addEventListener('mousemove', this.doResizeError);
+      window.addEventListener('mouseup', this.stopResizeError);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ns-resize';
+    },
+    doResizeError(event) {
+      const maxHeight = Math.max(
+          ERROR_MIN_HEIGHT, window.innerHeight - ERROR_MIN_REMAINING_HEIGHT);
+      const height = window.innerHeight - event.clientY;
+      this.errorHeight = Math.round(
+          Math.min(maxHeight, Math.max(ERROR_MIN_HEIGHT, height)));
+    },
+    stopResizeError() {
+      if (!this.resizingError) return;
+      this.resizingError = false;
+      window.removeEventListener('mousemove', this.doResizeError);
+      window.removeEventListener('mouseup', this.stopResizeError);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      localStorage.setItem(ERROR_HEIGHT_KEY, String(this.errorHeight));
+      // Same reflow nudge as stopResize() above, for the same reason: the
+      // Blockly canvas only re-measures its container (which just changed
+      // height) on a window resize event, not on its own.
+      this.$nextTick(() => window.dispatchEvent(new Event('resize')));
+    },
+    // buildRom() compiles via WASM asynchronously now (the real bB 1.9
+    // toolchain, run through an in-browser WASI shim - see hooks/bb-compiler.js),
+    // but the button's progress state still needs a paint before that starts,
+    // hence the same setTimeout(...,0) wrapper as when this was synchronous.
     handleRomUpdate() {
       if (this.building) return;
       this.building = true;
       window.setTimeout(() => {
-        try {
-          buildRom();
-        } finally {
+        buildRom().finally(() => {
           this.building = false;
           // Loading a new ROM sometimes leaves the preview looking like it
           // vanished - re-running the same attach/observe logic used on
@@ -512,9 +621,11 @@ export default {
           // cause (it re-finds the screen element fresh rather than
           // trusting a reference that may be stale, and re-attaching an
           // already-attached element or re-observing an already-observed
-          // one is a no-op).
+          // one is a no-op). dismissEmulatorDialogs() closes the actual
+          // confirmed cause - see its own comment.
+          this.dismissEmulatorDialogs();
           this.attachEmulator();
-        }
+        });
       }, 0);
     },
     handleRomDownload() {
@@ -665,6 +776,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(156, 39, 176) !important;
 }
 
+.text-tab-item,
+.text-tab-item > .v-list-item__icon > .theme--light.v-icon,
+.text-tab-item > .v-list-item__content {
+  color: rgb(233, 30, 99) !important;
+  border-left-color: rgb(233, 30, 99) !important;
+}
+
 .data-item,
 .data-item > .v-list-item__icon > .theme--light.v-icon,
 .data-item > .v-list-item__content {
@@ -714,12 +832,26 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .error-message {
+  position: relative;
   z-index: 10;
-  max-height: 7em;
   overflow-y: scroll;
 }
 
 .theme--light.v-footer.error-message {
   color: rgb(244, 67, 54);
+}
+
+.error-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+
+.error-resize-handle:hover {
+  background-color: rgba(0, 0, 0, 0.15);
 }
 </style>
