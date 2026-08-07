@@ -590,6 +590,10 @@ Blockly.BBasic.finish = function(code) {
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
   const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults();
+  // Has to run before generateDivMul() below - it may set usesDivMul as a
+  // side effect (the nibble packing math needs mul8/div8), which
+  // generateDivMul() then reads to decide whether to inline div_mul.asm.
+  const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
 
@@ -602,7 +606,7 @@ Blockly.BBasic.finish = function(code) {
     generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
-    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio});
+    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks});
 };
 
 // "*"/"/" by a non-power-of-2 constant or a runtime variable compiles to
@@ -977,7 +981,7 @@ Blockly.BBasic.generateSystemDims = function() {
   const systemDims = SYSTEM_VARIABLES
       .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
       .join('\n');
-  return systemDims + this.generateTextMinikernelDims();
+  return systemDims + this.generateTextMinikernelDims() + this.generateSoundFadeDims();
 };
 
 Blockly.BBasic.generateBackgrounds = function() {

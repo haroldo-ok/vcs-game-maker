@@ -17,6 +17,7 @@ export const DEFAULT_SOUND_EFFECTS = {
       audf: 16,
       audv: 15,
       duration: 5,
+      fade: false,
     },
   ],
 };

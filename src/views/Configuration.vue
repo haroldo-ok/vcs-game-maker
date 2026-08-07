@@ -1,5 +1,5 @@
 <template>
-  <v-card flat>
+  <v-card flat class="editor-container">
     <v-card-title>Options</v-card-title>
     <v-card-text>
       <v-select
@@ -275,6 +275,25 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* Same pattern already used by the other editor tabs (e.g. DataEditor's
+   .editor-container): absolutely positioned and stretched to its parent's
+   full height via top/bottom rather than a hardcoded height, with its own
+   overflow: auto. That keeps the scrollbar attached to this tab's own
+   column (matching where the other tabs already put theirs) and only
+   showing up when this tab's content is actually taller than the window -
+   unlike scrolling the whole document, which put the scrollbar at the far
+   outer edge of the browser window instead of next to the content, and
+   unlike a hardcoded height, which didn't leave room for the resizable
+   error footer below (that footer isn't Vuetify "app"-managed, so nothing
+   else accounts for its height). */
+.editor-container {
+  position: absolute;
+  overflow: auto;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+}
+
 /* Vuetify aligns a switch's hint under the toggle track by default; indent it
    to line up under the label text instead, matching the toggle's own width. */
 .option-switch >>> .v-messages {

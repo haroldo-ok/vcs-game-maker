@@ -39,24 +39,14 @@ const NTSC_SHIFT_CLOCK = 31440;
 const shiftClockFor = (audf, {slowClock = false} = {}) =>
   (slowClock ? NTSC_SHIFT_CLOCK / 3 : NTSC_SHIFT_CLOCK) / (Number(audf) + 1);
 
-const NOISE_BUFFER_SECONDS = 1;
-let noiseBuffer = null;
-const getNoiseBuffer = (context) => {
-  if (!noiseBuffer) {
-    const length = context.sampleRate * NOISE_BUFFER_SECONDS;
-    noiseBuffer = context.createBuffer(1, length, context.sampleRate);
-    const data = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < length; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-  }
-  return noiseBuffer;
-};
-
 // Advances a Galois LFSR by one step. The tap patterns aren't claimed to
 // match the real TIA polynomials exactly, they just need to produce an
 // audibly pseudo-random (as opposed to perfectly periodic) bit sequence.
-const TAPS_BY_BITS = {4: 0b1001, 5: 0b10010};
+// 9 bits is AUDC 8's real "9-bit poly" - a much longer repeat period than
+// the 4/5-bit ones is what actually gives it a "white noise" character on
+// real hardware, not literal per-sample randomness (see AUDC_APPROXIMATIONS'
+// own comment on why '8' used to be modeled as unclocked noise instead).
+const TAPS_BY_BITS = {4: 0b1001, 5: 0b10010, 9: 0b100010000};
 const stepLfsr = (lfsr, bits) => {
   const lsb = lfsr & 1;
   lfsr >>= 1;
@@ -92,10 +82,10 @@ const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {wavering = false}
   return buffer;
 };
 
-// Per-AUDC approximation. type is 'square' (clean pure tone), 'buzz'
-// (LFSR-driven, clocked directly off the shift register rate), or 'noise'.
-// slowClock marks the AUDC values documented as running off the slower
-// CPUclock/114 base rather than pixelclock/114.
+// Per-AUDC approximation. type is 'square' (clean pure tone) or 'buzz'
+// (LFSR-driven, clocked directly off the shift register rate). slowClock
+// marks the AUDC values documented as running off the slower CPUclock/114
+// base rather than pixelclock/114.
 const AUDC_APPROXIMATIONS = {
   '0': null,
   '1': {type: 'buzz', bits: 4},
@@ -105,7 +95,15 @@ const AUDC_APPROXIMATIONS = {
   '5': {type: 'square'},
   '6': {type: 'buzz', bits: 5},
   '7': {type: 'buzz', bits: 5},
-  '8': {type: 'noise'},
+  // Was modeled as unclocked, full-sample-rate white noise - real AUDC 8
+  // ("9-bit poly") is clocked at exactly the same chip rate as every other
+  // buzz value; ignoring AUDF like that meant this was the only AUDC value
+  // whose preview pitch never matched the real ROM's output (confirmed:
+  // Javatari's actual playback clearly tracks AUDF, the old preview didn't
+  // move at all). A 9-bit LFSR just has a period long enough (511 steps) to
+  // sound broadband/noisy rather than a repeating buzz, without needing
+  // per-sample randomness.
+  '8': {type: 'buzz', bits: 9},
   '9': {type: 'buzz', bits: 5},
   '10': {type: 'buzz', bits: 4},
   '11': null,
@@ -115,24 +113,75 @@ const AUDC_APPROXIMATIONS = {
   '15': {type: 'buzz', bits: 4, lowpass: true},
 };
 
+// Matches generators/bbasic/soundfx.js's own FADE_TAIL_FRAMES/fadeTargetVolume
+// - the compiled ROM drops to about a quarter volume for the last 4 frames
+// (60fps) rather than a smooth ramp, so the preview steps down the same way
+// instead of a continuous fade, to actually sound like what plays in game.
+const FADE_TAIL_SECONDS = 4 / 60;
+const fadeTargetGain = (peakGain) => peakGain * (Math.round(15 / 4) / 15);
+
+// Tracks whatever preview is currently playing, so the Stop button (and a
+// fresh Play press, which would otherwise overlap the old preview instead
+// of replacing it) can cut it off early.
+let activeSource = null;
+let activeGainNode = null;
+// A short linear ramp to silence before actually stopping the source, to
+// avoid the audible click a hard, instant stop mid-waveform would cause.
+const STOP_FADE_SECONDS = 0.02;
+
+const stopActivePreview = () => {
+  if (!activeSource) return;
+  const context = getAudioContext();
+  const now = context.currentTime;
+  if (activeGainNode) {
+    activeGainNode.gain.cancelScheduledValues(now);
+    activeGainNode.gain.setValueAtTime(activeGainNode.gain.value, now);
+    activeGainNode.gain.linearRampToValueAtTime(0, now + STOP_FADE_SECONDS);
+  }
+  try {
+    activeSource.stop(now + STOP_FADE_SECONDS);
+  } catch (e) {
+    // Already stopped/never started - nothing left to do.
+  }
+  activeSource = null;
+  activeGainNode = null;
+};
+
+/** Stops whatever sound effect preview is currently playing, if any. */
+export const stopSoundEffectPreview = () => {
+  stopActivePreview();
+};
+
 /**
  * Plays a short approximation of a TIA sound effect for previewing in the
  * editor. duration is in NTSC frames (60 per second), matching the generated
  * bBasic code's units.
  */
-export const previewSoundEffect = ({audc, audf, audv, duration}) => {
+export const previewSoundEffect = ({audc, audf, audv, duration, fade}) => {
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   const seconds = Math.max(0, Number(duration) || 0) / 60;
   if (!approximation || seconds <= 0) {
     return;
   }
 
+  // A fresh preview replaces whatever was already playing rather than
+  // layering on top of it.
+  stopActivePreview();
+
   const context = getAudioContext();
   const now = context.currentTime;
   const gainNode = context.createGain();
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
-  gainNode.gain.setValueAtTime(peakGain, now);
-  gainNode.gain.setValueAtTime(peakGain, now + seconds * 0.8);
+  if (fade && seconds > FADE_TAIL_SECONDS) {
+    const fadeStart = now + seconds - FADE_TAIL_SECONDS;
+    gainNode.gain.setValueAtTime(peakGain, now);
+    gainNode.gain.setValueAtTime(peakGain, fadeStart);
+    gainNode.gain.setValueAtTime(fadeTargetGain(peakGain), fadeStart);
+    gainNode.gain.setValueAtTime(fadeTargetGain(peakGain), now + seconds);
+  } else {
+    gainNode.gain.setValueAtTime(peakGain, now);
+    gainNode.gain.setValueAtTime(peakGain, now + seconds * 0.8);
+  }
   gainNode.gain.linearRampToValueAtTime(0, now + seconds);
 
   const chipClockHz = shiftClockFor(audf, {slowClock: approximation.slowClock});
@@ -155,12 +204,7 @@ export const previewSoundEffect = ({audc, audf, audv, duration}) => {
   }
 
   let source;
-  if (approximation.type === 'noise') {
-    source = context.createBufferSource();
-    source.buffer = getNoiseBuffer(context);
-    source.loop = true;
-    source.connect(output);
-  } else if (approximation.type === 'buzz') {
+  if (approximation.type === 'buzz') {
     source = context.createBufferSource();
     source.buffer = buildBuzzBuffer(context, chipClockHz, seconds, approximation.bits,
         {wavering: approximation.wavering});
@@ -175,4 +219,17 @@ export const previewSoundEffect = ({audc, audf, audv, duration}) => {
 
   source.start(now);
   source.stop(now + seconds);
+
+  activeSource = source;
+  activeGainNode = gainNode;
+  source.onended = () => {
+    // Only clear if this source is still the active one - a Stop press (or
+    // a newer preview replacing this one) already did its own cleanup, and
+    // this handler firing afterward (stopping a node fires "ended" too)
+    // shouldn't clobber whatever's playing now.
+    if (activeSource === source) {
+      activeSource = null;
+      activeGainNode = null;
+    }
+  };
 };

@@ -11,6 +11,15 @@ const options = [
   [PLAYFIELD_ICON + ' Playfield', 'playfield'],
 ];
 
+// The "Check bounding box collision with Playfield" / "Bounding box
+// collision result" block pair (predictive software box collision, with
+// per-axis sliding) was removed here for now - every design tried (full
+// software prediction, TIA hardware collision, a hand-written 6502
+// rewrite) ran into a serious, unresolved correctness or toolchain problem
+// (screen roll, the player getting stuck in a wall, or "asm...end" blocks
+// breaking compilation project-wide - see git history on this file and on
+// generators/bbasic/collision.js for the full account). Only the hardware
+// "Collided" block below remains.
 Blockly.defineBlocksWithJsonArray([
   // Block for the getter.
   {

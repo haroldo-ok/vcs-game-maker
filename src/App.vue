@@ -439,10 +439,27 @@ export default {
         return;
       }
       container.appendChild(javatariScreen);
-      javatariScreen.style = '';
+      this.resetScreenStyle(javatariScreen);
       this.observeEmulatorSize(container, javatariScreen);
       this.observeEmulatorReparenting(container);
       this.updateEmulatorScale();
+    },
+    // Wipes the screen element's inline style (Javatari sets some of its own
+    // when it owns the element's placement, e.g. while it's parked in its
+    // default DOM location) EXCEPT margin-bottom, which Javatari also uses,
+    // separately, to reserve room below the screen for its own console-panel
+    // graphic (power/reset/difficulty switches) whenever that panel is
+    // active. A blanket "style = ''" here used to wipe that margin along with
+    // everything else; updateEmulatorScale() then sized the container from
+    // the now-zero margin, and since the container clips overflow, the panel
+    // was still being drawn - just below the bottom edge of a container too
+    // short to show it. Confirmed by manually restoring the margin and
+    // triggering a rescale, which brought the panel back with no other
+    // change. Preserving it here keeps the container sized to include it.
+    resetScreenStyle(screen) {
+      const marginBottom = screen.style.marginBottom;
+      screen.style = '';
+      screen.style.marginBottom = marginBottom;
     },
     // Javatari sometimes re-inserts its own screen element back into its
     // default location in the DOM (observed after loading a new ROM via
@@ -459,7 +476,7 @@ export default {
         const screen = document.getElementById('javatari-screen');
         if (screen && screen.parentElement !== container) {
           container.appendChild(screen);
-          screen.style = '';
+          this.resetScreenStyle(screen);
           this.updateEmulatorScale();
         }
       });

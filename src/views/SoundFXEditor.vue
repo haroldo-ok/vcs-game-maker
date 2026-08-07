@@ -43,44 +43,27 @@
                   <v-icon>{{ isCollapsed(soundEffect) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
                 <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
-                <v-menu
-                  v-if="state.soundEffects.length > 1"
-                  top
-                >
-                  <template v-slot:activator="{ on, attrs }">
-                    <v-btn
-                      title="Delete this sound effect"
-                      icon
-                      small
-                      absolute
-                      top
-                      right
-                      class="soundfx-delete-btn delete-icon-btn"
-                      v-bind="attrs"
-                      v-on="on"
-                    >
-                      <v-icon>mdi-delete</v-icon>
-                    </v-btn>
-                  </template>
 
-                  <v-card>
-                    <v-card-title>Delete this sound effect?</v-card-title>
-                    <v-list>
-                      <v-list-item @click="handleDeleteSoundEffect(soundEffect)">
-                        <v-list-item-icon>
-                          <v-icon>mdi-check</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>Yes, delete</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item>
-                        <v-list-item-icon>
-                          <v-icon>mdi-cancel</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>No, don't delete</v-list-item-title>
-                      </v-list-item>
-                    </v-list>
-                  </v-card>
-                </v-menu>
+                <div class="soundfx-toolbar-top-right">
+                  <v-btn
+                    icon
+                    small
+                    title="Stop the sound preview"
+                    class="soundfx-stop-btn"
+                    @click="handleStopPreview"
+                  >
+                    <v-icon>mdi-stop</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Play this sound effect"
+                    class="soundfx-play-btn"
+                    @click="() => handlePlaySoundEffect(soundEffect)"
+                  >
+                    <v-icon>mdi-play</v-icon>
+                  </v-btn>
+                </div>
 
                 <v-card-text class="soundfx-name-section">
                   <v-text-field
@@ -126,14 +109,92 @@
                       @change="handleChildChange"
                       class="soundfx-number"
                     />
-                    <v-btn
-                      icon
-                      title="Play this sound effect"
-                      @click="() => handlePlaySoundEffect(soundEffect)"
+                    <v-checkbox
+                      v-model="soundEffect.fade"
+                      label="Fade"
+                      title="Drops to about a quarter volume for the last few frames, instead of cutting off sharply - matches Visual batari Basic's own Fade effect."
+                      hide-details
+                      class="soundfx-fade"
+                      @change="handleChildChange"
+                    />
+                    <v-spacer />
+                    <v-menu
+                      v-if="state.soundEffects.length > 1"
+                      top
                     >
-                      <v-icon>mdi-play</v-icon>
-                    </v-btn>
+                      <template v-slot:activator="{ on, attrs }">
+                        <v-btn
+                          title="Delete this sound effect"
+                          icon
+                          small
+                          class="soundfx-delete-btn delete-icon-btn"
+                          v-bind="attrs"
+                          v-on="on"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </template>
+
+                      <v-card>
+                        <v-card-title>Delete this sound effect?</v-card-title>
+                        <v-list>
+                          <v-list-item @click="handleDeleteSoundEffect(soundEffect)">
+                            <v-list-item-icon>
+                              <v-icon>mdi-check</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>Yes, delete</v-list-item-title>
+                          </v-list-item>
+                          <v-list-item>
+                            <v-list-item-icon>
+                              <v-icon>mdi-cancel</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>No, don't delete</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-card>
+                    </v-menu>
                   </div>
+                </v-card-text>
+
+                <!-- soundfx-fields-section (above) covers this when expanded, right
+                     next to Fade - only needed here as its own row for the collapsed
+                     case, where that whole section is hidden. -->
+                <v-card-text v-if="isCollapsed(soundEffect)" class="soundfx-delete-section">
+                  <v-menu
+                    v-if="state.soundEffects.length > 1"
+                    top
+                  >
+                    <template v-slot:activator="{ on, attrs }">
+                      <v-btn
+                        title="Delete this sound effect"
+                        icon
+                        small
+                        class="soundfx-delete-btn delete-icon-btn"
+                        v-bind="attrs"
+                        v-on="on"
+                      >
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </template>
+
+                    <v-card>
+                      <v-card-title>Delete this sound effect?</v-card-title>
+                      <v-list>
+                        <v-list-item @click="handleDeleteSoundEffect(soundEffect)">
+                          <v-list-item-icon>
+                            <v-icon>mdi-check</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>Yes, delete</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-list-item-icon>
+                            <v-icon>mdi-cancel</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>No, don't delete</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-card>
+                  </v-menu>
                 </v-card-text>
               </v-card>
             </v-list-item-content>
@@ -165,7 +226,7 @@ import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project'
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
-import {previewSoundEffect} from '../utils/sound-preview';
+import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 
 export default defineComponent({
   setup() {
@@ -225,6 +286,7 @@ export default defineComponent({
         audf: 16,
         audv: 15,
         duration: 5,
+        fade: false,
       };
 
       state.value.soundEffects.push(newSoundEffect);
@@ -249,8 +311,11 @@ export default defineComponent({
       previewSoundEffect({...soundEffect, audv});
     };
 
+    const handleStopPreview = () => stopSoundEffectPreview();
+
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
+      handleStopPreview,
       isCollapsed, toggleCollapsed,
       dimSoundFx, dimSoundFxPercent,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
@@ -343,10 +408,53 @@ export default defineComponent({
   box-shadow: none !important;
 }
 
-/* Same 12px reserved below the badge as PixelEditor.vue's
-   .editor-with-sidebar--has-badge (see PlayerEditor.vue's "FRAME: N"). */
+/* Top-right corner, hugging it the same way .soundfx-collapse-btn hugs the
+   top-left (top: 0, relying on the buttons' own internal padding rather
+   than extra container inset) - stop/play stay reachable with the card
+   collapsed, same reason they were pulled out of the collapsible fields
+   section. */
+.soundfx-toolbar-top-right {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 1;
+}
+
+/* Clears .soundfx-toolbar-top-right, which would otherwise overlap the name
+   field's own label/text at the top of the card. */
 .soundfx-name-field {
-  margin-top: 12px;
+  margin-top: 36px;
+}
+
+/* Same flat-icon, fade-in-on-hover treatment as the pixel editor's own
+   toolbar icons (PixelEditor.vue's .pixel-editor-tools rules) instead of
+   Vuetify's default grey circle: dim at rest, darker on hover, no ripple. */
+.soundfx-stop-btn,
+.soundfx-play-btn {
+  flex: 0 0 auto;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Vuetify paints its own grey hover/focus overlay here - removed in favor of
+   the icon colour transition below. */
+.soundfx-stop-btn::before,
+.soundfx-play-btn::before {
+  display: none;
+}
+
+.soundfx-stop-btn >>> .v-icon,
+.soundfx-play-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.soundfx-stop-btn:hover >>> .v-icon,
+.soundfx-play-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
 }
 
 /* Split from the rest of the card's content (soundfx-fields-section) so the
@@ -357,15 +465,28 @@ export default defineComponent({
   padding-bottom: 0;
 }
 
+/* Delete sits inline with Fade (pushed to the row's far right by the
+   v-spacer between them) when expanded, so this is the true last section
+   in that state - keeps its own bottom padding instead of the 0 used
+   elsewhere for tight stacking between sections. */
 .soundfx-fields-section {
   padding-top: 0;
 }
 
-/* Vuetify's fab+absolute+top combo centers the button on the card's top
-   edge, poking half of it out (and clipped there); pull it down so the whole
-   button sits inside the card instead. */
+/* Only rendered when collapsed (see the v-if next to it) - soundfx-fields
+   above already puts delete in Fade's own row when expanded, but that whole
+   section is hidden while collapsed, so delete needs this separate row to
+   stay reachable instead of disappearing along with it. Always in normal
+   flow rather than absolutely positioned, unlike its previous spot at the
+   card's bottom-right - that put it behind the name field once collapsing
+   shrank the card down around it. */
+.soundfx-delete-section {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
 .soundfx-delete-btn {
-  top: 8px !important;
   box-shadow: none !important;
 }
 
@@ -383,6 +504,14 @@ export default defineComponent({
 
 .soundfx-number {
   flex: 0 0 90px;
+}
+
+/* Same margin-top override as SoundFXEditor's own .dim-switch - Vuetify's
+   selection-control margin-top (meant for stacking below other fields)
+   otherwise pushes this out of line with the text fields next to it. */
+.soundfx-fade {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
 }
 
 .add-soundfx-buttom {

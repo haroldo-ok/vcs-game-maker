@@ -49,7 +49,6 @@ import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import {useConfigurationStorage, useScoreFontStorage, useSquishCustomScoreFontStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
-import {isTextMinikernelUsedInProject} from '../utils/text-minikernel-usage';
 import {SCORE_FONT_NAMES} from '../generators/score-fonts';
 import {
   CUSTOM_SCORE_FONT,
@@ -88,17 +87,14 @@ export default defineComponent({
     const digitWidth = computed(() => `${Math.round(DIGIT_BASE_WIDTH * zoom.value)}px`);
 
     // Squish (and Squish Custom, which starts from Squish's own digits and is
-    // then editable below like the regular Custom font) only shrink the
-    // score row to make room for the Text Minikernel's own text lines
-    // underneath it - offering them with no Text Minikernel block placed
-    // would just be a smaller font for no reason, so they're only listed
-    // once the project actually uses the feature.
-    const scoreFontOptions = computed(() => isTextMinikernelUsedInProject() ?
-      [...BASE_SCORE_FONT_OPTIONS,
-        {text: 'Squish (compact - shrinks the score row)', value: SQUISH_SCORE_FONT},
-        {text: 'Squish Custom (compact - drawn below)', value: SQUISH_CUSTOM_SCORE_FONT},
-        CUSTOM_SCORE_FONT_OPTION] :
-      [...BASE_SCORE_FONT_OPTIONS, CUSTOM_SCORE_FONT_OPTION]);
+    // then editable below like the regular Custom font) shrinks the score
+    // row to make room for the Text Minikernel's own text lines underneath
+    // it - always offered, even with no Text Minikernel block placed yet,
+    // since a smaller score font is a reasonable choice on its own.
+    const scoreFontOptions = computed(() => [...BASE_SCORE_FONT_OPTIONS,
+      {text: 'Squish (compact - shrinks the score row)', value: SQUISH_SCORE_FONT},
+      {text: 'Squish Custom (compact - drawn below)', value: SQUISH_CUSTOM_SCORE_FONT},
+      CUSTOM_SCORE_FONT_OPTION]);
 
     // Only this one option is owned here, so it is merged into the stored
     // configuration rather than replacing it.
