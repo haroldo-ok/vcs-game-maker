@@ -470,9 +470,19 @@ export default {
     // Javatari does the move on its own schedule; watching for it and moving
     // the screen back the moment it happens is more robust than reacting only
     // once, after the fact.
+    //
+    // Also dismisses Javatari's own dialogs here rather than only once from
+    // handleRomUpdate - see dismissEmulatorDialogs()'s own comment for why a
+    // dialog can open on Javatari's own schedule, after the one-shot
+    // post-build call already ran, and previously stayed open forever since
+    // nothing ever checked again. "attributes: true" with a class filter is
+    // needed for that: opening a dialog toggles an existing element's
+    // "jt-show" class rather than inserting a new node, which the
+    // childList-only observer below never saw.
     observeEmulatorReparenting(container) {
       if (this.emulatorReparentObserver) return;
       this.emulatorReparentObserver = new MutationObserver(() => {
+        this.dismissEmulatorDialogs();
         const screen = document.getElementById('javatari-screen');
         if (screen && screen.parentElement !== container) {
           container.appendChild(screen);
@@ -480,7 +490,8 @@ export default {
           this.updateEmulatorScale();
         }
       });
-      this.emulatorReparentObserver.observe(document.body, {childList: true, subtree: true});
+      this.emulatorReparentObserver.observe(document.body,
+          {childList: true, subtree: true, attributes: true, attributeFilter: ['class']});
     },
     // Root cause of the preview "vanishing" after "Update ROM": Javatari's
     // own "Select Cartridge"/"Select ROM Format"/"Save/Load State" dialogs
@@ -555,8 +566,16 @@ export default {
       if (!container || !screen) return;
       // Javatari lays out after this component mounts, so it may still have no
       // size. Measuring then would collapse the container to zero height and
-      // clip the emulator away entirely.
-      if (!screen.offsetWidth || !screen.offsetHeight) {
+      // clip the emulator away entirely. Also guards the container's own
+      // width, not just the screen's - this is called synchronously right
+      // after a ROM build finishes (see handleRomUpdate), which can land
+      // before the drawer has laid out again since the last reflow, momentarily
+      // reading clientWidth as 0. That zeroes emulatorScale, which both sets
+      // this container's CSS height to a literal "0px" and (via
+      // "transform: scale(var(--emulator-scale))") shrinks the emulator's
+      // actual content to nothing - and since nothing else re-triggers a
+      // recalculation afterward, it stayed that way instead of self-correcting.
+      if (!container.clientWidth || !screen.offsetWidth || !screen.offsetHeight) {
         if (retriesLeft > 0) {
           window.setTimeout(
               () => this.updateEmulatorScale(retriesLeft - 1), EMULATOR_MEASURE_INTERVAL);

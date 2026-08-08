@@ -31,3 +31,30 @@ Blockly.Blocks['math_number'] = {
     this.getField('NUM').setValidator(validateNumber);
   },
 };
+
+// Real, working absolute value: a statement (not a nested expression) since
+// making a negative unsigned byte (its top bit set, i.e. 128-255 in two's
+// complement) positive requires a branch - bBasic has no ternary or inline
+// function calls to express that as a single value.
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'math_abs_set',
+    'message0': 'Set %1 to Absolute value of %2',
+    'args0': [
+      {
+        'type': 'field_variable',
+        'name': 'VAR',
+        'variable': 'i',
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': '%{BKY_MATH_HUE}',
+    'tooltip': 'Sets the variable to the absolute (always positive) value of the number.',
+  },
+]);

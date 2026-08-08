@@ -21,6 +21,7 @@ import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/d
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
+import {canonicalDistanceVarName} from '../utils/distance';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -214,6 +215,20 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
 
+  // Collects every distinct (axis, object pair) a "Distance" getter block
+  // picks (see blocks/input.js), keyed by the same canonical name its own
+  // getDeveloperVariables and getter generator use (generators/bbasic/
+  // input.js), so generateDistanceChecks can compute each unique pair
+  // exactly once per frame regardless of how many blocks reference it.
+  this.distanceChecks = new Map();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type !== 'distance_x_get' && block.type !== 'distance_y_get') return;
+    const axis = block.type === 'distance_x_get' ? 'x' : 'y';
+    const obj0 = block.getFieldValue('VAR0');
+    const obj1 = block.getFieldValue('VAR1');
+    this.distanceChecks.set(canonicalDistanceVarName(axis, obj0, obj1), {axis, obj0, obj1});
+  });
+
   // Run-once blocks (see blocks/event.js's event_run_once) each need one bit
   // of persistent state remembering whether they've already fired, packed 8
   // to a byte rather than giving each its own - the same bit-packing trick
@@ -245,6 +260,16 @@ Blockly.BBasic.init = function(workspace) {
   for (let i = 0; i < devVarList.length; i++) {
     defvars.push(this.nameDB_.getName(devVarList[i],
         Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+  }
+
+  // Same developer-variable bucket as above, for the hidden per-pair bytes
+  // "Distance" blocks need (see the distanceChecks pre-scan above and
+  // generators/bbasic/input.js's generateDistanceChecks) - routed through
+  // nameDB_.getName here (rather than left as the raw canonical string) so
+  // its own getter/check generators, which look the same name up again
+  // later, are guaranteed to agree on whatever nameDB_ actually assigns.
+  for (const varName of this.distanceChecks.keys()) {
+    defvars.push(this.nameDB_.getName(varName, Blockly.Names.DEVELOPER_VARIABLE_TYPE));
   }
 
   // Add user variables, but only ones that are being used.
@@ -594,6 +619,7 @@ Blockly.BBasic.finish = function(code) {
   // side effect (the nibble packing math needs mul8/div8), which
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
   const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
+  const generatedDistanceChecks = Blockly.BBasic.generateDistanceChecks();
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
 
@@ -606,7 +632,8 @@ Blockly.BBasic.finish = function(code) {
     generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
-    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks});
+    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
+    generatedDistanceChecks});
 };
 
 // "*"/"/" by a non-power-of-2 constant or a runtime variable compiles to

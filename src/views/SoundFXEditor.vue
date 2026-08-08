@@ -68,7 +68,7 @@
                 <v-card-text class="soundfx-name-section">
                   <v-text-field
                     class="soundfx-name-field"
-                    label="Sound effect name"
+                    label="Sound name"
                     v-model="soundEffect.name"
                     @change="handleChildChange"
                   />

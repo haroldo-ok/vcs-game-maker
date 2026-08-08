@@ -39,78 +39,147 @@ const NTSC_SHIFT_CLOCK = 31440;
 const shiftClockFor = (audf, {slowClock = false} = {}) =>
   (slowClock ? NTSC_SHIFT_CLOCK / 3 : NTSC_SHIFT_CLOCK) / (Number(audf) + 1);
 
-// Advances a Galois LFSR by one step. The tap patterns aren't claimed to
-// match the real TIA polynomials exactly, they just need to produce an
-// audibly pseudo-random (as opposed to perfectly periodic) bit sequence.
-// 9 bits is AUDC 8's real "9-bit poly" - a much longer repeat period than
-// the 4/5-bit ones is what actually gives it a "white noise" character on
-// real hardware, not literal per-sample randomness (see AUDC_APPROXIMATIONS'
-// own comment on why '8' used to be modeled as unclocked noise instead).
+// Advances a Galois LFSR by one step, returning both the new state and the
+// bit that was shifted out (needed by AUDC 3's gated poly5->poly4 below).
+// The tap patterns aren't claimed to match the real TIA polynomials exactly,
+// they just need to produce an audibly pseudo-random (as opposed to
+// perfectly periodic) bit sequence of the right period. 9 bits is AUDC 8's
+// real "9-bit poly" - a much longer repeat period than the 4/5-bit ones is
+// what actually gives it a "white noise" character on real hardware, not
+// literal per-sample randomness.
 const TAPS_BY_BITS = {4: 0b1001, 5: 0b10010, 9: 0b100010000};
-const stepLfsr = (lfsr, bits) => {
-  const lsb = lfsr & 1;
-  lfsr >>= 1;
-  if (lsb) lfsr ^= TAPS_BY_BITS[bits];
-  return lfsr || 1;
+const stepLfsrWithBit = (lfsr, bits) => {
+  const bit = lfsr & 1;
+  const shifted = lfsr >> 1;
+  const next = bit ? (shifted ^ TAPS_BY_BITS[bits]) : shifted;
+  return {next: next || 1, bit};
 };
+const stepLfsr = (lfsr, bits) => stepLfsrWithBit(lfsr, bits).next;
 
 // Builds a buffer of a pseudo-random square-ish wave: each "chip" (one shift
 // register clock) holds +1 or -1 according to the next LFSR bit, rather than
 // strictly alternating like a clean square wave. That irregularity is what
-// reads as "buzzy" rather than "tone".
-// wavering slowly speeds up and slows down the chip rate, for AUDC 3's
-// "flangy wavering" character.
-const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {wavering = false} = {}) => {
+// reads as "buzzy" rather than "tone". stepDivider makes the LFSR advance
+// only once every N chips instead of every chip - AUDC 2 is documented as a
+// 4-bit poly that only advances on a div31 transition, so it sounds like the
+// same buzz as AUDC 1 but roughly 31x slower rather than a different pattern.
+const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivider = 1} = {}) => {
   const sampleRate = context.sampleRate;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
 
-  const baseChipSamples = Math.max(1, Math.round(sampleRate / chipClockHz));
+  const chipSamples = Math.max(1, Math.round(sampleRate / chipClockHz));
   let lfsr = 1;
   let output = 1;
-  let samplesUntilNextChip = baseChipSamples;
+  let chipsUntilStep = stepDivider;
+  let samplesUntilNextChip = chipSamples;
   for (let i = 0; i < length; i++) {
     if (--samplesUntilNextChip <= 0) {
-      lfsr = stepLfsr(lfsr, bits);
-      output = (lfsr & 1) ? 1 : -1;
-      const wobble = wavering ? 1 + 0.4 * Math.sin(2 * Math.PI * 3 * (i / length)) : 1;
-      samplesUntilNextChip = Math.max(1, Math.round(baseChipSamples * wobble));
+      if (--chipsUntilStep <= 0) {
+        chipsUntilStep = stepDivider;
+        lfsr = stepLfsr(lfsr, bits);
+        output = (lfsr & 1) ? 1 : -1;
+      }
+      samplesUntilNextChip = chipSamples;
     }
     data[i] = output;
   }
   return buffer;
 };
 
-// Per-AUDC approximation. type is 'square' (clean pure tone) or 'buzz'
-// (LFSR-driven, clocked directly off the shift register rate). slowClock
-// marks the AUDC values documented as running off the slower CPUclock/114
-// base rather than pixelclock/114.
+// AUDC 6/10 ("div31 pure tone") and 14 (the same pattern, slow-clocked)
+// aren't pseudo-random at all - real hardware documents this as a fixed,
+// repeating 31-step pattern (18 high cycles then 13 low), which is what
+// gives it an "almost pure tone but slightly uneven" character rather than a
+// buzz. Modeling it as an LFSR (as the old approximation did) made it sound
+// like noise instead of a lopsided tone.
+const DIV31_HIGH_STEPS = 18;
+const DIV31_TOTAL_STEPS = 31;
+const buildDiv31Buffer = (context, chipClockHz, seconds) => {
+  const sampleRate = context.sampleRate;
+  const length = Math.max(1, Math.ceil(sampleRate * seconds));
+  const buffer = context.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+
+  const chipSamples = Math.max(1, Math.round(sampleRate / chipClockHz));
+  let step = 0;
+  let output = 1;
+  let samplesUntilNextChip = chipSamples;
+  for (let i = 0; i < length; i++) {
+    if (--samplesUntilNextChip <= 0) {
+      step = (step + 1) % DIV31_TOTAL_STEPS;
+      output = step < DIV31_HIGH_STEPS ? 1 : -1;
+      samplesUntilNextChip = chipSamples;
+    }
+    data[i] = output;
+  }
+  return buffer;
+};
+
+// AUDC 3 ("5 bit poly -> 4 bit poly") is the most complex of the bunch: the
+// 5-bit poly steps every chip clock unconditionally, but the 4-bit poly (and
+// the actual sound output) only advances on chips where the poly5 bit just
+// shifted out was 1 - on a 0, the output holds whatever it was. This is a
+// genuinely different mechanism from a single gated/divided LFSR, not just a
+// different bit-width, so it gets its own dual-register builder.
+const buildGatedBuzzBuffer = (context, chipClockHz, seconds) => {
+  const sampleRate = context.sampleRate;
+  const length = Math.max(1, Math.ceil(sampleRate * seconds));
+  const buffer = context.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+
+  const chipSamples = Math.max(1, Math.round(sampleRate / chipClockHz));
+  let poly5 = 1;
+  let poly4 = 1;
+  let output = 1;
+  let samplesUntilNextChip = chipSamples;
+  for (let i = 0; i < length; i++) {
+    if (--samplesUntilNextChip <= 0) {
+      const poly5Step = stepLfsrWithBit(poly5, 5);
+      poly5 = poly5Step.next;
+      if (poly5Step.bit) {
+        const poly4Step = stepLfsrWithBit(poly4, 4);
+        poly4 = poly4Step.next;
+        output = poly4Step.bit ? 1 : -1;
+      }
+      samplesUntilNextChip = chipSamples;
+    }
+    data[i] = output;
+  }
+  return buffer;
+};
+
+// Per-AUDC approximation, reconciled against problemkaputt.de's AUDC
+// distortion table and 7800.8bitdev.org's per-distortion bit sequences:
+//   0/11  constant high (silent)                8   9-bit poly (white noise)
+//   1     4-bit poly                            9   5-bit poly
+//   2     div31-gated 4-bit poly (~31x slower)   10  div31 pure tone (= 6)
+//   3     5-bit poly gates 4-bit poly/output     11  constant high (silent)
+//   4/5   div2 pure tone                         12/13 div2 pure tone, slow clock
+//   6     div31 pure tone (fixed pattern)        14  div31 pure tone, slow clock (= 6, slow)
+//   7     5-bit poly (= 9)                       15  5-bit poly, slow clock (= 7/9, slow)
+// type is 'square' (clean oscillator), 'buzz' (LFSR-driven), 'div31' (fixed
+// lopsided-tone pattern), or 'gatedbuzz' (AUDC 3's dual-register mechanism).
+// slowClock marks the AUDC values documented as running off the slower
+// CPUclock/114 base rather than pixelclock/114.
 const AUDC_APPROXIMATIONS = {
   '0': null,
   '1': {type: 'buzz', bits: 4},
-  '2': {type: 'buzz', bits: 4, lowpass: true},
-  '3': {type: 'buzz', bits: 5, wavering: true},
+  '2': {type: 'buzz', bits: 4, stepDivider: 31},
+  '3': {type: 'gatedbuzz'},
   '4': {type: 'square'},
   '5': {type: 'square'},
-  '6': {type: 'buzz', bits: 5},
+  '6': {type: 'div31'},
   '7': {type: 'buzz', bits: 5},
-  // Was modeled as unclocked, full-sample-rate white noise - real AUDC 8
-  // ("9-bit poly") is clocked at exactly the same chip rate as every other
-  // buzz value; ignoring AUDF like that meant this was the only AUDC value
-  // whose preview pitch never matched the real ROM's output (confirmed:
-  // Javatari's actual playback clearly tracks AUDF, the old preview didn't
-  // move at all). A 9-bit LFSR just has a period long enough (511 steps) to
-  // sound broadband/noisy rather than a repeating buzz, without needing
-  // per-sample randomness.
   '8': {type: 'buzz', bits: 9},
   '9': {type: 'buzz', bits: 5},
-  '10': {type: 'buzz', bits: 4},
+  '10': {type: 'div31'},
   '11': null,
   '12': {type: 'square', slowClock: true},
   '13': {type: 'square', slowClock: true},
-  '14': {type: 'buzz', bits: 4, lowpass: true},
-  '15': {type: 'buzz', bits: 4, lowpass: true},
+  '14': {type: 'div31', slowClock: true},
+  '15': {type: 'buzz', bits: 5, slowClock: true},
 };
 
 // Matches generators/bbasic/soundfx.js's own FADE_TAIL_FRAMES/fadeTargetVolume
@@ -186,35 +255,27 @@ export const previewSoundEffect = ({audc, audf, audv, duration, fade}) => {
 
   const chipClockHz = shiftClockFor(audf, {slowClock: approximation.slowClock});
 
-  // gainNode always feeds the destination - AUDC values with a lowpass
-  // filter (2, 14, 15) instead used to route the filter straight to
-  // destination and leave gainNode as a dead end nothing ever played
-  // through, so AUDV (and DIM, which lowers it before this ever runs) had no
-  // audible effect for exactly those three types. Chaining the filter INTO
-  // gainNode instead of past it fixes that for both the plain and
-  // lowpass-filtered paths.
   gainNode.connect(context.destination);
-  let output = gainNode;
-  if (approximation.lowpass) {
-    const filter = context.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = Math.max(150, chipClockHz);
-    filter.connect(gainNode);
-    output = filter;
-  }
+  const output = gainNode;
 
   let source;
-  if (approximation.type === 'buzz') {
-    source = context.createBufferSource();
-    source.buffer = buildBuzzBuffer(context, chipClockHz, seconds, approximation.bits,
-        {wavering: approximation.wavering});
-    source.connect(output);
-  } else {
+  if (approximation.type === 'square') {
     const oscillator = context.createOscillator();
     oscillator.type = 'square';
     oscillator.frequency.setValueAtTime(chipClockHz / 2, now);
     oscillator.connect(output);
     source = oscillator;
+  } else {
+    source = context.createBufferSource();
+    if (approximation.type === 'div31') {
+      source.buffer = buildDiv31Buffer(context, chipClockHz, seconds);
+    } else if (approximation.type === 'gatedbuzz') {
+      source.buffer = buildGatedBuzzBuffer(context, chipClockHz, seconds);
+    } else {
+      source.buffer = buildBuzzBuffer(context, chipClockHz, seconds, approximation.bits,
+          {stepDivider: approximation.stepDivider});
+    }
+    source.connect(output);
   }
 
   source.start(now);

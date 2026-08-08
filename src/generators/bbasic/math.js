@@ -162,6 +162,26 @@ export default (Blockly) => {
     return [code, Blockly.BBasic.ORDER_DIVISION];
   };
 
+  Blockly.BBasic['math_abs_set'] = function(block) {
+  // Player coordinates and other bBasic values are unsigned bytes, so a
+  // negative number only exists as its two's-complement wraparound (128-255
+  // represents -128..-1) - making that positive needs a branch, which is
+  // why this is a statement (see blocks/math.js) instead of a nested
+  // expression like the rest of the Math category.
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    const value = Blockly.BBasic.valueToCode(block, 'VALUE',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const blockNumber = Blockly.BBasic.blockNumbers.next('math_abs_set');
+    const doneLabel = `_math_abs_set_${blockNumber}_done`;
+    return [
+      `${varName} = ${value}`,
+      `if ${varName} < 128 then goto ${doneLabel}`,
+      `${varName} = 0 - ${varName}`,
+      `@ ${doneLabel}`,
+    ].join('\n') + '\n';
+  };
+
   Blockly.BBasic['math_constant'] = function(block) {
   // Constants: PI, E, the Golden Ratio, sqrt(2), 1/sqrt(2), INFINITY.
     const CONSTANTS = {
