@@ -78,88 +78,65 @@ export default (Blockly) => {
     return [code, order];
   };
 
+  // Real functions (sqrt, log, sin, ...) that JS's Math object has, but 6502
+  // batari Basic - integer-only, no floating point, no trig - fundamentally
+  // doesn't. Each maps to a JS function computing the same result in
+  // degrees-in/degrees-out terms (matching this block's own field labels),
+  // used ONLY to constant-fold a literal argument at compile time (see
+  // math_single below) - never emitted as runtime bB code, since there's no
+  // way to compute any of these from a runtime value on this platform.
+  const MATH_SINGLE_FUNCTIONS = {
+    'ABS': Math.abs,
+    'ROOT': Math.sqrt,
+    'LN': Math.log,
+    'EXP': Math.exp,
+    'POW10': (n) => Math.pow(10, n),
+    'ROUND': Math.round,
+    'ROUNDUP': Math.ceil,
+    'ROUNDDOWN': Math.floor,
+    'SIN': (n) => Math.sin(n / 180 * Math.PI),
+    'COS': (n) => Math.cos(n / 180 * Math.PI),
+    'TAN': (n) => Math.tan(n / 180 * Math.PI),
+    'LOG10': (n) => Math.log(n) / Math.log(10),
+    'ASIN': (n) => Math.asin(n) / Math.PI * 180,
+    'ACOS': (n) => Math.acos(n) / Math.PI * 180,
+    'ATAN': (n) => Math.atan(n) / Math.PI * 180,
+  };
+
   Blockly.BBasic['math_single'] = function(block) {
   // Math operators with single operand.
     const operator = block.getFieldValue('OP');
-    let code;
-    let arg;
     if (operator == 'NEG') {
     // Negation is a special case given its different operator precedence.
-      arg = Blockly.BBasic.valueToCode(block, 'NUM',
+      let arg = Blockly.BBasic.valueToCode(block, 'NUM',
           Blockly.BBasic.ORDER_UNARY_NEGATION) || '0';
       if (arg[0] == '-') {
       // --3 is not legal in JS.
         arg = ' ' + arg;
       }
-      code = '-' + arg;
-      return [code, Blockly.BBasic.ORDER_UNARY_NEGATION];
+      return ['-' + arg, Blockly.BBasic.ORDER_UNARY_NEGATION];
     }
-    if (operator == 'SIN' || operator == 'COS' || operator == 'TAN') {
-      arg = Blockly.BBasic.valueToCode(block, 'NUM',
-          Blockly.BBasic.ORDER_DIVISION) || '0';
-    } else {
-      arg = Blockly.BBasic.valueToCode(block, 'NUM',
-          Blockly.BBasic.ORDER_NONE) || '0';
+    // Every other operator here (ABS/ROOT/LN/EXP/POW10/ROUND/ROUNDUP/
+    // ROUNDDOWN/SIN/COS/TAN/LOG10/ASIN/ACOS/ATAN) has no batari Basic
+    // equivalent to compute it from a RUNTIME value - there's no floating
+    // point or trig on this platform. If the plugged-in value happens to be
+    // a plain literal number, though, the whole thing is really just a
+    // compile-time constant - fold it in JS and emit the (rounded, since bB
+    // integers only) result directly, same as typing that number in by
+    // hand. A rounding operator (ROUND/ROUNDUP/ROUNDDOWN) on an
+    // already-integer literal is a no-op fold, which is fine.
+    const rawArg = Blockly.BBasic.valueToCode(block, 'NUM', Blockly.BBasic.ORDER_NONE);
+    const literalMatch = rawArg && /^\s*-?\d+\s*$/.exec(rawArg);
+    if (literalMatch) {
+      const result = Math.round(MATH_SINGLE_FUNCTIONS[operator](Number(literalMatch[0])));
+      return [`${result}`, Blockly.BBasic.ORDER_ATOMIC];
     }
-    // First, handle cases which generate values that don't need parentheses
-    // wrapping the code.
-    switch (operator) {
-      case 'ABS':
-        code = 'Math.abs(' + arg + ')';
-        break;
-      case 'ROOT':
-        code = 'Math.sqrt(' + arg + ')';
-        break;
-      case 'LN':
-        code = 'Math.log(' + arg + ')';
-        break;
-      case 'EXP':
-        code = 'Math.exp(' + arg + ')';
-        break;
-      case 'POW10':
-        code = 'Math.pow(10,' + arg + ')';
-        break;
-      case 'ROUND':
-        code = 'Math.round(' + arg + ')';
-        break;
-      case 'ROUNDUP':
-        code = 'Math.ceil(' + arg + ')';
-        break;
-      case 'ROUNDDOWN':
-        code = 'Math.floor(' + arg + ')';
-        break;
-      case 'SIN':
-        code = 'Math.sin(' + arg + ' / 180 * Math.PI)';
-        break;
-      case 'COS':
-        code = 'Math.cos(' + arg + ' / 180 * Math.PI)';
-        break;
-      case 'TAN':
-        code = 'Math.tan(' + arg + ' / 180 * Math.PI)';
-        break;
-    }
-    if (code) {
-      return [code, Blockly.BBasic.ORDER_FUNCTION_CALL];
-    }
-    // Second, handle cases which generate values that may need parentheses
-    // wrapping the code.
-    switch (operator) {
-      case 'LOG10':
-        code = 'Math.log(' + arg + ') / Math.log(10)';
-        break;
-      case 'ASIN':
-        code = 'Math.asin(' + arg + ') / Math.PI * 180';
-        break;
-      case 'ACOS':
-        code = 'Math.acos(' + arg + ') / Math.PI * 180';
-        break;
-      case 'ATAN':
-        code = 'Math.atan(' + arg + ') / Math.PI * 180';
-        break;
-      default:
-        throw Error('Unknown math operator: ' + operator);
-    }
-    return [code, Blockly.BBasic.ORDER_DIVISION];
+    const fixSuggestion = operator === 'ABS' ?
+      ' Use the "Set [Variable] to Absolute value of [Value]" block instead - ' +
+        'it can compute the absolute value of a variable or runtime expression.' :
+      ' Only a plain typed-in number works here - runtime variables and computed values aren\'t supported.';
+    throw new Error(`The "${operator}" math block can't run on this hardware for anything but a plain ` +
+      `typed-in number (no floating point or trig on the 2600).${fixSuggestion}`);
   };
 
   Blockly.BBasic['math_abs_set'] = function(block) {
@@ -255,13 +232,15 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic['math_change'] = function(block) {
-  // Add to a variable in place.
+  // Add to a variable in place. Unlike JS, a bB variable is always a plain
+  // byte - there's no "undefined"/non-number case to guard against, so this
+  // is a plain addition (the stock Blockly JS generator's "typeof x ==
+  // 'number' ? x : 0" ternary has no bB equivalent and doesn't need one).
     const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
         Blockly.BBasic.ORDER_ADDITION) || '0';
     const varName = Blockly.BBasic.nameDB_.getName(
         block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
-    return varName + ' = (typeof ' + varName + ' == \'number\' ? ' + varName +
-      ' : 0) + ' + argument0 + ';\n';
+    return `${varName} = ${varName} + ${argument0}\n`;
   };
 
   // Rounding functions have a single operand.
