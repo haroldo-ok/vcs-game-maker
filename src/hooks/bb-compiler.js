@@ -214,15 +214,25 @@ const assemble = async (mainAsmContent, workDir) => {
   );
   const output = r.rawFiles['./main.bin'];
   const symText = r.dirs['.']['main.sym'];
-  if (!output || !symText) {
-    // Matches the old npm wrapper's own fallback message, which
-    // hooks/rom.js's isOverflowError() specifically looks for to trigger its
-    // automatic event/graphics relocation retry.
-    throw prepareException('Errors while assembling.', [{line: 0, msg: 'No symbol table generated, maybe segment overflow?'}]);
-  }
+  // Parsed before the output/symText check below, not after: DASM can fail
+  // to produce a binary/symbol table for reasons that have nothing to do
+  // with a segment overflow (a real syntax/label error, for instance), and
+  // r.stdout still names the actual problem in that case. Silently
+  // relabeling every such failure as "maybe segment overflow?" was masking
+  // that - and worse, feeding it straight into rom.js's isOverflowError(),
+  // which would then "fix" a completely unrelated error by relocating code
+  // that was never the actual problem.
   const errors = parseDasmErrors(r.stdout);
   if (errors.length) {
     throw prepareException('Errors while assembling.', errors);
+  }
+  if (!output || !symText) {
+    // Matches the old npm wrapper's own fallback message, which
+    // hooks/rom.js's isOverflowError() specifically looks for to trigger its
+    // automatic event/graphics relocation retry. Only reached now when DASM
+    // failed to produce output AND left no parseable error of its own -
+    // genuinely the "ran out of room, no specific line to blame" case.
+    throw prepareException('Errors while assembling.', [{line: 0, msg: 'No symbol table generated, maybe segment overflow?'}]);
   }
   const symbolmap = {};
   symText.split('\n').forEach((line) => {

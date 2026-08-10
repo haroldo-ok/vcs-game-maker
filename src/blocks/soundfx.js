@@ -62,8 +62,11 @@ export const ARPEGGIO_RANGE_OPTIONS = [
 // value) - a real TIA note's fade can be too quiet/short to notice at the
 // old fixed 4-frame tail, especially over real hardware audio rather than
 // this app's own Web Audio approximation.
-export const FADE_LENGTH_OPTIONS = [4, 8, 16, 32, 60];
-export const DEFAULT_FADE_LENGTH = 4;
+// Capped at 8 entries (see generators/bbasic/music.js's fadeVar comment -
+// this is packed into a 3-bit field alongside a 4-bit volume and a 1-bit
+// flag, with no spare bits to widen it without changing that byte layout).
+export const FADE_LENGTH_OPTIONS = [5, 10, 20, 30, 40, 50, 60];
+export const DEFAULT_FADE_LENGTH = 5;
 
 export const DEFAULT_SOUND_EFFECTS = {
   soundEffects: [
@@ -101,7 +104,22 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
   }
   // Presets saved before Arpeggio existed won't have these fields yet.
   soundEffects.soundEffects.forEach((soundEffect) => {
-    if (soundEffect.arpeggio == null) soundEffect.arpeggio = false;
+    // Arpeggio is temporarily hidden from the UI (its generated per-channel
+    // code could grow large enough to blow ROM capacity on some projects -
+    // see the segment-overflow investigation this came out of) but not
+    // removed: forcing it off here, in the one place every consumer reads
+    // sound effect data through, means even a project that already has
+    // arpeggio: true stored (from before it was hidden) behaves as if it
+    // were off, without touching the stored value or any of the other
+    // arpeggio fields - they're preserved as-is, ready to resume working
+    // the moment this is turned back on.
+    soundEffect.arpeggio = false;
+    // Same reasoning and same "hide, don't delete" treatment as Arpeggio
+    // above - Fade's own dispatch code (see fadeApply in
+    // generators/bbasic/music.js) also grows per-channel and contributed to
+    // the same capacity problem, so it's forced off here too rather than
+    // just hidden from the Sound tab's own checkbox.
+    soundEffect.fade = false;
     if (!ARPEGGIO_DIVISION_OPTIONS.includes(Number(soundEffect.arpeggioDivision))) {
       soundEffect.arpeggioDivision = DEFAULT_ARPEGGIO_DIVISION;
     } else {

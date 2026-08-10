@@ -80,6 +80,15 @@ export const musicJustStoppedBit = 2;
 // channel's audio at whatever it happened to be at that instant, instead of
 // letting it reach its own natural end and mute itself.
 export const musicChannelActiveBit = (channel) => 3 + Number(channel);
+// Shared across every channel (like playing/loop/justStopped, unlike the
+// per-channel active bits above) - set by music_pause_song, cleared by
+// music_unpause_song, checked first thing in generateMusicChecks' own
+// per-channel body, before even the active-bit check, so a paused channel's
+// timer never decrements and its data table is never advanced while set -
+// the exact note playing at the moment of the pause just keeps sounding,
+// unchanged, until unpaused. Bit 5 (not 3+channel) so it stays clear of the
+// per-channel active bits even if a couple more channels are ever added.
+export const musicPausedBit = 5;
 // Only reserved/used for a channel that actually has at least one faded
 // note (see musicChannelHasFade) - see generateMusicChecks' own comment on
 // fadeVar for its packed bit layout (target volume, fade-length index, and
@@ -132,14 +141,9 @@ const musicDataTableName = (channel, page) => `_musicCh${channel}Data${page}`;
 // generateMusicChecks): B=base, A=alt (base+interval), UB/UA=one octave up,
 // DB/DA=one octave down. Played in order, one per arpeggioSpeed frames,
 // looping back to the start once the sequence ends.
-const ARPEGGIO_PHASE_SEQUENCES = [
-  ['B', 'A'], // UP 1 OCT
-  ['A', 'B'], // DOWN 1 OCT
-  ['B', 'A', 'UB', 'UA'], // UP 2 OCT
-  ['B', 'A', 'DB', 'DA'], // DOWN 2 OCT
-  ['B', 'A', 'B'], // UP-DOWN 1 OCT
-  ['B', 'A', 'UB', 'UA', 'UB', 'A'], // UP-DOWN 2 OCT
-];
+// Fade and Arpeggio's own runtime lookup tables/dispatch code (previously
+// here) were removed along with the rest of their code generation - see
+// generateMusicChecks' own comment. Still fully implemented in git history.
 
 // Every channel actually used by at least one note anywhere in the song -
 // only those need a data table + dev vars; an unused channel costs nothing.
@@ -484,7 +488,12 @@ export default (Blockly) => {
     return resetLines +
       `${flagsVar}{${musicPlayingBit}} = 1\n` +
       `${flagsVar}{${musicLoopBit}} = ${loop}\n` +
-      `${flagsVar}{${musicJustStoppedBit}} = 0\n`;
+      `${flagsVar}{${musicJustStoppedBit}} = 0\n` +
+      // A (re)start always begins unpaused, even if the previous song was
+      // paused when this ran - otherwise the freshly (re)started song would
+      // silently never advance a single frame until some later, unrelated
+      // Unpause block happened to run.
+      `${flagsVar}{${musicPausedBit}} = 0\n`;
   };
   Blockly.BBasic['music_play_song'] = generatePlaySong;
   Blockly.BBasic['music_play_song_by_id'] = generatePlaySong;
@@ -495,7 +504,25 @@ export default (Blockly) => {
     const flagsVar = resolveVar(musicFlagsVarName());
     const muteLines = Object.keys(music.channelPages).map((channel) =>
       `AUDV${channel} = 0\n${flagsVar}{${musicChannelActiveBit(channel)}} = 0\n`).join('');
-    return muteLines + `${flagsVar}{${musicPlayingBit}} = 0\n`;
+    // Also clears paused - same reasoning as generatePlaySong's own reset:
+    // a later Play shouldn't inherit a stale paused state from before Stop.
+    return muteLines + `${flagsVar}{${musicPlayingBit}} = 0\n${flagsVar}{${musicPausedBit}} = 0\n`;
+  };
+
+  // Just the one shared bit - see musicPausedBit's own comment and
+  // generateMusicChecks below, which does the actual freezing/thawing by
+  // checking it. No AUDV/index/timer touched here at all, unlike Stop -
+  // that's the whole point, nothing about playback position is disturbed.
+  Blockly.BBasic['music_pause_song'] = function() {
+    const music = Blockly.BBasic.projectMusic;
+    if (!music) return 'rem Song not found\n';
+    return `${resolveVar(musicFlagsVarName())}{${musicPausedBit}} = 1\n`;
+  };
+
+  Blockly.BBasic['music_unpause_song'] = function() {
+    const music = Blockly.BBasic.projectMusic;
+    if (!music) return 'rem Song not found\n';
+    return `${resolveVar(musicFlagsVarName())}{${musicPausedBit}} = 0\n`;
   };
 
   // Fires the connected blocks once, the moment generateMusicChecks below
@@ -526,6 +553,7 @@ export default (Blockly) => {
   };
   Blockly.BBasic['music_song_stopped'] = generateSongStopped;
   Blockly.BBasic['music_song_stopped_by_id'] = generateSongStopped;
+  Blockly.BBasic['music_song_stopped_by_number'] = generateSongStopped;
 
   // Data tables holding each used channel's AUDV/AUDC/AUDF/duration event
   // stream - spliced alongside generatedDataTables in bbasic.bb.hbs (a "data"
@@ -617,6 +645,15 @@ export default (Blockly) => {
   Blockly.BBasic.generateMusicChecks = function() {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return '';
+    // Reset fresh every generation (matches relocatableGraphicsUnits' own
+    // reasoning in init()) - hooks/rom.js reads this after regenerateCode()
+    // and merges it into the compiler's siblingFiles, the same mechanism
+    // "inline text12a.asm" uses (see text-minikernel-files.js). EXPERIMENT:
+    // testing whether inlining a real sibling .asm file at this same
+    // mid-per-channel-dispatch position avoids the DASM local-label-scope
+    // corruption a plain "asm ... end" block caused here (see the gate
+    // check's own comment below).
+    Blockly.BBasic.musicGateAsmFiles = {};
     const flagsVar = resolveVar(musicFlagsVarName());
     const playingBit = `${flagsVar}{${musicPlayingBit}}`;
     const loopBit = `${flagsVar}{${musicLoopBit}}`;
@@ -629,7 +666,7 @@ export default (Blockly) => {
     // one to.
     const activeBitByChannel = Object.fromEntries(
         allChannels.map((channel) => [channel, `${flagsVar}{${musicChannelActiveBit(channel)}}`]));
-    return allChannels.map((channel) => {
+    const perChannelChecks = allChannels.map((channel) => {
       const pages = music.channelPages[channel];
       const tables = pages.map((_, page) => musicDataTableName(channel, page));
       const multiPage = tables.length > 1;
@@ -637,308 +674,33 @@ export default (Blockly) => {
       const indexVar = resolveVar(musicIndexVarName(channel));
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
-      const hasFade = music.channelHasFade[channel];
-      if (hasFade) Blockly.BBasic.usesDivMul = true;
-      // Packed: bits 0-3 the fade target volume (0-14), bits 4-6 an index
-      // into FADE_LENGTH_OPTIONS (this note's own per-instrument fade
-      // length), bit 7 whether the current note fades at all - merged from
-      // 3 separate pieces of state into this one var (see
-      // musicFadeVarName's comment).
-      const fadeVar = hasFade ? resolveVar(musicFadeVarName(channel)) : null;
 
-      const hasArpeggio = music.channelHasArpeggio[channel];
-      if (hasArpeggio) Blockly.BBasic.usesDivMul = true;
-      const arpSpeedRangeVar = hasArpeggio ? resolveVar(musicArpSpeedRangeVarName(channel)) : null;
-      const arpCounterVar = hasArpeggio ? resolveVar(musicArpCounterVarName(channel)) : null;
-      const arpPhaseVar = hasArpeggio ? resolveVar(musicArpPhaseVarName(channel)) : null;
-      const arpBaseIntervalVar = hasArpeggio ? resolveVar(musicArpBaseIntervalVarName(channel)) : null;
-
-      // Whichever of fade/arpeggio are active on this channel claim the
-      // duration byte's high bits (fade: bit 7, arpeggio range: bits 6-4 -
-      // see eventsToPages) - the remaining low bits hold the real frame
-      // count. A channel using neither needs no masking at all.
+      // Fade and Arpeggio are both hidden/forced off everywhere right now
+      // (see processSoundEffectsStorageDefaults in blocks/soundfx.js) - their
+      // whole code generation path (fadeApply/arpApply, the extra duration/
+      // fade-length parsing, the arpeggio pitch math) was removed here rather
+      // than left dead-but-reachable, specifically to simplify this
+      // per-channel dispatch enough to hand-optimize its core gate/fetch
+      // logic (see the "asm" block below) without fighting through
+      // conditionally-spliced Fade/Arpeggio code in the middle of it. Both
+      // remain fully implemented in git history if they need to come back.
       const durationRead = [
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}dur`),
         ` ${indexVar} = ${indexVar} + 1`,
+        ` ${timerVar} = temp1`,
       ];
-      if (hasArpeggio) {
-        // arpSpeedRangeVar (its speed portion set moments ago in audcRead,
-        // range portion not yet ORed in) tells us whether THIS event
-        // actually arpeggios - only those events paid for the tighter
-        // 4-bit-plus-range layout (see flattenSongEvents' per-event
-        // maxFrames); everything else on this channel stored its duration
-        // the same wider way a non-arpeggiating channel would. temp2 here
-        // is already shifted into bits 4-6 (same position range occupies in
-        // the packed var), so it can be added straight in without another
-        // divide.
-        durationRead.push(
-            ` if ${arpSpeedRangeVar} = 0 then goto _music${channel}_dur_noarp`,
-            ` ${timerVar} = temp1 & 15`,
-            ` temp2 = temp1 & 112`,
-            ` ${arpSpeedRangeVar} = ${arpSpeedRangeVar} + temp2`,
-            ` goto _music${channel}_dur_done`,
-            `_music${channel}_dur_noarp`,
-            ` ${timerVar} = temp1${hasFade ? ' & 127' : ''}`,
-            `_music${channel}_dur_done`,
-        );
-      } else if (hasFade) {
-        durationRead.push(` ${timerVar} = temp1 & 127`);
-      } else {
-        durationRead.push(` ${timerVar} = temp1`);
-      }
-      if (hasFade) {
-        // fadeVar's low 4 bits already hold this note's target volume
-        // (temp1/4, computed eagerly right after the AUDV byte was read -
-        // see the main return array below). Bit 7 of THIS duration byte
-        // (still in temp1) says whether it's actually fading - if so, set
-        // that same bit on fadeVar; if not, fadeVar resets to plain 0 (bit
-        // 7 clear, checked by fadeApply). Either way, the extra per-event
-        // fade-length byte (see eventsToPages) still gets read and the
-        // index advanced - every event on this channel has one, whether
-        // it's used or not - but its value (now in temp1) is only merged
-        // into fadeVar's bits 4-6 when this note is actually fading.
-        durationRead.push(
-            ` if temp1{7} then goto _music${channel}_fading`,
-            ` ${fadeVar} = 0`,
-            ` goto _music${channel}_fadedone`,
-            `_music${channel}_fading`,
-            ` ${fadeVar} = ${fadeVar} + 128`,
-            `_music${channel}_fadedone`,
-            ...pagedReadLines(tables, pageVar, indexVar, `${channel}fadelen`),
-            ` ${indexVar} = ${indexVar} + 1`,
-            ` if !${fadeVar}{7} then goto _music${channel}_fadelenskip`,
-            ` temp1 = temp1 * 16`,
-            ` ${fadeVar} = ${fadeVar} + temp1`,
-            `_music${channel}_fadelenskip`,
-        );
-      }
-
-      // Same "dispatch to a labeled block, one per option" shape as
-      // arpApply's own range dispatch - the fade-length index (re-read
-      // fadeVar's bits 4-6) picks which of FADE_LENGTH_OPTIONS' actual frame
-      // counts to compare the timer against, since that's a per-instrument
-      // value now, not the single fixed FADE_TAIL_FRAMES constant this used
-      // to check directly.
-      const fadeApply = hasFade ? (() => {
-        // ">" (skip once the remaining time is still ABOVE the fade
-        // length), not exact equality - a note shorter than its own
-        // instrument's configured fade length would otherwise never fade
-        // at all, since its timer would never pass through that exact
-        // value on the way down. This also means the target volume gets
-        // (harmlessly) rewritten every frame once the tail starts, not
-        // just once - AUDV writes are idempotent, so that's free.
-        const lengthBlocks = FADE_LENGTH_OPTIONS.flatMap((frames, index) => [
-          `_music${channel}_fadelen${index}`,
-          ` if ${timerVar} > ${frames} then goto _music${channel}_fadeapply_skip`,
-          ` goto _music${channel}_fadeapply_do`,
-        ]);
-        const lengthDispatch = FADE_LENGTH_OPTIONS.map((_, index) =>
-          index === FADE_LENGTH_OPTIONS.length - 1 ?
-            ` goto _music${channel}_fadelen${index}` :
-            ` if temp2 = ${index} then goto _music${channel}_fadelen${index}`);
-        return [
-          // Skipped outright once the timer's already at 0 - that's the
-          // exact same condition that's about to trigger a brand new fetch
-          // a few lines below (see the timerVar <> 0 check), which
-          // overwrites AUDV with the new note's own peak volume anyway.
-          // Writing the OLD (dying) note's fade target here first isn't
-          // just wasted work: AUDV is real TIA sound hardware with no
-          // frame buffering, so that write and the fetch's write a handful
-          // of instructions later both audibly reach the speaker, however
-          // briefly - heard as a short noise burst right at the start of
-          // every new note, worse the shorter the note (a bigger fraction
-          // of it sits right after that glitch).
-          ` if ${timerVar} = 0 then goto _music${channel}_fadeapply_skip`,
-          ` if !${fadeVar}{7} then goto _music${channel}_fadeapply_skip`,
-          ` temp2 = ${fadeVar} & 112`,
-          ` temp2 = temp2 / 16`,
-          ...lengthDispatch,
-          ...lengthBlocks,
-          `_music${channel}_fadeapply_do`,
-          ` temp1 = ${fadeVar} & 15`,
-          ` AUDV${channel} = temp1`,
-          `_music${channel}_fadeapply_skip`,
-        ];
-      })() : [];
 
       const audcRead = [
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}audc`),
         ` ${indexVar} = ${indexVar} + 1`,
-        // arpPhaseVar/arpCounterVar are NOT reset here - only once at song
-        // start (see music_play_song), and again conditionally in audfRead
-        // below, which is the one place that can actually tell a real new
-        // note apart from an internal continuation chunk of the same held
-        // note (see the comment there).
-        ...(hasArpeggio ? [
-          ` AUDC${channel} = temp1 & 15`,
-          ` ${arpSpeedRangeVar} = temp1 / 16`,
-        ] : [
-          ` AUDC${channel} = temp1`,
-        ]),
+        ` AUDC${channel} = temp1`,
       ];
 
-      // AUDF hardware only reads the low 5 bits (0-31) - every derived
-      // value below is masked (& 31) or built from an already-masked one,
-      // so a base near the top/bottom of that range wraps around instead of
-      // producing an out-of-range value (see the wraparound note in the
-      // fade-direction fix this mirrors). AUDF is a frequency DIVISOR, so
-      // alt is base MINUS the interval, not plus - adding would make alt a
-      // *lower* pitch than the root note, backwards from what "arpeggio
-      // interval" implies, and is what made the up/down-2-octave range
-      // sound like a jumbled, non-monotonic pitch path instead of a clean
-      // rising-then-falling arc (subtracting keeps alt, and everything
-      // derived from it, consistently higher-pitched than its base - see
-      // the identical fix in music-playback.js's arpeggioPitchVariants).
       const audfRead = [
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}audf`),
         ` ${indexVar} = ${indexVar} + 1`,
-        ...(hasArpeggio ? [
-          // A long held note gets split into several data-table chunks
-          // purely because of arpeggio's own duration cap (see
-          // MAX_EVENT_FRAMES_WITH_ARPEGGIO) - each chunk re-fetches as if
-          // it were a new note. Resetting phase/counter on every fetch
-          // (matching the browser preview, which always starts a note's
-          // arpeggio fresh) broke those continuation chunks: a slow
-          // arpeggio could never progress past phase 0-1 within one 15-frame
-          // chunk before being cut back to 0 again. But NEVER resetting
-          // (only at song start) meant every genuinely new note picked up
-          // wherever the cycle happened to be after however many frames had
-          // elapsed since song start - sounding randomly out of sync with
-          // the note itself, and never matching the preview. Comparing this
-          // fetch's base pitch against the previous one (saved into temp2
-          // before it's overwritten below, no extra dev var needed) tells
-          // the two cases apart: identical pitch means "still the same held
-          // note, let phase/counter keep running"; a different pitch means
-          // a real new note, so reset to a clean phase 0 - matching the
-          // preview for the case that's actually audible as "a new note
-          // starting", while still letting a single long note's own cycle
-          // run its course across chunk boundaries. temp1 here is already
-          // exactly base | (interval << 5) (see musicArpBaseIntervalVarName)
-          // - stored as-is, no packing math needed.
-          //
-          // Everything below the branch - the AUDF write included - only
-          // runs for a genuine new note now, not a continuation chunk.
-          // Unconditionally writing AUDF{channel} = base on EVERY fetch
-          // (the previous shape) stomped a continuation chunk's own
-          // in-progress arpeggio pitch back to plain base every ~15 frames
-          // (see MAX_EVENT_FRAMES_WITH_ARPEGGIO), no matter which phase the
-          // cycle actually happened to be mid-flight through at that exact
-          // moment - arpApply wouldn't correct it again until whenever the
-          // next real flip landed, up to a whole speed's worth of frames
-          // later. The preview never chunks a long note at all, so it never
-          // had this reset - heard as the ROM's arpeggio timing being
-          // "inconsistent"/"off" compared to the preview on anything longer
-          // than one chunk.
-          ` temp2 = ${arpBaseIntervalVar}`,
-          ` ${arpBaseIntervalVar} = temp1`,
-          ` if temp2 = ${arpBaseIntervalVar} then goto _music${channel}_arp_samenote`,
-          ` temp1 = temp1 & 31`,
-          ` AUDF${channel} = temp1`,
-          ` ${arpPhaseVar} = 0`,
-          // Refilled from this note's own speed nibble (already sitting in
-          // arpSpeedRangeVar's low bits, set moments ago in audcRead), not
-          // a bare 1 - a bare 1 counts down to the first flip in a single
-          // frame no matter the configured speed, so every note's very
-          // first flip landed far sooner than every flip after it (barely
-          // noticeable at a fast division, glaring at a slow one like 1/4,
-          // where the real gap is a dozen-plus frames) - this makes the
-          // first flip wait exactly as long as every other one.
-          ` temp2 = ${arpSpeedRangeVar} & 15`,
-          ` ${arpCounterVar} = temp2`,
-          `_music${channel}_arp_samenote`,
-        ] : [
-          ` AUDF${channel} = temp1`,
-        ]),
+        ` AUDF${channel} = temp1`,
       ];
-
-      const arpApply = hasArpeggio ? (() => {
-        // None of B/A/UB/UA/DB/DA are kept in their own dev vars (see
-        // musicArpBaseIntervalVarName's comment) - every one is derived
-        // fresh, right here, only on the rare frame a flip actually lands
-        // on it: base is always the packed var's low 5 bits; the "alt"
-        // (A/UA/DA) tokens subtract the packed var's own interval (bits
-        // 5-7) from that; "U" tokens then halve it (one octave up); "D"
-        // tokens double and mask back to 5 bits (one octave down, AUDF
-        // hardware only reads 5 bits).
-        const computeLines = (token) => {
-          const lines = [` temp1 = ${arpBaseIntervalVar} & 31`];
-          if (token.endsWith('A')) {
-            lines.push(` temp2 = ${arpBaseIntervalVar} / 32`, ` temp1 = temp1 - temp2`);
-          }
-          if (token[0] === 'U') {
-            lines.push(` temp1 = temp1 / 2`);
-          } else if (token[0] === 'D') {
-            lines.push(` temp1 = temp1 * 2`, ` temp1 = temp1 & 31`);
-          }
-          lines.push(` AUDF${channel} = temp1`);
-          return lines;
-        };
-        // A per-range/phase dispatch, duplicated per range - a shared
-        // flat-lookup-table version of this was tried and reverted (see git
-        // history around ARPEGGIO_TOKEN_ORDER) because it broke ROM
-        // playback while leaving the browser preview untouched, consistent
-        // with a data table ending up unreachable from the code that reads
-        // it after a bankswitched build's layout shifted - not safely
-        // revisitable without a deeper look at this compiler's bank
-        // placement rules.
-        const rangeBlocks = ARPEGGIO_PHASE_SEQUENCES.flatMap((sequence, rangeIndex) => {
-          const phaseChecks = [];
-          const phaseBlocks = [];
-          sequence.forEach((token, phaseIndex) => {
-            const label = `_music${channel}_arp_r${rangeIndex}p${phaseIndex}`;
-            phaseChecks.push(` if ${arpPhaseVar} = ${phaseIndex} then goto ${label}`);
-            phaseBlocks.push(label, ...computeLines(token), ` goto _music${channel}_arp_skip`);
-          });
-          return [
-            `_music${channel}_arp_range${rangeIndex}`,
-            ` if ${arpPhaseVar} > ${sequence.length - 1} then ${arpPhaseVar} = 0`,
-            ...phaseChecks,
-            ` goto _music${channel}_arp_skip`,
-            ...phaseBlocks,
-          ];
-        });
-        // Range isn't kept in its own dev var either (see
-        // musicArpSpeedRangeVarName) - extracted into temp2 right here,
-        // only on the rare frame a flip actually happens, right before the
-        // dispatch that's the only thing that needs it.
-        const rangeDispatch = ARPEGGIO_PHASE_SEQUENCES.map((_, rangeIndex) =>
-          rangeIndex === ARPEGGIO_PHASE_SEQUENCES.length - 1 ?
-            ` goto _music${channel}_arp_range${rangeIndex}` :
-            ` if temp2 = ${rangeIndex} then goto _music${channel}_arp_range${rangeIndex}`);
-        return [
-          // Only reaches the range/phase dispatch (which writes AUDF) on the
-          // exact frame the flip actually happens - on every other frame
-          // it's skipped outright rather than redundantly re-writing AUDF
-          // to the same value it already holds (TIA keeps whatever was last
-          // written, so there's nothing to refresh). Testing the WHOLE
-          // packed speed+range byte against 0 here is exactly as correct as
-          // testing speed alone would be (range is always 0 whenever speed
-          // is - see musicArpSpeedRangeVarName's comment), so this hot
-          // per-frame check costs nothing extra from the packing.
-          // Skipped outright once the timer's already at 0 - same reasoning
-          // as the identical guard in fadeApply above: that's the exact
-          // condition about to trigger a brand new fetch a few lines below,
-          // which sets this channel's real AUDF for the note that's
-          // actually about to be heard. Without this, a flip landing on
-          // that same frame would decrement/advance the OLD (dying) note's
-          // counter and phase one last time and write ITS stale AUDF to
-          // real, unbuffered TIA hardware, moments before the fetch's own
-          // write reaches it too - an audible, out-of-place pitch blip
-          // right at the note boundary, heard as the arpeggio's timing
-          // being "off".
-          ` if ${timerVar} = 0 then goto _music${channel}_arp_skip`,
-          ` if ${arpSpeedRangeVar} = 0 then goto _music${channel}_arp_skip`,
-          ` ${arpCounterVar} = ${arpCounterVar} - 1`,
-          ` if ${arpCounterVar} <> 0 then goto _music${channel}_arp_skip`,
-          ` temp2 = ${arpSpeedRangeVar} & 15`,
-          ` ${arpCounterVar} = temp2`,
-          ` ${arpPhaseVar} = ${arpPhaseVar} + 1`,
-          ` temp2 = ${arpSpeedRangeVar} / 16`,
-          ...rangeDispatch,
-          ...rangeBlocks,
-          `_music${channel}_arp_skip`,
-        ];
-      })() : [];
 
       // A page-break (see eventsToPages) only ever shows up where a new
       // record's AUDV byte would be - the peek right here, before deciding
@@ -966,11 +728,37 @@ export default (Blockly) => {
         ` ${justStoppedBit} = 1`,
       ];
 
+      // A single LDA covering both the paused and active bit tests -
+      // "inline"-d in from a real sibling .asm file (the exact same
+      // mechanism text12a.asm/text12b.asm use), not a plain bB "if X{bit}
+      // then goto" pair. Confirmed working: an embedded "asm ... end" block
+      // tried at this same position first corrupted DASM's local-label
+      // scoping for the rest of the file, but "inline"-ing a real file here
+      // doesn't.
+      const gateFile = `_musicgate${channel}.asm`;
+      const gateFailLabel = `_music${channel}_gatefail`;
+      const gateOkLabel = `_music${channel}_gateok`;
+      Blockly.BBasic.musicGateAsmFiles[gateFile] = [
+        ` lda ${flagsVar}`,
+        ` and #${1 << musicPausedBit}`,
+        ` bne ${gateFailLabel}`,
+        ` lda ${flagsVar}`,
+        ` and #${1 << musicChannelActiveBit(channel)}`,
+        ` bne ${gateOkLabel}`,
+        `${gateFailLabel}`,
+        ` lda #0`,
+        ` sta temp5`,
+        ` jmp _music${channel}_gatedone`,
+        `${gateOkLabel}`,
+        ` lda #1`,
+        ` sta temp5`,
+        `_music${channel}_gatedone`,
+      ].join('\n');
+
       return [
-        ` if !${activeBit} then goto _music${channel}_skip`,
+        ` inline ${gateFile}`,
+        ` if temp5 = 0 then goto _music${channel}_skip`,
         ` ${timerVar} = ${timerVar} - 1`,
-        ...fadeApply,
-        ...arpApply,
         ` if ${timerVar} <> 0 then goto _music${channel}_skip`,
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}peek`),
         ...pageBreakCheck,
@@ -987,31 +775,45 @@ export default (Blockly) => {
         `_music${channel}_read`,
         ` ${indexVar} = ${indexVar} + 1`,
         ` AUDV${channel} = temp1`,
-        // Computed right here, while temp1 still holds the just-read AUDV
-        // byte, rather than reading AUDV{channel} back later - AUDV is
-        // write-only TIA hardware with no readback at all, so a later
-        // "read" of it doesn't reliably return what was just written (see
-        // fadeTargetVolume in generators/bbasic/soundfx.js, which computes
-        // the one-shot sound effect system's own fade target at compile
-        // time for exactly this reason). Whether this note actually fades,
-        // and its own fade length, aren't known yet at this point (bit 7
-        // and the extra per-event byte, both read last, in durationRead) -
-        // this only ever fills in fadeVar's low 4 bits (the target volume,
-        // 0-14, always fits) for now. Rounds rather than truncates (bB's /
-        // is integer division, always rounding down) - a plain temp1/4
-        // silently floors quiet-but-nonzero volumes (AUDV 1-2) to a target
-        // of exactly 0, i.e. total silence, well before the note's fade
-        // even properly starts (see soundfx.js's own, rounding,
-        // fadeTargetVolume).
-        ...(hasFade ? [
-          ` temp2 = temp1 + 2`,
-          ` ${fadeVar} = temp2 / 4`,
-        ] : []),
         ...audcRead,
         ...audfRead,
         ...durationRead,
         `_music${channel}_skip`,
       ].join('\n');
     }).join('\n\n');
+
+    // This whole per-channel dispatch (especially with Fade/Arpeggio, which
+    // can each add a substantial amount of code per channel) is spliced
+    // straight into commongamelogic (see bbasic.bb.hbs) - a plain gosub'd
+    // subroutine that's ALWAYS in bank 1, unlike events/backgrounds/
+    // animations, which the auto-relocation system (see rom.js's
+    // pickRelocationCandidate) can already move to any other bank once bank
+    // 1 fills up. Wrapping it as its own relocatable unit (the exact same
+    // mechanism wrapRelocatableGraphics already uses for a background or
+    // animation - "graphics" is a misnomer here, but the entry/return-label
+    // redirect it builds works identically for any relocatable payload)
+    // makes this movable too, without needing a whole separate relocation
+    // mechanism of its own. Its own data tables (music.channelPages' raw
+    // bytes) travel along in the SAME payload rather than staying in the
+    // fixed, bank-1-only "Data tables" section - a data table can only be
+    // read correctly from the same bank it's declared in (see
+    // trackDataTableBank's own comment), and this is the only place they're
+    // ever read from, so there's no need to duplicate them per-bank the way
+    // a Data-tab table shared across several relocated events does.
+    //
+    // The data table can't just follow the checks directly, though - unlike
+    // the checks (meant to run every frame, falling through into whatever
+    // comes after once every channel's own early-exit has been checked), a
+    // "data" block is raw bytes, not code: falling through into it would
+    // have the CPU start executing table data as instructions. An explicit
+    // jump skips over it, landing on a label placed right after - taken
+    // every single frame this runs (not just when a table is actually
+    // read), but that's a handful of cycles, not a real cost.
+    const dataTables = this.generateMusicDataTables();
+    const dataSkipLabel = '_music_update_data_skip';
+    const payload = dataTables ?
+      [perChannelChecks, ` goto ${dataSkipLabel}`, dataTables, dataSkipLabel].join('\n\n') :
+      perChannelChecks;
+    return this.wrapRelocatableGraphics('musicUpdate', payload);
   };
 };

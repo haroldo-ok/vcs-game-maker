@@ -253,7 +253,44 @@ Blockly.Blocks['music_stop_song'] = {
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
-    this.setTooltip('Immediately stops whatever song is currently playing.');
+    this.setTooltip('Immediately stops whatever song is currently playing. A subsequent "Play song" ' +
+      'restarts it from the beginning - unlike Pause below, there\'s no way to resume from here.');
+  },
+};
+
+// Freezes whichever notes are currently sounding on every channel (held at
+// their current pitch/volume, not silenced) and stops advancing through the
+// song entirely - no timers count down, no new notes are read - until a
+// matching music_unpause_song block runs. Distinct from Stop above: Stop
+// discards playback position (a subsequent Play always restarts from the
+// beginning); Pause keeps it exactly where it was, ready to pick back up
+// mid-song. Has no effect if nothing is currently playing, or if already
+// paused.
+Blockly.Blocks['music_pause_song'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Pause music`);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Freezes music playback exactly where it is (the currently sounding notes hold, ' +
+      'they don\'t go silent) until "Unpause music" runs. Unlike "Stop music", playback position isn\'t ' +
+      'lost - resuming continues the song from where it was paused, not from the beginning.');
+  },
+};
+
+// Resumes playback exactly where music_pause_song above left it - the same
+// notes that were held pick back up counting down from wherever their own
+// timers were, not restarted. Has no effect if music isn't currently paused.
+Blockly.Blocks['music_unpause_song'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Unpause music`);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Resumes music playback frozen by "Pause music", continuing exactly where it left ' +
+      'off. Has no effect if music isn\'t currently paused.');
   },
 };
 
@@ -296,6 +333,31 @@ Blockly.Blocks['music_song_stopped_by_id'] = {
     this.setTooltip('Same as "When song has stopped playing", but names which song - only one song ' +
       'can actually be used for playback right now, so this only ever matches that one, but it reads ' +
       'clearer in a project with several songs defined.');
+  },
+};
+
+// Same trigger again (see music_song_stopped_by_id's own comment - all
+// three share one generator, generateSongStopped, in generators/bbasic/
+// music.js), but picks the song by a runtime VALUE (a variable or computed
+// ID) instead of a fixed dropdown choice - same reasoning as
+// music_play_song_by_id vs music_play_song. Only one song can actually be
+// used for playback right now, so this ID isn't checked either, it always
+// fires on that one song's own stop. A separate block (not an added input
+// on music_song_stopped_by_id) so existing projects using that one aren't
+// disturbed.
+Blockly.Blocks['music_song_stopped_by_number'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing:`);
+    this.appendValueInput('SONG_ID');
+    this.appendStatementInput('DO');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Same as "When song has stopped playing", but picks the song by ID (a variable or ' +
+      'computed value, not a fixed choice) - only one song can actually be used for playback right ' +
+      'now, so this ID isn\'t actually checked, it always fires when that one song stops.');
   },
 };
 

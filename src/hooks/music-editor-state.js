@@ -42,3 +42,20 @@ export const useMusicEditorActiveState = () => {
 
   return {activePatternIdsRef, activeTrackIdsRef, setActivePatternId, setActiveTrackId};
 };
+
+// Clears both the in-memory refs (if the Music tab happens to already be
+// mounted) and their localStorage backing, so a fresh/loaded project starts
+// with no leftover pattern/track selection from whatever project was open
+// before. Needed because these are keyed by song/pattern/track ID, and a
+// new or freshly-loaded project's own IDs (1, 2, 3, ...) collide with
+// whatever the previous project used - without this, the piano roll could
+// end up referencing a pattern or track that means something completely
+// different (or doesn't exist at all) in the new project, showing stale/
+// wrong notes. Called from views/Project.vue's handleNewProject and
+// handleLoadProject.
+export const resetMusicEditorActiveState = () => {
+  if (activePatternIdsRef) activePatternIdsRef.value = {};
+  if (activeTrackIdsRef) activeTrackIdsRef.value = {};
+  localStorage.removeItem(ACTIVE_PATTERN_KEY);
+  localStorage.removeItem(ACTIVE_TRACK_KEY);
+};

@@ -25,9 +25,8 @@ import {canonicalDistanceVarName} from '../utils/distance';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
-import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName, musicFlagsVarName,
-  musicFadeVarName, musicArpSpeedRangeVarName, musicArpCounterVarName, musicArpPhaseVarName,
-  musicArpBaseIntervalVarName} from './bbasic/music';
+import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName,
+  musicFlagsVarName} from './bbasic/music';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -267,20 +266,40 @@ Blockly.BBasic.init = function(workspace) {
   // call - same reasoning as textMinikernelUsed above.
   this.projectMusic = resolveProjectMusic(workspace);
 
-  // Run-once blocks (see blocks/event.js's event_run_once) each need one bit
-  // of persistent state remembering whether they've already fired, packed 8
-  // to a byte rather than giving each its own - the same bit-packing trick
-  // this app's own generated projects use for boolean flags. Counted here,
-  // before variable letters are handed out below, for the same reason as
-  // the text minikernel pre-scan above: by the time a run_once block's own
-  // generator runs (see generators/bbasic/event.js), its flag byte's letter
-  // would already need to be decided. runOnceCounter is what that generator
-  // increments, one per instance, to assign each block its own bit.
+  // Run-once blocks (see blocks/event.js's event_run_once) fire once per
+  // activation of whatever condition contains them (e.g. once each time an
+  // enclosing "if BGScene = 2" becomes true, again next time it does), not
+  // just once ever - which needs two bits of persistent state per instance,
+  // not one: "fired" (already ran for the CURRENT activation) and "touched"
+  // (this instance's gated code ran at all THIS frame). See
+  // generateRunOnceEdgeReset below for how the two combine to detect a
+  // fresh activation without the block itself ever seeing its own gate's
+  // condition go false - and for why one bit alone can't do this safely (a
+  // single shared frame-parity bit was considered and rejected: it only
+  // detects the gate going false for an ODD number of frames, silently
+  // failing to re-fire after an even-length gap).
+  //
+  // Both bits per instance share ONE byte (not two separate byte arrays):
+  // low nibble bits 0-3 are 4 instances' own "touched" bits, high nibble
+  // bits 4-7 the same 4 instances' "fired" bits (instance p within its byte
+  // uses bit p for touched, bit p+4 for fired) - 4 instances per byte
+  // instead of 8, but only ONE letter spent per 4 instances instead of one
+  // letter per 8 EACH for two separate arrays (same total bit count, fewer
+  // letters for any count that isn't a multiple of 8 - see
+  // generateRunOnceEdgeReset's nibble-mask comment for why this specific
+  // split, rather than interleaving the two bits per instance, is what
+  // keeps the per-frame reset a couple of plain nibble operations instead
+  // of needing to unpack every instance separately). Counted here, before
+  // variable letters are handed out below, for the same reason as the text
+  // minikernel pre-scan above: by the time a run_once block's own generator
+  // runs (see generators/bbasic/event.js), its flag byte's letter would
+  // already need to be decided. runOnceCounter is what that generator
+  // increments, one per instance, to assign each block its own byte+pair.
   this.runOnceCounter = 0;
   const runOnceBlockCount = workspace.getAllBlocks(false)
       .filter((block) => block.type === 'event_run_once').length;
-  const runOnceByteNames = [...Array(Math.ceil(runOnceBlockCount / 8)).keys()]
-      .map((i) => `RunOnceFlags${i}`);
+  const runOnceByteCount = Math.ceil(runOnceBlockCount / 4);
+  const runOnceByteNames = [...Array(runOnceByteCount).keys()].map((i) => `RunOnceFlags${i}`);
 
   if (!this.nameDB_) {
     this.nameDB_ = new Blockly.Names(this.RESERVED_WORDS_);
@@ -326,16 +345,6 @@ Blockly.BBasic.init = function(workspace) {
       defvars.push(this.nameDB_.getName(musicTimerVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
       if (this.projectMusic.channelPages[channel].length > 1) {
         defvars.push(this.nameDB_.getName(musicPageVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-      }
-      if (this.projectMusic.channelHasFade[channel]) {
-        defvars.push(this.nameDB_.getName(musicFadeVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-      }
-      if (this.projectMusic.channelHasArpeggio[channel]) {
-        defvars.push(this.nameDB_.getName(musicArpSpeedRangeVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-        defvars.push(this.nameDB_.getName(musicArpCounterVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-        defvars.push(this.nameDB_.getName(musicArpPhaseVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-        defvars.push(
-            this.nameDB_.getName(musicArpBaseIntervalVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
       }
     }
     // One shared byte for playing/loop/justStopped plus every channel's own
@@ -680,7 +689,6 @@ Blockly.BBasic.finish = function(code) {
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
-  const generatedMusicDataTables = Blockly.BBasic.generateMusicDataTables();
   const generatedSubroutines = Blockly.BBasic.generateSubroutines();
 
   const systemStartEvent = this.generateGameEvent('system_start');
@@ -691,8 +699,6 @@ Blockly.BBasic.finish = function(code) {
   const gamePlayStartEvent = relocatable.gameplay_start.inlineEvent;
   const gameOverStartEvent = relocatable.gameover_start.inlineEvent;
   const gameOverUpdateEvent = relocatable.gameover_update.inlineEvent;
-  const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
-      RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
   const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults() + '\n' +
     Blockly.BBasic.generateScoreBkColorDefaults();
@@ -701,22 +707,64 @@ Blockly.BBasic.finish = function(code) {
   // side effect (the nibble packing math needs mul8/div8), which
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
   const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
+  // Also has to run before generateRelocatedSections() below: it registers
+  // its own "musicUpdate" unit into relocatableGraphicsUnits (see its own
+  // comment, right where it calls wrapRelocatableGraphics), which that call
+  // needs to already be there to actually place it in a relocated bank's
+  // own section - running it any later would silently leave "musicUpdate"
+  // registered but never actually emitted anywhere.
   const generatedMusicChecks = Blockly.BBasic.generateMusicChecks();
+  const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
+      RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedDistanceChecks = Blockly.BBasic.generateDistanceChecks();
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
+  const generatedRunOnceEdgeReset = Blockly.BBasic.generateRunOnceEdgeReset();
 
   this.isInitialized = false;
 
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
-    generatedAnimations, generatedDataTables, generatedMusicDataTables,
+    generatedAnimations, generatedDataTables,
     generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
-    generatedMusicChecks, generatedDistanceChecks, generatedScoreBkColorAsm});
+    generatedMusicChecks, generatedDistanceChecks, generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
+};
+
+// Spliced into commongamelogic (see bbasic.bb.hbs), before generatedBody
+// itself runs (the main loop's own "gosub commongamelogic" happens before
+// the per-frame game logic containing every "Run once" block) - has to run
+// first so it's comparing against LAST frame's touched bits, not bits the
+// current frame hasn't set yet. See blocks/event.js's event_run_once and its
+// own runOnceByteLetters comment in init() for the two-bit-per-instance,
+// one-byte-per-4-instances "fired"/"touched" scheme this maintains (low
+// nibble touched, high nibble fired): clears an instance's fired bit the
+// instant it goes a whole frame without being touched (i.e. its enclosing
+// condition just went false), so the very next activation fires again;
+// leaves it alone for as long as the instance keeps being touched every
+// frame (still the same activation).
+//
+// Nibble-aligned (not interleaved bit-pairs) specifically so this reset is
+// two whole-byte shift/mask ops per byte regardless of how many of its 4
+// instances are actually in use, instead of needing to unpack and re-pack
+// each instance's own bit pair separately: temp1 takes the touched nibble
+// as-is (already low-aligned); temp2 shifts the fired nibble down to
+// low-aligned too, ANDs it against temp1 (clearing any fired bit whose
+// touched counterpart is 0), then shifts the masked result back up - which
+// also has the side effect of zeroing the low nibble, i.e. resetting every
+// touched bit for the next frame's fresh tracking, for free.
+Blockly.BBasic.generateRunOnceEdgeReset = function() {
+  const bytes = this.runOnceByteLetters || [];
+  if (!bytes.length) return '';
+  return bytes.map((byte) => [
+    ` temp1 = ${byte} & 15`,
+    ` temp2 = ${byte} / 16`,
+    ` temp2 = temp2 & temp1`,
+    ` ${byte} = temp2 * 16`,
+  ].join('\n')).join('\n');
 };
 
 // "*"/"/" by a non-power-of-2 constant or a runtime variable compiles to
@@ -1316,6 +1364,18 @@ Blockly.BBasic.generateSubroutines = function() {
 };
 
 Blockly.BBasic.generateAnimations = function() {
+  // Reset fresh every generation, same reasoning/mechanism as
+  // musicGateAsmFiles in generators/bbasic/music.js - hooks/rom.js merges
+  // this into the compiler's siblingFiles after regenerateCode(), the same
+  // "inline text12a.asm" mechanism (see text-minikernel-files.js).
+  Blockly.BBasic.playerAnimAsmFiles = {};
+
+  // TEMPORARY DIAGNOSTIC SWAP: restored to the pre-table-driven original
+  // implementation, to test whether the still-failing "musicUpdate can't
+  // find room anywhere" build error is actually caused by this animation
+  // work at all, or is fully independent of it (musicUpdate/Superchip).
+  // Real implementation preserved in git history / the conversation - to
+  // be restored right after this test.
   const processAnimation = (name, animation, animationIndex) => {
     if (!animation) {
       return '';
@@ -1339,8 +1399,6 @@ Blockly.BBasic.generateAnimations = function() {
         endLabel;
     });
 
-    // Bit 6 of the size variable is the pause flag (see the playback block):
-    // while it is set, the frame counter is frozen, holding the current frame.
     const pauseSkipLabel = `${animationLabel}pauseSkip`;
     return `  rem Animation ${animationIndex} ${animation.name} for ${name}:\n\n` +
       `  if ${name}size{6} then goto ${pauseSkipLabel}\n` +

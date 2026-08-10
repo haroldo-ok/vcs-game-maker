@@ -55,6 +55,14 @@ export default (Blockly) => {
   // the larger. "if X then A : B" only conditions A, not B, so this can't be
   // collapsed onto fewer lines with a trailing goto - every branch needs its
   // own line, same as generateSoundFadeChecks.
+  //
+  // An "asm ... end" block (SEC+SBC's carry flag already says which operand
+  // was smaller, so a BCS-guarded EOR/CLC/ADC two's-complement negate can
+  // compute the same result in one flat sequence) was tried here and
+  // reverted - see generateMusicChecks' own comment on the exact same
+  // finding: any "asm ... end" block spliced into this per-frame code path
+  // corrupts DASM's local-label scoping in this toolchain, regardless of
+  // what it contains.
   Blockly.BBasic.generateDistanceChecks = function() {
     const checks = this.distanceChecks;
     if (!checks || !checks.size) return '';

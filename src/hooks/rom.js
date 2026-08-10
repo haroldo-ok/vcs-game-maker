@@ -70,11 +70,17 @@ const patchSuperchipPfColorsPointer = ({mainAsm, workDir}, config) => {
   return {mainAsm: mainAsm.replace(/pfcolorlabel(\d+)-84/g, `pfcolorlabel$1-${correctOffset}`), workDir};
 };
 
-// This is the only signature the underlying compiler gives for "your code
-// doesn't fit" (see the trial-build/attemptBuild investigation) - anything
-// else is a genuine problem in the user's own project that auto-relocating
-// an event would only obscure, so it's surfaced immediately instead.
-const isOverflowError = (e) => /segment overflow/i.test((e && e.message) || '');
+// "segment overflow" is DASM's plain "ran out of room in this bank"
+// message. "Origin Reverse-indexed" is a second, differently-worded DASM
+// error also seen from an over-full bank - not confirmed to be tied to any
+// particular ROM setting, just observed alongside overflow-shaped symptoms
+// (it went away once the same content shrank, with nothing else changed).
+// Treated the same way as a plain overflow so the retry loop below gets a
+// chance to relocate something and try a different bank, rather than
+// surfacing it as an unrelocatable error immediately. Anything else is a
+// genuine problem in the user's own project that auto-relocating an event
+// would only obscure, so it's surfaced immediately instead.
+const isOverflowError = (e) => /segment overflow|origin reverse-indexed/i.test((e && e.message) || '');
 
 // How many physical banks each bankswitched ROM size actually provides
 // (2k/4k don't bankswitch at all, so they're absent - overflowing there just
@@ -119,17 +125,41 @@ const pickRelocationCandidate = (config) => {
 // utils/rom-capacity.js), so this can only spread the *count* of units
 // evenly; whether the result actually compiles is still decided by trying
 // it, same as picking the candidate unit itself.
-const pickNextBank = (config, maxBanks) => {
-  if (maxBanks < 2) return null;
+//
+// musicUpdate (see wrapRelocatableGraphics('musicUpdate', ...) in
+// generators/bbasic/music.js) shares this same pool rather than getting a
+// bank reserved just for itself - reserving a whole bank was tried and
+// reverted: a project that already fills every available bank with
+// backgrounds/animations/events (a real, observed case) would have that
+// reservation permanently remove a bank's worth of room from everything
+// else, which is worse than the "destination bank also overflows" edge case
+// it was meant to prevent. That edge case (a relocated unit's new bank fills
+// up too) remains a known gap - see pickRelocationCandidate above, which
+// still only reconsiders units still sitting in bank 1.
+//
+// The LAST bank is excluded whenever the Text Minikernel is active: its own
+// text12a.asm/text12b.asm/text_strings (see bbasic.bb.hbs's
+// {{{ generatedTextMinikernel }}}, placed right after this same relocated-
+// sections loop with no "bank" directive of its own) lands wherever that
+// loop's own final "bank N" left the assembler - i.e. always the highest
+// bank - and can be sizeable. None of that is tracked in eventBanks/
+// graphicsBanks, so without this exclusion the last bank looks like the
+// emptiest available target (0 counted units) even though it's actually
+// already one of the fullest, and gets picked first for exactly that wrong
+// reason - confirmed by a real project where a small, Arpeggio-off
+// musicUpdate still overflowed there for no other reason.
+const pickNextBank = (config, maxBanks, textMinikernelActive) => {
+  const highestBank = textMinikernelActive ? maxBanks - 1 : maxBanks;
+  if (highestBank < 2) return null;
   const counts = {};
-  for (let bank = 2; bank <= maxBanks; bank++) counts[bank] = 0;
+  for (let bank = 2; bank <= highestBank; bank++) counts[bank] = 0;
   const tally = (banks) => Object.values(banks || {}).forEach((bank) => {
     if (counts[bank] !== undefined) counts[bank]++;
   });
   tally(config.eventBanks);
   tally(config.graphicsBanks);
   let best = 2;
-  for (let bank = 3; bank <= maxBanks; bank++) {
+  for (let bank = 3; bank <= highestBank; bank++) {
     if (counts[bank] < counts[best]) best = bank;
   }
   return best;
@@ -157,6 +187,39 @@ export const buildRom = async () => {
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
 
+  // Tracks every bank each unit has already been tried in during THIS
+  // build (keyed by "kind:name"), so the fallback below (see its own
+  // comment) can tell which banks are left to try for whichever unit needs
+  // it, rather than repeating one that already overflowed.
+  const retriedBanksByUnit = new Map();
+
+  // musicUpdate (see wrapRelocatableGraphics('musicUpdate', ...) in
+  // generators/bbasic/music.js) is unlike every other relocatable unit here:
+  // a background or animation's size is fixed once authored, but musicUpdate
+  // grows and shrinks a lot just from toggling Arpeggio/Fade on a sound -
+  // and unlike bank 1 (whose actual free space IS measurable, see
+  // utils/rom-capacity.js), nothing here ever moves a unit BACK once
+  // relocated, even if it would now easily fit back in bank 1. Without this,
+  // a bank assignment picked while Arpeggio was on (and musicUpdate was
+  // large) would stick around after Arpeggio was turned back off, even
+  // though the now-much-smaller code might not need relocating at all
+  // anymore, or would fit better elsewhere. Resetting it to bank 1 before
+  // every build forces a fresh decision each time, based on its current
+  // size, at the cost of one extra compile attempt on builds where it
+  // still doesn't fit - same bounded, fast-failing retry loop as any other
+  // relocation below, not the reshuffle-everything approach that caused the
+  // earlier hang.
+  {
+    const initialConfig = configurationStorage.value || {};
+    const graphicsBanks = initialConfig.graphicsBanks || {};
+    if (graphicsBanks.musicUpdate && graphicsBanks.musicUpdate !== 1) {
+      configurationStorage.value = {
+        ...initialConfig,
+        graphicsBanks: {...graphicsBanks, musicUpdate: 1},
+      };
+    }
+  }
+
   for (let attempt = 0; attempt <= MAX_RELOCATION_ATTEMPTS; attempt++) {
     let code;
     try {
@@ -182,6 +245,16 @@ export const buildRom = async () => {
       // masking the Text Minikernel's own extended file even after switching
       // back to Squish or to a different project).
       const siblingFiles = textMinikernelActive ? {...await getTextMinikernelSiblingFiles()} : {};
+      // Hand-written .asm content generated during this same attempt's
+      // regenerateCode() call above (the music per-channel gate check, see
+      // generateMusicChecks, and player animation frame pointers, see
+      // generateAnimations, both in generators/bbasic.js/music.js), added as
+      // sibling files the exact same way text12a.asm/text12b.asm are.
+      // "inline"-ing a real file this way avoids a DASM local-label-scope
+      // corruption an embedded "asm ... end" block caused at these same
+      // mid-dispatch positions - confirmed directly, see either generator's
+      // own comment for the full story.
+      Object.assign(siblingFiles, BlocklyBB.musicGateAsmFiles || {}, BlocklyBB.playerAnimAsmFiles || {});
       // The compiler has no font support of its own, so point its score
       // digits at the selected font by overriding score_graphics.asm.
       // Squish is special (see utils/score-font.js/SQUISH_SCORE_FONT): it's
@@ -211,15 +284,51 @@ export const buildRom = async () => {
     } catch (e) {
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
       if (isOverflowError(e) && maxBanks) {
-        const candidate = pickRelocationCandidate(config);
-        const bank = candidate && pickNextBank(config, maxBanks);
+        const textMinikernelActive = BlocklyBB.isTextMinikernelActive();
+        let candidate = pickRelocationCandidate(config);
+        let bank = candidate && pickNextBank(config, maxBanks, textMinikernelActive);
+
+        // Fallback for when nothing is left in bank 1 to relocate, but the
+        // bank the MOST RECENTLY relocated unit moved to also turns out to
+        // be too full - the one case pickRelocationCandidate structurally
+        // can't handle on its own, since it only ever looks at units still
+        // sitting in bank 1. Originally handled only for musicUpdate (the
+        // one unit whose size can change build to build); generalized to
+        // whichever unit relocatedThisBuild's own last entry names, since a
+        // player animation's own relocatable unit (see generateAnimations
+        // in generators/bbasic.js) can hit the exact same "landed in an
+        // already-crowded bank" problem despite having a fixed size -
+        // confirmed directly, see generateAnimations' own comment. Bounded
+        // by retriedBanksByUnit (at most maxBanks - 1 entries per unit, or
+        // maxBanks - 2 with the Text Minikernel's reserved bank excluded),
+        // so this can't loop any longer than MAX_RELOCATION_ATTEMPTS
+        // already allows for.
+        if (!candidate && relocatedThisBuild.length) {
+          const last = relocatedThisBuild[relocatedThisBuild.length - 1];
+          const unitKey = `${last.kind}:${last.name}`;
+          const currentBank = (config[last.kind] || {})[last.name];
+          const highestBank = textMinikernelActive ? maxBanks - 1 : maxBanks;
+          if (currentBank && currentBank !== 1) {
+            if (!retriedBanksByUnit.has(unitKey)) retriedBanksByUnit.set(unitKey, new Set());
+            const triedBanks = retriedBanksByUnit.get(unitKey);
+            triedBanks.add(currentBank);
+            const nextBank = [...Array(Math.max(0, highestBank - 1)).keys()]
+                .map((i) => i + 2)
+                .find((b) => !triedBanks.has(b));
+            if (nextBank) {
+              candidate = {kind: last.kind, name: last.name};
+              bank = nextBank;
+            }
+          }
+        }
+
         if (candidate && bank) {
           const banksForKind = config[candidate.kind] || {};
           configurationStorage.value = {
             ...config,
             [candidate.kind]: {...banksForKind, [candidate.name]: bank},
           };
-          relocatedThisBuild.push({name: candidate.name, bank});
+          relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank});
           continue;
         }
       }

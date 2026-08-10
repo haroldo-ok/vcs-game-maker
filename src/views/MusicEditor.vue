@@ -393,7 +393,7 @@
                               :style="[patternCellStyle(activePattern(song), row, stepIndex - 1), {flex: `0 0 ${cellWidthPx()}px`}]"
                               :class="patternCellClasses(activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)))"
                               :title="patternCellTitle(activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)))"
-                              @click="(event) => handlePatternCellClick(activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
+                              @click="(event) => handlePatternCellClick(song, activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
                               @mousemove="(event) => handleCellHover(activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
                               @mouseleave="handleCellLeave"
                             >
@@ -449,7 +449,7 @@ import {
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {CHANNEL_OPTIONS} from '../blocks/sound';
 import {audcHasTunableNotes, audfByMidiForAudc, CANONICAL_NOTE_ROWS} from '../utils/music-notes';
-import {getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
+import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
 import {autoInstrumentColor, instrumentColorFor} from '../utils/instrument-colors';
 
@@ -1395,7 +1395,7 @@ export default defineComponent({
       hoverPreview.value = null;
     };
 
-    const handlePatternCellClick = (pattern, row, step, stepCount, event) => {
+    const handlePatternCellClick = (song, pattern, row, step, stepCount, event) => {
       // A resize drag ends with the mouse released wherever the note's tip
       // was just dragged to, still over a real .piano-roll-cell - the
       // browser fires its own native "click" for that same mouseup right
@@ -1443,7 +1443,16 @@ export default defineComponent({
       hoverPreview.value = null;
       handleChildChange();
       if (!isTrackMuted(pattern, activeTrack)) {
-        previewPatternNote({audc: soundEffect.audc, audf: audf == null ? soundEffect.audf : audf, audv: soundEffect.audv});
+        previewPatternNote({
+          audc: soundEffect.audc,
+          audf: audf == null ? soundEffect.audf : audf,
+          audv: soundEffect.audv,
+          arpeggio: soundEffect.arpeggio,
+          arpeggioDivision: soundEffect.arpeggioDivision,
+          arpeggioInterval: soundEffect.arpeggioInterval,
+          arpeggioRange: soundEffect.arpeggioRange,
+          tempo: effectiveTempo(song, pattern),
+        });
       }
     };
 

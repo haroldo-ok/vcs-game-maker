@@ -66,14 +66,20 @@ export const findTextStringById = (id) => {
   }
 };
 
-// Every stored text string, in the same order shown on the Text tab - the
-// order "Show text with ID"'s runtime number counts against (see
-// generators/bbasic/text-minikernel.js), so a raw compile-time reference
-// (dropdown) and a runtime one (a variable holding a typed-in number) always
-// agree on which message a given position means.
+// Every stored text string, sorted by its own permanent id - NOT the order
+// shown on the Text tab (see TextEditor.vue's own drag-reorder, which only
+// ever touches display order, reading state.textStrings directly rather
+// than through this function). "Show text with ID"'s runtime number counts
+// positions in THIS id-sorted order (see generators/bbasic/
+// text-minikernel.js, both for the compiled data table's own row order and
+// namedMessagePosition's lookup), so a raw compile-time reference
+// (dropdown) and a runtime one (a variable holding a typed-in number)
+// always agree on which message a given position means, and neither one
+// shifts just because a card got dragged to a new spot in the editor.
 export const listTextStrings = () => {
   try {
-    return processTextStringsStorageDefaults(useTextStringsStorage()).textStrings;
+    return processTextStringsStorageDefaults(useTextStringsStorage())
+        .textStrings.slice().sort((a, b) => a.id - b.id);
   } catch (e) {
     console.error('Failed to list text strings', e);
     return [];

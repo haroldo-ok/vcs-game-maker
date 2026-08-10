@@ -64,15 +64,17 @@ export default (Blockly) => {
   };
 
   // Every message defined on the Text tab occupies a FIXED table row, one
-  // more than its position in that list (row 0 is reserved blank - see
-  // generateTextMinikernel() below) - not assigned lazily as blocks happen
-  // to reference them. That's what makes "Show text with ID" possible at
-  // all: its number is only known at runtime, so there's no block-visitation
-  // moment to hang a lazy registration off of. A pure function of the Text
-  // tab's own stored order also means a compile-time reference (the "Show
-  // text" dropdown) and a runtime one (a variable someone sets to 1, 2, ...)
-  // always agree on which message a given position means - typing "2" gets
-  // you the second message listed on the Text tab, full stop.
+  // more than its position in listTextStrings()'s own id-sorted order (row 0
+  // is reserved blank - see generateTextMinikernel() below) - not assigned
+  // lazily as blocks happen to reference them. That's what makes "Show text
+  // with ID" possible at all: its number is only known at runtime, so
+  // there's no block-visitation moment to hang a lazy registration off of.
+  // Deliberately keyed off id, not Text tab DISPLAY order (see
+  // listTextStrings' own comment) - display order is freely drag-reorderable
+  // (see TextEditor.vue), and a message's ROM row/ID number staying fixed
+  // regardless of where its card happens to sit in the editor is exactly the
+  // point: typing "2" always gets you the same message, whether or not it's
+  // been dragged somewhere else on the Text tab since.
   const namedMessagePosition = (id) => {
     const entries = listTextStrings();
     const index = entries.findIndex((entry) => `${entry.id}` === `${id}`);

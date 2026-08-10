@@ -27,9 +27,18 @@
           own set volume.
         </p>
         <v-list>
-          <v-list-item class="entry-list-item" v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
+          <v-list-item
+            class="entry-list-item"
+            v-for="(soundEffect, index) in state.soundEffects"
+            v-bind:key="soundEffect.id"
+          >
             <v-list-item-content>
-              <v-card outlined class="soundfx-card">
+              <v-card
+                outlined
+                class="soundfx-card"
+                v-bind="dragAttrs(index)"
+                v-on="dragListeners(index)"
+              >
                 <v-btn
                   :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
                   icon
@@ -89,10 +98,20 @@
                       label="Sound type"
                       v-model="soundEffect.audc"
                       :items="audcOptionItems"
-                      @change="handleChildChange"
+                      @change="() => handleAudcChange(soundEffect)"
                       class="soundfx-audc"
                     />
+                    <v-select
+                      v-if="audcHasTunableNotes(soundEffect.audc)"
+                      label="Frequency"
+                      title="Limited to the AUDF values that play a clean, in-tune note on this sound type - same set the piano roll allows on the Music tab."
+                      v-model.number="soundEffect.audf"
+                      :items="frequencyItems(soundEffect.audc)"
+                      @change="handleChildChange"
+                      class="soundfx-number"
+                    />
                     <v-text-field
+                      v-else
                       label="Frequency"
                       v-model.number="soundEffect.audf"
                       type="number"
@@ -118,60 +137,12 @@
                       @change="handleChildChange"
                       class="soundfx-number"
                     />
-                    <v-checkbox
-                      v-model="soundEffect.fade"
-                      label="Fade"
-                      title="Drops to about a quarter volume for the last few frames, instead of cutting off sharply - matches Visual batari Basic's own Fade effect."
-                      hide-details
-                      class="soundfx-fade"
-                      @change="handleChildChange"
-                    />
-                    <v-select
-                      v-if="soundEffect.fade"
-                      label="Fade length"
-                      title="How many frames the fade tail lasts - a short fade can be hard to notice on real TIA audio, try a longer one if you can't hear it."
-                      v-model="soundEffect.fadeLength"
-                      :items="fadeLengthOptionItems"
-                      @change="handleChildChange"
-                      class="soundfx-number soundfx-arpeggio-field"
-                    />
-                    <v-checkbox
-                      v-model="soundEffect.arpeggio"
-                      label="Arpeggio"
-                      title="Always on for every note played with this instrument on the Music tab - rapidly flips between the note's own pitch and a second nearby pitch (set below) to fake a chord."
-                      hide-details
-                      class="soundfx-arpeggio"
-                      @change="handleChildChange"
-                    />
-                    <v-select
-                      v-if="soundEffect.arpeggio"
-                      label="Arpeggio speed"
-                      title="How often it flips pitch, relative to the song/pattern's own tempo - speeds up and slows down with the song."
-                      v-model="soundEffect.arpeggioDivision"
-                      :items="arpeggioDivisionOptionItems"
-                      @change="handleChildChange"
-                      class="soundfx-number soundfx-arpeggio-field"
-                    />
-                    <v-text-field
-                      v-if="soundEffect.arpeggio"
-                      label="Arpeggio interval"
-                      title="Fixed pitch jump between the note's own pitch and the second alternating pitch."
-                      v-model.number="soundEffect.arpeggioInterval"
-                      type="number"
-                      :min="MIN_ARPEGGIO_INTERVAL"
-                      :max="MAX_ARPEGGIO_INTERVAL"
-                      @change="handleChildChange"
-                      class="soundfx-number soundfx-arpeggio-field"
-                    />
-                    <v-select
-                      v-if="soundEffect.arpeggio"
-                      label="Arpeggio range"
-                      title="1 OCT: cycles only between the note's own pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
-                      v-model="soundEffect.arpeggioRange"
-                      :items="arpeggioRangeOptionItems"
-                      @change="handleChildChange"
-                      class="soundfx-number soundfx-arpeggio-field"
-                    />
+                    <!-- Fade and Arpeggio are both temporarily hidden here
+                    (not removed - see processSoundEffectsStorageDefaults'
+                    own comment in blocks/soundfx.js, which forces both off
+                    everywhere regardless of this UI): each one's generated
+                    per-channel dispatch code could grow large enough to blow
+                    ROM capacity on some projects. -->
                     <v-spacer />
                     <v-menu
                       v-if="state.soundEffects.length > 1"
@@ -277,6 +248,7 @@ import {computed, defineComponent, getCurrentInstance} from '@vue/composition-ap
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
@@ -286,6 +258,7 @@ import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVI
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 import {autoInstrumentColor} from '../utils/instrument-colors';
+import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 
 export default defineComponent({
@@ -336,6 +309,20 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('soundfx');
 
+    // Card reordering (see hooks/drag-reorder.js and TextEditor.vue's own
+    // first use of this same hook) - sound effects are already referenced
+    // everywhere by their own permanent id (see findSoundEffectById/
+    // buildSoundEffectOptions in blocks/soundfx.js), never by array
+    // position, so unlike the Text tab this needed no separate
+    // display-order/ROM-order decoupling work - reordering is already safe.
+    const {dragAttrs, dragListeners} = useDragReorder(
+        () => state.value.soundEffects,
+        (items) => {
+          state.value.soundEffects = items;
+          handleChildChange();
+        },
+    );
+
     const instance = getCurrentInstance();
     const handleAddSoundEffect = () => {
       const soundEffects = state.value.soundEffects;
@@ -384,16 +371,51 @@ export default defineComponent({
       handleChildChange();
     };
 
+    // Same "in tune" AUDF set the piano roll limits its own rows to for a
+    // given instrument (see utils/music-notes.js's notesForAudc) - the
+    // Frequency field only offers a value picked from here instead of any
+    // 0-31 byte, so it can't land on an AUDF this sound type can't actually
+    // play a clean note at. The note name is shown right alongside the raw
+    // AUDF value (not instead of it) since the underlying byte is still
+    // what's stored/generated.
+    const frequencyItems = (audc) =>
+      notesForAudc(audc).map(({value, label}) => ({text: `${value} (${label})`, value}));
+
+    // AUDC types with no well-defined pitch (most percussion/noise sounds)
+    // keep the old plain 0-31 number field instead - there's no "valid
+    // frequency" set to limit to, every byte is equally as (un)musical.
+    const handleAudcChange = (soundEffect) => {
+      if (audcHasTunableNotes(soundEffect.audc)) {
+        const items = frequencyItems(soundEffect.audc);
+        if (!items.some(({value}) => value === soundEffect.audf)) {
+          // Snaps to the closest still-valid AUDF rather than always
+          // resetting to the same default, so switching between two
+          // similar instruments tends to land near the same pitch instead
+          // of jumping around.
+          let closest = items[0];
+          items.forEach((item) => {
+            if (Math.abs(item.value - soundEffect.audf) < Math.abs(closest.value - soundEffect.audf)) {
+              closest = item;
+            }
+          });
+          soundEffect.audf = closest.value;
+        }
+      }
+      handleChildChange();
+    };
+
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
       handleStopPreview, handleSetSoundEffectColor, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
+      audcHasTunableNotes, frequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
       fadeLengthOptionItems: FADE_LENGTH_OPTIONS.map((value) => ({text: `${value} frames`, value})),
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
+      dragAttrs, dragListeners,
     };
   },
 });
@@ -458,6 +480,17 @@ export default defineComponent({
   position: relative;
   width: 100%;
   max-width: 640px;
+  cursor: grab;
+}
+
+/* Same two classes/reasoning as hooks/drag-reorder.js's own comment and
+   TextEditor.vue's identical rules (its own first use of this hook). */
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's

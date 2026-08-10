@@ -24,7 +24,12 @@
         <v-list>
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
-              <v-card outlined class="text-card">
+              <v-card
+                outlined
+                class="text-card"
+                v-bind="dragAttrs(index)"
+                v-on="dragListeners(index)"
+              >
                 <v-btn
                   :title="isCollapsed(entry) ? 'Expand this message' : 'Collapse this message'"
                   icon
@@ -37,8 +42,8 @@
                 >
                   <v-icon>{{ isCollapsed(entry) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot;">
-                  ID: {{ index + 1 }}
+                <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot; - stays the same no matter how cards are rearranged below.">
+                  ID: {{ entry.id }}
                 </div>
                 <v-menu
                   v-if="state.textStrings.length > 1"
@@ -141,6 +146,7 @@ import {max} from 'lodash';
 
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH,
   processTextStringsStorageDefaults} from '../blocks/text-strings';
@@ -198,6 +204,19 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('text');
 
+    // Card reordering (see hooks/drag-reorder.js's own comment - built to
+    // be reused by other tabs' card lists later, not just this one).
+    // getItems/setItems both go through the SAME state.value.textStrings/
+    // handleChildChange path every other mutation here already uses, so a
+    // drop is persisted and re-rendered exactly like an add/delete.
+    const {dragAttrs, dragListeners} = useDragReorder(
+        () => state.value.textStrings,
+        (items) => {
+          state.value.textStrings = items;
+          handleChildChange();
+        },
+    );
+
     const instance = getCurrentInstance();
     const handleAddEntry = () => {
       const textStrings = state.value.textStrings;
@@ -229,7 +248,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
-      isCollapsed, toggleCollapsed, textBkColor,
+      isCollapsed, toggleCollapsed, textBkColor, dragAttrs, dragListeners,
     };
   },
 });
@@ -266,6 +285,21 @@ export default defineComponent({
   position: relative;
   width: 100%;
   max-width: 640px;
+  cursor: grab;
+}
+
+/* hooks/drag-reorder.js's own two feedback classes - see its comment for
+   why these live per-tab instead of globally. Dragging: faded so the card
+   being moved reads as "lifted" rather than duplicated. Drag-over: a top
+   border on whichever OTHER card the dragged one is currently over, giving
+   a clear "it'll land here" indicator without needing to animate the whole
+   list into its post-drop order as you drag. */
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top

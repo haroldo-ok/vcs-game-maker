@@ -12,7 +12,7 @@ import {
   AUDC_APPROXIMATIONS, buildBuzzBuffer, buildDiv31Buffer, buildGatedBuzzBuffer, shiftClockFor,
   fadeTargetGain,
 } from './sound-preview';
-import {DEFAULT_PATTERN_STEPS, LENGTH_UNITS_PER_STEP} from '../blocks/music';
+import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_FADE_LENGTH} from '../blocks/soundfx';
 import {useConfigurationStorage} from '../hooks/project';
@@ -325,9 +325,17 @@ export const getPlaybackHead = () => {
  * in the piano roll - independent of any in-progress pattern playback.
  * @param {Object} sound The instrument's AUDC/AUDV plus the specific note's
  *     own AUDF - a real chosen pitch for a tunable instrument, or the
- *     instrument's own preset AUDF for an untunable one's "Hit".
+ *     instrument's own preset AUDF for an untunable one's "Hit". Also the
+ *     instrument's own Arpeggio settings (arpeggio/arpeggioDivision/
+ *     arpeggioInterval/arpeggioRange - same fields playPattern/playSequence
+ *     read off the sound effect itself) and tempo (the owning pattern's own
+ *     effective BPM - see effectiveTempo - defaulting to DEFAULT_TEMPO for a
+ *     call site with no pattern of its own, e.g. the Sound tab's Play
+ *     button), so a placed note previews arpeggio exactly like it'll
+ *     actually play back, not as a single static pitch.
  */
-export const previewPatternNote = ({audc, audf, audv}) => {
+export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
+  tempo = DEFAULT_TEMPO}) => {
   const context = getAudioContext();
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   // Same "Dim SFX volume" Options-tab setting applied everywhere else this
@@ -343,6 +351,17 @@ export const previewPatternNote = ({audc, audf, audv}) => {
   const seconds = 0.18;
   const releaseSeconds = 0.05;
 
+  // Same tempo-relative-to-frames conversion playPattern/playSequence use
+  // for the exact same fields (see their own comment on arpeggioSpeed) - a
+  // standalone note preview has no pattern of its own to read a real tempo
+  // from, so tempo defaults to DEFAULT_TEMPO instead.
+  const stepSeconds = 30 / tempo;
+  const arpeggioSpeed = arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES, Math.round(
+      (stepSeconds / (Number(arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * FRAMES_PER_SECOND,
+  ))) : 0;
+  const resolvedArpeggioInterval = arpeggio ? Number(arpeggioInterval) || 0 : 0;
+  const resolvedArpeggioRange = arpeggio ? Number(arpeggioRange) || 0 : 0;
+
   if (approximation && approximation.type === 'square') {
     const slowClock = SLOW_CLOCK_AUDCS.has(`${audc}`);
     playTone(context, {
@@ -352,9 +371,15 @@ export const previewPatternNote = ({audc, audf, audv}) => {
       startTime,
       seconds,
       releaseSeconds,
+      arpeggioSpeed,
+      arpeggioInterval: resolvedArpeggioInterval,
+      arpeggioRange: resolvedArpeggioRange,
     });
   } else {
-    playInstrumentHit(context, {audc, audf, audv: dimmedAudv, startTime, seconds, releaseSeconds});
+    playInstrumentHit(context, {
+      audc, audf, audv: dimmedAudv, startTime, seconds, releaseSeconds,
+      arpeggioSpeed, arpeggioInterval: resolvedArpeggioInterval, arpeggioRange: resolvedArpeggioRange,
+    });
   }
 };
 

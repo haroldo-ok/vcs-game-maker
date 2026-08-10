@@ -1,5 +1,8 @@
 'use strict';
 
+import {DEFAULT_TEMPO} from '../blocks/music';
+import {DEFAULT_ARPEGGIO_DIVISION} from '../blocks/soundfx';
+
 // Approximates what a TIA (Atari 2600 sound chip) AUDC/AUDF/AUDV combination
 // would sound like, for previewing sound effect presets in the browser.
 //
@@ -191,15 +194,17 @@ export const fadeTargetGain = (peakGain) => peakGain * (Math.round(15 / 4) / 15)
 
 // Tracks whatever preview is currently playing, so the Stop button (and a
 // fresh Play press, which would otherwise overlap the old preview instead
-// of replacing it) can cut it off early.
-let activeSource = null;
+// of replacing it) can cut it off early. An array (not a single source)
+// since an arpeggiating buffer-based instrument schedules several short
+// back-to-back segments instead of one - see previewSoundEffect below.
+let activeSources = [];
 let activeGainNode = null;
 // A short linear ramp to silence before actually stopping the source, to
 // avoid the audible click a hard, instant stop mid-waveform would cause.
 const STOP_FADE_SECONDS = 0.02;
 
 const stopActivePreview = () => {
-  if (!activeSource) return;
+  if (!activeSources.length) return;
   const context = getAudioContext();
   const now = context.currentTime;
   if (activeGainNode) {
@@ -207,14 +212,55 @@ const stopActivePreview = () => {
     activeGainNode.gain.setValueAtTime(activeGainNode.gain.value, now);
     activeGainNode.gain.linearRampToValueAtTime(0, now + STOP_FADE_SECONDS);
   }
-  try {
-    activeSource.stop(now + STOP_FADE_SECONDS);
-  } catch (e) {
-    // Already stopped/never started - nothing left to do.
-  }
-  activeSource = null;
+  activeSources.forEach((source) => {
+    try {
+      source.stop(now + STOP_FADE_SECONDS);
+    } catch (e) {
+      // Already stopped/never started - nothing left to do.
+    }
+  });
+  activeSources = [];
   activeGainNode = null;
 };
+
+// Mirrors ARPEGGIO_PHASE_SEQUENCES in generators/bbasic/music.js and
+// utils/music-playback.js exactly (by ARPEGGIO_RANGE_* index - see
+// blocks/soundfx.js) - duplicated rather than imported since
+// music-playback.js already imports from this module, and importing back
+// would make the two circular (same reasoning as that module's own
+// duplicate of this sequence).
+const ARPEGGIO_PHASE_SEQUENCES = [
+  ['base', 'alt'], // UP 1 OCT
+  ['alt', 'base'], // DOWN 1 OCT
+  ['base', 'alt', 'upBase', 'upAlt'], // UP 2 OCT
+  ['base', 'alt', 'downBase', 'downAlt'], // DOWN 2 OCT
+  ['base', 'alt', 'base'], // UP-DOWN 1 OCT
+  ['base', 'alt', 'upBase', 'upAlt', 'upBase', 'alt'], // UP-DOWN 2 OCT
+];
+
+// Same derivation as music-playback.js's own arpeggioPitchVariants - AUDF is
+// a frequency divisor, so alt (base minus interval) sounds higher than base,
+// up is base halved (one octave higher), down is base doubled (one octave
+// lower), all wrapped to the hardware's real 5-bit AUDF range.
+const arpeggioPitchVariants = (audf, arpeggioInterval) => {
+  const base = audf & 31;
+  const alt = (base - arpeggioInterval) & 31;
+  return {
+    base,
+    alt,
+    upBase: Math.floor(base / 2),
+    upAlt: Math.floor(alt / 2),
+    downBase: (base * 2) & 31,
+    downAlt: (alt * 2) & 31,
+  };
+};
+
+// Same per-frame flip rate the compiled ROM's own arpeggio timer uses (see
+// generateMusicChecks in generators/bbasic/music.js) and MAX_ARPEGGIO_SPEED_
+// FRAMES' 4-bit-nibble ceiling there - duplicated for the same
+// avoid-a-circular-import reason as ARPEGGIO_PHASE_SEQUENCES above.
+const FRAMES_PER_SECOND = 60;
+const MAX_ARPEGGIO_SPEED_FRAMES = 15;
 
 /** Stops whatever sound effect preview is currently playing, if any. */
 export const stopSoundEffectPreview = () => {
@@ -224,9 +270,19 @@ export const stopSoundEffectPreview = () => {
 /**
  * Plays a short approximation of a TIA sound effect for previewing in the
  * editor. duration is in NTSC frames (60 per second), matching the generated
- * bBasic code's units.
+ * bBasic code's units. arpeggio/arpeggioDivision/arpeggioInterval/
+ * arpeggioRange are the instrument's own Arpeggio fields (see blocks/
+ * soundfx.js) - when arpeggio is on, the preview steps through the same
+ * pitch sequence the compiled ROM would (see generateMusicChecks in
+ * generators/bbasic/music.js) instead of holding one static pitch. There's
+ * no song/pattern tempo to convert arpeggioDivision against here (this is a
+ * standalone preset preview, not a placed note), so it's anchored to
+ * DEFAULT_TEMPO instead - the same fallback previewPatternNote in
+ * utils/music-playback.js uses for the same reason.
  */
-export const previewSoundEffect = ({audc, audf, audv, duration, fade}) => {
+export const previewSoundEffect = ({
+  audc, audf, audv, duration, fade, arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
+}) => {
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   const seconds = Math.max(0, Number(duration) || 0) / 60;
   if (!approximation || seconds <= 0) {
@@ -252,45 +308,89 @@ export const previewSoundEffect = ({audc, audf, audv, duration, fade}) => {
     gainNode.gain.setValueAtTime(peakGain, now + seconds * 0.8);
   }
   gainNode.gain.linearRampToValueAtTime(0, now + seconds);
-
-  const chipClockHz = shiftClockFor(audf, {slowClock: approximation.slowClock});
-
   gainNode.connect(context.destination);
-  const output = gainNode;
 
-  let source;
+  const stepSeconds = 30 / DEFAULT_TEMPO;
+  const arpeggioSpeedFrames = arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES, Math.round(
+      (stepSeconds / (Number(arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * FRAMES_PER_SECOND,
+  ))) : 0;
+  const flipSeconds = arpeggioSpeedFrames / FRAMES_PER_SECOND;
+
+  const sources = [];
+
   if (approximation.type === 'square') {
     const oscillator = context.createOscillator();
     oscillator.type = 'square';
-    oscillator.frequency.setValueAtTime(chipClockHz / 2, now);
-    oscillator.connect(output);
-    source = oscillator;
-  } else {
-    source = context.createBufferSource();
-    if (approximation.type === 'div31') {
-      source.buffer = buildDiv31Buffer(context, chipClockHz, seconds);
-    } else if (approximation.type === 'gatedbuzz') {
-      source.buffer = buildGatedBuzzBuffer(context, chipClockHz, seconds);
+    if (!arpeggioSpeedFrames) {
+      oscillator.frequency.setValueAtTime(shiftClockFor(audf, {slowClock: approximation.slowClock}) / 2, now);
     } else {
-      source.buffer = buildBuzzBuffer(context, chipClockHz, seconds, approximation.bits,
-          {stepDivider: approximation.stepDivider});
+      const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
+      const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
+      let t = now;
+      let phase = 0;
+      while (t < now + seconds) {
+        const pitchAudf = variants[sequence[phase % sequence.length]];
+        oscillator.frequency.setValueAtTime(shiftClockFor(pitchAudf, {slowClock: approximation.slowClock}) / 2, t);
+        phase++;
+        t += flipSeconds;
+      }
     }
-    source.connect(output);
+    oscillator.connect(gainNode);
+    oscillator.start(now);
+    oscillator.stop(now + seconds);
+    sources.push(oscillator);
+  } else {
+    const buildBuffer = (chipClockHz, segmentSeconds) => {
+      if (approximation.type === 'div31') return buildDiv31Buffer(context, chipClockHz, segmentSeconds);
+      if (approximation.type === 'gatedbuzz') return buildGatedBuzzBuffer(context, chipClockHz, segmentSeconds);
+      return buildBuzzBuffer(context, chipClockHz, segmentSeconds, approximation.bits,
+          {stepDivider: approximation.stepDivider});
+    };
+    if (!arpeggioSpeedFrames) {
+      const source = context.createBufferSource();
+      source.buffer = buildBuffer(shiftClockFor(audf, {slowClock: approximation.slowClock}), seconds);
+      source.connect(gainNode);
+      source.start(now);
+      source.stop(now + seconds);
+      sources.push(source);
+    } else {
+      // A buffer is pre-rendered for one fixed clock, so its pitch can't be
+      // automated live like an oscillator's - scheduled as several short
+      // back-to-back buffers instead, one per flip, each built at that
+      // phase's own pitch (matches how music-playback.js's own
+      // playInstrumentHit previews a buzzy/noisy arpeggiating instrument).
+      const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
+      const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
+      let t = now;
+      let phase = 0;
+      while (t < now + seconds) {
+        const segmentSeconds = Math.min(flipSeconds, now + seconds - t);
+        const pitchAudf = variants[sequence[phase % sequence.length]];
+        const source = context.createBufferSource();
+        source.buffer = buildBuffer(shiftClockFor(pitchAudf, {slowClock: approximation.slowClock}), segmentSeconds);
+        source.connect(gainNode);
+        source.start(t);
+        source.stop(t + segmentSeconds);
+        sources.push(source);
+        phase++;
+        t += flipSeconds;
+      }
+    }
   }
 
-  source.start(now);
-  source.stop(now + seconds);
-
-  activeSource = source;
+  activeSources = sources;
   activeGainNode = gainNode;
-  source.onended = () => {
-    // Only clear if this source is still the active one - a Stop press (or
-    // a newer preview replacing this one) already did its own cleanup, and
-    // this handler firing afterward (stopping a node fires "ended" too)
-    // shouldn't clobber whatever's playing now.
-    if (activeSource === source) {
-      activeSource = null;
-      activeGainNode = null;
-    }
-  };
+  const lastSource = sources[sources.length - 1];
+  if (lastSource) {
+    lastSource.onended = () => {
+      // Only clear if this preview's sources are still the active ones - a
+      // Stop press (or a newer preview replacing this one) already did its
+      // own cleanup, and this handler firing afterward (stopping a node
+      // fires "ended" too) shouldn't clobber whatever's playing now.
+      if (activeSources === sources) {
+        activeSources = [];
+        activeGainNode = null;
+      }
+    };
+  }
 };

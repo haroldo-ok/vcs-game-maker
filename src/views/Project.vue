@@ -77,6 +77,7 @@ import YAML from 'yaml';
 
 import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
+import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -260,6 +261,14 @@ export default defineComponent({
           this.songsStorage = project.songs;
         }
 
+        // Song/pattern/track IDs in the loaded project collide with
+        // whatever the previous project used (both start counting from 1) -
+        // without this, the Music tab's own active pattern/track selection
+        // (see hooks/music-editor-state.js) would keep pointing at IDs left
+        // over from before, showing the piano roll against the wrong
+        // pattern/track, or one that doesn't exist in this project at all.
+        resetMusicEditorActiveState();
+
         this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
@@ -278,6 +287,11 @@ export default defineComponent({
       this.textStringsStorage = null;
       this.soundEffectsStorage = null;
       this.songsStorage = null;
+
+      // Same reasoning as handleLoadProject's own call - a fresh project's
+      // song/pattern/track IDs start counting from 1 again too, colliding
+      // with whatever the previous project used.
+      resetMusicEditorActiveState();
 
       this.data.newProjectDialog = false;
       this.router.push('/');

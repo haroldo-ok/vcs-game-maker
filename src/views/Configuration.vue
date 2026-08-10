@@ -150,8 +150,12 @@ export default defineComponent({
         try {
           const configuration = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
 
-          return Object.fromEntries(Object.entries(DEFAULT_CONFIGURATION)
-              .map(([k, v]) => [k, configuration[k] ?? v]));
+          // Spread (not a DEFAULT_CONFIGURATION-keys-only rebuild) so fields
+          // this page doesn't know about - graphicsBanks/eventBanks, the
+          // auto-relocation system's own bank-assignment cache (see
+          // hooks/rom.js) - pass through untouched instead of silently
+          // vanishing the moment this getter runs.
+          return {...DEFAULT_CONFIGURATION, ...configuration};
         } catch (e) {
           console.error('Error loading configuration from local storage', e);
           return structuredClone(DEFAULT_CONFIGURATION);
@@ -159,7 +163,17 @@ export default defineComponent({
       },
 
       set(newState) {
-        configurationStorage.value = newState;
+        // Merged into the EXISTING stored configuration, not a wholesale
+        // replacement - newState only ever came from this same getter (see
+        // above), so writing it back verbatim would erase graphicsBanks/
+        // eventBanks every time any Options control changed, forcing every
+        // relocated event/background/animation/music payload to fall back
+        // into bank 1 and re-relocate from scratch on the next build. That
+        // was silently masking a real, unrelated capacity bug behind what
+        // looked like "toggling Superchip fixes it" - the reset just gave
+        // the auto-relocation retry loop a fresh start, coincidentally
+        // finding a layout that fit.
+        configurationStorage.value = {...(configurationStorage.value || {}), ...newState};
       },
     });
 
