@@ -40,6 +40,11 @@ const routes = [
     component: () => import('../views/SoundFXEditor.vue'),
   },
   {
+    path: '/music',
+    name: 'Music',
+    component: () => import('../views/MusicEditor.vue'),
+  },
+  {
     path: '/scorefont',
     name: 'Score',
     component: () => import('../views/ScoreFontEditor.vue'),

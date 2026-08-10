@@ -11,6 +11,16 @@
           with spaces.
         </p>
 
+        <div class="text-bkcolor-row">
+          <color-swatch-picker
+            :value="textBkColor"
+            :allow-clear="false"
+            title="Click to set the Text Minikernel's own message background color"
+            @input="(byte) => (textBkColor = byte)"
+          />
+          <span class="text-bkcolor-label">Text background color</span>
+        </div>
+
         <v-list>
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
@@ -30,19 +40,44 @@
                 <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot;">
                   ID: {{ index + 1 }}
                 </div>
-                <v-btn
-                  title="Delete this message"
-                  icon
-                  small
-                  absolute
+                <v-menu
+                  v-if="state.textStrings.length > 1"
                   top
-                  right
-                  class="text-delete-btn delete-icon-btn"
-                  :disabled="state.textStrings.length <= 1"
-                  @click="() => handleDeleteEntry(entry)"
                 >
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
+                  <template v-slot:activator="{ on, attrs }">
+                    <v-btn
+                      title="Delete this message"
+                      icon
+                      small
+                      absolute
+                      top
+                      right
+                      class="text-delete-btn delete-icon-btn text-icon-btn-size"
+                      v-bind="attrs"
+                      v-on="on"
+                    >
+                      <v-icon>mdi-delete</v-icon>
+                    </v-btn>
+                  </template>
+
+                  <v-card>
+                    <v-card-title>Delete this message?</v-card-title>
+                    <v-list>
+                      <v-list-item @click="handleDeleteEntry(entry)">
+                        <v-list-item-icon>
+                          <v-icon>mdi-check</v-icon>
+                        </v-list-item-icon>
+                        <v-list-item-title>Yes, delete</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item>
+                        <v-list-item-icon>
+                          <v-icon>mdi-cancel</v-icon>
+                        </v-list-item-icon>
+                        <v-list-item-title>No, don't delete</v-list-item-title>
+                      </v-list-item>
+                    </v-list>
+                  </v-card>
+                </v-menu>
 
                 <v-card-text class="text-name-section">
                   <v-text-field
@@ -61,6 +96,23 @@
                     counter="12"
                     @change="() => handleTextChange(entry)"
                   />
+                  <v-btn-toggle
+                    v-model="entry.justify"
+                    mandatory
+                    dense
+                    class="text-justify-toggle"
+                    @change="handleChildChange"
+                  >
+                    <v-btn value="left" small title="Left-justified: pads the message with spaces on the right.">
+                      <v-icon small>mdi-format-align-left</v-icon>
+                    </v-btn>
+                    <v-btn value="center" small title="Centered: pads the message with spaces on both sides.">
+                      <v-icon small>mdi-format-align-center</v-icon>
+                    </v-btn>
+                    <v-btn value="right" small title="Right-justified: pads the message with spaces on the left.">
+                      <v-icon small>mdi-format-align-right</v-icon>
+                    </v-btn>
+                  </v-btn-toggle>
                 </v-card-text>
               </v-card>
             </v-list-item-content>
@@ -87,13 +139,44 @@
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import {useCollapsedIds} from '../hooks/collapse';
-import {useTextStringsStorage} from '../hooks/project';
-import {DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH, processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
+import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH,
+  processTextStringsStorageDefaults} from '../blocks/text-strings';
 
 export default defineComponent({
+  components: {ColorSwatchPicker},
   setup() {
     const textStringsStorage = useTextStringsStorage();
+    const configurationStorage = useConfigurationStorage();
+
+    // The Text Minikernel's own message background color (the "textbkcolor"
+    // const - see generators/bbasic.js's generateConfiguration) - a single
+    // project-wide setting stored alongside the rest of Configuration.vue's
+    // own options, not per-message, since only one Text Minikernel instance
+    // can ever be active in a project. Defaults to black (0), matching the
+    // same "?? 0" fallback generateConfiguration itself uses (and what
+    // text12a.asm's own ifnconst fallback already defaults to).
+    const textBkColor = computed({
+      get() {
+        try {
+          const value = (configurationStorage.value || {}).textBkColor;
+          return value == null ? 0 : value;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return 0;
+        }
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          textBkColor: value,
+        };
+      },
+    });
+
     const state = computed({
       get() {
         try {
@@ -123,6 +206,7 @@ export default defineComponent({
         id: maxId + 1,
         name: `Message ${maxId + 1}`,
         text: '',
+        justify: DEFAULT_TEXT_JUSTIFY,
       };
 
       state.value.textStrings.push(newEntry);
@@ -145,7 +229,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
-      isCollapsed, toggleCollapsed,
+      isCollapsed, toggleCollapsed, textBkColor,
     };
   },
 });
@@ -171,6 +255,13 @@ export default defineComponent({
   max-width: 640px;
 }
 
+.text-bkcolor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 .text-card {
   position: relative;
   width: 100%;
@@ -182,6 +273,7 @@ export default defineComponent({
    button sits inside the card instead. */
 .text-delete-btn {
   top: 8px !important;
+  right: 8px !important;
   box-shadow: none !important;
 }
 
@@ -193,6 +285,20 @@ export default defineComponent({
   top: 0 !important;
   left: 4px !important;
   box-shadow: none !important;
+}
+
+/* Same icon/button sizing as the Player Sprite tab's own toolbar icons
+   (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
+   changes, so .delete-icon-btn's red-on-hover convention is untouched. */
+.text-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.text-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
 }
 
 /* Shifted right to clear .text-collapse-btn, which now sits in the same
@@ -222,6 +328,10 @@ export default defineComponent({
 
 .text-message-section {
   padding-top: 0;
+}
+
+.text-justify-toggle {
+  margin-top: 8px;
 }
 
 .add-text-button {

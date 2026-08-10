@@ -174,6 +174,7 @@
         <block type="input_joy1_get"></block>
 
         <block type="collision_get"></block>
+        <block type="collision_check_position"></block>
         <block type="input_console_switch_get"></block>
         <block type="color_get"></block>
 
@@ -403,6 +404,19 @@
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
         <block type="soundfx_play"></block>
+    </category>
+    <category name="Music" colour="rgb(255, 87, 34)">
+        <block type="music_play_song"></block>
+        <block type="music_play_song_by_id">
+            <value name="SONG_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="music_stop_song"></block>
+        <block type="music_song_stopped"></block>
+        <block type="music_song_stopped_by_id"></block>
     </category>
     <category name="Event" colour="rgb(39, 176, 176)">
 

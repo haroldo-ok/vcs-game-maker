@@ -21,14 +21,16 @@ export const dimVolume = (audv, percent) =>
 // sized to fit this app's single AUDC/AUDF/AUDV/duration-per-preset model:
 // the last FADE_TAIL_FRAMES frames of playback drop to fadeTargetVolume(),
 // instead of a second explicit segment.
-const FADE_TAIL_FRAMES = 4;
+// Exported so generators/bbasic/music.js can fade a music note's own tail
+// the exact same way, without the two drifting out of sync over time.
+export const FADE_TAIL_FRAMES = 4;
 // 15 (the max nibble value) is never a meaningful *target* to fade down to
 // (fading UP to max volume makes no sense), so it doubles as the "this
 // channel's current sound has no fade" sentinel - seeing it lets the
 // per-frame check (generateSoundFadeChecks) skip leaving AUDV alone for
 // ordinary, non-faded sounds sharing the same channel.
 const NO_FADE_SENTINEL = 15;
-const fadeTargetVolume = (audv) => Math.max(0, Math.min(14, Math.round(Number(audv) / 4)));
+export const fadeTargetVolume = (audv) => Math.max(0, Math.min(14, Math.round(Number(audv) / 4)));
 
 // Whether ANY sound effect preset on the SoundFX tab has Fade enabled -
 // checked directly against the tab's own stored data, rather than a flag
@@ -40,6 +42,13 @@ const fadeTargetVolume = (audv) => Math.max(0, Math.min(14, Math.round(Number(au
 // happens to generate first).
 const anySoundEffectHasFade = () => {
   try {
+    // Muted soundfx_play calls never write a nonzero AUDV in the first
+    // place (see the early return below), so there's nothing left for the
+    // fade system to ever act on - false here removes its own dev var and
+    // per-frame check from the compiled ROM too, not just the sounds
+    // themselves.
+    const configurationStorage = useConfigurationStorage();
+    if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return false;
     const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
     return data.soundEffects.some((soundEffect) => !!soundEffect.fade);
   } catch (e) {
@@ -57,6 +66,15 @@ export default (Blockly) => {
 
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
+    // Omitted outright, same reasoning as simple_sound_set's own identical
+    // guard in generators/bbasic/sound.js - AUDV is real, unbuffered TIA
+    // hardware, so still generating this code and relying on
+    // generateMuteAudio's later, per-frame "AUDV = 0" override alone would
+    // let this sound's own nonzero write briefly, audibly reach the speaker
+    // first. Never generating it at all has no such gap, and costs nothing
+    // in the compiled ROM.
+    if (config.muteAllAudio) return 'rem Sound muted\n';
+
     const {audc, audf, audv, duration, fade} = soundEffect;
     const effectiveAudv = config.dimSoundFx ?
       dimVolume(audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : audv;

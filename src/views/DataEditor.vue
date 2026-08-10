@@ -20,44 +20,63 @@
                   <v-icon>{{ isCollapsed(table) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
                 <div class="data-id-badge">ID: {{ table.id }}</div>
-                <v-menu
-                  v-if="state.dataTables.length > 1"
-                  top
-                >
-                  <template v-slot:activator="{ on, attrs }">
-                    <v-btn
-                      title="Delete this table"
-                      icon
-                      small
-                      absolute
-                      top
-                      right
-                      class="data-delete-btn delete-icon-btn"
-                      v-bind="attrs"
-                      v-on="on"
-                    >
-                      <v-icon>mdi-delete</v-icon>
-                    </v-btn>
-                  </template>
 
-                  <v-card>
-                    <v-card-title>Delete this table?</v-card-title>
-                    <v-list>
-                      <v-list-item @click="handleDeleteTable(table)">
-                        <v-list-item-icon>
-                          <v-icon>mdi-check</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>Yes, delete</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item>
-                        <v-list-item-icon>
-                          <v-icon>mdi-cancel</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>No, don't delete</v-list-item-title>
-                      </v-list-item>
-                    </v-list>
-                  </v-card>
-                </v-menu>
+                <div class="data-toolbar-top-right">
+                  <v-btn
+                    icon
+                    small
+                    title="Export to .CSV"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    @click="() => handleExportCsv(table)"
+                  >
+                    <v-icon>mdi-export</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Import from .CSV"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    @click="() => handleImportCsv(table)"
+                  >
+                    <v-icon>mdi-import</v-icon>
+                  </v-btn>
+
+                  <v-menu
+                    v-if="state.dataTables.length > 1"
+                    top
+                  >
+                    <template v-slot:activator="{ on, attrs }">
+                      <v-btn
+                        title="Delete this table"
+                        icon
+                        small
+                        class="delete-icon-btn data-icon-btn-size"
+                        v-bind="attrs"
+                        v-on="on"
+                      >
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </template>
+
+                    <v-card>
+                      <v-card-title>Delete this table?</v-card-title>
+                      <v-list>
+                        <v-list-item @click="handleDeleteTable(table)">
+                          <v-list-item-icon>
+                            <v-icon>mdi-check</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>Yes, delete</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-list-item-icon>
+                            <v-icon>mdi-cancel</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>No, don't delete</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-card>
+                  </v-menu>
+                </div>
 
                 <v-card-text class="data-name-section">
                   <v-text-field
@@ -136,10 +155,18 @@
 <script>
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
 import {max} from 'lodash';
+import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDataTablesStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, MAX_DATA_TABLE_VALUES, processDataTablesStorageDefaults} from '../blocks/data';
+import {getDateInfix} from '../utils/date';
+import {openFileDialog} from '../utils/file';
+
+// A data table is just a flat array of 0-255 bytes (see blocks/data.js), so
+// its CSV form is a single row of comma-separated integers - no header, no
+// columns, matching the table's own in-memory shape exactly.
+const valueToCsvNumber = (value) => Math.min(255, Math.max(0, Math.round(value)));
 
 export default defineComponent({
   setup() {
@@ -207,9 +234,41 @@ export default defineComponent({
       handleChildChange();
     };
 
+    const handleExportCsv = (table) => {
+      const csv = table.values.map(valueToCsvNumber).join(',') + '\n';
+      const blob = new Blob([csv], {type: 'text/csv'});
+      const filename = (table.name || `table-${table.id}`).replace(/[^A-Za-z0-9]+/g, '_');
+      saveAs(blob, `${filename}-${getDateInfix()}.csv`);
+    };
+
+    const handleImportCsv = (table) => {
+      openFileDialog('.csv,text/csv')
+          .then((file) => file.text())
+          .then((text) => {
+            // Lenient the same way handleValueChange is: a stray non-numeric
+            // cell becomes 0 rather than aborting the whole import, since a
+            // single bad value shouldn't force the user to fix the file
+            // externally and re-import from scratch.
+            const values = text.split(/[,\s]+/)
+                .map((cell) => cell.trim())
+                .filter((cell) => cell.length > 0)
+                .slice(0, MAX_DATA_TABLE_VALUES)
+                .map((cell) => {
+                  const value = Number(cell);
+                  return Number.isFinite(value) ? valueToCsvNumber(value) : 0;
+                });
+            if (!values.length) return;
+            table.values = values;
+            handleChildChange();
+            instance.proxy.$forceUpdate();
+          })
+          .catch((e) => console.error('Failed to import CSV', e));
+    };
+
     return {
       state, handleChildChange, handleAddTable, handleDeleteTable,
       handleAddValue, handleDeleteValue, handleValueChange,
+      handleExportCsv, handleImportCsv,
       isCollapsed, toggleCollapsed,
       maxValues: MAX_DATA_TABLE_VALUES,
     };
@@ -279,12 +338,57 @@ export default defineComponent({
   padding-top: 0;
 }
 
-/* Vuetify's fab+absolute+top combo centers the button on the card's top
-   edge, poking half of it out (and clipped there); pull it down so the whole
-   button sits inside the card instead. */
-.data-delete-btn {
-  top: 8px !important;
+/* Groups Export/Import/Delete into one row in the card's top-right corner,
+   same corner (and offset) .data-collapse-btn uses for the top-left, instead
+   of each button separately fighting over "absolute top right". */
+.data-toolbar-top-right {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+/* Same icon/button sizing as the Player Sprite tab's toolbar icons
+   (PixelEditor.vue's .pixel-editor-tools rules) - split out from
+   .data-flat-icon-btn below so it can also apply to the Delete button
+   without pulling in that class's own hover colour, which would override
+   .delete-icon-btn's red-on-hover convention. Use this same sizing for any
+   new icon buttons added elsewhere going forward. */
+.data-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.data-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
+}
+
+/* Same flat icon-button treatment as the Player Sprite tab's Export/Import
+   image buttons (PixelEditor.vue's .pixel-editor-tools rules): no grey box,
+   no elevation, dim at rest and darker on hover instead of Vuetify's default
+   hover circle. Use this same treatment for any new (non-delete) icon
+   buttons added elsewhere going forward. */
+.data-flat-icon-btn {
+  background-color: transparent !important;
   box-shadow: none !important;
+  border: none !important;
+}
+
+.data-flat-icon-btn::before {
+  display: none;
+}
+
+.data-flat-icon-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.data-flat-icon-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
 }
 
 .data-caption {

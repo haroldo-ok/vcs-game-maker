@@ -22,7 +22,12 @@ import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {canonicalDistanceVarName} from '../utils/distance';
+import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
+import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
+import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName, musicFlagsVarName,
+  musicFadeVarName, musicArpSpeedRangeVarName, musicArpCounterVarName, musicArpPhaseVarName,
+  musicArpBaseIntervalVarName} from './bbasic/music';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -215,6 +220,20 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
 
+  // Whether scorebkcolor (the Score tab's own background color picker - see
+  // views/ScoreFontEditor.vue and generators/bbasic/score.js's
+  // generateScoreBkColorRuntimeDims) needs its own dedicated dev var - only
+  // when the Text Minikernel is active AND the picker isn't set to "Use
+  // background color", which instead aliases scorebkcolor directly onto the
+  // existing backgroundrealcolor system variable, needing nothing reserved
+  // here. Same early-pre-scan reasoning as textMinikernelUsed itself:
+  // needed before variable letters are handed out below.
+  {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    this.scoreBkColorNeedsOwnVar = this.isTextMinikernelActive() && config.scoreBkColor !== 'background';
+  }
+
   // Collects every distinct (axis, object pair) a "Distance" getter block
   // picks (see blocks/input.js), keyed by the same canonical name its own
   // getDeveloperVariables and getter generator use (generators/bbasic/
@@ -228,6 +247,25 @@ Blockly.BBasic.init = function(workspace) {
     const obj1 = block.getFieldValue('VAR1');
     this.distanceChecks.set(canonicalDistanceVarName(axis, obj0, obj1), {axis, obj0, obj1});
   });
+
+  // Which players use the hardware-collision backtrack check block (see
+  // blocks/collision.js) - each one needs its own pair of hidden bytes to
+  // hold the position from before its last move, so this is decided before
+  // variable letters are handed out below, same reason as the pre-scans
+  // above.
+  this.collisionMovePlayers = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type === 'collision_check_position') this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
+  });
+
+  // Resolves which single song (if any) music_play_song blocks reference and
+  // builds its per-channel data ahead of time (see generators/bbasic/music.js)
+  // - needed this early so its hidden index/timer variables can be reserved
+  // below, before nameDB_ hands out letters, same reasoning as the pre-scans
+  // above. Stored on the instance (not module-level state) since this
+  // Generator is a shared singleton reused across every workspaceToCode()
+  // call - same reasoning as textMinikernelUsed above.
+  this.projectMusic = resolveProjectMusic(workspace);
 
   // Run-once blocks (see blocks/event.js's event_run_once) each need one bit
   // of persistent state remembering whether they've already fired, packed 8
@@ -270,6 +308,47 @@ Blockly.BBasic.init = function(workspace) {
   // later, are guaranteed to agree on whatever nameDB_ actually assigns.
   for (const varName of this.distanceChecks.keys()) {
     defvars.push(this.nameDB_.getName(varName, Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+  }
+
+  // Same bucket again, for the collision-check backtrack bytes (see the
+  // collisionMovePlayers pre-scan above and generators/bbasic/collision.js).
+  for (const playerNum of this.collisionMovePlayers) {
+    defvars.push(this.nameDB_.getName(collisionMoveOldXVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    defvars.push(this.nameDB_.getName(collisionMoveOldYVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+  }
+
+  // Same bucket again, for the music player's per-channel index/timer bytes
+  // (see the projectMusic pre-scan above and generators/bbasic/music.js) -
+  // only reserved for channels the project's song actually uses.
+  if (this.projectMusic) {
+    for (const channel of Object.keys(this.projectMusic.channelPages)) {
+      defvars.push(this.nameDB_.getName(musicIndexVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      defvars.push(this.nameDB_.getName(musicTimerVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      if (this.projectMusic.channelPages[channel].length > 1) {
+        defvars.push(this.nameDB_.getName(musicPageVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      }
+      if (this.projectMusic.channelHasFade[channel]) {
+        defvars.push(this.nameDB_.getName(musicFadeVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      }
+      if (this.projectMusic.channelHasArpeggio[channel]) {
+        defvars.push(this.nameDB_.getName(musicArpSpeedRangeVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+        defvars.push(this.nameDB_.getName(musicArpCounterVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+        defvars.push(this.nameDB_.getName(musicArpPhaseVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+        defvars.push(
+            this.nameDB_.getName(musicArpBaseIntervalVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      }
+    }
+    // One shared byte for playing/loop/justStopped plus every channel's own
+    // active flag (see musicFlagsVarName's comment) - used to cost 3 vars
+    // plus 1 more per channel on its own.
+    defvars.push(this.nameDB_.getName(musicFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+  }
+
+  // Same bucket again, for scorebkcolor's own dev var (see the
+  // scoreBkColorNeedsOwnVar pre-scan above and generators/bbasic/score.js's
+  // generateScoreBkColorRuntimeDims).
+  if (this.scoreBkColorNeedsOwnVar) {
+    defvars.push(this.nameDB_.getName(scoreBkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
   }
 
   // Add user variables, but only ones that are being used.
@@ -601,6 +680,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
+  const generatedMusicDataTables = Blockly.BBasic.generateMusicDataTables();
   const generatedSubroutines = Blockly.BBasic.generateSubroutines();
 
   const systemStartEvent = this.generateGameEvent('system_start');
@@ -614,11 +694,14 @@ Blockly.BBasic.finish = function(code) {
   const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
-  const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults();
+  const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults() + '\n' +
+    Blockly.BBasic.generateScoreBkColorDefaults();
+  const generatedScoreBkColorAsm = Blockly.BBasic.generateScoreBkColorAsm();
   // Has to run before generateDivMul() below - it may set usesDivMul as a
   // side effect (the nibble packing math needs mul8/div8), which
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
   const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
+  const generatedMusicChecks = Blockly.BBasic.generateMusicChecks();
   const generatedDistanceChecks = Blockly.BBasic.generateDistanceChecks();
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
@@ -628,12 +711,12 @@ Blockly.BBasic.finish = function(code) {
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
-    generatedAnimations, generatedDataTables,
+    generatedAnimations, generatedDataTables, generatedMusicDataTables,
     generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
-    generatedDistanceChecks});
+    generatedMusicChecks, generatedDistanceChecks, generatedScoreBkColorAsm});
 };
 
 // "*"/"/" by a non-power-of-2 constant or a runtime variable compiles to
@@ -861,6 +944,34 @@ Blockly.BBasic.getBackgroundsData = function() {
   }
 };
 
+// Resolves the Score tab's own background color picker (config.scoreBkColor
+// - see views/ScoreFontEditor.vue) to an actual color byte for the
+// literal/default case: a plain number is returned as-is, and anything else
+// (unset, or the 'background' sentinel - which both call sites below handle
+// separately, by aliasing directly onto backgroundrealcolor instead of
+// calling this at all) defaults to black (0). Shared between
+// generateScoreBkColorDefaults's Setup-time init (Text Minikernel active)
+// and generateScoreBkColorAsm's standalone "minikernel" hook (Text
+// Minikernel inactive) so both resolve the same picked literal identically.
+Blockly.BBasic.resolveScoreBkColorByte = function(configValue) {
+  return typeof configValue === 'number' ? configValue : 0;
+};
+
+// The exact raw dim target (a single letter, or "varN" with Superchip)
+// backgroundrealcolor's own SYSTEM_VARIABLES entry resolves to - the same
+// computation generateSystemDims itself uses. Exposed so
+// generateScoreBkColorRuntimeDims (generators/bbasic/score.js) can alias
+// scorebkcolor directly onto that raw target for "Use background color"
+// instead of onto the NAME "backgroundrealcolor" - chaining one dim onto
+// another dim's own name (rather than a raw register) doesn't reliably
+// resolve here (see that function's own comment for the confirmed failure).
+Blockly.BBasic.backgroundRealColorRawTarget = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const index = SYSTEM_VARIABLES.findIndex(([name]) => name === 'backgroundrealcolor');
+  return config.enableSuperchip ? `var${index}` : SYSTEM_VARIABLES[index][1];
+};
+
 // Whether generated code should include per-row playfield colors (pfcolors).
 // This is an all-or-nothing project setting (the "enablePfColors" option on
 // the Options tab): once it's on, the Background editor requires every
@@ -917,7 +1028,7 @@ Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
 
-  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres, textBkColor} = config;
+  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres} = config;
 
   // batari Basic honours a single "set kernel_options" line, so every option
   // has to go on it together.
@@ -956,14 +1067,47 @@ Blockly.BBasic.generateConfiguration = function() {
   // the Text Minikernel itself is in use.
   const textFontConfigurationCode = (scoreFont === SQUISH_SCORE_FONT || scoreFont === SQUISH_CUSTOM_SCORE_FONT) ?
     'const fontstyle = SQUISH' : '';
-  // "textbkcolor" (see ScoreFontEditor.vue) is read as an immediate value at
-  // several cycle-critical spots inside the Text Minikernel's own WSYNC-timed
-  // drawing loop (text12a.asm/text12b.asm), so it can only be a compile-time
-  // const, not a runtime-settable variable like TextColor - see the picker's
-  // own comment for why. Only emitted when the Text Minikernel is actually
-  // active, since the constant is otherwise unused.
-  const textBkColorConfigurationCode = (this.isTextMinikernelActive() && textBkColor) ?
-    `const textbkcolor = ${colorByteToBBasic(textBkColor)}` : '';
+  // Two different, INDEPENDENTLY settable colors inside text12a.asm/
+  // text12b.asm's own "minikernel" subroutine:
+  // - "scorebkcolor" (from the Score tab's own background color picker -
+  //   see views/ScoreFontEditor.vue, config.scoreBkColor): the very first
+  //   thing the subroutine does after WSYNC, if this is defined AND
+  //   noscoretxt isn't, is set COLUBK to it for the score row itself, for
+  //   as long as that row's own drawing loop runs. NOT emitted here as a
+  //   const any more - text12a.asm has been patched (see its own inline
+  //   comment) to read scorebkcolor as a real RAM address instead of a
+  //   compile-time immediate, so it needs an actual dim, handled by
+  //   generateScoreBkColorRuntimeDims/generateScoreBkColorDefaults in
+  //   generators/bbasic/score.js instead (spliced into generatedSystemDims/
+  //   generatedTextMinikernelDefaults - see finish() below). That's what
+  //   lets "Use background color" (config.scoreBkColor === 'background')
+  //   alias scorebkcolor directly onto the live backgroundrealcolor
+  //   variable, tracking later runtime changes - something a const,
+  //   having no runtime existence at all, never could.
+  // - "textbkcolor" (from the Text tab's own background color picker - see
+  //   views/TextEditor.vue, config.textBkColor): read unconditionally
+  //   (defaults to 0/black via its own ifnconst fallback if never set)
+  //   right after that loop finishes, setting COLUBK for whatever comes
+  //   right after the row - the text minikernel's own message lines
+  //   specifically render there. Still a plain compile-time const - only
+  //   scorebkcolor needed the RAM treatment, since only the Score tab
+  //   offers a "Use background color" option (black is what the Text
+  //   Minikernel's own reference layout uses instead).
+  // Deliberately two separate values, not one shared setting - a project
+  // showing both a numeric score AND the Minikernel's own text message can
+  // give each its own distinct background. Both only apply while the Text
+  // Minikernel is active - with it inactive, the Score tab's picker instead
+  // drives generateScoreBkColorAsm's own standalone "minikernel" hook (see
+  // generators/bbasic/score.js), and there's no text row for the Text
+  // tab's picker to apply to at all.
+  //
+  // Both default to black (byte 0) - the darkest palette entry - rather
+  // than to no override at all, so the row's background is always some
+  // definite, predictable color out of the box instead of silently
+  // inheriting whatever COLUBK the surrounding code happens to leave
+  // behind.
+  const textBkColorConfigurationCode = this.isTextMinikernelActive() ?
+    `const textbkcolor = ${colorByteToBBasic(config.textBkColor ?? 0)}` : '';
   // pfres raises the playfield's vertical resolution above the standard
   // kernel's default; it requires the extra RAM Superchip provides (see
   // generateRomSize), and is a single ROM-wide setting, not per-background.
@@ -1008,7 +1152,8 @@ Blockly.BBasic.generateSystemDims = function() {
   const systemDims = SYSTEM_VARIABLES
       .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
       .join('\n');
-  return systemDims + this.generateTextMinikernelDims() + this.generateSoundFadeDims();
+  return systemDims + this.generateTextMinikernelDims() + this.generateSoundFadeDims() +
+    this.generateScoreBkColorRuntimeDims();
 };
 
 Blockly.BBasic.generateBackgrounds = function() {
@@ -1272,6 +1417,7 @@ import input from './bbasic/input';
 import logic from './bbasic/logic';
 import loops from './bbasic/loops';
 import math from './bbasic/math';
+import music from './bbasic/music';
 import procedures from './bbasic/procedures';
 import random from './bbasic/random';
 import score from './bbasic/score';
@@ -1283,7 +1429,7 @@ import text from './bbasic/text';
 import textMinikernel from './bbasic/text-minikernel';
 import variables from './bbasic/variables';
 
-[background, bit, collision, color, colour, data, event, input, logic, loops, math, procedures,
+[background, bit, collision, color, colour, data, event, input, logic, loops, math, music, procedures,
   random, score, sound, soundfx, sprites, subroutine, text, textMinikernel, variables]
     .forEach((init) => init(Blockly));
 

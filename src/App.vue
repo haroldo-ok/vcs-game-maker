@@ -38,8 +38,12 @@
           <v-icon>mdi-map</v-icon>
         </v-btn>
 
-        <v-btn to="/soundfx" link class="sound-item" title="SoundFX" elevation="0">
+        <v-btn to="/soundfx" link class="sound-item" title="Sound" elevation="0">
           <v-icon>mdi-waveform</v-icon>
+        </v-btn>
+
+        <v-btn to="/music" link class="music-item" title="Music" elevation="0">
+          <v-icon>mdi-music-note</v-icon>
         </v-btn>
 
         <v-btn to="/scorefont" link class="scorefont-item" title="Score" elevation="0">
@@ -144,7 +148,20 @@
             <v-icon>mdi-waveform</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>SoundFX</v-list-item-title>
+            <v-list-item-title>Sound</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/music"
+          link
+          class="music-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-music-note</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Music</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -242,6 +259,17 @@
         title="Drag to resize the emulator"
         @mousedown.prevent="startResize"
       ></div>
+      <v-btn
+        block
+        small
+        text
+        class="emulator-refresh-button"
+        title="Reload the page to fix the emulator preview if it has disappeared - you'll need to click Update ROM again afterward"
+        @click="handleRefreshEmulator"
+      >
+        <v-icon left small>mdi-refresh</v-icon>
+        Refresh emulator
+      </v-btn>
       <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
       <v-btn
         block
@@ -442,6 +470,7 @@ export default {
       this.resetScreenStyle(javatariScreen);
       this.observeEmulatorSize(container, javatariScreen);
       this.observeEmulatorReparenting(container);
+      this.pollEmulatorVisibility(container);
       this.updateEmulatorScale();
     },
     // Wipes the screen element's inline style (Javatari sets some of its own
@@ -479,19 +508,41 @@ export default {
     // needed for that: opening a dialog toggles an existing element's
     // "jt-show" class rather than inserting a new node, which the
     // childList-only observer below never saw.
+    // Shared by both the event-driven MutationObserver below and the
+    // time-based poller (pollEmulatorVisibility) - the observer only fires
+    // for mutations it was specifically told to watch (childList, "class",
+    // "style"), so any OTHER way the screen could end up hidden or
+    // misplaced (a Javatari-internal state change that doesn't touch those,
+    // or one this app doesn't know about yet) would slip past it silently.
+    // Polling the same check on a timer catches those too, since it doesn't
+    // depend on knowing what caused the problem - only on verifying the
+    // current state is correct.
+    checkAndFixEmulatorVisibility(container) {
+      this.dismissEmulatorDialogs();
+      const screen = document.getElementById('javatari-screen');
+      if (!screen) return;
+      const reparented = screen.parentElement !== container;
+      if (reparented) container.appendChild(screen);
+      if (reparented || screen.style.display === 'none' || screen.style.visibility === 'hidden' ||
+          screen.style.opacity === '0') {
+        this.resetScreenStyle(screen);
+        this.updateEmulatorScale();
+      }
+    },
     observeEmulatorReparenting(container) {
       if (this.emulatorReparentObserver) return;
-      this.emulatorReparentObserver = new MutationObserver(() => {
-        this.dismissEmulatorDialogs();
-        const screen = document.getElementById('javatari-screen');
-        if (screen && screen.parentElement !== container) {
-          container.appendChild(screen);
-          this.resetScreenStyle(screen);
-          this.updateEmulatorScale();
-        }
-      });
+      this.emulatorReparentObserver = new MutationObserver(() => this.checkAndFixEmulatorVisibility(container));
       this.emulatorReparentObserver.observe(document.body,
-          {childList: true, subtree: true, attributes: true, attributeFilter: ['class']});
+          {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style']});
+    },
+    // Time-based backstop for whatever the event-driven observer above
+    // misses - see checkAndFixEmulatorVisibility's own comment. Runs
+    // indefinitely (this component is never unmounted in normal use - it's
+    // the app's own root), so no clearInterval on a matching lifecycle hook.
+    pollEmulatorVisibility(container) {
+      if (this.emulatorVisibilityPoller) return;
+      this.emulatorVisibilityPoller = window.setInterval(
+          () => this.checkAndFixEmulatorVisibility(container), 500);
     },
     // Root cause of the preview "vanishing" after "Update ROM": Javatari's
     // own "Select Cartridge"/"Select ROM Format"/"Save/Load State" dialogs
@@ -664,6 +715,28 @@ export default {
         });
       }, 0);
     },
+    // Manual escape hatch for the emulator preview intermittently vanishing.
+    // Re-parenting/re-styling the existing screen element (the same recovery
+    // dismissEmulatorDialogs()/attachEmulator()/checkAndFixEmulatorVisibility
+    // already do automatically) turned out not to be enough on its own -
+    // confirmed the DOM element can be present, correctly parented, and
+    // correctly styled while still showing nothing, meaning Javatari's own
+    // internal rendering had actually stopped, not just been hidden or
+    // misplaced. There's no supported way to restart only Javatari's
+    // internals from here (it's a page-embedded <script>, not something this
+    // app owns or can re-inject on its own), so this reloads the whole page
+    // instead - the one guaranteed way to get a fresh, working instance.
+    // Project data lives in localStorage and survives this; the compiled ROM
+    // (kept in memory by Javatari) and the Generated tab's own in-memory
+    // code ref don't, so the user needs to click "Update ROM" again
+    // afterward. Deliberately NOT done automatically here: if a bad ROM is
+    // itself what froze the emulator, auto-rebuilding it the moment the
+    // page comes back up would just re-trigger the same freeze immediately,
+    // soft-locking the user out of ever seeing a stable page to fix the
+    // project from.
+    handleRefreshEmulator() {
+      window.location.reload();
+    },
     handleRomDownload() {
       if (!window.Javatari?.compiledResult) {
         this.errorStorage.value =
@@ -763,6 +836,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .emulator-resize-handle:hover {
   background-color: rgba(0, 0, 0, 0.15);
+}
+
+.emulator-refresh-button {
+  margin-bottom: 4px;
 }
 
 .v-list-item__icon {

@@ -1,5 +1,87 @@
 <category name="Player 1 movement" colour="blue">
 
+    <category name="Player 1 movement with hardware box collision" colour="blue">
+        <block type="collision_check_position">
+            <field name="PLAYER">1</field>
+            <next>
+                <block type="controls_if">
+                    <value name="IF0">
+                        <block type="input_joy1_get">
+                        <field name="VAR">joy1right</field>
+                        </block>
+                    </value>
+                    <statement name="DO0">
+                        <block type="sprite_player1_change">
+                        <field name="VAR">player1x</field>
+                        <value name="DELTA">
+                            <shadow type="math_number">
+                            <field name="NUM">1</field>
+                            </shadow>
+                        </value>
+                        </block>
+                    </statement>
+                    <next>
+                        <block type="controls_if">
+                        <value name="IF0">
+                            <block type="input_joy1_get">
+                            <field name="VAR">joy1left</field>
+                            </block>
+                        </value>
+                        <statement name="DO0">
+                            <block type="sprite_player1_change">
+                            <field name="VAR">player1x</field>
+                            <value name="DELTA">
+                                <shadow type="math_number">
+                                <field name="NUM">-1</field>
+                                </shadow>
+                            </value>
+                            </block>
+                        </statement>
+                        <next>
+                            <block type="controls_if">
+                            <value name="IF0">
+                                <block type="input_joy1_get">
+                                <field name="VAR">joy1up</field>
+                                </block>
+                            </value>
+                            <statement name="DO0">
+                                <block type="sprite_player1_change">
+                                <field name="VAR">player1y</field>
+                                <value name="DELTA">
+                                    <shadow type="math_number">
+                                    <field name="NUM">-1</field>
+                                    </shadow>
+                                </value>
+                                </block>
+                            </statement>
+                            <next>
+                                <block type="controls_if">
+                                <value name="IF0">
+                                    <block type="input_joy1_get">
+                                    <field name="VAR">joy1down</field>
+                                    </block>
+                                </value>
+                                <statement name="DO0">
+                                    <block type="sprite_player1_change">
+                                    <field name="VAR">player1y</field>
+                                    <value name="DELTA">
+                                        <shadow type="math_number">
+                                        <field name="NUM">1</field>
+                                        </shadow>
+                                    </value>
+                                    </block>
+                                </statement>
+                                </block>
+                            </next>
+                            </block>
+                        </next>
+                        </block>
+                    </next>
+                </block>
+            </next>
+        </block>
+    </category>
+
     <category name="Player 1 left / right with background collision" colour="blue">
         <block type="controls_if">
         <value name="IF0">

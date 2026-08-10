@@ -27,10 +27,14 @@ import '../blocks/event';
 import '../blocks/input';
 import '../blocks/loops';
 import '../blocks/math';
+import '../blocks/music';
 import '../blocks/random';
 import '../blocks/score';
 import '../blocks/sound';
+import '../blocks/soundfx';
 import '../blocks/sprites';
+import '../blocks/subroutine';
+import '../blocks/text-minikernel';
 
 import blocklyToolboxTemplate from 'raw-loader!./blockly-toolbox.xml.hbs';
 import blocklyToolboxPlayer0Movement from 'raw-loader!./blockly-toolbox-player0-movement.xml';

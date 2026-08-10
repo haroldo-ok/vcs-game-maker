@@ -16,6 +16,7 @@ import './event';
 import './input';
 import './loops';
 import './math';
+import './music';
 import './random';
 import './score';
 import './sound';

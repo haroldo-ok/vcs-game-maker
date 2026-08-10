@@ -456,6 +456,7 @@ export default {
 
 .pixel-editor-tools >>> .v-btn.pixel-editor-height-btn .v-icon {
   font-size: 16px;
+  margin-top: -1px;
 }
 
 .pixel-editor-tools >>> .v-btn.pixel-editor-height-btn:hover {

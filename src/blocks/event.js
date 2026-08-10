@@ -24,7 +24,10 @@ const STATE_OPTIONS = [
   [`${GAMEOVER_ICON} Gameover`, 'gameover'],
 ];
 
-const FRAME_OPTIONS = [...Array(7).keys()]
+// A bitmask check ("if frameCounter & mask = 0"), not an arbitrary interval
+// counter, so every option has to stay a power of 2 - 256 (mask 255, the
+// largest that still fits in a single byte) is the last one that works.
+const FRAME_OPTIONS = [...Array(8).keys()]
     .map((n) => Math.pow(2, n + 1))
     .map((n) => [`${n}`, `${n - 1}`]);
 

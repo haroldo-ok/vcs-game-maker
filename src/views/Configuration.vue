@@ -2,23 +2,14 @@
   <v-card flat class="editor-container">
     <v-card-title>Options</v-card-title>
     <v-card-text>
-      <v-select
-        v-model="configurationState.romSize"
-        @change="handleChangeConfiguration"
-        :items="romSizeOptions"
-        label="ROM size"
-      />
+      <div class="text-subtitle-1">VCSGM Options</div>
       <v-switch
-        v-model="configurationState.muteBlocklySounds"
-        @change="handleChangeConfiguration"
-        label="Mute Blockly sounds"
-        hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; below for that."
+        v-model="loadLastProject"
+        label="Load last open project on startup"
+        hint="When off, the app always starts from the empty project instead of restoring whatever was last saved."
         persistent-hint
         class="option-switch"
       />
-
-      <v-divider class="mt-4 mb-2" />
-      <div class="text-subtitle-1">ROM Options</div>
       <v-switch
         v-model="configurationState.muteAllAudio"
         @change="handleChangeConfiguration"
@@ -27,33 +18,23 @@
         persistent-hint
         class="option-switch"
       />
-      <div v-if="textMinikernelUsed" class="text-bk-color">
-        <span>Text Minikernel background color:</span>
-        <v-menu offset-y :close-on-content-click="true">
-          <template v-slot:activator="{ on, attrs }">
-            <div
-              class="text-bk-color-swatch"
-              :style="{backgroundColor: textBkColorCss}"
-              title="Click to change"
-              v-bind="attrs"
-              v-on="on"
-            />
-          </template>
-          <v-card class="palette-card">
-            <div class="palette-grid">
-              <div
-                v-for="(hex, paletteIndex) in palette"
-                :key="paletteIndex"
-                class="palette-swatch"
-                :class="{selected: (configurationState.textBkColor >> 1) === paletteIndex}"
-                :style="{backgroundColor: `#${hex}`}"
-                :title="bbasicLiteral(paletteIndex << 1)"
-                @click="handleChangeTextBkColor(paletteIndex << 1)"
-              />
-            </div>
-          </v-card>
-        </v-menu>
-      </div>
+      <v-switch
+        v-model="configurationState.muteBlocklySounds"
+        @change="handleChangeConfiguration"
+        label="Mute Blockly sounds"
+        hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; above for that."
+        persistent-hint
+        class="option-switch"
+      />
+
+      <v-divider class="mt-4 mb-2" />
+      <div class="text-subtitle-1">ROM Options</div>
+      <v-select
+        v-model="configurationState.romSize"
+        @change="handleChangeConfiguration"
+        :items="romSizeOptions"
+        label="ROM size"
+      />
       <v-switch
         v-model="configurationState.showScore"
         @change="handleChangeConfiguration"
@@ -125,11 +106,9 @@
 import {computed, defineComponent} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
-import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage, useLoadLastProjectStorage} from '../hooks/project';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
-import {isTextMinikernelUsedInProject} from '../utils/text-minikernel-usage';
-import {NTSC_COLORS, colorByteToCss, colorByteToBBasic} from '../utils/palette';
 
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
 const MIN_PFRES = 1;
@@ -144,6 +123,11 @@ export default defineComponent({
   setup(props, context) {
     const configurationStorage = useConfigurationStorage();
     const backgroundsStorage = useBackgroundsStorage();
+    // A standing app preference, not part of the project itself (see
+    // hooks/project.js's own comment) - kept separate from configurationState
+    // below so it survives clearProjectStorage() and can be checked at
+    // startup, before deciding whether to call that at all.
+    const loadLastProject = useLoadLastProjectStorage();
 
     const configurationState = computed({
       get() {
@@ -159,7 +143,6 @@ export default defineComponent({
           pfres: 24,
           romSize: '4k',
           scoreFont: '',
-          textBkColor: 0,
           muteAllAudio: false,
           muteBlocklySounds: false,
         };
@@ -184,20 +167,6 @@ export default defineComponent({
     // BANK_COUNT_BY_ROMSIZE in hooks/rom.js - 2k/4k never do).
     const romSizeIsBankswitched = computed(() =>
       Boolean(BANK_COUNT_BY_ROMSIZE[configurationState.value.romSize]));
-
-    // The Text Minikernel's background color ("textbkcolor" in
-    // text12a.asm/text12b.asm) is read as an immediate value at several
-    // cycle-critical spots inside the minikernel's own WSYNC-timed drawing
-    // loop, not a variable - so unlike TextColor, it can only be a compile-time
-    // setting (see generateConfiguration() in generators/bbasic.js), not a
-    // runtime action block.
-    const textMinikernelUsed = computed(() => isTextMinikernelUsedInProject());
-    const textBkColorCss = computed(() => colorByteToCss(configurationState.value.textBkColor));
-    const handleChangeTextBkColor = (colorByte) => {
-      const state = configurationState.value;
-      state.textBkColor = colorByte;
-      configurationState.value = state;
-    };
 
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together (last row black, and with more than one background
@@ -263,11 +232,7 @@ export default defineComponent({
       handleToggleSuperchip,
       romSizeOptions: ROM_SIZE_OPTIONS,
       romSizeIsBankswitched,
-      textMinikernelUsed,
-      textBkColorCss,
-      handleChangeTextBkColor,
-      palette: NTSC_COLORS,
-      bbasicLiteral: colorByteToBBasic,
+      loadLastProject,
     };
   },
   methods: {
@@ -305,51 +270,5 @@ export default defineComponent({
 .pfres-field {
   margin-left: 46px;
   max-width: calc(100% - 46px);
-}
-
-.text-bk-color {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 16px 0;
-}
-
-.text-bk-color-swatch {
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  border: 1px solid rgba(0, 0, 0, 0.4);
-}
-
-.text-bk-color-swatch:hover {
-  outline: 2px solid #1976d2;
-  outline-offset: -2px;
-}
-
-.palette-card {
-  padding: 4px;
-}
-
-.palette-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 18px);
-  gap: 1px;
-}
-
-.palette-swatch {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-}
-
-.palette-swatch:hover {
-  outline: 2px solid #1976d2;
-  outline-offset: -2px;
-}
-
-.palette-swatch.selected {
-  outline: 2px solid #ffffff;
-  outline-offset: -2px;
-  box-shadow: 0 0 0 1px #000;
 }
 </style>

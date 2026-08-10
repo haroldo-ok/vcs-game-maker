@@ -1,0 +1,301 @@
+'use strict';
+
+import * as Blockly from 'blockly/core';
+
+import {useSongsStorage} from '../hooks/project';
+import {MUSIC_ICON, STOP_ICON} from './icon';
+
+const MUSIC_COLOR = 'rgb(255, 87, 34)';
+
+// A pattern's length is adjustable (see PATTERN_STEP_OPTIONS below), but
+// defaults to 16 steps (one bar at 2 steps/beat) and 140 BPM below - the same
+// defaults FL Studio uses for a new project's step sequencer/tempo.
+export const DEFAULT_PATTERN_STEPS = 16;
+
+// Selectable pattern lengths, in increments of 8 steps up to 64.
+export const PATTERN_STEP_OPTIONS = [4, 8, 16, 24, 32, 40, 48, 56, 64];
+export const MAX_PATTERN_STEPS = PATTERN_STEP_OPTIONS[PATTERN_STEP_OPTIONS.length - 1];
+
+// How many equal slices a single piano-roll step can be divided into for
+// note duration (set via the dropdown under the Music tab's own header) -
+// e.g. 4 lets a note be as short as a quarter of a step. Note events store
+// their length in fixed, fine-grained units (see LENGTH_UNITS_PER_STEP)
+// regardless of this setting, so changing it later only changes the
+// snapping granularity for NEW edits, never reinterprets already-placed
+// notes' lengths.
+export const DURATION_SUBDIVISION_OPTIONS = [1, 2, 4, 8, 16];
+export const DEFAULT_SUBDIVISION = 1;
+
+// A note event's own "length" field is stored in units of 1/32 of a step -
+// fine enough to exactly represent every selectable subdivision above
+// (32 is the finest, so 1 of its slices = 1 unit) without ever needing
+// fractional unit counts.
+export const LENGTH_UNITS_PER_STEP = 32;
+
+const emptyTrack = (id, soundEffectId, channel = 0) => ({
+  id,
+  soundEffectId,
+  channel,
+  // Sparse list of note events, not one slot per step - {step, midi, audf,
+  // length} - so a note can be held across several steps, or be shorter
+  // than one (see LENGTH_UNITS_PER_STEP - length is in those units, not
+  // whole steps). midi is 'hit' for untunable instruments (see
+  // utils/music-notes.js), otherwise the pitch's MIDI number; audf is that
+  // specific note's own AUDF value (or null for a 'hit'), stored per-note so
+  // playback doesn't have to re-derive it.
+  notes: [],
+});
+
+// Two steps per beat (each step is an eighth note) - see
+// utils/music-playback.js. 140 BPM matches FL Studio's own new-project
+// default tempo.
+export const DEFAULT_TEMPO = 140;
+
+export const DEFAULT_SONGS = {
+  songs: [
+    {
+      id: 1,
+      name: 'Song 1',
+      tempo: DEFAULT_TEMPO,
+      patterns: [
+        {
+          id: 1,
+          name: 'Pattern 1',
+          tempo: DEFAULT_TEMPO,
+          // Whether this pattern plays at its OWN Tempo field (checked) or
+          // follows its song's top-level one instead (unchecked) - a fresh
+          // pattern follows the song by default, matching what most users
+          // would expect.
+          useOwnTempo: false,
+          stepCount: DEFAULT_PATTERN_STEPS,
+          loop: false,
+          tracks: [emptyTrack(1, 1)],
+        },
+      ],
+      sequence: [1],
+    },
+  ],
+  // Optional per-sound-effect color overrides (soundEffectId -> TIA color
+  // byte, matching utils/palette.js's index<<1 convention) - keyed globally
+  // rather than per-song/pattern so the same instrument reads as the same
+  // color everywhere it's used. Missing an entry means "auto-assigned"
+  // (see instrumentColor in MusicEditor.vue).
+  instrumentColors: {},
+  // How finely a step is divided for note duration - global (not per-song),
+  // set via the dropdown right under the Music tab's own header.
+  subdivision: DEFAULT_SUBDIVISION,
+  // A fresh project has no notes to migrate.
+  noteLengthUnitsMigrated: true,
+};
+
+export const processSongsStorageDefaults = (songsStorage) => {
+  const songs = songsStorage.value;
+  if (!songs || !songs.songs || !songs.songs.length) {
+    return structuredClone(DEFAULT_SONGS);
+  }
+  if (!songs.instrumentColors || typeof songs.instrumentColors !== 'object') {
+    songs.instrumentColors = {};
+  }
+  if (!DURATION_SUBDIVISION_OPTIONS.includes(songs.subdivision)) {
+    songs.subdivision = DEFAULT_SUBDIVISION;
+  }
+  // Notes saved before sub-step durations existed stored both their start
+  // and length in whole steps directly, not LENGTH_UNITS_PER_STEP units - a
+  // one-time, guarded rescale of both so those notes keep their original
+  // position/duration instead of suddenly starting 32x earlier and playing
+  // 32x shorter.
+  if (!songs.noteLengthUnitsMigrated) {
+    songs.songs.forEach((song) => {
+      (song.patterns || []).forEach((pattern) => {
+        (pattern.tracks || []).forEach((track) => {
+          (track.notes || []).forEach((note) => {
+            note.length = Math.max(1, Math.round(note.length || 1)) * LENGTH_UNITS_PER_STEP;
+            note.step = Math.max(0, Math.round(note.step || 0)) * LENGTH_UNITS_PER_STEP;
+          });
+        });
+      });
+    });
+    songs.noteLengthUnitsMigrated = true;
+  }
+  // Songs/patterns/tracks saved before the Tempo/Channel/step-count/
+  // note-length fields existed won't have them yet.
+  songs.songs.forEach((song) => {
+    if (song.tempo == null) {
+      song.tempo = DEFAULT_TEMPO;
+    }
+    (song.patterns || []).forEach((pattern) => {
+      if (pattern.tempo == null) {
+        pattern.tempo = DEFAULT_TEMPO;
+      }
+      // A pattern saved before this song-level Tempo field existed was
+      // definitely relying on its own tempo, not a song-level one that
+      // didn't exist yet - default it to staying that way, rather than
+      // silently switching its playback speed to the (new, likely
+      // different) song tempo.
+      if (pattern.useOwnTempo == null) {
+        pattern.useOwnTempo = true;
+      }
+      if (!PATTERN_STEP_OPTIONS.includes(pattern.stepCount)) {
+        pattern.stepCount = DEFAULT_PATTERN_STEPS;
+      }
+      // Whether the pattern's own preview (see MusicEditor.vue's Play
+      // button on the pattern card) keeps repeating until manually stopped
+      // - a Music tab view preference only, not saved/used by the compiled
+      // ROM (which loops at the whole SONG level instead - see the "Loop"
+      // checkbox on the Play song block).
+      if (pattern.loop == null) {
+        pattern.loop = false;
+      }
+      (pattern.tracks || []).forEach((track) => {
+        if (track.channel == null) {
+          track.channel = 0;
+        }
+        // Pre-length-and-events tracks stored one slot per step directly
+        // (null/AUDF/'hit') instead of a sparse {step, length} event list -
+        // rather than replay that migration's edge cases, just drop the old
+        // shape back to empty, since it was only ever this session's own
+        // test data.
+        if (!Array.isArray(track.notes) || track.notes.some((note) => note === null || typeof note !== 'object')) {
+          track.notes = [];
+        }
+      });
+    });
+  });
+  return songs;
+};
+
+// Looks up one stored song by id, or null if it can't be found. Read fresh
+// each time (not through the module-level storage) for the same reason as
+// findDataTableById in blocks/data.js - a computed() over localStorage caches
+// its first read and would keep serving a stale/renamed song list.
+export const findSongById = (id) => {
+  try {
+    const songs = processSongsStorageDefaults(useSongsStorage());
+    return songs.songs.find((song) => `${song.id}` === `${id}`) || null;
+  } catch (e) {
+    console.error('Failed to load song', e);
+    return null;
+  }
+};
+
+// Passing the function itself (not a static array) to FieldDropdown, like
+// blocks/data.js's buildDataTableOptions, so Blockly rebuilds the list every
+// time the dropdown opens - renamed/added/deleted songs show up without
+// reloading the page.
+const buildSongOptions = () => {
+  try {
+    const songs = processSongsStorageDefaults(useSongsStorage());
+    return songs.songs.map(({id, name}) => [name || `Unnamed ${id}`, `${id}`]);
+  } catch (e) {
+    console.error('Failed to list song options', e);
+    return [['Error', '1']];
+  }
+};
+
+// Starts (or restarts) playback of one song created on the Music tab. Only
+// one song can be used for playback per project currently - the generator
+// (see generators/bbasic/music.js) errors out at compile time if more than
+// one distinct song is referenced across every music_play_song block in the
+// project, since the generated per-channel data tables/index variables are
+// shared globally rather than duplicated per song.
+Blockly.Blocks['music_play_song'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Play song:`)
+        .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG')
+        .appendField('Loop')
+        .appendField(new Blockly.FieldCheckbox('TRUE'), 'LOOP');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Starts (or restarts) playback of a song created on the Music tab. ' +
+      'Only one song can be used for playback per project currently. When Loop is unchecked, ' +
+      'the song plays once and stops instead of repeating.');
+  },
+};
+
+// Same start/restart behavior as music_play_song above - only one song can
+// actually be used for playback right now, so this ID isn't even checked at
+// runtime, it just starts that same one song exactly like music_play_song
+// does (see generators/bbasic/music.js - the two share one generator
+// function). Only the picker is different: a runtime VALUE (a variable or
+// computed expression) instead of a fixed dropdown choice, ready to
+// actually pick between several songs without a rework if that single-song
+// limit is ever lifted. A separate block (not an added input on
+// music_play_song) so existing projects using that one aren't disturbed.
+Blockly.Blocks['music_play_song_by_id'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Play song:`);
+    this.appendValueInput('SONG_ID');
+    this.appendDummyInput()
+        .appendField('Loop')
+        .appendField(new Blockly.FieldCheckbox('TRUE'), 'LOOP');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Same as "Play song", but picks the song by ID (a variable or computed value, ' +
+      'not a fixed choice) - only one song can actually be used for playback right now, so this ID ' +
+      'isn\'t actually checked, it always starts that one song. When Loop is unchecked, the song ' +
+      'plays once and stops instead of repeating.');
+  },
+};
+
+// Immediately silences whatever song is currently playing (started by
+// music_play_song) and marks it as stopped - a subsequent music_play_song
+// restarts it from the beginning. Does not trigger music_song_stopped below
+// (that only fires when a non-looping song reaches its own natural end).
+Blockly.Blocks['music_stop_song'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} ${STOP_ICON} Stop music`);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Immediately stops whatever song is currently playing.');
+  },
+};
+
+// Fires once, the moment a song played with Loop unchecked reaches its own
+// natural end - never fires for a looping song (which never reaches an
+// "end"), and never fires from the Stop block above (that's an explicit user
+// action, not the song finishing on its own).
+Blockly.Blocks['music_song_stopped'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing`);
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment a song played with Loop unchecked ' +
+      'reaches its own natural end. Never triggers for a looping song, or from the Stop block.');
+  },
+};
+
+// Same trigger as music_song_stopped above (both fire off the exact same
+// shared "just stopped" flag - see generateMusicChecks in
+// generators/bbasic/music.js), just with an explicit SONG dropdown, for
+// projects that want to name which song they mean at the call site even
+// though only one can actually be used for playback right now (see
+// music_play_song's own comment) - this reads clearer in a project with
+// several songs defined but only one currently wired up to Play, and is
+// ready to actually distinguish between songs without a rework if that
+// single-song limit is ever lifted. A separate block (not an added field on
+// music_song_stopped) so existing projects using that one aren't disturbed.
+Blockly.Blocks['music_song_stopped_by_id'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing:`)
+        .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG');
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Same as "When song has stopped playing", but names which song - only one song ' +
+      'can actually be used for playback right now, so this only ever matches that one, but it reads ' +
+      'clearer in a project with several songs defined.');
+  },
+};
+

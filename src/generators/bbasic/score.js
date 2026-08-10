@@ -1,5 +1,18 @@
 'use strict';
 
+import {useConfigurationStorage} from '../../hooks/project';
+import {colorByteToBBasic} from '../../utils/palette';
+
+// The literal bB identifier itself (not an internal "_xyz" bookkeeping
+// name), reserved directly through the normal dev var pool when the Text
+// Minikernel is active and the Score tab's picker holds a fixed literal
+// (not 'background') - see the scoreBkColorNeedsOwnVar pre-scan in
+// generators/bbasic.js's init(). The standard "dim <name> = <letter>"
+// mechanism (definitions_['variables'], built from that same pool) then
+// declares it automatically, with no aliasing/chaining of our own needed -
+// see generateScoreBkColorRuntimeDims below for why that matters.
+export const scoreBkColorVarName = () => 'scorebkcolor';
+
 const PFSCORE_ENABLE_CODE = '  const pfscore = 1';
 
 // The score is three bytes of packed BCD, two digits per byte, so each digit is
@@ -71,6 +84,118 @@ export default (Blockly) => {
     const isNegativeConstant = /^\s*-\s*\d+\s*$/.test(argument0);
     const operator = isNegativeConstant ? '' : '+';
     return `scorecolor = scorecolor ${operator} ${argument0}\n`;
+  };
+
+  // The standard kernel's own generic score-row background hook - a
+  // "minikernel" subroutine, called during the score row's own WSYNC-timed
+  // drawing, that (if defined) gets to set COLUBK for that one scanline
+  // group before the kernel restores it for the rest of the screen. Placed
+  // in bbasic.bb.hbs's own trailing "never fallen into" section (see the
+  // comment there) - like generateDivMul's div_mul.asm, only ever entered
+  // via the kernel's own internal call, never by falling through from the
+  // line above, which naturally lands it in whatever bank ends up last
+  // once every other, earlier piece of code has been assigned to a bank
+  // (matching the reference docs' own "add this to last bank"
+  // instruction).
+  //
+  // Only emitted when the Text Minikernel ISN'T active (that case is
+  // handled instead by scorebkcolor's own dim - see
+  // generateScoreBkColorRuntimeDims/generateScoreBkColorDefaults below -
+  // since both this and the Text Minikernel compile to a subroutine
+  // literally labeled "minikernel", the standard kernel's one generic
+  // score-row hook point; a project can only use one or the other). Always
+  // emitted otherwise, defaulting to black (0) the same way
+  // generateScoreBkColorDefaults does when the Score tab's background
+  // color picker (see views/ScoreFontEditor.vue) hasn't been touched.
+  //
+  // This whole subroutine is ours (unlike text12a.asm's own vendored one -
+  // see generateScoreBkColorRuntimeDims below for how that side handles the
+  // same "Use background color" case): a single one-shot "jsr minikernel"
+  // call with no packed per-scanline timing budget to protect, so it can
+  // read a genuine RAM variable at runtime instead of baking in a literal.
+  // "Use background color" (config.scoreBkColor === 'background') takes
+  // advantage of that: backgroundrealcolor is the same live bB variable
+  // commongamelogic already copies into COLUBK every frame (see
+  // bbasic.bb.hbs and generators/bbasic/background.js's own "Background:
+  // set color" generator, which can write there too), so reading it here
+  // tracks the ACTUAL current background color, live, including any later
+  // runtime change - not just this project's starting color the way any
+  // explicitly picked palette color here is stuck with. Deliberately
+  // backgroundrealcolor (COLUBK - the general screen backdrop), not
+  // playfieldrealcolor (COLUPF - the playfield's own drawn shape color):
+  // the latter only ever reflects a real per-background color when
+  // "Enable per-row playfield colors" is on (it's a fixed default
+  // otherwise, regardless of what's drawn in the Background editor), so it
+  // was a poor match for "the color behind everything" in the common case
+  // - backgroundrealcolor has no such caveat, it's always live and
+  // meaningful.
+  Blockly.BBasic.generateScoreBkColorAsm = function() {
+    if (this.isTextMinikernelActive()) return '';
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const colorLine = config.scoreBkColor === 'background' ?
+      '       lda backgroundrealcolor' :
+      `       lda #${colorByteToBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}`;
+    return [
+      ' asm',
+      'minikernel',
+      '       sta WSYNC',
+      colorLine,
+      '       sta COLUBK',
+      '       rts',
+      ' end',
+    ].join('\n');
+  };
+
+  // scorebkcolor's own RAM home when the Text Minikernel IS active. Used to
+  // be a plain "const scorebkcolor = <literal>" (see generateConfiguration
+  // in generators/bbasic.js), which text12a.asm read with immediate
+  // addressing ("lda #scorebkcolor") - fine for a fixed literal, but a
+  // compile-time const has no runtime existence, so there was no way to
+  // make it track backgroundrealcolor. text12a.asm has since been patched
+  // (see its own inline comment, right where "lda #scorebkcolor" became
+  // "lda scorebkcolor") to read scorebkcolor as a real RAM address instead
+  // - so it now needs an actual dim.
+  //
+  // Deliberately never "dim scorebkcolor = <some other dim'd NAME>" -
+  // chaining one dim onto another dim's own NAME (rather than a raw
+  // register letter/varN) doesn't reliably resolve here (confirmed: it
+  // compiled to a bare, unresolved "lda =" - an empty operand - once
+  // assembled), unlike SCORE_DIGIT_ALIASES's scorebyte1/2/3 below, which
+  // alias onto "score"/"score+N" (bB's own built-in multi-byte variable,
+  // not another ordinary dim). So both cases below resolve to a raw
+  // target instead: "Use background color" reads backgroundRealColorRawTarget()
+  // (the exact same raw letter/varN backgroundrealcolor's own
+  // SYSTEM_VARIABLES entry already resolves to - see generators/bbasic.js),
+  // so it stays live/tracking automatically, the same reasoning as
+  // generateScoreBkColorAsm above; anything else reserves scorebkcolor
+  // (the literal name, not an internal alias) directly through the normal
+  // dev var pool (see the scoreBkColorNeedsOwnVar pre-scan in
+  // generators/bbasic.js's init()), which lets the standard "dim <name> =
+  // <letter>" mechanism declare it with a raw letter automatically - so
+  // this function has nothing left to emit for that case at all.
+  Blockly.BBasic.generateScoreBkColorRuntimeDims = function() {
+    if (!this.isTextMinikernelActive()) return '';
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    if (config.scoreBkColor !== 'background') return '';
+    return `\n dim scorebkcolor = ${this.backgroundRealColorRawTarget()}`;
+  };
+
+  // Initializes scorebkcolor's own dev var (see
+  // generateScoreBkColorRuntimeDims above) once at Setup time, the same
+  // spot TextColor's own default gets written (see
+  // generateTextMinikernelDefaults in generators/bbasic/text-minikernel.js,
+  // spliced right alongside this in generators/bbasic.js). Only needed for
+  // the literal/default case - "Use background color" aliases directly onto
+  // backgroundrealcolor instead, which is already initialized elsewhere, so
+  // there's nothing of its own to set here.
+  Blockly.BBasic.generateScoreBkColorDefaults = function() {
+    if (!this.isTextMinikernelActive()) return '';
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    if (config.scoreBkColor === 'background') return '';
+    return ` scorebkcolor = ${colorByteToBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}\n`;
   };
 
   Blockly.BBasic[`score_digit_get`] = function(block) {

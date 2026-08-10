@@ -40,10 +40,21 @@ export const CHAR_TO_GLYPH = {
 // Converts free-typed text into a fixed-width row of glyph tokens for the
 // "data text_strings" table: upper-cased, unsupported characters become
 // spaces, and the result is always exactly TEXT_MESSAGE_LENGTH tokens long
-// (truncated or right-padded with spaces).
-export const encodeTextMessage = (text) => {
+// (truncated or padded with spaces). justify (see the Text tab's own
+// Left/Center/Right buttons - one of TEXT_JUSTIFY_OPTIONS in
+// blocks/text-strings.js) decides where the padding goes: 'left' (the
+// default) puts it all on the right, 'right' puts it all on the left,
+// 'center' splits it across both sides - shorted by one space on the left
+// than an even split would give when the padding is odd (confirmed against
+// the actual rendered row - the Text Minikernel's own drawing doesn't quite
+// treat both sides symmetrically, so a plain floor/ceil split still landed
+// one space too far left).
+export const encodeTextMessage = (text, justify = 'left') => {
   const upper = String(text || '').toUpperCase().slice(0, TEXT_MESSAGE_LENGTH);
-  const padded = upper.padEnd(TEXT_MESSAGE_LENGTH, ' ');
+  const totalPad = TEXT_MESSAGE_LENGTH - upper.length;
+  const leftPad = justify === 'right' ? totalPad :
+    justify === 'center' ? Math.max(0, Math.floor(totalPad / 2) - 1) : 0;
+  const padded = ' '.repeat(leftPad) + upper.padEnd(TEXT_MESSAGE_LENGTH - leftPad, ' ');
   return padded.split('').map((char) => CHAR_TO_GLYPH[char] || '_sp');
 };
 
@@ -189,11 +200,13 @@ export default (Blockly) => {
     // 1..N: every Text tab entry, in that same order (position N = row N -
     // see namedMessagePosition() above and "Show text with ID"). Remaining
     // rows: free-typed messages, in first-referenced order.
-    const namedTexts = listTextStrings().map(({text}) => text);
-    const freeTypedTexts = this.freeTypedMessages || [];
-    const allTexts = ['', ...namedTexts, ...freeTypedTexts];
-    const rows = allTexts.map((text) =>
-      '  ' + encodeTextMessage(text).join(', '));
+    // Free-typed messages ("Show text: <literal>") have no Justify buttons
+    // of their own to read - only Text tab entries do.
+    const namedTexts = listTextStrings().map(({text, justify}) => ({text, justify}));
+    const freeTypedTexts = (this.freeTypedMessages || []).map((text) => ({text, justify: 'left'}));
+    const allTexts = [{text: '', justify: 'left'}, ...namedTexts, ...freeTypedTexts];
+    const rows = allTexts.map(({text, justify}) =>
+      '  ' + encodeTextMessage(text, justify).join(', '));
     const dataTable = ` data text_strings\n${rows.join('\n')}\nend`;
 
     // Matches the reference demo's own layout exactly: the data table comes

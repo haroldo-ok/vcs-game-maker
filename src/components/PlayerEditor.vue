@@ -34,7 +34,7 @@
                         absolute
                         top
                         right
-                        class="delete-btn-inset delete-icon-btn"
+                        class="delete-btn-inset delete-icon-btn player-icon-btn-size"
                         v-bind="attrs"
                         v-on="on"
                       >
@@ -68,46 +68,11 @@
                     v-bind:key="frame.id"
                     class="pixel-editor-parent-container"
                   >
-                    <div class="pixel-editor-container" :style="{width: editorWidth}">
-                      <v-menu
-                        top
-                        v-if="animation.frames.length > 1"
-                      >
-                        <template v-slot:activator="{ on, attrs }">
-                          <v-btn
-                            title="Delete this frame"
-                            icon
-                            small
-                            absolute
-                            top
-                            right
-                            class="frame-delete-btn delete-icon-btn"
-                            v-bind="attrs"
-                            v-on="on"
-                          >
-                            <v-icon>mdi-delete</v-icon>
-                          </v-btn>
-                        </template>
-
-                        <v-card>
-                          <v-card-title>Delete this frame?</v-card-title>
-                          <v-list>
-                            <v-list-item @click="handleDeleteFrame(animation, frame)">
-                              <v-list-item-icon>
-                                <v-icon>mdi-check</v-icon>
-                              </v-list-item-icon>
-                              <v-list-item-title>Yes, delete</v-list-item-title>
-                            </v-list-item>
-                            <v-list-item>
-                              <v-list-item-icon>
-                                <v-icon>mdi-cancel</v-icon>
-                              </v-list-item-icon>
-                              <v-list-item-title>No, don't delete</v-list-item-title>
-                            </v-list-item>
-                          </v-list>
-                        </v-card>
-                      </v-menu>
-
+                    <div
+                      class="pixel-editor-container"
+                      :class="{'pixel-editor-container-wide': zoom >= 1}"
+                      :style="{width: editorWidth}"
+                    >
                       <v-text-field
                         label="Duration"
                         v-model.number="frame.duration"
@@ -126,6 +91,40 @@
                       >
                         <template v-slot:badge>
                           <div class="frame-number-badge">FRAME: {{ frameIndex + 1 }}</div>
+                        </template>
+                        <template v-if="animation.frames.length > 1" v-slot:toolbar-end>
+                          <v-menu top>
+                            <template v-slot:activator="{ on, attrs }">
+                              <v-btn
+                                title="Delete this frame"
+                                icon
+                                small
+                                class="delete-icon-btn"
+                                v-bind="attrs"
+                                v-on="on"
+                              >
+                                <v-icon>mdi-delete</v-icon>
+                              </v-btn>
+                            </template>
+
+                            <v-card>
+                              <v-card-title>Delete this frame?</v-card-title>
+                              <v-list>
+                                <v-list-item @click="handleDeleteFrame(animation, frame)">
+                                  <v-list-item-icon>
+                                    <v-icon>mdi-check</v-icon>
+                                  </v-list-item-icon>
+                                  <v-list-item-title>Yes, delete</v-list-item-title>
+                                </v-list-item>
+                                <v-list-item>
+                                  <v-list-item-icon>
+                                    <v-icon>mdi-cancel</v-icon>
+                                  </v-list-item-icon>
+                                  <v-list-item-title>No, don't delete</v-list-item-title>
+                                </v-list-item>
+                              </v-list>
+                            </v-card>
+                          </v-menu>
                         </template>
                       </pixel-editor>
                     </div>
@@ -361,10 +360,29 @@ export default defineComponent({
   top: 8px !important;
 }
 
-/* Pulled up further than delete-btn-inset - this one sits right above the
-   "Duration" field, which the smaller default offset overlapped. */
-.frame-delete-btn {
-  top: -8px !important;
+/* At 100% zoom and above, the card is wide enough for every frame toolbar
+   icon (eraser/pencil, undo/redo, export/import, Set height, Delete) to fit
+   on one row - PixelEditor.vue's own toolbar row wraps by design for
+   narrower cards (see its own comment), which was dropping Delete onto a
+   lone second row by itself even at 100%. Forcing nowrap unconditionally
+   broke the 50%/75% zoom levels instead, where the row genuinely is too
+   narrow and needs to wrap - gating this on zoom keeps that case intact. */
+.pixel-editor-container-wide >>> .pixel-editor-toolbar-row {
+  flex-wrap: nowrap;
+}
+
+/* Same icon/button sizing as the Player Sprite tab's own toolbar icons
+   (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
+   changes, so .delete-icon-btn's red-on-hover convention is untouched. */
+.player-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.player-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
 }
 
 /* Sits inline after the last frame, vertically centered against the frame

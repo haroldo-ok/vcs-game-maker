@@ -36,7 +36,7 @@ const getAudioContext = () => {
 // is a 31440Hz shift rate but a 15720Hz tone). AUDC 12/13 ("much lower" pure
 // tone) run off CPUclock/114 (10480Hz, exactly a third of 31440) instead.
 const NTSC_SHIFT_CLOCK = 31440;
-const shiftClockFor = (audf, {slowClock = false} = {}) =>
+export const shiftClockFor = (audf, {slowClock = false} = {}) =>
   (slowClock ? NTSC_SHIFT_CLOCK / 3 : NTSC_SHIFT_CLOCK) / (Number(audf) + 1);
 
 // Advances a Galois LFSR by one step, returning both the new state and the
@@ -63,7 +63,7 @@ const stepLfsr = (lfsr, bits) => stepLfsrWithBit(lfsr, bits).next;
 // only once every N chips instead of every chip - AUDC 2 is documented as a
 // 4-bit poly that only advances on a div31 transition, so it sounds like the
 // same buzz as AUDC 1 but roughly 31x slower rather than a different pattern.
-const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivider = 1} = {}) => {
+export const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivider = 1} = {}) => {
   const sampleRate = context.sampleRate;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
@@ -96,7 +96,7 @@ const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivider = 1} 
 // like noise instead of a lopsided tone.
 const DIV31_HIGH_STEPS = 18;
 const DIV31_TOTAL_STEPS = 31;
-const buildDiv31Buffer = (context, chipClockHz, seconds) => {
+export const buildDiv31Buffer = (context, chipClockHz, seconds) => {
   const sampleRate = context.sampleRate;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
@@ -123,7 +123,7 @@ const buildDiv31Buffer = (context, chipClockHz, seconds) => {
 // shifted out was 1 - on a 0, the output holds whatever it was. This is a
 // genuinely different mechanism from a single gated/divided LFSR, not just a
 // different bit-width, so it gets its own dual-register builder.
-const buildGatedBuzzBuffer = (context, chipClockHz, seconds) => {
+export const buildGatedBuzzBuffer = (context, chipClockHz, seconds) => {
   const sampleRate = context.sampleRate;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
@@ -163,7 +163,7 @@ const buildGatedBuzzBuffer = (context, chipClockHz, seconds) => {
 // lopsided-tone pattern), or 'gatedbuzz' (AUDC 3's dual-register mechanism).
 // slowClock marks the AUDC values documented as running off the slower
 // CPUclock/114 base rather than pixelclock/114.
-const AUDC_APPROXIMATIONS = {
+export const AUDC_APPROXIMATIONS = {
   '0': null,
   '1': {type: 'buzz', bits: 4},
   '2': {type: 'buzz', bits: 4, stepDivider: 31},
@@ -186,8 +186,8 @@ const AUDC_APPROXIMATIONS = {
 // - the compiled ROM drops to about a quarter volume for the last 4 frames
 // (60fps) rather than a smooth ramp, so the preview steps down the same way
 // instead of a continuous fade, to actually sound like what plays in game.
-const FADE_TAIL_SECONDS = 4 / 60;
-const fadeTargetGain = (peakGain) => peakGain * (Math.round(15 / 4) / 15);
+export const FADE_TAIL_SECONDS = 4 / 60;
+export const fadeTargetGain = (peakGain) => peakGain * (Math.round(15 / 4) / 15);
 
 // Tracks whatever preview is currently playing, so the Stop button (and a
 // fresh Play press, which would otherwise overlap the old preview instead

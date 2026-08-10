@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card class="editor-container">
-      <v-card-title>SoundFX</v-card-title>
+      <v-card-title>Sound</v-card-title>
       <v-card-text>
         <div class="dim-controls">
           <v-switch
@@ -49,7 +49,7 @@
                     icon
                     small
                     title="Stop the sound preview"
-                    class="soundfx-stop-btn"
+                    class="soundfx-stop-btn soundfx-icon-btn-size"
                     @click="handleStopPreview"
                   >
                     <v-icon>mdi-stop</v-icon>
@@ -58,7 +58,7 @@
                     icon
                     small
                     title="Play this sound effect"
-                    class="soundfx-play-btn"
+                    class="soundfx-play-btn soundfx-icon-btn-size"
                     @click="() => handlePlaySoundEffect(soundEffect)"
                   >
                     <v-icon>mdi-play</v-icon>
@@ -66,12 +66,21 @@
                 </div>
 
                 <v-card-text class="soundfx-name-section">
-                  <v-text-field
-                    class="soundfx-name-field"
-                    label="Sound name"
-                    v-model="soundEffect.name"
-                    @change="handleChildChange"
-                  />
+                  <div class="soundfx-name-row">
+                    <color-swatch-picker
+                      class="soundfx-color-picker"
+                      :value="soundEffect.color"
+                      :fallback-color="autoInstrumentColor(soundEffect.id)"
+                      title="Click to set this instrument's note color on the Music tab"
+                      @input="(byte) => handleSetSoundEffectColor(soundEffect, byte)"
+                    />
+                    <v-text-field
+                      class="soundfx-name-field"
+                      label="Sound name"
+                      v-model="soundEffect.name"
+                      @change="handleChildChange"
+                    />
+                  </div>
                 </v-card-text>
 
                 <v-card-text v-if="!isCollapsed(soundEffect)" class="soundfx-fields-section">
@@ -117,6 +126,52 @@
                       class="soundfx-fade"
                       @change="handleChildChange"
                     />
+                    <v-select
+                      v-if="soundEffect.fade"
+                      label="Fade length"
+                      title="How many frames the fade tail lasts - a short fade can be hard to notice on real TIA audio, try a longer one if you can't hear it."
+                      v-model="soundEffect.fadeLength"
+                      :items="fadeLengthOptionItems"
+                      @change="handleChildChange"
+                      class="soundfx-number soundfx-arpeggio-field"
+                    />
+                    <v-checkbox
+                      v-model="soundEffect.arpeggio"
+                      label="Arpeggio"
+                      title="Always on for every note played with this instrument on the Music tab - rapidly flips between the note's own pitch and a second nearby pitch (set below) to fake a chord."
+                      hide-details
+                      class="soundfx-arpeggio"
+                      @change="handleChildChange"
+                    />
+                    <v-select
+                      v-if="soundEffect.arpeggio"
+                      label="Arpeggio speed"
+                      title="How often it flips pitch, relative to the song/pattern's own tempo - speeds up and slows down with the song."
+                      v-model="soundEffect.arpeggioDivision"
+                      :items="arpeggioDivisionOptionItems"
+                      @change="handleChildChange"
+                      class="soundfx-number soundfx-arpeggio-field"
+                    />
+                    <v-text-field
+                      v-if="soundEffect.arpeggio"
+                      label="Arpeggio interval"
+                      title="Fixed pitch jump between the note's own pitch and the second alternating pitch."
+                      v-model.number="soundEffect.arpeggioInterval"
+                      type="number"
+                      :min="MIN_ARPEGGIO_INTERVAL"
+                      :max="MAX_ARPEGGIO_INTERVAL"
+                      @change="handleChildChange"
+                      class="soundfx-number soundfx-arpeggio-field"
+                    />
+                    <v-select
+                      v-if="soundEffect.arpeggio"
+                      label="Arpeggio range"
+                      title="1 OCT: cycles only between the note's own pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
+                      v-model="soundEffect.arpeggioRange"
+                      :items="arpeggioRangeOptionItems"
+                      @change="handleChildChange"
+                      class="soundfx-number soundfx-arpeggio-field"
+                    />
                     <v-spacer />
                     <v-menu
                       v-if="state.soundEffects.length > 1"
@@ -127,7 +182,7 @@
                           title="Delete this sound effect"
                           icon
                           small
-                          class="soundfx-delete-btn delete-icon-btn"
+                          class="soundfx-delete-btn delete-icon-btn soundfx-icon-btn-size"
                           v-bind="attrs"
                           v-on="on"
                         >
@@ -169,7 +224,7 @@
                         title="Delete this sound effect"
                         icon
                         small
-                        class="soundfx-delete-btn delete-icon-btn"
+                        class="soundfx-delete-btn delete-icon-btn soundfx-icon-btn-size"
                         v-bind="attrs"
                         v-on="on"
                       >
@@ -224,11 +279,17 @@ import {max} from 'lodash';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
-import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults} from '../blocks/soundfx';
+import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
+  DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
+  MAX_ARPEGGIO_INTERVAL, DEFAULT_ARPEGGIO_RANGE, ARPEGGIO_RANGE_OPTIONS,
+  FADE_LENGTH_OPTIONS} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
+import {autoInstrumentColor} from '../utils/instrument-colors';
+import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 
 export default defineComponent({
+  components: {ColorSwatchPicker},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     const configurationStorage = useConfigurationStorage();
@@ -287,6 +348,11 @@ export default defineComponent({
         audv: 15,
         duration: 5,
         fade: false,
+        arpeggio: false,
+        arpeggioDivision: DEFAULT_ARPEGGIO_DIVISION,
+        arpeggioInterval: DEFAULT_ARPEGGIO_INTERVAL,
+        arpeggioRange: DEFAULT_ARPEGGIO_RANGE,
+        color: null,
       };
 
       state.value.soundEffects.push(newSoundEffect);
@@ -313,12 +379,21 @@ export default defineComponent({
 
     const handleStopPreview = () => stopSoundEffectPreview();
 
+    const handleSetSoundEffectColor = (soundEffect, colorByte) => {
+      soundEffect.color = colorByte;
+      handleChildChange();
+    };
+
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
-      handleStopPreview,
+      handleStopPreview, handleSetSoundEffectColor, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
       dimSoundFx, dimSoundFxPercent,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
+      arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
+      arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
+      fadeLengthOptionItems: FADE_LENGTH_OPTIONS.map((value) => ({text: `${value} frames`, value})),
+      MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
     };
   },
 });
@@ -423,10 +498,36 @@ export default defineComponent({
   z-index: 1;
 }
 
+/* Same 4px gap as the Music tab's own .track-instrument-row, but flex-start
+   (not flex-end) - unlike that row's dense, hide-details fields, Sound
+   name is a full-size v-text-field with a good deal of reserved underline
+   space below its own value text, so bottom-aligning the swatch to the
+   field's outer box (like the Music tab's shorter fields) would land it in
+   that empty space, below the visible text rather than next to it. */
+.soundfx-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
 /* Clears .soundfx-toolbar-top-right, which would otherwise overlap the name
    field's own label/text at the top of the card. */
 .soundfx-name-field {
   margin-top: 36px;
+  flex: 1 1 auto;
+}
+
+/* Vuetify's v-menu renders its activator slot content as a SIBLING of its
+   own (empty, zero-size) root element, not nested inside it - a class on
+   <color-swatch-picker> itself lands on that invisible marker, not on the
+   actual visible swatch, so this has to pierce into the component's own
+   internal .color-swatch-picker-dot class instead. 57px (36px from
+   .soundfx-name-field's own margin-top, plus 21px to reach the vertical
+   center of its floating label + value text) - measured directly against
+   the rendered field, since a fixed field like this one doesn't share the
+   Instrument row's own dense/hide-details proportions to eyeball from. */
+.soundfx-name-row >>> .color-swatch-picker-dot {
+  margin-top: 57px;
 }
 
 /* Same flat-icon, fade-in-on-hover treatment as the pixel editor's own
@@ -455,6 +556,20 @@ export default defineComponent({
 .soundfx-stop-btn:hover >>> .v-icon,
 .soundfx-play-btn:hover >>> .v-icon {
   color: rgba(0, 0, 0, 0.87) !important;
+}
+
+/* Same icon/button sizing as the Player Sprite tab's own toolbar icons
+   (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
+   changes, so .delete-icon-btn's red-on-hover convention is untouched. */
+.soundfx-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.soundfx-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
 }
 
 /* Split from the rest of the card's content (soundfx-fields-section) so the
@@ -509,9 +624,17 @@ export default defineComponent({
 /* Same margin-top override as SoundFXEditor's own .dim-switch - Vuetify's
    selection-control margin-top (meant for stacking below other fields)
    otherwise pushes this out of line with the text fields next to it. */
-.soundfx-fade {
+.soundfx-fade,
+.soundfx-arpeggio {
   flex: 0 0 auto;
   margin-top: 0 !important;
+}
+
+/* These sit right after the Arpeggio checkbox, which has its own margin-top
+   zeroed out above - without a matching nudge here, the fields read as
+   sitting a little higher than the checkbox's own label/input baseline. */
+.soundfx-arpeggio-field {
+  margin-top: 4px;
 }
 
 .add-soundfx-buttom {
