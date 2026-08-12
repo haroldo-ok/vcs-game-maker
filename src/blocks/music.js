@@ -57,6 +57,14 @@ export const DEFAULT_SONGS = {
       id: 1,
       name: 'Song 1',
       tempo: DEFAULT_TEMPO,
+      // Whether the Music tab's own song-level preview playback (Play on
+      // the song card, not any pattern's own preview - see pattern.loop
+      // below and handlePlaySong/playSequence) repeats the whole sequence
+      // once it reaches the end, instead of stopping there. A Music-tab-only
+      // preview convenience, like pattern.loop - has no bearing on the
+      // compiled ROM, which has its own separate Loop checkbox on the "Play
+      // song" block itself (see music_play_song in this same file).
+      loop: false,
       patterns: [
         {
           id: 1,
@@ -122,6 +130,12 @@ export const processSongsStorageDefaults = (songsStorage) => {
   songs.songs.forEach((song) => {
     if (song.tempo == null) {
       song.tempo = DEFAULT_TEMPO;
+    }
+    // A song saved before this field existed had no way to loop its own
+    // preview playback at all, so it always behaved like "off" - default it
+    // to staying that way (see the field's own comment in DEFAULT_SONGS).
+    if (typeof song.loop !== 'boolean') {
+      song.loop = false;
     }
     (song.patterns || []).forEach((pattern) => {
       if (pattern.tempo == null) {

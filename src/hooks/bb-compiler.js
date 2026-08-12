@@ -45,18 +45,26 @@ const buildTree = (files) => {
 
 // Runs a WASI "command" module to completion. `preopens` maps a preopen name
 // (e.g. "." or "/bbinc") to a flat {relativePath: contentString} map.
-// Returns {exitCode, stdout, stderr, dirs, rawFiles} - `dirs` mirrors every
-// preopen's final text contents (for chaining into the next stage, matching
-// how the real CLI pipeline shares one physical directory across all four
-// tool invocations), `rawFiles` gives the same content as raw bytes (needed
-// for main.bin, which isn't valid UTF-8).
-const runWasi = async (wasmPath, args, stdinText, preopens) => {
+// `log`, if given, is called once with the equivalent CLI invocation right
+// before it runs - lets the caller (hooks/rom.js's buildRom()) surface the
+// real batari Basic toolchain commands live in the error console, the same
+// way running the actual CLI locally would show them.
+// Returns {exitCode, stdout, stderr, dirs, rawFiles, elapsedMs} - `dirs`
+// mirrors every preopen's final text contents (for chaining into the next
+// stage, matching how the real CLI pipeline shares one physical directory
+// across all four tool invocations), `rawFiles` gives the same content as
+// raw bytes (needed for main.bin, which isn't valid UTF-8), `elapsedMs` is
+// how long the wasm module itself took to run (excludes fetchWasm - cached
+// after the first call anyway, see wasmCache above).
+const runWasi = async (wasmPath, args, stdinText, preopens, log) => {
   // The shim passes `args` straight through as argv with no synthesized
   // argv[0] - these are clang/wasi-sdk C binaries expecting a real program
   // name in argv[0] (argument parsing starts at argv[1]), so omitting it
   // silently shifts every flag out of place (e.g. "-i" lands in the
   // program-name slot and is never seen as a flag at all).
   const argv = ['program', ...(args || [])];
+  const commandName = wasmPath.split('/').pop().replace(/\.wasm$/, '');
+  if (log) log(`$ ${[commandName, ...(args || [])].join(' ')}`.trim());
   const mod = await fetchWasm(wasmPath);
   const stdoutBytes = [];
   const stderrBytes = [];
@@ -89,11 +97,13 @@ const runWasi = async (wasmPath, args, stdinText, preopens) => {
   const wasi = new WASI(argv, [], fds);
   const inst = await WebAssembly.instantiate(mod, {wasi_snapshot_preview1: wasi.wasiImport});
   let exitCode = 0;
+  const startedAt = performance.now();
   try {
     exitCode = wasi.start(inst);
   } catch (e) {
     exitCode = (e && e.code !== undefined) ? e.code : -1;
   }
+  const elapsedMs = performance.now() - startedAt;
   const stdout = new TextDecoder().decode(new Uint8Array(stdoutBytes));
   const stderr = new TextDecoder().decode(new Uint8Array(stderrBytes));
 
@@ -115,7 +125,7 @@ const runWasi = async (wasmPath, args, stdinText, preopens) => {
     collect(dir, '');
   });
 
-  return {exitCode, stdout, stderr, dirs, rawFiles};
+  return {exitCode, stdout, stderr, dirs, rawFiles, elapsedMs};
 };
 
 // Matches the real toolchain's own "(N) message" diagnostic format (used by
@@ -153,12 +163,13 @@ const prepareException = (mainMessage, errors, joinedOverride) => {
   return err;
 };
 
-export const preprocessBatariBasic = async (code) => {
-  const r = await runWasi('bb19/preprocess.wasm', [], code, {});
+export const preprocessBatariBasic = async (code, log) => {
+  const r = await runWasi('bb19/preprocess.wasm', [], code, {}, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while preprocessing.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
   }
+  if (log) log(`Preprocessing took ${Math.round(r.elapsedMs)}ms.`);
   return r.stdout;
 };
 
@@ -175,20 +186,21 @@ const getIncludesManifest = () => {
 // disk next to a .bas file - so a "inline text12a.asm" style directive (or
 // the extended score_graphics.asm swap) resolves the same way it would for a
 // real local compile.
-const compile = async (preprocessedCode, siblingFiles) => {
+const compile = async (preprocessedCode, siblingFiles, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi('bb19/2600basic.wasm', ['-i', '/bbinc'], preprocessedCode, {
     '.': {...(siblingFiles || {})},
     '/bbinc': includes,
-  });
+  }, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while compiling.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
   }
-  return {bBAsm: r.stdout, workDir: r.dirs['.']};
+  if (log) log(`2600basic took ${Math.round(r.elapsedMs)}ms.`);
+  return {bBAsm: r.stdout, workDir: r.dirs['.'], elapsedMs: r.elapsedMs};
 };
 
-const postprocess = async (bBAsmContent, workDir) => {
+const postprocess = async (bBAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   // 2600basic.sh writes 2600basic.wasm's stdout to a "bB.asm" *file* rather
   // than piping it - postprocess.wasm then opens "bB.asm" by name from ".",
@@ -196,15 +208,16 @@ const postprocess = async (bBAsmContent, workDir) => {
   const r = await runWasi('bb19/postprocess.wasm', ['-i', '/bbinc'], '', {
     '.': {...workDir, 'bB.asm': bBAsmContent},
     '/bbinc': includes,
-  });
+  }, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while generating assembly.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
   }
-  return {mainAsm: r.stdout, workDir: r.dirs['.']};
+  if (log) log(`postprocess took ${Math.round(r.elapsedMs)}ms.`);
+  return {mainAsm: r.stdout, workDir: r.dirs['.'], elapsedMs: r.elapsedMs};
 };
 
-const assemble = async (mainAsmContent, workDir) => {
+const assemble = async (mainAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
       'bb19/dasm.wasm',
@@ -214,6 +227,7 @@ const assemble = async (mainAsmContent, workDir) => {
         '.': {...workDir, 'main.asm': mainAsmContent},
         '/bbinc': includes,
       },
+      log,
   );
   const output = r.rawFiles['./main.bin'];
   const symText = r.dirs['.']['main.sym'];
@@ -271,6 +285,7 @@ const assemble = async (mainAsmContent, workDir) => {
     const toks = line.trim().split(/\s+/);
     if (toks.length >= 2 && !toks[0].startsWith('-')) symbolmap[toks[0]] = parseInt(toks[1], 16);
   });
+  if (log) log(`Assembling took ${Math.round(r.elapsedMs)}ms.`);
   return {output, symbolmap};
 };
 
@@ -285,11 +300,15 @@ const assemble = async (mainAsmContent, workDir) => {
  * score_graphics.asm).
  * @param {string} preprocessedCode
  * @param {!Object<string, string>} siblingFiles
+ * @param {function(string)=} log Called with each underlying tool's own CLI
+ *   invocation, and this stage's total elapsed time once both tools finish.
  * @return {!Promise<{mainAsm: string, workDir: !Object<string, string>}>}
  */
-export const compileBatariBasicToAsm = async (preprocessedCode, siblingFiles) => {
-  const compiled = await compile(preprocessedCode, siblingFiles);
-  return postprocess(compiled.bBAsm, compiled.workDir);
+export const compileBatariBasicToAsm = async (preprocessedCode, siblingFiles, log) => {
+  const compiled = await compile(preprocessedCode, siblingFiles, log);
+  const result = await postprocess(compiled.bBAsm, compiled.workDir, log);
+  if (log) log(`Compiling took ${Math.round(compiled.elapsedMs + result.elapsedMs)}ms.`);
+  return result;
 };
 
 /**
@@ -297,6 +316,8 @@ export const compileBatariBasicToAsm = async (preprocessedCode, siblingFiles) =>
  * binary.
  * @param {string} mainAsm
  * @param {!Object<string, string>} workDir
+ * @param {function(string)=} log Called with the underlying tool's own CLI
+ *   invocation, and this stage's elapsed time once it finishes.
  * @return {!Promise<{output: !Uint8Array, symbolmap: !Object<string, number>}>}
  */
-export const assembleBatariBasic = (mainAsm, workDir) => assemble(mainAsm, workDir);
+export const assembleBatariBasic = (mainAsm, workDir, log) => assemble(mainAsm, workDir, log);

@@ -27,9 +27,15 @@
               <v-card
                 outlined
                 class="text-card"
-                v-bind="dragAttrs(index)"
-                v-on="dragListeners(index)"
+                :class="dragCardClass(index)"
+                v-on="dragTargetListeners(index)"
               >
+                <div
+                  class="text-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-btn
                   :title="isCollapsed(entry) ? 'Expand this message' : 'Collapse this message'"
                   icon
@@ -209,7 +215,7 @@ export default defineComponent({
     // getItems/setItems both go through the SAME state.value.textStrings/
     // handleChildChange path every other mutation here already uses, so a
     // drop is persisted and re-rendered exactly like an add/delete.
-    const {dragAttrs, dragListeners} = useDragReorder(
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
         () => state.value.textStrings,
         (items) => {
           state.value.textStrings = items;
@@ -248,7 +254,8 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
-      isCollapsed, toggleCollapsed, textBkColor, dragAttrs, dragListeners,
+      isCollapsed, toggleCollapsed, textBkColor,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
 });
@@ -285,6 +292,20 @@ export default defineComponent({
   position: relative;
   width: 100%;
   max-width: 640px;
+}
+
+/* Only this top strip is actually draggable (see hooks/drag-reorder.js's
+   own comment on why) - covers the same header band the collapse/ID/delete
+   controls already occupy. Sits behind them (they're later in DOM order,
+   so they paint on top and stay clickable) but in front of everything
+   else, so a click-and-drag gesture anywhere else in the card - the name/
+   text fields especially - still selects text instead of starting a drag. */
+.text-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
   cursor: grab;
 }
 

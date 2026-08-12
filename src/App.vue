@@ -76,7 +76,9 @@
       v-model="drawer"
       app
       width="200"
+      class="nav-drawer"
     >
+      <div class="nav-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
       <v-sheet
         color="grey lighten-5"
         height="128"
@@ -243,7 +245,7 @@
           </v-list-item-content>
         </v-list-item>
       </v-list>
-
+      </div>
     </v-navigation-drawer>
 
     <v-navigation-drawer
@@ -259,44 +261,51 @@
         title="Drag to resize the emulator"
         @mousedown.prevent="startResize"
       ></div>
-      <v-btn
-        block
-        small
-        text
-        class="emulator-refresh-button"
-        title="Reload the page to fix the emulator preview if it has disappeared - you'll need to click Update ROM again afterward"
-        @click="handleRefreshEmulator"
-      >
-        <v-icon left small>mdi-refresh</v-icon>
-        Refresh emulator
-      </v-btn>
-      <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
-      <v-btn
-        block
-        class="mt-2"
-        :color="romOutdated ? 'warning' : 'primary'"
-        :loading="building"
-        @click="handleRomUpdate"
-      >
-        {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
-      </v-btn>
-      <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
-        Get generated ROM
-      </v-btn>
-      <div
-        v-if="romCapacityText"
-        class="rom-capacity"
-        :class="romCapacityLow ? 'rom-capacity-low' : ''"
-      >
-        {{ romCapacityText }}
-      </div>
-      <pre v-if="romCapacityDetail" class="rom-capacity-detail" v-text="romCapacityDetail"></pre>
-      <div
-        v-if="autoRelocatedEventsText"
-        class="rom-capacity"
-        title="This project's code didn't fit in bank 1, so these were automatically moved to another bank to make room."
-      >
-        {{ autoRelocatedEventsText }}
+      <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
+        <v-btn
+          block
+          small
+          text
+          class="emulator-refresh-button"
+          title="Reload the page to fix the emulator preview if it has disappeared - you'll need to click Update ROM again afterward"
+          @click="handleRefreshEmulator"
+        >
+          <v-icon left small>mdi-refresh</v-icon>
+          Refresh emulator
+        </v-btn>
+        <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
+        <v-btn
+          block
+          class="mt-2"
+          :color="romOutdated ? 'warning' : 'primary'"
+          :loading="building"
+          @click="handleRomUpdate"
+        >
+          {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
+        </v-btn>
+        <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
+          Get generated ROM
+        </v-btn>
+        <div
+          v-if="romCapacityText"
+          class="rom-capacity"
+          :class="romCapacityLow ? 'rom-capacity-low' : ''"
+        >
+          {{ romCapacityText }}
+        </div>
+        <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
+        <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
+          <div v-for="bank in romCapacityBanks" :key="bank.number" class="rom-capacity-bank">
+            <div class="rom-capacity-bank-header">
+              <strong>Bank {{ bank.number }}:</strong> {{ bank.freeText }}
+            </div>
+            <div v-if="bank.contents.length" class="rom-capacity-bank-contents">
+              <div v-for="part in bank.contents" :key="part.label">
+                <strong>{{ part.label }}{{ part.names ? ':' : '' }}</strong> {{ part.names }}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </v-navigation-drawer>
 
@@ -310,14 +319,23 @@
         title="Drag to resize the error pane"
         @mousedown.prevent="startResizeError"
       ></div>
-      <pre v-text="errorStorage"></pre>
+      <div class="error-console-content">
+        <div
+          v-for="(entry, index) in compileLog"
+          :key="index"
+          class="compile-log-line"
+          :class="entry.level === 'error' ? 'compile-log-error' : 'compile-log-info'"
+          :style="{fontWeight: entry.level === 'stage' ? 'bold' : 'normal'}"
+        >{{ entry.text }}</div>
+        <pre v-if="errorStorage" v-text="errorStorage"></pre>
+      </div>
     </v-footer>
   </v-app>
 </template>
 
 <script>
-import {useErrorStorage} from './hooks/project';
-import {buildRom, useAutoRelocatedEvents, useRomCapacity, useRomOutdated} from './hooks/rom';
+import {useCompileLog, useErrorStorage} from './hooks/project';
+import {buildRom, useRomCapacity, useRomOutdated} from './hooks/rom';
 import {productName, version} from '../package.json';
 
 // Below this fraction of the bank's usable space remaining, the capacity
@@ -374,8 +392,8 @@ export default {
     const errorStorage = useErrorStorage();
     console.info('Text', version);
     return {
-      errorStorage, romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      autoRelocatedEvents: useAutoRelocatedEvents(), productName, version,
+      errorStorage, compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
+      productName, version,
     };
   },
   mounted() {
@@ -414,45 +432,42 @@ export default {
       if (!capacity) return '';
       return `${capacity.total.freeBytes.toLocaleString()} bytes free`;
     },
-    // Plain, always-visible, selectable text (see the <pre> right under the
-    // "bytes free" line in the template) rather than a native title="..."
-    // tooltip - a browser tooltip can't be selected/copied at all, which
-    // defeats the whole point of this existing specifically to be pasted
-    // into a bug report or back into this conversation.
-    romCapacityDetail() {
+    // Plain, always-visible, selectable text (see the summary/per-bank
+    // blocks right under the "bytes free" line in the template) rather than
+    // a native title="..." tooltip - a browser tooltip can't be
+    // selected/copied at all, which defeats the whole point of this existing
+    // specifically to be pasted into a bug report or back into this
+    // conversation.
+    romCapacitySummary() {
       const capacity = this.romCapacity;
       if (!capacity) return '';
       const totalUsed = capacity.total.usableBytes - capacity.total.freeBytes;
       const bank1Used = capacity.bank1.usableBytes - capacity.bank1.freeBytes;
-      const summary = `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
+      return `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
         `across every bank (bank 1, which always holds your main code, is ` +
         `${bank1Used.toLocaleString()} of ${capacity.bank1.usableBytes.toLocaleString()} used)`;
-      // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
-      // total above averages over every bank, which can look like there's
-      // plenty of room even when a SPECIFIC bank (the one a new relocated
-      // unit would actually need to land in) has almost none left.
-      if (!capacity.perBank || !capacity.perBank.length) return summary;
-      const perBankText = capacity.perBank
-          .map((bank, i) => `bank ${i + 1}: ${bank.freeBytes.toLocaleString()} free`)
-          .join('\n');
-      return `${summary}\n${perBankText}`;
+    },
+    // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
+    // summary above averages over every bank, which can look like there's
+    // plenty of room even when a SPECIFIC bank (the one a new relocated unit
+    // would actually need to land in) has almost none left. Each bank's own
+    // contents (see hooks/rom.js's computeBankContents) are rendered right
+    // under its own "free" line - covers every bank, not just ones something
+    // got relocated INTO this build (the old autoRelocatedEventsText this
+    // replaced only ever showed those).
+    romCapacityBanks() {
+      const capacity = this.romCapacity;
+      if (!capacity || !capacity.perBank || !capacity.perBank.length) return [];
+      return capacity.perBank.map((bank, i) => ({
+        number: i + 1,
+        freeText: `${bank.freeBytes.toLocaleString()} free`,
+        contents: this.bankContentsParts(i + 1),
+      }));
     },
     romCapacityLow() {
       const capacity = this.romCapacity;
       if (!capacity || !capacity.bank1.usableBytes) return false;
       return capacity.bank1.freeBytes / capacity.bank1.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
-    },
-    autoRelocatedEventsText() {
-      const events = this.autoRelocatedEvents;
-      if (!events || !events.length) return '';
-      const byBank = {};
-      events.forEach(({name, bank}) => {
-        (byBank[bank] || (byBank[bank] = [])).push(name);
-      });
-      return Object.keys(byBank)
-          .sort((a, b) => a - b)
-          .map((bank) => `Bank ${bank}: ${byBank[bank].join(', ')}`)
-          .join(' | ');
     },
   },
   watch: {
@@ -462,6 +477,31 @@ export default {
     },
   },
   methods: {
+    // Formats one bank's own contents (see hooks/rom.js's computeBankContents)
+    // as a list of {label, names} entries for romCapacityBanks's own per-bank
+    // entry - one entry per kind present (rather than one long comma-separated
+    // line) so a bank holding several different kinds of content stays
+    // scannable, and an empty array for a bank with nothing in it. Kept
+    // structured (not pre-joined into one string) so the template can bold
+    // just the label - see .rom-capacity-bank-contents in the template.
+    bankContentsParts(bankNumber) {
+      const contents = this.romCapacity && this.romCapacity.bankContents && this.romCapacity.bankContents[bankNumber];
+      if (!contents) return [];
+      const groups = [
+        ['Events', contents.events],
+        ['Backgrounds', contents.backgrounds],
+        ['Player 0', contents.player0Sprites],
+        ['Player 1', contents.player1Sprites],
+        ['Music', contents.music],
+        ['Subroutines', contents.subroutines],
+        ['Data tables', contents.dataTables],
+      ];
+      const parts = groups
+          .filter(([, names]) => names.length)
+          .map(([label, names]) => ({label, names: names.join(', ')}));
+      if (contents.textMinikernel) parts.push({label: 'Text Minikernel', names: ''});
+      return parts;
+    },
     // Javatari's own size is whatever it chose at startup, so scale it to the
     // column by measuring both. offsetWidth/offsetHeight are layout sizes and
     // so are unaffected by the transform already applied.
@@ -778,6 +818,7 @@ export default {
   transform-origin: top left;
 }
 
+
 /* App-wide: no drop shadow on any button or switch toggle - flat, matching
    the outlined-card style used elsewhere, instead of Vuetify's default
    elevated look. Global (not scoped) so it reaches every view/component's
@@ -854,6 +895,36 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .emulator-refresh-button {
   margin-bottom: 4px;
+}
+
+/* Flex column so .rom-capacity-detail (the last child) can grow to fill
+   whatever vertical space the emulator/buttons/summary line above it don't
+   use, instead of sizing to its own content and leaving dead space below.
+   box-sizing: border-box makes the padding-bottom below (which reserves room
+   for the error console footer, which overlaps the bottom of this drawer
+   since it isn't an "app" element Vuetify reserves layout space for) count
+   against this 100% height, instead of being added on top of it - otherwise
+   the flex children size themselves as if the footer weren't there, and
+   .rom-capacity-detail's own scrollbar never kicks in until content is
+   pushed further down than the footer already covers. */
+.emulator-drawer-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* Same reasoning as .emulator-drawer-inner above: the error console footer
+   overlaps the bottom of this drawer too (it isn't an "app" element Vuetify
+   reserves layout space for), so a plain height: 100% scroll area would let
+   the last couple of tabs end up hidden behind it. box-sizing: border-box
+   makes the reactive padding-bottom count against the 100% height instead of
+   adding to it, so the scrollbar appears in time to reach everything above
+   the footer. */
+.nav-drawer-inner {
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .v-list-item__icon {
@@ -945,11 +1016,22 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(39, 136, 176) !important;
 }
 
+/* Vuetify's "block" prop sets flex: 1 0 auto on a v-btn (so a full-width
+   button behaves inside a flex row) - inside .emulator-drawer-inner's flex
+   COLUMN that instead makes every block button grow to fill the leftover
+   vertical space whenever .rom-capacity-detail isn't rendered yet (no ROM
+   built yet), stretching them tall. Buttons should only ever size to their
+   own content here. */
+.emulator-drawer-inner .v-btn {
+  flex: 0 0 auto !important;
+}
+
 .rom-capacity {
   text-align: center;
   font-size: 0.8em;
   opacity: 0.7;
   margin-top: 6px;
+  padding: 0 8px;
 }
 
 .rom-capacity-low {
@@ -958,24 +1040,95 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   font-weight: bold;
 }
 
-.rom-capacity-detail {
-  font-family: inherit;
+.rom-capacity-summary {
   font-size: 0.75em;
   opacity: 0.6;
-  text-align: center;
-  white-space: pre-wrap;
+  text-align: left;
   margin: 2px 0 0;
+  padding: 0 8px;
   user-select: text;
+}
+
+/* flex: 1 (with the drawer content column below) lets this grow to fill
+   whatever room is left under the emulator/buttons/summary line instead of
+   staying a fixed height, with its own scrollbar (min-height: 0 is required
+   for a flex child to be allowed to shrink below its content size and
+   actually scroll instead of overflowing the drawer). */
+.rom-capacity-detail {
+  font-size: 0.75em;
+  opacity: 0.6;
+  text-align: left;
+  margin: 6px 0 0;
+  padding: 0 8px;
+  user-select: text;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.rom-capacity-bank {
+  margin-bottom: 6px;
+}
+
+.rom-capacity-bank-header {
+  white-space: pre-wrap;
+}
+
+.rom-capacity-bank-contents {
+  padding-left: 1em;
+  opacity: 0.85;
+}
+
+.rom-capacity-bank-contents > div {
+  white-space: pre-wrap;
 }
 
 .error-message {
   position: relative;
   z-index: 10;
   overflow-y: scroll;
+  /* Vuetify's own v-footer default is align-items: center, which vertically
+     centers .error-console-content as a whole inside the footer instead of
+     pinning it to the top - barely noticeable with only a line or two of
+     text, but left the growing live compile log visibly floating in the
+     middle of the pane once there was enough of it to matter. */
+  align-items: flex-start;
 }
 
 .theme--light.v-footer.error-message {
   color: rgb(244, 67, 54);
+}
+
+/* v-footer's own default is a row-direction flex container (fine for a
+   single <pre>, wrong once this holds many stacked lines) - column instead,
+   with no gap of its own, so spacing between lines comes only from
+   .compile-log-line's own tight line-height below. */
+.error-console-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding-top: 8px;
+}
+
+/* Live progress feed for the build pipeline (see hooks/rom.js's buildRom())
+   - overrides the footer's own blanket red (meant for errorStorage's actual
+   error banner just below it) back to ordinary text color for anything that
+   isn't itself an error-level entry. margin: 0 and a tight line-height keep
+   many lines from spreading out - the default paragraph-like spacing looked
+   like a blank line between every single message. */
+.compile-log-line {
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.compile-log-info {
+  color: rgba(0, 0, 0, 0.87);
+}
+
+.compile-log-error {
+  color: rgb(244, 67, 54);
+  font-weight: bold;
 }
 
 .error-resize-handle {

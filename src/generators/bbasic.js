@@ -742,6 +742,15 @@ Blockly.BBasic.trackDataTableBank = function(tableId, bank) {
   usage.add(bank);
 };
 
+// Read-only view of the same per-table bank usage generateDataTables() reads
+// - for the ROM capacity display's own bank-contents listing (see
+// hooks/rom.js's computeBankContents), which needs to know where each table
+// actually landed without duplicating generateDataTables' own filtering
+// logic.
+Blockly.BBasic.getDataTableBankUsage = function() {
+  return Blockly.BBasic.dataTableBankUsage;
+};
+
 // Fixed knowledge about how each of these five events is entered/exited in
 // the default, fully-inline template, needed to convert a physical
 // fallthrough into an explicit bank-tagged jump once relocation moves an
@@ -937,6 +946,12 @@ Blockly.BBasic.finish = function(code) {
   const generatedRomSize = Blockly.BBasic.generateRomSize();
   const generatedSystemDims = Blockly.BBasic.generateSystemDims();
   const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
+  // Has to run after generateBackgrounds() (needs relocatableGraphicsUnits
+  // populated with this build's own resolved background banks) and before
+  // every generateDataTables() call below (bank 1's here, and each relocated
+  // bank's own call inside generateRelocatedSections) - it works by injecting
+  // extra trackDataTableBank entries those calls read from.
+  Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
   const generatedSubroutines = Blockly.BBasic.generateSubroutines();
@@ -958,10 +973,10 @@ Blockly.BBasic.finish = function(code) {
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
   const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
   // Also has to run before generateRelocatedSections() below: it registers
-  // its own "musicUpdate" unit into relocatableGraphicsUnits (see its own
+  // its own "musicEngine" unit into relocatableGraphicsUnits (see its own
   // comment, right where it calls wrapRelocatableGraphics), which that call
   // needs to already be there to actually place it in a relocated bank's
-  // own section - running it any later would silently leave "musicUpdate"
+  // own section - running it any later would silently leave "musicEngine"
   // registered but never actually emitted anywhere.
   const generatedMusicChecks = Blockly.BBasic.generateMusicChecks();
   const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
@@ -1574,6 +1589,32 @@ Blockly.BBasic.getDataTablesData = function() {
   }
 };
 
+// Lets a data table double as a background's own level data: a table whose
+// name (trimmed) exactly matches a background's own name is forced into
+// that background's CURRENT bank (see graphicsUnitBank - reflects this
+// build's own relocation decisions, same as every other bank-switching
+// lookup here), by injecting the same trackDataTableBank entry a
+// data_get_element read from that bank would produce. Once dataTableBankUsage
+// has ANY entry for a table, generateDataTables' own "nothing ever read this,
+// default it to bank 1" fallback no longer applies (see its own comment) - so
+// a table linked only to a relocated background's bank is emitted exclusively
+// there, not also duplicated into bank 1, matching "always the same bank as
+// the background" rather than "also always in bank 1".
+Blockly.BBasic.linkDataTablesToBackgrounds = function() {
+  const backgroundData = this.getBackgroundsData();
+  const backgrounds = (backgroundData && backgroundData.backgrounds) || [];
+  const dataTablesData = Blockly.BBasic.getDataTablesData();
+  const dataTables = (dataTablesData && dataTablesData.dataTables) || [];
+  dataTables.forEach((table) => {
+    const tableName = (table.name || '').trim();
+    if (!tableName) return;
+    const background = backgrounds.find((bg) => (bg.name || '').trim() === tableName);
+    if (!background) return;
+    const bank = Blockly.BBasic.graphicsUnitBank(`background${background.id}`);
+    Blockly.BBasic.trackDataTableBank(table.id, bank);
+  });
+};
+
 // batari Basic's "data" statement declares a read-only ROM table, not
 // executable code - unlike playfield/pfcolors blocks, which are only safe
 // because generateBackgrounds() guards them with a runtime "goto" so they're
@@ -1653,9 +1694,9 @@ Blockly.BBasic.generateAnimations = function() {
   Blockly.BBasic.playerAnimAsmFiles = {};
 
   // TEMPORARY DIAGNOSTIC SWAP: restored to the pre-table-driven original
-  // implementation, to test whether the still-failing "musicUpdate can't
+  // implementation, to test whether the still-failing "musicEngine can't
   // find room anywhere" build error is actually caused by this animation
-  // work at all, or is fully independent of it (musicUpdate/Superchip).
+  // work at all, or is fully independent of it (musicEngine/Superchip).
   // Real implementation preserved in git history / the conversation - to
   // be restored right after this test.
   const processAnimation = (name, animation, animationIndex) => {

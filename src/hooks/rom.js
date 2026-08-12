@@ -8,20 +8,23 @@ import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} fro
 
 import '../blocks';
 import BlocklyBB, {RELOCATABLE_EVENT_NAMES} from '../generators/bbasic';
+import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../generators/bbasic/text-minikernel-files';
+import {processBackgroundStorageDefaults} from '../blocks/background';
+import {findSongById} from '../blocks/music';
 import {buildScoreFontOverride, SQUISH_SCORE_FONT} from '../utils/score-font';
 import {showError} from '../utils/build-error';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
-import {useConfigurationStorage, useErrorStorage, useWorkspaceStorage} from './project';
+import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
+  usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank} from './relocation-banks';
-import {setAutoRelocatedEvents, useAutoRelocatedEvents} from './relocated-events';
 import {markRomUpToDate, markRomOutdated, useRomOutdated} from './rom-status';
 import {setRomCapacity, useRomCapacity} from './rom-capacity';
 
 Vue.use(VueCompositionApi);
 
-export {markRomOutdated, useRomOutdated, useRomCapacity, useAutoRelocatedEvents};
+export {markRomOutdated, useRomOutdated, useRomCapacity};
 
 const EMPTY_WORKSPACE = '<xml xmlns="https://developers.google.com/blockly/xml"/>';
 
@@ -92,6 +95,144 @@ const isOverflowError = (e) => /segment overflow|origin reverse-indexed/i.test((
 // number is used (confirmed for bank 2 directly against the compiler and
 // the emulator - see the bank-targeting feasibility notes).
 export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
+
+// Graphics unit keys (see wrapRelocatableGraphics in generators/bbasic.js)
+// are generated, code-facing identifiers ("background3", "player0default",
+// "player1animation2"), not anything a user would recognize - this resolves
+// one back to whatever the user actually named it (a background's own name,
+// or an animation's own name), for the ROM capacity display's bank-contents
+// listing only. No player number in the returned label itself - the caller
+// already splits player0/player1 into their own separate lists (see
+// computeBankContents below), so repeating it per-entry would be redundant.
+// Falls back to the raw unit key if the name can't be resolved (e.g. the
+// background/animation was since deleted but a stale relocation decision
+// still references it - shouldn't happen in practice, since banks are
+// re-derived fresh every build, but cheap to guard against).
+const BACKGROUND_UNIT_RE = /^background(\d+)$/;
+const PLAYER_ANIMATION_UNIT_RE = /^(player[01])animation(\d+)$/;
+const PLAYER_DEFAULT_UNIT_RE = /^(player[01])default$/;
+const PLAYER_STORAGE_FACTORIES = {player0: usePlayer0Storage, player1: usePlayer1Storage};
+const resolveGraphicsUnitLabel = (unitKey) => {
+  const backgroundMatch = BACKGROUND_UNIT_RE.exec(unitKey);
+  if (backgroundMatch) {
+    try {
+      const {backgrounds} = processBackgroundStorageDefaults(useBackgroundsStorage());
+      const background = backgrounds.find((bg) => `${bg.id}` === backgroundMatch[1]);
+      if (background) return background.name || `Background ${backgroundMatch[1]}`;
+    } catch (e) {
+      console.error('Failed to resolve background name', e);
+    }
+    return unitKey;
+  }
+  const animationMatch = PLAYER_ANIMATION_UNIT_RE.exec(unitKey);
+  if (animationMatch) {
+    const [, player, index] = animationMatch;
+    try {
+      const data = processPlayerStorageDefaults(PLAYER_STORAGE_FACTORIES[player]());
+      const animation = data.animations[Number(index)];
+      return (animation && animation.name) || `Unnamed ${Number(index) + 1}`;
+    } catch (e) {
+      console.error('Failed to resolve animation name', e);
+    }
+    return unitKey;
+  }
+  const defaultMatch = PLAYER_DEFAULT_UNIT_RE.exec(unitKey);
+  if (defaultMatch) return 'Default frame';
+  return unitKey;
+};
+
+// Every song/pattern actually included in this build is baked directly into
+// the single "musicEngine" relocatable unit's own payload (see
+// wrapRelocatableMusic's call site in generators/bbasic/music.js) rather
+// than tracked as its own relocatable unit or data table - there's no such
+// thing as "this song is in bank 3 but that one is in bank 5", every song
+// and pattern always shares musicEngine's one bank. This expands that single
+// "musicEngine" entry into the actual song names (with each song's own
+// pattern count) it contains, for the ROM capacity display's bank-contents
+// listing, rather than literally showing the code-facing "musicEngine" name.
+const resolveMusicSongLabels = () => {
+  const music = BlocklyBB.projectMusic;
+  if (!music || !music.songs || !music.songs.length) return [];
+  return music.songs.map(({songId}) => {
+    const song = findSongById(songId);
+    const name = (song && song.name) || `Song ${songId}`;
+    const patternCount = song ? (song.patterns || []).length : 0;
+    return patternCount ? `${name} (${patternCount} pattern${patternCount === 1 ? '' : 's'})` : name;
+  });
+};
+
+// Every graphics/event/music/subroutine unit's own current bank, grouped by
+// bank instead of by unit (the shape getRelocationBanks/pickRelocationCandidate
+// use) - built fresh after a successful build for the ROM capacity display,
+// which wants "what's actually in bank N" for every bank, not just the ones
+// something got reactively relocated INTO (getRelocationBanks' own maps only
+// ever have entries for units that left bank 1 at all - a unit still sitting
+// at its default only shows up here, in whichever bank's own list it falls
+// into). BANK_COUNT_BY_ROMSIZE doubles as the Text Minikernel's own reserved
+// bank number too (see KERNEL_BANK_BY_ROMSIZE's identical values and
+// duplicated-on-purpose comment in generators/bbasic/text-minikernel.js) -
+// always the single highest-numbered bank for the ROM's size.
+const computeBankContents = (maxBanks) => {
+  const banks = getRelocationBanks();
+  const contents = {};
+  for (let bank = 1; bank <= maxBanks; bank++) {
+    contents[bank] = {
+      events: [], backgrounds: [], player0Sprites: [], player1Sprites: [], music: [], subroutines: [],
+      dataTables: [], textMinikernel: false,
+    };
+  }
+  const place = (list, names, bankMap, labelFn) => {
+    names.forEach((name) => {
+      const bank = bankMap[name] || 1;
+      if (contents[bank]) contents[bank][list].push(labelFn ? labelFn(name) : name);
+    });
+  };
+  place('events', RELOCATABLE_EVENT_NAMES, banks.eventBanks || {});
+  // Split by unit key shape (see resolveGraphicsUnitLabel's own regexes just
+  // above) rather than lumping every graphics unit into one list - a
+  // background and a player's own sprite frame/animation are different
+  // enough kinds of content that a shared "Graphics" label was more
+  // confusing than useful once a bank actually held both at once, and the
+  // two players' sprites are kept in their own separate lists too rather
+  // than sharing one (with a player number on each entry) for the same
+  // reason.
+  const graphicsKeys = BlocklyBB.getGraphicsUnitKeys();
+  place('backgrounds', graphicsKeys.filter((key) => BACKGROUND_UNIT_RE.test(key)),
+      banks.graphicsBanks || {}, resolveGraphicsUnitLabel);
+  place('player0Sprites', graphicsKeys.filter((key) => key.startsWith('player0')),
+      banks.graphicsBanks || {}, resolveGraphicsUnitLabel);
+  place('player1Sprites', graphicsKeys.filter((key) => key.startsWith('player1')),
+      banks.graphicsBanks || {}, resolveGraphicsUnitLabel);
+  BlocklyBB.getMusicUnitKeys().forEach((unitKey) => {
+    const bank = (banks.musicBanks || {})[unitKey] || 1;
+    if (!contents[bank]) return;
+    const labels = unitKey === 'musicEngine' ? resolveMusicSongLabels() : [];
+    contents[bank].music.push(...(labels.length ? labels : [unitKey]));
+  });
+  place('subroutines', BlocklyBB.getSubroutineNames(), banks.subroutineBanks || {});
+  // Each table's own bank usage (see trackDataTableBank/generateDataTables in
+  // generators/bbasic.js) - a table can end up with a physical copy in
+  // several banks at once (every bank it's actually read from), unlike the
+  // other kinds above which only ever live in one, so this pushes into
+  // every bank it has a copy in rather than just one. A table nothing ever
+  // read (no usage entry at all) still gets an implicit bank 1 copy,
+  // matching generateDataTables' own fallback.
+  const dataTablesData = BlocklyBB.getDataTablesData();
+  const dataTableUsage = BlocklyBB.getDataTableBankUsage();
+  ((dataTablesData && dataTablesData.dataTables) || [])
+      .filter((table) => table.values && table.values.length)
+      .forEach((table) => {
+        const usage = dataTableUsage[table.id];
+        const tableBanks = usage && usage.size ? [...usage] : [1];
+        tableBanks.forEach((bank) => {
+          if (contents[bank]) contents[bank].dataTables.push(table.name || `Unnamed ${table.id}`);
+        });
+      });
+  if (BlocklyBB.isTextMinikernelActive() && contents[maxBanks]) {
+    contents[maxBanks].textMinikernel = true;
+  }
+  return contents;
+};
 
 // Largest-first, across every relocatable kind: relocating the biggest
 // still-inline unit (event, graphics - a background, a player's default
@@ -243,6 +384,8 @@ export const buildRom = async () => {
   // no real cost, only the upside of every build reflecting exactly the
   // project as it stands right now.
   resetRelocationBanks();
+  clearCompileLog();
+  const buildStartedAt = performance.now();
 
   // Reverted: graphics used to also be relocated out of bank 1 PROACTIVELY
   // here, before the very first compile attempt, so a project that already
@@ -257,11 +400,14 @@ export const buildRom = async () => {
   // relocation below (only ever moves a unit once a real compile attempt
   // proves bank 1 doesn't fit as-is) for every relocatable kind alike.
   for (let attempt = 0; attempt <= MAX_RELOCATION_ATTEMPTS; attempt++) {
+    appendCompileLog(attempt === 0 ? 'Generating bBasic code...' :
+      `Attempt ${attempt + 1}: generating bBasic code...`, 'stage');
     let code;
     try {
       code = regenerateCode();
       useGeneratedBasic().value = code;
     } catch (e) {
+      appendCompileLog('Failed to generate bBasic code.', 'error');
       showError(errorStorage, 'Error while generating bBasic code', code, e);
       return false;
     }
@@ -304,17 +450,28 @@ export const buildRom = async () => {
         const scoreFontOverride = await buildScoreFontOverride(config.scoreFont);
         if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
       }
-      const preprocessed = await preprocessBatariBasic(code);
+      // Passed to every stage below so each one's own real CLI invocation
+      // (and, once it finishes, how long it took) appears live in the error
+      // console, each on its own line - matches what running the actual
+      // batari Basic toolchain locally would print.
+      const log = (text) => appendCompileLog(text);
+      appendCompileLog('Preprocessing...', 'stage');
+      const preprocessed = await preprocessBatariBasic(code, log);
+      appendCompileLog('Compiling to assembly...', 'stage');
       const compiled = patchSuperchipPfColorsPointer(
-          await compileBatariBasicToAsm(preprocessed, siblingFiles), config);
-      const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir);
+          await compileBatariBasicToAsm(preprocessed, siblingFiles, log), config);
+      appendCompileLog('Assembling ROM...', 'stage');
+      const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
 
       // TODO: Implement this without a global variable
       Javatari.compiledResult = compiledResult;
       markRomUpToDate();
-      setRomCapacity(computeRomCapacity(compiledResult));
-      setAutoRelocatedEvents(relocatedThisBuild);
+      const capacity = computeRomCapacity(compiledResult);
+      const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
+      setRomCapacity(capacity && maxBanks ? {...capacity, bankContents: computeBankContents(maxBanks)} : capacity);
+      appendCompileLog('Build succeeded.', 'stage');
+      appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
       return true;
     } catch (e) {
       lastCode = code;
@@ -444,9 +601,17 @@ export const buildRom = async () => {
         if (candidate && bank) {
           setRelocationBank(candidate.kind, candidate.name, bank);
           relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank});
+          // Not an 'error'-level entry - an overflow here is an expected,
+          // automatically-handled part of the relocation retry loop, not a
+          // real problem the user needs to act on (see isOverflowError's own
+          // comment); only a failure that survives every retry (below) is
+          // shown in red.
+          appendCompileLog(
+              `Bank overflow - relocating ${candidate.kind.replace('Banks', '')} "${candidate.name}" to bank ${bank}, retrying...`);
           continue;
         }
       }
+      appendCompileLog('Build failed.', 'error');
       // Appended so a failure can be fully diagnosed from just the copy-pasted
       // error banner text - same info someone would otherwise have to open
       // devtools and read hooks/relocation-banks.js's in-memory state to get.
@@ -491,6 +656,7 @@ export const buildRom = async () => {
       subroutines: BlocklyBB.getSubroutineNames(),
     },
   };
+  appendCompileLog('Build failed.', 'error');
   showError(errorStorage, 'Error while compiling bBasic code', lastCode,
       new Error(`${(lastFailure && lastFailure.message) || 'Ran out of relocation attempts.'}\n\n` +
         `Gave up after trying ${MAX_RELOCATION_ATTEMPTS} different bank combinations without finding one ` +

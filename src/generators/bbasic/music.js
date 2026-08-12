@@ -1073,8 +1073,8 @@ export default (Blockly) => {
       // file - an earlier version of this used a single LDA (via a real
       // sibling .asm file, the same "inline" mechanism text12a.asm/
       // text12b.asm use) covering both the paused and active bit tests, but
-      // that was only ever validated with musicUpdate staying in bank 1.
-      // Confirmed directly against a real project: once musicUpdate is
+      // that was only ever validated with musicEngine staying in bank 1.
+      // Confirmed directly against a real project: once musicEngine is
       // relocated to another bank at all (see wrapRelocatableMusic's own
       // goto-entry/return-bank1 trampoline), an "inline"-d file positioned
       // here breaks the build (DASM "Origin Reverse-indexed") even in a
@@ -1195,6 +1195,6 @@ export default (Blockly) => {
     const payload = dataTables ?
       [perChannelChecks, ` goto ${dataSkipLabel}`, dataTables, dataSkipLabel].join('\n\n') :
       perChannelChecks;
-    return this.wrapRelocatableMusic('musicUpdate', payload);
+    return this.wrapRelocatableMusic('musicEngine', payload);
   };
 };

@@ -4,9 +4,15 @@
       <v-card-title>Data</v-card-title>
       <v-card-text>
         <v-list>
-          <v-list-item class="entry-list-item" v-for="table in state.dataTables" v-bind:key="table.id">
+          <v-list-item class="entry-list-item" v-for="(table, index) in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
-              <v-card outlined class="data-card">
+              <v-card outlined class="data-card" :class="dragCardClass(index)" v-on="dragTargetListeners(index)">
+                <div
+                  class="data-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-btn
                   :title="isCollapsed(table) ? 'Expand this table' : 'Collapse this table'"
                   icon
@@ -88,11 +94,26 @@
                 </v-card-text>
 
                 <v-card-text v-if="!isCollapsed(table)" class="data-values-section">
-                  <div class="data-caption">
-                    {{ table.values.length }} / {{ maxValues }} values (0-255 each)
+                  <div class="data-caption-row">
+                    <div class="data-caption">
+                      {{ table.values.length }} / {{ maxValues }} values (0-255 each)
+                    </div>
+                    <v-text-field
+                      :value="tableColumns(table)"
+                      @input="(v) => handleColumnsInput(table, v)"
+                      @change="() => handleColumnsChange(table)"
+                      type="number"
+                      min="1"
+                      :max="maxColumns"
+                      dense
+                      hide-details
+                      label="Columns"
+                      title="How many value fields to show per row before wrapping to a new one"
+                      class="data-columns-field"
+                    />
                   </div>
 
-                  <div class="data-values">
+                  <div class="data-values" :style="{gridTemplateColumns: `repeat(${tableColumns(table)}, minmax(0, 1fr))`}">
                     <div
                       v-for="(value, index) in table.values"
                       v-bind:key="index"
@@ -158,8 +179,10 @@ import {max} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import {useDataTablesStorage} from '../hooks/project';
-import {DEFAULT_DATA_TABLES, MAX_DATA_TABLE_VALUES, processDataTablesStorageDefaults} from '../blocks/data';
+import {DEFAULT_DATA_TABLES, DEFAULT_DATA_TABLE_COLUMNS, MAX_DATA_TABLE_VALUES,
+  processDataTablesStorageDefaults} from '../blocks/data';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
 
@@ -167,6 +190,11 @@ import {openFileDialog} from '../utils/file';
 // its CSV form is a single row of comma-separated integers - no header, no
 // columns, matching the table's own in-memory shape exactly.
 const valueToCsvNumber = (value) => Math.min(255, Math.max(0, Math.round(value)));
+
+// Purely a UI display cap (see table.columns/tableColumns) - past this many,
+// each value field would need to shrink well past being usably clickable to
+// keep them all fitting on screen without horizontal scrolling.
+const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
 
 export default defineComponent({
   setup() {
@@ -192,6 +220,20 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('data');
 
+    // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
+    // SoundFXEditor.vue/MusicEditor.vue's own uses of this same hook) -
+    // tables are already referenced everywhere by their own permanent id
+    // (see dataTableSymbolName/buildDataTableOptions in blocks/data.js),
+    // never by array position, so reordering the display order here is
+    // already safe.
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.dataTables,
+        (items) => {
+          state.value.dataTables = items;
+          handleChildChange();
+        },
+    );
+
     const instance = getCurrentInstance();
     const handleAddTable = () => {
       const dataTables = state.value.dataTables;
@@ -200,6 +242,7 @@ export default defineComponent({
         id: maxId + 1,
         name: `Table ${maxId + 1}`,
         values: [0],
+        columns: DEFAULT_DATA_TABLE_COLUMNS,
       };
 
       state.value.dataTables.push(newTable);
@@ -210,6 +253,38 @@ export default defineComponent({
 
     const handleDeleteTable = (table) => {
       state.value.dataTables = state.value.dataTables.filter(({id}) => id != table.id);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    // Falls back to the shared default for a table saved before this feature
+    // existed (no "columns" of its own yet) - same reasoning as
+    // buildSongOptions/DEFAULT_FADE_LENGTH elsewhere in this app.
+    const tableColumns = (table) => {
+      const value = Number(table.columns);
+      return Number.isInteger(value) && value >= 1 ? Math.min(value, MAX_DATA_TABLE_COLUMNS_DISPLAY) :
+        DEFAULT_DATA_TABLE_COLUMNS;
+    };
+
+    // Plain assignment (table.columns = ...) doesn't work for a table saved
+    // before this feature existed - Vue 2 can't detect a brand new property
+    // being added to an already-reactive object that way, so the grid's own
+    // :style binding (which reads table.columns via tableColumns above)
+    // never re-evaluates. $set (same fix every other structural change in
+    // this file already uses - see handleAddValue/handleDeleteValue/
+    // handleAddTable) plus $forceUpdate is what actually makes the change
+    // visible immediately, confirmed directly as the cause of "changing the
+    // Columns field doesn't update the table."
+    const handleColumnsInput = (table, rawValue) => {
+      instance.proxy.$set(table, 'columns', rawValue);
+      instance.proxy.$forceUpdate();
+    };
+
+    const handleColumnsChange = (table) => {
+      const value = Number(table.columns);
+      const clamped = Number.isFinite(value) && value >= 1 ?
+        Math.min(Math.round(value), MAX_DATA_TABLE_COLUMNS_DISPLAY) : DEFAULT_DATA_TABLE_COLUMNS;
+      instance.proxy.$set(table, 'columns', clamped);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -269,8 +344,11 @@ export default defineComponent({
       state, handleChildChange, handleAddTable, handleDeleteTable,
       handleAddValue, handleDeleteValue, handleValueChange,
       handleExportCsv, handleImportCsv,
+      tableColumns, handleColumnsInput, handleColumnsChange,
       isCollapsed, toggleCollapsed,
       maxValues: MAX_DATA_TABLE_VALUES,
+      maxColumns: MAX_DATA_TABLE_COLUMNS_DISPLAY,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
 });
@@ -291,10 +369,35 @@ export default defineComponent({
   padding-left: 0;
 }
 
+/* No max-width (used to cap at 640px) - a table with many columns needs the
+   full width of the data area to keep them all visible at once without
+   shrinking each one down too far (see .data-values/.data-value-field). */
 .data-card {
   position: relative;
   width: 100%;
-  max-width: 640px;
+}
+
+/* Same reasoning/placement as TextEditor.vue's .text-drag-handle (see
+   hooks/drag-reorder.js's own comment) - only this top strip is actually
+   draggable, so click-and-drag still selects text everywhere else in the
+   card. */
+.data-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  cursor: grab;
+}
+
+/* Same two classes/reasoning as hooks/drag-reorder.js's own comment and
+   TextEditor.vue's identical rules (its own first use of this hook). */
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
@@ -391,36 +494,113 @@ export default defineComponent({
   color: rgba(0, 0, 0, 0.87) !important;
 }
 
+.data-caption-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .data-caption {
   font-size: 0.8em;
   opacity: 0.7;
   margin-bottom: 8px;
 }
 
+/* How many value fields to show per row before wrapping - see tableColumns.
+   Deliberately narrow: this is a display preference, not a value itself. */
+.data-columns-field {
+  flex: 0 0 72px;
+}
+
+/* grid-template-columns is set inline per table (see tableColumns) since the
+   column count is a per-table preference, not fixed - grid wraps extra
+   values onto new rows on its own once a row's own column count is full,
+   the same way flex-wrap would, but keeps every column's own width aligned
+   across rows instead of each row sizing independently. Each column is
+   minmax(0, 1fr), not auto - auto lets a row's own natural content width
+   push the grid wider than its container (forcing horizontal scrolling once
+   there are enough columns); 1fr instead divides whatever width IS
+   available evenly and lets .data-value-row's own children (below) shrink
+   to fit, so every column - however many there are - stays visible without
+   scrolling sideways (see the card's own width, uncapped for the same
+   reason).
+   No max-height/internal scroll either (used to cap at 320px) - a table
+   with several rows should grow the card tall enough to show all of them
+   at once instead of hiding rows behind their own separate scrollbar;
+   .editor-container's own page-level scroll still applies once the whole
+   page is taller than the window.
+   Divider lines between cells are drawn without knowing the column count:
+   the grid's own background shows through a 1px gap as a line between
+   every cell, on all four sides at once, rather than needing to
+   conditionally border just the cells that aren't in the last row/column
+   (not straightforward in pure CSS when the column count itself is set via
+   an inline style, not a fixed class). */
 .data-values {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 320px;
-  overflow-y: auto;
+  display: grid;
+  column-gap: 1px;
+  row-gap: 1px;
+  background-color: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   margin-bottom: 8px;
 }
 
+/* min-width: 0 overrides flex's own default (min-width: auto), which would
+   otherwise refuse to shrink this row below its children's natural combined
+   width - exactly the overflow .data-values' own 1fr columns are trying to
+   avoid. Its own background covers the grid's own (the divider-line colour)
+   everywhere except the 1px gap between cells, which is what actually draws
+   the lines. */
 .data-value-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
+  min-width: 0;
+  background-color: white;
+  padding: 1px 2px;
 }
 
 .data-value-index {
-  flex: 0 0 48px;
+  flex: 0 0 auto;
   font-family: monospace;
+  font-size: 0.7em;
   opacity: 0.7;
   text-align: right;
 }
 
+/* 0-255 is at most 3 digits - was 100px (sized for a much longer value),
+   way more than 3 digits + Vuetify's own input padding actually need, and
+   the extra width was fighting against fitting many columns on screen at
+   once. min-width: 0 lets it shrink further still if a row ever has more
+   columns than even this minimum comfortably fits. The deep selectors below
+   strip Vuetify's own default input padding/alignment, which otherwise
+   dominates the field's width far more than the 3-digit value itself does. */
 .data-value-field {
-  flex: 0 0 100px;
+  flex: 0 0 34px;
+  min-width: 0;
+}
+
+.data-value-field >>> input {
+  padding: 0;
+  text-align: center;
+}
+
+.data-value-field >>> .v-input__slot {
+  padding: 0 2px !important;
+}
+
+/* Same size/flat treatment as .data-icon-btn-size elsewhere in this app,
+   just without that class's own hover colour override (this button's
+   default red-on-hover, from the "delete" styling below, should stay). */
+.data-value-row .v-btn.v-btn--icon {
+  min-width: 0;
+  height: 20px;
+  width: 20px;
+  flex: 0 0 auto;
+}
+
+.data-value-row .v-btn.v-btn--icon >>> .v-icon {
+  font-size: 16px !important;
 }
 
 .add-data-button {

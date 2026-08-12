@@ -12,12 +12,19 @@ const DATA_COLOR = 'rgb(121, 85, 72)';
 // mutable variable array).
 export const MAX_DATA_TABLE_VALUES = 256;
 
+// How many value fields DataEditor.vue displays per row before wrapping to a
+// new one - purely a display preference (see table.columns there), stored
+// per table so it survives a reload. Also the fallback for any table saved
+// before this feature existed, which won't have its own "columns" yet.
+export const DEFAULT_DATA_TABLE_COLUMNS = 4;
+
 export const DEFAULT_DATA_TABLES = {
   dataTables: [
     {
       id: 1,
       name: 'Example table',
       values: [0, 1, 2, 3],
+      columns: DEFAULT_DATA_TABLE_COLUMNS,
     },
   ],
 };

@@ -593,34 +593,56 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
  * own effective tempo/step count as it plays.
  * @param {Object} song The song whose sequence to play.
  * @param {Array<Object>} soundEffects Stored Sound tab presets.
- * @param {{onDone: Function, isTrackMuted: Function}} callbacks Called once
- *     playback finishes; isTrackMuted(pattern, track) skips a muted
- *     instrument's own notes entirely (see playPattern).
+ * @param {{onDone: Function, isTrackMuted: Function, loop: boolean}} callbacks
+ *     Called once playback finishes (never, if loop is set - see
+ *     song.loop's own comment in blocks/music.js); isTrackMuted(pattern,
+ *     track) skips a muted instrument's own notes entirely (see
+ *     playPattern).
  */
-export const playSequence = (song, soundEffects, {onDone, isTrackMuted} = {}) => {
+export const playSequence = (song, soundEffects, {onDone, isTrackMuted, loop} = {}) => {
   stopPatternPlayback();
   const context = getAudioContext();
-  const startTime = context.currentTime + 0.05;
 
-  let cursorSeconds = 0;
-  const timeline = [];
-  (song.sequence || []).forEach((patternId) => {
-    const pattern = song.patterns.find(({id}) => id == patternId);
-    if (!pattern) return;
-    const tempo = effectiveTempo(song, pattern);
-    const segmentStart = startTime + cursorSeconds;
-    const segmentSeconds = schedulePattern(context, pattern, soundEffects, segmentStart, tempo, isTrackMuted);
-    timeline.push({
-      patternId: pattern.id, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
-      unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
+  // Mirrors playPattern's own self-rescheduling loop (see its comment for
+  // the full reasoning) - re-scheduling the WHOLE sequence from scratch
+  // each pass, not one long upfront loop, picks up any mid-loop pattern/
+  // sequence edit on the very next pass, and scheduling the next pass a
+  // little before the current one's own end - rather than after - avoids
+  // an audible gap every repeat.
+  const LOOP_RESCHEDULE_LEAD_SECONDS = 0.2;
+  const scheduleOnce = (startTime) => {
+    let cursorSeconds = 0;
+    const timeline = [];
+    (song.sequence || []).forEach((patternId) => {
+      const pattern = song.patterns.find(({id}) => id == patternId);
+      if (!pattern) return;
+      const tempo = effectiveTempo(song, pattern);
+      const segmentStart = startTime + cursorSeconds;
+      const segmentSeconds = schedulePattern(context, pattern, soundEffects, segmentStart, tempo, isTrackMuted);
+      timeline.push({
+        patternId: pattern.id, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
+        unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
+      });
+      cursorSeconds += segmentSeconds;
     });
-    cursorSeconds += segmentSeconds;
-  });
-  playbackTimeline = timeline;
-
-  stopTimer = window.setTimeout(() => {
-    stopTimer = null;
-    activeSources = [];
-    if (onDone) onDone();
-  }, stopTimerDelayMs(context, startTime, cursorSeconds));
+    const endTime = startTime + cursorSeconds;
+    // Same "keep the previous pass' own timeline entries around a little
+    // past their own end" reasoning as playPattern's own comment - only
+    // matters once looping, since a non-looping sequence never has a
+    // "previous pass" to preserve.
+    playbackTimeline = loop ?
+      [...playbackTimeline.filter(({endTime: prevEndTime}) => prevEndTime > context.currentTime), ...timeline] :
+      timeline;
+    if (loop) {
+      const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
+      stopTimer = window.setTimeout(() => scheduleOnce(endTime), delayMs);
+    } else {
+      stopTimer = window.setTimeout(() => {
+        stopTimer = null;
+        activeSources = [];
+        if (onDone) onDone();
+      }, stopTimerDelayMs(context, startTime, cursorSeconds));
+    }
+  };
+  scheduleOnce(context.currentTime + 0.05);
 };

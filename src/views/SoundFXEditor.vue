@@ -36,9 +36,15 @@
               <v-card
                 outlined
                 class="soundfx-card"
-                v-bind="dragAttrs(index)"
-                v-on="dragListeners(index)"
+                :class="dragCardClass(index)"
+                v-on="dragTargetListeners(index)"
               >
+                <div
+                  class="soundfx-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-btn
                   :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
                   icon
@@ -315,7 +321,7 @@ export default defineComponent({
     // buildSoundEffectOptions in blocks/soundfx.js), never by array
     // position, so unlike the Text tab this needed no separate
     // display-order/ROM-order decoupling work - reordering is already safe.
-    const {dragAttrs, dragListeners} = useDragReorder(
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
         () => state.value.soundEffects,
         (items) => {
           state.value.soundEffects = items;
@@ -415,7 +421,7 @@ export default defineComponent({
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
       fadeLengthOptionItems: FADE_LENGTH_OPTIONS.map((value) => ({text: `${value} frames`, value})),
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
-      dragAttrs, dragListeners,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
 });
@@ -480,6 +486,18 @@ export default defineComponent({
   position: relative;
   width: 100%;
   max-width: 640px;
+}
+
+/* Same reasoning/placement as TextEditor.vue's identical .text-drag-handle
+   rule (see hooks/drag-reorder.js's own comment) - only this top strip is
+   actually draggable, so click-and-drag still selects text everywhere else
+   in the card. */
+.soundfx-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
   cursor: grab;
 }
 

@@ -3,18 +3,21 @@
     <v-card flat class="editor-container">
       <v-card-title>Music</v-card-title>
       <v-card-text>
-        <v-select
-          dense
-          class="subdivision-select"
-          label="Note duration snap (slices per step)"
-          :items="subdivisionOptionItems"
-          v-model="state.subdivision"
-          @change="handleChangeSubdivision"
-        />
         <v-list>
-          <v-list-item class="entry-list-item" v-for="song in state.songs" v-bind:key="song.id" :data-song-id="song.id">
+          <v-list-item
+            class="entry-list-item"
+            v-for="(song, index) in state.songs"
+            v-bind:key="song.id"
+            :data-song-id="song.id"
+          >
             <v-list-item-content>
-              <v-card outlined class="song-card">
+              <v-card outlined class="song-card" :class="dragCardClass(index)" v-on="dragTargetListeners(index)">
+                <div
+                  class="song-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-btn
                   :title="isSongCollapsed(song) ? 'Expand this song' : 'Collapse this song'"
                   icon
@@ -30,6 +33,17 @@
                 <div class="music-id-badge">ID: {{ song.id }}</div>
 
                 <div class="music-toolbar-top-right">
+                  <v-btn
+                    icon
+                    small
+                    :title="song.loop ?
+                      'Loop this song\'s preview playback until stopped (on)' :
+                      'Loop this song\'s preview playback until stopped (off)'"
+                    :class="['music-flat-icon-btn', 'music-icon-btn-size', {'music-icon-btn-active': song.loop}]"
+                    @click="() => handleToggleLoopSong(song)"
+                  >
+                    <v-icon small>{{ song.loop ? 'mdi-repeat' : 'mdi-repeat-off' }}</v-icon>
+                  </v-btn>
                   <v-btn
                     icon
                     small
@@ -343,20 +357,38 @@
                       </v-btn>
 
                       <div class="piano-roll-zoom-row" v-if="activePattern(song).tracks.length">
-                        <v-btn icon small title="Fit zoom to this pattern's length"
-                          @click="() => handleFitZoom(song, activePattern(song))">
-                          <v-icon small>mdi-backup-restore</v-icon>
-                        </v-btn>
-                        <v-slider
+                        <v-select
                           dense
                           hide-details
-                          min="25"
-                          max="1600"
-                          class="piano-roll-zoom-slider"
-                          :value="Math.round(pianoRollZoom * 100)"
-                          @input="(percent) => { pianoRollZoom = percent / 100; }"
+                          class="subdivision-select"
+                          label="Snap"
+                          title="Note duration snap (slices per step)"
+                          :items="subdivisionOptionItems"
+                          v-model="state.subdivision"
+                          @change="handleChangeSubdivision"
                         />
-                        <span class="piano-roll-zoom-label">{{ Math.round(pianoRollZoom * 100) }}%</span>
+                        <div class="piano-roll-zoom-controls">
+                          <v-btn icon small title="Fit zoom to this pattern's length"
+                            @click="() => handleFitZoom(song, activePattern(song))">
+                            <v-icon small>mdi-backup-restore</v-icon>
+                          </v-btn>
+                          <v-btn icon small title="Zoom out" @click="() => stepPianoRollZoom(-1)">
+                            <v-icon small>mdi-magnify-minus-outline</v-icon>
+                          </v-btn>
+                          <v-slider
+                            dense
+                            hide-details
+                            min="25"
+                            max="1600"
+                            class="piano-roll-zoom-slider"
+                            :value="Math.round(pianoRollZoom * 100)"
+                            @input="(percent) => { pianoRollZoom = percent / 100; }"
+                          />
+                          <v-btn icon small title="Zoom in" @click="() => stepPianoRollZoom(1)">
+                            <v-icon small>mdi-magnify-plus-outline</v-icon>
+                          </v-btn>
+                          <span class="piano-roll-zoom-label">{{ Math.round(pianoRollZoom * 100) }}%</span>
+                        </div>
                       </div>
 
                       <div class="piano-roll-scroll" v-if="activePattern(song).tracks.length">
@@ -440,6 +472,7 @@ import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounte
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import {useMusicEditorActiveState} from '../hooks/music-editor-state';
 import {useSongsStorage, useSoundEffectsStorage} from '../hooks/project';
 import {
@@ -513,6 +546,16 @@ export default defineComponent({
         localStorage.setItem(PIANO_ROLL_ZOOM_KEY, String(zoom));
       },
     });
+
+    // A fixed multiplicative step (not a fixed percentage-point step, the
+    // way hooks/zoom.js's own discrete ZOOM_LEVELS effectively are) - this
+    // slider's own range (25%-1600%, a 64x span, see clampPianoRollZoom)
+    // is far too wide for a flat +25-point step to feel usable at either
+    // end: fine-grained down near 25%, but would take dozens of clicks to
+    // reach 1600%. Clamped by pianoRollZoom's own setter above either way.
+    const stepPianoRollZoom = (direction) => {
+      pianoRollZoom.value = direction > 0 ? pianoRollZoom.value * 1.25 : pianoRollZoom.value / 1.25;
+    };
     // The step width 100% zoom itself means - always recalibrated (see
     // recalculateFitBaseWidth) to whatever width makes the CURRENT pattern's
     // own steps exactly fill the visible area, so 100% always reads as "fit
@@ -590,8 +633,40 @@ export default defineComponent({
 
     const {isCollapsed: isSongCollapsed, toggleCollapsed: toggleSongCollapsed} = useCollapsedIds('music-song');
 
+    // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
+    // SoundFXEditor.vue's own uses of this same hook) - songs are already
+    // referenced everywhere by their own permanent id (see findSongById/
+    // buildSongOptions in blocks/music.js), never by array position, so
+    // reordering the display order here is already safe.
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.songs,
+        (items) => {
+          state.value.songs = items;
+          handleChildChange();
+        },
+    );
+
     const instance = getCurrentInstance();
     const forceUpdate = () => instance.proxy.$forceUpdate();
+
+    // Plain assignment (song.loop = ...) doesn't work for a song saved
+    // before this field existed - Vue 2 can't detect a brand new property
+    // being added to an already-reactive object that way (see
+    // processSongsStorageDefaults' own migration in blocks/music.js, which
+    // is where such a song's song.loop first gets set), so the toggle
+    // button's own icon/active-state bindings never re-evaluate. $set (same
+    // fix DataEditor.vue's handleColumnsInput/handleColumnsChange use) plus
+    // forceUpdate is what actually makes the change visible immediately -
+    // confirmed directly as the cause of "can't toggle song preview
+    // looping." handleToggleLoopPattern right above doesn't need this same
+    // fix: pattern.loop has existed since patterns themselves did, so it's
+    // never a NEW property on an existing pattern the way song.loop can be
+    // on an existing song.
+    const handleToggleLoopSong = (song) => {
+      instance.proxy.$set(song, 'loop', !song.loop);
+      handleChildChange();
+      forceUpdate();
+    };
 
     // handleChildChange alone isn't reliably enough to make the piano roll's
     // slice grid lines/hover-slice math (which read state.value.subdivision
@@ -916,6 +991,7 @@ export default defineComponent({
       startPlaybackHeadPolling();
       playSequence(song, soundEffects(), {
         isTrackMuted,
+        loop: song.loop,
         onDone: () => {
           if (playingSongId.value === song.id) {
             playingSongId.value = null;
@@ -1541,7 +1617,8 @@ export default defineComponent({
       handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange,
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
       handleAddSequenceStep, handleRemoveSequenceStep, handleMoveSequenceStep,
-      handlePlayPattern, handlePlaySong, handleStop, handleToggleLoopPattern, handleSeekToStep,
+      handlePlayPattern, handlePlaySong, handleStop, handleToggleLoopPattern, handleToggleLoopSong,
+      handleSeekToStep,
       playingPatternId, playingSongId,
       isSequenceStepPlaying, patternSequenceColor,
       handlePatternCellClick, handleCellHover, handleCellLeave, startResize,
@@ -1557,9 +1634,10 @@ export default defineComponent({
       patternStepOptionItems: PATTERN_STEP_OPTIONS.map((steps) => ({text: `${steps}`, value: steps})),
       subdivisionOptionItems: DURATION_SUBDIVISION_OPTIONS.map((n) => ({text: `${n}`, value: n})),
       maxPatternSteps: MAX_PATTERN_STEPS,
-      pianoRollZoom, cellWidthPx, handleFitZoom,
+      pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
       sharedNoteRows: [...CANONICAL_NOTE_ROWS, ...HIT_ROW],
       isSongCollapsed, toggleSongCollapsed,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
 });
@@ -1577,14 +1655,53 @@ export default defineComponent({
   padding-left: 0;
 }
 
+/* Narrow - the options themselves (1/2/4/8/16) are at most 2 characters,
+   room for up to 3 is plenty; this used to be a full-width field up top
+   with a long label of its own, before moving next to each card's own
+   zoom control (see .piano-roll-zoom-row). flex-shrink: 0 keeps it from
+   being squeezed by .piano-roll-zoom-controls' own claim on space (see its
+   own comment); the deep selectors strip Vuetify's own default input
+   padding/min-width, which otherwise renders wider than 56px regardless of
+   this flex-basis, the same fix DataEditor.vue's .data-value-field uses. */
 .subdivision-select {
-  max-width: 280px;
+  flex: 0 0 56px;
+}
+
+.subdivision-select >>> .v-input__slot {
+  padding: 0 4px !important;
+}
+
+.subdivision-select >>> .v-select__selection {
+  margin: 0;
 }
 
 .song-card {
   position: relative;
   width: 100%;
   max-width: 900px;
+}
+
+/* Same reasoning/placement as TextEditor.vue's .text-drag-handle (see
+   hooks/drag-reorder.js's own comment) - only this top strip is actually
+   draggable, so click-and-drag still selects text everywhere else in the
+   card. */
+.song-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  cursor: grab;
+}
+
+/* Same two classes/reasoning as hooks/drag-reorder.js's own comment and
+   TextEditor.vue's identical rules (its own first use of this hook). */
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 .music-id-badge {
@@ -1792,16 +1909,33 @@ export default defineComponent({
   margin-bottom: 12px;
 }
 
+/* space-between (not flex-end, its old value from before the subdivision
+   select moved in here) pins the subdivision select to the row's own left
+   edge - flush with the piano roll area right below it - while the
+   fit-zoom button/slider/label group (see .piano-roll-zoom-controls) still
+   sits on the right, exactly where it always has. */
 .piano-roll-zoom-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 4px;
   margin-bottom: 4px;
 }
 
+/* flex-shrink: 0 keeps this group (button/slider/label) at its own natural
+   width instead of getting squeezed by .subdivision-select sharing the row
+   with it now - confirmed directly as the cause of the slider rendering
+   far narrower than its own 200px flex-basis once the select moved in. */
+.piano-roll-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
 .piano-roll-zoom-slider {
   flex: 0 1 200px;
+  min-width: 100px;
 }
 
 .piano-roll-zoom-label {

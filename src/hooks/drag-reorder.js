@@ -1,13 +1,11 @@
 import {ref} from '@vue/composition-api';
 
 // Click-and-drag reordering for a list of cards, built to be reusable
-// across any tab that renders one - the Text tab is the first (and, so
-// far, only) caller, but Sound/Music/etc's own card lists are expected to
+// across any tab that renders one - TextEditor.vue and SoundFXEditor.vue
+// are the current callers, with Music/etc's own card lists expected to
 // adopt this same hook later rather than growing their own copy. Uses the
-// browser's native HTML5 drag-and-drop (no external library): draggable
-// on the card itself gives the grab affordance the caller asked for
-// ("click and drag on the cards", not a dedicated handle), and
-// dragover/drop compute the new order.
+// browser's native HTML5 drag-and-drop (no external library): dragover/drop
+// compute the new order.
 //
 // getItems/setItems are the only per-tab contract: getItems() returns the
 // current array (in display order), setItems(newArray) is called with the
@@ -16,14 +14,29 @@ import {ref} from '@vue/composition-api';
 // whatever storage setter it already uses (see TextEditor.vue's own
 // handleChildChange-based example).
 //
-// dragAttrs(index)/dragListeners(index) are meant for a template's
+// dragAttrs(index)/dragHandleListeners(index) are meant for a template's
 // `v-bind`/`v-on` respectively (Vue 2 templates don't merge "onX"-style
 // keys from a single v-bind the way JSX/render functions can, hence the
-// split): v-bind="dragAttrs(index)" v-on="dragListeners(index)" on the
-// same draggable element. dragAttrs' returned `class` object also needs a
-// couple of CSS rules from the caller's own <style> - see this file's
-// exported CSS_CLASS_* constants for their names; TextEditor.vue has a
-// working copy of the actual rules to copy from.
+// split): v-bind="dragAttrs(index)" v-on="dragHandleListeners(index)" on a
+// small drag handle within the top of the card, NOT the whole card. Making
+// the whole card draggable was tried first and reverted: `draggable="true"`
+// on an ancestor intercepts the browser's own click-and-drag
+// text-selection gesture for everything inside it, so a user could no
+// longer select text in a card's own fields.
+//
+// dragTargetListeners(index) is separate and goes on the CARD itself
+// (v-on="dragTargetListeners(index)", no v-bind needed - the card itself
+// was never draggable, only a valid drop target): dragover/drop need to
+// work anywhere a dragged card might be dropped ON, not just over the
+// target's own small handle, which dragHandleListeners alone can't cover
+// since drag-and-drop only starts from - not lands on - a `draggable`
+// element itself.
+//
+// dragCardClass(index) is similarly separate so the CARD can still show the
+// dragging/drag-over visual feedback even though only the handle actually
+// carries `draggable`/dragstart - see this file's exported CSS_CLASS_*
+// constants for the class names; TextEditor.vue has a working copy of the
+// actual CSS rules to copy from.
 export const CSS_CLASS_DRAGGING = 'drag-reorder-dragging';
 export const CSS_CLASS_DRAG_OVER = 'drag-reorder-over';
 
@@ -36,15 +49,16 @@ export const useDragReorder = (getItems, setItems) => {
     dragOverIndex.value = null;
   };
 
-  const dragAttrs = (index) => ({
+  const dragAttrs = () => ({
     draggable: true,
-    class: {
-      [CSS_CLASS_DRAGGING]: draggedIndex.value === index,
-      [CSS_CLASS_DRAG_OVER]: dragOverIndex.value === index && draggedIndex.value !== index,
-    },
   });
 
-  const dragListeners = (index) => ({
+  const dragCardClass = (index) => ({
+    [CSS_CLASS_DRAGGING]: draggedIndex.value === index,
+    [CSS_CLASS_DRAG_OVER]: dragOverIndex.value === index && draggedIndex.value !== index,
+  });
+
+  const dragHandleListeners = (index) => ({
     dragstart: (event) => {
       draggedIndex.value = index;
       event.dataTransfer.effectAllowed = 'move';
@@ -54,6 +68,10 @@ export const useDragReorder = (getItems, setItems) => {
       // the drop lands on an element that never itself started the drag).
       event.dataTransfer.setData('text/plain', String(index));
     },
+    dragend: reset,
+  });
+
+  const dragTargetListeners = (index) => ({
     dragover: (event) => {
       // Dropping is disallowed by default - preventDefault is what tells
       // the browser this element is a valid drop target.
@@ -74,8 +92,7 @@ export const useDragReorder = (getItems, setItems) => {
       items.splice(index, 0, moved);
       setItems(items);
     },
-    dragend: reset,
   });
 
-  return {dragAttrs, dragListeners};
+  return {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners};
 };
