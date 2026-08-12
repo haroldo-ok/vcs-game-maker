@@ -249,10 +249,10 @@
     </v-navigation-drawer>
 
     <v-navigation-drawer
+      v-model="emulatorVisible"
       app
       clipped
       right
-      permanent
       class="emulator-drawer"
       :width="emulatorWidth"
     >
@@ -293,6 +293,14 @@
         >
           {{ romCapacityText }}
         </div>
+        <v-progress-linear
+          v-if="romCapacityText"
+          :value="romCapacityPercentFilled"
+          :color="romCapacityBarColor"
+          height="6"
+          rounded
+          class="rom-capacity-bar"
+        />
         <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
         <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
           <div v-for="bank in romCapacityBanks" :key="bank.number" class="rom-capacity-bank">
@@ -308,6 +316,33 @@
         </div>
       </div>
     </v-navigation-drawer>
+
+    <v-btn
+      v-if="emulatorVisible"
+      fab
+      x-small
+      dark
+      color="grey"
+      title="Hide the emulator preview to free up more space for the block editor"
+      class="emulator-hide-button emulator-toggle-button"
+      :style="{right: emulatorWidth + 'px'}"
+      @click="emulatorVisible = false"
+    >
+      <v-icon small>mdi-chevron-right</v-icon>
+    </v-btn>
+
+    <v-btn
+      v-if="!emulatorVisible"
+      fab
+      x-small
+      dark
+      color="grey"
+      title="Show the emulator preview"
+      class="emulator-show-button emulator-toggle-button"
+      @click="emulatorVisible = true"
+    >
+      <v-icon small>mdi-chevron-left</v-icon>
+    </v-btn>
 
     <v-main class="app-main">
       <router-view/>
@@ -352,6 +387,11 @@ const EMULATOR_MAX_WIDTH = 900;
 // Keep enough room for the editor when dragging on smaller screens.
 const EDITOR_MIN_WIDTH = 320;
 const EMULATOR_WIDTH_KEY = 'vcs-game-maker.emulatorWidth';
+// Whether the emulator drawer is shown at all - separate from emulatorWidth
+// (which only ever remembers its width while visible), so hiding it to free
+// up space for the block editor survives a reload instead of resetting
+// every time.
+const EMULATOR_VISIBLE_KEY = 'vcs-game-maker.emulatorVisible';
 // Matches the footer's old fixed "max-height: 7em" (at the default 16px root
 // font size) as the default/minimum, so an unresized pane looks the same as
 // before this was made resizable.
@@ -377,10 +417,16 @@ const readStoredErrorHeight = () => {
   return Number.isFinite(stored) ? stored : ERROR_DEFAULT_HEIGHT;
 };
 
+// Stored as the raw string "false" (not JSON-encoded) - same convention as
+// useLoadLastProjectStorage in hooks/project.js. Anything else, including
+// never having been set, means "visible" (the default).
+const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KEY) !== 'false';
+
 export default {
   data: () => ({
     drawer: null,
     emulatorWidth: readStoredWidth(),
+    emulatorVisible: readStoredEmulatorVisible(),
     emulatorScale: 1,
     emulatorHeight: null,
     resizing: false,
@@ -432,6 +478,15 @@ export default {
       if (!capacity) return '';
       return `${capacity.total.freeBytes.toLocaleString()} bytes free`;
     },
+    // Feeds the progress bar right under the "bytes free" line above -
+    // same total-across-every-bank figure that text is already built from,
+    // just expressed as a 0-100 percentage instead of a byte count.
+    romCapacityPercentFilled() {
+      const capacity = this.romCapacity;
+      if (!capacity || !capacity.total.usableBytes) return 0;
+      const used = capacity.total.usableBytes - capacity.total.freeBytes;
+      return (used / capacity.total.usableBytes) * 100;
+    },
     // Plain, always-visible, selectable text (see the summary/per-bank
     // blocks right under the "bytes free" line in the template) rather than
     // a native title="..." tooltip - a browser tooltip can't be
@@ -464,16 +519,39 @@ export default {
         contents: this.bankContentsParts(i + 1),
       }));
     },
+    // Drives the "bytes free" text turning red, and the capacity bar's own
+    // red tier (see romCapacityBarColor) - keyed off the TOTAL across every
+    // bank (matching what "bytes free" itself already shows), at the user's
+    // own explicit request, rather than bank 1 specifically.
     romCapacityLow() {
       const capacity = this.romCapacity;
-      if (!capacity || !capacity.bank1.usableBytes) return false;
-      return capacity.bank1.freeBytes / capacity.bank1.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
+      if (!capacity || !capacity.total.usableBytes) return false;
+      return capacity.total.freeBytes / capacity.total.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
+    },
+    // Three-tier: red once genuinely close to full (romCapacityLow - same
+    // threshold/text the "bytes free" line itself already turns red at),
+    // orange past 80% as an earlier heads-up, otherwise the same blue
+    // "primary" color used elsewhere in the app (e.g. the Update ROM
+    // button).
+    romCapacityBarColor() {
+      if (this.romCapacityLow) return 'red';
+      if (this.romCapacityPercentFilled > 80) return 'warning';
+      return 'primary';
     },
   },
   watch: {
     emulatorWidth() {
       // Wait for the drawer's new width to reach the DOM before measuring.
       this.$nextTick(this.updateEmulatorScale);
+    },
+    emulatorVisible(value) {
+      localStorage.setItem(EMULATOR_VISIBLE_KEY, value ? 'true' : 'false');
+      // Re-measure once it's shown again - updateEmulatorScale's own retry
+      // loop already tolerates being called before the drawer's slide-in
+      // transition (transform/visibility - see .emulator-drawer's own
+      // transition-property) finishes, the same way it already tolerates a
+      // width-drag mid-reflow.
+      if (value) this.$nextTick(this.updateEmulatorScale);
     },
   },
   methods: {
@@ -811,6 +889,21 @@ export default {
 <style>
 #javatari-target-container {
   overflow: hidden;
+  /* This sits inside .emulator-drawer-inner's flex column, at a fixed
+     JS-computed height (see App.vue's own updateEmulatorScale) - without
+     this, once the ROM capacity bank-contents text below it (see
+     .rom-capacity-detail) grew long enough after a build that everything in
+     the column no longer fit, the flex column's own default flex-shrink: 1
+     silently compressed this container below its real height instead of
+     leaving it alone, clipping the bottom of the emulator (Javatari's own
+     console-panel graphic) behind whatever sits right after it - the
+     Update ROM/Get generated ROM buttons - instead of showing it. That text
+     block already has its own overflow-y: auto (see its own flex: 1 1 auto)
+     specifically to absorb space shortages like this on its own, so nothing
+     above it - this container, the buttons, the summary text - should ever
+     need to shrink at all.
+  */
+  flex-shrink: 0;
 }
 
 #javatari-target-container > #javatari-screen {
@@ -895,6 +988,56 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .emulator-refresh-button {
   margin-bottom: 4px;
+}
+
+/* A sibling of the drawer (see the template), NOT a child of it - v-
+   navigation-drawer sets overflow: hidden on itself (to mask its own slide
+   transition), which was clipping away the left half of this button when it
+   lived inside the drawer as an absolutely-positioned child straddling its
+   edge. Fixed to the window instead, with "right" bound inline to
+   emulatorWidth (see the template) so it still tracks the drawer's own left
+   edge as it's resized. top: 104px clears the fixed chrome above the drawer
+   (v-system-bar's default 24px + the app-bar's own 72px, plus a little
+   breathing room), putting this at the top of the emulator column instead
+   of vertically centered on it. z-index bumped well past Vuetify's own
+   app-bar/navigation-drawer chrome, which otherwise sat on top of and ate
+   clicks meant for this button. */
+.emulator-hide-button {
+  position: fixed;
+  top: 104px;
+  transform: translateX(-50%);
+  z-index: 20;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* right: 16px (not flush against the window's own edge) - flush placement
+   sat exactly where the browser's native scrollbar renders, which (unlike
+   the DOM z-index fix .emulator-hide-button needed) can't be fixed with
+   z-index at all: an OS/browser-drawn scrollbar always paints on top of
+   page content regardless, and was silently eating clicks (starting a
+   scroll drag instead) meant for this button. Clearing that strip entirely,
+   rather than straddling it, is the only real fix. */
+.emulator-show-button {
+  position: fixed;
+  top: 104px;
+  right: 16px;
+  z-index: 20;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Faded and grey at rest (see color="grey" in the template) - a quieter
+   default than the app's usual blue "primary" accent, since this floats
+   over whatever tab is open rather than living inside a toolbar/panel with
+   other controls, and shouldn't compete for attention until the user is
+   actually reaching for it. Full opacity plus the app's own primary blue on
+   hover together read as "now active"/clickable. */
+.emulator-toggle-button {
+  opacity: 0.5;
+}
+
+.emulator-toggle-button:hover {
+  opacity: 1;
+  background-color: var(--v-primary-base, #1976d2) !important;
 }
 
 /* Flex column so .rom-capacity-detail (the last child) can grow to fill
@@ -1029,15 +1172,23 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .rom-capacity {
   text-align: center;
   font-size: 0.8em;
+  font-weight: bold;
   opacity: 0.7;
   margin-top: 6px;
   padding: 0 8px;
+  flex-shrink: 0;
 }
 
 .rom-capacity-low {
   opacity: 1;
   color: rgb(244, 67, 54);
   font-weight: bold;
+}
+
+.rom-capacity-bar {
+  margin: 4px 8px 8px;
+  width: auto;
+  flex-shrink: 0;
 }
 
 .rom-capacity-summary {
@@ -1047,6 +1198,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   margin: 2px 0 0;
   padding: 0 8px;
   user-select: text;
+  flex-shrink: 0;
 }
 
 /* flex: 1 (with the drawer content column below) lets this grow to fill

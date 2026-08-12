@@ -3,7 +3,7 @@
     <v-card class="editor-container">
       <v-card-title>Data</v-card-title>
       <v-card-text>
-        <v-list>
+        <v-list class="data-list">
           <v-list-item class="entry-list-item" v-for="(table, index) in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
               <v-card outlined class="data-card" :class="dragCardClass(index)" v-on="dragTargetListeners(index)">
@@ -362,11 +362,34 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default left padding stacks on top of v-card-text's,
+/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
    pushing the data table card in further than the Score tab's, which sits
-   directly in a v-card-text with no list-item wrapper. */
+   directly in a v-card-text with no list-item wrapper. Zeroing both sides
+   (not just left, as this used to) keeps the card's right edge from sitting
+   16px further in than its left edge. */
 .entry-list-item {
   padding-left: 0;
+  padding-right: 0;
+}
+
+/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
+   .background-list/.entry-list-item rules - v-list-item__content's default
+   12px top/bottom padding was adding extra space between cards beyond
+   anything explicitly set (there was no explicit gap here at all before),
+   so this tab's own card spacing didn't match the Background tab's.
+   flex+gap plays the role .background-list's own CSS grid gap does (this
+   tab stays single-column); margin-top puts back the space above the FIRST
+   card that zeroing v-list-item__content's own padding would otherwise
+   have also removed. */
+.data-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
 }
 
 /* No max-width (used to cap at 640px) - a table with many columns needs the
@@ -406,7 +429,7 @@ export default defineComponent({
    .data-collapse-btn, which sits in the same row to its left. */
 .data-id-badge {
   position: absolute;
-  top: 8px;
+  top: 10px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
@@ -418,7 +441,7 @@ export default defineComponent({
    up against .data-id-badge's own text baseline right next to it, not just
    sit inside the card. */
 .data-collapse-btn {
-  top: 0 !important;
+  top: 2px !important;
   left: 4px !important;
   box-shadow: none !important;
 }

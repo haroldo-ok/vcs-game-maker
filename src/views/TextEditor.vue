@@ -21,7 +21,7 @@
           <span class="text-bkcolor-label">Text background color</span>
         </div>
 
-        <v-list>
+        <v-list class="text-list">
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
               <v-card
@@ -269,11 +269,16 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default left padding stacks on top of v-card-text's,
+/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
    pushing the message card in further than the Score tab's, which sits
-   directly in a v-card-text with no list-item wrapper. */
+   directly in a v-card-text with no list-item wrapper. Zeroing both sides
+   (not just left, as this used to) matches the Player/Data/Background tabs'
+   own identical fix - the unzeroed right padding was otherwise most visible
+   on the last column of .text-list's grid, sitting further from the tab's
+   right edge than the left column sits from the left edge. */
 .entry-list-item {
   padding-left: 0;
+  padding-right: 0;
 }
 
 .text-hint {
@@ -288,10 +293,39 @@ export default defineComponent({
   margin-bottom: 16px;
 }
 
+/* A 12-character message doesn't need anywhere near .text-list's own full
+   column width (previously capped at 640px, sized for that) - grid instead
+   of the v-list's normal single-column stacking, so two (or more, on a wide
+   enough window) fit side by side instead of each wasting most of a full
+   row's width. */
+.text-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  /* Grid items stretch to fill their row's height by default - a collapsed
+     card next to an expanded one in the same row would otherwise stretch
+     tall to match it, instead of sitting flush at the top like its card
+     content actually sizes to. */
+  align-items: start;
+  /* Matches BackgroundEditor.vue's own .background-list - restores the
+     space above the FIRST row that zeroing v-list-item__content's own
+     top padding below removes. */
+  margin-top: 12px;
+}
+
+/* v-list-item__content's default 12px top/bottom padding was adding extra
+   space between grid ROWS on top of this grid's own 8px gap (same issue as
+   BackgroundEditor.vue's own .background-list, see its comment there),
+   without anything similar between columns - zeroing it here keeps this
+   grid's own gap as the only source of spacing, matching the Background
+   tab's spacing exactly. */
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
+}
+
 .text-card {
   position: relative;
   width: 100%;
-  max-width: 640px;
 }
 
 /* Only this top strip is actually draggable (see hooks/drag-reorder.js's
@@ -337,7 +371,7 @@ export default defineComponent({
    up against .text-id-badge's own text baseline right next to it, not just
    sit inside the card. */
 .text-collapse-btn {
-  top: 0 !important;
+  top: 2px !important;
   left: 4px !important;
   box-shadow: none !important;
 }
@@ -360,7 +394,7 @@ export default defineComponent({
    row to its left. */
 .text-id-badge {
   position: absolute;
-  top: 8px;
+  top: 10px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;

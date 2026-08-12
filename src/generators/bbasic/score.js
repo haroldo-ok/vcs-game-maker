@@ -136,6 +136,13 @@ export default (Blockly) => {
     const colorLine = config.scoreBkColor === 'background' ?
       '       lda backgroundrealcolor' :
       `       lda #${colorByteToBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}`;
+    // "end" has to sit at column 0, same quirk score_digit_set works around
+    // with its own "@end" trick (see its own comment) - confirmed directly:
+    // the leading space this used to have here reproduced the exact
+    // "Missing end keyword at end of inline asm" failure, for every project
+    // with the Text Minikernel inactive (the only condition this function
+    // ever actually emits anything under), even though the block is
+    // otherwise well-formed.
     return [
       ' asm',
       'minikernel',
@@ -143,7 +150,7 @@ export default (Blockly) => {
       colorLine,
       '       sta COLUBK',
       '       rts',
-      ' end',
+      'end',
     ].join('\n');
   };
 

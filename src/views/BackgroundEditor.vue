@@ -4,23 +4,87 @@
       <v-card-title>Backgrounds</v-card-title>
       <v-card-text>
         <editor-zoom v-model="zoom" />
-        <v-list>
-          <v-list-item class="entry-list-item" v-for="background in state.backgrounds" v-bind:key="background.id">
+        <v-list
+          class="background-list"
+          :style="{gridTemplateColumns: `repeat(auto-fill, calc(${editorWidth} + 24px))`}"
+        >
+          <v-list-item
+            class="entry-list-item"
+            v-for="(background, index) in state.backgrounds"
+            v-bind:key="background.id"
+          >
             <v-list-item-content>
+              <v-card
+                outlined
+                class="background-card"
+                :class="dragCardClass(index)"
+                v-on="dragTargetListeners(index)"
+              >
+                <div
+                  class="background-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-list-item-title>
-                  <div class="background-id-row">
-                    <v-btn
-                      :title="isCollapsed(background) ? 'Expand this background' : 'Collapse this background'"
-                      icon
-                      small
-                      class="background-collapse-btn"
-                      @click="() => toggleCollapsed(background)"
-                    >
-                      <v-icon>{{ isCollapsed(background) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
-                    </v-btn>
-                    <div class="background-id-badge">ID: {{ background.id }}</div>
-                  </div>
-                  <v-text-field label="Background name" v-model="background.name" @change="handleChildChange" />
+                  <v-btn
+                    :title="isCollapsed(background) ? 'Expand this background' : 'Collapse this background'"
+                    icon
+                    small
+                    absolute
+                    top
+                    left
+                    class="background-collapse-btn"
+                    @click="() => toggleCollapsed(background)"
+                  >
+                    <v-icon>{{ isCollapsed(background) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                  </v-btn>
+                  <div class="background-id-badge">ID: {{ background.id }}</div>
+                  <v-text-field
+                    class="background-name-field"
+                    label="Background name"
+                    v-model="background.name"
+                    @change="handleChildChange"
+                  />
+
+                  <v-menu
+                        top
+                        v-if="state.backgrounds.length > 1"
+                      >
+                    <template v-slot:activator="{ on, attrs }">
+                      <v-btn
+                        title="Delete this background"
+                        icon
+                        small
+                        absolute
+                        top
+                        right
+                        class="delete-btn-inset delete-icon-btn player-icon-btn-size"
+                        v-bind="attrs"
+                        v-on="on"
+                      >
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </template>
+
+                    <v-card>
+                      <v-card-title>Delete this background?</v-card-title>
+                      <v-list>
+                        <v-list-item @click="handleDeleteBackground(background)">
+                          <v-list-item-icon>
+                            <v-icon>mdi-check</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>Yes, delete</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-list-item-icon>
+                            <v-icon>mdi-cancel</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>No, don't delete</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-card>
+                  </v-menu>
                 </v-list-item-title>
                 <v-list-item-subtitle v-if="!isCollapsed(background)">
                   <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
@@ -40,43 +104,10 @@
                           @input="(colors) => handleRowColorsInput(background, colors)"
                         />
                       </template>
-                      <template v-if="state.backgrounds.length > 1" v-slot:toolbar-end>
-                        <v-menu top>
-                          <template v-slot:activator="{ on, attrs }">
-                            <v-btn
-                              title="Delete this background"
-                              icon
-                              small
-                              class="delete-icon-btn"
-                              v-bind="attrs"
-                              v-on="on"
-                            >
-                              <v-icon>mdi-delete</v-icon>
-                            </v-btn>
-                          </template>
-
-                          <v-card>
-                            <v-card-title>Delete this background?</v-card-title>
-                            <v-list>
-                              <v-list-item @click="handleDeleteBackground(background)">
-                                <v-list-item-icon>
-                                  <v-icon>mdi-check</v-icon>
-                                </v-list-item-icon>
-                                <v-list-item-title>Yes, delete</v-list-item-title>
-                              </v-list-item>
-                              <v-list-item>
-                                <v-list-item-icon>
-                                  <v-icon>mdi-cancel</v-icon>
-                                </v-list-item-icon>
-                                <v-list-item-title>No, don't delete</v-list-item-title>
-                              </v-list-item>
-                            </v-list>
-                          </v-card>
-                        </v-menu>
-                      </template>
                     </pixel-editor>
                   </div>
                 </v-list-item-subtitle>
+              </v-card>
             </v-list-item-content>
           </v-list-item>
         </v-list>
@@ -102,6 +133,7 @@ import {computed, defineComponent, getCurrentInstance} from '@vue/composition-ap
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
@@ -188,6 +220,16 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('background');
 
+    // Card reordering - same hook/pattern as Text/SoundFX/Data/Music (see
+    // hooks/drag-reorder.js's own comment).
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.backgrounds,
+        (items) => {
+          state.value.backgrounds = items;
+          handleChildChange();
+        },
+    );
+
     const handleRowColorsInput = (background, colors) => {
       background.rowColors = colors;
       handleChildChange();
@@ -236,7 +278,8 @@ export default defineComponent({
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
       handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
-      zoom, editorWidth, backgroundRows, pfColorsEnabled};
+      zoom, editorWidth, backgroundRows, pfColorsEnabled,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners};
   },
 });
 </script>
@@ -259,28 +302,188 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default left padding stacks on top of v-card-text's,
+/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
    pushing the graphic card in further than the Score tab's, which sits
-   directly in a v-card-text with no list-item wrapper. */
+   directly in a v-card-text with no list-item wrapper. Zeroing both sides
+   (not just left, as this used to) keeps the card's right edge from sitting
+   16px further in than its left edge. */
+/* padding-top/bottom zeroed too (not just left/right) - Vuetify's own
+   default vertical list-item padding was adding extra space between grid
+   ROWS on top of .background-list's own 8px row gap, without adding
+   anything similar between columns (that's handled entirely by the grid's
+   column-gap), so rows visibly had more space than columns despite the
+   grid's own gap being uniform. Zeroing this leaves the grid's gap as the
+   only source of spacing in either direction, matching row/column spacing
+   exactly. */
 .entry-list-item {
-  padding-left: 0;
+  padding: 0;
 }
 
-/* Same layout as the Player tabs' collapse-button-plus-badge row
-   (PlayerEditor.vue's .animation-id-row). */
-.background-id-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* v-list-item__content (a Vuetify-owned element between .entry-list-item
+   and .background-card, not directly reachable without a deep selector)
+   carries its own default 12px top/bottom padding - on top of the grid's
+   own row gap AND .background-card's own 12px padding, this was adding a
+   third, easy-to-miss source of extra space above/below each card. */
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
 }
 
-/* Same placement/style as the Player tabs' "ID: N" badge above the
-   "Animation name" field (PlayerEditor.vue's .animation-id-badge). */
+/* Same grid layout as TextEditor.vue's .text-list - lets more than one
+   background card fit per row on a wide enough window/zoom level instead of
+   each always spanning a full row, at the user's own request. Unlike
+   .text-list's own static minmax(280px, 1fr), the column size here is bound
+   inline (see the template) to a literal editorWidth - not minmax(editorWidth,
+   1fr) - since a background card's own width is exactly the graphic's width,
+   with nothing that benefits from stretching wider: 1fr would have grown
+   the single column (and so the card) to fill the entire remaining row
+   whenever only one fit, making it far wider than the graphic actually
+   needs. A literal, fixed track size means each column is always exactly
+   editorWidth, however many fit, with any leftover row space simply left
+   empty instead of stretched into a card.
+
+   "+ 24px" accounts for .background-card's own 12px padding on each side
+   (below) - editorWidth alone is only the pixel editor's own inner width,
+   so a column sized to exactly that was 24px too narrow for the card
+   actually wrapping it, and the card's real (wider) box overflowed into
+   its neighbor's column instead of fitting in its own. */
+/* margin-top restores the gap above the FIRST row that used to come from
+   v-list-item__content's own 12px top padding (see .entry-list-item's own
+   comment on zeroing that) - zeroing it fixed the (unwanted) extra space
+   BETWEEN rows, but also removed the (wanted) space between the editor-zoom
+   control above and the first row, which this puts back without
+   reintroducing any inter-row gap (a margin on the grid container itself
+   only affects space before its first row, not the row gap between items). */
+.background-list {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  margin-top: 12px;
+}
+
+/* Same rounded, thin-bordered look as the Sound/Data/Text/Music tabs' own
+   per-item cards (e.g. SoundFXEditor's .soundfx-card) - this one wraps
+   directly around the existing v-list-item-title/subtitle content (rather
+   than switching to a v-card-text section like those tabs use) so the
+   change is just the border, not a layout rework; padding here replaces the
+   internal spacing a v-card-text would otherwise have provided. */
+/* width: 100% - without it, the card (nested inside v-list-item-content,
+   not itself the grid item .background-list sizes) shrinks to fit its OWN
+   content's natural width instead of filling the grid column .background-
+   list already fixed to editorWidth + 24px (see its own comment). A
+   collapsed card's content (just the title row) is narrower than that
+   fixed column, so it rendered visibly narrower than an expanded card
+   (whose pixel editor forces the full editorWidth) instead of both being
+   the same width the grid already allocated for them. */
+.background-card {
+  position: relative;
+  width: 100%;
+  padding: 12px;
+}
+
+/* PixelEditor.vue always wraps itself in its own outlined v-card with
+   card-text padding - useful standalone (e.g. each Player tab animation
+   frame, where it's the only border that card has), but redundant once
+   .background-card above already frames the WHOLE background entry the
+   same way, showing as a visible second "inner" border-plus-padding around
+   just the graphic/tools. Stripped here, scoped to this nested instance
+   only, rather than changing PixelEditor.vue itself (which would remove
+   the Player tabs' own only border). */
+.pixel-editor-container >>> .v-card {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Split, not just zeroed: v-card-text (canvas) and v-card-actions
+   (toolbar, below) each carry their own default Vuetify padding, which
+   don't match each other (16px vs 8px) - zeroing v-card-text's padding
+   entirely earlier left its LEFT edge flush with the card while the
+   toolbar's own left padding (untouched) kept it indented, so the two no
+   longer lined up. Zeroing left/right on both instead lines their left
+   edges up exactly with each other (and with the graphic itself), while a
+   small bottom/top pair (4px each, 8px combined) keeps a real but modest
+   gap between canvas and toolbar instead of them sitting flush against
+   each other. */
+.pixel-editor-container >>> .v-card__text {
+  padding: 0 0 4px 0 !important;
+}
+
+.pixel-editor-container >>> .v-card__actions {
+  padding: 4px 0 0 0 !important;
+}
+
+/* Only this top strip is draggable (see hooks/drag-reorder.js's own
+   comment on why) - covers the same header band the collapse/ID/delete
+   controls already occupy. Sits behind them (they're later in DOM order,
+   so they paint on top and stay clickable) but in front of everything
+   else, so a click-and-drag gesture anywhere else in the card still selects
+   text/drags the pixel editor instead of starting a reorder drag. */
+.background-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  cursor: grab;
+}
+
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
+}
+
+/* Sits in v-list-item-title, which (unlike the pixel editor's own toolbar)
+   is always rendered regardless of collapse state, so the button stays
+   visible on a collapsed card instead of disappearing along with the pixel
+   editor. top/right match every other tab's own delete corner button
+   (see MusicEditor.vue's .music-toolbar-top-right) exactly, for a
+   consistent corner position across every card type. */
+.delete-btn-inset {
+  top: 8px !important;
+  right: 8px !important;
+}
+
+.player-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.player-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
+}
+
+/* Absolutely positioned (matching Text/SoundFX/Data/Music's own collapse
+   button placement exactly) rather than flowed in a flex row alongside the
+   ID badge - the row wrapper this used to sit in is gone; .background-
+   name-field's own margin-top (below) makes room for both this and the
+   badge to sit above it instead. */
+.background-collapse-btn {
+  top: 2px !important;
+  left: 4px !important;
+  box-shadow: none !important;
+}
+
+/* Same placement/style as every other tab's own "ID: N" badge (see
+   MusicEditor.vue's .music-id-badge). */
 .background-id-badge {
-  text-align: left;
+  position: absolute;
+  top: 8px;
+  left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+}
+
+/* Same reasoning as TextEditor.vue's .text-name-field - reserves room below
+   the now-absolutely-positioned collapse button/ID badge instead of them
+   overlapping this field, now that neither sits in a normal-flow row above
+   it anymore. */
+.background-name-field {
+  margin-top: 12px;
 }
 
 .add-frame-buttom {

@@ -4,23 +4,45 @@
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text>
         <editor-zoom v-model="zoom" />
-        <v-list>
-          <v-list-item class="entry-list-item" v-for="animation in state.animations" v-bind:key="animation.id">
+        <v-list class="animation-list">
+          <v-list-item
+            class="entry-list-item"
+            v-for="(animation, index) in state.animations"
+            v-bind:key="animation.id"
+          >
             <v-list-item-content>
+              <v-card
+                outlined
+                class="animation-card"
+                :class="dragCardClass(index)"
+                v-on="dragTargetListeners(index)"
+              >
+                <div
+                  class="animation-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-list-item-title>
-                  <div class="animation-id-row">
-                    <v-btn
-                      :title="isCollapsed(animation) ? 'Expand this animation' : 'Collapse this animation'"
-                      icon
-                      small
-                      class="animation-collapse-btn"
-                      @click="() => toggleCollapsed(animation)"
-                    >
-                      <v-icon>{{ isCollapsed(animation) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
-                    </v-btn>
-                    <div class="animation-id-badge">ID: {{ animation.id }}</div>
-                  </div>
-                  <v-text-field label="Animation name" v-model="animation.name" @change="handleChildChange" />
+                  <v-btn
+                    :title="isCollapsed(animation) ? 'Expand this animation' : 'Collapse this animation'"
+                    icon
+                    small
+                    absolute
+                    top
+                    left
+                    class="animation-collapse-btn"
+                    @click="() => toggleCollapsed(animation)"
+                  >
+                    <v-icon>{{ isCollapsed(animation) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+                  </v-btn>
+                  <div class="animation-id-badge">ID: {{ animation.id }}</div>
+                  <v-text-field
+                    class="animation-name-field"
+                    label="Animation name"
+                    v-model="animation.name"
+                    @change="handleChildChange"
+                  />
 
                   <v-menu
                         top
@@ -142,6 +164,7 @@
                     </v-btn>
                   </v-list-item>
                 </v-list>
+              </v-card>
             </v-list-item-content>
           </v-list-item>
         </v-list>
@@ -169,6 +192,7 @@ import {max} from 'lodash';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {useEditorZoom} from '../hooks/zoom';
 import {playfieldToMatrix} from '../utils/pixels';
@@ -219,6 +243,20 @@ export default defineComponent({
     // Player 0 and Player 1 are separate instances, so each keeps its own
     // set of collapsed animations - same reasoning as the zoom above.
     const {isCollapsed, toggleCollapsed} = useCollapsedIds(props.name);
+
+    // Card reordering - same hook/pattern as Text/SoundFX/Data/Music/
+    // Background (see hooks/drag-reorder.js's own comment). No per-player
+    // key needed here, unlike useCollapsedIds/useEditorZoom above: Player0/
+    // Player1Editor.vue each mount their own separate PlayerEditor
+    // instance, so this setup() (and the fresh refs useDragReorder creates)
+    // already runs once per player with no shared state to collide.
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.animations,
+        (items) => {
+          state.value.animations = items;
+          handleChildChange();
+        },
+    );
 
     const instance = getCurrentInstance();
 
@@ -281,6 +319,7 @@ export default defineComponent({
       handleAddFrame, handleDeleteFrame,
       handleAddAnimation, handleDeleteAnimation,
       isCollapsed, toggleCollapsed,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       zoom, editorWidth,
       props};
   },
@@ -295,13 +334,77 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default left padding stacks on top of v-card-text's,
+/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
    pushing everything in each row (name field and frame editors alike) in
    further than the Score tab's graphic cards, which sit directly in a
-   v-card-text with no list-item wrapper. Zeroing it here brings both back to
-   the same left edge as Score. */
+   v-card-text with no list-item wrapper. Zeroing both sides (not just left,
+   as this used to) brings the whole row back to Score's own left/right
+   edges evenly, instead of the right edge sitting 16px further in than the
+   left. */
 .entry-list-item {
   padding-left: 0;
+  padding-right: 0;
+}
+
+/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
+   .background-list/.entry-list-item rules - v-list-item__content's default
+   12px top/bottom padding was adding extra space BETWEEN cards beyond
+   anything explicitly set (there was no explicit gap at all before), so
+   this tab's own animation-card spacing didn't match the Background tab's.
+   flex+gap here plays the same role .background-list's own CSS grid gap
+   does (this tab stays single-column, so grid itself isn't needed) -
+   margin-top puts back the space above the FIRST card that zeroing
+   v-list-item__content's own padding would otherwise have also removed. */
+.animation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
+}
+
+/* Same rounded, thin-bordered look as the Sound/Data/Text/Music tabs' own
+   per-item cards (e.g. SoundFXEditor's .soundfx-card) - wraps directly
+   around the existing title/frames-list content rather than switching to a
+   v-card-text section like those tabs use, so the change is just the
+   border; padding here replaces the internal spacing a v-card-text would
+   otherwise have provided. */
+/* width: 100% - same fix as BackgroundEditor.vue's identical
+   .background-card rule: without it, this card (nested inside
+   v-list-item-content, not the list item itself) shrinks to its own
+   content's natural width instead of filling its row, so a collapsed
+   animation (just the title row) rendered narrower than an expanded one
+   (whose frames force wider content). */
+.animation-card {
+  position: relative;
+  width: 100%;
+  padding: 12px;
+}
+
+/* Only this top strip is draggable (see hooks/drag-reorder.js's own
+   comment on why) - covers the same header band the collapse/ID/delete
+   controls already occupy. Sits behind them (they're later in DOM order,
+   so they paint on top and stay clickable) but in front of everything
+   else, so a click-and-drag gesture anywhere else in the card still selects
+   text/drags a frame's pixel editor instead of starting a reorder drag. */
+.animation-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  cursor: grab;
+}
+
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 .pixel-editor-parent-container {
@@ -335,29 +438,42 @@ export default defineComponent({
   margin-top: -8px;
 }
 
-/* Holds the collapse button and "ID: N" badge on one row - a plain flex
-   row rather than the Text/Data/SoundFX tabs' absolute-positioned button
-   overlaid on a card corner, since there's no bordered card around the
-   whole animation entry for those to sit on top of here. */
-.animation-id-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* Absolutely positioned (matching Text/SoundFX/Data/Music's own collapse
+   button placement exactly) rather than flowed in a flex row alongside the
+   ID badge - the row wrapper this used to sit in is gone; .animation-
+   name-field's own margin-top (below) makes room for both this and the
+   badge to sit above it instead. */
+.animation-collapse-btn {
+  top: 2px !important;
+  left: 4px !important;
+  box-shadow: none !important;
 }
 
-/* Same style as the other "ID: N"/"FRAME: N" badges. */
+/* Same placement/style as every other tab's own "ID: N" badge (see
+   MusicEditor.vue's .music-id-badge). */
 .animation-id-badge {
-  text-align: left;
+  position: absolute;
+  top: 8px;
+  left: 32px;
   font-size: 0.75em;
   font-family: monospace;
   opacity: 0.6;
 }
 
-/* Vuetify's fab+absolute+top combo centers the button on its container's top
-   edge, poking half of it out (and clipped there by the list item's overflow);
-   pull it down so the whole button is visible instead. */
+/* Same reasoning as TextEditor.vue's .text-name-field - reserves room below
+   the now-absolutely-positioned collapse button/ID badge instead of them
+   overlapping this field, now that neither sits in a normal-flow row above
+   it anymore. */
+.animation-name-field {
+  margin-top: 12px;
+}
+
+/* top/right match every other tab's own delete corner button (see
+   MusicEditor.vue's .music-toolbar-top-right) exactly, for a consistent
+   corner position across every card type. */
 .delete-btn-inset {
   top: 8px !important;
+  right: 8px !important;
 }
 
 /* At 100% zoom and above, the card is wide enough for every frame toolbar

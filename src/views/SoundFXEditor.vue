@@ -26,7 +26,7 @@
           percentage of its own set volume. Off: sound effects play at their
           own set volume.
         </p>
-        <v-list>
+        <v-list class="soundfx-list">
           <v-list-item
             class="entry-list-item"
             v-for="(soundEffect, index) in state.soundEffects"
@@ -442,6 +442,26 @@ export default defineComponent({
   padding-left: 0;
 }
 
+/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
+   .background-list/.entry-list-item rules - v-list-item__content's default
+   12px top/bottom padding was adding extra space between cards beyond
+   anything explicitly set (there was no explicit gap here at all before),
+   so this tab's own card spacing didn't match the Background tab's.
+   flex+gap plays the role .background-list's own CSS grid gap does (this
+   tab stays single-column); margin-top puts back the space above the FIRST
+   card that zeroing v-list-item__content's own padding would otherwise
+   have also removed. */
+.soundfx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
+}
+
 .dim-controls {
   display: flex;
   align-items: center;
@@ -517,7 +537,7 @@ export default defineComponent({
    .soundfx-collapse-btn, which sits in the same row to its left. */
 .soundfx-id-badge {
   position: absolute;
-  top: 8px;
+  top: 10px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
@@ -529,7 +549,7 @@ export default defineComponent({
    has to line up against .soundfx-id-badge's own text baseline right next to
    it, not just sit inside the card. */
 .soundfx-collapse-btn {
-  top: 0 !important;
+  top: 2px !important;
   left: 4px !important;
   box-shadow: none !important;
 }

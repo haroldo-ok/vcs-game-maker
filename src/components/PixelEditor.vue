@@ -357,6 +357,19 @@ export default {
 };
 </script>
 <style scoped>
+/* The root v-card has a @click handler (for canvas mouse events - see
+   handleMouse), which Vuetify treats as "interactive" and paints its own
+   grey hover/focus overlay over on mouseover/click, the same way it does
+   for the toolbar's own buttons (see .pixel-editor-tools >>> .v-btn::before
+   below) - except here it covers the WHOLE card (graphic and toolbar
+   alike), reading as a stray, unexplained grey tint rather than a real
+   button state, since this card isn't actually a single clickable control.
+   ripple="false" (already set in the template) only suppresses the ripple
+   animation, not this separate overlay. */
+.v-card::before {
+  display: none;
+}
+
 .editor-canvas {
   image-rendering: optimizeSpeed;             /* Older versions of FF          */
   image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */

@@ -1,9 +1,12 @@
 <template>
   <div>
     <v-card flat class="editor-container">
-      <v-card-title>Music</v-card-title>
+      <v-card-title>Music (alpha)</v-card-title>
+      <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
+        This feature is in early alpha. Features may change or break. In fact, it's guaranteed. You've been warned!
+      </v-alert>
       <v-card-text>
-        <v-list>
+        <v-list class="song-list">
           <v-list-item
             class="entry-list-item"
             v-for="(song, index) in state.songs"
@@ -357,22 +360,25 @@
                       </v-btn>
 
                       <div class="piano-roll-zoom-row" v-if="activePattern(song).tracks.length">
-                        <v-select
-                          dense
-                          hide-details
-                          class="subdivision-select"
-                          label="Snap"
-                          title="Note duration snap (slices per step)"
-                          :items="subdivisionOptionItems"
-                          v-model="state.subdivision"
-                          @change="handleChangeSubdivision"
-                        />
+                        <div class="subdivision-controls">
+                          <v-icon class="subdivision-icon" title="Note duration snap (slices per step)">mdi-magnet</v-icon>
+                          <v-select
+                            dense
+                            hide-details
+                            single-line
+                            class="subdivision-select"
+                            title="Note duration snap (slices per step)"
+                            :items="subdivisionOptionItems"
+                            v-model="state.subdivision"
+                            @change="handleChangeSubdivision"
+                          />
+                        </div>
                         <div class="piano-roll-zoom-controls">
-                          <v-btn icon small title="Fit zoom to this pattern's length"
+                          <v-btn icon small class="piano-roll-zoom-icon-btn" title="Fit zoom to this pattern's length"
                             @click="() => handleFitZoom(song, activePattern(song))">
                             <v-icon small>mdi-backup-restore</v-icon>
                           </v-btn>
-                          <v-btn icon small title="Zoom out" @click="() => stepPianoRollZoom(-1)">
+                          <v-btn icon small class="piano-roll-zoom-icon-btn" title="Zoom out" @click="() => stepPianoRollZoom(-1)">
                             <v-icon small>mdi-magnify-minus-outline</v-icon>
                           </v-btn>
                           <v-slider
@@ -384,7 +390,7 @@
                             :value="Math.round(pianoRollZoom * 100)"
                             @input="(percent) => { pianoRollZoom = percent / 100; }"
                           />
-                          <v-btn icon small title="Zoom in" @click="() => stepPianoRollZoom(1)">
+                          <v-btn icon small class="piano-roll-zoom-icon-btn" title="Zoom in" @click="() => stepPianoRollZoom(1)">
                             <v-icon small>mdi-magnify-plus-outline</v-icon>
                           </v-btn>
                           <span class="piano-roll-zoom-label">{{ Math.round(pianoRollZoom * 100) }}%</span>
@@ -1643,6 +1649,10 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+.alpha-notice {
+  margin: 0 16px 8px;
+}
+
 .editor-container {
   position: absolute;
   overflow: auto;
@@ -1651,8 +1661,37 @@ export default defineComponent({
   width: 100%;
 }
 
+/* Vuetify's default v-list-item padding is 0 16px - zeroing only the left
+   side (as this used to) left the right side with an extra 16px beyond the
+   surrounding v-card-text's own padding that the left side didn't have,
+   making the song card visibly narrower on the right than the left (and
+   misaligned with the alpha warning alert above, which sits directly in
+   v-card-text with no list-item wrapper of its own). Zeroing both sides
+   makes the card's actual width match v-card-text's padding evenly, same as
+   the alert. */
 .entry-list-item {
   padding-left: 0;
+  padding-right: 0;
+}
+
+/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
+   .background-list/.entry-list-item rules - v-list-item__content's default
+   12px top/bottom padding was adding extra space between cards beyond
+   anything explicitly set (there was no explicit gap here at all before),
+   so this tab's own card spacing didn't match the Background tab's.
+   flex+gap plays the role .background-list's own CSS grid gap does (this
+   tab stays single-column); margin-top puts back the space above the FIRST
+   card that zeroing v-list-item__content's own padding would otherwise
+   have also removed. */
+.song-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
 }
 
 /* Narrow - the options themselves (1/2/4/8/16) are at most 2 characters,
@@ -1663,22 +1702,65 @@ export default defineComponent({
    own comment); the deep selectors strip Vuetify's own default input
    padding/min-width, which otherwise renders wider than 56px regardless of
    this flex-basis, the same fix DataEditor.vue's .data-value-field uses. */
+/* Replaces the select's own floating "Snap" label (removed) - a magnet icon
+   reads as "snap" without needing text, and sitting outside the select's own
+   56px-wide box (rather than Vuetify's built-in prepend-icon, which would
+   have squeezed into that same tight box alongside the value) leaves room
+   for both. align-items: center on the parent .piano-roll-zoom-row lines
+   this up on the same baseline as the reset-zoom button on the row's other
+   side. */
+.subdivision-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Fixed 26px box, same as .piano-roll-zoom-icon-btn's own button box on the
+   other side of the row - keeps the icon centered on the exact same
+   baseline as the reset-zoom button instead of sizing to (and sitting
+   wherever) its own glyph's natural line-height would otherwise put it.
+   16px matches the reset/zoom-in/zoom-out buttons' own <v-icon small>. */
+.subdivision-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 16px !important;
+}
+
+/* Vuetify's own default (non-outlined) text-field/select style still
+   reserves some top padding for where a floating label would normally sit,
+   even with single-line - forcing the slot/control down to a 26px min-height
+   alone wasn't enough to cancel that out, so the field kept sitting visibly
+   lower than its 26px-tall neighbors (.subdivision-icon, the reset-zoom
+   button). The negative margin-top pulls the whole field's box up to
+   compensate directly. */
 .subdivision-select {
   flex: 0 0 56px;
+  margin-top: -6px;
 }
 
 .subdivision-select >>> .v-input__slot {
   padding: 0 4px !important;
+  min-height: 26px !important;
+}
+
+.subdivision-select >>> .v-input__control {
+  min-height: 26px !important;
 }
 
 .subdivision-select >>> .v-select__selection {
   margin: 0;
 }
 
+/* No max-width cap (unlike e.g. SoundFXEditor's .soundfx-card) - lets a
+   song card grow as wide as the alpha warning alert above it, at the user's
+   own request, rather than staying capped at a fixed width regardless of
+   how much room the tab actually has. */
 .song-card {
   position: relative;
   width: 100%;
-  max-width: 900px;
 }
 
 /* Same reasoning/placement as TextEditor.vue's .text-drag-handle (see
@@ -1706,7 +1788,7 @@ export default defineComponent({
 
 .music-id-badge {
   position: absolute;
-  top: 8px;
+  top: 10px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
@@ -1714,7 +1796,7 @@ export default defineComponent({
 }
 
 .music-collapse-btn {
-  top: 0 !important;
+  top: 2px !important;
   left: 4px !important;
   box-shadow: none !important;
 }
@@ -1929,13 +2011,26 @@ export default defineComponent({
 .piano-roll-zoom-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   flex: 0 0 auto;
+}
+
+/* Vuetify's icon buttons keep a 36px+ click target around the icon itself
+   even at "small" size, so a plain small gap between them still reads as a
+   wide visual gap - shrinking the buttons themselves (same approach as
+   .player-icon-btn-size/.text-icon-btn-size elsewhere in the app) pulls the
+   reset/zoom-out/zoom-in icons visibly closer to the slider and each other. */
+.piano-roll-zoom-icon-btn {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0;
 }
 
 .piano-roll-zoom-slider {
   flex: 0 1 200px;
   min-width: 100px;
+  margin: 0 2px;
 }
 
 .piano-roll-zoom-label {
@@ -1943,6 +2038,7 @@ export default defineComponent({
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-size: 0.85em;
+  margin-left: 2px;
 }
 
 /* flex-end (not center) - the row mixes a 28px radio button with dense

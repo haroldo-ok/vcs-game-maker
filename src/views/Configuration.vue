@@ -2,108 +2,129 @@
   <v-card flat class="editor-container">
     <v-card-title>Options</v-card-title>
     <v-card-text>
-      <div class="text-subtitle-1">VCSGM Options</div>
-      <v-switch
-        v-model="loadLastProject"
-        label="Load last open project on startup"
-        hint="When off, the app always starts from the empty project instead of restoring whatever was last saved."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-switch
-        v-model="configurationState.muteAllAudio"
-        @change="handleChangeConfiguration"
-        label="Mute all in-game audio"
-        hint="Silences every sound effect and channel, overriding whatever any Sound block sets - useful for quick testing without needing to remove sound blocks."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-switch
-        v-model="configurationState.muteBlocklySounds"
-        @change="handleChangeConfiguration"
-        label="Mute Blockly sounds"
-        hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; above for that."
-        persistent-hint
-        class="option-switch"
-      />
+      <div class="option-section-header" @click="() => toggleSection('rom')">
+        <v-btn icon small :title="isSectionCollapsed('rom') ? 'Expand this section' : 'Collapse this section'">
+          <v-icon>{{ isSectionCollapsed('rom') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+        </v-btn>
+        <span class="text-subtitle-1">ROM Options</span>
+      </div>
+      <div v-if="!isSectionCollapsed('rom')" class="option-section-content">
+        <v-select
+          v-model="configurationState.romSize"
+          @change="handleChangeConfiguration"
+          :items="romSizeOptions"
+          label="ROM size"
+        />
+        <v-switch
+          v-model="configurationState.showScore"
+          @change="handleChangeConfiguration"
+          label="Show score at bottom of screen (noscore)"
+          hint="Turning this off skips the score display code entirely, freeing up ROM space."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.showBlankLines"
+          @change="handleChangeConfiguration"
+          label="Show blank lines between background rows (no_blank_lines)"
+          hint="Turning this off packs playfield rows tighter together, but uses missile0's graphics circuitry, so missile0 can no longer be used as a sprite."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enablePfColors"
+          @change="handleChangeConfiguration"
+          :disabled="configurationState.enableSuperchip"
+          label="Enable per-row playfield colors (pfcolors)"
+          hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Disabled while Superchip RAM is on - see below."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enableSuperchip"
+          @change="handleToggleSuperchip"
+          label="Enable Superchip RAM for higher-resolution playfields"
+          hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-text-field
+          v-model.number="configurationState.pfres"
+          @change="handleChangeResolution"
+          type="number"
+          min="1"
+          max="32"
+          label="Playfield vertical resolution (pfres)"
+          hint="Up to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
+          persistent-hint
+          class="pfres-field"
+        />
+      </div>
 
-      <v-divider class="mt-4 mb-2" />
-      <div class="text-subtitle-1">ROM Options</div>
-      <v-select
-        v-model="configurationState.romSize"
-        @change="handleChangeConfiguration"
-        :items="romSizeOptions"
-        label="ROM size"
-      />
-      <v-switch
-        v-model="configurationState.showScore"
-        @change="handleChangeConfiguration"
-        label="Show score at bottom of screen (noscore)"
-        hint="Turning this off skips the score display code entirely, freeing up ROM space."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-switch
-        v-model="configurationState.showBlankLines"
-        @change="handleChangeConfiguration"
-        label="Show blank lines between background rows (no_blank_lines)"
-        hint="Turning this off packs playfield rows tighter together, but uses missile0's graphics circuitry, so missile0 can no longer be used as a sprite."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-switch
-        v-model="configurationState.enablePfColors"
-        @change="handleChangeConfiguration"
-        :disabled="configurationState.enableSuperchip"
-        label="Enable per-row playfield colors (pfcolors)"
-        hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Disabled while Superchip RAM is on - see below."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-switch
-        v-model="configurationState.enableSuperchip"
-        @change="handleToggleSuperchip"
-        label="Enable Superchip RAM for higher-resolution playfields"
-        hint="Adds a Superchip (SC) to the ROM and lets the playfield use more than 11 rows. Requires an 8k or larger ROM (bumped automatically if needed), and horizontal playfield scrolling (left/right) isn't supported once this is on. Per-row playfield colors (pfcolors) don't render correctly with Superchip yet, so they're left out of the generated code while this is on - backgrounds can still have row colors set in the editor for whenever that's fixed. Also moves the app's own bookkeeping variables off letters and into extra Superchip RAM, freeing every letter (a-z) for your own variables."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-text-field
-        v-model.number="configurationState.pfres"
-        @change="handleChangeResolution"
-        type="number"
-        min="1"
-        max="32"
-        label="Playfield vertical resolution (pfres)"
-        hint="Up to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
-        persistent-hint
-        class="pfres-field"
-      />
+      <v-divider class="my-2" />
+      <div class="option-section-header" @click="() => toggleSection('vcsgm')">
+        <v-btn icon small :title="isSectionCollapsed('vcsgm') ? 'Expand this section' : 'Collapse this section'">
+          <v-icon>{{ isSectionCollapsed('vcsgm') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+        </v-btn>
+        <span class="text-subtitle-1">VCSGM Options</span>
+      </div>
+      <div v-if="!isSectionCollapsed('vcsgm')" class="option-section-content">
+        <v-switch
+          v-model="loadLastProject"
+          label="Load last open project on startup"
+          hint="When off, the app always starts from the empty project instead of restoring whatever was last saved."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.muteAllAudio"
+          @change="handleChangeConfiguration"
+          label="Mute all in-game audio"
+          hint="Silences every sound effect and channel, overriding whatever any Sound block sets - useful for quick testing without needing to remove sound blocks."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.muteBlocklySounds"
+          @change="handleChangeConfiguration"
+          label="Mute Blockly sounds"
+          hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; above for that."
+          persistent-hint
+          class="option-switch"
+        />
+      </div>
 
-      <v-divider class="mt-4 mb-2" />
-      <div class="text-subtitle-1">Kernel Optimization</div>
-      <v-switch
-        v-model="configurationState.enableOptimizationSpeed"
-        @change="handleChangeConfiguration"
-        label="Optimize for speed (speed)"
-        hint="May increase speed - particularly of multiplication and division - at the cost of code size."
-        persistent-hint
-        class="option-switch"
-      />
-      <v-switch
-        v-model="configurationState.enableInlineRand"
-        @change="handleChangeConfiguration"
-        :disabled="!romSizeIsBankswitched"
-        label="Inline random number calls (inlinerand)"
-        hint="Places calls to the random number generator inline with your code instead of as a shared routine, trading a small increase in code size for speed - most useful in a bankswitched game, where a shared routine call would otherwise have to switch banks. Requires a bankswitched ROM size (8k or larger) - see ROM size above."
-        persistent-hint
-        class="option-switch"
-      />
+      <v-divider class="my-2" />
+      <div class="option-section-header" @click="() => toggleSection('kernel')">
+        <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
+          <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+        </v-btn>
+        <span class="text-subtitle-1">Kernel Optimization</span>
+      </div>
+      <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
+        <v-switch
+          v-model="configurationState.enableOptimizationSpeed"
+          @change="handleChangeConfiguration"
+          label="Optimize for speed (speed)"
+          hint="May increase speed - particularly of multiplication and division - at the cost of code size."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enableInlineRand"
+          @change="handleChangeConfiguration"
+          :disabled="!romSizeIsBankswitched"
+          label="Inline random number calls (inlinerand)"
+          hint="Places calls to the random number generator inline with your code instead of as a shared routine, trading a small increase in code size for speed - most useful in a bankswitched game, where a shared routine call would otherwise have to switch banks. Requires a bankswitched ROM size (8k or larger) - see ROM size above."
+          persistent-hint
+          class="option-switch"
+        />
+      </div>
     </v-card-text>
     </v-card>
 </template>
 <script>
-import {computed, defineComponent} from '@vue/composition-api';
+import {computed, defineComponent, ref} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
 import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage, useLoadLastProjectStorage} from '../hooks/project';
@@ -128,6 +149,21 @@ export default defineComponent({
     // below so it survives clearProjectStorage() and can be checked at
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
+
+    // Which sections are collapsed - a Set of section keys, matching the
+    // collapse pattern already used by the other tabs' own cards (a plain
+    // left-aligned chevron icon button, not Vuetify's own v-expansion-panels,
+    // which puts its arrow on the right). Starts empty (everything expanded)
+    // so this page looks the same as before collapsing existed. Not
+    // persisted - like every other tab's own collapse state, it resets on
+    // reload rather than being remembered.
+    const collapsedSections = ref(new Set());
+    const isSectionCollapsed = (key) => collapsedSections.value.has(key);
+    const toggleSection = (key) => {
+      const next = new Set(collapsedSections.value);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      collapsedSections.value = next;
+    };
 
     const configurationState = computed({
       get() {
@@ -247,6 +283,8 @@ export default defineComponent({
       romSizeOptions: ROM_SIZE_OPTIONS,
       romSizeIsBankswitched,
       loadLastProject,
+      isSectionCollapsed,
+      toggleSection,
     };
   },
   methods: {
@@ -271,6 +309,21 @@ export default defineComponent({
   top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* Left-aligned collapse chevron + section title - matches the other tabs'
+   own per-card collapse control (e.g. DataEditor's .data-collapse-btn),
+   rather than Vuetify's own v-expansion-panel-header, which puts its arrow
+   on the right. */
+.option-section-header {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.option-section-content {
+  padding-left: 4px;
 }
 
 /* Vuetify aligns a switch's hint under the toggle track by default; indent it
