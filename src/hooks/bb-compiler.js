@@ -141,8 +141,11 @@ const parseDasmErrors = (text) => {
   return errors;
 };
 
-const prepareException = (mainMessage, errors) => {
-  const joined = errors
+// joinedOverride lets a caller that's already built its own (better-
+// annotated) multi-line summary - see assemble()'s main.asm context lines -
+// use that verbatim instead of the plain "Line N: msg" default.
+const prepareException = (mainMessage, errors, joinedOverride) => {
+  const joined = joinedOverride !== undefined ? joinedOverride : errors
       .map((err) => err.msg ? `Line ${err.line}: ${err.msg}` : JSON.stringify(err))
       .join('\n');
   const err = new Error(mainMessage + (joined ? '\n' + joined : ''));
@@ -224,7 +227,36 @@ const assemble = async (mainAsmContent, workDir) => {
   // that was never the actual problem.
   const errors = parseDasmErrors(r.stdout);
   if (errors.length) {
-    throw prepareException('Errors while assembling.', errors);
+    // DASM's own "Line N" refers to main.asm - the fully macro-expanded
+    // assembly DASM actually saw, NOT the bBasic source shown elsewhere in
+    // the app (hooks/rom.js's showError annotates against that SOURCE
+    // instead, so its line numbers never line up here - confirmed directly:
+    // that mismatch was surfacing as a bare "undefined" where the source
+    // line should have been, since the bBasic source is far shorter than
+    // main.asm and the lookup just fell off the end of it). Annotated here,
+    // against main.asm itself (which this function already has in hand),
+    // so the real offending line - and a few lines of context around it,
+    // since a single line rarely explains a bank/segment-tracking error on
+    // its own - travels with the error instead of being silently lost.
+    const asmLines = mainAsmContent.split('\n');
+    // A generous window before the error (not just a few lines) - an
+    // "Origin Reverse-indexed" failure is frequently reported several
+    // "bank N"/ECHO-table entries after whatever content actually caused
+    // it (DASM's own running PC tracking doesn't go wrong until it reaches
+    // the NEXT origin-setting directive, not at the true overflow point
+    // itself), so seeing only a handful of lines right at the reported one
+    // routinely shows nothing but the compiler's own fixed boilerplate.
+    const annotated = errors.map((err) => {
+      const header = `Line ${err.line}: ${err.msg}`;
+      if (!err.line || err.line < 1 || err.line > asmLines.length) return header;
+      const start = Math.max(0, err.line - 40);
+      const end = Math.min(asmLines.length, err.line + 5);
+      const context = asmLines.slice(start, end)
+          .map((text, i) => `${start + i + 1 === err.line ? '>' : ' '} ${start + i + 1}: ${text}`)
+          .join('\n');
+      return `${header}\n${context}`;
+    }).join('\n\n');
+    throw prepareException('Errors while assembling.', errors, annotated);
   }
   if (!output || !symText) {
     // Matches the old npm wrapper's own fallback message, which

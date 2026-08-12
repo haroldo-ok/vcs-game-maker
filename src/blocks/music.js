@@ -192,12 +192,11 @@ const buildSongOptions = () => {
   }
 };
 
-// Starts (or restarts) playback of one song created on the Music tab. Only
-// one song can be used for playback per project currently - the generator
-// (see generators/bbasic/music.js) errors out at compile time if more than
-// one distinct song is referenced across every music_play_song block in the
-// project, since the generated per-channel data tables/index variables are
-// shared globally rather than duplicated per song.
+// Starts (or restarts) playback of one song created on the Music tab. Any
+// number of distinct songs can be referenced across a project's own
+// music_play_song/music_play_song_by_id blocks (see resolveProjectMusic in
+// generators/bbasic/music.js) - each included song gets its own reset
+// subroutine once there's more than one to choose between.
 Blockly.Blocks['music_play_song'] = {
   init: function() {
     this.appendDummyInput()
@@ -209,20 +208,18 @@ Blockly.Blocks['music_play_song'] = {
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
     this.setTooltip('Starts (or restarts) playback of a song created on the Music tab. ' +
-      'Only one song can be used for playback per project currently. When Loop is unchecked, ' +
-      'the song plays once and stops instead of repeating.');
+      'When Loop is unchecked, the song plays once and stops instead of repeating.');
   },
 };
 
-// Same start/restart behavior as music_play_song above - only one song can
-// actually be used for playback right now, so this ID isn't even checked at
-// runtime, it just starts that same one song exactly like music_play_song
-// does (see generators/bbasic/music.js - the two share one generator
-// function). Only the picker is different: a runtime VALUE (a variable or
-// computed expression) instead of a fixed dropdown choice, ready to
-// actually pick between several songs without a rework if that single-song
-// limit is ever lifted. A separate block (not an added input on
-// music_play_song) so existing projects using that one aren't disturbed.
+// Same start/restart behavior as music_play_song above, but picks the song
+// by a runtime VALUE (a variable or computed expression) instead of a fixed
+// dropdown choice - since this can't be resolved at compile time, using this
+// block anywhere in the project pulls EVERY song from storage into the
+// compiled ROM, so whatever ID it's given at runtime always has real data to
+// find (see resolveProjectMusic's own usesSongById comment). A separate
+// block (not an added input on music_play_song) so existing projects using
+// that one aren't disturbed.
 Blockly.Blocks['music_play_song_by_id'] = {
   init: function() {
     this.appendDummyInput()
@@ -236,9 +233,8 @@ Blockly.Blocks['music_play_song_by_id'] = {
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
     this.setTooltip('Same as "Play song", but picks the song by ID (a variable or computed value, ' +
-      'not a fixed choice) - only one song can actually be used for playback right now, so this ID ' +
-      'isn\'t actually checked, it always starts that one song. When Loop is unchecked, the song ' +
-      'plays once and stops instead of repeating.');
+      'not a fixed choice) - using this anywhere in the project makes every song available to pick ' +
+      'from at runtime. When Loop is unchecked, the song plays once and stops instead of repeating.');
   },
 };
 
@@ -314,13 +310,14 @@ Blockly.Blocks['music_song_stopped'] = {
 // Same trigger as music_song_stopped above (both fire off the exact same
 // shared "just stopped" flag - see generateMusicChecks in
 // generators/bbasic/music.js), just with an explicit SONG dropdown, for
-// projects that want to name which song they mean at the call site even
-// though only one can actually be used for playback right now (see
-// music_play_song's own comment) - this reads clearer in a project with
-// several songs defined but only one currently wired up to Play, and is
-// ready to actually distinguish between songs without a rework if that
-// single-song limit is ever lifted. A separate block (not an added field on
-// music_song_stopped) so existing projects using that one aren't disturbed.
+// projects that want to name which song they mean at the call site - this
+// dropdown is purely for readability, it isn't actually checked at runtime.
+// Deliberately kept simple even with multi-song support (see
+// resolveProjectMusic): "song stopped" fires whenever whichever song is
+// CURRENTLY playing reaches its own end, regardless of which song that is -
+// distinguishing which song actually stopped isn't implemented. A separate
+// block (not an added field on music_song_stopped) so existing projects
+// using that one aren't disturbed.
 Blockly.Blocks['music_song_stopped_by_id'] = {
   init: function() {
     this.appendDummyInput()
@@ -330,9 +327,9 @@ Blockly.Blocks['music_song_stopped_by_id'] = {
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
-    this.setTooltip('Same as "When song has stopped playing", but names which song - only one song ' +
-      'can actually be used for playback right now, so this only ever matches that one, but it reads ' +
-      'clearer in a project with several songs defined.');
+    this.setTooltip('Same as "When song has stopped playing", but names which song for readability - ' +
+      'it isn\'t actually checked, this fires whenever whichever song is currently playing reaches ' +
+      'its own end, regardless of which song that is.');
   },
 };
 
@@ -340,11 +337,10 @@ Blockly.Blocks['music_song_stopped_by_id'] = {
 // three share one generator, generateSongStopped, in generators/bbasic/
 // music.js), but picks the song by a runtime VALUE (a variable or computed
 // ID) instead of a fixed dropdown choice - same reasoning as
-// music_play_song_by_id vs music_play_song. Only one song can actually be
-// used for playback right now, so this ID isn't checked either, it always
-// fires on that one song's own stop. A separate block (not an added input
-// on music_song_stopped_by_id) so existing projects using that one aren't
-// disturbed.
+// music_play_song_by_id vs music_play_song, and not checked at runtime for
+// the same reason music_song_stopped_by_id's own dropdown isn't. A separate
+// block (not an added input on music_song_stopped_by_id) so existing
+// projects using that one aren't disturbed.
 Blockly.Blocks['music_song_stopped_by_number'] = {
   init: function() {
     this.appendDummyInput()
@@ -356,8 +352,9 @@ Blockly.Blocks['music_song_stopped_by_number'] = {
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
     this.setTooltip('Same as "When song has stopped playing", but picks the song by ID (a variable or ' +
-      'computed value, not a fixed choice) - only one song can actually be used for playback right ' +
-      'now, so this ID isn\'t actually checked, it always fires when that one song stops.');
+      'computed value, not a fixed choice) for readability - it isn\'t actually checked, this fires ' +
+      'whenever whichever song is currently playing reaches its own end, regardless of which song ' +
+      'that is.');
   },
 };
 

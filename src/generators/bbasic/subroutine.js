@@ -3,13 +3,16 @@ export default (Blockly) => {
   // Doesn't emit inline where it's dropped on the canvas - like an event
   // block, its body is collected here and spliced into its own safe,
   // never-fallen-into spot in the template (see generateSubroutines in
-  // bbasic.js), with a label + "return" wrapped around it there.
+  // bbasic.js), with a label + "return" wrapped around it there - or, once
+  // relocated (see getSubroutineBank), into that bank's own section instead
+  // (see generateRelocatedSections).
   //
-  // Subroutines always live in bank 1 (no relocation support for them yet,
-  // unlike events/backgrounds/animations) - setting currentEventName to a
-  // key that's never in RELOCATABLE_EVENTS/eventBanks makes getEventBank()
-  // naturally resolve to 1 for anything generated inside this block's body,
-  // exactly like it would for any other unknown name.
+  // currentEventName is set to "subroutine_<name>" (a prefix
+  // getCurrentBank() specifically recognizes and resolves through
+  // getSubroutineBank rather than getEventBank) so any bank-crossing code
+  // generated INSIDE this subroutine's own body - a nested subroutine call,
+  // a data table read - correctly targets wherever THIS subroutine actually
+  // ends up, not always bank 1.
   Blockly.BBasic['subroutine_define'] = function(block) {
     const name = Blockly.BBasic.nameDB_.getName(
         block.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME);
@@ -21,16 +24,18 @@ export default (Blockly) => {
     return '';
   };
 
-  // A subroutine's label always lives in bank 1, so calling it from a
-  // relocated event's own bank needs the same explicit "bankN" tag any other
-  // cross-bank goto/gosub does (see bankJumpSuffix) - calling it from bank 1
-  // itself (the common case) stays untagged. "return" never takes a bank
-  // suffix of its own - the compiler restores the caller's bank
-  // automatically (confirmed directly: tagging return with a bank breaks
-  // the entire build with a flood of unrelated "unresolved symbol" errors,
-  // a sign of the preprocessor losing its place entirely, not a small
-  // mistake) - so nothing on the definition side needs to know or care which
-  // bank called it.
+  // A subroutine's label can live in any bank now (see getSubroutineBank),
+  // so calling it needs the same explicit "bankN" tag any other cross-bank
+  // goto/gosub does (see bankJumpSuffix) whenever the caller and the
+  // subroutine's own bank differ - calling it from its own bank (the common
+  // case, including every call before this feature existed, when everything
+  // was always bank 1) stays untagged. "return" never takes a bank suffix of
+  // its own - the compiler restores the caller's bank automatically
+  // (confirmed directly: tagging return with a bank breaks the entire build
+  // with a flood of unrelated "unresolved symbol" errors, a sign of the
+  // preprocessor losing its place entirely, not a small mistake) - so
+  // nothing on the definition side needs to know or care which bank called
+  // it.
   Blockly.BBasic['subroutine_call'] = function(block) {
     // The dropdown's own displayed value can be a stale/empty leftover from
     // before it's had a chance to snap to a real subroutine (see
@@ -56,7 +61,8 @@ export default (Blockly) => {
     }
     const name = Blockly.BBasic.nameDB_.getName(
         fieldValue, Blockly.PROCEDURE_CATEGORY_NAME);
-    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), 1);
+    const suffix = Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     return `gosub ${name}${suffix}\n`;
   };
 };

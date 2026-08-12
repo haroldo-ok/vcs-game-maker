@@ -287,10 +287,10 @@
         v-if="romCapacityText"
         class="rom-capacity"
         :class="romCapacityLow ? 'rom-capacity-low' : ''"
-        :title="romCapacityTitle"
       >
         {{ romCapacityText }}
       </div>
+      <pre v-if="romCapacityDetail" class="rom-capacity-detail" v-text="romCapacityDetail"></pre>
       <div
         v-if="autoRelocatedEventsText"
         class="rom-capacity"
@@ -414,14 +414,28 @@ export default {
       if (!capacity) return '';
       return `${capacity.total.freeBytes.toLocaleString()} bytes free`;
     },
-    romCapacityTitle() {
+    // Plain, always-visible, selectable text (see the <pre> right under the
+    // "bytes free" line in the template) rather than a native title="..."
+    // tooltip - a browser tooltip can't be selected/copied at all, which
+    // defeats the whole point of this existing specifically to be pasted
+    // into a bug report or back into this conversation.
+    romCapacityDetail() {
       const capacity = this.romCapacity;
       if (!capacity) return '';
       const totalUsed = capacity.total.usableBytes - capacity.total.freeBytes;
       const bank1Used = capacity.bank1.usableBytes - capacity.bank1.freeBytes;
-      return `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
+      const summary = `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
         `across every bank (bank 1, which always holds your main code, is ` +
         `${bank1Used.toLocaleString()} of ${capacity.bank1.usableBytes.toLocaleString()} used)`;
+      // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
+      // total above averages over every bank, which can look like there's
+      // plenty of room even when a SPECIFIC bank (the one a new relocated
+      // unit would actually need to land in) has almost none left.
+      if (!capacity.perBank || !capacity.perBank.length) return summary;
+      const perBankText = capacity.perBank
+          .map((bank, i) => `bank ${i + 1}: ${bank.freeBytes.toLocaleString()} free`)
+          .join('\n');
+      return `${summary}\n${perBankText}`;
     },
     romCapacityLow() {
       const capacity = this.romCapacity;
@@ -944,6 +958,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   font-weight: bold;
 }
 
+.rom-capacity-detail {
+  font-family: inherit;
+  font-size: 0.75em;
+  opacity: 0.6;
+  text-align: center;
+  white-space: pre-wrap;
+  margin: 2px 0 0;
+  user-select: text;
+}
+
 .error-message {
   position: relative;
   z-index: 10;
@@ -958,8 +982,12 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
-  height: 6px;
+  /* Straddles the footer's own top edge (-5px to +5px) rather than sitting
+     entirely inside it - a plain 6px strip fully inside the panel was too
+     easy to miss by a pixel and land on the error text right below it
+     instead, starting a text selection instead of a resize drag. */
+  top: -5px;
+  height: 10px;
   cursor: ns-resize;
   z-index: 2;
 }

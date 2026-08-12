@@ -2,11 +2,11 @@
 
 import {chunk} from 'lodash';
 
-import {findSongById, DEFAULT_PATTERN_STEPS, LENGTH_UNITS_PER_STEP} from '../../blocks/music';
+import {findSongById, processSongsStorageDefaults, DEFAULT_PATTERN_STEPS, LENGTH_UNITS_PER_STEP} from '../../blocks/music';
 import {processSoundEffectsStorageDefaults, DEFAULT_ARPEGGIO_DIVISION,
   FADE_LENGTH_OPTIONS, DEFAULT_FADE_LENGTH} from '../../blocks/soundfx';
 import {MAX_DATA_TABLE_VALUES} from '../../blocks/data';
-import {useConfigurationStorage, useSoundEffectsStorage} from '../../hooks/project';
+import {useConfigurationStorage, useSoundEffectsStorage, useSongsStorage} from '../../hooks/project';
 import {effectiveTempo} from '../../utils/music-playback';
 import {audcHasTunableNotes} from '../../utils/music-notes';
 import {DEFAULT_DIM_PERCENT, dimVolume} from './soundfx';
@@ -16,14 +16,14 @@ const FRAMES_PER_SECOND = 60; // NTSC - matches "set tv ntsc" in bbasic.bb.hbs
 // eventsToPages) - bit 7 is reused as the "this note fades" flag, so a
 // channel with any fade in use caps a single event's hold at 127 frames
 // instead of 255 (channels with no fade at all keep the full 255 range -
-// see the final chunking pass in flattenSongEvents).
+// see the final chunking pass in flattenPatternEvents).
 const MAX_EVENT_FRAMES_WITH_FADE = 127;
 const MAX_EVENT_FRAMES_NO_FADE = 255;
 // Only an event that ITSELF arpeggiates needs 3 more bits (see
 // ARPEGGIO_PHASE_SEQUENCES) for its range/shape, cutting its own duration
 // down to this - a rest or non-arpeggiating note on the very same channel
 // isn't forced into this narrow cap too (see the per-event maxFrames in
-// flattenSongEvents' final chunking pass, and the arpSpeedVar branch in
+// flattenPatternEvents' final chunking pass, and the arpSpeedVar branch in
 // generateMusicChecks' durationRead), since its duration byte doesn't need
 // to carry any range bits at all.
 const MAX_EVENT_FRAMES_WITH_ARPEGGIO = 15;
@@ -46,8 +46,12 @@ const LOOP_SENTINEL = 255;
 const PAGE_BREAK_SENTINEL = 254;
 // A generous ceiling on how many pages one channel can spread across, purely
 // as a sanity guard against a pathologically long song generating enormous
-// amounts of dispatch code - not a hard format limit.
-const MAX_MUSIC_PAGES = 8;
+// amounts of dispatch code - not a hard format limit. Applies to the SUM of
+// pages across every song included for playback (see resolveProjectMusic),
+// not one song alone, now that a project can reference more than one -
+// raised from the original single-song value of 8 since that budget is now
+// shared project-wide.
+const MAX_MUSIC_PAGES = 16;
 
 // Canonical (pre-letter-assignment) names for this feature's hidden
 // variables - passed through nameDB_.getName(..., DEVELOPER_VARIABLE_TYPE)
@@ -60,6 +64,16 @@ export const musicTimerVarName = (channel) => `_musicCh${channel}Timer`;
 // eventsToPages/MAX_DATA_TABLE_VALUES) - which table (of that channel's own
 // set) is currently being read.
 export const musicPageVarName = (channel) => `_musicCh${channel}Page`;
+// Only reserved/used for a song whose own sequence references more than one
+// pattern (see resolveProjectMusic) - which position in the SONG's own
+// sequence this channel is currently playing through. Each DISTINCT pattern
+// is only ever encoded once (see channelPages/patternStartPage in
+// resolveProjectMusic), so a pattern repeated at several sequence positions
+// needs this to know which page to jump BACK to once the current one's data
+// runs out - musicPageVarName alone can't tell "which occurrence" apart,
+// since the same pattern (and so the same starting page) can be reached from
+// more than one sequence position.
+export const musicSeqPosVarName = (channel) => `_musicCh${channel}SeqPos`;
 // One shared byte (not a var per flag/channel) holding every boolean the
 // music player needs project-wide - dev vars are a hard-capped, only
 // 25-of-them, project-wide resource, and this used to cost 3 vars
@@ -115,7 +129,7 @@ export const musicFadeVarName = (channel) => `_musicCh${channel}Fade`;
 // << 4), the same layout the duration byte itself already uses for these
 // two fields (see eventsToPages) - saves a whole dev var per arpeggio
 // channel at essentially zero per-frame cost: range is only ever nonzero
-// when speed is too (see flattenSongEvents, which defaults arpeggioRange to
+// when speed is too (see flattenPatternEvents, which defaults arpeggioRange to
 // 0 for any non-arpeggiating event), so testing "is this note arpeggiating
 // at all" against the WHOLE packed byte is exactly as correct as testing
 // speed alone - the hot per-frame check in arpApply doesn't need to mask
@@ -135,6 +149,173 @@ export const musicArpPhaseVarName = (channel) => `_musicCh${channel}ArpPhase`;
 // lands on it (see arpApply's computeLines).
 export const musicArpBaseIntervalVarName = (channel) => `_musicCh${channel}ArpBaseInterval`;
 const musicDataTableName = (channel, page) => `_musicCh${channel}Data${page}`;
+// One entry per position in a song's own sequence (see resolveProjectMusic)
+// - the page that channel's data starts at for whichever pattern plays at
+// that position, so a repeated pattern's page only has to be looked up
+// again, not re-stored. Only generated/read at all once there's more than
+// one position/song to actually dispatch between (see the multiSeq/multiSong
+// comments in generateMusicChecks) - songIndex is omitted for the common
+// single-song case, reproducing the exact table name (and so the exact
+// compiled output) a project with only one song has always used.
+const musicSeqTableName = (channel, songIndex) =>
+  songIndex === undefined ? `_musicCh${channel}Seq` : `_musicCh${channel}Song${songIndex}Seq`;
+
+// Name of the subroutine (see buildMusicPlayResetBody/RUN_ONCE_EDGE_RESET_NAME's
+// own comment in bbasic.js for the identical reasoning) a "Play song" call
+// gosubs into, instead of each inlining its own full copy of the per-channel
+// reset - a project with more than one "Play song" block used to duplicate
+// this whole block once per call site, which on an already content-heavy
+// project was enough by itself to push bank space that had otherwise fit
+// into overflowing (confirmed directly: a project that compiled fine with
+// one "Play song" block failed with two, referencing the exact same song,
+// content otherwise unchanged). Registered into Blockly.BBasic.subroutines
+// by bbasic.js's init() (see its own RUN_ONCE_EDGE_RESET_NAME registration,
+// right next to this one) so it's relocatable exactly like a user-defined
+// subroutine, rather than only ever inline at each call site.
+//
+// Only used when the project references exactly ONE song (see
+// registerMusicPlayResetSubroutine) - once there's more than one, EACH
+// song needs its own dedicated reset (see musicPlaySongResetName below)
+// since which song a "Play song" block starts is no longer always the same
+// one, so there's nothing left to usefully share under one name.
+export const MUSIC_PLAY_RESET_NAME = '_music_play_reset';
+
+// Per-song equivalent of MUSIC_PLAY_RESET_NAME above, used once a project
+// references more than one song - every included song gets its OWN reset
+// subroutine (always, regardless of how many "Play song" blocks target it),
+// since a shared name no longer makes sense when different call sites can
+// target different songs.
+export const musicPlaySongResetName = (songIndex) => `_music_play_song${songIndex}_reset`;
+
+// Subroutine "Play song by ID" (see blocks/music.js) gosubs into once a
+// project has more than one song - an if-chain comparing the runtime ID
+// (written into musicPlayByIdArgVarName's own scratch var by the call site,
+// since bB subroutines don't take parameters) against each included song's
+// own literal storage ID, gosub-ing into that song's own
+// musicPlaySongResetName subroutine (reusing it, not duplicating its body)
+// and returning. No match silently falls through and returns - a no-op,
+// rather than erroring, the same leniency subroutine_call's own stale-value
+// fallback already uses elsewhere.
+export const MUSIC_PLAY_BY_ID_NAME = '_music_play_by_id';
+export const musicPlayByIdArgVarName = () => '_musicPlayByIdArg';
+// Which song is currently active (that song's own 0-based songIndex, see
+// resolveProjectMusic) - set by every song's own reset subroutine. Only
+// read back at the (relatively rare) moment a channel's sequence position
+// advances, to pick which song's own Seq table (see musicSeqTableName) to
+// consult - see generateMusicChecks' own seqTableLookup comment.
+export const musicSongIndexVarName = () => '_musicSongIndex';
+// Current song's own sequence.length - replaces the literal constant the
+// single-song version of generateMusicChecks' wrap check still uses
+// directly, since that number now varies by whichever song is playing. Set
+// by every song's own reset subroutine.
+export const musicSeqLenVarName = () => '_musicSeqLen';
+
+// Builds a song's own reset subroutine body: resets every channel THAT SONG
+// uses (index/timer/page/sequence-position/arpeggio state, marked active),
+// and - only once relevant, see the two branches below - either shares this
+// logic under MUSIC_PLAY_RESET_NAME (project's only song) or becomes one of
+// several musicPlaySongResetName subroutines (2+ songs), in which case it
+// ALSO explicitly clears the active bit of every channel THIS song does NOT
+// use (a channel some other included song uses, but this one doesn't) - a
+// real correctness gap the single-song version never had to consider, since
+// every song used to be the only one: without this, switching from a song
+// that used a channel to one that doesn't would leave that channel stuck
+// "active," still reading stale data from whatever it was last playing.
+const buildMusicPlayResetBody = (Blockly, song, music) => {
+  const resolveVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const flagsVar = resolveVar(musicFlagsVarName());
+  const multiSeq = song.sequenceLength > 1;
+  return Object.entries(music.channelPages).map(([channel, pages]) => {
+    const pageReset = pages.length > 1 ? `${resolveVar(musicPageVarName(channel))} = 0\n` : '';
+    const seqReset = multiSeq ? `${resolveVar(musicSeqPosVarName(channel))} = 0\n` : '';
+    const arpReset = music.channelHasArpeggio[channel] ?
+      `${resolveVar(musicArpPhaseVarName(channel))} = 0\n${resolveVar(musicArpCounterVarName(channel))} = 1\n` :
+      '';
+    return `${resolveVar(musicIndexVarName(channel))} = 0\n${pageReset}${seqReset}${arpReset}` +
+      `${resolveVar(musicTimerVarName(channel))} = 1\n` +
+      `${flagsVar}{${musicChannelActiveBit(channel)}} = 1\n`;
+  }).join('');
+};
+
+// Multi-song version of buildMusicPlayResetBody above - see its own comment
+// for why every channel the project uses (not just this song's own) needs
+// visiting here, and why pageVar/seqPos are reset unconditionally (this
+// song's own start page in the combined per-channel table is rarely 0 once
+// an earlier song's pages already occupy the front of it, unlike the
+// single-song case where it always was) rather than only when "needed" the
+// way the single-song version still optimizes for.
+const buildMusicPlaySongResetBody = (Blockly, song, music) => {
+  const resolveVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const flagsVar = resolveVar(musicFlagsVarName());
+  const lines = music.channels.map((channel) => {
+    if (!song.channelsUsed.has(Number(channel))) {
+      return `${flagsVar}{${musicChannelActiveBit(channel)}} = 0\n`;
+    }
+    const arpReset = music.channelHasArpeggio[channel] ?
+      `${resolveVar(musicArpPhaseVarName(channel))} = 0\n${resolveVar(musicArpCounterVarName(channel))} = 1\n` :
+      '';
+    return `${resolveVar(musicIndexVarName(channel))} = 0\n` +
+      `${resolveVar(musicPageVarName(channel))} = ${song.channelStartPage[channel]}\n` +
+      `${resolveVar(musicSeqPosVarName(channel))} = 0\n` +
+      arpReset +
+      `${resolveVar(musicTimerVarName(channel))} = 1\n` +
+      `${flagsVar}{${musicChannelActiveBit(channel)}} = 1\n`;
+  }).join('');
+  return `${resolveVar(musicSongIndexVarName())} = ${song.songIndex}\n` +
+    `${resolveVar(musicSeqLenVarName())} = ${Math.max(1, song.sequenceLength)}\n` +
+    lines;
+};
+
+// Builds MUSIC_PLAY_BY_ID_NAME's own if-chain body (see its own comment).
+// getSubroutineBank (not getCurrentBank) is used for the "from" bank here
+// since this body is built directly from bbasic.js's init(), not walked via
+// a block's own generator (which is what normally keeps currentEventName -
+// and so getCurrentBank - accurate) - MUSIC_PLAY_BY_ID_NAME's own resolved
+// bank IS this code's own bank, known directly without it.
+const buildMusicPlayByIdBody = (Blockly, music) => {
+  const argVar = Blockly.BBasic.nameDB_.getName(musicPlayByIdArgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const fromBank = Blockly.BBasic.getSubroutineBank(MUSIC_PLAY_BY_ID_NAME);
+  return music.songs.map((song) => {
+    const targetName = musicPlaySongResetName(song.songIndex);
+    const suffix = Blockly.BBasic.bankJumpSuffix(fromBank, Blockly.BBasic.getSubroutineBank(targetName));
+    return `if ${argVar} = ${song.songId} then gosub ${targetName}${suffix} : return`;
+  }).join('\n');
+};
+
+// Called from bbasic.js's init(), right after this.projectMusic is resolved
+// above - mirrors RUN_ONCE_EDGE_RESET_NAME's own registration (see its
+// comment) for why this happens in init() rather than left until this
+// block's own generator runs: getSubroutineBank/generateRelocatedSections
+// need every subroutine name known up front, same as any user-defined one.
+//
+// singleSongShared (see musicPlayResetShared in bbasic.js's init()) only
+// matters for the ONE-song case below: whether MUSIC_PLAY_RESET_NAME is
+// worth registering at all depends on how many "Play song" call sites
+// target that one song (a single call site is cheaper left inline - see
+// buildMusicPlayResetBody's own comment). The 2+-song case is unconditional
+// - always registered once there's more than one song to choose between,
+// regardless of how many call sites exist, since "Play song by ID" alone
+// (even a single call site) can still need to dispatch among every song in
+// storage (see resolveProjectMusic's own usesSongById comment).
+export const registerMusicPlayResetSubroutine = (Blockly, singleSongShared) => {
+  const music = Blockly.BBasic.projectMusic;
+  if (!music) return;
+  if (music.songs.length === 1) {
+    if (singleSongShared) {
+      Blockly.BBasic.subroutines[MUSIC_PLAY_RESET_NAME] = buildMusicPlayResetBody(Blockly, music.songs[0], music);
+    }
+    return;
+  }
+  music.songs.forEach((song) => {
+    Blockly.BBasic.subroutines[musicPlaySongResetName(song.songIndex)] =
+      buildMusicPlaySongResetBody(Blockly, song, music);
+  });
+  if (music.usesSongById) {
+    Blockly.BBasic.subroutines[MUSIC_PLAY_BY_ID_NAME] = buildMusicPlayByIdBody(Blockly, music);
+  }
+};
 
 // Matches ARPEGGIO_RANGE_* in blocks/soundfx.js by array index. Each token
 // names one of the 6 pitch variants precomputed once per note-fetch (see
@@ -157,33 +338,37 @@ export const musicChannelsUsedBySong = (song) => {
   return channels;
 };
 
-// Flattens a song's whole pattern sequence into one absolute-frame-timed
-// event list per channel: {audv, audc, audf, frames}, including explicit
-// {0,0,0,frames} rest/gap events so playback timing stays correct across
-// silent stretches too. Mirrors utils/music-playback.js's own
-// schedulePattern (identical tempo/step-to-seconds math) so ROM playback
-// matches what the Music tab's own browser preview plays, just quantized to
-// whole NTSC frames instead of continuous AudioContext seconds. Applies the
-// Options tab's "Dim SFX volume" setting to every note's own AUDV, the same
-// way soundfx_play does for one-shot sound effects (see soundfx.js) - so
-// turning that on/off affects music playback consistently with everything
-// else on the channel.
-export const flattenSongEvents = (song, soundEffects, config = {}) => {
-  const channels = musicChannelsUsedBySong(song);
+// Flattens ONE pattern into an absolute-frame-timed event list per channel:
+// {audv, audc, audf, frames}, including explicit {0,0,0,frames} rest/gap
+// events so playback timing stays correct across silent stretches too.
+// Mirrors utils/music-playback.js's own schedulePattern (identical
+// tempo/step-to-seconds math) so ROM playback matches what the Music tab's
+// own browser preview plays, just quantized to whole NTSC frames instead of
+// continuous AudioContext seconds. Applies the Options tab's "Dim SFX
+// volume" setting to every note's own AUDV, the same way soundfx_play does
+// for one-shot sound effects (see soundfx.js) - so turning that on/off
+// affects music playback consistently with everything else on the channel.
+//
+// Scoped to a single pattern (rather than a song's whole sequence, an
+// earlier version of this) so resolveProjectMusic can encode each DISTINCT
+// pattern's data exactly once, no matter how many times - or from how many
+// different sequence positions - it's actually played (see its own comment).
+// A pattern's own encoded data is therefore always the same regardless of
+// where in a sequence it's referenced, which is exactly what makes reusing
+// it safe.
+const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}) => {
   const perChannel = {};
   channels.forEach((channel) => {
     perChannel[channel] = [];
   });
-  const channelCursorFrames = {};
 
   // Merges into the previous event when it holds the exact same register
   // values, fade flag, AND arpeggio speed/interval/range (e.g. two adjacent
-  // rests either side of a pattern boundary) - same audio, fewer bytes. Left
-  // un-chunked here on purpose: chunking to the per-channel frame-per-byte
-  // limit only happens once, in a final pass below (see the final chunking
-  // pass), so a long merged run always splits into the fewest possible
-  // events instead of inheriting whatever chunk boundaries its original
-  // pieces happened to have.
+  // rests) - same audio, fewer bytes. Left un-chunked here on purpose:
+  // chunking to the per-channel frame-per-byte limit only happens once, in a
+  // final pass below (see the final chunking pass), so a long merged run
+  // always splits into the fewest possible events instead of inheriting
+  // whatever chunk boundaries its original pieces happened to have.
   const pushEvent = (channel, audv, audc, audf, frames, fade = false, arpeggioSpeed = 0, arpeggioInterval = 0,
       arpeggioRange = 0, fadeLength = DEFAULT_FADE_LENGTH) => {
     if (frames <= 0) return;
@@ -198,98 +383,93 @@ export const flattenSongEvents = (song, soundEffects, config = {}) => {
     }
   };
 
-  (song.sequence || []).forEach((patternId) => {
-    const pattern = (song.patterns || []).find(({id}) => `${id}` === `${patternId}`);
-    if (!pattern) return;
+  const tempo = effectiveTempo(song, pattern);
+  // Two steps per beat, LENGTH_UNITS_PER_STEP fine units per step - same
+  // math as music-playback.js's stepSeconds/unitSeconds, converted to
+  // frames instead of seconds.
+  const framesPerUnit = (30 / tempo) / LENGTH_UNITS_PER_STEP * FRAMES_PER_SECOND;
+  const stepCount = pattern.stepCount || DEFAULT_PATTERN_STEPS;
+  const patternTotalFrames = Math.round(stepCount * LENGTH_UNITS_PER_STEP * framesPerUnit);
 
-    const tempo = effectiveTempo(song, pattern);
-    // Two steps per beat, LENGTH_UNITS_PER_STEP fine units per step - same
-    // math as music-playback.js's stepSeconds/unitSeconds, converted to
-    // frames instead of seconds.
-    const framesPerUnit = (30 / tempo) / LENGTH_UNITS_PER_STEP * FRAMES_PER_SECOND;
-    const stepCount = pattern.stepCount || DEFAULT_PATTERN_STEPS;
-    const patternTotalFrames = Math.round(stepCount * LENGTH_UNITS_PER_STEP * framesPerUnit);
-
-    // Merge every track's notes that share a channel into one time-sorted
-    // list - safe because the piano roll already blocks same-channel tracks
-    // from overlapping in time (see MusicEditor.vue's
-    // trackNoteOverlappingUnits).
-    const notesByChannel = {};
-    channels.forEach((channel) => {
-      notesByChannel[channel] = [];
-    });
-    (pattern.tracks || []).forEach((track) => {
-      const channel = Number(track.channel) || 0;
-      if (!notesByChannel[channel]) return;
-      const soundEffect = soundEffects.find(({id}) => `${id}` === `${track.soundEffectId}`);
-      if (!soundEffect) return;
-      const audv = config.dimSoundFx ?
-        dimVolume(soundEffect.audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : soundEffect.audv;
-      // arpeggioDivision is tempo-relative (e.g. 8 = "flip every 1/8 step" -
-      // see blocks/soundfx.js), converted here into this note's own actual
-      // frame count using the framesPerUnit already computed above for this
-      // pattern - so the flip rate follows whichever tempo (song or pattern)
-      // is actually in effect where this note plays, instead of a fixed
-      // frame count. Clamped to what the duration byte's nibble can hold.
-      const arpeggioSpeed = soundEffect.arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES,
-          Math.round((framesPerUnit * LENGTH_UNITS_PER_STEP) /
-            (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)))) : 0;
-      const arpeggioInterval = soundEffect.arpeggio ? Number(soundEffect.arpeggioInterval) || 0 : 0;
-      const arpeggioRange = soundEffect.arpeggio ? Number(soundEffect.arpeggioRange) || 0 : 0;
-      // Whether a note plays as a real chosen pitch or the instrument's own
-      // fixed hit-audf is decided from the instrument's CURRENT Sound type
-      // (audc), not from whatever was true when the note was placed
-      // (note.midi) - notes never store sound-type-dependent data of their
-      // own, they always follow the instrument's live settings, even if
-      // those change after the note was placed.
-      const isTunable = audcHasTunableNotes(soundEffect.audc);
-      (track.notes || []).forEach((note) => {
-        const audf = !isTunable || note.midi === 'hit' ? soundEffect.audf : note.audf;
-        notesByChannel[channel].push({
-          startUnits: note.step,
-          lengthUnits: note.length,
-          audv,
-          audc: soundEffect.audc,
-          audf,
-          fade: !!soundEffect.fade,
-          arpeggioSpeed,
-          arpeggioInterval,
-          arpeggioRange,
-          fadeLength: soundEffect.fade ?
-            (FADE_LENGTH_OPTIONS.includes(Number(soundEffect.fadeLength)) ?
-              Number(soundEffect.fadeLength) : DEFAULT_FADE_LENGTH) :
-            DEFAULT_FADE_LENGTH,
-        });
+  // Merge every track's notes that share a channel into one time-sorted
+  // list - safe because the piano roll already blocks same-channel tracks
+  // from overlapping in time (see MusicEditor.vue's
+  // trackNoteOverlappingUnits).
+  const notesByChannel = {};
+  channels.forEach((channel) => {
+    notesByChannel[channel] = [];
+  });
+  (pattern.tracks || []).forEach((track) => {
+    const channel = Number(track.channel) || 0;
+    if (!notesByChannel[channel]) return;
+    const soundEffect = soundEffects.find(({id}) => `${id}` === `${track.soundEffectId}`);
+    if (!soundEffect) return;
+    const audv = config.dimSoundFx ?
+      dimVolume(soundEffect.audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : soundEffect.audv;
+    // arpeggioDivision is tempo-relative (e.g. 8 = "flip every 1/8 step" -
+    // see blocks/soundfx.js), converted here into this note's own actual
+    // frame count using the framesPerUnit already computed above for this
+    // pattern - so the flip rate follows whichever tempo (song or pattern)
+    // is actually in effect where this note plays, instead of a fixed
+    // frame count. Clamped to what the duration byte's nibble can hold.
+    const arpeggioSpeed = soundEffect.arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES,
+        Math.round((framesPerUnit * LENGTH_UNITS_PER_STEP) /
+          (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)))) : 0;
+    const arpeggioInterval = soundEffect.arpeggio ? Number(soundEffect.arpeggioInterval) || 0 : 0;
+    const arpeggioRange = soundEffect.arpeggio ? Number(soundEffect.arpeggioRange) || 0 : 0;
+    // Whether a note plays as a real chosen pitch or the instrument's own
+    // fixed hit-audf is decided from the instrument's CURRENT Sound type
+    // (audc), not from whatever was true when the note was placed
+    // (note.midi) - notes never store sound-type-dependent data of their
+    // own, they always follow the instrument's live settings, even if
+    // those change after the note was placed.
+    const isTunable = audcHasTunableNotes(soundEffect.audc);
+    (track.notes || []).forEach((note) => {
+      const audf = !isTunable || note.midi === 'hit' ? soundEffect.audf : note.audf;
+      notesByChannel[channel].push({
+        startUnits: note.step,
+        lengthUnits: note.length,
+        audv,
+        audc: soundEffect.audc,
+        audf,
+        fade: !!soundEffect.fade,
+        arpeggioSpeed,
+        arpeggioInterval,
+        arpeggioRange,
+        fadeLength: soundEffect.fade ?
+          (FADE_LENGTH_OPTIONS.includes(Number(soundEffect.fadeLength)) ?
+            Number(soundEffect.fadeLength) : DEFAULT_FADE_LENGTH) :
+          DEFAULT_FADE_LENGTH,
       });
     });
+  });
 
-    channels.forEach((channel) => {
-      const notes = notesByChannel[channel].slice().sort((a, b) => a.startUnits - b.startUnits);
-      const patternStartFrames = channelCursorFrames[channel] || 0;
-      let cursorFrames = patternStartFrames;
+  channels.forEach((channel) => {
+    const notes = notesByChannel[channel].slice().sort((a, b) => a.startUnits - b.startUnits);
+    let cursorFrames = 0;
 
-      notes.forEach((note) => {
-        const startFrames = patternStartFrames + Math.round(note.startUnits * framesPerUnit);
-        const lengthFrames = Math.max(1, Math.round(note.lengthUnits * framesPerUnit));
-        if (startFrames > cursorFrames) {
-          pushEvent(channel, 0, 0, 0, startFrames - cursorFrames);
-          cursorFrames = startFrames;
-        }
-        pushEvent(channel, note.audv, note.audc, note.audf, lengthFrames, note.fade, note.arpeggioSpeed,
-            note.arpeggioInterval, note.arpeggioRange, note.fadeLength);
-        cursorFrames += lengthFrames;
-      });
-
-      // Fill any remaining silence to the end of this pattern, even a
-      // channel with no notes in it, so the NEXT pattern in the sequence
-      // still starts at the right absolute time for every channel.
-      const patternEndFrames = patternStartFrames + patternTotalFrames;
-      if (patternEndFrames > cursorFrames) {
-        pushEvent(channel, 0, 0, 0, patternEndFrames - cursorFrames);
-        cursorFrames = patternEndFrames;
+    notes.forEach((note) => {
+      const startFrames = Math.round(note.startUnits * framesPerUnit);
+      const lengthFrames = Math.max(1, Math.round(note.lengthUnits * framesPerUnit));
+      if (startFrames > cursorFrames) {
+        pushEvent(channel, 0, 0, 0, startFrames - cursorFrames);
+        cursorFrames = startFrames;
       }
-      channelCursorFrames[channel] = cursorFrames;
+      pushEvent(channel, note.audv, note.audc, note.audf, lengthFrames, note.fade, note.arpeggioSpeed,
+          note.arpeggioInterval, note.arpeggioRange, note.fadeLength);
+      cursorFrames += lengthFrames;
     });
+
+    // Fill any remaining silence to the end of THIS pattern, even a channel
+    // with no notes in it at all - every pattern a channel is silent in
+    // still needs its own (all-rest) data, so every channel's data for a
+    // given sequence position always spans the exact same number of frames,
+    // keeping every channel in lockstep at each pattern boundary regardless
+    // of which channels actually have notes in which patterns.
+    if (patternTotalFrames > cursorFrames) {
+      pushEvent(channel, 0, 0, 0, patternTotalFrames - cursorFrames);
+      cursorFrames = patternTotalFrames;
+    }
   });
 
   // A duration byte can only hold so many bits of actual frame count - fewer
@@ -402,16 +582,36 @@ const eventsToPages = (events) => {
   });
 };
 
-// Finds the single song referenced across every music_play_song block in the
-// project (there can only be one right now - see blocks/music.js) and builds
-// its per-channel data pages (see eventsToPages - a channel needing more
-// than one data table's worth of bytes spans several). Returns null if no
-// music_play_song block exists. Throws a clear compile error if more than
-// one distinct song is referenced, or if a channel's data would need more
-// than MAX_MUSIC_PAGES tables (a sanity guard, not a real format limit).
+// Finds every song the project actually needs compiled in for playback and
+// builds one COMBINED set of per-channel data pages spanning all of them
+// (see eventsToPages - a channel needing more than one data table's worth of
+// bytes spans several). Returns null if nothing references a song at all.
+//
+// A "Play song" block (fixed dropdown) only pulls in the specific song(s) it
+// references. "Play song by ID" (see blocks/music.js) takes a genuine
+// runtime value instead - a variable or computed expression, not a dropdown
+// - so there's no way to know at compile time which song any given run will
+// actually pick; its mere presence anywhere in the project pulls in EVERY
+// song from storage instead, so whatever ID it's given at runtime always has
+// real data to find.
+//
+// Each DISTINCT pattern any included song's own sequence references is
+// flattened and paged exactly once (see flattenPatternEvents), no matter how
+// many times - or from how many different positions, in how many different
+// songs' own sequences - it's actually played; repeats are handled purely by
+// a lookup, not by storing the same bytes again (see each song's own
+// channelStartPage/sequenceStartPage below, and generateMusicChecks' own
+// loop-reset comment). A second song's own distinct patterns are simply MORE
+// entries appended to the same per-channel table list a first song's already
+// occupy - this is what lets the hot per-frame read dispatch
+// (pagedReadLines/generateMusicChecks) stay completely unchanged regardless
+// of how many songs are involved: it already reads "one of N tables picked
+// by a page index," and N just grows. Throws a clear compile error if the
+// combined data would need more than MAX_MUSIC_PAGES tables on any one
+// channel (a sanity guard, not a real format limit).
 export const resolveProjectMusic = (workspace) => {
-  // Same "no song configured" path a project with zero music_play_song
-  // blocks already takes (see the empty songIds.size check below) - every
+  // Same "no song configured" path a project with zero song references
+  // already takes (see the empty songRefs.length check below) - every
   // dev-var reservation, per-frame check, and data table this drives is
   // already gated behind "is projectMusic non-null" throughout bbasic.js/
   // this file, so returning null here for the SAME reason (rather than
@@ -425,36 +625,107 @@ export const resolveProjectMusic = (workspace) => {
   const configurationStorage = useConfigurationStorage();
   if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return null;
 
-  const songIds = new Set();
+  const usesSongById = workspace.getAllBlocks(false).some((block) => block.type === 'music_play_song_by_id');
+  const referencedIds = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
-    if (block.type === 'music_play_song') songIds.add(block.getFieldValue('SONG'));
+    if (block.type === 'music_play_song') referencedIds.add(`${block.getFieldValue('SONG')}`);
   });
-  if (!songIds.size) return null;
-  if (songIds.size > 1) {
-    throw new Error('Only one song can be used for playback per project currently - ' +
-      'every "Play song" block must reference the same song.');
-  }
-  const [songId] = songIds;
-  const song = findSongById(songId);
-  if (!song) return null;
+  const songRefs = usesSongById ?
+    processSongsStorageDefaults(useSongsStorage()).songs.map(({id}) => `${id}`) :
+    [...referencedIds];
+  if (!songRefs.length) return null;
 
   const soundEffects = processSoundEffectsStorageDefaults(useSoundEffectsStorage()).soundEffects;
   const config = (configurationStorage && configurationStorage.value) || {};
-  const perChannel = flattenSongEvents(song, soundEffects, config);
+
+  // A stale/unmatched dropdown value (see findSongById), or a song whose own
+  // sequence is empty (nothing to ever actually play), is silently dropped
+  // rather than compiled in as a dead entry.
+  const resolvedSongs = songRefs
+      .map((id) => ({id, song: findSongById(id)}))
+      .filter(({song}) => song && (song.sequence || []).length > 0);
+  if (!resolvedSongs.length) return null;
+
+  // Union of every channel ANY included song actually uses - drives dev var
+  // reservation for the whole project (see bbasic.js's init()), the same
+  // resource a single song's own channels used to drive alone.
+  const channels = new Set();
+  resolvedSongs.forEach(({song}) => musicChannelsUsedBySong(song).forEach((channel) => channels.add(channel)));
+
   const channelPages = {};
   const channelHasFade = {};
   const channelHasArpeggio = {};
-  Object.entries(perChannel).forEach(([channel, events]) => {
-    const pages = eventsToPages(events);
-    if (pages.length > MAX_MUSIC_PAGES) {
-      throw new Error(`Song "${song.name || songId}" needs ${pages.length} data tables on channel ` +
-        `${channel}, but only ${MAX_MUSIC_PAGES} are supported per channel currently - try a shorter song.`);
-    }
-    channelPages[channel] = pages;
-    channelHasFade[channel] = musicChannelHasFade(events);
-    channelHasArpeggio[channel] = musicChannelHasArpeggio(events);
+  channels.forEach((channel) => {
+    channelPages[channel] = [];
+    channelHasFade[channel] = false;
+    channelHasArpeggio[channel] = false;
   });
-  return {songId, channelPages, channelHasFade, channelHasArpeggio};
+
+  const songs = resolvedSongs.map(({id, song}, songIndex) => {
+    const sequence = song.sequence || [];
+    // Every DISTINCT pattern THIS song's sequence references, in the order
+    // each is first seen - a Set (not sorted/deduped some other way) so
+    // sequence[0]'s own pattern always ends up first, which is what lets
+    // channelStartPage below resolve without a separate lookup.
+    const distinctPatternIds = [...new Set(sequence.map((patternId) => `${patternId}`))];
+    // patternStartPage[channel][patternId] = which page (an index into the
+    // COMBINED channelPages array, spanning every included song) that
+    // pattern's own data starts at - built up as each of THIS song's own
+    // distinct patterns is paged below, then used for channelStartPage/
+    // sequenceStartPage afterwards.
+    const patternStartPage = {};
+    channels.forEach((channel) => {
+      patternStartPage[channel] = {};
+    });
+
+    distinctPatternIds.forEach((patternId) => {
+      const pattern = (song.patterns || []).find(({id: pid}) => `${pid}` === patternId);
+      if (!pattern) return;
+      const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config);
+      Object.entries(perChannel).forEach(([channel, events]) => {
+        const pages = eventsToPages(events);
+        patternStartPage[channel][patternId] = channelPages[channel].length;
+        channelPages[channel].push(...pages);
+        if (musicChannelHasFade(events)) channelHasFade[channel] = true;
+        if (musicChannelHasArpeggio(events)) channelHasArpeggio[channel] = true;
+        if (channelPages[channel].length > MAX_MUSIC_PAGES) {
+          throw new Error(`Combined music data needs ${channelPages[channel].length} data tables on ` +
+            `channel ${channel} (summed across every song used for playback), but only ${MAX_MUSIC_PAGES} ` +
+            'are supported per channel currently - try shorter/simpler songs, or fewer of them.');
+        }
+      });
+    });
+
+    // This song's own start page in the COMBINED per-channel table - still
+    // always sequence[0]'s own pattern, same as the single-song version of
+    // this same comment, just no longer always page 0 once an earlier
+    // song's own pages already occupy the front of that table.
+    const channelStartPage = {};
+    channels.forEach((channel) => {
+      channelStartPage[channel] = patternStartPage[channel][`${sequence[0]}`] ?? 0;
+    });
+
+    // One lookup per sequence position, not per distinct pattern - several
+    // positions referencing the same pattern all resolve to that one
+    // pattern's own (single) start page, which is exactly how the same bytes
+    // end up read from more than one place in the sequence without ever
+    // being stored more than once.
+    const sequenceStartPage = {};
+    channels.forEach((channel) => {
+      sequenceStartPage[channel] = sequence.map((patternId) => patternStartPage[channel][`${patternId}`] ?? 0);
+    });
+
+    return {
+      songId: id,
+      songIndex,
+      channelsUsed: musicChannelsUsedBySong(song),
+      channelStartPage,
+      sequenceStartPage,
+      sequenceLength: sequence.length,
+    };
+  });
+
+  return {songs, channels: [...channels], channelPages, channelHasFade, channelHasArpeggio, usesSongById};
 };
 
 export default (Blockly) => {
@@ -465,27 +736,55 @@ export default (Blockly) => {
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
 
-  // Shared by both music_play_song and music_play_song_by_id below -
-  // identical behavior either way (see the latter's own comment in
-  // blocks/music.js for why its SONG_ID isn't even read here).
+  // Shared by both music_play_song and music_play_song_by_id below.
   const generatePlaySong = (block) => {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return 'rem Song not found\n';
     const loop = block.getFieldValue('LOOP') === 'TRUE' ? 1 : 0;
     const flagsVar = resolveVar(musicFlagsVarName());
-    const resetLines = Object.entries(music.channelPages).map(([channel, pages]) => {
-      const pageReset = pages.length > 1 ? `${resolveVar(musicPageVarName(channel))} = 0\n` : '';
-      // arpPhaseVar/arpCounterVar are only ever initialized here, at song
-      // start, not on every note-fetch - see the comment in audcRead's
-      // generation for why.
-      const arpReset = music.channelHasArpeggio[channel] ?
-        `${resolveVar(musicArpPhaseVarName(channel))} = 0\n${resolveVar(musicArpCounterVarName(channel))} = 1\n` :
-        '';
-      return `${resolveVar(musicIndexVarName(channel))} = 0\n${pageReset}${arpReset}` +
-        `${resolveVar(musicTimerVarName(channel))} = 1\n` +
-        `${flagsVar}{${musicChannelActiveBit(channel)}} = 1\n`;
-    }).join('');
-    return resetLines +
+
+    let resetCode;
+    if (music.songs.length === 1) {
+      // Exactly the pre-multi-song behavior - one song, no per-song
+      // dispatch needed at all regardless of which block type triggered it
+      // (see music_play_song_by_id's own comment in blocks/music.js for why
+      // its SONG_ID isn't even read in this case). The per-channel reset is
+      // shared as its own subroutine (see MUSIC_PLAY_RESET_NAME) once the
+      // project has more than one "Play song" call site targeting this one
+      // song - a single call site is cheaper left plain inline, since a
+      // real subroutine call costs its own "gosub"/"return" overhead the
+      // shared copy doesn't recoup until a second site exists to share it
+      // with.
+      resetCode = Blockly.BBasic.subroutines[MUSIC_PLAY_RESET_NAME] ?
+        `gosub ${MUSIC_PLAY_RESET_NAME}${Blockly.BBasic.bankJumpSuffix(
+            Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(MUSIC_PLAY_RESET_NAME))}\n` :
+        buildMusicPlayResetBody(Blockly, music.songs[0], music);
+    } else if (block.type === 'music_play_song_by_id') {
+      // A genuine runtime value (see its own comment in blocks/music.js) -
+      // written into a shared scratch var (bB subroutines don't take
+      // parameters) before gosub-ing into the shared if-chain dispatch (see
+      // MUSIC_PLAY_BY_ID_NAME) that resolves it to one specific song.
+      const idExpr = Blockly.BBasic.valueToCode(block, 'SONG_ID', Blockly.BBasic.ORDER_NONE) || '0';
+      const argVar = resolveVar(musicPlayByIdArgVarName());
+      const suffix = Blockly.BBasic.bankJumpSuffix(
+          Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(MUSIC_PLAY_BY_ID_NAME));
+      resetCode = `${argVar} = ${idExpr}\ngosub ${MUSIC_PLAY_BY_ID_NAME}${suffix}\n`;
+    } else {
+      // Fixed dropdown - which song this SPECIFIC block starts is already
+      // known at compile time, so it gosubs straight into that song's own
+      // reset subroutine, no runtime dispatch needed. Falls back to the
+      // first included song if the dropdown's own value doesn't match any
+      // (a stale/unsnapped value - see subroutine_call's own identical
+      // fallback for a stale subroutine name).
+      const chosenId = `${block.getFieldValue('SONG')}`;
+      const song = music.songs.find((s) => `${s.songId}` === chosenId) || music.songs[0];
+      const name = musicPlaySongResetName(song.songIndex);
+      const suffix = Blockly.BBasic.bankJumpSuffix(
+          Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
+      resetCode = `gosub ${name}${suffix}\n`;
+    }
+
+    return resetCode +
       `${flagsVar}{${musicPlayingBit}} = 1\n` +
       `${flagsVar}{${musicLoopBit}} = ${loop}\n` +
       `${flagsVar}{${musicJustStoppedBit}} = 0\n` +
@@ -562,10 +861,36 @@ export default (Blockly) => {
   Blockly.BBasic.generateMusicDataTables = function() {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return '';
-    return Object.entries(music.channelPages).map(([channel, pages]) => pages.map((bytes, page) => {
+    const eventTables = Object.entries(music.channelPages).map(([channel, pages]) => pages.map((bytes, page) => {
       const rows = chunk(bytes, 16).map((row) => '  ' + row.join(', '));
       return ` data ${musicDataTableName(channel, page)}\n${rows.join('\n')}\nend`;
     }).join('\n\n')).join('\n\n');
+    // One small lookup table per channel - see generateMusicChecks' own
+    // loop-reset for the one place these are ever read. Single-song project:
+    // only generated for a song whose own sequence references more than one
+    // pattern (see musicSeqPosVarName's own comment), reproducing the exact
+    // table name/behavior a project with only one song has always had.
+    // Multi-song project: EVERY included song gets its own table (see
+    // musicSeqTableName/buildMusicPlaySongResetBody's own comments for why
+    // every song needs one once there's more than one to dispatch between,
+    // even a trivial one-entry table for a song with only one pattern of its
+    // own).
+    let seqTables;
+    if (music.songs.length === 1) {
+      const song = music.songs[0];
+      seqTables = song.sequenceLength > 1 ?
+        Object.keys(music.channelPages).map((channel) => {
+          const rows = chunk(song.sequenceStartPage[channel], 16).map((row) => '  ' + row.join(', '));
+          return ` data ${musicSeqTableName(channel)}\n${rows.join('\n')}\nend`;
+        }).join('\n\n') : '';
+    } else {
+      seqTables = music.songs.map((song) =>
+        Object.keys(music.channelPages).map((channel) => {
+          const rows = chunk(song.sequenceStartPage[channel], 16).map((row) => '  ' + row.join(', '));
+          return ` data ${musicSeqTableName(channel, song.songIndex)}\n${rows.join('\n')}\nend`;
+        }).join('\n\n')).join('\n\n');
+    }
+    return [eventTables, seqTables].filter(Boolean).join('\n\n');
   };
 
   // Spliced into commongamelogic (see bbasic.bb.hbs), the same per-frame slot
@@ -645,15 +970,6 @@ export default (Blockly) => {
   Blockly.BBasic.generateMusicChecks = function() {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return '';
-    // Reset fresh every generation (matches relocatableGraphicsUnits' own
-    // reasoning in init()) - hooks/rom.js reads this after regenerateCode()
-    // and merges it into the compiler's siblingFiles, the same mechanism
-    // "inline text12a.asm" uses (see text-minikernel-files.js). EXPERIMENT:
-    // testing whether inlining a real sibling .asm file at this same
-    // mid-per-channel-dispatch position avoids the DASM local-label-scope
-    // corruption a plain "asm ... end" block caused here (see the gate
-    // check's own comment below).
-    Blockly.BBasic.musicGateAsmFiles = {};
     const flagsVar = resolveVar(musicFlagsVarName());
     const playingBit = `${flagsVar}{${musicPlayingBit}}`;
     const loopBit = `${flagsVar}{${musicLoopBit}}`;
@@ -666,11 +982,36 @@ export default (Blockly) => {
     // one to.
     const activeBitByChannel = Object.fromEntries(
         allChannels.map((channel) => [channel, `${flagsVar}{${musicChannelActiveBit(channel)}}`]));
+    // A single song's own sequence.length is the same for every channel
+    // (it's a property of the whole song, not of any one channel's own
+    // data) - see musicSeqPosVarName's own comment for why this only matters
+    // at all once there's more than one position to actually move between.
+    // Once the project has more than one SONG, the exact same "more than one
+    // position to track" problem also covers "more than one song's own
+    // position to track" - both reuse the identical seqPos/Seq-table
+    // dispatch machinery below (see buildMusicPlaySongResetBody's own
+    // comment), so multiSong alone is enough to force it on, even for a
+    // project where every individual song only has one pattern of its own.
+    const multiSong = music.songs.length > 1;
+    const singleSong = multiSong ? null : music.songs[0];
+    const multiSeq = multiSong || singleSong.sequenceLength > 1;
+    // The wrap check below compares against a literal constant for a single
+    // song (exactly as before - that number never changes at runtime), or
+    // the shared musicSeqLenVarName dev var once more than one song can set
+    // it to something different.
+    const seqLenExpr = multiSong ? resolveVar(musicSeqLenVarName()) : `${singleSong.sequenceLength}`;
+    const songIndexVar = multiSong ? resolveVar(musicSongIndexVarName()) : null;
     const perChannelChecks = allChannels.map((channel) => {
       const pages = music.channelPages[channel];
       const tables = pages.map((_, page) => musicDataTableName(channel, page));
       const multiPage = tables.length > 1;
-      const pageVar = multiPage ? resolveVar(musicPageVarName(channel)) : null;
+      // Needed whenever there's more than one page to dispatch across (as
+      // before) OR whenever the song has more than one sequence position -
+      // even a channel whose own distinct patterns all happen to fit in a
+      // single page still needs somewhere to WRITE the (always page 0)
+      // lookup result on every pattern transition (see seqPosVar below).
+      const pageVar = (multiPage || multiSeq) ? resolveVar(musicPageVarName(channel)) : null;
+      const seqPosVar = multiSeq ? resolveVar(musicSeqPosVarName(channel)) : null;
       const indexVar = resolveVar(musicIndexVarName(channel));
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
@@ -728,48 +1069,87 @@ export default (Blockly) => {
         ` ${justStoppedBit} = 1`,
       ];
 
-      // A single LDA covering both the paused and active bit tests -
-      // "inline"-d in from a real sibling .asm file (the exact same
-      // mechanism text12a.asm/text12b.asm use), not a plain bB "if X{bit}
-      // then goto" pair. Confirmed working: an embedded "asm ... end" block
-      // tried at this same position first corrupted DASM's local-label
-      // scoping for the rest of the file, but "inline"-ing a real file here
-      // doesn't.
-      const gateFile = `_musicgate${channel}.asm`;
-      const gateFailLabel = `_music${channel}_gatefail`;
-      const gateOkLabel = `_music${channel}_gateok`;
-      Blockly.BBasic.musicGateAsmFiles[gateFile] = [
-        ` lda ${flagsVar}`,
-        ` and #${1 << musicPausedBit}`,
-        ` bne ${gateFailLabel}`,
-        ` lda ${flagsVar}`,
-        ` and #${1 << musicChannelActiveBit(channel)}`,
-        ` bne ${gateOkLabel}`,
-        `${gateFailLabel}`,
-        ` lda #0`,
-        ` sta temp5`,
-        ` jmp _music${channel}_gatedone`,
-        `${gateOkLabel}`,
-        ` lda #1`,
-        ` sta temp5`,
-        `_music${channel}_gatedone`,
-      ].join('\n');
-
+      // Plain bB two-line check, not a hand-optimized "inline"-d .asm gate
+      // file - an earlier version of this used a single LDA (via a real
+      // sibling .asm file, the same "inline" mechanism text12a.asm/
+      // text12b.asm use) covering both the paused and active bit tests, but
+      // that was only ever validated with musicUpdate staying in bank 1.
+      // Confirmed directly against a real project: once musicUpdate is
+      // relocated to another bank at all (see wrapRelocatableMusic's own
+      // goto-entry/return-bank1 trampoline), an "inline"-d file positioned
+      // here breaks the build (DASM "Origin Reverse-indexed") even in a
+      // bank with nothing else in it - almost certainly the same class of
+      // local-label-scope corruption an embedded "asm ... end" block caused
+      // at this exact position originally (see git history), just not fully
+      // avoided by "inline"-ing a file the way it was for the bank-1-only
+      // case. Two plain "if" lines cost a few more cycles than the single
+      // LDA did, but work correctly relocated to any bank, which matters
+      // far more for a project that actually needs music moved out of
+      // bank 1 to fit at all.
       return [
-        ` inline ${gateFile}`,
-        ` if temp5 = 0 then goto _music${channel}_skip`,
+        ` if ${flagsVar}{${musicPausedBit}} then goto _music${channel}_skip`,
+        ` if !${activeBit} then goto _music${channel}_skip`,
         ` ${timerVar} = ${timerVar} - 1`,
         ` if ${timerVar} <> 0 then goto _music${channel}_skip`,
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}peek`),
         ...pageBreakCheck,
         ` if temp1 <> ${LOOP_SENTINEL} then goto _music${channel}_read`,
-        ` if ${loopBit} then goto _music${channel}_loopreset`,
-        ` AUDV${channel} = 0`,
-        ` ${activeBit} = 0`,
-        ...finishCheck,
-        ` goto _music${channel}_skip`,
-        `_music${channel}_loopreset`,
-        ...(multiPage ? [` ${pageVar} = 0`] : []),
+        // Single-pattern song (the common case, and the only case before
+        // pattern reuse existed): identical to the original behavior,
+        // unconditionally back to page 0 (there's only ever the one page/
+        // pattern to go back to) once looping is confirmed.
+        //
+        // Multi-position song: LOOP_SENTINEL means "this PATTERN's own data
+        // just ended", not necessarily the whole sequence - always advance
+        // to the next sequence position first, and only consult the loop
+        // bit (same as before) once that advance actually runs off the end
+        // of the sequence. musicSeqTableName's own table turns whatever
+        // sequence position that lands on into the page that position's own
+        // pattern data starts at - the actual reuse: several positions can
+        // (and do, for a repeated pattern) resolve to the exact same page.
+        ...(multiSeq ? [
+          ` ${seqPosVar} = ${seqPosVar} + 1`,
+          ` if ${seqPosVar} <> ${seqLenExpr} then goto _music${channel}_seqcontinue`,
+          ` if ${loopBit} then goto _music${channel}_seqwrap`,
+          ` AUDV${channel} = 0`,
+          ` ${activeBit} = 0`,
+          ...finishCheck,
+          ` goto _music${channel}_skip`,
+          `_music${channel}_seqwrap`,
+          ` ${seqPosVar} = 0`,
+          `_music${channel}_seqcontinue`,
+          // A single song still just reads its own one Seq table directly
+          // (identical to before). Once there's more than one song, this
+          // dispatches through _musicSongIndex first, since only ONE of
+          // several songs' own Seq tables is the right one to consult for
+          // whichever song is actually playing right now - only runs at a
+          // pattern-transition boundary (not every frame), so the cost is
+          // bounded by however many songs actually reach this point.
+          ...(multiSong ? [
+            ...music.songs.map((song, i) => {
+              const isLast = i === music.songs.length - 1;
+              const nextLabel = `_music${channel}_seqsong${song.songIndex}_next`;
+              const lookup = ` ${pageVar} = ${musicSeqTableName(channel, song.songIndex)}[${seqPosVar}]`;
+              return isLast ? lookup : [
+                ` if ${songIndexVar} <> ${song.songIndex} then goto ${nextLabel}`,
+                lookup,
+                ` goto _music${channel}_seqtable_done`,
+                nextLabel,
+              ].join('\n');
+            }),
+            `_music${channel}_seqtable_done`,
+          ] : [
+            ` ${pageVar} = ${musicSeqTableName(channel)}[${seqPosVar}]`,
+          ]),
+        ] : [
+          ` if ${loopBit} then goto _music${channel}_loopreset`,
+          ` AUDV${channel} = 0`,
+          ` ${activeBit} = 0`,
+          ...finishCheck,
+          ` goto _music${channel}_skip`,
+          `_music${channel}_loopreset`,
+          ...(multiPage ? [` ${pageVar} = 0`] : []),
+        ]),
         ` ${indexVar} = 0`,
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}looppeek`),
         `_music${channel}_read`,
@@ -788,12 +1168,13 @@ export default (Blockly) => {
     // subroutine that's ALWAYS in bank 1, unlike events/backgrounds/
     // animations, which the auto-relocation system (see rom.js's
     // pickRelocationCandidate) can already move to any other bank once bank
-    // 1 fills up. Wrapping it as its own relocatable unit (the exact same
-    // mechanism wrapRelocatableGraphics already uses for a background or
-    // animation - "graphics" is a misnomer here, but the entry/return-label
-    // redirect it builds works identically for any relocatable payload)
-    // makes this movable too, without needing a whole separate relocation
-    // mechanism of its own. Its own data tables (music.channelPages' raw
+    // 1 fills up. Wrapping it as its own relocatable unit (wrapRelocatableMusic
+    // - the same entry/return-label redirect mechanism wrapRelocatableGraphics
+    // uses for a background or animation, just kept in its own separate pool/
+    // config key so a bank reserved for music - see rom.js's
+    // musicReservedBank - never has to share space with graphics) makes this
+    // movable too, without needing a whole separate relocation mechanism of
+    // its own. Its own data tables (music.channelPages' raw
     // bytes) travel along in the SAME payload rather than staying in the
     // fixed, bank-1-only "Data tables" section - a data table can only be
     // read correctly from the same bank it's declared in (see
@@ -814,6 +1195,6 @@ export default (Blockly) => {
     const payload = dataTables ?
       [perChannelChecks, ` goto ${dataSkipLabel}`, dataTables, dataSkipLabel].join('\n\n') :
       perChannelChecks;
-    return this.wrapRelocatableGraphics('musicUpdate', payload);
+    return this.wrapRelocatableMusic('musicUpdate', payload);
   };
 };

@@ -428,7 +428,7 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
   const stepCount = pattern.stepCount || DEFAULT_PATTERN_STEPS;
 
   // Same "Dim SFX volume" Options-tab setting the compiled ROM applies (see
-  // flattenSongEvents in generators/bbasic/music.js) - read fresh each call
+  // flattenPatternEvents in generators/bbasic/music.js) - read fresh each call
   // rather than cached, for the same reason as everywhere else this hook is
   // used (a computed() over localStorage would keep serving a stale value).
   const configurationStorage = useConfigurationStorage();
@@ -465,7 +465,7 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     // something set per-note. arpeggioDivision is tempo-relative (e.g. 8 =
     // "flip every 1/8 step"), converted to actual frames using this
     // pattern's own tempo, same formula as generators/bbasic/music.js's
-    // flattenSongEvents so the preview's flip rate matches the compiled ROM.
+    // flattenPatternEvents so the preview's flip rate matches the compiled ROM.
     const arpeggioSpeed = soundEffect.arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES, Math.round(
         (stepSeconds / (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * FRAMES_PER_SECOND,
     ))) : 0;

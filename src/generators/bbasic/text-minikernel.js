@@ -241,9 +241,23 @@ export default (Blockly) => {
     // errors - harmless empty "bank N ... bank 1" placeholders for every
     // skipped bank fixed it. Bank 1 itself doesn't need one (it's always
     // visited - the whole rest of the program lives there).
+    //
+    // A bank the auto-relocation system (see hooks/rom.js) has actually put
+    // real content in is skipped here, NOT given an empty placeholder on top
+    // of that - generateRelocatedSections already declares "bank N ... bank
+    // 1" for it with real content inside. Confirmed directly as a real bug
+    // otherwise: declaring the same bank a second time, non-contiguously (an
+    // empty placeholder here, real content later), corrupts DASM's address
+    // tracking for it (reported as "Origin Reverse-indexed" - see
+    // generateRelocatedSections' own comment on this same failure mode) -
+    // which only ever surfaces once relocation actually needs a bank number
+    // below the Text Minikernel's own reserved one, so it went unnoticed
+    // until a project's bank 1 overflow was small enough to be fixed by
+    // relocating into exactly such a bank.
+    const usedBanks = Blockly.BBasic.usedRelocationBankNumbers();
     const skippedBankPlaceholders = [];
     for (let bank = 2; bank < kernelBank; bank++) {
-      skippedBankPlaceholders.push(` bank ${bank}\n bank 1`);
+      if (!usedBanks.has(bank)) skippedBankPlaceholders.push(` bank ${bank}\n bank 1`);
     }
 
     return `${skippedBankPlaceholders.join('\n')}\n bank ${kernelBank}\n${block}\n bank 1`;
