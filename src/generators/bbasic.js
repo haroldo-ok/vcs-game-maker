@@ -44,22 +44,28 @@ const handlebarsTemplate = Handlebars.compile(templateText);
 // always free). Moving these system variables into var0-13 there instead of
 // letters frees all 26 letters for user variables - see generateSystemDims
 // and the letter pool below.
+// Third element is a short human-readable description, spliced as a
+// trailing comment onto each variable's own "dim" line by
+// generateSystemDims below - purely informational (never read back), so a
+// project's own generated bBasic explains what each of these
+// vcs-game-maker-reserved variables is actually for, instead of a project
+// author having to guess from the bare name/letter alone.
 export const SYSTEM_VARIABLES = [
-  ['player0frame', 'x'],
-  ['player1frame', 'z'],
-  ['newbackground', 'y'],
-  ['loopcounter', 'w'],
-  ['channnel0duration', 'v'],
-  ['channnel1duration', 'u'],
-  ['player0size', 't'],
-  ['player1size', 's'],
-  ['player0realcolor', 'r'],
-  ['player1realcolor', 'q'],
-  ['playfieldrealcolor', 'm'],
-  ['backgroundrealcolor', 'l'],
-  ['player0animation', 'p'],
-  ['player1animation', 'o'],
-  ['framecounter', 'n'],
+  ['player0frame', 'x', 'Player 0\'s current animation frame (255 = hidden)'],
+  ['player1frame', 'z', 'Player 1\'s current animation frame (255 = hidden)'],
+  ['newbackground', 'y', 'Background to switch to on the next frame (0 = no change)'],
+  ['loopcounter', 'w', 'Shared counter for "repeat"/"for" loop blocks'],
+  ['channnel0duration', 'v', 'Frames left on the sound effect currently playing on channel 0'],
+  ['channnel1duration', 'u', 'Frames left on the sound effect currently playing on channel 1'],
+  ['player0size', 't', 'Player 0\'s NUSIZ0 size/copies value'],
+  ['player1size', 's', 'Player 1\'s NUSIZ1 size/copies value'],
+  ['player0realcolor', 'r', 'Player 0\'s actual color - restored into COLUP0 every frame'],
+  ['player1realcolor', 'q', 'Player 1\'s actual color - restored into COLUP1 every frame'],
+  ['playfieldrealcolor', 'm', 'Playfield\'s actual color - restored into COLUPF every frame'],
+  ['backgroundrealcolor', 'l', 'Background\'s actual color - restored into COLUBK every frame'],
+  ['player0animation', 'p', 'Player 0\'s currently selected animation number'],
+  ['player1animation', 'o', 'Player 1\'s currently selected animation number'],
+  ['framecounter', 'n', 'Frames elapsed since startup'],
 ];
 
 const ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
@@ -1487,8 +1493,17 @@ Blockly.BBasic.generateRomSize = function() {
 Blockly.BBasic.generateSystemDims = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
+  // Padded so every trailing "; description" comment lines up in the same
+  // column, regardless of how long each variable's own "dim NAME = TARGET"
+  // prefix is - purely cosmetic (whitespace before a ";" comment has no
+  // effect on the compiled output), but reads far more like a lined-up
+  // reference table this way than left-justified text trailing off at
+  // uneven widths.
+  const dimLines = SYSTEM_VARIABLES.map(([name, letter], i) =>
+    ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`);
+  const widestDimLine = Math.max(...dimLines.map((line) => line.length));
   const systemDims = SYSTEM_VARIABLES
-      .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
+      .map(([, , description], i) => `${dimLines[i].padEnd(widestDimLine)} ; ${description}`)
       .join('\n');
   return systemDims + this.generateTextMinikernelDims() + this.generateSoundFadeDims() +
     this.generateScoreBkColorRuntimeDims();
