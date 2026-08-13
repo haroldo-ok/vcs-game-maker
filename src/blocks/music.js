@@ -12,8 +12,9 @@ const MUSIC_COLOR = 'rgb(255, 87, 34)';
 // defaults FL Studio uses for a new project's step sequencer/tempo.
 export const DEFAULT_PATTERN_STEPS = 16;
 
-// Selectable pattern lengths, in increments of 8 steps up to 64.
-export const PATTERN_STEP_OPTIONS = [4, 8, 16, 24, 32, 40, 48, 56, 64];
+// Selectable pattern lengths - 2 as a shortest option (e.g. a quick
+// two-note stinger/blip pattern), then in increments of 8 steps up to 64.
+export const PATTERN_STEP_OPTIONS = [2, 4, 8, 16, 24, 32, 40, 48, 56, 64];
 export const MAX_PATTERN_STEPS = PATTERN_STEP_OPTIONS[PATTERN_STEP_OPTIONS.length - 1];
 
 // How many equal slices a single piano-roll step can be divided into for

@@ -301,9 +301,9 @@ export const stopPatternPlayback = () => {
  * Where playback currently is, for the Music tab's own playhead/sequence
  * highlight - purely a UI query, reads the AudioContext clock without
  * scheduling or changing anything.
- * @return {?{patternId: number, elapsedUnits: number}} Null when nothing is
- *     currently playing (including the brief lead-in before the first note's
- *     scheduled startTime).
+ * @return {?{patternId: number, sequenceIndex: ?number, elapsedUnits: number}}
+ *     Null when nothing is currently playing (including the brief lead-in
+ *     before the first note's scheduled startTime).
  */
 export const getPlaybackHead = () => {
   if (!audioContext || !playbackTimeline.length) return null;
@@ -312,6 +312,13 @@ export const getPlaybackHead = () => {
   if (!segment) return null;
   return {
     patternId: segment.patternId,
+    // Which step of the song's own Sequence list this segment came from -
+    // only set during playSequence (see its own timeline.push); undefined
+    // for a lone pattern preview (playPattern), which isn't part of any
+    // sequence. Lets the Sequence list highlight the exact chip currently
+    // sounding rather than every chip sharing this pattern's id (see
+    // isSequenceStepPlaying in MusicEditor.vue).
+    sequenceIndex: segment.sequenceIndex,
     // segment.startUnits (0 unless this pass was itself seeked - see
     // handleSeekToStep) is added back in so this always reads as an
     // absolute position within the pattern, matching note.step, not just
@@ -613,14 +620,14 @@ export const playSequence = (song, soundEffects, {onDone, isTrackMuted, loop} = 
   const scheduleOnce = (startTime) => {
     let cursorSeconds = 0;
     const timeline = [];
-    (song.sequence || []).forEach((patternId) => {
+    (song.sequence || []).forEach((patternId, sequenceIndex) => {
       const pattern = song.patterns.find(({id}) => id == patternId);
       if (!pattern) return;
       const tempo = effectiveTempo(song, pattern);
       const segmentStart = startTime + cursorSeconds;
       const segmentSeconds = schedulePattern(context, pattern, soundEffects, segmentStart, tempo, isTrackMuted);
       timeline.push({
-        patternId: pattern.id, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
+        patternId: pattern.id, sequenceIndex, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
         unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
       });
       cursorSeconds += segmentSeconds;

@@ -63,6 +63,24 @@
                   <v-btn
                     icon
                     small
+                    title="Export sound effect to .JSON file"
+                    class="soundfx-stop-btn soundfx-icon-btn-size"
+                    @click="() => handleExportSoundEffect(soundEffect)"
+                  >
+                    <v-icon>mdi-export</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Import sound effect from .JSON file"
+                    class="soundfx-stop-btn soundfx-icon-btn-size"
+                    @click="() => handleImportSoundEffect(soundEffect)"
+                  >
+                    <v-icon>mdi-import</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
                     title="Stop the sound preview"
                     class="soundfx-stop-btn soundfx-icon-btn-size"
                     @click="handleStopPreview"
@@ -251,6 +269,7 @@
 </template>
 <script>
 import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
@@ -262,6 +281,8 @@ import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVI
   MAX_ARPEGGIO_INTERVAL, DEFAULT_ARPEGGIO_RANGE, ARPEGGIO_RANGE_OPTIONS,
   FADE_LENGTH_OPTIONS} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
+import {getDateInfix} from '../utils/date';
+import {openFileDialog} from '../utils/file';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 import {autoInstrumentColor} from '../utils/instrument-colors';
 import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
@@ -360,6 +381,50 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // Sound effect data as a standalone .json file, for sharing an
+    // instrument between projects or keeping an external backup - same
+    // pattern as MusicEditor.vue's own handleExportSong/handleImportSong
+    // (including leaving the card's own id out of the export, kept as the
+    // IMPORTING card's id on import instead, since ids only mean anything
+    // within a single project's own storage).
+    const handleExportSoundEffect = (soundEffect) => {
+      // eslint-disable-next-line no-unused-vars
+      const {id, ...soundEffectData} = soundEffect;
+      const blob = new Blob([JSON.stringify(soundEffectData, null, 2)], {type: 'application/json'});
+      const filename = (soundEffect.name || `sound-${soundEffect.id}`).replace(/[^A-Za-z0-9]+/g, '_');
+      saveAs(blob, `Sound_${filename}-${getDateInfix()}.json`);
+    };
+
+    // Overwrites this sound effect card's own data with a previously
+    // exported .json file's contents - keeps this card's own id (see
+    // handleExportSoundEffect) untouched so every soundfx_play block and
+    // Music tab track already pointing at this card keeps working.
+    const handleImportSoundEffect = (soundEffect) => {
+      openFileDialog('.json,application/json')
+          .then((file) => file.text())
+          .then((text) => {
+            const soundEffectData = JSON.parse(text);
+            if (!soundEffectData || typeof soundEffectData !== 'object' || !('audc' in soundEffectData)) {
+              throw new Error('File does not contain valid sound effect data');
+            }
+            Object.assign(soundEffect, soundEffectData, {id: soundEffect.id});
+            // Not just handleChildChange() - an imported file's own audf
+            // (especially one hand-edited, or exported from a build before
+            // the curated "in tune" Frequency list existed) can be a raw
+            // byte that isn't one of the current AUDC type's own valid
+            // options, which left the Frequency select showing blank
+            // forever (a value with no matching item never displays one)
+            // even though the data underneath was actually imported fine.
+            // handleAudcChange already does exactly this snap-to-closest-
+            // valid-value fixup on an AUDC change; running it here re-uses
+            // that same fixup for an AUDF that came in invalid instead
+            // (this also calls handleChildChange() itself).
+            handleAudcChange(soundEffect);
+            instance.proxy.$forceUpdate();
+          })
+          .catch((e) => console.error('Failed to import sound effect', e));
+    };
+
     const handlePlaySoundEffect = (soundEffect) => {
       // Matches what actually plays in the compiled ROM (see soundfx_play in
       // generators/bbasic/soundfx.js) - previewing at the un-dimmed volume
@@ -412,6 +477,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
+      handleExportSoundEffect, handleImportSoundEffect,
       handleStopPreview, handleSetSoundEffectColor, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, handleAudcChange,

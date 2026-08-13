@@ -39,6 +39,24 @@
                   <v-btn
                     icon
                     small
+                    title="Export song to .JSON file"
+                    class="music-flat-icon-btn music-icon-btn-size"
+                    @click="() => handleExportSong(song)"
+                  >
+                    <v-icon>mdi-export</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Import song from .JSON file"
+                    class="music-flat-icon-btn music-icon-btn-size"
+                    @click="() => handleImportSong(song)"
+                  >
+                    <v-icon>mdi-import</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
                     :title="song.loop ?
                       'Loop this song\'s preview playback until stopped (on)' :
                       'Loop this song\'s preview playback until stopped (off)'"
@@ -113,41 +131,44 @@
                 </v-card-text>
 
                 <v-card-text v-if="!isSongCollapsed(song)" class="music-sequence-section">
-                  <div class="music-section-label">Sequence (play order)</div>
-                  <div class="sequence-row">
+                  <div class="instruments-label-row">
+                    <v-btn
+                      icon
+                      x-small
+                      :title="isSequenceCollapsed(song) ? 'Show this song\'s sequence' : 'Hide this song\'s sequence'"
+                      class="instruments-collapse-btn"
+                      @click="() => toggleSequenceCollapsed(song)"
+                    >
+                      <v-icon small>{{ isSequenceCollapsed(song) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+                    </v-btn>
+                    <div class="music-section-label">Sequence (play order)</div>
+                  </div>
+                  <div v-if="!isSequenceCollapsed(song)" class="sequence-row">
                     <div
                       v-for="(patternId, index) in song.sequence"
                       v-bind:key="index"
                       class="sequence-chip-wrap"
+                      :class="{
+                        'sequence-chip-dragging': isSequenceStepDragging(song, index),
+                        'sequence-chip-drag-over-before': sequenceDragOverSide(song, index) === 'before',
+                        'sequence-chip-drag-over-after': sequenceDragOverSide(song, index) === 'after',
+                      }"
+                      draggable="true"
+                      title="Drag to reorder"
+                      v-on="sequenceChipListeners(song, index)"
                     >
-                      <v-btn
-                        icon
-                        x-small
-                        :disabled="index === 0"
-                        title="Move earlier in sequence"
-                        @click="() => handleMoveSequenceStep(song, index, -1)"
-                      >
-                        <v-icon small>mdi-chevron-left</v-icon>
-                      </v-btn>
                       <v-chip
                         small
                         close
                         dark
                         :color="patternSequenceColor(patternId)"
-                        :class="{'sequence-chip-playing': isSequenceStepPlaying(song, patternId)}"
+                        :class="{'sequence-chip-playing': isSequenceStepPlaying(song, index)}"
+                        title="Click to edit this pattern"
+                        @click="() => setActivePattern(song, patternId)"
                         @click:close="() => handleRemoveSequenceStep(song, index)"
                       >
                         {{ patternName(song, patternId) }}
                       </v-chip>
-                      <v-btn
-                        icon
-                        x-small
-                        :disabled="index === song.sequence.length - 1"
-                        title="Move later in sequence"
-                        @click="() => handleMoveSequenceStep(song, index, 1)"
-                      >
-                        <v-icon small>mdi-chevron-right</v-icon>
-                      </v-btn>
                     </div>
                     <v-select
                       v-bind:key="'seqadd-' + song.id + '-' + song.sequence.length"
@@ -161,43 +182,53 @@
                     />
                   </div>
 
-                  <div class="pattern-selector-row">
-                    <v-select
-                      dense
-                      hide-details
-                      label="Editing pattern"
-                      class="pattern-select"
-                      :items="patternOptions(song)"
-                      :value="activePatternId(song)"
-                      @change="(id) => setActivePattern(song, id)"
-                    />
-                    <v-btn icon small title="Add pattern" @click="() => handleAddPattern(song)">
-                      <v-icon small>mdi-plus</v-icon>
-                    </v-btn>
-                    <v-btn icon small title="Duplicate this pattern" @click="() => handleDuplicatePattern(song, activePattern(song))">
-                      <v-icon small>mdi-content-duplicate</v-icon>
-                    </v-btn>
+                  <v-card outlined v-if="activePattern(song)" class="pattern-card">
                     <v-btn
-                      v-if="song.patterns.length > 1"
+                      :title="isPatternCollapsed(song, activePattern(song)) ? 'Expand this pattern' : 'Collapse this pattern'"
                       icon
                       small
-                      title="Delete this pattern"
-                      class="delete-icon-btn"
-                      @click="() => handleDeletePattern(song, activePattern(song))"
+                      absolute
+                      top
+                      left
+                      class="music-collapse-btn"
+                      @click="() => togglePatternCollapsed(song, activePattern(song))"
                     >
-                      <v-icon small>mdi-delete</v-icon>
+                      <v-icon>{{ isPatternCollapsed(song, activePattern(song)) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                     </v-btn>
-                  </div>
-
-                  <v-card outlined v-if="activePattern(song)" class="pattern-card">
-                    <div class="music-toolbar-top-right">
+                    <div class="music-id-badge">ID: {{ activePattern(song).id }}</div>
+                    <!-- Same controls as .pattern-playback-controls further down (next
+                    to the zoom controls) - duplicated, not shared, because that one
+                    only exists inside .track-section, which is entirely hidden while
+                    collapsed (see isPatternCollapsed) - same "expanded vs collapsed
+                    gets its own copy of a control that must stay reachable either way"
+                    precedent as SoundFXEditor.vue's own .soundfx-delete-section. -->
+                    <div v-if="isPatternCollapsed(song, activePattern(song))" class="music-toolbar-top-right">
+                      <v-btn
+                        icon
+                        small
+                        title="Export pattern to .JSON file"
+                        class="music-flat-icon-btn music-icon-btn-size"
+                        @click="() => handleExportPattern(activePattern(song))"
+                      >
+                        <v-icon>mdi-export</v-icon>
+                      </v-btn>
+                      <v-btn
+                        icon
+                        small
+                        title="Import pattern from .JSON file"
+                        class="music-flat-icon-btn music-icon-btn-size"
+                        @click="() => handleImportPattern(song, activePattern(song))"
+                      >
+                        <v-icon>mdi-import</v-icon>
+                      </v-btn>
                       <v-btn
                         icon
                         small
                         :title="activePattern(song).loop ?
                           'Loop this pattern\'s preview playback until stopped (on)' :
                           'Loop this pattern\'s preview playback until stopped (off)'"
-                        :class="['music-flat-icon-btn', 'music-icon-btn-size', {'music-icon-btn-active': activePattern(song).loop}]"
+                        :class="['music-flat-icon-btn', 'music-icon-btn-size',
+                          {'music-icon-btn-active': activePattern(song).loop}]"
                         @click="() => handleToggleLoopPattern(activePattern(song))"
                       >
                         <v-icon small>{{ activePattern(song).loop ? 'mdi-repeat' : 'mdi-repeat-off' }}</v-icon>
@@ -222,14 +253,33 @@
                         <v-icon>{{ playingPatternId === activePattern(song).id ? 'mdi-volume-high' : 'mdi-play' }}</v-icon>
                       </v-btn>
                     </div>
-
                     <v-card-text class="music-name-section pattern-name-row">
-                      <v-text-field
+                      <v-combobox
                         class="music-name-field"
                         label="Pattern name"
-                        v-model="activePattern(song).name"
-                        @change="handleChildChange"
+                        item-text="text"
+                        :items="patternOptions(song)"
+                        :value="patternName(song, activePatternId(song))"
+                        @change="(value) => handlePatternFieldChange(song, value)"
                       />
+                      <div class="pattern-actions-row">
+                        <v-btn icon small title="Add pattern" @click="() => handleAddPattern(song)">
+                          <v-icon small>mdi-plus</v-icon>
+                        </v-btn>
+                        <v-btn icon small title="Duplicate this pattern" @click="() => handleDuplicatePattern(song, activePattern(song))">
+                          <v-icon small>mdi-content-duplicate</v-icon>
+                        </v-btn>
+                        <v-btn
+                          v-if="song.patterns.length > 1"
+                          icon
+                          small
+                          title="Delete this pattern"
+                          class="delete-icon-btn"
+                          @click="() => handleDeletePattern(song, activePattern(song))"
+                        >
+                          <v-icon small>mdi-delete</v-icon>
+                        </v-btn>
+                      </div>
                       <v-select
                         class="steps-field"
                         label="Length (steps)"
@@ -256,10 +306,25 @@
                       />
                     </v-card-text>
 
-                    <v-card-text class="track-section">
-                      <div class="music-section-label">
-                        Instruments (click one to choose which its notes go to below)
+                    <v-card-text v-if="!isPatternCollapsed(song, activePattern(song))" class="track-section">
+                      <div class="instruments-label-row">
+                        <v-btn
+                          icon
+                          x-small
+                          :title="isInstrumentsCollapsed(song, activePattern(song)) ?
+                            'Show this pattern\'s instruments' : 'Hide this pattern\'s instruments'"
+                          class="instruments-collapse-btn"
+                          @click="() => toggleInstrumentsCollapsed(song, activePattern(song))"
+                        >
+                          <v-icon small>
+                            {{ isInstrumentsCollapsed(song, activePattern(song)) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}
+                          </v-icon>
+                        </v-btn>
+                        <div class="music-section-label">
+                          Instruments (click one to choose which its notes go to below)
+                        </div>
                       </div>
+                      <template v-if="!isInstrumentsCollapsed(song, activePattern(song))">
                       <div
                         v-for="track in activePattern(song).tracks"
                         v-bind:key="track.id"
@@ -358,6 +423,21 @@
                         <v-icon left small>mdi-plus</v-icon>
                         Add instrument
                       </v-btn>
+                      </template>
+                      <div v-else class="instruments-collapsed-summary">
+                        <v-chip
+                          v-for="track in activePattern(song).tracks"
+                          v-bind:key="track.id"
+                          small
+                          dark
+                          :color="instrumentColor(track)"
+                          :class="{'instrument-summary-chip-active': isActiveTrack(activePattern(song), track)}"
+                          title="Click to edit this instrument's notes"
+                          @click="() => setActiveTrack(activePattern(song), track)"
+                        >
+                          {{ trackSoundEffect(track) ? (trackSoundEffect(track).name || 'Unnamed') : 'No instrument set' }}
+                        </v-chip>
+                      </div>
 
                       <div class="piano-roll-zoom-row" v-if="activePattern(song).tracks.length">
                         <div class="subdivision-controls">
@@ -373,27 +453,80 @@
                             @change="handleChangeSubdivision"
                           />
                         </div>
-                        <div class="piano-roll-zoom-controls">
-                          <v-btn icon small class="piano-roll-zoom-icon-btn" title="Fit zoom to this pattern's length"
-                            @click="() => handleFitZoom(song, activePattern(song))">
-                            <v-icon small>mdi-backup-restore</v-icon>
-                          </v-btn>
-                          <v-btn icon small class="piano-roll-zoom-icon-btn" title="Zoom out" @click="() => stepPianoRollZoom(-1)">
-                            <v-icon small>mdi-magnify-minus-outline</v-icon>
-                          </v-btn>
-                          <v-slider
-                            dense
-                            hide-details
-                            min="25"
-                            max="1600"
-                            class="piano-roll-zoom-slider"
-                            :value="Math.round(pianoRollZoom * 100)"
-                            @input="(percent) => { pianoRollZoom = percent / 100; }"
-                          />
-                          <v-btn icon small class="piano-roll-zoom-icon-btn" title="Zoom in" @click="() => stepPianoRollZoom(1)">
-                            <v-icon small>mdi-magnify-plus-outline</v-icon>
-                          </v-btn>
-                          <span class="piano-roll-zoom-label">{{ Math.round(pianoRollZoom * 100) }}%</span>
+                        <div class="piano-roll-zoom-and-playback">
+                          <div class="piano-roll-zoom-controls">
+                            <v-btn icon small class="piano-roll-zoom-icon-btn" title="Fit zoom to this pattern's length"
+                              @click="() => handleFitZoom(song, activePattern(song))">
+                              <v-icon small>mdi-backup-restore</v-icon>
+                            </v-btn>
+                            <span class="piano-roll-zoom-label">{{ Math.round(pianoRollZoom * 100) }}%</span>
+                            <v-btn icon small class="piano-roll-zoom-icon-btn" title="Zoom out" @click="() => stepPianoRollZoom(-1)">
+                              <v-icon small>mdi-magnify-minus-outline</v-icon>
+                            </v-btn>
+                            <v-slider
+                              dense
+                              hide-details
+                              min="25"
+                              max="1600"
+                              class="piano-roll-zoom-slider"
+                              :value="Math.round(pianoRollZoom * 100)"
+                              @input="(percent) => { pianoRollZoom = percent / 100; }"
+                            />
+                            <v-btn icon small class="piano-roll-zoom-icon-btn" title="Zoom in" @click="() => stepPianoRollZoom(1)">
+                              <v-icon small>mdi-magnify-plus-outline</v-icon>
+                            </v-btn>
+                          </div>
+                          <div class="pattern-playback-controls">
+                            <v-btn
+                              icon
+                              small
+                              title="Export pattern to .JSON file"
+                              class="music-flat-icon-btn music-icon-btn-size"
+                              @click="() => handleExportPattern(activePattern(song))"
+                            >
+                              <v-icon>mdi-export</v-icon>
+                            </v-btn>
+                            <v-btn
+                              icon
+                              small
+                              title="Import pattern from .JSON file"
+                              class="music-flat-icon-btn music-icon-btn-size"
+                              @click="() => handleImportPattern(song, activePattern(song))"
+                            >
+                              <v-icon>mdi-import</v-icon>
+                            </v-btn>
+                            <v-btn
+                              icon
+                              small
+                              :title="activePattern(song).loop ?
+                                'Loop this pattern\'s preview playback until stopped (on)' :
+                                'Loop this pattern\'s preview playback until stopped (off)'"
+                              :class="['music-flat-icon-btn', 'music-icon-btn-size',
+                                {'music-icon-btn-active': activePattern(song).loop}]"
+                              @click="() => handleToggleLoopPattern(activePattern(song))"
+                            >
+                              <v-icon small>{{ activePattern(song).loop ? 'mdi-repeat' : 'mdi-repeat-off' }}</v-icon>
+                            </v-btn>
+                            <v-btn
+                              icon
+                              small
+                              title="Stop playback"
+                              class="music-flat-icon-btn music-icon-btn-size"
+                              @click="handleStop"
+                            >
+                              <v-icon>mdi-stop</v-icon>
+                            </v-btn>
+                            <v-btn
+                              icon
+                              small
+                              :title="playingPatternId === activePattern(song).id ? 'Playing...' : 'Play this pattern'"
+                              :class="['music-flat-icon-btn', 'music-icon-btn-size',
+                                {'music-icon-btn-active': playingPatternId === activePattern(song).id}]"
+                              @click="() => handlePlayPattern(song, activePattern(song))"
+                            >
+                              <v-icon>{{ playingPatternId === activePattern(song).id ? 'mdi-volume-high' : 'mdi-play' }}</v-icon>
+                            </v-btn>
+                          </div>
                         </div>
                       </div>
 
@@ -475,6 +608,7 @@
 </template>
 <script>
 import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
+import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
@@ -487,6 +621,8 @@ import {
 } from '../blocks/music';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {CHANNEL_OPTIONS} from '../blocks/sound';
+import {getDateInfix} from '../utils/date';
+import {openFileDialog} from '../utils/file';
 import {audcHasTunableNotes, audfByMidiForAudc, CANONICAL_NOTE_ROWS} from '../utils/music-notes';
 import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
@@ -639,18 +775,68 @@ export default defineComponent({
 
     const {isCollapsed: isSongCollapsed, toggleCollapsed: toggleSongCollapsed} = useCollapsedIds('music-song');
 
+    // Pattern ids are only unique WITHIN their own song (see
+    // handleAddPattern/handleDuplicatePattern), not globally, unlike
+    // song.id/soundEffect.id elsewhere - useCollapsedIds keys purely off
+    // entry.id, so a plain pattern object would collide between two
+    // different songs' own "Pattern 1". A synthetic {id: "songId:patternId"}
+    // entry (see patternCollapseEntry) disambiguates that without needing
+    // to change useCollapsedIds itself. Two independent collapse states
+    // share this same keying: the whole pattern sub-card (collapsing hides
+    // everything below the Pattern name/Length/Tempo row - instruments,
+    // piano roll, zoom/playback controls, all of it), and, nested one level
+    // in, just the Instruments list on its own (collapsing that alone still
+    // leaves the piano roll and zoom/playback controls visible).
+    const patternCollapseEntry = (song, pattern) => ({id: `${song.id}:${pattern.id}`});
+    const {isCollapsed: isPatternCollapsedRaw, toggleCollapsed: togglePatternCollapsedRaw} =
+      useCollapsedIds('music-pattern');
+    const isPatternCollapsed = (song, pattern) => isPatternCollapsedRaw(patternCollapseEntry(song, pattern));
+    const togglePatternCollapsed = (song, pattern) => togglePatternCollapsedRaw(patternCollapseEntry(song, pattern));
+    const {isCollapsed: isInstrumentsCollapsedRaw, toggleCollapsed: toggleInstrumentsCollapsedRaw} =
+      useCollapsedIds('music-instruments');
+    const isInstrumentsCollapsed = (song, pattern) => isInstrumentsCollapsedRaw(patternCollapseEntry(song, pattern));
+    const toggleInstrumentsCollapsed = (song, pattern) =>
+      toggleInstrumentsCollapsedRaw(patternCollapseEntry(song, pattern));
+
+    // Same idea, one level up - the whole Sequence (play order) row (every
+    // chip, plus the "Add pattern to sequence" select) collapsed away to
+    // just its own label. song.id is already globally unique (unlike
+    // pattern.id - see patternCollapseEntry's own comment), so this can
+    // key off the song object directly instead of needing a synthetic
+    // compound entry.
+    const {isCollapsed: isSequenceCollapsed, toggleCollapsed: toggleSequenceCollapsed} =
+      useCollapsedIds('music-sequence');
+
     // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
     // SoundFXEditor.vue's own uses of this same hook) - songs are already
     // referenced everywhere by their own permanent id (see findSongById/
     // buildSongOptions in blocks/music.js), never by array position, so
     // reordering the display order here is already safe.
-    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+    const {dragAttrs, dragCardClass: rawDragCardClass, dragHandleListeners,
+      dragTargetListeners: rawDragTargetListeners} = useDragReorder(
         () => state.value.songs,
         (items) => {
           state.value.songs = items;
           handleChildChange();
         },
     );
+
+    // Suppresses the song card's own drag-over highlight/drop handling
+    // while a SEQUENCE CHIP (not a song card) is what's actually being
+    // dragged (see draggedSequenceStep below, and sequenceChipListeners'
+    // own comment on stopPropagation) - stopPropagation alone only stops a
+    // chip drag's own events from bubbling INTO the card once they've
+    // already fired on the chip, but dragover also fires directly on the
+    // card itself whenever the pointer is over the card's own body (e.g.
+    // the gap around a chip), which was never routed through the chip's
+    // handlers to begin with, so nothing to stop propagation on - the
+    // card lit up its own "drop a song here" border simply because the
+    // browser doesn't know or care that some OTHER drag is in progress; it
+    // reacts to any drag hovering over it. Checked at call time (not
+    // memoized) so it always reflects whichever drag (song or chip, if
+    // either) is currently active.
+    const dragCardClass = (index) => (draggedSequenceStep.value ? {} : rawDragCardClass(index));
+    const dragTargetListeners = (index) => (draggedSequenceStep.value ? {} : rawDragTargetListeners(index));
 
     const instance = getCurrentInstance();
     const forceUpdate = () => instance.proxy.$forceUpdate();
@@ -699,9 +885,51 @@ export default defineComponent({
       setActivePatternId(song.id, patternId);
       const pattern = song.patterns.find(({id}) => id === patternId);
       if (pattern) recalculateFitBaseWidth(song, pattern);
+      // Switching patterns can swap in a whole new set of tracks whose own
+      // v-selects (Channel, Instrument) Vue's own v-for keying (by
+      // track.id) may reuse the SAME DOM node for, if the new pattern
+      // happens to have a track sharing that id with the old one's (e.g.
+      // both patterns' first track is id 1) - a plain reactive update
+      // alone left a reused select showing the PREVIOUS pattern's own
+      // value rather than the new track's, same class of stale-Vuetify-
+      // select bug as the Sound tab's own Frequency field and this same
+      // Channel field's own default-value display, both already fixed the
+      // same way. Bare forceUpdate() (not handleChildChange - no project
+      // data actually changed here, just which pattern is being viewed).
+      forceUpdate();
     };
     const activePattern = (song) =>
       song.patterns.find(({id}) => id === activePatternId(song)) || song.patterns[0];
+
+    // Combined "Editing pattern"/"Pattern name" field (see the template's
+    // own v-combobox) - picking an EXISTING pattern from its dropdown
+    // switches which one is active, exactly like the old separate
+    // "Editing pattern" select did; typing something that doesn't match
+    // any OTHER existing pattern's own name instead renames whichever
+    // pattern is CURRENTLY active, exactly like the old separate
+    // "Pattern name" field did. Both cases arrive here as a plain string
+    // (v-combobox's own model is the display text itself, not a
+    // patternId - unlike v-select, it doesn't do an item-value lookup for
+    // an externally-set :value, so binding this to an id the way the old
+    // "Editing pattern" select could just showed the raw id number
+    // instead of the pattern's own name - confirmed directly), so which
+    // case this is has to be told apart by matching that text against
+    // every OTHER pattern's own name instead.
+    const handlePatternFieldChange = (song, text) => {
+      if (typeof text !== 'string') return;
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const current = activePattern(song);
+      if (trimmed === patternName(song, current.id)) return;
+      const matched = song.patterns.find((p) => p.id !== current.id && patternName(song, p.id) === trimmed);
+      if (matched) {
+        setActivePattern(song, matched.id);
+        return;
+      }
+      current.name = trimmed;
+      handleChildChange();
+      forceUpdate();
+    };
 
     const handleAddSong = () => {
       const songs = state.value.songs;
@@ -728,6 +956,165 @@ export default defineComponent({
       state.value.songs = state.value.songs.filter(({id}) => id != song.id);
       handleChildChange();
       forceUpdate();
+    };
+
+    // Song data (name/tempo/loop/patterns/sequence) as a standalone .json
+    // file, for sharing a song between projects or keeping an external
+    // backup - the song's own id isn't included (see handleImportSong,
+    // which keeps the IMPORTING song's id rather than the file's), since
+    // ids are only meaningful within a single project's own storage. Also
+    // bundles every Sound tab instrument any of this song's tracks
+    // actually points at (see soundEffectIdsUsedBySong/handleImportSong's
+    // own importSoundEffects) - without this, a song exported and opened
+    // in a different project would still LOOK complete (every note has a
+    // soundEffectId), but every one of those ids would be pointing at
+    // either nothing or, worse, some unrelated instrument that just
+    // happens to already occupy that id in the target project.
+    const soundEffectIdsUsedBySong = (song) => {
+      const ids = new Set();
+      (song.patterns || []).forEach((pattern) => {
+        (pattern.tracks || []).forEach((track) => {
+          if (track.soundEffectId != null) ids.add(String(track.soundEffectId));
+        });
+      });
+      return ids;
+    };
+    const handleExportSong = (song) => {
+      const usedIds = soundEffectIdsUsedBySong(song);
+      const usedSoundEffects = soundEffects().filter(({id}) => usedIds.has(String(id)));
+      // eslint-disable-next-line no-unused-vars
+      const {id, ...songData} = song;
+      const exportData = {...songData, soundEffects: usedSoundEffects};
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+      const filename = (song.name || `song-${song.id}`).replace(/[^A-Za-z0-9]+/g, '_');
+      saveAs(blob, `${filename}-${getDateInfix()}.json`);
+    };
+
+    // Adds whichever of an imported song's own bundled instruments (see
+    // handleExportSong above) aren't already covered by an EXISTING Sound
+    // tab card of the same name - matched by name rather than by the
+    // file's own id, since that id only ever meant something in the
+    // project the song was originally exported from, and could collide
+    // with an unrelated instrument already sitting at that same id here.
+    // A name match instead means re-importing a song into the SAME
+    // project (or one that already has that instrument, e.g. from a
+    // previous import) reuses the existing card instead of piling up
+    // duplicates. Returns oldId -> newId (or reused existing id), for
+    // handleImportSong to rewrite the incoming patterns' own track.
+    // soundEffectId references with.
+    const importSoundEffects = (importedSoundEffects) => {
+      const idMap = {};
+      if (!Array.isArray(importedSoundEffects) || !importedSoundEffects.length) return idMap;
+      const current = processSoundEffectsStorageDefaults(soundEffectsStorage);
+      let maxId = max(current.soundEffects.map((o) => o.id)) || 0;
+      importedSoundEffects.forEach((effect) => {
+        if (!effect || typeof effect !== 'object') return;
+        const oldId = effect.id;
+        const existing = effect.name && current.soundEffects.find((o) => o.name === effect.name);
+        if (existing) {
+          if (oldId != null) idMap[oldId] = existing.id;
+          return;
+        }
+        maxId += 1;
+        current.soundEffects.push({...effect, id: maxId, name: effect.name || `Sound effect ${maxId}`});
+        if (oldId != null) idMap[oldId] = maxId;
+      });
+      soundEffectsStorage.value = current;
+      return idMap;
+    };
+
+    // Overwrites this song card's own data with a previously exported .json
+    // file's contents - keeps this song's own id (see handleExportSong)
+    // untouched so every music_play_song/music_song_stopped block already
+    // pointing at this card keeps working, exactly like handleImportCsv in
+    // DataEditor.vue keeps a data table's own id on import.
+    const handleImportSong = (song) => {
+      openFileDialog('.json,application/json')
+          .then((file) => file.text())
+          .then((text) => {
+            const parsed = JSON.parse(text);
+            if (!parsed || !Array.isArray(parsed.patterns)) {
+              throw new Error('File does not contain valid song data');
+            }
+            // eslint-disable-next-line no-unused-vars
+            const {soundEffects: importedSoundEffects, ...songData} = parsed;
+            const idMap = importSoundEffects(importedSoundEffects);
+            if (Object.keys(idMap).length) {
+              songData.patterns.forEach((pattern) => {
+                (pattern.tracks || []).forEach((track) => {
+                  if (track.soundEffectId != null && idMap[track.soundEffectId] != null) {
+                    track.soundEffectId = idMap[track.soundEffectId];
+                  }
+                });
+              });
+            }
+            Object.assign(song, songData, {id: song.id});
+            if (activePatternId(song) && !song.patterns.some(({id: pid}) => pid === activePatternId(song))) {
+              setActivePattern(song, song.patterns[0] && song.patterns[0].id);
+            }
+            handleChildChange();
+            forceUpdate();
+          })
+          .catch((e) => console.error('Failed to import song', e));
+    };
+
+    // Same bundled-instruments reasoning as soundEffectIdsUsedBySong above,
+    // just scoped to one pattern's own tracks instead of every pattern in
+    // a whole song.
+    const soundEffectIdsUsedByPattern = (pattern) => {
+      const ids = new Set();
+      (pattern.tracks || []).forEach((track) => {
+        if (track.soundEffectId != null) ids.add(String(track.soundEffectId));
+      });
+      return ids;
+    };
+
+    // Same shape/reasoning as handleExportSong above, one level down - a
+    // single pattern (with its own bundled instruments) as a standalone
+    // .json file, for reusing one pattern across songs/projects without
+    // dragging the whole song along with it.
+    const handleExportPattern = (pattern) => {
+      const usedIds = soundEffectIdsUsedByPattern(pattern);
+      const usedSoundEffects = soundEffects().filter(({id}) => usedIds.has(String(id)));
+      // eslint-disable-next-line no-unused-vars
+      const {id, ...patternData} = pattern;
+      const exportData = {...patternData, soundEffects: usedSoundEffects};
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+      const filename = (pattern.name || `pattern-${pattern.id}`).replace(/[^A-Za-z0-9]+/g, '_');
+      saveAs(blob, `${filename}-${getDateInfix()}.json`);
+    };
+
+    // Overwrites this pattern's own data with a previously exported .json
+    // file's contents - keeps this pattern's own id (see
+    // handleExportPattern) untouched so the song's own Sequence list
+    // (which references patterns by id, not position - see
+    // handleAddSequenceStep) keeps pointing at the same slot. Reuses
+    // importSoundEffects (see handleImportSong above) for the same
+    // name-matched instrument reuse/creation.
+    const handleImportPattern = (song, pattern) => {
+      openFileDialog('.json,application/json')
+          .then((file) => file.text())
+          .then((text) => {
+            const parsed = JSON.parse(text);
+            if (!parsed || !Array.isArray(parsed.tracks)) {
+              throw new Error('File does not contain valid pattern data');
+            }
+            // eslint-disable-next-line no-unused-vars
+            const {soundEffects: importedSoundEffects, ...patternData} = parsed;
+            const idMap = importSoundEffects(importedSoundEffects);
+            if (Object.keys(idMap).length) {
+              (patternData.tracks || []).forEach((track) => {
+                if (track.soundEffectId != null && idMap[track.soundEffectId] != null) {
+                  track.soundEffectId = idMap[track.soundEffectId];
+                }
+              });
+            }
+            Object.assign(pattern, patternData, {id: pattern.id});
+            recalculateFitBaseWidth(song, pattern);
+            handleChildChange();
+            forceUpdate();
+          })
+          .catch((e) => console.error('Failed to import pattern', e));
     };
 
     const handleAddPattern = (song) => {
@@ -876,15 +1263,138 @@ export default defineComponent({
       forceUpdate();
     };
 
-    const handleMoveSequenceStep = (song, index, direction) => {
-      const newIndex = index + direction;
-      if (newIndex < 0 || newIndex >= song.sequence.length) return;
-      const sequence = song.sequence.slice();
-      [sequence[index], sequence[newIndex]] = [sequence[newIndex], sequence[index]];
-      song.sequence = sequence;
-      handleChildChange();
-      forceUpdate();
+    // Drag-and-drop reordering for one song's own Sequence chips - not built
+    // on hooks/drag-reorder.js's own useDragReorder, since that hook's
+    // draggedIndex/dragOverIndex refs assume exactly one reorderable list
+    // exists at a time. Every song on this tab has its OWN independent
+    // sequence, so the dragged/drag-over state here is keyed by song id as
+    // well as index, to keep dragging a chip in one song's sequence from
+    // being misread as a drag-over hit in a different song's identically-
+    // indexed chip. The whole chip is the drag handle (not a separate strip
+    // like .song-drag-handle) since, unlike a song/pattern card, a chip has
+    // no text field or other free-form click-and-drag-to-select content for
+    // `draggable` to conflict with.
+    const draggedSequenceStep = ref(null);
+    // {songId, index, side} - side is 'before' or 'after', which HALF of
+    // chip `index` the pointer is currently over (see dragOverSideFor
+    // below) - a chip being dragged toward doesn't just mean "insert
+    // before it" the way the old single-index version always drew its
+    // highlight; a chip dragged to a position AFTER a target needs the
+    // highlight (and the actual drop) to land on that target's own right
+    // side, not its left.
+    const dragOverSequenceStep = ref(null);
+    const isSequenceStepDragging = (song, index) =>
+      !!draggedSequenceStep.value &&
+      draggedSequenceStep.value.songId === song.id && draggedSequenceStep.value.index === index;
+    const isSequenceStepDragOver = (song, index) =>
+      !!dragOverSequenceStep.value &&
+      dragOverSequenceStep.value.songId === song.id && dragOverSequenceStep.value.index === index &&
+      !isSequenceStepDragging(song, index);
+    // Which side of chip `index`'s own highlight to show, for the
+    // template's :class binding - null when this chip isn't the current
+    // drag-over target at all (see isSequenceStepDragOver above, which
+    // this reuses so the two never disagree).
+    const sequenceDragOverSide = (song, index) =>
+      isSequenceStepDragOver(song, index) ? dragOverSequenceStep.value.side : null;
+    // Left half of the chip's own bounding box means "insert before it",
+    // right half means "insert after it" - the same halfway-point
+    // convention most drag-reorder UIs use (e.g. a Kanban board's own
+    // card-drop indicator), so the highlight always lands on whichever
+    // side the pointer is actually closer to instead of unconditionally
+    // always showing "before".
+    const dragOverSideFor = (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
     };
+    const sequenceChipListeners = (song, index) => ({
+      dragstart: (event) => {
+        // Stops this drag from ALSO being seen by the song card's own
+        // dragTargetListeners (see useDragReorder(state.value.songs, ...)
+        // above) - that hook's dragover/dragleave/drop are bound to the
+        // whole .song-card, which every sequence chip sits inside, so
+        // without this every one of these events would bubble straight
+        // into it: the card wrongly showed its own "drag a song here"
+        // border-top highlight while dragging a chip, since it has no way
+        // to tell a bubbled chip-drag apart from an actual song-card drag.
+        event.stopPropagation();
+        draggedSequenceStep.value = {songId: song.id, index};
+        event.dataTransfer.effectAllowed = 'move';
+        // Same Firefox requirement as hooks/drag-reorder.js's own
+        // dragHandleListeners - the value itself is never read back.
+        event.dataTransfer.setData('text/plain', String(index));
+      },
+      dragend: (event) => {
+        event.stopPropagation();
+        draggedSequenceStep.value = null;
+        dragOverSequenceStep.value = null;
+      },
+      dragover: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'move';
+        // dragover fires continuously (many times a second) for as long as
+        // the pointer sits over this chip, not just once on entry - only
+        // actually writing the ref when the target (index OR which half
+        // of it - see dragOverSideFor) changed, not every single tick,
+        // avoids creating a brand new object, and the resulting
+        // full-component reactive re-render (piano roll grid included),
+        // dozens of times a second even while the pointer sits still.
+        // Confirmed as the cause of a very long, increasing lag between
+        // dropping and the reorder actually landing - the drop handler
+        // itself was fine, it was just queued behind a huge backlog of
+        // these redundant re-renders.
+        const side = dragOverSideFor(event);
+        const current = dragOverSequenceStep.value;
+        if (!current || current.songId !== song.id || current.index !== index || current.side !== side) {
+          dragOverSequenceStep.value = {songId: song.id, index, side};
+        }
+      },
+      dragleave: (event) => {
+        event.stopPropagation();
+        // A chip's own child elements (its label, the close icon) are
+        // still part of this same wrap div visually, but the browser
+        // fires dragleave/dragenter at every element boundary crossing,
+        // including moving from the wrap onto one of its own children -
+        // relatedTarget is where the pointer actually went, so this skips
+        // treating that as a real "left the chip" and only clears the
+        // drag-over highlight once the pointer is genuinely outside it.
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (isSequenceStepDragOver(song, index) || isSequenceStepDragging(song, index)) {
+          dragOverSequenceStep.value = null;
+        }
+      },
+      drop: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const from = draggedSequenceStep.value;
+        draggedSequenceStep.value = null;
+        dragOverSequenceStep.value = null;
+        if (!from || from.songId !== song.id) return;
+        // Computed fresh off the actual drop event's own pointer position
+        // (not read back off dragOverSequenceStep) so the drop always
+        // matches exactly what the highlight it lands on last showed, even
+        // in the (browser-dependent) edge case where a final dragover
+        // right before the drop didn't get a chance to update that ref.
+        const side = dragOverSideFor(event);
+        // Where the dragged chip should land, in terms of the ORIGINAL
+        // (pre-removal) array's own indices: right before `index` for
+        // 'before', right after it for 'after'. Removing the dragged chip
+        // first shifts every index after its own OLD position left by
+        // one, so that has to be corrected for before this target
+        // position is actually used to splice it back in - see
+        // dragOverSideFor's own comment for why "before/after a target"
+        // is tracked at all instead of always inserting before it.
+        let insertAt = side === 'after' ? index + 1 : index;
+        if (from.index < insertAt) insertAt--;
+        if (insertAt === from.index) return;
+        const sequence = song.sequence.slice();
+        const [moved] = sequence.splice(from.index, 1);
+        sequence.splice(insertAt, 0, moved);
+        song.sequence = sequence;
+        handleChildChange();
+        forceUpdate();
+      },
+    });
 
     // Only one of a pattern or a song's full sequence can be playing at a
     // time (they share the same underlying audio engine - see
@@ -1013,18 +1523,16 @@ export default defineComponent({
       stopPlaybackHeadPolling();
     };
 
-    // Whether patternId is the specific sequence entry currently sounding -
+    // Whether THIS specific sequence entry (identified by its own index in
+    // song.sequence, not just its patternId) is the one currently sounding -
     // only meaningful during song (not lone pattern) playback, since a
-    // sequence step only exists in that context.
-    const isSequenceStepPlaying = (song, patternId) =>
-      // Loose equality - patternId here comes from the sequence list's own
-      // v-select (see patternOptions/handleAddSequenceStep), which isn't
-      // guaranteed to keep its original number type (same well-known
-      // Vuetify quirk this codebase already coerces around elsewhere, e.g.
-      // arpeggioRange/fadeLength) - a strict === here would just silently
-      // never match.
-      // eslint-disable-next-line eqeqeq
-      playingSongId.value === song.id && !!playbackHead.value && playbackHead.value.patternId == patternId;
+    // sequence step only exists in that context. Matched by index rather
+    // than patternId alone so a pattern used more than once in the same
+    // sequence (e.g. an intro pattern reused later) only highlights the one
+    // chip actually playing right now, not every chip for that pattern at
+    // once (see sequenceIndex in music-playback.js's getPlaybackHead).
+    const isSequenceStepPlaying = (song, sequenceIndex) =>
+      playingSongId.value === song.id && !!playbackHead.value && playbackHead.value.sequenceIndex === sequenceIndex;
 
     // Random-but-stable per pattern (same golden-angle hue trick as
     // autoInstrumentColor, just keyed by pattern id instead of sound effect
@@ -1619,10 +2127,13 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleChangeSubdivision,
-      handleAddSong, handleDeleteSong,
+      handleAddSong, handleDeleteSong, handleExportSong, handleImportSong,
       handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange,
+      handlePatternFieldChange,
+      handleExportPattern, handleImportPattern,
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
-      handleAddSequenceStep, handleRemoveSequenceStep, handleMoveSequenceStep,
+      handleAddSequenceStep, handleRemoveSequenceStep,
+      sequenceChipListeners, isSequenceStepDragging, sequenceDragOverSide,
       handlePlayPattern, handlePlaySong, handleStop, handleToggleLoopPattern, handleToggleLoopSong,
       handleSeekToStep,
       playingPatternId, playingSongId,
@@ -1636,13 +2147,27 @@ export default defineComponent({
       rulerCellStyle, handleSeekHover, handleSeekHoverLeave,
       instrumentColor,
       soundEffectOptions,
-      channelOptionItems: CHANNEL_OPTIONS.map(([text, value]) => ({text, value})),
+      // CHANNEL_OPTIONS' own values are strings ('0'/'1') - a requirement
+      // of Blockly's FieldDropdown (see blocks/sound.js, which also feeds
+      // this same array to a Blockly block), not of the Music tab's own
+      // track.channel, which has always been stored as a NUMBER (see
+      // emptyTrack/DEFAULT_SONGS in blocks/music.js). Vuetify's v-select
+      // matches its own :items value against v-model by strict ===, so a
+      // numeric track.channel of 0 never matched the string item '0' here
+      // - the Channel dropdown showed blank/placeholder even for a
+      // perfectly valid, already-set channel 0 (same class of bug as the
+      // Sound tab's own Frequency field before its own fix). Number(value)
+      // converts back to match what's actually stored.
+      channelOptionItems: CHANNEL_OPTIONS.map(([text, value]) => ({text, value: Number(value)})),
       patternStepOptionItems: PATTERN_STEP_OPTIONS.map((steps) => ({text: `${steps}`, value: steps})),
       subdivisionOptionItems: DURATION_SUBDIVISION_OPTIONS.map((n) => ({text: `${n}`, value: n})),
       maxPatternSteps: MAX_PATTERN_STEPS,
       pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
       sharedNoteRows: [...CANONICAL_NOTE_ROWS, ...HIT_ROW],
       isSongCollapsed, toggleSongCollapsed,
+      isPatternCollapsed, togglePatternCollapsed, isInstrumentsCollapsed, toggleInstrumentsCollapsed,
+      isSequenceCollapsed, toggleSequenceCollapsed,
+      trackSoundEffect,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
@@ -1793,6 +2318,16 @@ export default defineComponent({
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
+  /* Without an explicit value, this inherits whatever line-height its
+     surrounding context happens to resolve to - which isn't the same
+     everywhere this badge is used: the song card's own badge sits in a
+     context that resolves to a tight ~13px, but the pattern card's own
+     (nested one level deeper) resolves to Vuetify's default ~22px
+     instead, visibly pushing the id text down within that taller line
+     box even though top: 10px itself was identical in both. A fixed,
+     tight value keeps this badge's own text position independent of
+     wherever it's placed. */
+  line-height: 1;
 }
 
 .music-collapse-btn {
@@ -1858,24 +2393,52 @@ export default defineComponent({
   margin-top: 12px;
 }
 
+/* This class is shared with plain text fields too (e.g. Song name), which
+   have no dropdown icon at all - harmless no-op there. The Pattern name
+   field is a v-combobox (editable text AND a dropdown - see
+   handlePatternFieldChange), so Vuetify gives it its own dropdown arrow
+   icon; without this, that icon inherited the field's own text-input
+   cursor (a text I-beam) instead of a pointer, reading as if clicking the
+   arrow wouldn't do anything even though it does open the dropdown. */
+.music-name-field >>> .v-input__append-inner {
+  cursor: pointer;
+}
+
 .music-name-section {
   padding-bottom: 0;
 }
 
-/* The pattern card's own equivalent row sits inside .pattern-card (a nested
-   v-card with its own 4px padding-top), giving it a bit more clearance from
-   the toolbar above than the song card - which has no such nested wrapper -
-   naturally has. Adds that same 4px on top of .music-name-field's own
-   existing 12px margin-top (rather than setting padding-top directly, which
-   would override - and shrink - this v-card-text's larger Vuetify default
-   padding instead of adding to it). */
+/* Extra clearance from the song card's own top-right toolbar
+   (.music-toolbar-top-right, absolutely positioned so it doesn't take up
+   flow space on its own) sitting right above this row - on top of
+   .music-name-field's own existing 12px margin-top (rather than setting
+   padding-top directly, which would override - and shrink - this
+   v-card-text's larger Vuetify default padding instead of adding to it).
+   The pattern card's own equivalent row doesn't need this: its own
+   toolbar was moved down next to the piano roll's zoom controls (see
+   .pattern-playback-controls), so nothing sits above it to clear. */
 .song-name-row .music-name-field,
 .song-name-row .tempo-field {
-  margin-top: 16px;
+  /* Matches the pattern card's own collapse-arrow-to-label gap exactly
+     (measured directly: 6px there vs this row's own 2px before this),
+     since both cards now have their own collapse toggle sitting over the
+     same corner - was 16px. */
+  margin-top: 20px;
 }
 
 .music-sequence-section {
   padding-top: 0;
+}
+
+/* .pattern-card's own collapse toggle (.music-collapse-btn, top: 2px,
+   ~26px tall) sits absolutely positioned over this row's own top-left
+   corner - this needs enough padding-top to clear it (the small 10px this
+   used to be, from when nothing sat above this row - see .pattern-card,
+   which had its own now-removed top-right toolbar back then instead - was
+   too little once the collapse button was added, crowding right up
+   against the Pattern name label). */
+.pattern-card .music-name-section {
+  padding-top: 28px;
 }
 
 .pattern-name-row {
@@ -1884,8 +2447,41 @@ export default defineComponent({
   gap: 12px;
 }
 
+/* Scoped to .pattern-card specifically, NOT .pattern-name-row - the song
+   card's own name row (see the template) carries BOTH .song-name-row AND
+   .pattern-name-row (they share layout, just not this spacing), so a
+   .pattern-name-row-scoped rule here would win the specificity tie
+   against .song-name-row's own 16px override above (same specificity,
+   later in the file) and wrongly flatten the song row's spacing down to
+   this pattern-only value too - confirmed directly as the cause of the
+   song row suddenly looking too cramped right after this was added.
+   .pattern-card only ever wraps the pattern sub-card's own row. Also
+   covers .steps-field (Length (steps)) now - its own base rule below sets
+   a flat 12px unconditionally, which left it sitting visibly lower than
+   this row's other fields once they were pulled up to 8px here without
+   it. */
+.pattern-card .music-name-field,
+.pattern-card .tempo-field,
+.pattern-card .steps-field {
+  margin-top: 8px;
+}
+
 .pattern-name-row .music-name-field {
   flex: 1 1 auto;
+}
+
+/* Add/Duplicate/Delete pattern - tight gap (not this row's own 12px,
+   meant for spacing separate FIELDS apart, not a group of icon buttons
+   next to each other) and a margin-top nudge to line these up against
+   the combobox's own input line/underline rather than Vuetify's default
+   icon-button margin, which read as sitting noticeably higher and
+   further apart than the field beside them. */
+.pattern-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 0 0 auto;
+  margin-top: 22px;
 }
 
 .tempo-field {
@@ -1928,6 +2524,63 @@ export default defineComponent({
   margin-bottom: 4px;
 }
 
+.instruments-label-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Vuetify keeps a much taller invisible click-target box around even an
+   x-small icon button (same issue .piano-roll-zoom-icon-btn's own comment
+   describes) - .instruments-label-row's own align-items: center was
+   centering that whole oversized box against the "Instruments" text
+   next to it, which visibly reads as the chevron itself sitting too low
+   against the text's own baseline. A fixed, tight height/width (matching
+   this row's own 12px label line-height) fixes that the same way
+   .piano-roll-zoom-icon-btn does for the zoom row's own icon buttons. */
+.instruments-collapse-btn {
+  margin-left: -4px;
+  margin-top: -6px;
+  min-width: 0;
+  height: 16px !important;
+  width: 16px !important;
+}
+
+/* Same "same width/height, no shadow" treatment as the other flat icon
+   buttons on this tab (.music-flat-icon-btn/.music-icon-btn-size), just a
+   step smaller (x-small) to match this row's own 12px label text instead
+   of dwarfing it. */
+.instruments-collapse-btn.v-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Shown instead of the Instruments list/Add instrument button while that
+   section is collapsed (see isInstrumentsCollapsed) - one small chip per
+   track, colored the same way each track's own note color dot is
+   (instrumentColor) so a glance still identifies which instruments this
+   pattern uses without expanding it back out. */
+.instruments-collapsed-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.instruments-collapsed-summary .v-chip {
+  cursor: pointer;
+}
+
+/* Same white-then-primary double ring as .sequence-chip-playing (see its
+   own comment on why a single white ring alone isn't visible against this
+   tab's white card background) - marks which track clicking a chip here
+   last selected as active, mirroring the radio-button highlight the
+   expanded Instruments list gives the same track (see isActiveTrack). */
+.instrument-summary-chip-active {
+  box-shadow: 0 0 0 2px white, 0 0 0 4px var(--v-primary-base, #1976d2);
+}
+
 .sequence-row {
   display: flex;
   flex-wrap: wrap;
@@ -1945,31 +2598,50 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 2px;
+  cursor: grab;
 }
 
-/* A white ring rather than swapping the chip's own (per-pattern) color, so
-   it reads as "this one's playing right now" without fighting/hiding the
-   color that identifies WHICH pattern it is - see patternSequenceColor. */
+/* Same reasoning as hooks/drag-reorder.js's own CSS_CLASS_DRAGGING/
+   CSS_CLASS_DRAG_OVER (see sequenceChipListeners' own comment on why this
+   is a separate, hand-rolled drag implementation instead of that shared
+   hook) - a left/right border rather than that hook's top border, since
+   this list is laid out horizontally (see .sequence-row), not as stacked
+   cards. Which side shows (see sequenceDragOverSide/dragOverSideFor)
+   reflects which half of THIS chip the pointer is actually over, so the
+   highlight always marks where the dragged chip would really land -
+   before this one, or after it - instead of always marking "before". */
+.sequence-chip-dragging {
+  opacity: 0.4;
+}
+
+.sequence-chip-drag-over-before {
+  border-left: 3px solid var(--v-primary-base, #1976d2);
+}
+
+.sequence-chip-drag-over-after {
+  border-right: 3px solid var(--v-primary-base, #1976d2);
+}
+
+/* A double ring (white, then the app's own primary color) rather than
+   swapping the chip's own (per-pattern) color, so it reads as "this one's
+   playing right now" without fighting/hiding the color that identifies
+   WHICH pattern it is - see patternSequenceColor. A single white ring
+   alone (this rule's own previous version) turned out to be invisible in
+   practice: .song-card's own background is white/near-white, so a white
+   ring around a chip sitting on it had no contrast against the card at
+   all, only against the chip's own (usually darker/saturated) color -
+   confirmed as the reason this looked like it was never implemented, even
+   though the class WAS being applied correctly the whole time. The
+   primary-color outer ring is what actually shows up against the card;
+   the white ring is kept as an inner separator so the two don't blend
+   into the chip's own color either, on a light or dark chip color alike. */
 .sequence-chip-playing {
-  box-shadow: 0 0 0 2px white;
-}
-
-.pattern-selector-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 32px;
-  margin-bottom: 16px;
-}
-
-.pattern-select {
-  max-width: 260px;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px var(--v-primary-base, #1976d2);
 }
 
 .pattern-card {
   position: relative;
   margin-bottom: 12px;
-  padding-top: 4px;
 }
 
 .track-section {
@@ -2004,6 +2676,19 @@ export default defineComponent({
   margin-bottom: 4px;
 }
 
+/* Groups the zoom controls with the pattern preview play/stop/loop buttons
+   (moved in here from the pattern card's own top-right toolbar) so they sit
+   immediately next to each other - .piano-roll-zoom-row's own
+   space-between still puts .subdivision-controls on the far left and this
+   whole group on the far right, exactly as before adding a second group to
+   it would otherwise have shifted .piano-roll-zoom-controls into the
+   middle instead. */
+.piano-roll-zoom-and-playback {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
 /* flex-shrink: 0 keeps this group (button/slider/label) at its own natural
    width instead of getting squeezed by .subdivision-select sharing the row
    with it now - confirmed directly as the cause of the slider rendering
@@ -2013,6 +2698,16 @@ export default defineComponent({
   align-items: center;
   gap: 0;
   flex: 0 0 auto;
+}
+
+/* Small left margin (not the zoom controls' own 0 gap) - these buttons are
+   a visually separate group (preview playback, not zoom), so a slightly
+   bigger gap than between the zoom icons themselves reads as two groups
+   sitting next to each other rather than one continuous row of buttons. */
+.pattern-playback-controls {
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
 }
 
 /* Vuetify's icon buttons keep a 36px+ click target around the icon itself
@@ -2033,12 +2728,26 @@ export default defineComponent({
   margin: 0 2px;
 }
 
+/* flex: 0 0 auto (not the fixed 3.5em box this used to be) - that fixed
+   width, combined with right-aligned text, left a wide gap of empty box
+   BEFORE the actual digits for any value under 5 characters (e.g. "100%"
+   in a box sized for "1600%") between this and the zoom-in button right
+   before it, since there's nothing after this label for the fixed width
+   to keep aligned against. tabular-nums still keeps digit-for-digit width
+   consistent, so this only ever shifts by roughly one character's width
+   between the shortest and longest possible readouts (100%-1600%), not
+   worth a fixed box to prevent. */
 .piano-roll-zoom-label {
-  flex: 0 0 3.5em;
-  text-align: right;
+  flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
   font-size: 0.85em;
   margin-left: 2px;
+  /* Sits between the reset (Fit zoom) and zoom-out buttons (moved there
+     per request), not at either end of the row - needs its own right-hand
+     clearance too, since .piano-roll-zoom-controls' own gap: 0 relies on
+     each child's own margin for spacing, and .piano-roll-zoom-icon-btn
+     (zoom-out, right after this) has none. */
+  margin-right: 2px;
 }
 
 /* flex-end (not center) - the row mixes a 28px radio button with dense
