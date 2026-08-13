@@ -167,49 +167,15 @@
                     everywhere regardless of this UI): each one's generated
                     per-channel dispatch code could grow large enough to blow
                     ROM capacity on some projects. -->
-                    <v-spacer />
-                    <v-menu
-                      v-if="state.soundEffects.length > 1"
-                      top
-                    >
-                      <template v-slot:activator="{ on, attrs }">
-                        <v-btn
-                          title="Delete this sound effect"
-                          icon
-                          small
-                          class="soundfx-delete-btn delete-icon-btn soundfx-icon-btn-size"
-                          v-bind="attrs"
-                          v-on="on"
-                        >
-                          <v-icon>mdi-delete</v-icon>
-                        </v-btn>
-                      </template>
-
-                      <v-card>
-                        <v-card-title>Delete this sound effect?</v-card-title>
-                        <v-list>
-                          <v-list-item @click="handleDeleteSoundEffect(soundEffect)">
-                            <v-list-item-icon>
-                              <v-icon>mdi-check</v-icon>
-                            </v-list-item-icon>
-                            <v-list-item-title>Yes, delete</v-list-item-title>
-                          </v-list-item>
-                          <v-list-item>
-                            <v-list-item-icon>
-                              <v-icon>mdi-cancel</v-icon>
-                            </v-list-item-icon>
-                            <v-list-item-title>No, don't delete</v-list-item-title>
-                          </v-list-item>
-                        </v-list>
-                      </v-card>
-                    </v-menu>
                   </div>
                 </v-card-text>
 
-                <!-- soundfx-fields-section (above) covers this when expanded, right
-                     next to Fade - only needed here as its own row for the collapsed
-                     case, where that whole section is hidden. -->
-                <v-card-text v-if="isCollapsed(soundEffect)" class="soundfx-delete-section">
+                <!-- Its own row (not inline with soundfx-fields-section above,
+                     where this used to sit next to Fade) so it lands in the
+                     same place - close to the card's own bottom edge - whether
+                     expanded or collapsed, instead of being roughly mid-card
+                     while expanded but bottom-edge while collapsed. -->
+                <v-card-text class="soundfx-delete-section">
                   <v-menu
                     v-if="state.soundEffects.length > 1"
                     top
@@ -648,9 +614,12 @@ export default defineComponent({
 }
 
 /* Clears .soundfx-toolbar-top-right, which would otherwise overlap the name
-   field's own label/text at the top of the card. */
+   field's own label/text at the top of the card - matches the Music tab's
+   own song cards' card-top-to-label gap (measured directly: 36.67px there
+   vs this field's own 40.67px at 24px margin-top, so 20px lines the two
+   up) - was 36px originally. */
 .soundfx-name-field {
-  margin-top: 36px;
+  margin-top: 20px;
   flex: 1 1 auto;
 }
 
@@ -658,13 +627,13 @@ export default defineComponent({
    own (empty, zero-size) root element, not nested inside it - a class on
    <color-swatch-picker> itself lands on that invisible marker, not on the
    actual visible swatch, so this has to pierce into the component's own
-   internal .color-swatch-picker-dot class instead. 57px (36px from
-   .soundfx-name-field's own margin-top, plus 21px to reach the vertical
-   center of its floating label + value text) - measured directly against
-   the rendered field, since a fixed field like this one doesn't share the
+   internal .color-swatch-picker-dot class instead. 41px (.soundfx-name-
+   field's own 20px margin-top, plus 21px to reach the vertical center of
+   its floating label + value text) - measured directly against the
+   rendered field, since a fixed field like this one doesn't share the
    Instrument row's own dense/hide-details proportions to eyeball from. */
 .soundfx-name-row >>> .color-swatch-picker-dot {
-  margin-top: 57px;
+  margin-top: 41px;
 }
 
 /* Same flat-icon, fade-in-on-hover treatment as the pixel editor's own
@@ -717,20 +686,20 @@ export default defineComponent({
   padding-bottom: 0;
 }
 
-/* Delete sits inline with Fade (pushed to the row's far right by the
-   v-spacer between them) when expanded, so this is the true last section
-   in that state - keeps its own bottom padding instead of the 0 used
-   elsewhere for tight stacking between sections. */
 .soundfx-fields-section {
   padding-top: 0;
+  padding-bottom: 0;
 }
 
-/* Only rendered when collapsed (see the v-if next to it) - soundfx-fields
-   above already puts delete in Fade's own row when expanded, but that whole
-   section is hidden while collapsed, so delete needs this separate row to
-   stay reachable instead of disappearing along with it. Always in normal
-   flow rather than absolutely positioned, unlike its previous spot at the
-   card's bottom-right - that put it behind the name field once collapsing
+/* Its own row, not inline with soundfx-fields-section above (where Delete
+   used to sit, pushed to the row's far right by a v-spacer) - that made
+   Delete land roughly mid-card while expanded but hard against the card's
+   own bottom edge while collapsed (see soundfx-fields-section, which is
+   entirely hidden then), two different positions for the same button.
+   Rendered unconditionally now (not just while collapsed) so it lands in
+   this same bottom-edge spot either way. Always in normal flow rather than
+   absolutely positioned, unlike its previous spot at the card's
+   bottom-right - that put it behind the name field once collapsing
    shrank the card down around it. */
 .soundfx-delete-section {
   display: flex;

@@ -175,7 +175,7 @@
                       class="sequence-add-select"
                       dense
                       hide-details
-                      label="Add pattern to sequence"
+                      label="Add pattern"
                       :items="patternOptions(song)"
                       :value="null"
                       @change="(patternId) => handleAddSequenceStep(song, patternId)"
@@ -607,7 +607,9 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
+import {
+  computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref,
+} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
@@ -935,7 +937,7 @@ export default defineComponent({
       const songs = state.value.songs;
       const maxId = max(songs.map((o) => o.id)) || 0;
       const firstSoundEffectId = soundEffects().length ? soundEffects()[0].id : 1;
-      songs.push({
+      const newSong = {
         id: maxId + 1,
         name: `Song ${maxId + 1}`,
         patterns: [{
@@ -947,9 +949,22 @@ export default defineComponent({
           tracks: [emptyTrack(1, firstSoundEffectId)],
         }],
         sequence: [1],
-      });
+      };
+      songs.push(newSong);
       handleChildChange();
       forceUpdate();
+      // pianoRollBaseWidth/pianoRollZoom are shared across every song (not
+      // per-song state), so a freshly added song otherwise just inherits
+      // whatever was left over from the last song/pattern edited, rather
+      // than a real 100% fit to its OWN piano-roll-scroll width - the same
+      // gap handleFitZoom's own button fixes for an EXISTING pattern.
+      // nextTick is required here (unlike handleFitZoom's other callers,
+      // which all recalculate against an already-rendered container) since
+      // this new song's own .piano-roll-scroll element doesn't exist in
+      // the DOM yet at this point - recalculateFitBaseWidth's own
+      // querySelector would find nothing and silently fall back to the
+      // unmeasured default width instead.
+      nextTick(() => handleFitZoom(newSong, newSong.patterns[0]));
     };
 
     const handleDeleteSong = (song) => {
@@ -2428,6 +2443,11 @@ export default defineComponent({
 
 .music-sequence-section {
   padding-top: 0;
+  /* Half this same v-card-text's own left/right padding (16px, Vuetify's
+     default, left untouched) - matching it exactly (16px) combined with
+     .pattern-card's own 12px margin-bottom still read as too much once
+     seen together. */
+  padding-bottom: 6px;
 }
 
 /* .pattern-card's own collapse toggle (.music-collapse-btn, top: 2px,
@@ -2586,12 +2606,12 @@ export default defineComponent({
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
 .sequence-add-select {
   max-width: 220px;
-  margin-top: 8px;
+  margin-top: -4px;
 }
 
 .sequence-chip-wrap {
