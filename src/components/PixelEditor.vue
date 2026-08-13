@@ -30,14 +30,26 @@
               icon
               small
               title="Eraser"
+              value="eraser"
               @click="editor.tool = eraser"
             >
               <v-icon>mdi-eraser</v-icon>
             </v-btn>
             <v-btn
+              v-if="showClearButton"
+              icon
+              small
+              title="Clear"
+              value="clear"
+              @click="handleClear"
+            >
+              <v-icon>mdi-delete-sweep</v-icon>
+            </v-btn>
+            <v-btn
               icon
               small
               title="Pencil"
+              value="pencil"
               @click="editor.tool = pencil"
             >
               <v-icon>mdi-pencil</v-icon>
@@ -191,6 +203,13 @@ export default {
     rowColors: {type: Array, default: null},
     name: {type: String, default: 'image'},
     allowChangingHeight: {type: Boolean, default: true},
+    // Shows a one-click "Clear" button next to the Eraser/Pencil tools -
+    // opt-in (default off) since most PixelEditor uses (sprite frames, the
+    // score font, ...) already have their own way to start a frame over
+    // (switching frames, importing an image), and a stray "wipe everything"
+    // button isn't worth the risk of a misclick there. Backgrounds are the
+    // one place a whole-grid clear is actually useful on its own.
+    showClearButton: {type: Boolean, default: false},
   },
   data() {
     return {
@@ -200,7 +219,13 @@ export default {
       heightMenuVisible: false,
       heightMenuValue: 0,
 
-      toggledTool: 1,
+      // String values (see the Eraser/Pencil/Clear v-btn "value" props),
+      // not index-based - Clear sits between them in the group so it can
+      // be positioned to the right of Eraser without touching Eraser's own
+      // index, but it isn't a real drawing tool, so it's excluded here and
+      // reset back to whichever tool was actually active after every click
+      // (see handleClear) rather than staying lit up as if selected.
+      toggledTool: 'pencil',
     };
   },
   mounted() {
@@ -352,6 +377,18 @@ export default {
         editorPixels.push({x, y, color: bit ? this.onColorForRow(y) : this.bgColor});
       }));
       this.editor.set(editorPixels);
+    },
+
+    handleClear() {
+      const previousTool = this.editor.tool === this.eraser ? 'eraser' : 'pencil';
+      this.setPixels(null);
+      this.$emit('input', this.getPixels());
+      // v-btn-toggle lights up whichever child's value was just clicked -
+      // without this, Clear itself would stay visually "selected" even
+      // though it isn't a real drawing tool (editor.tool is untouched).
+      this.$nextTick(() => {
+        this.toggledTool = previousTool;
+      });
     },
   },
 };

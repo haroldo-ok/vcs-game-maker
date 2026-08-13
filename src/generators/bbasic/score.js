@@ -48,6 +48,29 @@ export default (Blockly) => {
     return [code, Blockly.BBasic.ORDER_ATOMIC];
   };
 
+  // Shared by score_set and score_digit_set below - pokes a single BCD
+  // nibble into one of the score's three packed bytes without disturbing
+  // its partner nibble. batari Basic special-cases any plain assignment
+  // whose target is the score (or a dim alias of it) to parse a literal
+  // BCD digit string instead of evaluating an expression, so writing a
+  // single digit from a runtime value has to drop into inline asm instead.
+  // temp1/temp2 are only clobbered by drawscreen, which can't run in the
+  // middle of this. "end" has to sit at column 0, hence the "@" the indent
+  // normaliser strips.
+  const buildDigitPokeLines = (address, high, valueExpression) => [
+    `temp1 = ${valueExpression}`,
+    'asm',
+    'lda temp1',
+    'and #$0F',
+    ...(high ? ['asl', 'asl', 'asl', 'asl'] : []),
+    'sta temp2',
+    `lda ${address}`,
+    `and #${high ? '$0F' : '$F0'}`,
+    'ora temp2',
+    `sta ${address}`,
+    '@end',
+  ].join('\n');
+
   Blockly.BBasic[`score_set`] = function(block) {
     // Score setter.
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
@@ -219,27 +242,12 @@ export default (Blockly) => {
     // batari Basic special cases any assignment whose target is the score, and
     // a dim alias of it inherits that: it discards the expression and stores a
     // six digit BCD literal instead. So the digit's nibble is merged in
-    // assembly, leaving its partner in the same byte untouched.
-    //
-    // temp1 and temp2 are only clobbered by drawscreen, which cannot run in the
-    // middle of this. "end" has to sit at column 0, hence the "@" that the
-    // indent normaliser strips.
+    // assembly (see buildDigitPokeLines above), leaving its partner in the
+    // same byte untouched.
     const {address, high} = scoreDigitTarget(block.getFieldValue('DIGIT'));
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return [
-      `temp1 = ${argument0}`,
-      'asm',
-      'lda temp1',
-      'and #$0F',
-      ...(high ? ['asl', 'asl', 'asl', 'asl'] : []),
-      'sta temp2',
-      `lda ${address}`,
-      `and #${high ? '$0F' : '$F0'}`,
-      'ora temp2',
-      `sta ${address}`,
-      '@end',
-    ].join('\n') + '\n';
+    return buildDigitPokeLines(address, high, argument0) + '\n';
   };
 
   Blockly.BBasic[`score_bar_get`] = function(block) {

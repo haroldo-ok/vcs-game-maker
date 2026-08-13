@@ -6,6 +6,13 @@
         <v-spacer />
         <v-btn
           color="primary"
+          class="mr-2"
+          @click="handleCopyGeneratedCode"
+        >
+          {{ copyButtonLabel }}
+        </v-btn>
+        <v-btn
+          color="primary"
           @click="handleSaveGeneratedCode"
         >
           Save Generated Code
@@ -21,7 +28,7 @@
   </div>
 </template>
 <script>
-import {defineComponent, computed} from '@vue/composition-api';
+import {defineComponent, computed, ref} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import {component as VueCodeHighlight} from 'vue-code-highlight';
 import 'vue-code-highlight/themes/duotone-sea.css';
@@ -41,12 +48,26 @@ export default defineComponent({
       const lineCount = ((generatedBasic.value || '').match(/\n/g) || []).length + 1;
       return Array.from({length: lineCount}, (_, i) => i + 1).join('\n');
     });
-    return {generatedBasic, lineNumbersText};
+    // Reverts on its own after a couple seconds - see handleCopyGeneratedCode.
+    const copyButtonLabel = ref('Copy Generated Code');
+    return {generatedBasic, lineNumbersText, copyButtonLabel};
   },
   methods: {
     handleSaveGeneratedCode() {
       const textBlob = new Blob([this.generatedBasic], {type: 'text/plain'});
       saveAs(textBlob, `generated-bBasic-${getDateInfix()}.bas`);
+    },
+    async handleCopyGeneratedCode() {
+      try {
+        await navigator.clipboard.writeText(this.generatedBasic);
+        this.copyButtonLabel = 'Copied!';
+      } catch (e) {
+        console.error('Error copying generated code to clipboard', e);
+        this.copyButtonLabel = 'Copy failed';
+      }
+      setTimeout(() => {
+        this.copyButtonLabel = 'Copy Generated Code';
+      }, 2000);
     },
   },
 });

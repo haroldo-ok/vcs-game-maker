@@ -269,6 +269,26 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Draws an horizontal/vertical line.`,
   },
+  // Block for reading the playfield's vertical resolution (row count)
+  {
+    'type': `background_get_resolution`,
+    'message0': `${BACKGROUND_ICON} Background: playfield height (rows)`,
+    'args0': [],
+    'output': 'Number',
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `The playfield's vertical resolution in rows - the Superchip RAM pfres setting ` +
+      `if that's turned on (Options tab), otherwise the standard 11-row default.`,
+  },
+  // Block for clearing every playfield pixel at once
+  {
+    'type': `background_clear`,
+    'message0': `${BACKGROUND_ICON} Background: clear all pixels`,
+    'args0': [],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Turns off every playfield pixel, the same as batari Basic's own "pfclear".`,
+  },
   // Block for scrolling the background
   {
     'type': `background_scroll`,

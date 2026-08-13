@@ -116,6 +116,41 @@ Blockly.defineBlocksWithJsonArray([
   buildDistanceBlock('y', VERTICAL_ICON),
 ]);
 
+// Same idea as buildDistanceBlock above, but against an arbitrary point
+// instead of a second dropdown-picked object - the second operand is a
+// plain "Number" input, so it can be typed in directly or fed from a
+// variable/math block. Unlike the two-object version, this can't be
+// deduped by (axis, object pair) content (see bbasic.js's own pre-scan
+// comment on distancePointChecks for why), so each block gets its own
+// hidden per-frame variable instead.
+const buildDistanceToPointBlock = (axis, icon) => ({
+  'type': `distance_${axis}_to_point_get`,
+  'message0': `${icon} Distance ${axis.toUpperCase()} between %1 and %2`,
+  'args0': [
+    {
+      'type': 'field_dropdown',
+      'name': 'VAR0',
+      'options': DISTANCE_OBJECT_OPTIONS,
+    },
+    {
+      'type': 'input_value',
+      'name': 'POINT',
+      'check': 'Number',
+    },
+  ],
+  'inputsInline': true,
+  'output': 'Number',
+  'colour': 'purple',
+  'tooltip': `The ${axis.toUpperCase()}-axis distance between the chosen object and an arbitrary ${axis.toUpperCase()} ` +
+    'position (typed in directly, or from a variable/math block) - always a positive number regardless of ' +
+    `which is further ${axis === 'x' ? 'left' : 'up'}. Recomputed automatically once per frame.`,
+});
+
+Blockly.defineBlocksWithJsonArray([
+  buildDistanceToPointBlock('x', HORIZONTAL_ICON),
+  buildDistanceToPointBlock('y', VERTICAL_ICON),
+]);
+
 Blockly.defineBlocksWithJsonArray([
   // Block for console switch getter.
   {

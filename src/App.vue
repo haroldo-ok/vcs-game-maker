@@ -354,15 +354,17 @@
         title="Drag to resize the error pane"
         @mousedown.prevent="startResizeError"
       ></div>
-      <div class="error-console-content">
-        <div
-          v-for="(entry, index) in compileLog"
-          :key="index"
-          class="compile-log-line"
-          :class="entry.level === 'error' ? 'compile-log-error' : 'compile-log-info'"
-          :style="{fontWeight: entry.level === 'stage' ? 'bold' : 'normal'}"
-        >{{ entry.text }}</div>
-        <pre v-if="errorStorage" v-text="errorStorage"></pre>
+      <div class="error-scroll-wrapper">
+        <div class="error-console-content">
+          <div
+            v-for="(entry, index) in compileLog"
+            :key="index"
+            class="compile-log-line"
+            :class="entry.level === 'error' ? 'compile-log-error' : 'compile-log-info'"
+            :style="{fontWeight: entry.level === 'stage' ? 'bold' : 'normal'}"
+          >{{ entry.text }}</div>
+          <pre v-if="errorStorage" v-text="errorStorage"></pre>
+        </div>
       </div>
     </v-footer>
   </v-app>
@@ -1238,17 +1240,41 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .error-message {
   position: relative;
   z-index: 10;
-  overflow-y: scroll;
-  /* Vuetify's own v-footer default is align-items: center, which vertically
-     centers .error-console-content as a whole inside the footer instead of
-     pinning it to the top - barely noticeable with only a line or two of
-     text, but left the growing live compile log visibly floating in the
-     middle of the pane once there was enough of it to matter. */
-  align-items: flex-start;
 }
 
 .theme--light.v-footer.error-message {
   color: rgb(244, 67, 54);
+}
+
+/* The actual scroll container - moved here from .error-message itself
+   (which used to have overflow-y: scroll directly) so .error-resize-handle
+   (a sibling of this, not a descendant) never scrolls along with the log
+   content: .error-resize-handle's own position: absolute is anchored to
+   .error-message, which is also where a scrollbar's scroll OFFSET used to
+   be tracked - a still-scrolling ancestor drags an absolutely-positioned
+   child's rendered position along with it exactly like any other content,
+   confirmed directly as why the handle became unreachable (scrolled out
+   of view along with the log text) once there was enough log content to
+   scroll at all.
+   Absolutely positioned (inset: 0 within .error-message's own
+   position: relative, its own top-8px left free for the resize handle's
+   own strip) rather than sized through flexbox (a v-footer's row-direction
+   flex layout makes height the CROSS axis, which turned out to still let
+   this grow to fit its own content instead of actually clipping to the
+   footer's own fixed height even with align-self: stretch + flex +
+   min-height: 0 all set - confirmed directly: scrollHeight kept exactly
+   matching clientHeight, i.e. never actually overflowing/scrolling
+   internally at all, which spilled the overflow out into the page's own
+   document flow instead, making the WHOLE PAGE scroll to reveal it - this
+   sidesteps that flexbox cross-axis sizing question entirely with a hard,
+   unambiguous 0/0/0/0 inset instead of a size that has to be derived. */
+.error-scroll-wrapper {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: scroll;
 }
 
 /* v-footer's own default is a row-direction flex container (fine for a

@@ -96,6 +96,7 @@
                       fgColor="orange"
                       :rowColors="editorRowColors(background)"
                       :allowChangingHeight="false"
+                      :showClearButton="true"
                       @input="handleChildChange"
                     >
                       <template v-if="pfColorsEnabled" v-slot:sidebar>

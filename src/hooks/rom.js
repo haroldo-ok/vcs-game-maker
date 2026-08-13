@@ -28,6 +28,52 @@ export {markRomOutdated, useRomOutdated, useRomCapacity};
 
 const EMPTY_WORKSPACE = '<xml xmlns="https://developers.google.com/blockly/xml"/>';
 
+// The generated ROM always declares "set tv ntsc" (see bbasic.bb.hbs) - but
+// that's a compile-time directive baked into the KERNEL's own timing code,
+// not something Javatari can read back out of the compiled binary. Left
+// alone, Javatari instead auto-detects the video standard at runtime by
+// watching the ROM's own early frame timing for ~90 frames after load - a
+// heuristic that's genuinely timing-sensitive and can fail intermittently
+// even for a correct, working ROM (confirmed directly: an identical ROM,
+// rebuilt with no code changes, sometimes passed and sometimes got
+// Javatari's own "AUTO: FAILED" on-screen message with a rolling/garbled
+// picture, purely depending on real-world timing jitter around load - not
+// a bug in the generated code).
+//
+// A first attempt simulated Javatari's own video-standard hotkey
+// (jt.ConsoleControls.VIDEO_STANDARD via consoleControls.processControlState)
+// once per page load, since there's no direct "set and stop auto-detecting"
+// call exposed - only that control, which CYCLES (Auto -> NTSC -> PAL ->
+// Auto). That didn't reliably stick (confirmed directly: still reproduced
+// "AUTO: FAILED" after a hard refresh) - the auto-detector's own ~90-frame
+// window can still run concurrently and overwrite whatever the hotkey just
+// set once it finishes, win or lose.
+//
+// This instead directly calls the video output's own setVideoStandard - a
+// plain, idempotent setter (unlike the hotkey, calling it again is always
+// safe, never cycles to PAL) - both immediately after load AND again after
+// a delay comfortably past that ~90-frame/~1.5s detection window, so
+// whatever the auto-detector concludes (or fails to conclude) in between
+// gets overridden by our own final, correct answer. The "AUTO: FAILED"
+// on-screen message may still flash briefly if detection loses, but the
+// actual picture recovers to correct NTSC rendering right after, instead
+// of staying stuck rolling/garbled.
+const forceJavatariNtsc = () => {
+  const videoOutput = window.Javatari && window.Javatari.room &&
+    window.Javatari.room.console && window.Javatari.room.console.getVideoOutput();
+  const jt = window.jt;
+  if (!videoOutput || !jt) {
+    // Javatari's own room can still be mid-initialization the very first
+    // time a build finishes right after a fresh page load (its startup is
+    // async, independent of our own compile pipeline) - retry shortly
+    // instead of giving up on this attempt entirely.
+    setTimeout(forceJavatariNtsc, 250);
+    return;
+  }
+  videoOutput.setVideoStandard(jt.VideoStandard.NTSC);
+  setTimeout(() => videoOutput.setVideoStandard(jt.VideoStandard.NTSC), 2000);
+};
+
 // Loads the stored workspace headlessly (so this works from any tab, not
 // just the editor) and runs it through the given callback, disposing it
 // afterwards either way.
@@ -463,6 +509,7 @@ export const buildRom = async () => {
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
+      forceJavatariNtsc();
 
       // TODO: Implement this without a global variable
       Javatari.compiledResult = compiledResult;

@@ -123,10 +123,10 @@
                     class="tempo-field"
                     label="Tempo (BPM)"
                     type="number"
-                    min="20"
-                    max="300"
+                    :min="minTempo"
+                    :max="maxTempo"
                     v-model.number="song.tempo"
-                    @change="handleChildChange"
+                    @change="() => handleTempoChange(song)"
                   />
                 </v-card-text>
 
@@ -298,11 +298,11 @@
                         class="tempo-field"
                         label="Tempo (BPM)"
                         type="number"
-                        min="20"
-                        max="300"
+                        :min="minTempo"
+                        :max="maxTempo"
                         :disabled="!activePattern(song).useOwnTempo"
                         v-model.number="activePattern(song).tempo"
-                        @change="handleChildChange"
+                        @change="() => handleTempoChange(activePattern(song))"
                       />
                     </v-card-text>
 
@@ -618,8 +618,9 @@ import {useDragReorder} from '../hooks/drag-reorder';
 import {useMusicEditorActiveState} from '../hooks/music-editor-state';
 import {useSongsStorage, useSoundEffectsStorage} from '../hooks/project';
 import {
-  DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
-  LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, PATTERN_STEP_OPTIONS, processSongsStorageDefaults,
+  clampTempo, DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
+  LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_TEMPO, PATTERN_STEP_OPTIONS,
+  processSongsStorageDefaults,
 } from '../blocks/music';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {CHANNEL_OPTIONS} from '../blocks/sound';
@@ -768,6 +769,22 @@ export default defineComponent({
 
     const handleChildChange = () => {
       state.value = state.value;
+    };
+
+    // The Tempo (BPM) field's own min/max HTML attributes alone don't
+    // actually stop a value typed outside that range from being applied
+    // (they only affect the spin-button arrows and the input's own
+    // :invalid styling, not v-model) - this is what actually enforces it,
+    // called from both the song- and pattern-level Tempo fields' own
+    // @change. Re-uses the exact same clampTempo also applied on load (see
+    // processSongsStorageDefaults in blocks/music.js), so a value can't
+    // reach storage out of range either way (typed directly, or loaded
+    // from an older save/an imported file - see handleImportSong/
+    // handleImportPattern).
+    const handleTempoChange = (target) => {
+      target.tempo = clampTempo(target.tempo);
+      handleChildChange();
+      forceUpdate();
     };
 
     const handleToggleLoopPattern = (pattern) => {
@@ -2142,6 +2159,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleChangeSubdivision,
+      handleTempoChange, minTempo: MIN_TEMPO, maxTempo: MAX_TEMPO,
       handleAddSong, handleDeleteSong, handleExportSong, handleImportSong,
       handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange,
       handlePatternFieldChange,

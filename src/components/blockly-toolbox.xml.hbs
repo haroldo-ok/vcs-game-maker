@@ -179,6 +179,20 @@
 
         <block type="distance_x_get"></block>
         <block type="distance_y_get"></block>
+        <block type="distance_x_to_point_get">
+            <value name="POINT">
+                <shadow type="math_number">
+                <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="distance_y_to_point_get">
+            <value name="POINT">
+                <shadow type="math_number">
+                <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="random_get"></block>
         <block type="random_range_get"></block>
@@ -284,6 +298,8 @@
         </block>        
         <block type="background_scroll">
         </block>
+        <block type="background_clear"></block>
+        <block type="background_get_resolution"></block>
         <block type="draw_screen"></block>
     </category>
     <category name="Score" colour="#f2691e">

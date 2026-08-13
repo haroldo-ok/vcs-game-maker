@@ -109,19 +109,21 @@
                         v-model="frame.pixels"
                         :fgColor="fgColor"
                         :name="name"
+                        :showClearButton="true"
                         @input="handleChildChange"
                       >
                         <template v-slot:badge>
                           <div class="frame-number-badge">FRAME: {{ frameIndex + 1 }}</div>
-                        </template>
-                        <template v-if="animation.frames.length > 1" v-slot:toolbar-end>
-                          <v-menu top>
+                          <v-menu v-if="animation.frames.length > 1" top>
                             <template v-slot:activator="{ on, attrs }">
                               <v-btn
                                 title="Delete this frame"
                                 icon
                                 small
-                                class="delete-icon-btn"
+                                absolute
+                                top
+                                right
+                                class="delete-btn-inset delete-icon-btn player-icon-btn-size"
                                 v-bind="attrs"
                                 v-on="on"
                               >

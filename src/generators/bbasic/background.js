@@ -1,6 +1,23 @@
 'use strict';
 
+import {useConfigurationStorage} from '../../hooks/project';
+import {effectiveBackgroundRows} from '../../blocks/background';
+
 export default (Blockly) => {
+  // A compile-time constant, not runtime state - the playfield's vertical
+  // resolution is a single fixed ROM-wide setting (see effectiveBackgroundRows'
+  // own comment in blocks/background.js: pfres itself when Superchip RAM is
+  // on, else the standard kernel's fixed 11-row default), so this can just
+  // splice in the literal number directly rather than needing a hidden
+  // per-frame variable the way the Distance blocks do.
+  Blockly.BBasic[`background_get_resolution`] = function(block) {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const rows = effectiveBackgroundRows(config);
+    return [`${rows}`, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
+
   Blockly.BBasic[`background_select`] = function(block) {
     const code = block.getFieldValue('VAR') || 0;
     return [code, Blockly.BBasic.ORDER_ATOMIC];
@@ -71,6 +88,11 @@ export default (Blockly) => {
 
     return `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? argumentX : argumentY} - 1\n` +
       `${direction} ${argumentX} ${argumentY} temp1 ${operation}\n`;
+  };
+
+  Blockly.BBasic[`background_clear`] = function(block) {
+    // Block for clearing every playfield pixel
+    return `pfclear\n`;
   };
 
   Blockly.BBasic[`background_scroll`] = function(block) {

@@ -22,7 +22,7 @@ import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/d
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
-import {canonicalDistanceVarName} from '../utils/distance';
+import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
@@ -286,6 +286,28 @@ Blockly.BBasic.init = function(workspace) {
     this.distanceChecks.set(canonicalDistanceVarName(axis, obj0, obj1), {axis, obj0, obj1});
   });
 
+  // Same idea as distanceChecks above, for "Distance to point" blocks (see
+  // blocks/input.js's distance_x_to_point_get/distance_y_to_point_get) -
+  // the second operand there is an arbitrary value input (typed literal,
+  // variable, math block, even "Random"), not one of the dropdown-picked
+  // objects distanceChecks dedupes by content, so it can't be canonicalized
+  // the same way: two blocks that look identical could still read a
+  // variable that changes independently, or re-roll a fresh random number,
+  // so collapsing them into one shared computation would be wrong. Each
+  // block instance gets its own hidden variable instead, numbered in
+  // workspace order (keyed by block.id here only for this pre-scan's own
+  // bookkeeping - the block reference itself is kept so
+  // generateDistancePointChecks can generate its POINT input's code later,
+  // once nameDB_ is fully set up, rather than here).
+  this.distancePointChecks = new Map();
+  let distancePointIndex = 0;
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type !== 'distance_x_to_point_get' && block.type !== 'distance_y_to_point_get') return;
+    const axis = block.type === 'distance_x_to_point_get' ? 'x' : 'y';
+    distancePointIndex++;
+    this.distancePointChecks.set(block.id, {axis, obj0: block.getFieldValue('VAR0'), index: distancePointIndex, block});
+  });
+
   // Which players use the hardware-collision backtrack check block (see
   // blocks/collision.js) - each one needs its own pair of hidden bytes to
   // hold the position from before its last move, so this is decided before
@@ -393,6 +415,13 @@ Blockly.BBasic.init = function(workspace) {
   // later, are guaranteed to agree on whatever nameDB_ actually assigns.
   for (const varName of this.distanceChecks.keys()) {
     defvars.push(this.nameDB_.getName(varName, Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+  }
+
+  // Same bucket again, for "Distance to point" blocks' own per-instance
+  // hidden bytes (see the distancePointChecks pre-scan above and
+  // generators/bbasic/input.js's generateDistancePointChecks).
+  for (const {axis, index} of this.distancePointChecks.values()) {
+    defvars.push(this.nameDB_.getName(distancePointVarName(axis, index), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
   }
 
   // Same bucket again, for the collision-check backtrack bytes (see the
@@ -878,6 +907,23 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
   const subroutineEntries = Object.entries(Blockly.BBasic.subroutines)
       .filter(([name]) => Blockly.BBasic.getSubroutineBank(name) !== 1);
 
+  // Every bank the chosen ROM size promises has to get its own "bank N ...
+  // bank 1" section, even one with nothing relocated into it - the
+  // assembler only pads a bank's segment out to its full declared size once
+  // it sees that bank actually opened, so a bank left out here entirely
+  // (as every non-1 bank was, for a project small enough that nothing ever
+  // needed relocating) comes out short in the assembled binary versus what
+  // "set romsize" told the cartridge format to expect. Confirmed directly:
+  // a blank Superchip project (nothing to relocate, so every bank past 1
+  // used to just vanish from the source) assembled "successfully" into a
+  // truncated file Javatari couldn't make sense of - it never reported a
+  // compile error, since nothing here checks the assembled size against the
+  // declared ROM size either.
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const maxBanks = BANK_COUNT_BY_ROMSIZE_MINI[config.romSize] || 0;
+  const everyDeclaredBank = maxBanks ? [...Array(maxBanks - 1).keys()].map((i) => i + 2) : [];
+
   // Numerically sorted, not left in whatever order events/graphics/music/
   // subroutines happen to appear in (a plain Set preserves insertion order,
   // not numeric order) - 2600basic's own preprocessor tracks each bank's
@@ -894,6 +940,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     ...graphicsEntries.map(([, unit]) => unit.bank),
     ...musicEntries.map(([, unit]) => unit.bank),
     ...subroutineEntries.map(([name]) => Blockly.BBasic.getSubroutineBank(name)),
+    ...everyDeclaredBank,
   ])].filter((bank) => bank !== 1).sort((a, b) => a - b);
 
   return banks.map((bank) => {
@@ -982,6 +1029,12 @@ Blockly.BBasic.finish = function(code) {
   const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedDistanceChecks = Blockly.BBasic.generateDistanceChecks();
+  // Has to run before generateDivMul() below: its own POINT input can be
+  // any value block, including one that sets usesDivMul as a side effect
+  // (e.g. a math_arithmetic divide) - generateDivMul() only sees whatever
+  // usesDivMul is by the time IT runs, same ordering reasoning as
+  // generatedSoundFadeChecks above.
+  const generatedDistancePointChecks = Blockly.BBasic.generateDistancePointChecks();
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
   const generatedRunOnceEdgeReset = Blockly.BBasic.generateRunOnceEdgeResetCall();
@@ -996,7 +1049,8 @@ Blockly.BBasic.finish = function(code) {
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
-    generatedMusicChecks, generatedDistanceChecks, generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
+    generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks, generatedScoreBkColorAsm,
+    generatedRunOnceEdgeReset});
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the
@@ -1348,6 +1402,13 @@ Blockly.BBasic.generateMuteAudio = function() {
 // rather than imported, since rom.js already imports from this file and
 // importing back would be circular).
 const BANKSWITCHED_ROM_SIZES = ['8k', '16k', '32k'];
+
+// Same duplication reasoning as BANKSWITCHED_ROM_SIZES above, with the
+// actual bank counts this time (see BANK_COUNT_BY_ROMSIZE in hooks/rom.js) -
+// generateRelocatedSections needs these to always declare every bank the
+// chosen ROM size promises, not just the ones something actually got
+// relocated into (see its own comment for why).
+const BANK_COUNT_BY_ROMSIZE_MINI = {'8k': 2, '16k': 4, '32k': 8};
 
 // Whether to inline calls to the random number generator ("set optimization
 // inlinerand") instead of calling a shared routine. The docs describe this

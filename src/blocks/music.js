@@ -52,6 +52,16 @@ const emptyTrack = (id, soundEffectId, channel = 0) => ({
 // default tempo.
 export const DEFAULT_TEMPO = 140;
 
+// Applies to every Tempo (BPM) field, song- and pattern-level alike (see
+// MusicEditor.vue's own clampTempo, and the load-time clamp below for
+// values from an older save/an imported file that predates this range).
+export const MIN_TEMPO = 8;
+export const MAX_TEMPO = 255;
+export const clampTempo = (value) => {
+  const tempo = Math.round(Number(value));
+  return Number.isFinite(tempo) ? Math.min(MAX_TEMPO, Math.max(MIN_TEMPO, tempo)) : DEFAULT_TEMPO;
+};
+
 export const DEFAULT_SONGS = {
   songs: [
     {
@@ -129,9 +139,10 @@ export const processSongsStorageDefaults = (songsStorage) => {
   // Songs/patterns/tracks saved before the Tempo/Channel/step-count/
   // note-length fields existed won't have them yet.
   songs.songs.forEach((song) => {
-    if (song.tempo == null) {
-      song.tempo = DEFAULT_TEMPO;
-    }
+    // Also re-clamps an already-set tempo, not just a missing one - an
+    // older save (or an imported file - see MusicEditor.vue's own
+    // handleImportSong) can carry a value from before this range existed.
+    song.tempo = clampTempo(song.tempo ?? DEFAULT_TEMPO);
     // A song saved before this field existed had no way to loop its own
     // preview playback at all, so it always behaved like "off" - default it
     // to staying that way (see the field's own comment in DEFAULT_SONGS).
@@ -139,9 +150,7 @@ export const processSongsStorageDefaults = (songsStorage) => {
       song.loop = false;
     }
     (song.patterns || []).forEach((pattern) => {
-      if (pattern.tempo == null) {
-        pattern.tempo = DEFAULT_TEMPO;
-      }
+      pattern.tempo = clampTempo(pattern.tempo ?? DEFAULT_TEMPO);
       // A pattern saved before this song-level Tempo field existed was
       // definitely relying on its own tempo, not a song-level one that
       // didn't exist yet - default it to staying that way, rather than
