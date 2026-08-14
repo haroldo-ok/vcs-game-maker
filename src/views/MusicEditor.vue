@@ -5,6 +5,31 @@
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
         This feature is in early alpha. Features may change or break. In fact, it's guaranteed. You've been warned!
       </v-alert>
+      <v-card-text class="dim-section">
+        <div class="dim-controls">
+          <v-switch
+            v-model="dimSoundFx"
+            label="DIM"
+            hide-details
+            class="dim-switch"
+          />
+          <v-slider
+            v-model="dimSoundFxPercent"
+            :disabled="!dimSoundFx"
+            min="0"
+            max="100"
+            step="1"
+            hide-details
+            class="dim-slider"
+          />
+          <span class="dim-percent">{{ dimSoundFxPercent }}%</span>
+        </div>
+        <p class="dim-hint">
+          When DIM is on, every note plays at the volume above, as a percentage of its own set volume - same
+          setting as the Sound tab's own DIM (changing it here changes it there too). Off: notes play at their
+          own set volume.
+        </p>
+      </v-card-text>
       <v-card-text>
         <v-list class="song-list">
           <v-list-item
@@ -325,6 +350,7 @@
                         </div>
                       </div>
                       <template v-if="!isInstrumentsCollapsed(song, activePattern(song))">
+                      <div class="track-grid">
                       <div
                         v-for="track in activePattern(song).tracks"
                         v-bind:key="track.id"
@@ -417,6 +443,7 @@
                             </v-btn>
                           </div>
                         </div>
+                      </div>
                       </div>
 
                       <v-btn text small class="add-track-button" @click="() => handleAddTrack(activePattern(song))">
@@ -616,13 +643,14 @@ import {max} from 'lodash';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {useMusicEditorActiveState} from '../hooks/music-editor-state';
-import {useSongsStorage, useSoundEffectsStorage} from '../hooks/project';
+import {useConfigurationStorage, useSongsStorage, useSoundEffectsStorage} from '../hooks/project';
 import {
   clampTempo, DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
   LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_TEMPO, PATTERN_STEP_OPTIONS,
   processSongsStorageDefaults,
 } from '../blocks/music';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
+import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {CHANNEL_OPTIONS} from '../blocks/sound';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
@@ -682,6 +710,37 @@ export default defineComponent({
   setup() {
     const songsStorage = useSongsStorage();
     const soundEffectsStorage = useSoundEffectsStorage();
+    // Same shared configurationStorage keys as SoundFXEditor.vue's own
+    // identical dimSoundFx/dimSoundFxPercent computed pair - deliberately
+    // not scoped to this tab, so toggling/adjusting either one here or on
+    // the Sound tab updates the exact same underlying value both read from,
+    // no separate sync logic needed. Music's own note volumes already read
+    // these same two config keys (see generators/bbasic/music.js's own
+    // buildMusicPlayResetBody/flattenPatternEvents), so this UI is the only
+    // piece that was actually missing.
+    const configurationStorage = useConfigurationStorage();
+    const dimSoundFx = computed({
+      get() {
+        return !!(configurationStorage.value || {}).dimSoundFx;
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          dimSoundFx: value,
+        };
+      },
+    });
+    const dimSoundFxPercent = computed({
+      get() {
+        return (configurationStorage.value || {}).dimSoundFxPercent ?? DEFAULT_DIM_PERCENT;
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          dimSoundFxPercent: value,
+        };
+      },
+    });
     const pianoRollZoomStored = ref(clampPianoRollZoom(parseFloat(localStorage.getItem(PIANO_ROLL_ZOOM_KEY))));
     const pianoRollZoom = computed({
       get: () => pianoRollZoomStored.value,
@@ -2158,6 +2217,7 @@ export default defineComponent({
     });
 
     return {
+      dimSoundFx, dimSoundFxPercent,
       state, handleChildChange, handleChangeSubdivision,
       handleTempoChange, minTempo: MIN_TEMPO, maxTempo: MAX_TEMPO,
       handleAddSong, handleDeleteSong, handleExportSong, handleImportSong,
@@ -2217,6 +2277,43 @@ export default defineComponent({
   top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* Same control layout/spacing as SoundFXEditor.vue's own identical
+   .dim-controls/.dim-switch/.dim-slider/.dim-percent/.dim-hint rules -
+   this tab and that one share the same underlying config values (see
+   this component's own dimSoundFx/dimSoundFxPercent), so the two controls
+   are kept visually identical too. */
+.dim-section {
+  padding-bottom: 0;
+}
+
+.dim-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.dim-switch {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+}
+
+.dim-slider {
+  flex: 0 1 200px;
+  margin-right: -12px;
+  margin-top: 3px;
+}
+
+.dim-percent {
+  flex: 0 0 auto;
+  min-width: 2.5em;
+}
+
+.dim-hint {
+  margin-top: 8px;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 0.75rem;
 }
 
 /* Vuetify's default v-list-item padding is 0 16px - zeroing only the left
@@ -2686,14 +2783,28 @@ export default defineComponent({
   padding-top: 0;
 }
 
+/* One column per instrument up to minmax's own floor (440px - roughly what
+   one .track-instrument-row needs to lay out its radio/swatch/selects/icon
+   group without squeezing), auto-filling however many fit the current
+   width and wrapping the rest onto new rows - no JS-measured column count
+   needed, and grid's own gap (not each item's individual margin) keeps
+   items from ever butting up against each other in either direction,
+   including the last item in a row that doesn't reach a following column. */
+.track-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+  gap: 12px 16px;
+}
+
 /* Enough vertical padding (no divider line) that dense v-selects' floating
    labels - which sit slightly above their own box - can't read as
-   overlapping the row above/below. */
+   overlapping the row above/below - handled by .track-grid's own row gap
+   now that instruments can sit side by side, not just this row's own
+   top/bottom padding (which would otherwise double up with that gap). */
 .track-row {
   display: flex;
   flex-direction: column;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  min-width: 0;
 }
 
 .add-track-button {

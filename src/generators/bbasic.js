@@ -907,22 +907,54 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
   const subroutineEntries = Object.entries(Blockly.BBasic.subroutines)
       .filter(([name]) => Blockly.BBasic.getSubroutineBank(name) !== 1);
 
-  // Every bank the chosen ROM size promises has to get its own "bank N ...
-  // bank 1" section, even one with nothing relocated into it - the
-  // assembler only pads a bank's segment out to its full declared size once
-  // it sees that bank actually opened, so a bank left out here entirely
-  // (as every non-1 bank was, for a project small enough that nothing ever
-  // needed relocating) comes out short in the assembled binary versus what
-  // "set romsize" told the cartridge format to expect. Confirmed directly:
-  // a blank Superchip project (nothing to relocate, so every bank past 1
-  // used to just vanish from the source) assembled "successfully" into a
-  // truncated file Javatari couldn't make sense of - it never reported a
-  // compile error, since nothing here checks the assembled size against the
-  // declared ROM size either.
+  // The single HIGHEST bank the chosen ROM size promises always needs its
+  // own "bank N ... bank 1" section, even with nothing relocated into it -
+  // the assembler only pads a bank's segment out to its full declared size
+  // once it sees that bank actually opened, so a bank left out here
+  // entirely (as every non-1 bank was, for a project small enough that
+  // nothing ever needed relocating) comes out short in the assembled
+  // binary versus what "set romsize" told the cartridge format to expect.
+  // Confirmed directly: a blank Superchip project (nothing to relocate, so
+  // every bank past 1 used to just vanish from the source) assembled
+  // "successfully" into a truncated file Javatari couldn't make sense of -
+  // it never reported a compile error, since nothing here checks the
+  // assembled size against the declared ROM size either.
+  //
+  // Only the highest bank needs forcing, not every unused one in between -
+  // DASM pads a forward ORG jump automatically, so a genuinely empty
+  // MIDDLE bank (nothing relocated there) still comes out the right total
+  // size as long as some LATER bank's own ORG gets opened; only the very
+  // last bank has nothing after it to force that padding. Originally this
+  // forced every bank 2..maxBanks unconditionally, which is what a blank
+  // project needs (bank maxBanks is the only one that matters there
+  // either, since nothing else ever gets opened) - but for a large,
+  // heavily-relocated project, forcing empty stub sections for banks nothing
+  // was ever assigned to needlessly adds more "bank N ... bank 1"
+  // transitions than the project actually needs, each one a spot the
+  // vendored compiler's own bank-splitting bookkeeping has to track -
+  // confirmed directly as a real problem: a large project with several
+  // genuinely-unused middle banks hit that bookkeeping's own limit
+  // (surfaced as a corrupted "(null)"-filled assembly listing) purely from
+  // these extra unconditional stubs, despite comfortably fitting otherwise.
+  // The Text Minikernel (see generateTextMinikernel in
+  // generators/bbasic/text-minikernel.js) reserves and declares that exact
+  // same top bank itself, unconditionally, to hold the kernel's own code -
+  // KERNEL_BANK_BY_ROMSIZE there is the same table as
+  // BANK_COUNT_BY_ROMSIZE_MINI here, so it's always the identical bank
+  // number. Forcing it again here too would declare it a second time,
+  // non-contiguously - exactly the "same bank declared twice" corruption
+  // both this function's own comment above and generateTextMinikernel's
+  // own comment already document, just newly reachable because this
+  // padding stub didn't exist yet when those were written. Confirmed
+  // directly against a real project: a bankswitched ROM with the Text
+  // Minikernel active hit the "(null)"-filled corrupted assembly listing
+  // purely from this double declaration, even though every relocatable
+  // unit fit comfortably otherwise.
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
   const maxBanks = BANK_COUNT_BY_ROMSIZE_MINI[config.romSize] || 0;
-  const everyDeclaredBank = maxBanks ? [...Array(maxBanks - 1).keys()].map((i) => i + 2) : [];
+  const everyDeclaredBank =
+    maxBanks > 1 && !Blockly.BBasic.isTextMinikernelActive() ? [maxBanks] : [];
 
   // Numerically sorted, not left in whatever order events/graphics/music/
   // subroutines happen to appear in (a plain Set preserves insertion order,

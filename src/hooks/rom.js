@@ -291,11 +291,28 @@ const computeBankContents = (maxBanks) => {
 // unit keys and subroutine names are only known after that call too, since
 // they're generated from the project's own content rather than fixed like
 // the event names.
-const pickRelocationCandidate = (banks) => {
+const pickRelocationCandidate = (banks, hasReservedMusicBank) => {
   const eventBanks = banks.eventBanks || {};
   const graphicsBanks = banks.graphicsBanks || {};
   const musicBanks = banks.musicBanks || {};
   const subroutineBanks = banks.subroutineBanks || {};
+  const musicCandidates = BlocklyBB.getMusicUnitKeys()
+      .filter((name) => (musicBanks[name] || 1) === 1)
+      .map((name) => ({kind: 'musicBanks', name, size: BlocklyBB.estimateMusicUnitSize(name)}));
+  // Music still sitting in bank 1 jumps the queue whenever it has its own
+  // reserved bank waiting (see musicReservedBank) - moving it there is a
+  // pure win with no downside, unlike graphics/events/subroutines, which
+  // compete for space in whichever shared-pool bank they land in. Sorting
+  // it in with everything else and picking by size alone only got to it
+  // once music happened to be the single largest still-in-bank-1 unit -
+  // confirmed directly as a real bug on a project with several sizeable
+  // graphics units and one small music engine: bank 1 kept overflowing
+  // (evicting graphics into an already-tight shared pool, sized as if only
+  // 6 banks existed) while music's own reserved 7th bank sat completely
+  // empty for all 64 relocation attempts, since nothing ever picked it.
+  if (hasReservedMusicBank && musicCandidates.length) {
+    return musicCandidates.sort((a, b) => b.size - a.size)[0];
+  }
   const candidates = [
     ...RELOCATABLE_EVENT_NAMES
         .filter((name) => (eventBanks[name] || 1) === 1)
@@ -303,9 +320,7 @@ const pickRelocationCandidate = (banks) => {
     ...BlocklyBB.getGraphicsUnitKeys()
         .filter((name) => (graphicsBanks[name] || 1) === 1)
         .map((name) => ({kind: 'graphicsBanks', name, size: BlocklyBB.estimateGraphicsUnitSize(name)})),
-    ...BlocklyBB.getMusicUnitKeys()
-        .filter((name) => (musicBanks[name] || 1) === 1)
-        .map((name) => ({kind: 'musicBanks', name, size: BlocklyBB.estimateMusicUnitSize(name)})),
+    ...musicCandidates,
     ...BlocklyBB.getSubroutineNames()
         .filter((name) => (subroutineBanks[name] || 1) === 1)
         .map((name) => ({kind: 'subroutineBanks', name, size: BlocklyBB.estimateSubroutineSize(name)})),
@@ -528,7 +543,7 @@ export const buildRom = async () => {
         const textMinikernelActive = BlocklyBB.isTextMinikernelActive();
         const reservedMusicBank = musicReservedBank(maxBanks, textMinikernelActive);
         const banks = getRelocationBanks();
-        let candidate = pickRelocationCandidate(banks);
+        let candidate = pickRelocationCandidate(banks, !!reservedMusicBank);
         let bank = candidate && (
           candidate.kind === 'musicBanks' && reservedMusicBank ?
             reservedMusicBank :
