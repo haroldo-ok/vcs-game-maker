@@ -189,7 +189,7 @@
                         :color="patternSequenceColor(patternId)"
                         :class="{'sequence-chip-playing': isSequenceStepPlaying(song, index)}"
                         title="Click to edit this pattern"
-                        @click="() => setActivePattern(song, patternId)"
+                        @click="() => handleSequenceChipClick(song, index, patternId)"
                         @click:close="() => handleRemoveSequenceStep(song, index)"
                       >
                         {{ patternName(song, patternId) }}
@@ -336,20 +336,20 @@
                         <v-btn
                           icon
                           x-small
-                          :title="isInstrumentsCollapsed(song, activePattern(song)) ?
+                          :title="isInstrumentsCollapsed(song) ?
                             'Show this pattern\'s instruments' : 'Hide this pattern\'s instruments'"
                           class="instruments-collapse-btn"
-                          @click="() => toggleInstrumentsCollapsed(song, activePattern(song))"
+                          @click="() => toggleInstrumentsCollapsed(song)"
                         >
                           <v-icon small>
-                            {{ isInstrumentsCollapsed(song, activePattern(song)) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}
+                            {{ isInstrumentsCollapsed(song) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}
                           </v-icon>
                         </v-btn>
                         <div class="music-section-label">
                           Instruments (click one to choose which its notes go to below)
                         </div>
                       </div>
-                      <template v-if="!isInstrumentsCollapsed(song, activePattern(song))">
+                      <template v-if="!isInstrumentsCollapsed(song)">
                       <div class="track-grid">
                       <div
                         v-for="track in activePattern(song).tracks"
@@ -456,8 +456,8 @@
                           v-for="track in activePattern(song).tracks"
                           v-bind:key="track.id"
                           small
-                          dark
                           :color="instrumentColor(track)"
+                          :style="{color: instrumentTextColor(track)}"
                           :class="{'instrument-summary-chip-active': isActiveTrack(activePattern(song), track)}"
                           title="Click to edit this instrument's notes"
                           @click="() => setActiveTrack(activePattern(song), track)"
@@ -657,7 +657,7 @@ import {openFileDialog} from '../utils/file';
 import {audcHasTunableNotes, audfByMidiForAudc, CANONICAL_NOTE_ROWS} from '../utils/music-notes';
 import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
-import {autoInstrumentColor, instrumentColorFor} from '../utils/instrument-colors';
+import {autoInstrumentColor, instrumentColorFor, isLightColor} from '../utils/instrument-colors';
 
 // The piano roll's own zoom range (25%-1600%) goes well past the shared
 // hooks/zoom.js's own discrete ZOOM_LEVELS (used by the sprite/background/
@@ -870,11 +870,15 @@ export default defineComponent({
       useCollapsedIds('music-pattern');
     const isPatternCollapsed = (song, pattern) => isPatternCollapsedRaw(patternCollapseEntry(song, pattern));
     const togglePatternCollapsed = (song, pattern) => togglePatternCollapsedRaw(patternCollapseEntry(song, pattern));
+    // Keyed by song alone (not song+pattern like patternCollapseEntry above)
+    // - one shared expanded/collapsed state for the whole song's Instruments
+    // section, not a separate one remembered per pattern. song.id is
+    // already globally unique (see toggleSequenceCollapsed's own comment
+    // just below), so no synthetic compound entry is needed here either.
     const {isCollapsed: isInstrumentsCollapsedRaw, toggleCollapsed: toggleInstrumentsCollapsedRaw} =
       useCollapsedIds('music-instruments');
-    const isInstrumentsCollapsed = (song, pattern) => isInstrumentsCollapsedRaw(patternCollapseEntry(song, pattern));
-    const toggleInstrumentsCollapsed = (song, pattern) =>
-      toggleInstrumentsCollapsedRaw(patternCollapseEntry(song, pattern));
+    const isInstrumentsCollapsed = (song) => isInstrumentsCollapsedRaw(song);
+    const toggleInstrumentsCollapsed = (song) => toggleInstrumentsCollapsedRaw(song);
 
     // Same idea, one level up - the whole Sequence (play order) row (every
     // chip, plus the "Add pattern to sequence" select) collapsed away to
@@ -960,9 +964,43 @@ export default defineComponent({
     const activePatternId = (song) =>
       activePatternIdsRef.value[song.id] || (song.patterns[0] && song.patterns[0].id);
     const setActivePattern = (song, patternId) => {
+      // Captured before switching: the instrument (soundEffectId) the
+      // OUTGOING pattern currently has active. Track ids are only unique
+      // WITHIN a pattern (see hiddenTrackKey's own comment), so the
+      // per-pattern activeTrackIdsRef entry below can't carry "the same
+      // instrument" across patterns on its own - matching by soundEffectId
+      // instead keeps whichever instrument the user was just looking at
+      // selected on the new pattern too, whenever that same instrument is
+      // also used there, rather than falling back to track 1 every time.
+      const previousPattern = activePattern(song);
+      const previousTrack = previousPattern && activeTrackFor(previousPattern);
+      const previousSoundEffectId = previousTrack && previousTrack.soundEffectId;
+
+      // Whether pattern PLAYBACK (as opposed to just which pattern is being
+      // viewed/edited) should follow this switch too - only when the
+      // pattern currently sounding is the one being switched AWAY from
+      // (the only way pattern playback ever starts is the "Play this
+      // pattern" button, which always acts on whichever pattern is active
+      // at the moment it's clicked - see handlePlayPattern - so this is the
+      // one case where "switch selection" and "switch what's playing"
+      // should track each other). Confirmed directly as a real bug
+      // otherwise: switching to a different pattern while one loops left
+      // the OLD pattern quietly looping in the background - Loop/Stop
+      // buttons, now bound to the newly active pattern, stopped doing
+      // anything audible, since they were reading/writing a pattern that
+      // wasn't the one actually playing.
+      const shouldFollowPlayback = previousPattern && playingPatternId.value === previousPattern.id &&
+        patternId !== previousPattern.id;
+
       setActivePatternId(song.id, patternId);
       const pattern = song.patterns.find(({id}) => id === patternId);
       if (pattern) recalculateFitBaseWidth(song, pattern);
+      if (pattern && previousSoundEffectId != null) {
+        const matchingTrack = pattern.tracks
+            .find((track) => track.soundEffectId === previousSoundEffectId);
+        if (matchingTrack) setActiveTrack(pattern, matchingTrack);
+      }
+      if (pattern && shouldFollowPlayback) handlePlayPattern(song, pattern);
       // Switching patterns can swap in a whole new set of tracks whose own
       // v-selects (Channel, Instrument) Vue's own v-for keying (by
       // track.id) may reuse the SAME DOM node for, if the new pattern
@@ -994,8 +1032,18 @@ export default defineComponent({
     // case this is has to be told apart by matching that text against
     // every OTHER pattern's own name instead.
     const handlePatternFieldChange = (song, text) => {
-      if (typeof text !== 'string') return;
-      const trimmed = text.trim();
+      // v-combobox's own @change can hand back the raw {text, value} ITEM
+      // object instead of a plain string - happens whenever the typed text
+      // lands on an existing option (item-text is set here, but no
+      // item-value, so nothing tells it to collapse a selected item down to
+      // a primitive) - confirmed directly as a real bug: renaming silently
+      // did nothing (the typeof guard below bounced the object straight
+      // back out) while the input's own leftover typed text stayed
+      // visible until the next re-render quietly reverted it, LOOKING like
+      // the rename either failed or hit the wrong pattern.
+      const value = text && typeof text === 'object' ? text.text : text;
+      if (typeof value !== 'string') return;
+      const trimmed = value.trim();
       if (!trimmed) return;
       const current = activePattern(song);
       if (trimmed === patternName(song, current.id)) return;
@@ -1130,15 +1178,23 @@ export default defineComponent({
             // eslint-disable-next-line no-unused-vars
             const {soundEffects: importedSoundEffects, ...songData} = parsed;
             const idMap = importSoundEffects(importedSoundEffects);
-            if (Object.keys(idMap).length) {
-              songData.patterns.forEach((pattern) => {
-                (pattern.tracks || []).forEach((track) => {
-                  if (track.soundEffectId != null && idMap[track.soundEffectId] != null) {
-                    track.soundEffectId = idMap[track.soundEffectId];
-                  }
-                });
+            // Always resolved through idMap, never left as the raw imported
+            // id - a track whose id has no idMap entry (the bundle didn't
+            // include it) would otherwise keep pointing at whatever
+            // UNRELATED instrument already happens to occupy that same
+            // numeric id in this project from before the import, silently
+            // showing the wrong (stale, pre-import) instrument rather than
+            // the one this track actually meant. Cleared to null instead -
+            // the Instrument select below has no "unset" option; null just
+            // reads as no selection made, which is honest about what's
+            // actually known here, rather than a guess that looks correct.
+            songData.patterns.forEach((pattern) => {
+              (pattern.tracks || []).forEach((track) => {
+                if (track.soundEffectId != null) {
+                  track.soundEffectId = idMap[track.soundEffectId] != null ? idMap[track.soundEffectId] : null;
+                }
               });
-            }
+            });
             Object.assign(song, songData, {id: song.id});
             if (activePatternId(song) && !song.patterns.some(({id: pid}) => pid === activePatternId(song))) {
               setActivePattern(song, song.patterns[0] && song.patterns[0].id);
@@ -1193,13 +1249,15 @@ export default defineComponent({
             // eslint-disable-next-line no-unused-vars
             const {soundEffects: importedSoundEffects, ...patternData} = parsed;
             const idMap = importSoundEffects(importedSoundEffects);
-            if (Object.keys(idMap).length) {
-              (patternData.tracks || []).forEach((track) => {
-                if (track.soundEffectId != null && idMap[track.soundEffectId] != null) {
-                  track.soundEffectId = idMap[track.soundEffectId];
-                }
-              });
-            }
+            // Same reasoning as handleImportSong above: always resolved
+            // through idMap, cleared to null rather than left pointing at
+            // an unrelated pre-existing instrument that happens to share
+            // the raw imported id.
+            (patternData.tracks || []).forEach((track) => {
+              if (track.soundEffectId != null) {
+                track.soundEffectId = idMap[track.soundEffectId] != null ? idMap[track.soundEffectId] : null;
+              }
+            });
             Object.assign(pattern, patternData, {id: pattern.id});
             recalculateFitBaseWidth(song, pattern);
             handleChildChange();
@@ -1551,7 +1609,6 @@ export default defineComponent({
       startPlaybackHeadPolling();
       playPattern(song, pattern, soundEffects(), {
         isTrackMuted,
-        loop: !!pattern.loop,
         startUnits,
         onDone: () => {
           if (playingPatternId.value === pattern.id) {
@@ -1592,13 +1649,13 @@ export default defineComponent({
       seekHover.value = null;
     };
 
-    const handlePlaySong = (song) => {
+    const handlePlaySong = (song, startIndex = 0) => {
       playingPatternId.value = null;
       playingSongId.value = song.id;
       startPlaybackHeadPolling();
       playSequence(song, soundEffects(), {
         isTrackMuted,
-        loop: song.loop,
+        startIndex,
         onDone: () => {
           if (playingSongId.value === song.id) {
             playingSongId.value = null;
@@ -1612,6 +1669,21 @@ export default defineComponent({
       playingPatternId.value = null;
       playingSongId.value = null;
       stopPlaybackHeadPolling();
+    };
+
+    // A sequence chip's own click has two different meanings depending on
+    // whether this song is actually playing right now: normally it just
+    // switches which pattern is being viewed/edited (see setActivePattern),
+    // but while the song's own sequence is mid-playback, clicking a chip
+    // instead JUMPS playback there (restarting handlePlaySong at that
+    // step), the same "click seeks" affordance the piano roll's own step
+    // ruler already gives a single playing pattern (see handleSeekToStep).
+    const handleSequenceChipClick = (song, index, patternId) => {
+      if (playingSongId.value === song.id) {
+        handlePlaySong(song, index);
+      } else {
+        setActivePattern(song, patternId);
+      }
     };
 
     // Whether THIS specific sequence entry (identified by its own index in
@@ -1651,6 +1723,13 @@ export default defineComponent({
     // Music tab only displays it, keyed off whichever sound effect the
     // track is currently pointed at.
     const instrumentColor = (track) => instrumentColorFor(trackSoundEffect(track));
+
+    // Chip text color for the collapsed instrument summary below - a
+    // hardcoded white (see the chip's own former "dark" prop) read poorly
+    // against a light instrument color (e.g. a pale user-picked TIA color),
+    // so this switches to dark text whenever the instrument's own color is
+    // light enough to need it.
+    const instrumentTextColor = (track) => isLightColor(instrumentColor(track)) ? '#000' : '#fff';
 
     const rowIsAvailable = (track, row) => {
       const soundEffect = trackSoundEffect(track);
@@ -2227,7 +2306,8 @@ export default defineComponent({
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
       handleAddSequenceStep, handleRemoveSequenceStep,
       sequenceChipListeners, isSequenceStepDragging, sequenceDragOverSide,
-      handlePlayPattern, handlePlaySong, handleStop, handleToggleLoopPattern, handleToggleLoopSong,
+      handlePlayPattern, handlePlaySong, handleSequenceChipClick, handleStop,
+      handleToggleLoopPattern, handleToggleLoopSong,
       handleSeekToStep,
       playingPatternId, playingSongId,
       isSequenceStepPlaying, patternSequenceColor,
@@ -2238,7 +2318,7 @@ export default defineComponent({
       patternName, patternOptions, stepsFor,
       patternCellClasses, patternCellStyle, patternCellTitle, activeTrackNoteTips, noteEndFraction, noteAt,
       rulerCellStyle, handleSeekHover, handleSeekHoverLeave,
-      instrumentColor,
+      instrumentColor, instrumentTextColor,
       soundEffectOptions,
       // CHANNEL_OPTIONS' own values are strings ('0'/'1') - a requirement
       // of Blockly's FieldDropdown (see blocks/sound.js, which also feeds
@@ -2793,7 +2873,7 @@ export default defineComponent({
 .track-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
-  gap: 12px 16px;
+  gap: 24px 16px;
 }
 
 /* Enough vertical padding (no divider line) that dense v-selects' floating

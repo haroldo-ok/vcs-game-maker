@@ -31,3 +31,41 @@ export const instrumentColorFor = (soundEffect) => {
   }
   return autoInstrumentColor(soundEffect && soundEffect.id);
 };
+
+// A single shared canvas 2d context, reused rather than created per call -
+// it's only ever used to lean on the browser's own CSS color parser (fillStyle
+// normalizes ANY valid CSS color string - hsl(...), rgb(...), #hex, named
+// colors - down to a plain #rrggbb/rgba(...) string), not for drawing
+// anything.
+let sharedColorCtx = null;
+const normalizeColor = (cssColor) => {
+  if (typeof document === 'undefined') return null;
+  if (!sharedColorCtx) sharedColorCtx = document.createElement('canvas').getContext('2d');
+  sharedColorCtx.fillStyle = '#000';
+  sharedColorCtx.fillStyle = cssColor;
+  const normalized = sharedColorCtx.fillStyle;
+  const hexMatch = normalized.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hexMatch) return hexMatch.slice(1).map((hex) => parseInt(hex, 16));
+  const rgbMatch = normalized.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  return rgbMatch ? rgbMatch.slice(1).map(Number) : null;
+};
+
+/**
+ * Whether a CSS color (auto-assigned hsl(...) or a user-picked TIA color -
+ * see instrumentColorFor above) reads as light enough that white text on top
+ * of it would be hard to read - used to pick dark text instead wherever an
+ * instrument's own color is used as a chip/background fill (e.g. the Music
+ * tab's collapsed instrument summary chips).
+ * @param {string} cssColor Any valid CSS color string.
+ * @return {boolean} True if dark text should be used on top of this color.
+ */
+export const isLightColor = (cssColor) => {
+  const rgb = normalizeColor(cssColor);
+  if (!rgb) return false;
+  const [r, g, b] = rgb;
+  // Perceptual (not straight-average) luminance weights - matches how the
+  // eye actually weighs red/green/blue brightness, same coefficients as the
+  // standard ITU-R BT.601 luma formula.
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6;
+};

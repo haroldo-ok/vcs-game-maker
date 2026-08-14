@@ -520,17 +520,22 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
  *     tempo when the pattern follows the song's - see effectiveTempo).
  * @param {Object} pattern The pattern to play.
  * @param {Array<Object>} soundEffects Stored Sound tab presets.
- * @param {{onDone: Function, isTrackMuted: Function, loop: boolean}} callbacks
- *     onDone is called once playback finishes (never, if loop is set - only
- *     stopPatternPlayback ends it then); isTrackMuted(pattern, track) skips a
- *     muted instrument's own notes entirely (a Music tab view preference,
- *     not something the compiled ROM has any concept of).
+ * @param {{onDone: Function, isTrackMuted: Function}} callbacks
+ *     onDone is called once playback finishes (never, while pattern.loop is
+ *     set - only stopPatternPlayback ends it then); isTrackMuted(pattern,
+ *     track) skips a muted instrument's own notes entirely (a Music tab view
+ *     preference, not something the compiled ROM has any concept of).
  *     startUnits (default 0) seeks the first pass to start partway through
  *     the pattern instead of from its own beginning - see handleSeekToStep
  *     in MusicEditor.vue. Only the first pass; a looping pattern's later
  *     passes always restart from 0, same as clicking Play normally would.
+ *     Whether to loop is read live off pattern.loop on every single pass
+ *     (not captured once up front), same as its notes already were - so
+ *     toggling Loop mid-playback (see handleToggleLoopPattern in
+ *     MusicEditor.vue) takes effect on the very next pass, rather than only
+ *     after Stop/Play again.
  */
-export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, loop, startUnits = 0} = {}) => {
+export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, startUnits = 0} = {}) => {
   stopPatternPlayback();
   const context = getAudioContext();
 
@@ -580,16 +585,28 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
     playbackTimeline.push({
       patternId: pattern.id, startTime, endTime, unitSeconds: unitSecondsForTempo(tempo), startUnits: passStartUnits,
     });
-    if (loop) {
-      const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
-      stopTimer = window.setTimeout(() => scheduleOnce(endTime, 0), delayMs);
-    } else {
-      stopTimer = window.setTimeout(() => {
-        stopTimer = null;
-        activeSources = [];
-        if (onDone) onDone();
-      }, stopTimerDelayMs(context, startTime, totalSeconds));
-    }
+    // Always scheduled near this pass's own end, regardless of whether
+    // pattern.loop happens to be on or off right now - the ACTUAL decision
+    // (loop again, or stop) is only made once this callback fires, reading
+    // pattern.loop fresh at that point. A pass that STARTED as non-looping
+    // used to never check again before calling onDone, so turning Loop ON
+    // partway through it did nothing until Play was clicked again -
+    // confirmed directly as a real bug, the mirror image of the (already
+    // working) loop-ON-to-OFF direction, which happened to work already
+    // only because that direction's own decision was already re-checked
+    // here on every pass.
+    const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
+    stopTimer = window.setTimeout(() => {
+      if (pattern.loop) {
+        scheduleOnce(endTime, 0);
+      } else {
+        stopTimer = window.setTimeout(() => {
+          stopTimer = null;
+          activeSources = [];
+          if (onDone) onDone();
+        }, stopTimerDelayMs(context, endTime, 0));
+      }
+    }, delayMs);
   };
   scheduleOnce(context.currentTime + 0.05, Math.max(0, startUnits));
 };
@@ -600,13 +617,20 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
  * own effective tempo/step count as it plays.
  * @param {Object} song The song whose sequence to play.
  * @param {Array<Object>} soundEffects Stored Sound tab presets.
- * @param {{onDone: Function, isTrackMuted: Function, loop: boolean}} callbacks
- *     Called once playback finishes (never, if loop is set - see
- *     song.loop's own comment in blocks/music.js); isTrackMuted(pattern,
- *     track) skips a muted instrument's own notes entirely (see
- *     playPattern).
+ * @param {{onDone: Function, isTrackMuted: Function, startIndex: number}} callbacks
+ *     Called once playback finishes (never, while song.loop is set - see its
+ *     own comment in blocks/music.js); isTrackMuted(pattern, track) skips a
+ *     muted instrument's own notes entirely (see playPattern). Whether to
+ *     loop is read live off song.loop on every pass, same reasoning as
+ *     playPattern's own pattern.loop - see its comment. startIndex (default
+ *     0) skips straight to that Sequence step on the first pass instead of
+ *     starting from the beginning - see handleSequenceChipClick in
+ *     MusicEditor.vue, which uses this to jump playback to whichever chip
+ *     was clicked while the song is already playing. Only the first pass; a
+ *     looping song's later passes always restart at step 0, same as
+ *     clicking Play normally would (matches playPattern's own startUnits).
  */
-export const playSequence = (song, soundEffects, {onDone, isTrackMuted, loop} = {}) => {
+export const playSequence = (song, soundEffects, {onDone, isTrackMuted, startIndex = 0} = {}) => {
   stopPatternPlayback();
   const context = getAudioContext();
 
@@ -617,10 +641,11 @@ export const playSequence = (song, soundEffects, {onDone, isTrackMuted, loop} = 
   // little before the current one's own end - rather than after - avoids
   // an audible gap every repeat.
   const LOOP_RESCHEDULE_LEAD_SECONDS = 0.2;
-  const scheduleOnce = (startTime) => {
+  const scheduleOnce = (startTime, passStartIndex = 0) => {
     let cursorSeconds = 0;
     const timeline = [];
     (song.sequence || []).forEach((patternId, sequenceIndex) => {
+      if (sequenceIndex < passStartIndex) return;
       const pattern = song.patterns.find(({id}) => id == patternId);
       if (!pattern) return;
       const tempo = effectiveTempo(song, pattern);
@@ -634,22 +659,34 @@ export const playSequence = (song, soundEffects, {onDone, isTrackMuted, loop} = 
     });
     const endTime = startTime + cursorSeconds;
     // Same "keep the previous pass' own timeline entries around a little
-    // past their own end" reasoning as playPattern's own comment - only
-    // matters once looping, since a non-looping sequence never has a
-    // "previous pass" to preserve.
-    playbackTimeline = loop ?
-      [...playbackTimeline.filter(({endTime: prevEndTime}) => prevEndTime > context.currentTime), ...timeline] :
-      timeline;
-    if (loop) {
-      const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
-      stopTimer = window.setTimeout(() => scheduleOnce(endTime), delayMs);
-    } else {
-      stopTimer = window.setTimeout(() => {
-        stopTimer = null;
-        activeSources = [];
-        if (onDone) onDone();
-      }, stopTimerDelayMs(context, startTime, cursorSeconds));
-    }
+    // past their own end" reasoning as playPattern's own comment - always
+    // appended/filtered rather than conditionally replaced outright,
+    // since (see below) whether there'll even BE a next pass isn't decided
+    // until later, right before this one ends.
+    playbackTimeline = [
+      ...playbackTimeline.filter(({endTime: prevEndTime}) => prevEndTime > context.currentTime), ...timeline,
+    ];
+    // Always scheduled near this pass's own end regardless of song.loop's
+    // CURRENT value - see playPattern's own identical comment for why: the
+    // real decision only happens once this fires, reading song.loop fresh
+    // at that point, so toggling Loop either direction mid-playback (see
+    // handleToggleLoopSong in MusicEditor.vue) takes effect on the very
+    // next boundary rather than only sometimes (previously, a sequence
+    // that STARTED non-looping never rechecked song.loop again before
+    // calling onDone, so turning Loop on partway through silently did
+    // nothing until Play was clicked again).
+    const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
+    stopTimer = window.setTimeout(() => {
+      if (song.loop) {
+        scheduleOnce(endTime, 0);
+      } else {
+        stopTimer = window.setTimeout(() => {
+          stopTimer = null;
+          activeSources = [];
+          if (onDone) onDone();
+        }, stopTimerDelayMs(context, endTime, 0));
+      }
+    }, delayMs);
   };
-  scheduleOnce(context.currentTime + 0.05);
+  scheduleOnce(context.currentTime + 0.05, Math.max(0, startIndex));
 };
