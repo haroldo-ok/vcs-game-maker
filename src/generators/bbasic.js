@@ -23,7 +23,7 @@ import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
-import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOldSizeVar} from './bbasic/collision';
+import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName,
@@ -37,13 +37,15 @@ const handlebarsTemplate = Handlebars.compile(templateText);
 // the standard (non-Superchip) kernel. Without Superchip RAM, batari Basic's
 // playfield buffer physically occupies the same zero-page bytes as var0-var43
 // (playfieldbase = var0's address), so those "var" slots aren't safe to use -
-// only 26 single letters are available, and these 14 claim most of them.
+// only 26 single letters are available, and these 15 claim most of them.
 //
 // With Superchip enabled, the playfield buffer moves to the separate SARA
 // chip RAM page instead, freeing var0-var43 (plus var44-var47, which are
-// always free). Moving these system variables into var0-13 there instead of
+// always free). Moving these system variables into var0-14 there instead of
 // letters frees all 26 letters for user variables - see generateSystemDims
-// and the letter pool below.
+// and the letter pool below. var15-var43 (still unused even then) is where
+// every OTHER dev/user variable goes first instead, before falling back to
+// the letter pool - see SUPERCHIP_VAR_START and generateSuperchipVarDims.
 export const SYSTEM_VARIABLES = [
   ['player0frame', 'x'],
   ['player1frame', 'z'],
@@ -67,9 +69,22 @@ const SYSTEM_VARIABLE_LETTERS = SYSTEM_VARIABLES.map(([, letter]) => letter);
 
 // Letters left over for user-created variables when Superchip is off (the
 // system variables above claim the rest). All 26 are available when
-// Superchip is on, since the system variables move into var0-13 instead.
+// Superchip is on, since the system variables move into var0-14 instead.
 export const USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP =
   ALL_LETTERS.filter((letter) => !SYSTEM_VARIABLE_LETTERS.includes(letter));
+
+// Where every dev/user variable (routeDevVar in init(), below) goes first,
+// ahead of the letter pool, once Superchip is enabled (see
+// generateSuperchipVarDims) - var0-var14 are SYSTEM_VARIABLES' own (15
+// entries, above), var44-var47 are always free regardless of Superchip (see
+// text-minikernel.js/soundfx.js/score.js's own fixed dims there), so
+// var15-var43 (29 slots) is free, unused RAM on every Superchip project
+// today - confirmed via a project-wide grep, nothing else in this codebase
+// references any of these slots. Once this fills up, routeDevVar falls back
+// to the letter pool exactly as it always did, so a Superchip project's real
+// total budget is 29 + 26 = 55 slots, not a hard 29-slot ceiling.
+export const SUPERCHIP_VAR_START = 15;
+export const SUPERCHIP_VAR_END = 43;
 
 // text12b.asm (see generators/bbasic/text-minikernel.js) uses the bare
 // single-letter symbol "B" as its own scratch byte ("sta B" / "ldx B",
@@ -317,6 +332,29 @@ Blockly.BBasic.init = function(workspace) {
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'collision_check_position') this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
   });
+  // The tallest frame (in drawn pixel rows) across every animation each
+  // collision-checking player actually has - a compile-time constant the
+  // block's own generator (generators/bbasic/collision.js) uses as a fixed,
+  // deliberately conservative box height (see its own comment for why: no
+  // runtime per-frame-height lookup exists anywhere in this codebase, and
+  // using the max instead can only make the box check trigger a revert
+  // slightly more eagerly than a tighter box would, never less safely).
+  // Computed here (not in collision.js itself) since it needs the exact same
+  // processPlayerStorageDefaults/usePlayer{N}Storage this file's own
+  // generateAnimations already reads frame row counts from.
+  this.collisionMaxHeight = {};
+  this.collisionMovePlayers.forEach((playerNum) => {
+    let playerData = null;
+    try {
+      playerData = processPlayerStorageDefaults(playerNum === '0' ? usePlayer0Storage() : usePlayer1Storage());
+    } catch (e) {
+      playerData = null;
+    }
+    const heights = ((playerData && playerData.animations) || [])
+        .flatMap((animation) => (animation && animation.frames) || [])
+        .map((frame) => (frame.pixels || []).length);
+    this.collisionMaxHeight[playerNum] = heights.length ? Math.max(...heights) : 8;
+  });
 
   // Resolves every song the project references and builds their combined
   // per-channel data ahead of time (see generators/bbasic/music.js) - needed
@@ -400,11 +438,49 @@ Blockly.BBasic.init = function(workspace) {
   this.nameDB_.populateProcedures(workspace);
 
   const defvars = [];
+
+  // Every dev/user variable below is handed to routeDevVar (or reserveDevVar,
+  // which just adds the nameDB_.getName step) instead of pushed into defvars
+  // directly. With Superchip off, this is a no-op wrapper - everything still
+  // goes straight into defvars, letter-assigned exactly as it always was.
+  //
+  // With Superchip on, var15-var43 (29 slots - see SUPERCHIP_VAR_START's own
+  // comment) is free, unused RAM that nothing in this codebase claims today,
+  // sitting right alongside var0-var14 (already used by SYSTEM_VARIABLES) and
+  // the 26-letter pool (already fully free once Superchip moves the standard
+  // kernel's playfield buffer off zero-page). Filling var15-var43 FIRST, in
+  // the same priority order these categories were always reserved in below,
+  // and only overflowing into the 26-letter pool once that's full, means a
+  // Superchip project's real total budget becomes 29 + 26 = 55 slots instead
+  // of just 26 - strictly more headroom than routing everything through the
+  // letter pool alone (the old Superchip behavior) OR routing everything
+  // through var15-43 alone (this feature's own first pass, music-only) would
+  // give on its own. This is why routeDevVar checks superchipVars.length
+  // itself on every call, rather than deciding once up front which pool a
+  // whole category goes to - the split only actually matters once a project
+  // is large enough to fill 29 slots, which nothing here needs to special-
+  // case since routeDevVar and the existing "too many variables" check below
+  // already fall through to the letter pool exactly as before once that
+  // happens.
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const superchipVarBudget = SUPERCHIP_VAR_END - SUPERCHIP_VAR_START + 1;
+  this.superchipVars = [];
+  const routeDevVar = (name) => {
+    if (config.enableSuperchip && this.superchipVars.length < superchipVarBudget) {
+      this.superchipVars.push(name);
+    } else {
+      defvars.push(name);
+    }
+    return name;
+  };
+  const reserveDevVar = (canonicalName, type = Blockly.Names.DEVELOPER_VARIABLE_TYPE) =>
+    routeDevVar(this.nameDB_.getName(canonicalName, type));
+
   // Add developer variables (not created or named by the user).
   const devVarList = Blockly.Variables.allDeveloperVariables(workspace);
   for (let i = 0; i < devVarList.length; i++) {
-    defvars.push(this.nameDB_.getName(devVarList[i],
-        Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    reserveDevVar(devVarList[i]);
   }
 
   // Same developer-variable bucket as above, for the hidden per-pair bytes
@@ -414,22 +490,21 @@ Blockly.BBasic.init = function(workspace) {
   // its own getter/check generators, which look the same name up again
   // later, are guaranteed to agree on whatever nameDB_ actually assigns.
   for (const varName of this.distanceChecks.keys()) {
-    defvars.push(this.nameDB_.getName(varName, Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    reserveDevVar(varName);
   }
 
   // Same bucket again, for "Distance to point" blocks' own per-instance
   // hidden bytes (see the distancePointChecks pre-scan above and
   // generators/bbasic/input.js's generateDistancePointChecks).
   for (const {axis, index} of this.distancePointChecks.values()) {
-    defvars.push(this.nameDB_.getName(distancePointVarName(axis, index), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    reserveDevVar(distancePointVarName(axis, index));
   }
 
   // Same bucket again, for the collision-check backtrack bytes (see the
   // collisionMovePlayers pre-scan above and generators/bbasic/collision.js).
   for (const playerNum of this.collisionMovePlayers) {
-    defvars.push(this.nameDB_.getName(collisionMoveOldXVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-    defvars.push(this.nameDB_.getName(collisionMoveOldYVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-    defvars.push(this.nameDB_.getName(collisionMoveOldSizeVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    reserveDevVar(collisionMoveOldXVar(playerNum));
+    reserveDevVar(collisionMoveOldYVar(playerNum));
   }
 
   // Same bucket again, for the music player's per-channel index/timer bytes
@@ -443,8 +518,8 @@ Blockly.BBasic.init = function(workspace) {
     // buildMusicPlayResetBody's own comment for why those two differ.
     const multiSeq = multiSong || music.songs[0].totalSteps > 1;
     for (const channel of Object.keys(music.channelPages)) {
-      defvars.push(this.nameDB_.getName(musicIndexVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-      defvars.push(this.nameDB_.getName(musicTimerVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      reserveDevVar(musicIndexVarName(channel));
+      reserveDevVar(musicTimerVarName(channel));
       // Only reserved when this channel's own combined data spans more
       // than one page - see generateMusicChecks' own comment on pageVar
       // for why a single-page channel has no use for it at all, even once
@@ -453,10 +528,10 @@ Blockly.BBasic.init = function(workspace) {
       // var reserved and written to on every pattern transition for a
       // value nothing downstream ever read back).
       if (music.channelPages[channel].length > 1) {
-        defvars.push(this.nameDB_.getName(musicPageVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+        reserveDevVar(musicPageVarName(channel));
       }
       if (multiSeq) {
-        defvars.push(this.nameDB_.getName(musicSeqPosVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+        reserveDevVar(musicSeqPosVarName(channel));
       }
     }
     // Only reserved once the project actually has a repeated pattern
@@ -466,24 +541,24 @@ Blockly.BBasic.init = function(workspace) {
     // the packed-nibble layout), reserved once here regardless of how many
     // channels the project actually uses.
     if (multiSeq && music.hasRepeats) {
-      defvars.push(this.nameDB_.getName(musicSeqRepeatVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      reserveDevVar(musicSeqRepeatVarName());
     }
     // One shared byte for playing/loop/justStopped plus every channel's own
     // active flag (see musicFlagsVarName's comment) - used to cost 3 vars
     // plus 1 more per channel on its own.
-    defvars.push(this.nameDB_.getName(musicFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    reserveDevVar(musicFlagsVarName());
     // Only needed once the project references more than one song (see
     // musicSongIndexVarName/musicSeqLenVarName's own comments) - a
     // single-song project keeps using a literal constant instead, same as
     // it always has, zero extra dev-var cost.
     if (multiSong) {
-      defvars.push(this.nameDB_.getName(musicSongIndexVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-      defvars.push(this.nameDB_.getName(musicSeqLenVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+      reserveDevVar(musicSongIndexVarName());
+      reserveDevVar(musicSeqLenVarName());
       // Only "Play song by ID" actually reads/writes this scratch var (see
       // its own comment) - no need to reserve it for a project that only
       // ever uses the fixed-dropdown "Play song" block.
       if (music.usesSongById) {
-        defvars.push(this.nameDB_.getName(musicPlayByIdArgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+        reserveDevVar(musicPlayByIdArgVarName());
       }
     }
   }
@@ -492,45 +567,61 @@ Blockly.BBasic.init = function(workspace) {
   // scoreBkColorNeedsOwnVar pre-scan above and generators/bbasic/score.js's
   // generateScoreBkColorRuntimeDims).
   if (this.scoreBkColorNeedsOwnVar) {
-    defvars.push(this.nameDB_.getName(scoreBkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    reserveDevVar(scoreBkColorVarName());
   }
 
   // Add user variables, but only ones that are being used.
   const variables = Blockly.Variables.allUsedVarModels(workspace);
   for (let i = 0; i < variables.length; i++) {
-    defvars.push(this.nameDB_.getName(variables[i].getId(),
-        Blockly.VARIABLE_CATEGORY_NAME));
+    reserveDevVar(variables[i].getId(), Blockly.VARIABLE_CATEGORY_NAME);
   }
 
   // Add the run-once flag bytes computed above, after user variables so an
   // unrelated change in how many "Run once" blocks a project uses never
-  // shifts any user variable's own assigned letter.
+  // shifts any user variable's own assigned letter (or, with Superchip on,
+  // var slot). runOnceByteNames are already-final literal names (not
+  // canonical IDs needing nameDB_'s own sanitizing/dedup pass - unlike every
+  // category above), so they go through routeDevVar directly, same as the
+  // original code pushed them into defvars directly.
   const runOnceDefvarsStart = defvars.length;
-  defvars.push(...runOnceByteNames);
+  const runOnceSuperchipStart = this.superchipVars.length;
+  runOnceByteNames.forEach((name) => routeDevVar(name));
+  // Split matches exactly how routeDevVar just placed them: whichever ran
+  // out of Superchip room mid-loop falls through to defvars from that point
+  // on, so the first (superchipVars.length - runOnceSuperchipStart) of these
+  // got var slots and the rest got letters (below, once availableLetters is
+  // known) - never more of a mix than that, since routeDevVar never goes
+  // back to an earlier pool once it's moved on to the next.
+  const runOnceSuperchipCount = this.superchipVars.length - runOnceSuperchipStart;
+  this.runOnceByteLetters = runOnceByteNames
+      .slice(0, runOnceSuperchipCount)
+      .map((_, i) => `var${SUPERCHIP_VAR_START + runOnceSuperchipStart + i}`);
 
   // Declare all of the variables. Without Superchip, the system variables
   // above claim most of the alphabet, leaving only
   // USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free; with it, the system
-  // variables move into var0-13 instead, freeing every letter. With the Text
+  // variables move into var0-14 instead, freeing every letter (everything
+  // else has already been routed to var15-var43 first, above, via
+  // routeDevVar, so only whatever didn't fit there reaches this
+  // letter-assignment loop at all once Superchip is on). With the Text
   // Minikernel active, TEXT_MINIKERNEL_RESERVED_LETTERS also comes off the
   // top regardless of Superchip - see its own comment for why.
-  this.runOnceByteLetters = [];
   if (defvars.length) {
-    const configurationStorage = useConfigurationStorage();
-    const config = (configurationStorage && configurationStorage.value) || {};
     const baseAvailableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
     const availableLetters = this.isTextMinikernelActive() ?
       baseAvailableLetters.filter((letter) => !TEXT_MINIKERNEL_RESERVED_LETTERS.includes(letter)) :
       baseAvailableLetters;
     if (defvars.length > availableLetters.length) {
-      throw new Error(`Too many variables: this project defines ${defvars.length}, but only ` +
-        `${availableLetters.length} are available${config.enableSuperchip ? '' :
-          ' (enable Superchip RAM on the Options tab to unlock more)'}.`);
+      throw new Error(`Too many variables: this project defines ${defvars.length + this.superchipVars.length}, ` +
+        `but only ${availableLetters.length + (config.enableSuperchip ? superchipVarBudget : 0)} are available` +
+        `${config.enableSuperchip ? '' : ' (enable Superchip RAM on the Options tab to unlock more)'}.`);
     }
     this.definitions_['variables'] = defvars
         .map((v, i) => `  dim ${v} = ${availableLetters[i]}`)
         .join('\n');
-    this.runOnceByteLetters = runOnceByteNames.map((_, i) => availableLetters[runOnceDefvarsStart + i]);
+    this.runOnceByteLetters = this.runOnceByteLetters.concat(
+        runOnceByteNames.slice(runOnceSuperchipCount)
+            .map((_, i) => availableLetters[runOnceDefvarsStart + i]));
   }
 
   this.blockNumbers = {
@@ -1586,7 +1677,7 @@ Blockly.BBasic.generateRomSize = function() {
 // See the SYSTEM_VARIABLES comment above: without Superchip these bookkeeping
 // variables sit on letters, since the standard kernel's playfield buffer
 // occupies var0-43; with Superchip that buffer moves to the SARA chip RAM
-// page instead, so these move into var0-13, freeing every letter for user
+// page instead, so these move into var0-14, freeing every letter for user
 // variables (see Blockly.BBasic.init).
 Blockly.BBasic.generateSystemDims = function() {
   const configurationStorage = useConfigurationStorage();
@@ -1595,7 +1686,23 @@ Blockly.BBasic.generateSystemDims = function() {
       .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
       .join('\n');
   return systemDims + this.generateTextMinikernelDims() + this.generateSoundFadeDims() +
-    this.generateScoreBkColorRuntimeDims();
+    this.generateScoreBkColorRuntimeDims() + this.generateSuperchipVarDims();
+};
+
+// Declares whichever dev/user vars init()'s routeDevVar placed into
+// this.superchipVars instead of the letter pool (see SUPERCHIP_VAR_START's
+// own comment and routeDevVar in init()) - empty (so this whole function is a
+// no-op) unless Superchip is enabled, since that routing only ever happens
+// then. Spliced in right after generateSystemDims' own var0-var14 dims (see
+// its own call above and generatedSystemDims in the template) rather than
+// getting its own template slot, since both are the exact same kind of "dim
+// name = varN" declaration and need to land before any generated code
+// actually reads/writes these names, same as SYSTEM_VARIABLES' own dims do.
+Blockly.BBasic.generateSuperchipVarDims = function() {
+  if (!this.superchipVars || !this.superchipVars.length) return '';
+  return '\n' + this.superchipVars
+      .map((name, i) => ` dim ${name} = var${SUPERCHIP_VAR_START + i}`)
+      .join('\n');
 };
 
 Blockly.BBasic.generateBackgrounds = function() {

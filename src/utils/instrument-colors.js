@@ -51,6 +51,48 @@ const normalizeColor = (cssColor) => {
 };
 
 /**
+ * Blends a CSS color toward white by the given percent (e.g. 45 means "45%
+ * of this color, 55% white") - a color-mix(in srgb, color X%, white)
+ * replacement that works in Electron's bundled Chromium (22.x ships
+ * Chromium 108; color-mix() only landed in Chromium 111, so the CSS
+ * function silently produces an invalid value there - confirmed as the
+ * cause of the Music tab's sequence-chip resize handle rendering blank/
+ * white on desktop exports specifically, never reproducing in a normal
+ * browser). Reuses normalizeColor's own canvas-based parser, so this works
+ * uniformly whether cssColor is hsl(...) (auto-assigned) or rgb(...)/hex (a
+ * user's own pick), same reasoning color-mix was originally chosen for.
+ * @param {string} cssColor Any valid CSS color string.
+ * @param {number} colorPercent 0-100, how much of cssColor to keep.
+ * @return {string} An rgb(...) string, or cssColor unchanged if it couldn't
+ *     be parsed.
+ */
+export const mixColorWithWhite = (cssColor, colorPercent) => {
+  const rgb = normalizeColor(cssColor);
+  if (!rgb) return cssColor;
+  const ratio = colorPercent / 100;
+  const blend = (channel) => Math.round(channel * ratio + 255 * (1 - ratio));
+  return `rgb(${blend(rgb[0])}, ${blend(rgb[1])}, ${blend(rgb[2])})`;
+};
+
+/**
+ * Fades a CSS color toward transparent by the given percent (e.g. 35 means
+ * "35% opaque") - a color-mix(in srgb, color X%, transparent) replacement,
+ * same Electron/Chromium-108 compatibility reasoning as mixColorWithWhite
+ * above. Unlike a plain opacity change on the element, this stays a single
+ * color value, safe to use as one stop inside a larger multi-color
+ * gradient without fading the gradient's other stops too.
+ * @param {string} cssColor Any valid CSS color string.
+ * @param {number} colorPercent 0-100, the resulting alpha (as a percent).
+ * @return {string} An rgba(...) string, or cssColor unchanged if it
+ *     couldn't be parsed.
+ */
+export const mixColorWithTransparent = (cssColor, colorPercent) => {
+  const rgb = normalizeColor(cssColor);
+  if (!rgb) return cssColor;
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${colorPercent / 100})`;
+};
+
+/**
  * Whether a CSS color (auto-assigned hsl(...) or a user-picked TIA color -
  * see instrumentColorFor above) reads as light enough that white text on top
  * of it would be hard to read - used to pick dark text instead wherever an

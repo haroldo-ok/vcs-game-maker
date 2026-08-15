@@ -93,6 +93,18 @@
                   <v-btn
                     icon
                     small
+                    class="music-flat-icon-btn music-icon-btn-size"
+                    :class="{'music-icon-btn-active': autoFollowPlayback}"
+                    :title="autoFollowPlayback ?
+                      'Auto-switch to whichever pattern is playing: on' :
+                      'Auto-switch to whichever pattern is playing: off'"
+                    @click="autoFollowPlayback = !autoFollowPlayback"
+                  >
+                    <v-icon small>mdi-target</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
                     title="Stop playback"
                     class="music-flat-icon-btn music-icon-btn-size"
                     @click="handleStop"
@@ -646,7 +658,7 @@
 </template>
 <script>
 import {
-  computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref,
+  computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch,
 } from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
@@ -668,7 +680,8 @@ import {openFileDialog} from '../utils/file';
 import {audcHasTunableNotes, audfByMidiForAudc, CANONICAL_NOTE_ROWS} from '../utils/music-notes';
 import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
-import {autoInstrumentColor, instrumentColorFor, isLightColor} from '../utils/instrument-colors';
+import {autoInstrumentColor, instrumentColorFor, isLightColor,
+  mixColorWithWhite, mixColorWithTransparent} from '../utils/instrument-colors';
 
 // The piano roll's own zoom range (25%-1600%) goes well past the shared
 // hooks/zoom.js's own discrete ZOOM_LEVELS (used by the sprite/background/
@@ -1160,7 +1173,7 @@ export default defineComponent({
       const exportData = {...songData, soundEffects: usedSoundEffects};
       const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
       const filename = (song.name || `song-${song.id}`).replace(/[^A-Za-z0-9]+/g, '_');
-      saveAs(blob, `${filename}-${getDateInfix()}.json`);
+      saveAs(blob, `Song_${filename}-${getDateInfix()}.json`);
     };
 
     // Adds whichever of an imported song's own bundled instruments (see
@@ -1500,7 +1513,7 @@ export default defineComponent({
     // different (lighter) shade so the drag affordance itself doesn't get
     // lost against a same-color chip.
     const sequenceGroupHandleStyle = (group) =>
-      ({background: `color-mix(in srgb, ${patternSequenceColor(group.patternId)} 45%, white)`});
+      ({background: mixColorWithWhite(patternSequenceColor(group.patternId), 45)});
 
     // Dragging this handle grows/shrinks how many times in a row this
     // pattern repeats, snapped to whole repeats (see
@@ -1712,6 +1725,33 @@ export default defineComponent({
       if (playbackHeadFrame == null) tick();
     };
     onBeforeUnmount(stopPlaybackHeadPolling);
+
+    // Toggle for the auto-follow watcher just below - a page-local UI
+    // preference (not persisted project data, same reasoning/mechanism as
+    // ActionEditor.vue's own gridSnapEnabled), since this only affects what
+    // you're LOOKING at while a song plays, never the song itself. Defaults
+    // off - the icon (see the template, in the song toolbar next to the
+    // Stop/Play buttons) turns it on for whoever wants the piano roll to
+    // follow along automatically instead of staying on whichever pattern
+    // they had open.
+    const autoFollowPlayback = ref(false);
+
+    // Makes the viewed/edited pattern follow a SONG's own playback as its
+    // sequence advances from one pattern to the next - without this, the
+    // piano roll (and everything scoped to activePattern, including the
+    // per-sound-type valid-note graying out in patternCellClasses) stayed
+    // frozen on whichever pattern was selected when Play was clicked, never
+    // showing the instruments/notes actually sounding a moment later. Only
+    // acts on the patternId actually changing (not every playbackHead tick,
+    // which fires every animation frame) and only while a SONG (not a lone
+    // pattern) is playing - setActivePattern's own shouldFollowPlayback
+    // guard only fires for playingPatternId, so calling it here can't
+    // accidentally start/restart pattern-only playback and fight the song.
+    watch(() => playbackHead.value && playbackHead.value.patternId, (patternId) => {
+      if (patternId == null || !playingSongId.value || !autoFollowPlayback.value) return;
+      const song = state.value.songs.find(({id}) => id === playingSongId.value);
+      if (song && activePatternId(song) !== patternId) setActivePattern(song, patternId);
+    });
 
     // Where playback should START from next, per pattern (id -> units) - set
     // by clicking the step ruler (see handleSeekToStep), read by
@@ -2066,12 +2106,13 @@ export default defineComponent({
     // has something placed there.
     // Fades a note's own color toward the cell background when its
     // instrument is muted, so muted notes stay visible (still show where
-    // they are) without competing with unmuted ones for attention. color-mix
-    // works uniformly whether the source color is hsl(...) (an
-    // auto-assigned instrument color - see autoInstrumentColor) or the
-    // rgb(...)/hex a user picked explicitly on the Sound tab, unlike trying
-    // to parse/rewrite the color string's own alpha channel per-format.
-    const mutedNoteColor = (color) => `color-mix(in srgb, ${color} 35%, transparent)`;
+    // they are) without competing with unmuted ones for attention.
+    // mixColorWithTransparent works uniformly whether the source color is
+    // hsl(...) (an auto-assigned instrument color - see autoInstrumentColor)
+    // or the rgb(...)/hex a user picked explicitly on the Sound tab, unlike
+    // trying to parse/rewrite the color string's own alpha channel
+    // per-format.
+    const mutedNoteColor = (color) => mixColorWithTransparent(color, 35);
 
     const segmentGradient = (stepStartUnits, startUnits, endUnits, color) => {
       const startPercent = Math.max(0, ((startUnits - stepStartUnits) / LENGTH_UNITS_PER_STEP) * 100);
@@ -2454,7 +2495,7 @@ export default defineComponent({
       handlePlayPattern, handlePlaySong, handleSequenceChipClick, handleStop,
       handleToggleLoopPattern, handleToggleLoopSong,
       handleSeekToStep,
-      playingPatternId, playingSongId,
+      playingPatternId, playingSongId, autoFollowPlayback,
       isSequenceGroupPlaying, patternSequenceColor,
       handlePatternCellClick, handleCellHover, handleCellLeave, startResize,
       activePatternId, setActivePattern, activePattern,
