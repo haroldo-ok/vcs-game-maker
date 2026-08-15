@@ -23,11 +23,11 @@ import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
-import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
+import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOldSizeVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
 import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName,
-  musicSeqPosVarName, musicFlagsVarName, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
+  musicSeqPosVarName, musicSeqRepeatVarName, musicFlagsVarName, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicSongIndexVarName, musicSeqLenVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine} from './bbasic/music';
 
@@ -429,6 +429,7 @@ Blockly.BBasic.init = function(workspace) {
   for (const playerNum of this.collisionMovePlayers) {
     defvars.push(this.nameDB_.getName(collisionMoveOldXVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
     defvars.push(this.nameDB_.getName(collisionMoveOldYVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
+    defvars.push(this.nameDB_.getName(collisionMoveOldSizeVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
   }
 
   // Same bucket again, for the music player's per-channel index/timer bytes
@@ -437,25 +438,35 @@ Blockly.BBasic.init = function(workspace) {
   if (this.projectMusic) {
     const music = this.projectMusic;
     const multiSong = music.songs.length > 1;
-    // A song whose own sequence references more than one pattern (see
-    // musicSeqPosVarName's own comment) needs pageVar reserved for a channel
-    // even if that channel's own combined pages still only ever add up to
-    // one - every pattern transition writes a fresh (always valid, if
-    // sometimes still page 0) lookup result into it. Once the project has
-    // more than one song, the same "more than one position to track"
-    // problem covers "more than one song to track" too (see
-    // generateMusicChecks' own multiSeq/multiSong comment), so multiSong
-    // alone forces this on as well.
-    const multiSeq = multiSong || music.songs[0].sequenceLength > 1;
+    // totalSteps (real repeats included), not sequenceLength (now a GROUP
+    // count - see resolveProjectMusic in generators/bbasic/music.js) - see
+    // buildMusicPlayResetBody's own comment for why those two differ.
+    const multiSeq = multiSong || music.songs[0].totalSteps > 1;
     for (const channel of Object.keys(music.channelPages)) {
       defvars.push(this.nameDB_.getName(musicIndexVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
       defvars.push(this.nameDB_.getName(musicTimerVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
-      if (music.channelPages[channel].length > 1 || multiSeq) {
+      // Only reserved when this channel's own combined data spans more
+      // than one page - see generateMusicChecks' own comment on pageVar
+      // for why a single-page channel has no use for it at all, even once
+      // the song has more than one sequence position (confirmed directly
+      // as a real, pure waste in an earlier version of this: a whole dev
+      // var reserved and written to on every pattern transition for a
+      // value nothing downstream ever read back).
+      if (music.channelPages[channel].length > 1) {
         defvars.push(this.nameDB_.getName(musicPageVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
       }
       if (multiSeq) {
         defvars.push(this.nameDB_.getName(musicSeqPosVarName(channel), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
       }
+    }
+    // Only reserved once the project actually has a repeated pattern
+    // somewhere (see musicSeqRepeatVarName's own comment) - a project with
+    // none pays nothing extra for this feature. ONE shared var for every
+    // channel (not per-channel - see musicSeqRepeatVarName's own comment on
+    // the packed-nibble layout), reserved once here regardless of how many
+    // channels the project actually uses.
+    if (multiSeq && music.hasRepeats) {
+      defvars.push(this.nameDB_.getName(musicSeqRepeatVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE));
     }
     // One shared byte for playing/loop/justStopped plus every channel's own
     // active flag (see musicFlagsVarName's comment) - used to cost 3 vars

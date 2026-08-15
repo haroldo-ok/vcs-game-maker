@@ -30,7 +30,7 @@
           own set volume.
         </p>
       </v-card-text>
-      <v-card-text>
+      <v-card-text class="song-list-section">
         <v-list class="song-list">
           <v-list-item
             class="entry-list-item"
@@ -170,30 +170,41 @@
                   </div>
                   <div v-if="!isSequenceCollapsed(song)" class="sequence-row">
                     <div
-                      v-for="(patternId, index) in song.sequence"
-                      v-bind:key="index"
+                      v-for="group in song.sequence"
+                      v-bind:key="group.id"
                       class="sequence-chip-wrap"
                       :class="{
-                        'sequence-chip-dragging': isSequenceStepDragging(song, index),
-                        'sequence-chip-drag-over-before': sequenceDragOverSide(song, index) === 'before',
-                        'sequence-chip-drag-over-after': sequenceDragOverSide(song, index) === 'after',
+                        'sequence-chip-dragging': isSequenceStepDragging(song, group),
+                        'sequence-chip-drag-over-before': sequenceDragOverSide(song, group) === 'before',
+                        'sequence-chip-drag-over-after': sequenceDragOverSide(song, group) === 'after',
+                        'sequence-chip-wrap-playing': isSequenceGroupPlaying(song, group),
                       }"
                       draggable="true"
                       title="Drag to reorder"
-                      v-on="sequenceChipListeners(song, index)"
+                      v-on="sequenceChipListeners(song, group)"
                     >
                       <v-chip
                         small
                         close
                         dark
-                        :color="patternSequenceColor(patternId)"
-                        :class="{'sequence-chip-playing': isSequenceStepPlaying(song, index)}"
+                        class="sequence-chip"
+                        :color="patternSequenceColor(group.patternId)"
+                        :style="sequenceGroupChipStyle(song, group)"
                         title="Click to edit this pattern"
-                        @click="() => handleSequenceChipClick(song, index, patternId)"
-                        @click:close="() => handleRemoveSequenceStep(song, index)"
+                        @click="() => handleSequenceChipClick(song, group)"
+                        @click:close="() => handleRemoveSequenceGroup(song, group)"
                       >
-                        {{ patternName(song, patternId) }}
+                        {{ patternName(song, group.patternId) }}<template v-if="sequenceGroupPreviewCount(song, group) > 1"> ×{{ sequenceGroupPreviewCount(song, group) }}</template>
                       </v-chip>
+                      <div
+                        class="sequence-chip-resize-handle"
+                        draggable="false"
+                        title="Drag to repeat this pattern more times in a row"
+                        :style="sequenceGroupHandleStyle(group)"
+                        @mousedown="(event) => handleSequenceResizeStart(song, group, event)"
+                        @click.stop
+                        @dragstart.stop.prevent
+                      ></div>
                     </div>
                     <v-select
                       v-bind:key="'seqadd-' + song.id + '-' + song.sequence.length"
@@ -294,16 +305,6 @@
                         <v-btn icon small title="Duplicate this pattern" @click="() => handleDuplicatePattern(song, activePattern(song))">
                           <v-icon small>mdi-content-duplicate</v-icon>
                         </v-btn>
-                        <v-btn
-                          v-if="song.patterns.length > 1"
-                          icon
-                          small
-                          title="Delete this pattern"
-                          class="delete-icon-btn"
-                          @click="() => handleDeletePattern(song, activePattern(song))"
-                        >
-                          <v-icon small>mdi-delete</v-icon>
-                        </v-btn>
                       </div>
                       <v-select
                         class="steps-field"
@@ -329,6 +330,16 @@
                         v-model.number="activePattern(song).tempo"
                         @change="() => handleTempoChange(activePattern(song))"
                       />
+                      <v-btn
+                        v-if="song.patterns.length > 1"
+                        icon
+                        small
+                        title="Delete this pattern"
+                        class="delete-icon-btn pattern-delete-btn"
+                        @click="() => handleDeletePattern(song, activePattern(song))"
+                      >
+                        <v-icon small>mdi-delete</v-icon>
+                      </v-btn>
                     </v-card-text>
 
                     <v-card-text v-if="!isPatternCollapsed(song, activePattern(song))" class="track-section">
@@ -646,7 +657,7 @@ import {useMusicEditorActiveState} from '../hooks/music-editor-state';
 import {useConfigurationStorage, useSongsStorage, useSoundEffectsStorage} from '../hooks/project';
 import {
   clampTempo, DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
-  LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_TEMPO, PATTERN_STEP_OPTIONS,
+  LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_TEMPO, normalizeSequenceGroups, PATTERN_STEP_OPTIONS,
   processSongsStorageDefaults,
 } from '../blocks/music';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
@@ -918,7 +929,30 @@ export default defineComponent({
     // memoized) so it always reflects whichever drag (song or chip, if
     // either) is currently active.
     const dragCardClass = (index) => (draggedSequenceStep.value ? {} : rawDragCardClass(index));
-    const dragTargetListeners = (index) => (draggedSequenceStep.value ? {} : rawDragTargetListeners(index));
+    // Wraps each individual handler (not just conditionally swapping the
+    // WHOLE listeners object the way dragCardClass above does) so the real
+    // guard check happens synchronously at the moment an event actually
+    // fires, not only after Vue's own (batched, async) re-render has had a
+    // chance to re-evaluate this v-on binding with the swapped-in {}
+    // object. Confirmed directly as a real bug with the swap-the-whole-
+    // object approach alone: dragstart sets draggedSequenceStep
+    // synchronously, but the browser can still dispatch a dragover (or
+    // even drop) on the song card BEFORE Vue's next tick actually detaches
+    // its old listeners, since HTML5 drag events aren't batched the way
+    // Vue's own reactivity is - letting the song card's own reorder
+    // highlight/drop briefly fire mid-chip-drag despite this guard. A
+    // plain ref read inside each wrapped handler has no such delay.
+    const dragTargetListeners = (index) => {
+      const raw = rawDragTargetListeners(index);
+      const guarded = {};
+      Object.keys(raw).forEach((eventName) => {
+        guarded[eventName] = (event) => {
+          if (draggedSequenceStep.value) return;
+          raw[eventName](event);
+        };
+      });
+      return guarded;
+    };
 
     const instance = getCurrentInstance();
     const forceUpdate = () => instance.proxy.$forceUpdate();
@@ -1072,7 +1106,7 @@ export default defineComponent({
           stepCount: DEFAULT_PATTERN_STEPS,
           tracks: [emptyTrack(1, firstSoundEffectId)],
         }],
-        sequence: [1],
+        sequence: [{id: 1, patternId: 1, count: 1}],
       };
       songs.push(newSong);
       handleChildChange();
@@ -1195,6 +1229,14 @@ export default defineComponent({
                 }
               });
             });
+            // Normalized the same way a stored project's own sequence is
+            // (see processSongsStorageDefaults in blocks/music.js) - an
+            // OLDER exported song .json file (from before repeat groups
+            // existed) would otherwise still have its own sequence as a
+            // flat array of raw patternIds, bypassing that normalization
+            // entirely, since import overwrites this song's fields
+            // directly rather than going through the storage-load path.
+            songData.sequence = normalizeSequenceGroups(songData.sequence);
             Object.assign(song, songData, {id: song.id});
             if (activePatternId(song) && !song.patterns.some(({id: pid}) => pid === activePatternId(song))) {
               setActivePattern(song, song.patterns[0] && song.patterns[0].id);
@@ -1399,17 +1441,103 @@ export default defineComponent({
       forceUpdate();
     };
 
+    // song.sequence is stored as {id, patternId, count} groups (see
+    // DEFAULT_SONGS/normalizeSequenceGroups in blocks/music.js) - one
+    // resizable Sequence chip per group, count > 1 meaning that pattern
+    // repeats that many times in a row (see handleSequenceResizeStart)
+    // instead of making the user add the same pattern over and over. A
+    // fresh Add adds to the LAST group's own count instead of always
+    // pushing a new one whenever it already matches, so repeatedly picking
+    // the same pattern from the dropdown behaves the same as dragging the
+    // resize handle would.
     const handleAddSequenceStep = (song, patternId) => {
       if (patternId == null) return;
-      song.sequence.push(patternId);
+      const last = song.sequence[song.sequence.length - 1];
+      if (last && last.patternId === patternId) {
+        last.count++;
+      } else {
+        const maxId = max(song.sequence.map((group) => group.id)) || 0;
+        song.sequence.push({id: maxId + 1, patternId, count: 1});
+      }
       handleChildChange();
       forceUpdate();
     };
 
-    const handleRemoveSequenceStep = (song, index) => {
-      song.sequence.splice(index, 1);
+    const handleRemoveSequenceGroup = (song, group) => {
+      song.sequence = song.sequence.filter(({id}) => id !== group.id);
       handleChildChange();
       forceUpdate();
+    };
+
+    // Roughly one chip's own width in px - drags are snapped to whole
+    // multiples of this (see handleSequenceResizeStart), matching the
+    // "1x long, 2x long, 3x long" whole-repeat-only requirement rather
+    // than free-form pixel widths that wouldn't map onto a real repeat
+    // count at all.
+    const SEQUENCE_CHIP_UNIT_WIDTH = 64;
+
+    // {songId, groupId, startCount, previewCount} of whichever chip is
+    // currently being resize-dragged, or null - previewCount is the LIVE
+    // (not yet committed) repeat count while dragging, read by
+    // sequenceGroupPreviewCount/sequenceGroupChipStyle below so the chip's
+    // own label/width visibly track the drag before it's released; the
+    // group's real count is only actually written once on mouseup (see
+    // handleSequenceResizeStart), same "commit on release, preview during
+    // the gesture" split the Length (steps) resize handle elsewhere on
+    // this tab already uses.
+    const sequenceResize = ref(null);
+    const sequenceGroupPreviewCount = (song, group) =>
+      sequenceResize.value && sequenceResize.value.songId === song.id &&
+        sequenceResize.value.groupId === group.id ?
+        sequenceResize.value.previewCount : group.count;
+    const sequenceGroupChipStyle = (song, group) => {
+      const count = sequenceGroupPreviewCount(song, group);
+      return count > 1 ? {minWidth: `${count * 56}px`} : {};
+    };
+    // A lighter tint of the chip's own color (see patternSequenceColor),
+    // not a fixed grey - reads as part of the same chip rather than an
+    // unrelated control bolted on next to it, while still being visibly a
+    // different (lighter) shade so the drag affordance itself doesn't get
+    // lost against a same-color chip.
+    const sequenceGroupHandleStyle = (group) =>
+      ({background: `color-mix(in srgb, ${patternSequenceColor(group.patternId)} 45%, white)`});
+
+    // Dragging this handle grows/shrinks how many times in a row this
+    // pattern repeats, snapped to whole repeats (see
+    // SEQUENCE_CHIP_UNIT_WIDTH) - a plain window-level mousemove/mouseup
+    // drag, not the HTML5 draggable API the chips themselves use for
+    // reordering (see sequenceChipListeners below), since this needs
+    // continuous pointer-position tracking rather than drop-target
+    // semantics. preventDefault on mousedown (and the handle's own
+    // draggable="false" in the template) keeps this from also kicking off
+    // a native chip-reorder drag, since the handle sits inside the same
+    // draggable wrap.
+    const handleSequenceResizeStart = (song, group, event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      sequenceResize.value = {songId: song.id, groupId: group.id, startCount: group.count, previewCount: group.count};
+      const handleMove = (moveEvent) => {
+        const deltaCount = Math.round((moveEvent.clientX - startX) / SEQUENCE_CHIP_UNIT_WIDTH);
+        const previewCount = Math.max(1, sequenceResize.value.startCount + deltaCount);
+        if (sequenceResize.value.previewCount !== previewCount) {
+          sequenceResize.value = {...sequenceResize.value, previewCount};
+        }
+      };
+      const handleUp = () => {
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleUp);
+        const resize = sequenceResize.value;
+        sequenceResize.value = null;
+        if (!resize || resize.previewCount === resize.startCount) return;
+        const target = song.sequence.find(({id}) => id === resize.groupId);
+        if (!target) return;
+        target.count = resize.previewCount;
+        handleChildChange();
+        forceUpdate();
+      };
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
     };
 
     // Drag-and-drop reordering for one song's own Sequence chips - not built
@@ -1424,27 +1552,28 @@ export default defineComponent({
     // no text field or other free-form click-and-drag-to-select content for
     // `draggable` to conflict with.
     const draggedSequenceStep = ref(null);
-    // {songId, index, side} - side is 'before' or 'after', which HALF of
-    // chip `index` the pointer is currently over (see dragOverSideFor
-    // below) - a chip being dragged toward doesn't just mean "insert
-    // before it" the way the old single-index version always drew its
-    // highlight; a chip dragged to a position AFTER a target needs the
-    // highlight (and the actual drop) to land on that target's own right
-    // side, not its left.
+    // {songId, groupId, side} - groupId identifies which Sequence group
+    // (see blocks/music.js's own {id, patternId, count} shape) is being
+    // dragged toward, side is 'before' or 'after', which HALF of that chip
+    // the pointer is currently over (see dragOverSideFor below) - a chip
+    // being dragged toward doesn't just mean "insert before it" the way a
+    // single-index version would always draw its highlight; a chip dragged
+    // to a position AFTER a target needs the highlight (and the actual drop) to
+    // land on that target's own right side, not its left.
     const dragOverSequenceStep = ref(null);
-    const isSequenceStepDragging = (song, index) =>
+    const isSequenceStepDragging = (song, group) =>
       !!draggedSequenceStep.value &&
-      draggedSequenceStep.value.songId === song.id && draggedSequenceStep.value.index === index;
-    const isSequenceStepDragOver = (song, index) =>
+      draggedSequenceStep.value.songId === song.id && draggedSequenceStep.value.groupId === group.id;
+    const isSequenceStepDragOver = (song, group) =>
       !!dragOverSequenceStep.value &&
-      dragOverSequenceStep.value.songId === song.id && dragOverSequenceStep.value.index === index &&
-      !isSequenceStepDragging(song, index);
-    // Which side of chip `index`'s own highlight to show, for the
-    // template's :class binding - null when this chip isn't the current
-    // drag-over target at all (see isSequenceStepDragOver above, which
-    // this reuses so the two never disagree).
-    const sequenceDragOverSide = (song, index) =>
-      isSequenceStepDragOver(song, index) ? dragOverSequenceStep.value.side : null;
+      dragOverSequenceStep.value.songId === song.id && dragOverSequenceStep.value.groupId === group.id &&
+      !isSequenceStepDragging(song, group);
+    // Which side of this chip's own highlight to show, for the template's
+    // :class binding - null when this chip isn't the current drag-over
+    // target at all (see isSequenceStepDragOver above, which this reuses
+    // so the two never disagree).
+    const sequenceDragOverSide = (song, group) =>
+      isSequenceStepDragOver(song, group) ? dragOverSequenceStep.value.side : null;
     // Left half of the chip's own bounding box means "insert before it",
     // right half means "insert after it" - the same halfway-point
     // convention most drag-reorder UIs use (e.g. a Kanban board's own
@@ -1455,7 +1584,11 @@ export default defineComponent({
       const rect = event.currentTarget.getBoundingClientRect();
       return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
     };
-    const sequenceChipListeners = (song, index) => ({
+    // Dragging a chip moves its own group object within song.sequence - a
+    // repeated chip (count > 1) is still just ONE array entry (see
+    // blocks/music.js's own {id, patternId, count} shape), so this is a
+    // plain single-item move, same as before repeat groups existed.
+    const sequenceChipListeners = (song, group) => ({
       dragstart: (event) => {
         // Stops this drag from ALSO being seen by the song card's own
         // dragTargetListeners (see useDragReorder(state.value.songs, ...)
@@ -1466,11 +1599,11 @@ export default defineComponent({
         // border-top highlight while dragging a chip, since it has no way
         // to tell a bubbled chip-drag apart from an actual song-card drag.
         event.stopPropagation();
-        draggedSequenceStep.value = {songId: song.id, index};
+        draggedSequenceStep.value = {songId: song.id, groupId: group.id};
         event.dataTransfer.effectAllowed = 'move';
         // Same Firefox requirement as hooks/drag-reorder.js's own
         // dragHandleListeners - the value itself is never read back.
-        event.dataTransfer.setData('text/plain', String(index));
+        event.dataTransfer.setData('text/plain', String(group.id));
       },
       dragend: (event) => {
         event.stopPropagation();
@@ -1483,7 +1616,7 @@ export default defineComponent({
         event.dataTransfer.dropEffect = 'move';
         // dragover fires continuously (many times a second) for as long as
         // the pointer sits over this chip, not just once on entry - only
-        // actually writing the ref when the target (index OR which half
+        // actually writing the ref when the target (groupId OR which half
         // of it - see dragOverSideFor) changed, not every single tick,
         // avoids creating a brand new object, and the resulting
         // full-component reactive re-render (piano roll grid included),
@@ -1494,8 +1627,8 @@ export default defineComponent({
         // these redundant re-renders.
         const side = dragOverSideFor(event);
         const current = dragOverSequenceStep.value;
-        if (!current || current.songId !== song.id || current.index !== index || current.side !== side) {
-          dragOverSequenceStep.value = {songId: song.id, index, side};
+        if (!current || current.songId !== song.id || current.groupId !== group.id || current.side !== side) {
+          dragOverSequenceStep.value = {songId: song.id, groupId: group.id, side};
         }
       },
       dragleave: (event) => {
@@ -1508,7 +1641,7 @@ export default defineComponent({
         // treating that as a real "left the chip" and only clears the
         // drag-over highlight once the pointer is genuinely outside it.
         if (event.currentTarget.contains(event.relatedTarget)) return;
-        if (isSequenceStepDragOver(song, index) || isSequenceStepDragging(song, index)) {
+        if (isSequenceStepDragOver(song, group) || isSequenceStepDragging(song, group)) {
           dragOverSequenceStep.value = null;
         }
       },
@@ -1518,26 +1651,29 @@ export default defineComponent({
         const from = draggedSequenceStep.value;
         draggedSequenceStep.value = null;
         dragOverSequenceStep.value = null;
-        if (!from || from.songId !== song.id) return;
+        if (!from || from.songId !== song.id || from.groupId === group.id) return;
         // Computed fresh off the actual drop event's own pointer position
         // (not read back off dragOverSequenceStep) so the drop always
         // matches exactly what the highlight it lands on last showed, even
         // in the (browser-dependent) edge case where a final dragover
         // right before the drop didn't get a chance to update that ref.
         const side = dragOverSideFor(event);
+        const sequence = song.sequence.slice();
+        const fromIndex = sequence.findIndex(({id}) => id === from.groupId);
+        const targetIndex = sequence.findIndex(({id}) => id === group.id);
+        if (fromIndex === -1 || targetIndex === -1) return;
         // Where the dragged chip should land, in terms of the ORIGINAL
-        // (pre-removal) array's own indices: right before `index` for
+        // (pre-removal) array's own indices: right before the target for
         // 'before', right after it for 'after'. Removing the dragged chip
         // first shifts every index after its own OLD position left by
         // one, so that has to be corrected for before this target
         // position is actually used to splice it back in - see
         // dragOverSideFor's own comment for why "before/after a target"
         // is tracked at all instead of always inserting before it.
-        let insertAt = side === 'after' ? index + 1 : index;
-        if (from.index < insertAt) insertAt--;
-        if (insertAt === from.index) return;
-        const sequence = song.sequence.slice();
-        const [moved] = sequence.splice(from.index, 1);
+        let insertAt = side === 'after' ? targetIndex + 1 : targetIndex;
+        if (fromIndex < insertAt) insertAt--;
+        if (insertAt === fromIndex) return;
+        const [moved] = sequence.splice(fromIndex, 1);
         sequence.splice(insertAt, 0, moved);
         song.sequence = sequence;
         handleChildChange();
@@ -1554,7 +1690,7 @@ export default defineComponent({
     // {patternId, elapsedUnits} of whatever's currently playing (either a
     // single pattern or one step of a song's sequence), or null - drives the
     // piano roll's own moving playhead (see patternCellStyle) and the
-    // Sequence list's playing-pattern highlight (see isSequenceStepPlaying).
+    // Sequence list's playing-pattern highlight (see isSequenceGroupPlaying).
     // Polled via requestAnimationFrame rather than pushed from
     // music-playback.js, since that module only knows AudioContext time, not
     // Vue reactivity - this is the one place that bridges the two, and only
@@ -1671,31 +1807,39 @@ export default defineComponent({
       stopPlaybackHeadPolling();
     };
 
-    // A sequence chip's own click has two different meanings depending on
-    // whether this song is actually playing right now: normally it just
-    // switches which pattern is being viewed/edited (see setActivePattern),
-    // but while the song's own sequence is mid-playback, clicking a chip
-    // instead JUMPS playback there (restarting handlePlaySong at that
-    // step), the same "click seeks" affordance the piano roll's own step
-    // ruler already gives a single playing pattern (see handleSeekToStep).
-    const handleSequenceChipClick = (song, index, patternId) => {
+    // A sequence chip's own click does two things while the song's own
+    // sequence is mid-playback: JUMPS playback there (restarting
+    // handlePlaySong at that step, the same "click seeks" affordance the
+    // piano roll's own step ruler already gives a single playing pattern -
+    // see handleSeekToStep) AND still switches which pattern is being
+    // viewed/edited (see setActivePattern), same as a click while nothing
+    // is playing - without this second part, the Instruments list below
+    // kept showing whichever pattern was active before the click instead of
+    // the one just jumped to, since only handlePlaySong ran.
+    const handleSequenceChipClick = (song, group) => {
       if (playingSongId.value === song.id) {
-        handlePlaySong(song, index);
-      } else {
-        setActivePattern(song, patternId);
+        const index = song.sequence.findIndex(({id}) => id === group.id);
+        handlePlaySong(song, index === -1 ? 0 : index);
       }
+      setActivePattern(song, group.patternId);
     };
 
-    // Whether THIS specific sequence entry (identified by its own index in
-    // song.sequence, not just its patternId) is the one currently sounding -
-    // only meaningful during song (not lone pattern) playback, since a
-    // sequence step only exists in that context. Matched by index rather
-    // than patternId alone so a pattern used more than once in the same
-    // sequence (e.g. an intro pattern reused later) only highlights the one
-    // chip actually playing right now, not every chip for that pattern at
-    // once (see sequenceIndex in music-playback.js's getPlaybackHead).
-    const isSequenceStepPlaying = (song, sequenceIndex) =>
-      playingSongId.value === song.id && !!playbackHead.value && playbackHead.value.sequenceIndex === sequenceIndex;
+    // Whether THIS specific sequence GROUP (see blocks/music.js's own
+    // {id, patternId, count} shape - one chip, possibly repeating count > 1
+    // times in a row) is the one currently sounding - only meaningful
+    // during song (not lone pattern) playback, since a sequence step only
+    // exists in that context. Matched by this group's own POSITION in
+    // song.sequence (playSequence in music-playback.js tags every one of a
+    // group's own repeats with that same position as sequenceIndex - see
+    // its own comment), not by patternId alone, so a pattern used in more
+    // than one separate group (e.g. an intro pattern reused later) only
+    // highlights the group actually playing right now, not every group for
+    // that pattern at once.
+    const isSequenceGroupPlaying = (song, group) => {
+      if (playingSongId.value !== song.id || !playbackHead.value) return false;
+      const index = song.sequence.findIndex(({id}) => id === group.id);
+      return index !== -1 && playbackHead.value.sequenceIndex === index;
+    };
 
     // Random-but-stable per pattern (same golden-angle hue trick as
     // autoInstrumentColor, just keyed by pattern id instead of sound effect
@@ -2304,13 +2448,14 @@ export default defineComponent({
       handlePatternFieldChange,
       handleExportPattern, handleImportPattern,
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
-      handleAddSequenceStep, handleRemoveSequenceStep,
+      handleAddSequenceStep, handleRemoveSequenceGroup,
+      sequenceGroupPreviewCount, sequenceGroupChipStyle, sequenceGroupHandleStyle, handleSequenceResizeStart,
       sequenceChipListeners, isSequenceStepDragging, sequenceDragOverSide,
       handlePlayPattern, handlePlaySong, handleSequenceChipClick, handleStop,
       handleToggleLoopPattern, handleToggleLoopSong,
       handleSeekToStep,
       playingPatternId, playingSongId,
-      isSequenceStepPlaying, patternSequenceColor,
+      isSequenceGroupPlaying, patternSequenceColor,
       handlePatternCellClick, handleCellHover, handleCellLeave, startResize,
       activePatternId, setActivePattern, activePattern,
       activeTrackFor, isActiveTrack, setActiveTrack,
@@ -2392,8 +2537,18 @@ export default defineComponent({
 
 .dim-hint {
   margin-top: 8px;
+  margin-bottom: 0;
   color: rgba(0, 0, 0, 0.6);
   font-size: 0.75rem;
+}
+
+/* Zeroed (was the default 16px v-card-text padding) - between .dim-section's
+   own zeroed padding-bottom and .dim-hint's own zeroed margin-bottom above,
+   nothing else was left putting space here, so this was stacking a third,
+   easy-to-miss gap on top of .song-list's own 12px margin-top, leaving a lot
+   of empty space between the DIM controls and the first song card. */
+.song-list-section {
+  padding-top: 0;
 }
 
 /* Vuetify's default v-list-item padding is 0 16px - zeroing only the left
@@ -2662,6 +2817,18 @@ export default defineComponent({
   gap: 12px;
 }
 
+/* Pushed to the far right of the row (margin-left: auto), away from the
+   Add/Duplicate buttons next to the Pattern name field - deliberately kept
+   apart from those, since it's the one destructive action in this row and
+   sitting right next to Add/Duplicate risked a stray click landing on
+   Delete instead. Nudged down to roughly match where the row's other
+   fields' own input boxes sit (they each have a floated label above their
+   box; this icon button has no such label eating space above it). */
+.pattern-delete-btn {
+  margin-left: auto;
+  margin-top: 12px;
+}
+
 /* Scoped to .pattern-card specifically, NOT .pattern-name-row - the song
    card's own name row (see the template) carries BOTH .song-name-row AND
    .pattern-name-row (they share layout, just not this spacing), so a
@@ -2812,7 +2979,7 @@ export default defineComponent({
 .sequence-chip-wrap {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   cursor: grab;
 }
 
@@ -2849,9 +3016,75 @@ export default defineComponent({
    though the class WAS being applied correctly the whole time. The
    primary-color outer ring is what actually shows up against the card;
    the white ring is kept as an inner separator so the two don't blend
-   into the chip's own color either, on a light or dark chip color alike. */
-.sequence-chip-playing {
+   into the chip's own color either, on a light or dark chip color alike.
+   Applied to the WHOLE wrap (chip + its own resize handle together, see
+   .sequence-chip-wrap), not just the chip on its own - confirmed directly
+   as a real bug otherwise: once the resize handle became a visually fused
+   part of the same chip (flush edges, matching height - see
+   .sequence-chip-resize-handle), a ring drawn around the chip ALONE
+   stopped short of the handle, reading as a highlight that didn't match
+   the shape of the control it was supposedly outlining. Rounded to match
+   the combined shape's own corners (the chip's rounded left end, the
+   handle's rounded right end). */
+.sequence-chip-wrap-playing {
+  border-radius: 12px;
   box-shadow: 0 0 0 2px white, 0 0 0 4px var(--v-primary-base, #1976d2);
+}
+
+/* Label stays pinned to the left edge and the close (x) icon to the right
+   edge even once the chip is stretched wider than its own content (see
+   sequenceGroupChipStyle's minWidth, for a chip repeating more than once) -
+   Vuetify's own .v-chip__content only ever sizes to its own content by
+   default, so a wider outer chip otherwise left both floating together in
+   the middle instead of spreading to the chip's own full width. */
+.sequence-chip >>> .v-chip__content {
+  width: 100%;
+  justify-content: space-between;
+}
+
+/* No gap between the chip and its own resize handle (see
+   .sequence-chip-wrap below) and no rounding on the chip's own right
+   corners, where the handle sits flush against it - together with the
+   handle's own matching left corners (0) and matching height, this reads
+   as ONE pill-shaped control (chip + handle) rather than two separate
+   controls sitting side by side. */
+.sequence-chip {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  /* Vuetify's own default right padding leaves noticeable empty space
+     between the close (x) icon and the chip's own right edge - tightened
+     here so it sits closer to that edge, same reasoning as the icon's own
+     already-tight left-side spacing. Left padding untouched (the text
+     label's own spacing is unaffected). */
+  padding-right: 8px !important;
+}
+
+/* A grip fused onto a sequence chip's own right edge (see .sequence-chip
+   above) - dragging it repeats the chip's own pattern more (or fewer)
+   times in a row (see handleSequenceResizeStart), snapped to whole
+   repeats. Same height as the chip itself (a "small" v-chip's own fixed
+   24px) and rounded only on its own outer (right) corners, matching the
+   chip's own pill shape on that side, so the combined shape reads as one
+   continuous capsule. Its own background color (see
+   sequenceGroupHandleStyle) is a lighter tint of the chip's own color, not
+   a fixed grey, for the same "part of the same chip" reason. ew-resize
+   (not the wrap's own grab cursor) signals this is a horizontal resize,
+   not a reorder drag, even though both live in the same small area. */
+.sequence-chip-resize-handle {
+  /* At least as wide as its own 12px corner radius (matching the chip's
+     own left-edge radius - see .sequence-chip) - CSS scales corner radii
+     DOWN to fit when they'd otherwise exceed the box's own width, so a
+     narrower handle wouldn't actually render at the full matching 12px it
+     was given, despite the value itself being identical. */
+  width: 14px;
+  height: 24px;
+  border-radius: 0 12px 12px 0;
+  cursor: ew-resize;
+  flex: 0 0 auto;
+}
+
+.sequence-chip-resize-handle:hover {
+  filter: brightness(0.92);
 }
 
 .pattern-card {

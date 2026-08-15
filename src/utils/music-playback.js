@@ -623,12 +623,13 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
  *     muted instrument's own notes entirely (see playPattern). Whether to
  *     loop is read live off song.loop on every pass, same reasoning as
  *     playPattern's own pattern.loop - see its comment. startIndex (default
- *     0) skips straight to that Sequence step on the first pass instead of
- *     starting from the beginning - see handleSequenceChipClick in
- *     MusicEditor.vue, which uses this to jump playback to whichever chip
- *     was clicked while the song is already playing. Only the first pass; a
- *     looping song's later passes always restart at step 0, same as
- *     clicking Play normally would (matches playPattern's own startUnits).
+ *     0) skips straight to that Sequence GROUP (see blocks/music.js's own
+ *     {id, patternId, count} shape) on the first pass instead of starting
+ *     from the beginning - see handleSequenceChipClick in MusicEditor.vue,
+ *     which uses this to jump playback to whichever chip was clicked while
+ *     the song is already playing. Only the first pass; a looping song's
+ *     later passes always restart at group 0, same as clicking Play
+ *     normally would (matches playPattern's own startUnits).
  */
 export const playSequence = (song, soundEffects, {onDone, isTrackMuted, startIndex = 0} = {}) => {
   stopPatternPlayback();
@@ -644,18 +645,27 @@ export const playSequence = (song, soundEffects, {onDone, isTrackMuted, startInd
   const scheduleOnce = (startTime, passStartIndex = 0) => {
     let cursorSeconds = 0;
     const timeline = [];
-    (song.sequence || []).forEach((patternId, sequenceIndex) => {
+    // Each GROUP (one Sequence chip, possibly repeating count > 1 times in
+    // a row - see blocks/music.js's own {id, patternId, count} shape)
+    // schedules `count` back-to-back real plays, all tagged with the SAME
+    // sequenceIndex (this group's own position in song.sequence) - so the
+    // chip stays highlighted (see isSequenceGroupPlaying in MusicEditor.vue)
+    // for every one of its own repeats, not just the first.
+    (song.sequence || []).forEach((group, sequenceIndex) => {
       if (sequenceIndex < passStartIndex) return;
-      const pattern = song.patterns.find(({id}) => id == patternId);
+      const pattern = song.patterns.find(({id}) => id == group.patternId);
       if (!pattern) return;
       const tempo = effectiveTempo(song, pattern);
-      const segmentStart = startTime + cursorSeconds;
-      const segmentSeconds = schedulePattern(context, pattern, soundEffects, segmentStart, tempo, isTrackMuted);
-      timeline.push({
-        patternId: pattern.id, sequenceIndex, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
-        unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
-      });
-      cursorSeconds += segmentSeconds;
+      const repeatCount = Math.max(1, Math.round(Number(group.count) || 1));
+      for (let rep = 0; rep < repeatCount; rep++) {
+        const segmentStart = startTime + cursorSeconds;
+        const segmentSeconds = schedulePattern(context, pattern, soundEffects, segmentStart, tempo, isTrackMuted);
+        timeline.push({
+          patternId: pattern.id, sequenceIndex, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
+          unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
+        });
+        cursorSeconds += segmentSeconds;
+      }
     });
     const endTime = startTime + cursorSeconds;
     // Same "keep the previous pass' own timeline entries around a little

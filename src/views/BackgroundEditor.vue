@@ -130,11 +130,11 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
-import {useDragReorder} from '../hooks/drag-reorder';
+import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
@@ -221,15 +221,75 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('background');
 
-    // Card reordering - same hook/pattern as Text/SoundFX/Data/Music (see
-    // hooks/drag-reorder.js's own comment).
-    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
-        () => state.value.backgrounds,
-        (items) => {
-          state.value.backgrounds = items;
-          handleChildChange();
-        },
-    );
+    // Card reordering - NOT built on hooks/drag-reorder.js's own
+    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
+    // single-column card lists), since that hook's own top-border
+    // drag-over convention only makes sense for a strictly vertical stack.
+    // .background-list is a CSS grid (see its own comment - two or more
+    // cards can sit side by side on a wide enough window), where the
+    // meaningful drop-target edge is left/right (which card this lands
+    // before/after in reading order), not top/bottom - same reasoning as
+    // TextEditor.vue's own identical replacement.
+    const draggedIndex = ref(null);
+    // {index, side} - side is 'before' or 'after', which HALF of card
+    // `index` the pointer is currently over.
+    const dragOverEntry = ref(null);
+    const isEntryDragging = (index) => draggedIndex.value === index;
+    const isEntryDragOver = (index) =>
+      !!dragOverEntry.value && dragOverEntry.value.index === index && !isEntryDragging(index);
+    const entryDragOverSide = (index) => (isEntryDragOver(index) ? dragOverEntry.value.side : null);
+    const dragCardClass = (index) => ({
+      [CSS_CLASS_DRAGGING]: isEntryDragging(index),
+      'background-card-drag-over-before': entryDragOverSide(index) === 'before',
+      'background-card-drag-over-after': entryDragOverSide(index) === 'after',
+    });
+    const dragOverSideFor = (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    };
+    const dragAttrs = () => ({draggable: true});
+    const dragHandleListeners = (index) => ({
+      dragstart: (event) => {
+        draggedIndex.value = index;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(index));
+      },
+      dragend: () => {
+        draggedIndex.value = null;
+        dragOverEntry.value = null;
+      },
+    });
+    const dragTargetListeners = (index) => ({
+      dragover: (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const side = dragOverSideFor(event);
+        const current = dragOverEntry.value;
+        if (!current || current.index !== index || current.side !== side) {
+          dragOverEntry.value = {index, side};
+        }
+      },
+      dragleave: (event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (isEntryDragOver(index) || isEntryDragging(index)) dragOverEntry.value = null;
+      },
+      drop: (event) => {
+        event.preventDefault();
+        const from = draggedIndex.value;
+        draggedIndex.value = null;
+        dragOverEntry.value = null;
+        if (from == null || from === index) return;
+        const side = dragOverSideFor(event);
+        let insertAt = side === 'after' ? index + 1 : index;
+        if (from < insertAt) insertAt--;
+        if (insertAt === from) return;
+        const items = state.value.backgrounds.slice();
+        const [moved] = items.splice(from, 1);
+        items.splice(insertAt, 0, moved);
+        state.value.backgrounds = items;
+        handleChildChange();
+      },
+    });
 
     const handleRowColorsInput = (background, colors) => {
       background.rowColors = colors;
@@ -431,8 +491,18 @@ export default defineComponent({
   opacity: 0.4;
 }
 
-.drag-reorder-over {
-  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
+/* Which side of THIS card a dragged one would land on (see
+   entryDragOverSide/dragOverSideFor) - left/right, not hooks/
+   drag-reorder.js's own top-border convention, since .background-list is a
+   CSS grid that can put more than one card on the same row (see its own
+   comment) - left/right is what actually reflects reading-order position
+   within it. */
+.background-card-drag-over-before {
+  border-left: 3px solid var(--v-primary-base, #1976d2) !important;
+}
+
+.background-card-drag-over-after {
+  border-right: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Sits in v-list-item-title, which (unlike the pixel editor's own toolbar)
@@ -482,9 +552,10 @@ export default defineComponent({
 /* Same reasoning as TextEditor.vue's .text-name-field - reserves room below
    the now-absolutely-positioned collapse button/ID badge instead of them
    overlapping this field, now that neither sits in a normal-flow row above
-   it anymore. */
+   it anymore. Matches .soundfx-name-field's own margin-top (SoundFXEditor.vue)
+   for consistent badge-to-name spacing across every tab. */
 .background-name-field {
-  margin-top: 12px;
+  margin-top: 20px;
 }
 
 .add-frame-buttom {

@@ -91,7 +91,20 @@ export const DEFAULT_SONGS = {
           tracks: [emptyTrack(1, 1)],
         },
       ],
-      sequence: [1],
+      // {id, patternId, count} per Sequence entry - count > 1 is a pattern
+      // repeated that many times in a row (see MusicEditor.vue's own
+      // handleSequenceResizeStart, which is how a user actually creates
+      // one) - stored this way rather than one raw patternId per real
+      // repeat specifically so a long repeated run doesn't bloat the
+      // project JSON/localStorage with dozens of identical entries; see
+      // normalizeSequenceGroups below for the migration from the old flat
+      // shape. The compiled ROM keeps this same group shape too, rather
+      // than expanding back to one entry per repeat - see
+      // generators/bbasic/music.js's resolveProjectMusic (sequenceRepeatPacked)
+      // and generateMusicChecks (the seqRepeatVar countdown) for the
+      // runtime repeat counter that replays a group's own pattern in place
+      // instead of needing a table row per real repeat.
+      sequence: [{id: 1, patternId: 1, count: 1}],
     },
   ],
   // Optional per-sound-effect color overrides (soundEffectId -> TIA color
@@ -105,6 +118,44 @@ export const DEFAULT_SONGS = {
   subdivision: DEFAULT_SUBDIVISION,
   // A fresh project has no notes to migrate.
   noteLengthUnitsMigrated: true,
+};
+
+// Normalizes a song's own sequence into the current {id, patternId, count}
+// shape - handles three cases at once: the OLD shape (a flat array of raw
+// patternIds, one per real repeat, from a project saved before repeat
+// groups existed - see DEFAULT_SONGS' own comment), the current shape
+// (defensively re-validated - a hand-edited or corrupted file could have a
+// missing id/non-integer count), and an already-correct in-memory sequence
+// (a no-op pass, safe to call unconditionally on every load rather than
+// needing its own one-time migration flag the way the note-length rescale
+// above does, since collapsing already-grouped entries can't lose
+// information the way re-scaling an already-migrated note length would).
+// Exported (not just used internally below) since MusicEditor.vue's own
+// handleImportSong needs this same normalization for an OLDER exported
+// song .json file being imported into a project that's already on the new
+// shape - that file's own `sequence` bypasses this function entirely
+// otherwise, since importing overwrites a song's fields directly rather
+// than going through this storage-load path.
+export const normalizeSequenceGroups = (sequence) => {
+  const flat = Array.isArray(sequence) ? sequence : [];
+  let nextId = 1;
+  if (flat.length && flat[0] && typeof flat[0] === 'object') {
+    return flat.map((group) => {
+      const id = group.id != null ? group.id : nextId;
+      nextId = Math.max(nextId, id + 1);
+      return {id, patternId: group.patternId, count: Math.max(1, Math.round(Number(group.count) || 1))};
+    }).filter((group) => group.patternId != null);
+  }
+  const groups = [];
+  flat.forEach((patternId) => {
+    const last = groups[groups.length - 1];
+    if (last && last.patternId === patternId) {
+      last.count++;
+    } else {
+      groups.push({id: nextId++, patternId, count: 1});
+    }
+  });
+  return groups;
 };
 
 export const processSongsStorageDefaults = (songsStorage) => {
@@ -149,6 +200,7 @@ export const processSongsStorageDefaults = (songsStorage) => {
     if (typeof song.loop !== 'boolean') {
       song.loop = false;
     }
+    song.sequence = normalizeSequenceGroups(song.sequence);
     (song.patterns || []).forEach((pattern) => {
       pattern.tempo = clampTempo(pattern.tempo ?? DEFAULT_TEMPO);
       // A pattern saved before this song-level Tempo field existed was

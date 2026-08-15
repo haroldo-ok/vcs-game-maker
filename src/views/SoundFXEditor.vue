@@ -634,6 +634,7 @@ export default defineComponent({
    Instrument row's own dense/hide-details proportions to eyeball from. */
 .soundfx-name-row >>> .color-swatch-picker-dot {
   margin-top: 41px;
+  margin-left: -6px;
 }
 
 /* Same flat-icon, fade-in-on-hover treatment as the pixel editor's own

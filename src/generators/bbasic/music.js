@@ -74,6 +74,32 @@ export const musicPageVarName = (channel) => `_musicCh${channel}Page`;
 // since the same pattern (and so the same starting page) can be reached from
 // more than one sequence position.
 export const musicSeqPosVarName = (channel) => `_musicCh${channel}SeqPos`;
+// Only reserved/used for a project where some included song's own Sequence
+// list actually repeats a pattern several times in a row (see
+// resolveProjectMusic's own groups/sequenceRepeatCount, and blocks/music.js's
+// {id, patternId, count} shape a resized Sequence chip produces) - how many
+// MORE times, after the one currently playing, a channel should replay the
+// pattern at its current sequence position before actually advancing to the
+// next one. Counting this down at the runtime pattern-transition point (see
+// generateMusicChecks) rather than storing one flat sequence-table entry per
+// real repeat (an earlier version of this) is what lets a resized-to-
+// repeat-8-times chip cost a fixed couple bytes of ROM instead of 8.
+//
+// ONE SHARED byte for every channel, not one per channel - channel 0's own
+// count lives in the low nibble, channel 1's in the high nibble, same
+// packed-nibble convention soundfx.js's own soundFadeVolumes already uses
+// for its own per-channel fade targets (see soundfx_play/
+// generateSoundFadeChecks there). Each channel only ever reads/writes its
+// OWN nibble (via & $0F / / 16, masking the other nibble off before writing
+// - see generateMusicChecks), never the other channel's, so this is safe
+// without any cross-channel coordination despite being one shared var - a
+// genuinely different situation from seqPosVar/pageVar, which track state
+// that would need actual synchronization to safely share (not attempted
+// here). The cost of packing: a repeat count is capped at 16 total plays
+// (a 4-bit nibble only reaches 15 repeats-remaining) - well past any
+// realistic use, and still adjustable per group independently either way.
+export const musicSeqRepeatVarName = () => '_musicRep';
+export const MAX_SEQ_REPEAT_COUNT = 16;
 // One shared byte (not a var per flag/channel) holding every boolean the
 // music player needs project-wide - dev vars are a hard-capped, only
 // 25-of-them, project-wide resource, and this used to cost 3 vars
@@ -159,6 +185,15 @@ const musicDataTableName = (channel, page) => `_musicCh${channel}Data${page}`;
 // compiled output) a project with only one song has always used.
 const musicSeqTableName = (channel, songIndex) =>
   songIndex === undefined ? `_musicCh${channel}Seq` : `_musicCh${channel}Song${songIndex}Seq`;
+// Parallel to musicSeqTableName above, same one-entry-per-sequence-position
+// shape and same single-song/multi-song naming split - how many MORE times
+// (beyond the one about to start) that position's own pattern repeats before
+// the sequence actually moves on (see musicSeqRepeatVarName). Only
+// generated/read at all once music.hasRepeats is true. ONE shared table (not
+// per-channel) - see musicSeqRepeatVarName's own comment for why the packed
+// byte it stores doesn't need to vary by channel.
+const musicSeqRepeatTableName = (songIndex) =>
+  songIndex === undefined ? '_musicSeqRep' : `_musicSong${songIndex}SeqRep`;
 
 // Name of the subroutine (see buildMusicPlayResetBody/RUN_ONCE_EDGE_RESET_NAME's
 // own comment in bbasic.js for the identical reasoning) a "Play song" call
@@ -225,14 +260,25 @@ const buildMusicPlayResetBody = (Blockly, song, music) => {
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const flagsVar = resolveVar(musicFlagsVarName());
-  const multiSeq = song.sequenceLength > 1;
+  // song.totalSteps (real repeats included) is what actually determines
+  // whether any position-tracking is needed at all - song.sequenceLength
+  // alone (now a GROUP count, see resolveProjectMusic) would wrongly skip
+  // it for a song with only one group that still repeats several times.
+  const multiSeq = song.totalSteps > 1;
   return Object.entries(music.channelPages).map(([channel, pages]) => {
     const pageReset = pages.length > 1 ? `${resolveVar(musicPageVarName(channel))} = 0\n` : '';
     const seqReset = multiSeq ? `${resolveVar(musicSeqPosVarName(channel))} = 0\n` : '';
+    // The first group's own repeat count, already packed for both channels
+    // (see resolveProjectMusic's own sequenceRepeatPacked) - a plain full
+    // overwrite, not a masked per-nibble update, since this is a fresh
+    // reset (nothing worth preserving from whatever the shared byte held
+    // before).
+    const seqRepeatReset = multiSeq && music.hasRepeats ?
+      `${resolveVar(musicSeqRepeatVarName())} = ${song.sequenceRepeatPacked[0] || 0}\n` : '';
     const arpReset = music.channelHasArpeggio[channel] ?
       `${resolveVar(musicArpPhaseVarName(channel))} = 0\n${resolveVar(musicArpCounterVarName(channel))} = 1\n` :
       '';
-    return `${resolveVar(musicIndexVarName(channel))} = 0\n${pageReset}${seqReset}${arpReset}` +
+    return `${resolveVar(musicIndexVarName(channel))} = 0\n${pageReset}${seqReset}${seqRepeatReset}${arpReset}` +
       `${resolveVar(musicTimerVarName(channel))} = 1\n` +
       `${flagsVar}{${musicChannelActiveBit(channel)}} = 1\n`;
   }).join('');
@@ -256,9 +302,22 @@ const buildMusicPlaySongResetBody = (Blockly, song, music) => {
     const arpReset = music.channelHasArpeggio[channel] ?
       `${resolveVar(musicArpPhaseVarName(channel))} = 0\n${resolveVar(musicArpCounterVarName(channel))} = 1\n` :
       '';
+    // Already packed for both channels (see resolveProjectMusic's own
+    // sequenceRepeatPacked) - a plain full overwrite, not a masked
+    // per-nibble update, same reasoning as buildMusicPlayResetBody's own
+    // identical line.
+    const seqRepeatReset = music.hasRepeats ?
+      `${resolveVar(musicSeqRepeatVarName())} = ${song.sequenceRepeatPacked[0] || 0}\n` : '';
+    // pageVar only actually exists (see generateMusicChecks' own comment)
+    // once this channel's own combined data spans more than one page -
+    // writing to it otherwise would reference a dev var that was never
+    // reserved at all.
+    const pageReset = music.channelPages[channel].length > 1 ?
+      `${resolveVar(musicPageVarName(channel))} = ${song.channelStartPage[channel]}\n` : '';
     return `${resolveVar(musicIndexVarName(channel))} = 0\n` +
-      `${resolveVar(musicPageVarName(channel))} = ${song.channelStartPage[channel]}\n` +
+      pageReset +
       `${resolveVar(musicSeqPosVarName(channel))} = 0\n` +
+      seqRepeatReset +
       arpReset +
       `${resolveVar(musicTimerVarName(channel))} = 1\n` +
       `${flagsVar}{${musicChannelActiveBit(channel)}} = 1\n`;
@@ -662,12 +721,29 @@ export const resolveProjectMusic = (workspace) => {
   });
 
   const songs = resolvedSongs.map(({id, song}, songIndex) => {
-    const sequence = song.sequence || [];
+    // song.sequence is already stored as {id, patternId, count} groups (see
+    // DEFAULT_SONGS/normalizeSequenceGroups in blocks/music.js - a resized
+    // Sequence chip repeating a pattern several times in a row is one group
+    // with count > 1, not one entry per repeat) - kept as groups all the way
+    // through to the compiled ROM's own runtime sequence table too now (see
+    // sequenceStartPage/sequenceRepeatCount below and generateMusicChecks'
+    // own repeat-count handling), rather than expanded back into one raw
+    // entry per real repeat the way an earlier version of this function did:
+    // storing one page byte plus one repeat-count byte per GROUP costs a
+    // fixed 2 bytes regardless of how many times it repeats, instead of one
+    // byte per actual repeat.
+    const groups = (song.sequence || []).map((group) => ({
+      patternId: group.patternId,
+      // Capped at MAX_SEQ_REPEAT_COUNT (16), not 255 - see
+      // musicSeqRepeatVarName's own comment on why the runtime repeat
+      // counter is packed into a 4-bit nibble.
+      count: Math.max(1, Math.min(MAX_SEQ_REPEAT_COUNT, Math.round(Number(group.count) || 1))),
+    }));
     // Every DISTINCT pattern THIS song's sequence references, in the order
     // each is first seen - a Set (not sorted/deduped some other way) so
-    // sequence[0]'s own pattern always ends up first, which is what lets
+    // groups[0]'s own pattern always ends up first, which is what lets
     // channelStartPage below resolve without a separate lookup.
-    const distinctPatternIds = [...new Set(sequence.map((patternId) => `${patternId}`))];
+    const distinctPatternIds = [...new Set(groups.map(({patternId}) => `${patternId}`))];
     // patternStartPage[channel][patternId] = which page (an index into the
     // COMBINED channelPages array, spanning every included song) that
     // pattern's own data starts at - built up as each of THIS song's own
@@ -697,22 +773,36 @@ export const resolveProjectMusic = (workspace) => {
     });
 
     // This song's own start page in the COMBINED per-channel table - still
-    // always sequence[0]'s own pattern, same as the single-song version of
+    // always groups[0]'s own pattern, same as the single-song version of
     // this same comment, just no longer always page 0 once an earlier
     // song's own pages already occupy the front of that table.
     const channelStartPage = {};
     channels.forEach((channel) => {
-      channelStartPage[channel] = patternStartPage[channel][`${sequence[0]}`] ?? 0;
+      channelStartPage[channel] = patternStartPage[channel][`${groups[0] && groups[0].patternId}`] ?? 0;
     });
 
-    // One lookup per sequence position, not per distinct pattern - several
-    // positions referencing the same pattern all resolve to that one
-    // pattern's own (single) start page, which is exactly how the same bytes
-    // end up read from more than one place in the sequence without ever
-    // being stored more than once.
+    // One lookup per GROUP (not per distinct pattern, and - now - not per
+    // real repeat either) - several positions referencing the same pattern
+    // all resolve to that one pattern's own (single) start page, which is
+    // exactly how the same bytes end up read from more than one place in
+    // the sequence without ever being stored more than once.
     const sequenceStartPage = {};
     channels.forEach((channel) => {
-      sequenceStartPage[channel] = sequence.map((patternId) => patternStartPage[channel][`${patternId}`] ?? 0);
+      sequenceStartPage[channel] = groups.map(({patternId}) => patternStartPage[channel][`${patternId}`] ?? 0);
+    });
+    // Parallel to sequenceStartPage above, same one-entry-per-group shape,
+    // but ONE shared table (not per-channel) - how many total times that
+    // group's own pattern plays before the sequence moves on (see
+    // musicSeqRepeatVarName/generateMusicChecks), pre-packed into the SAME
+    // nibble layout the runtime var itself uses (channel 0's own
+    // repeats-remaining count in the low nibble, channel 1's in the high
+    // nibble - both the SAME number, since a group's own repeat count
+    // doesn't actually vary by channel, just stored redundantly in both
+    // nibbles so each channel's own masked read/write never has to know or
+    // care whether the other channel is even in use).
+    const sequenceRepeatPacked = groups.map(({count}) => {
+      const repeatsLeft = count - 1;
+      return repeatsLeft + repeatsLeft * 16;
     });
 
     return {
@@ -721,11 +811,30 @@ export const resolveProjectMusic = (workspace) => {
       channelsUsed: musicChannelsUsedBySong(song),
       channelStartPage,
       sequenceStartPage,
-      sequenceLength: sequence.length,
+      sequenceRepeatPacked,
+      // Now the number of GROUPS (Sequence chips), not the number of real
+      // repeats summed together - see generateMusicChecks' own multiSeq,
+      // which needs the real repeat-inclusive total instead, computed
+      // separately below as totalSteps.
+      sequenceLength: groups.length,
+      totalSteps: groups.reduce((sum, {count}) => sum + count, 0),
     };
   });
 
-  return {songs, channels: [...channels], channelPages, channelHasFade, channelHasArpeggio, usesSongById};
+  return {
+    songs,
+    channels: [...channels],
+    channelPages,
+    channelHasFade,
+    channelHasArpeggio,
+    usesSongById,
+    // True as soon as ANY included song has ANY group repeating more than
+    // once - gates whether musicSeqRepeatVarName/musicSeqRepeatTableName are
+    // reserved/generated at all (see bbasic.js's dev-var reservation and
+    // generateMusicChecks/generateMusicDataTables below), so a project with
+    // no repeated patterns pays nothing extra for this feature.
+    hasRepeats: songs.some((song) => song.sequenceRepeatPacked.some((packed) => packed > 0)),
+  };
 };
 
 export default (Blockly) => {
@@ -867,28 +976,49 @@ export default (Blockly) => {
     }).join('\n\n')).join('\n\n');
     // One small lookup table per channel - see generateMusicChecks' own
     // loop-reset for the one place these are ever read. Single-song project:
-    // only generated for a song whose own sequence references more than one
-    // pattern (see musicSeqPosVarName's own comment), reproducing the exact
-    // table name/behavior a project with only one song has always had.
-    // Multi-song project: EVERY included song gets its own table (see
-    // musicSeqTableName/buildMusicPlaySongResetBody's own comments for why
-    // every song needs one once there's more than one to dispatch between,
-    // even a trivial one-entry table for a song with only one pattern of its
-    // own).
+    // only generated for a song with any real repetition at all (totalSteps,
+    // not sequenceLength - see buildMusicPlayResetBody's own comment on why
+    // those two differ now that a single GROUP can itself repeat more than
+    // once), reproducing the exact table name/behavior a project with only
+    // one song has always had. Multi-song project: EVERY included song gets
+    // its own table (see musicSeqTableName/buildMusicPlaySongResetBody's own
+    // comments for why every song needs one once there's more than one to
+    // dispatch between, even a trivial one-entry table for a song with only
+    // one pattern of its own).
+    //
+    // A parallel repeat-count table (musicSeqRepeatTableName) rides along
+    // once per SONG (not once per channel - see its own comment on why the
+    // packed byte it stores doesn't need to vary by channel), one row per
+    // GROUP, whenever music.hasRepeats - a project with no repeated
+    // patterns anywhere never generates this second table at all.
     let seqTables;
     if (music.songs.length === 1) {
       const song = music.songs[0];
-      seqTables = song.sequenceLength > 1 ?
-        Object.keys(music.channelPages).map((channel) => {
+      if (song.totalSteps > 1) {
+        const pageTables = Object.keys(music.channelPages).map((channel) => {
           const rows = chunk(song.sequenceStartPage[channel], 16).map((row) => '  ' + row.join(', '));
           return ` data ${musicSeqTableName(channel)}\n${rows.join('\n')}\nend`;
-        }).join('\n\n') : '';
+        }).join('\n\n');
+        const repeatTable = music.hasRepeats ? (() => {
+          const repeatRows = chunk(song.sequenceRepeatPacked, 16).map((row) => '  ' + row.join(', '));
+          return `\n\n data ${musicSeqRepeatTableName()}\n${repeatRows.join('\n')}\nend`;
+        })() : '';
+        seqTables = pageTables + repeatTable;
+      } else {
+        seqTables = '';
+      }
     } else {
-      seqTables = music.songs.map((song) =>
-        Object.keys(music.channelPages).map((channel) => {
+      seqTables = music.songs.map((song) => {
+        const pageTables = Object.keys(music.channelPages).map((channel) => {
           const rows = chunk(song.sequenceStartPage[channel], 16).map((row) => '  ' + row.join(', '));
           return ` data ${musicSeqTableName(channel, song.songIndex)}\n${rows.join('\n')}\nend`;
-        }).join('\n\n')).join('\n\n');
+        }).join('\n\n');
+        const repeatTable = music.hasRepeats ? (() => {
+          const repeatRows = chunk(song.sequenceRepeatPacked, 16).map((row) => '  ' + row.join(', '));
+          return `\n\n data ${musicSeqRepeatTableName(song.songIndex)}\n${repeatRows.join('\n')}\nend`;
+        })() : '';
+        return pageTables + repeatTable;
+      }).join('\n\n');
     }
     return [eventTables, seqTables].filter(Boolean).join('\n\n');
   };
@@ -994,7 +1124,11 @@ export default (Blockly) => {
     // project where every individual song only has one pattern of its own.
     const multiSong = music.songs.length > 1;
     const singleSong = multiSong ? null : music.songs[0];
-    const multiSeq = multiSong || singleSong.sequenceLength > 1;
+    // totalSteps (real repeats included), not sequenceLength (now a GROUP
+    // count - see resolveProjectMusic) - a single-group song that still
+    // repeats its own one pattern several times needs position/repeat
+    // tracking exactly as much as a song with several distinct groups does.
+    const multiSeq = multiSong || singleSong.totalSteps > 1;
     // The wrap check below compares against a literal constant for a single
     // song (exactly as before - that number never changes at runtime), or
     // the shared musicSeqLenVarName dev var once more than one song can set
@@ -1005,13 +1139,60 @@ export default (Blockly) => {
       const pages = music.channelPages[channel];
       const tables = pages.map((_, page) => musicDataTableName(channel, page));
       const multiPage = tables.length > 1;
-      // Needed whenever there's more than one page to dispatch across (as
-      // before) OR whenever the song has more than one sequence position -
-      // even a channel whose own distinct patterns all happen to fit in a
-      // single page still needs somewhere to WRITE the (always page 0)
-      // lookup result on every pattern transition (see seqPosVar below).
-      const pageVar = (multiPage || multiSeq) ? resolveVar(musicPageVarName(channel)) : null;
+      // Only reserved/used at all when there's actually more than one page
+      // to dispatch across - a channel whose own distinct patterns all
+      // combine into a single page has nothing for pageVar to ever
+      // meaningfully hold (pagedReadLines skips the whole page-dispatch
+      // chain whenever tables.length is 1, so its value is never read back
+      // either way) or DISPATCH on, even once the song has more than one
+      // sequence position - confirmed directly as a real, pure waste in an
+      // earlier version of this: that case still reserved a whole dev var
+      // AND wrote to it on every pattern transition, for a value nothing
+      // downstream ever consulted. Dev vars are a hard-capped, only
+      // 25-of-them, project-wide resource, so this alone is worth a whole
+      // var for any single-page-per-channel song with more than one
+      // sequence position (a common case).
+      const pageVar = multiPage ? resolveVar(musicPageVarName(channel)) : null;
       const seqPosVar = multiSeq ? resolveVar(musicSeqPosVarName(channel)) : null;
+      // Only reserved/used at all once the project actually has some
+      // repeated pattern somewhere (see musicSeqRepeatVarName) - a project
+      // with none generates none of the extra repeat-check code below,
+      // identical output to before repeat groups existed. ONE shared var
+      // for every channel - channel 0's own count lives in the low nibble,
+      // channel 1's in the high nibble (see musicSeqRepeatVarName's own
+      // comment) - seqRepeatHigh picks which nibble THIS channel's own
+      // reads/writes below mask against.
+      const seqRepeatVar = multiSeq && music.hasRepeats ? resolveVar(musicSeqRepeatVarName()) : null;
+      const seqRepeatHigh = channel === '1';
+      // Only channel 1's own high-nibble read (seqRepeatVar / 16) actually
+      // needs division - channel 0's low-nibble read is a plain & mask.
+      if (seqRepeatVar && seqRepeatHigh) Blockly.BBasic.usesDivMul = true;
+      // Resets pageVar back to THIS sequence position's own start page -
+      // used by both the advance branch below (a fresh position always
+      // needs its own start page looked up) and the repeat-restart branch
+      // (same position replayed from its own start again, see its own
+      // comment). seqPosVar hasn't moved in either case, so both read the
+      // identical table row - but both branches can appear in the SAME
+      // channel's output at once (a project can have both multi-page
+      // patterns and repeats), so each call site needs its own labels
+      // (tag distinguishes them) rather than sharing one fixed label set,
+      // which would emit a duplicate DASM label whenever both are present.
+      // A no-op array whenever pageVar doesn't even exist (every pattern on
+      // this channel fits in a single page).
+      const buildPageResetLines = (tag) => !pageVar ? [] : multiSong ? [
+        ...music.songs.map((song, i) => {
+          const isLast = i === music.songs.length - 1;
+          const nextLabel = `_music${channel}_seqpage${tag}_song${song.songIndex}_next`;
+          const lookup = ` ${pageVar} = ${musicSeqTableName(channel, song.songIndex)}[${seqPosVar}]`;
+          return isLast ? lookup : [
+            ` if ${songIndexVar} <> ${song.songIndex} then goto ${nextLabel}`,
+            lookup,
+            ` goto _music${channel}_seqpage${tag}_done`,
+            nextLabel,
+          ].join('\n');
+        }),
+        `_music${channel}_seqpage${tag}_done`,
+      ] : [` ${pageVar} = ${musicSeqTableName(channel)}[${seqPosVar}]`];
       const indexVar = resolveVar(musicIndexVarName(channel));
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
@@ -1108,6 +1289,46 @@ export default (Blockly) => {
         // pattern data starts at - the actual reuse: several positions can
         // (and do, for a repeated pattern) resolve to the exact same page.
         ...(multiSeq ? [
+          // Checked BEFORE ever touching seqPosVar - if the group currently
+          // playing still owes repeats (see musicSeqRepeatVarName), this
+          // just counts one off and jumps straight to the shared re-peek
+          // tail below (_seqrestart), re-reading the SAME group's own start
+          // page again rather than moving to the next sequence position at
+          // all. Only once a group's own repeats are exhausted does this
+          // fall through to the ordinary advance-or-wrap logic, completely
+          // unchanged from before repeat groups existed - so a project with
+          // no repeated patterns anywhere never even generates this check
+          // (seqRepeatVar is null then).
+          // Masked against THIS channel's own nibble only (see
+          // musicSeqRepeatVarName's own comment) - temp1 holds channel 0's
+          // count via a plain & mask, or channel 1's via / 16, matching
+          // soundfx.js's own soundFadeVolumes convention exactly. The
+          // decrement itself (-1 for channel 0, -16 for channel 1) only
+          // ever touches THIS channel's own nibble, safe without any
+          // cross-channel coordination since the other nibble's own bits
+          // are far enough away to never be affected by a single-nibble
+          // borrow (temp1 = 0 is checked first, so this never underflows
+          // past 0 into the other nibble either).
+          ...(seqRepeatVar ? [
+            seqRepeatHigh ? ` temp1 = ${seqRepeatVar} / 16` : ` temp1 = ${seqRepeatVar} & 15`,
+            ` if temp1 = 0 then goto _music${channel}_seqadvance`,
+            seqRepeatHigh ? ` ${seqRepeatVar} = ${seqRepeatVar} - 16` : ` ${seqRepeatVar} = ${seqRepeatVar} - 1`,
+            // pageVar isn't touched by hitting LOOP_SENTINEL itself - it's
+            // left on whatever page the pattern's LAST page happened to be
+            // (only equal to its FIRST/start page when the pattern fits in
+            // one page). A repeat replays this SAME position's pattern from
+            // its own start, so pageVar needs the same explicit reset the
+            // advance branch below already gives it - without this, a
+            // repeated pattern spanning more than one page replayed only its
+            // own last (partial) page instead of the whole thing, hit
+            // LOOP_SENTINEL again almost immediately, and sounded like an
+            // extra, garbled repeat. seqPosVar hasn't moved yet, so this is
+            // the exact same lookup the advance branch's own pageVar reset
+            // uses, just reached from here instead.
+            ...buildPageResetLines('repeat'),
+            ` goto _music${channel}_seqrestart`,
+            `_music${channel}_seqadvance`,
+          ] : []),
           ` ${seqPosVar} = ${seqPosVar} + 1`,
           ` if ${seqPosVar} <> ${seqLenExpr} then goto _music${channel}_seqcontinue`,
           ` if ${loopBit} then goto _music${channel}_seqwrap`,
@@ -1124,23 +1345,59 @@ export default (Blockly) => {
           // several songs' own Seq tables is the right one to consult for
           // whichever song is actually playing right now - only runs at a
           // pattern-transition boundary (not every frame), so the cost is
-          // bounded by however many songs actually reach this point.
+          // bounded by however many songs actually reach this point. The
+          // page lookup itself is skipped entirely when pageVar is null (a
+          // single-page channel - see its own comment above), and the
+          // repeat-count lookup (see musicSeqRepeatTableName) rides along in
+          // its own separate dispatch whenever seqRepeatVar exists - a
+          // plain full overwrite (not masked), since the table already
+          // stores this group's own final repeats-remaining value pre-
+          // packed for BOTH nibbles (see resolveProjectMusic's own
+          // sequenceRepeatPacked) - but this channel's own advance can run
+          // at a completely different FRAME than the other channel's own
+          // advance (each channel's own LOOP_SENTINEL timing depends on
+          // that channel's own note durations summing to the pattern's
+          // length, which routinely differs between a melody and a harmony
+          // channel of the very same pattern). A full overwrite here would
+          // clobber whatever repeat count the OTHER channel was still
+          // counting down for a position IT hasn't reached yet - confirmed
+          // as a real, reproducible bug (a later sequence chip's own advance
+          // corrupting an earlier chip's still-in-progress repeat count,
+          // observed as extra, uncounted repeats that got worse the more
+          // sequence chips existed). Masked into temp1 first, then merged
+          // into only THIS channel's own nibble (same $0F/$F0 mask
+          // convention as soundfx.js's own soundFadeVolumes), leaving
+          // whatever the other channel's own nibble currently holds alone -
+          // exactly as safe as the decrement above already was.
           ...(multiSong ? [
-            ...music.songs.map((song, i) => {
-              const isLast = i === music.songs.length - 1;
-              const nextLabel = `_music${channel}_seqsong${song.songIndex}_next`;
-              const lookup = ` ${pageVar} = ${musicSeqTableName(channel, song.songIndex)}[${seqPosVar}]`;
-              return isLast ? lookup : [
-                ` if ${songIndexVar} <> ${song.songIndex} then goto ${nextLabel}`,
-                lookup,
-                ` goto _music${channel}_seqtable_done`,
-                nextLabel,
-              ].join('\n');
-            }),
-            `_music${channel}_seqtable_done`,
+            ...buildPageResetLines('advance'),
+            ...(seqRepeatVar ? [
+              ...music.songs.map((song, i) => {
+                const isLast = i === music.songs.length - 1;
+                const nextLabel = `_music${channel}_seqrepsong${song.songIndex}_next`;
+                const lookup = ` temp1 = ${musicSeqRepeatTableName(song.songIndex)}[${seqPosVar}]`;
+                return isLast ? lookup : [
+                  ` if ${songIndexVar} <> ${song.songIndex} then goto ${nextLabel}`,
+                  lookup,
+                  ` goto _music${channel}_seqreptable_done`,
+                  nextLabel,
+                ].join('\n');
+              }),
+              `_music${channel}_seqreptable_done`,
+              seqRepeatHigh ?
+                ` ${seqRepeatVar} = (${seqRepeatVar} & $0F) | (temp1 & $F0)` :
+                ` ${seqRepeatVar} = (${seqRepeatVar} & $F0) | (temp1 & $0F)`,
+            ] : []),
           ] : [
-            ` ${pageVar} = ${musicSeqTableName(channel)}[${seqPosVar}]`,
+            ...buildPageResetLines('advance'),
+            ...(seqRepeatVar ? [
+              ` temp1 = ${musicSeqRepeatTableName()}[${seqPosVar}]`,
+              seqRepeatHigh ?
+                ` ${seqRepeatVar} = (${seqRepeatVar} & $0F) | (temp1 & $F0)` :
+                ` ${seqRepeatVar} = (${seqRepeatVar} & $F0) | (temp1 & $0F)`,
+            ] : []),
           ]),
+          ...(seqRepeatVar ? [`_music${channel}_seqrestart`] : []),
         ] : [
           ` if ${loopBit} then goto _music${channel}_loopreset`,
           ` AUDV${channel} = 0`,

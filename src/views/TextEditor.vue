@@ -147,12 +147,12 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import {useCollapsedIds} from '../hooks/collapse';
-import {useDragReorder} from '../hooks/drag-reorder';
+import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH,
   processTextStringsStorageDefaults} from '../blocks/text-strings';
@@ -210,18 +210,85 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('text');
 
-    // Card reordering (see hooks/drag-reorder.js's own comment - built to
-    // be reused by other tabs' card lists later, not just this one).
-    // getItems/setItems both go through the SAME state.value.textStrings/
-    // handleChildChange path every other mutation here already uses, so a
-    // drop is persisted and re-rendered exactly like an add/delete.
-    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
-        () => state.value.textStrings,
-        (items) => {
-          state.value.textStrings = items;
-          handleChildChange();
-        },
-    );
+    // Card reordering - NOT built on hooks/drag-reorder.js's own
+    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
+    // single-column card lists), since that hook's own top-border
+    // drag-over convention only makes sense for a strictly vertical stack.
+    // .text-list is a CSS grid (see its own comment - two or more cards can
+    // sit side by side on a wide enough window), where the meaningful
+    // drop-target edge is left/right (which card this lands before/after in
+    // reading order), not top/bottom - confirmed directly as a real gap
+    // otherwise: the shared hook's top-border highlight only ever offered
+    // "insert above," with no way to drop a card at the END of a row or
+    // between two cards sharing that row.
+    const draggedEntryIndex = ref(null);
+    // {index, side} - side is 'before' or 'after', which HALF of card
+    // `index` the pointer is currently over - same halfway-point
+    // convention MusicEditor.vue's own dragOverSideFor/DataEditor.vue's
+    // own valueRowListeners already use for their identical grid-drop
+    // problem.
+    const dragOverEntry = ref(null);
+    const isEntryDragging = (index) => draggedEntryIndex.value === index;
+    const isEntryDragOver = (index) =>
+      !!dragOverEntry.value && dragOverEntry.value.index === index && !isEntryDragging(index);
+    const entryDragOverSide = (index) => (isEntryDragOver(index) ? dragOverEntry.value.side : null);
+    const dragCardClass = (index) => ({
+      [CSS_CLASS_DRAGGING]: isEntryDragging(index),
+      'text-card-drag-over-before': entryDragOverSide(index) === 'before',
+      'text-card-drag-over-after': entryDragOverSide(index) === 'after',
+    });
+    const dragOverSideFor = (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    };
+    const dragAttrs = () => ({draggable: true});
+    const dragHandleListeners = (index) => ({
+      dragstart: (event) => {
+        draggedEntryIndex.value = index;
+        event.dataTransfer.effectAllowed = 'move';
+        // Same Firefox requirement as hooks/drag-reorder.js's own
+        // dragHandleListeners - the value itself is never read back.
+        event.dataTransfer.setData('text/plain', String(index));
+      },
+      dragend: () => {
+        draggedEntryIndex.value = null;
+        dragOverEntry.value = null;
+      },
+    });
+    const dragTargetListeners = (index) => ({
+      dragover: (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const side = dragOverSideFor(event);
+        const current = dragOverEntry.value;
+        if (!current || current.index !== index || current.side !== side) {
+          dragOverEntry.value = {index, side};
+        }
+      },
+      dragleave: (event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (isEntryDragOver(index) || isEntryDragging(index)) dragOverEntry.value = null;
+      },
+      drop: (event) => {
+        event.preventDefault();
+        const from = draggedEntryIndex.value;
+        draggedEntryIndex.value = null;
+        dragOverEntry.value = null;
+        if (from == null || from === index) return;
+        // Computed fresh off the actual drop event's own pointer position -
+        // see MusicEditor.vue's own sequenceChipListeners drop handler for
+        // why this isn't just read back off dragOverEntry instead.
+        const side = dragOverSideFor(event);
+        let insertAt = side === 'after' ? index + 1 : index;
+        if (from < insertAt) insertAt--;
+        if (insertAt === from) return;
+        const items = state.value.textStrings.slice();
+        const [moved] = items.splice(from, 1);
+        items.splice(insertAt, 0, moved);
+        state.value.textStrings = items;
+        handleChildChange();
+      },
+    });
 
     const instance = getCurrentInstance();
     const handleAddEntry = () => {
@@ -343,18 +410,25 @@ export default defineComponent({
   cursor: grab;
 }
 
-/* hooks/drag-reorder.js's own two feedback classes - see its comment for
-   why these live per-tab instead of globally. Dragging: faded so the card
-   being moved reads as "lifted" rather than duplicated. Drag-over: a top
-   border on whichever OTHER card the dragged one is currently over, giving
-   a clear "it'll land here" indicator without needing to animate the whole
-   list into its post-drop order as you drag. */
+/* hooks/drag-reorder.js's own CSS_CLASS_DRAGGING (see its comment for why
+   this lives per-tab instead of globally) - faded so the card being moved
+   reads as "lifted" rather than duplicated. */
 .drag-reorder-dragging {
   opacity: 0.4;
 }
 
-.drag-reorder-over {
-  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
+/* Which side of THIS card a dragged one would land on (see
+   entryDragOverSide/dragOverSideFor) - left/right, not hooks/
+   drag-reorder.js's own top-border convention, since .text-list is a CSS
+   grid that can put more than one card on the same row (see its own
+   comment) - left/right is what actually reflects reading-order position
+   within it. */
+.text-card-drag-over-before {
+  border-left: 3px solid var(--v-primary-base, #1976d2) !important;
+}
+
+.text-card-drag-over-after {
+  border-right: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top
@@ -401,10 +475,10 @@ export default defineComponent({
   opacity: 0.6;
 }
 
-/* Same 12px reserved below the badge as the SoundFX tab's
-   .soundfx-name-field. */
+/* Same margin-top as the SoundFX tab's .soundfx-name-field, for consistent
+   badge-to-name spacing across every tab. */
 .text-name-field {
-  margin-top: 12px;
+  margin-top: 20px;
 }
 
 /* Split from the rest of the card's content (text-message-section) so the

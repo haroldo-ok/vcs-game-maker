@@ -465,9 +465,10 @@ export default defineComponent({
 /* Same reasoning as TextEditor.vue's .text-name-field - reserves room below
    the now-absolutely-positioned collapse button/ID badge instead of them
    overlapping this field, now that neither sits in a normal-flow row above
-   it anymore. */
+   it anymore. Matches .soundfx-name-field's own margin-top (SoundFXEditor.vue)
+   for consistent badge-to-name spacing across every tab. */
 .animation-name-field {
-  margin-top: 12px;
+  margin-top: 20px;
 }
 
 /* top/right match every other tab's own delete corner button (see

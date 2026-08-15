@@ -54,6 +54,43 @@ const selectedVariable = (block) => {
     block.workspace.getVariableById(value) : null;
 };
 
+// The VAR field stores the variable's ID (see variableOptions), so a rename
+// elsewhere doesn't break the reference - but FieldDropdown only re-runs its
+// options generator (and so only re-reads the variable's current name) when
+// its cache is invalidated, which a plain rename never does on its own: the
+// field keeps showing whatever label was cached from the last time its
+// dropdown opened, stale until the user happens to click it again.
+// getOptions() (no cache arg) has to run BEFORE setValue(), same gotcha
+// documented in subroutine.js's own setSubroutineDropdownValue - setValue's
+// validation reads the cache, so a rename without a preceding fresh
+// getOptions() call would just re-validate against the same stale label.
+/**
+ * @param {!Blockly.Field} field
+ * @param {string} value
+ */
+function refreshVariableDropdownValue(field, value) {
+  field.getOptions();
+  field.setValue(value);
+}
+
+/**
+ * @param {?Blockly.Workspace} workspace
+ */
+function ensureBitVariableRenameListener(workspace) {
+  if (!workspace || workspace.isFlyout || workspace.bitVariableRenameListener_) return;
+  workspace.bitVariableRenameListener_ = true;
+  workspace.addChangeListener((event) => {
+    if (event.type !== Blockly.Events.VAR_RENAME) return;
+    [...workspace.getBlocksByType('bit_get', false), ...workspace.getBlocksByType('bit_set', false)]
+        .forEach((block) => {
+          const field = block.getField('VAR');
+          if (field && field.getValue() === event.varId) {
+            refreshVariableDropdownValue(field, event.varId);
+          }
+        });
+  });
+}
+
 Blockly.Blocks['bit_get'] = {
   init: function() {
     this.appendDummyInput()
@@ -64,6 +101,7 @@ Blockly.Blocks['bit_get'] = {
     this.setOutput(true, 'Boolean');
     this.setColour('purple');
     this.setTooltip('Checks if a single bit of a variable is set (1) or clear (0).');
+    if (this.workspace) ensureBitVariableRenameListener(this.workspace);
   },
   // The dropdown is not a variable field, so without this Blockly treats the
   // variable as unused: it would be dropped when the workspace is serialised,
@@ -87,6 +125,7 @@ Blockly.Blocks['bit_set'] = {
     this.setNextStatement(true, null);
     this.setColour('purple');
     this.setTooltip('Sets a single bit of a variable. Accepts true/false or 1/0.');
+    if (this.workspace) ensureBitVariableRenameListener(this.workspace);
   },
   // See bit_get.
   getVarModels: function() {

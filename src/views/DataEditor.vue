@@ -31,6 +31,15 @@
                   <v-btn
                     icon
                     small
+                    title="Duplicate this table"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    @click="() => handleDuplicateTable(table)"
+                  >
+                    <v-icon>mdi-content-duplicate</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
                     title="Export to .CSV"
                     class="data-flat-icon-btn data-icon-btn-size"
                     @click="() => handleExportCsv(table)"
@@ -85,19 +94,13 @@
                 </div>
 
                 <v-card-text class="data-name-section">
-                  <v-text-field
-                    class="data-name-field"
-                    label="Table name"
-                    v-model="table.name"
-                    @change="handleChildChange"
-                  />
-                </v-card-text>
-
-                <v-card-text v-if="!isCollapsed(table)" class="data-values-section">
-                  <div class="data-caption-row">
-                    <div class="data-caption">
-                      {{ table.values.length }} / {{ maxValues }} values (0-255 each)
-                    </div>
+                  <div class="data-name-row">
+                    <v-text-field
+                      class="data-name-field"
+                      label="Table name"
+                      v-model="table.name"
+                      @change="handleChildChange"
+                    />
                     <v-text-field
                       :value="tableColumns(table)"
                       @input="(v) => handleColumnsInput(table, v)"
@@ -112,14 +115,29 @@
                       class="data-columns-field"
                     />
                   </div>
+                </v-card-text>
+
+                <v-card-text v-if="!isCollapsed(table)" class="data-values-section">
+                  <div class="data-caption-row">
+                    <div class="data-caption">
+                      {{ table.values.length }} / {{ maxValues }} values (0-255 each)
+                    </div>
+                  </div>
 
                   <div class="data-values" :style="{gridTemplateColumns: `repeat(${tableColumns(table)}, minmax(0, 1fr))`}">
                     <div
                       v-for="(value, index) in table.values"
                       v-bind:key="index"
                       class="data-value-row"
+                      :class="valueDragClass(table, index)"
+                      v-on="valueRowListeners(table, index)"
                     >
-                      <span class="data-value-index">[{{ index }}]</span>
+                      <span
+                        class="data-value-index"
+                        draggable="true"
+                        title="Drag to reorder"
+                        v-on="valueHandleListeners(table, index)"
+                      >[{{ index }}]</span>
                       <v-text-field
                         v-model.number="table.values[index]"
                         type="number"
@@ -174,12 +192,12 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
-import {useDragReorder} from '../hooks/drag-reorder';
+import {useDragReorder, CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import {useDataTablesStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, DEFAULT_DATA_TABLE_COLUMNS, MAX_DATA_TABLE_VALUES,
   processDataTablesStorageDefaults} from '../blocks/data';
@@ -226,13 +244,14 @@ export default defineComponent({
     // (see dataTableSymbolName/buildDataTableOptions in blocks/data.js),
     // never by array position, so reordering the display order here is
     // already safe.
-    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
-        () => state.value.dataTables,
-        (items) => {
-          state.value.dataTables = items;
-          handleChildChange();
-        },
-    );
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners: rawDragTargetListeners} =
+      useDragReorder(
+          () => state.value.dataTables,
+          (items) => {
+            state.value.dataTables = items;
+            handleChildChange();
+          },
+      );
 
     const instance = getCurrentInstance();
     const handleAddTable = () => {
@@ -253,6 +272,26 @@ export default defineComponent({
 
     const handleDeleteTable = (table) => {
       state.value.dataTables = state.value.dataTables.filter(({id}) => id != table.id);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    // Inserted right after the source table (not just appended to the end)
+    // so the copy shows up exactly where a user would expect it, next to
+    // the table they just duplicated - matches handleDuplicatePattern's own
+    // placement convention in MusicEditor.vue. structuredClone (not a
+    // shallow spread) since values/columns are the table's own real data,
+    // not just a reference the copy should keep sharing with the original.
+    const handleDuplicateTable = (table) => {
+      const dataTables = state.value.dataTables;
+      const maxId = max(dataTables.map((o) => o.id)) || 0;
+      const newTable = {
+        ...structuredClone(table),
+        id: maxId + 1,
+        name: `${table.name || 'Table'} copy`,
+      };
+      const sourceIndex = dataTables.findIndex(({id}) => id === table.id);
+      dataTables.splice(sourceIndex + 1, 0, newTable);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -309,6 +348,137 @@ export default defineComponent({
       handleChildChange();
     };
 
+    // Drag-and-drop reordering for one table's own value fields - not built
+    // on hooks/drag-reorder.js's own useDragReorder (already used above for
+    // reordering whole TABLES), since that hook's draggedIndex/dragOverIndex
+    // refs assume exactly one reorderable list exists at a time. Every table
+    // on this tab has its OWN independent values array, so the dragged/
+    // drag-over state here is keyed by table id as well as index, to keep
+    // dragging a value in one table from being misread as a drag-over hit
+    // in a different table's identically-indexed value - same reasoning
+    // MusicEditor.vue's own sequenceChipListeners already documents for its
+    // near-identical per-song drag state. [index] (not the value itself) is
+    // the drag handle, not the whole row - matches this file's own
+    // .data-drag-handle convention for table cards, and keeps the number
+    // field's own click-and-drag text selection working.
+    const draggedValue = ref(null);
+    // Wraps each of the table CARD's own drop-target handlers (not just
+    // conditionally swapping the whole listeners object the way a naive
+    // guard might) so the real "is a value drag in progress" check happens
+    // synchronously at the moment an event actually fires, not only after
+    // Vue's own (batched, async) re-render has had a chance to re-evaluate
+    // this v-on binding. Confirmed directly as a real bug otherwise, the
+    // exact same class MusicEditor.vue's own dragTargetListeners wrapper
+    // documents for its identical chip-vs-card conflict: dragging a value
+    // sets draggedValue synchronously, but the browser can still dispatch a
+    // dragover (or even drop) on the table CARD before Vue's next tick
+    // actually detaches its old listeners, since HTML5 drag events aren't
+    // batched the way Vue's own reactivity is - letting the card's own
+    // reorder highlight/drop briefly fire mid-value-drag despite
+    // stopPropagation on the value row's own handlers (stopPropagation only
+    // stops BUBBLED events from reaching the card, not a dragover the
+    // browser dispatches DIRECTLY on the card whenever the pointer crosses
+    // any part of its own bounding box that isn't precisely covered by a
+    // child's own listener, e.g. the gaps between value cells).
+    const dragTargetListeners = (index) => {
+      const raw = rawDragTargetListeners(index);
+      const guarded = {};
+      Object.keys(raw).forEach((eventName) => {
+        guarded[eventName] = (event) => {
+          if (draggedValue.value) return;
+          raw[eventName](event);
+        };
+      });
+      return guarded;
+    };
+    // {tableId, index, side} - side is 'before' or 'after', which HALF of
+    // cell `index` the pointer is currently over (see dragOverSideFor
+    // below). Unlike a single-column list (see hooks/drag-reorder.js's own
+    // top-border convention), this grid wraps into multiple COLUMNS per
+    // row, so the meaningful drop-target edge is left/right (which cell
+    // this lands before/after in reading order), not top/bottom.
+    const dragOverValue = ref(null);
+    const isValueDragging = (table, index) =>
+      !!draggedValue.value && draggedValue.value.tableId === table.id && draggedValue.value.index === index;
+    const isValueDragOver = (table, index) =>
+      !!dragOverValue.value && dragOverValue.value.tableId === table.id && dragOverValue.value.index === index &&
+      !isValueDragging(table, index);
+    const valueDragOverSide = (table, index) =>
+      isValueDragOver(table, index) ? dragOverValue.value.side : null;
+    const valueDragClass = (table, index) => ({
+      [CSS_CLASS_DRAGGING]: isValueDragging(table, index),
+      'data-value-drag-over-before': valueDragOverSide(table, index) === 'before',
+      'data-value-drag-over-after': valueDragOverSide(table, index) === 'after',
+    });
+    // Left half of the cell's own bounding box means "insert before it",
+    // right half means "insert after it" - same halfway-point convention
+    // MusicEditor.vue's own dragOverSideFor uses for its horizontal
+    // sequence chip list.
+    const dragOverSideFor = (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    };
+    const valueHandleListeners = (table, index) => ({
+      dragstart: (event) => {
+        // Stops this drag from ALSO being seen by the table card's own
+        // dragTargetListeners (see dragAttrs/dragHandleListeners above,
+        // bound to the whole .data-card every value row sits inside) -
+        // without this, dragging a value would also trigger the CARD's own
+        // "drag a table here" reorder highlight, since it has no way to
+        // tell a bubbled value-drag apart from an actual table-card drag.
+        event.stopPropagation();
+        draggedValue.value = {tableId: table.id, index};
+        event.dataTransfer.effectAllowed = 'move';
+        // Same Firefox requirement as hooks/drag-reorder.js's own
+        // dragHandleListeners - the value itself is never read back.
+        event.dataTransfer.setData('text/plain', String(index));
+      },
+      dragend: (event) => {
+        event.stopPropagation();
+        draggedValue.value = null;
+        dragOverValue.value = null;
+      },
+    });
+    const valueRowListeners = (table, index) => ({
+      dragover: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'move';
+        const side = dragOverSideFor(event);
+        const current = dragOverValue.value;
+        if (!current || current.tableId !== table.id || current.index !== index || current.side !== side) {
+          dragOverValue.value = {tableId: table.id, index, side};
+        }
+      },
+      dragleave: (event) => {
+        event.stopPropagation();
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (isValueDragOver(table, index) || isValueDragging(table, index)) dragOverValue.value = null;
+      },
+      drop: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const from = draggedValue.value;
+        draggedValue.value = null;
+        dragOverValue.value = null;
+        if (!from || from.tableId !== table.id || from.index === index) return;
+        // Computed fresh off the actual drop event's own pointer position
+        // (not read back off dragOverValue) so the drop always matches
+        // exactly what the highlight it lands on last showed - see
+        // MusicEditor.vue's own sequenceChipListeners drop handler for the
+        // identical reasoning.
+        const side = dragOverSideFor(event);
+        let insertAt = side === 'after' ? index + 1 : index;
+        if (from.index < insertAt) insertAt--;
+        if (insertAt === from.index) return;
+        const values = table.values.slice();
+        const [moved] = values.splice(from.index, 1);
+        values.splice(insertAt, 0, moved);
+        table.values = values;
+        handleChildChange();
+      },
+    });
+
     const handleExportCsv = (table) => {
       const csv = table.values.map(valueToCsvNumber).join(',') + '\n';
       const blob = new Blob([csv], {type: 'text/csv'});
@@ -341,7 +511,7 @@ export default defineComponent({
     };
 
     return {
-      state, handleChildChange, handleAddTable, handleDeleteTable,
+      state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
       handleAddValue, handleDeleteValue, handleValueChange,
       handleExportCsv, handleImportCsv,
       tableColumns, handleColumnsInput, handleColumnsChange,
@@ -349,6 +519,7 @@ export default defineComponent({
       maxValues: MAX_DATA_TABLE_VALUES,
       maxColumns: MAX_DATA_TABLE_COLUMNS_DISPLAY,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      valueDragClass, valueHandleListeners, valueRowListeners,
     };
   },
 });
@@ -446,10 +617,23 @@ export default defineComponent({
   box-shadow: none !important;
 }
 
-/* Same 12px reserved below the badge as the SoundFX tab's
-   .soundfx-name-field. */
+/* Same 20px reserved below the badge as the SoundFX tab's own
+   .soundfx-name-field - was 12px, visibly tighter than that reference
+   spacing once actually compared side by side. */
 .data-name-field {
-  margin-top: 12px;
+  margin-top: 20px;
+  flex: 1 1 auto;
+}
+
+/* Columns sits on the SAME row as Table name (rather than down with the
+   values grid it actually controls) - keeps the card's own header
+   compact, and matches .data-caption-row's own flex-end alignment so
+   both fields' input boxes line up evenly regardless of Table name's
+   own floated label pushing it taller. */
+.data-name-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
 }
 
 /* Split from the rest of the card's content (data-values-section) so the
@@ -531,9 +715,17 @@ export default defineComponent({
 }
 
 /* How many value fields to show per row before wrapping - see tableColumns.
-   Deliberately narrow: this is a display preference, not a value itself. */
+   Deliberately narrow: this is a display preference, not a value itself.
+   margin-bottom compensates for hide-details/dense (no reserved hint-line
+   space below its own input, unlike Table name's plain v-text-field) -
+   without this, .data-name-row's own align-items: flex-end lines up the
+   two fields' OUTER boxes, but Table name's own reserved (empty) hint-line
+   space below its visible input pushes that input's own bottom edge
+   noticeably higher than this field's, leaving the two input boxes
+   visibly misaligned despite the row itself being bottom-aligned. */
 .data-columns-field {
   flex: 0 0 72px;
+  margin-bottom: 22px;
 }
 
 /* grid-template-columns is set inline per table (see tableColumns) since the
@@ -583,43 +775,80 @@ export default defineComponent({
   padding: 1px 2px;
 }
 
+/* Which side of THIS cell a dragged value would land on (see
+   valueDragOverSide/dragOverSideFor) - left/right, not hooks/
+   drag-reorder.js's own top-border convention, since this grid wraps into
+   multiple columns per row, and left/right is what actually reflects
+   reading-order position within it. */
+.data-value-drag-over-before {
+  border-left: 3px solid var(--v-primary-base, #1976d2);
+}
+
+.data-value-drag-over-after {
+  border-right: 3px solid var(--v-primary-base, #1976d2);
+}
+
+/* The drag handle for reordering this value within its own table (see
+   valueHandleListeners) - cursor: grab signals that, same as
+   .data-drag-handle does for a whole table card. */
 .data-value-index {
   flex: 0 0 auto;
   font-family: monospace;
   font-size: 0.7em;
   opacity: 0.7;
   text-align: right;
+  cursor: grab;
 }
 
-/* 0-255 is at most 3 digits - was 100px (sized for a much longer value),
-   way more than 3 digits + Vuetify's own input padding actually need, and
-   the extra width was fighting against fitting many columns on screen at
-   once. min-width: 0 lets it shrink further still if a row ever has more
-   columns than even this minimum comfortably fits. The deep selectors below
-   strip Vuetify's own default input padding/alignment, which otherwise
-   dominates the field's width far more than the 3-digit value itself does. */
+/* 0-255 is at most 3 digits - widened twice now (from an original 34px,
+   then a still-too-tight 42px) to comfortably fit all 3 digits of a value
+   like 255 without them crowding the field's own edges. min-width: 0
+   lets it shrink further still if a row ever has more columns than even
+   this minimum comfortably fits. The deep selectors below strip Vuetify's
+   own default input padding/alignment, which otherwise dominates the
+   field's width far more than the 3-digit value itself does. */
 .data-value-field {
-  flex: 0 0 34px;
+  flex: 0 0 58px;
   min-width: 0;
 }
 
 .data-value-field >>> input {
   padding: 0;
   text-align: center;
+  /* Nudged up slightly - Vuetify's own default line-height/padding leaves
+     the digits sitting a little low relative to the row's own other
+     content ([index] label, delete button), once the underline below is
+     gone and there's no floating label pushing it down to make room for. */
+  margin-top: -5px;
 }
 
 .data-value-field >>> .v-input__slot {
   padding: 0 2px !important;
+  /* Removes Vuetify's own default underline (the ::before/::after border
+     pair below) - this field has no label and sits in a dense grid of
+     bare number boxes, where a full-width line under every single cell
+     reads as visual noise rather than a real field boundary indicator. */
+  box-shadow: none !important;
+}
+
+.data-value-field >>> .v-input__slot::before,
+.data-value-field >>> .v-input__slot::after {
+  border: none !important;
 }
 
 /* Same size/flat treatment as .data-icon-btn-size elsewhere in this app,
    just without that class's own hover colour override (this button's
-   default red-on-hover, from the "delete" styling below, should stay). */
+   default red-on-hover, from the "delete" styling below, should stay).
+   Pushed to the right edge of the row (margin-left: auto) - the [index]
+   label and value field stay left-aligned together as one group, with
+   the delete button visually separated at the opposite end rather than
+   sitting right up against the value field. */
 .data-value-row .v-btn.v-btn--icon {
   min-width: 0;
   height: 20px;
   width: 20px;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .data-value-row .v-btn.v-btn--icon >>> .v-icon {
