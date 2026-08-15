@@ -926,6 +926,33 @@ export default {
   box-shadow: none !important;
 }
 
+/* App-wide: lighter underline for a text field (or a v-select/v-combobox,
+   which are both built on top of v-text-field in this Vuetify version - the
+   same class carries their own underline too) while it's NOT focused -
+   Vuetify's own default resting-state color (rgba(0,0,0,.42), see
+   node_modules/vuetify/dist/vuetify.css's own ".theme--light.v-text-field >
+   .v-input__control > .v-input__slot:before" rule) reads as fairly dark/
+   prominent even on a field nobody's currently using. Only the plain
+   ":before" (resting) rule below is touched - the focused state (its own
+   ":after" rule, which Vuetify animates in via a separate scaleX
+   transform - untouched here) still gets the normal, full-strength primary-
+   color underline, so a focused field still reads clearly as active. Every
+   field in this app already uses the default (non-outlined/filled/solo)
+   style that actually shows this underline at all - confirmed via a
+   project-wide grep - so no variant exclusion is needed here.
+
+   :not(:hover) keeps this from also flattening Vuetify's own hover-darken
+   rule (its own ".theme--light.v-text-field:not(.v-input--has-state):hover
+   > ... :before", rgba(0,0,0,.87)) - that rule and this one both target the
+   same ::before, so without this exclusion the !important below (needed to
+   beat Vuetify's own un-!important resting rule) was winning on hover too,
+   silently killing the hover feedback instead of just lightening the
+   resting state. Letting Vuetify's own already-tuned hover rule apply
+   unopposed here is simpler than duplicating/guessing a new hover value. */
+.theme--light.v-text-field:not(:hover) > .v-input__control > .v-input__slot:before {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
 /* A switch that's off gets a grey outline on its thumb, the same grey as an
    outlined card's border, so it doesn't read as a flat white blob against
    the page background. */

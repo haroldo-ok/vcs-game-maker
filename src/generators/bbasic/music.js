@@ -129,6 +129,143 @@ export const musicChannelActiveBit = (channel) => 3 + Number(channel);
 // unchanged, until unpaused. Bit 5 (not 3+channel) so it stays clear of the
 // per-channel active bits even if a couple more channels are ever added.
 export const musicPausedBit = 5;
+// Overflow byte for resolveSequenceChipFinishedFlags below, only reserved
+// once a project's own distinct "sequence chip finished" watches (see
+// music_sequence_chip_finished/_by_id in blocks/music.js) exceed the 2 spare
+// bits (6-7, right above/below) musicFlagsVarName's own byte still has free -
+// see resolveSequenceChipFinishedFlags' own comment for the full allocation
+// scheme.
+export const musicSequenceChipFinishedOverflowVarName = () => '_musicChipFin';
+const MUSIC_FLAGS_SPARE_BITS = [6, 7];
+const MAX_SEQUENCE_CHIP_FINISHED_OVERFLOW_BITS = 8;
+
+// Resolves every "sequence chip finished" watch a project's own blocks
+// reference - music_sequence_chip_finished (fires for ANY chip, no
+// selection), music_sequence_chip_finished_by_id (one specific song+chip
+// pair), and music_sequence_chip_finished_current_song (one chip id,
+// checked against EVERY song that happens to have a chip with that id, but
+// only the one actually playing at the time ever fires it) - into a shared
+// flag-bit assignment, reusing musicFlagsVarName's own 2 spare bits (see
+// MUSIC_FLAGS_SPARE_BITS above - bits 0-5 are already claimed, see
+// musicPlayingBit and friends) before ever reserving a new dev var: a
+// project using just the general block, or just one distinct specific-chip
+// watch (or both together - exactly 2), costs nothing beyond what
+// musicFlagsVarName already costs. Only once total distinct watches exceed 2
+// does this start assigning bits in musicSequenceChipFinishedOverflowVarName's
+// own byte instead (still only reserved, via bbasic.js's own reserveDevVar,
+// when actually needed).
+//
+// Every CHIP_ID field is a project-author-facing id (see the "ID: N" badge
+// inside each Sequence chip in MusicEditor.vue), not the runtime sequence
+// position generateMusicChecks actually tracks (seqPosVar) -
+// resolveProjectMusic's own "groups" drops the chip's own id entirely (see
+// its own comment) since nothing at runtime needs it, so this resolves each
+// watch back to its own compile-time INDEX within a song's own (raw,
+// storage-level, not yet resolveProjectMusic-processed) sequence array here,
+// once, rather than needing any runtime lookup. A stale/deleted chip
+// reference (findSongById fails, or the id doesn't match any current chip in
+// ANY relevant song) is silently dropped - that watch's own flag is never
+// reserved, so the event block's own generator (generateChipFinishedCheck
+// below) falls through as a permanent no-op for it, matching how a dangling
+// reference is already handled elsewhere in this file (e.g. resolvedSongs'
+// own stale-dropdown filter).
+//
+// Multiple event-block instances targeting the exact same watch (same
+// song+chipId pair, or same chipId for the current-song variant) share one
+// bit (deduped by key), same "don't reserve twice for the same thing"
+// reasoning as collisionMovePlayers' own Set.
+export const resolveSequenceChipFinishedFlags = (workspace, music) => {
+  const usesGeneral = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'music_sequence_chip_finished');
+
+  // Lowest-numbered channel a song actually uses is treated as the sole
+  // source of truth for any watch tied to that song - a song's two channels
+  // can advance past the same sequence position on different FRAMES
+  // (confirmed elsewhere this file - note-duration sums differ per channel),
+  // so setting a watch's flag from every channel the way the general
+  // (unselective) flag above does would risk firing a specific watch twice,
+  // a few frames apart, for one logical "chip finished" moment. One
+  // well-defined channel avoids that entirely, at the cost of that watch's
+  // own timing following that one channel's own note data specifically.
+  const primaryChannelFor = (resolvedSong) => String(Math.min(...[...resolvedSong.channelsUsed]));
+
+  const seenPairKeys = [];
+  const resolvedPairs = new Map();
+  workspace.getAllBlocks(false)
+      .filter((block) => block.type === 'music_sequence_chip_finished_by_id')
+      .forEach((block) => {
+        const songId = Number(block.getFieldValue('SONG'));
+        const chipId = Number(block.getFieldValue('CHIP_ID'));
+        const key = `${songId}:${chipId}`;
+        if (resolvedPairs.has(key)) return;
+        const rawSong = findSongById(songId);
+        const seqIndex = rawSong ? (rawSong.sequence || []).findIndex(({id}) => Number(id) === chipId) : -1;
+        // Only actually included in the compiled ROM if resolveProjectMusic
+        // itself decided to include this song (e.g. it's referenced by some
+        // "Play song" block somewhere) - a chip-finished watch on a song
+        // nothing ever plays has no runtime signal to hook into either.
+        const resolvedSong = music && seqIndex !== -1 && music.songs.find((s) => s.songId === songId);
+        if (!resolvedSong) return;
+        resolvedPairs.set(key, {
+          songId, chipId, seqIndex, songIndex: resolvedSong.songIndex,
+          primaryChannel: primaryChannelFor(resolvedSong),
+        });
+        seenPairKeys.push(key);
+      });
+
+  // Same idea as resolvedPairs above, but keyed by chipId ALONE - checked
+  // against every song that happens to have a chip with that id (chip ids
+  // are only unique WITHIN one song's own Sequence list, not project-wide),
+  // each its own {songIndex, seqIndex, primaryChannel} occurrence sharing
+  // ONE flag bit. At runtime only whichever song is actually playing can
+  // ever satisfy any one occurrence's own songIndexVar gate, so this never
+  // double-fires across songs despite watching more than one.
+  const seenChipIds = [];
+  const resolvedByChipId = new Map();
+  workspace.getAllBlocks(false)
+      .filter((block) => block.type === 'music_sequence_chip_finished_current_song')
+      .forEach((block) => {
+        const chipId = Number(block.getFieldValue('CHIP_ID'));
+        if (resolvedByChipId.has(chipId)) return;
+        const occurrences = [];
+        (music ? music.songs : []).forEach((resolvedSong) => {
+          const rawSong = findSongById(resolvedSong.songId);
+          const seqIndex = rawSong ? (rawSong.sequence || []).findIndex(({id}) => Number(id) === chipId) : -1;
+          if (seqIndex === -1) return;
+          occurrences.push({
+            songId: resolvedSong.songId, songIndex: resolvedSong.songIndex, seqIndex,
+            primaryChannel: primaryChannelFor(resolvedSong),
+          });
+        });
+        if (!occurrences.length) return;
+        resolvedByChipId.set(chipId, {chipId, occurrences});
+        seenChipIds.push(chipId);
+      });
+
+  const totalSlots = (usesGeneral ? 1 : 0) + seenPairKeys.length + seenChipIds.length;
+  if (totalSlots === 0) return {general: null, pairs: new Map(), byChipId: new Map()};
+  const maxSlots = MUSIC_FLAGS_SPARE_BITS.length + MAX_SEQUENCE_CHIP_FINISHED_OVERFLOW_BITS;
+  if (totalSlots > maxSlots) {
+    throw new Error(`This project watches ${totalSlots} distinct "sequence chip finished" conditions ` +
+      `(counting the general "any chip" block as one), but only ${maxSlots} are supported - try ` +
+      'combining or removing some.');
+  }
+  let nextSlot = 0;
+  const claimSlot = () => {
+    const slot = nextSlot++;
+    return slot < MUSIC_FLAGS_SPARE_BITS.length ?
+      {varName: musicFlagsVarName(), bit: MUSIC_FLAGS_SPARE_BITS[slot]} :
+      {varName: musicSequenceChipFinishedOverflowVarName(), bit: slot - MUSIC_FLAGS_SPARE_BITS.length};
+  };
+
+  const general = usesGeneral ? claimSlot() : null;
+  const pairs = new Map();
+  seenPairKeys.forEach((key) => pairs.set(key, {...resolvedPairs.get(key), ...claimSlot()}));
+  const byChipId = new Map();
+  seenChipIds.forEach((chipId) => byChipId.set(chipId, {...resolvedByChipId.get(chipId), ...claimSlot()}));
+  return {general, pairs, byChipId};
+};
+
 // Only reserved/used for a channel that actually has at least one faded
 // note (see musicChannelHasFade) - see generateMusicChecks' own comment on
 // fadeVar for its packed bit layout (target volume, fade-length index, and
@@ -963,6 +1100,49 @@ export default (Blockly) => {
   Blockly.BBasic['music_song_stopped_by_id'] = generateSongStopped;
   Blockly.BBasic['music_song_stopped_by_number'] = generateSongStopped;
 
+  // Same one-shot check-and-clear shape as generateSongStopped above (the
+  // flag itself is set elsewhere - see resolveSequenceChipFinishedFlags'
+  // own comment and generateMusicChecks' chipFinishedSetLines), just
+  // reusable across both music_sequence_chip_finished (general.varName/bit)
+  // and music_sequence_chip_finished_by_id (one pair's own varName/bit) -
+  // target is null whenever this specific block instance's own flag was
+  // never actually reserved (no matching block found by the pre-scan, a
+  // stale song/chip id, or - for the general block - simply no music at
+  // all), in which case this permanently no-ops rather than emitting a
+  // check against a bit that doesn't exist.
+  const generateChipFinishedCheck = (block, target) => {
+    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+    if (!target) return '';
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelEnd = `_chipfin_${blockNumber}_end`;
+    const flagBit = `${resolveVar(target.varName)}{${target.bit}}`;
+    return '\n' +
+    [
+      `if !${flagBit} then goto ${labelEnd}`,
+      `${flagBit} = 0`,
+      code,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
+  Blockly.BBasic['music_sequence_chip_finished'] = function(block) {
+    const flags = Blockly.BBasic.sequenceChipFinishedFlags;
+    return generateChipFinishedCheck(block, flags && flags.general);
+  };
+  Blockly.BBasic['music_sequence_chip_finished_by_id'] = function(block) {
+    const flags = Blockly.BBasic.sequenceChipFinishedFlags;
+    const songId = Number(block.getFieldValue('SONG'));
+    const chipId = Number(block.getFieldValue('CHIP_ID'));
+    const pair = flags && flags.pairs.get(`${songId}:${chipId}`);
+    return generateChipFinishedCheck(block, pair);
+  };
+  Blockly.BBasic['music_sequence_chip_finished_current_song'] = function(block) {
+    const flags = Blockly.BBasic.sequenceChipFinishedFlags;
+    const chipId = Number(block.getFieldValue('CHIP_ID'));
+    const entry = flags && flags.byChipId.get(chipId);
+    return generateChipFinishedCheck(block, entry);
+  };
+
   // Data tables holding each used channel's AUDV/AUDC/AUDF/duration event
   // stream - spliced alongside generatedDataTables in bbasic.bb.hbs (a "data"
   // block is a read-only ROM table, not executable code, so it has to live in
@@ -1154,6 +1334,57 @@ export default (Blockly) => {
       // sequence position (a common case).
       const pageVar = multiPage ? resolveVar(musicPageVarName(channel)) : null;
       const seqPosVar = multiSeq ? resolveVar(musicSeqPosVarName(channel)) : null;
+      // Emitted right before seqPosVar's own advance below (the exact point
+      // where seqPosVar still holds the position that just exhausted its
+      // repeats) - see resolveSequenceChipFinishedFlags' own comment for the
+      // full bit-allocation scheme this reads from. The general ("any chip")
+      // flag is set from every channel unconditionally; each specific pair
+      // only from its own resolved primary channel, gated on songIndexVar
+      // too once the project has more than one song (two different songs'
+      // own sequences can share the same numeric position, so seqPosVar
+      // alone wouldn't disambiguate which one just finished) - the same
+      // "if songIndexVar <> X then goto skip" dispatch style already used
+      // elsewhere in this function, rather than an unverified-in-this-
+      // codebase "&&" combined condition.
+      const chipFinishedSetLines = multiSeq ? (() => {
+        const flags = Blockly.BBasic.sequenceChipFinishedFlags ||
+          {general: null, pairs: new Map(), byChipId: new Map()};
+        const lines = flags.general ?
+          [` ${resolveVar(flags.general.varName)}{${flags.general.bit}} = 1`] : [];
+        // One occurrence's own set line, gated on songIndexVar (unique
+        // label per occurrence, so multiple occurrences sharing one flag -
+        // see byChipId below - each get their own skip target) once the
+        // project has more than one song (two different songs' own
+        // sequences can share the same numeric position, so seqPosVar alone
+        // wouldn't disambiguate which one just finished) - the same
+        // "if songIndexVar <> X then goto skip" dispatch style already used
+        // elsewhere in this function, rather than an unverified-in-this-
+        // codebase "&&" combined condition.
+        const emitOccurrence = (varName, bit, songIndex, seqIndex, labelSuffix) => {
+          const setLine = ` if ${seqPosVar} = ${seqIndex} then ${resolveVar(varName)}{${bit}} = 1`;
+          if (multiSong) {
+            const skipLabel = `_chipfin${channel}_${labelSuffix}_skip`;
+            lines.push(` if ${songIndexVar} <> ${songIndex} then goto ${skipLabel}`, setLine, skipLabel);
+          } else {
+            lines.push(setLine);
+          }
+        };
+        [...flags.pairs.values()]
+            .filter((pair) => pair.primaryChannel === channel)
+            .forEach((pair) => {
+              emitOccurrence(pair.varName, pair.bit, pair.songIndex, pair.seqIndex, `${pair.songId}_${pair.chipId}`);
+            });
+        [...flags.byChipId.values()]
+            .forEach((entry) => {
+              entry.occurrences
+                  .filter((occurrence) => occurrence.primaryChannel === channel)
+                  .forEach((occurrence) => {
+                    emitOccurrence(entry.varName, entry.bit, occurrence.songIndex, occurrence.seqIndex,
+                        `cur_${entry.chipId}_${occurrence.songId}`);
+                  });
+            });
+        return lines;
+      })() : [];
       // Only reserved/used at all once the project actually has some
       // repeated pattern somewhere (see musicSeqRepeatVarName) - a project
       // with none generates none of the extra repeat-check code below,
@@ -1329,6 +1560,7 @@ export default (Blockly) => {
             ` goto _music${channel}_seqrestart`,
             `_music${channel}_seqadvance`,
           ] : []),
+          ...chipFinishedSetLines,
           ` ${seqPosVar} = ${seqPosVar} + 1`,
           ` if ${seqPosVar} <> ${seqLenExpr} then goto _music${channel}_seqcontinue`,
           ` if ${loopBit} then goto _music${channel}_seqwrap`,

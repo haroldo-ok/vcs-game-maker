@@ -29,7 +29,8 @@ import {processPlayerStorageDefaults} from './bbasic/sprites';
 import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName,
   musicSeqPosVarName, musicSeqRepeatVarName, musicFlagsVarName, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicSongIndexVarName, musicSeqLenVarName, musicPlaySongResetName,
-  registerMusicPlayResetSubroutine} from './bbasic/music';
+  registerMusicPlayResetSubroutine, resolveSequenceChipFinishedFlags,
+  musicSequenceChipFinishedOverflowVarName} from './bbasic/music';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -365,6 +366,15 @@ Blockly.BBasic.init = function(workspace) {
   // reasoning as textMinikernelUsed above.
   this.projectMusic = resolveProjectMusic(workspace);
 
+  // Every "sequence chip finished" watch (music_sequence_chip_finished/_by_id
+  // in blocks/music.js) resolved to its own flag-bit assignment - needed
+  // this early (same reasoning as this.projectMusic just above) since it may
+  // need to reserve a new dev var (see musicSequenceChipFinishedOverflowVarName's
+  // own comment - only past the first 2 distinct watches, which reuse
+  // musicFlagsVarName's own spare bits instead) before nameDB_ hands out
+  // letters below.
+  this.sequenceChipFinishedFlags = resolveSequenceChipFinishedFlags(workspace, this.projectMusic);
+
   // Once there's more than one song, each gets its own dedicated reset
   // subroutine name (see musicPlaySongResetName in bbasic/music.js) that
   // isn't known until this.projectMusic is resolved above, unlike every
@@ -547,6 +557,18 @@ Blockly.BBasic.init = function(workspace) {
     // active flag (see musicFlagsVarName's comment) - used to cost 3 vars
     // plus 1 more per channel on its own.
     reserveDevVar(musicFlagsVarName());
+    // Only reserved once this project's own "sequence chip finished" watches
+    // (see this.sequenceChipFinishedFlags just above) actually need it -
+    // musicFlagsVarName's own 2 spare bits cover the first 2 distinct
+    // watches for free (see resolveSequenceChipFinishedFlags' own comment).
+    const chipFinishedFlags = this.sequenceChipFinishedFlags;
+    const usesChipFinishedOverflow = (chipFinishedFlags.general &&
+      chipFinishedFlags.general.varName === musicSequenceChipFinishedOverflowVarName()) ||
+      [...chipFinishedFlags.pairs.values(), ...chipFinishedFlags.byChipId.values()]
+          .some((entry) => entry.varName === musicSequenceChipFinishedOverflowVarName());
+    if (usesChipFinishedOverflow) {
+      reserveDevVar(musicSequenceChipFinishedOverflowVarName());
+    }
     // Only needed once the project references more than one song (see
     // musicSongIndexVarName/musicSeqLenVarName's own comments) - a
     // single-song project keeps using a literal constant instead, same as

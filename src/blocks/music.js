@@ -434,3 +434,80 @@ Blockly.Blocks['music_song_stopped_by_number'] = {
   },
 };
 
+// Fires once, the moment ANY Sequence chip (see the Sequence list on the
+// Music tab) finishes - its own configured repeat count fully used up, not
+// each individual repeat - and the song is about to move on to the next
+// chip (or wrap/stop, for the last one). Deliberately doesn't distinguish
+// WHICH chip, same "keep it simple" precedent music_song_stopped already
+// sets for songs - see music_sequence_chip_finished_by_id below for that.
+Blockly.Blocks['music_sequence_chip_finished'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} When a sequence chip has finished playing`);
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment ANY Sequence chip (any song) finishes ' +
+      'its own configured repeat count and the song moves on. Doesn\'t distinguish which chip - see ' +
+      '"When sequence chip [ID] has finished playing" for that.');
+  },
+};
+
+// Same trigger as above, but for one specific chip - unlike
+// music_song_stopped_by_id's SONG dropdown (cosmetic only, never actually
+// checked), BOTH fields here are real: see generateSequenceChipFinished in
+// generators/bbasic/music.js for how CHIP_ID gets resolved to this chip's
+// own compile-time sequence position and dispatched at runtime. CHIP_ID is
+// a plain typed number (not a value input) - read it off the small "ID: N"
+// badge next to each chip in the Sequence list, there's no existing need
+// here for a computed/variable chip id the way music_play_song_by_id needs
+// a computed song id.
+Blockly.Blocks['music_sequence_chip_finished_by_id'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} When sequence chip`)
+        .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG')
+        .appendField('ID')
+        .appendField(new Blockly.FieldNumber(1, 1), 'CHIP_ID')
+        .appendField('has finished playing');
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment the chosen song\'s Sequence chip with ' +
+      'this ID finishes its own configured repeat count and the song moves on - read the ID off the ' +
+      'small badge next to that chip in the Sequence list. Does nothing if that song/ID combination ' +
+      'doesn\'t exist.');
+  },
+};
+
+// Same trigger as music_sequence_chip_finished_by_id above, but without its
+// SONG dropdown - checks whichever song is CURRENTLY PLAYING (at the moment
+// this chip actually finishes) for a Sequence chip with this ID, instead of
+// naming one fixed song up front. Different songs can each have their own
+// chip with the same ID (chip ids are only unique WITHIN one song's own
+// Sequence list, not project-wide - see the "ID: N" badges themselves), so
+// this can genuinely fire from more than one song, just never more than one
+// at a time (only one song is ever "currently playing"). See
+// generateSequenceChipFinished in generators/bbasic/music.js for how this
+// resolves EVERY song that happens to have a chip with this ID, each to its
+// own compile-time sequence position, then dispatches at runtime on
+// whichever one is actually active.
+Blockly.Blocks['music_sequence_chip_finished_current_song'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} When sequence chip ID`)
+        .appendField(new Blockly.FieldNumber(1, 1), 'CHIP_ID')
+        .appendField('has finished playing (current song)');
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment whichever song is CURRENTLY playing ' +
+      'reaches a Sequence chip with this ID and finishes its own configured repeat count - checks every ' +
+      'song that happens to have a chip with this ID, not just one fixed song. Read the ID off the small ' +
+      'badge next to that chip in the Sequence list. Does nothing if no song has a chip with this ID.');
+  },
+};
+

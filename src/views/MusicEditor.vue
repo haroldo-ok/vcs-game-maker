@@ -82,17 +82,6 @@
                   <v-btn
                     icon
                     small
-                    :title="song.loop ?
-                      'Loop this song\'s preview playback until stopped (on)' :
-                      'Loop this song\'s preview playback until stopped (off)'"
-                    :class="['music-flat-icon-btn', 'music-icon-btn-size', {'music-icon-btn-active': song.loop}]"
-                    @click="() => handleToggleLoopSong(song)"
-                  >
-                    <v-icon small>{{ song.loop ? 'mdi-repeat' : 'mdi-repeat-off' }}</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
                     class="music-flat-icon-btn music-icon-btn-size"
                     :class="{'music-icon-btn-active': autoFollowPlayback}"
                     :title="autoFollowPlayback ?
@@ -101,6 +90,17 @@
                     @click="autoFollowPlayback = !autoFollowPlayback"
                   >
                     <v-icon small>mdi-target</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    :title="song.loop ?
+                      'Loop this song\'s preview playback until stopped (on)' :
+                      'Loop this song\'s preview playback until stopped (off)'"
+                    :class="['music-flat-icon-btn', 'music-icon-btn-size', {'music-icon-btn-active': song.loop}]"
+                    @click="() => handleToggleLoopSong(song)"
+                  >
+                    <v-icon small>{{ song.loop ? 'mdi-repeat' : 'mdi-repeat-off' }}</v-icon>
                   </v-btn>
                   <v-btn
                     icon
@@ -206,6 +206,10 @@
                         @click="() => handleSequenceChipClick(song, group)"
                         @click:close="() => handleRemoveSequenceGroup(song, group)"
                       >
+                        <span
+                          class="sequence-chip-id-badge"
+                          title="This chip's own ID - see the &quot;When sequence chip has finished playing&quot; block"
+                        >ID: {{ group.id }}</span>
                         {{ patternName(song, group.patternId) }}<template v-if="sequenceGroupPreviewCount(song, group) > 1"> ×{{ sequenceGroupPreviewCount(song, group) }}</template>
                       </v-chip>
                       <div
@@ -491,6 +495,26 @@
 
                       <div class="piano-roll-zoom-row" v-if="activePattern(song).tracks.length">
                         <div class="subdivision-controls">
+                          <v-btn
+                            icon
+                            small
+                            title="Undo"
+                            class="music-flat-icon-btn music-icon-btn-size"
+                            :disabled="!canUndoPattern(activePattern(song))"
+                            @click="() => handleUndoPattern(song, activePattern(song))"
+                          >
+                            <v-icon small>mdi-undo</v-icon>
+                          </v-btn>
+                          <v-btn
+                            icon
+                            small
+                            title="Redo"
+                            class="music-flat-icon-btn music-icon-btn-size"
+                            :disabled="!canRedoPattern(activePattern(song))"
+                            @click="() => handleRedoPattern(song, activePattern(song))"
+                          >
+                            <v-icon small>mdi-redo</v-icon>
+                          </v-btn>
                           <v-icon class="subdivision-icon" title="Note duration snap (slices per step)">mdi-magnet</v-icon>
                           <v-select
                             dense
@@ -852,6 +876,97 @@ export default defineComponent({
 
     const handleChildChange = () => {
       state.value = state.value;
+    };
+
+    // Undo/redo for the pattern editor - one stack pair per pattern id
+    // (patternUndoStacks/patternRedoStacks, reactive so the toolbar buttons'
+    // own disabled state updates), storing plain-JSON snapshots of just the
+    // fields a pattern edit can actually touch (name/tempo/useOwnTempo/
+    // stepCount/loop/tracks - the same shape handleExportPattern already
+    // treats as "this pattern's own content"), never its id. patternLastSnapshot
+    // is a plain (non-reactive) module-level cache, not project data itself -
+    // just this file's own bookkeeping for detecting "did this pattern
+    // actually change since we last looked."
+    const PATTERN_HISTORY_KEYS = ['name', 'tempo', 'useOwnTempo', 'stepCount', 'loop', 'tracks'];
+    const snapshotPattern = (pattern) => JSON.stringify(
+        PATTERN_HISTORY_KEYS.reduce((acc, key) => {
+          acc[key] = pattern[key]; return acc;
+        }, {}));
+    const patternUndoStacks = ref({});
+    const patternRedoStacks = ref({});
+    const patternLastSnapshot = {};
+
+    // Seeded once, synchronously, for every pattern already on disk when this
+    // component mounts - without this, a pattern's TRUE pre-edit state is
+    // never captured (the reactive watcher below only ever fires AFTER a
+    // mutation has already happened, by which point Vue has already applied
+    // it), so the very first edit to an existing pattern would have nothing
+    // to undo back to. A pattern created AFTER mount (Add/Duplicate) doesn't
+    // need this same seeding - its own first watcher fire already IS its
+    // true baseline, nothing existed before it to lose.
+    state.value.songs.forEach((song) => song.patterns.forEach((pattern) => {
+      patternLastSnapshot[pattern.id] = snapshotPattern(pattern);
+    }));
+
+    // Debounced (not one push per keystroke/drag-frame): a fast gesture like
+    // dragging a note's resize handle or typing a pattern name fires this
+    // watcher many times a second, and coalescing those into one undo step
+    // per PAUSE in editing (not one per underlying mutation) matches how a
+    // typical undo history actually reads to a user - see stopResize's own
+    // single "release" point for the equivalent idea applied to just resize.
+    let patternHistoryDebounce = null;
+    watch(() => state.value.songs, () => {
+      clearTimeout(patternHistoryDebounce);
+      patternHistoryDebounce = setTimeout(() => {
+        state.value.songs.forEach((song) => song.patterns.forEach((pattern) => {
+          const snapshot = snapshotPattern(pattern);
+          const last = patternLastSnapshot[pattern.id];
+          if (last !== undefined && last !== snapshot) {
+            const stack = patternUndoStacks.value[pattern.id] || [];
+            patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: [...stack, last]};
+            // A fresh edit invalidates whatever redo history existed from an
+            // earlier undo - same convention as any standard undo/redo stack.
+            if ((patternRedoStacks.value[pattern.id] || []).length) {
+              patternRedoStacks.value = {...patternRedoStacks.value, [pattern.id]: []};
+            }
+          }
+          patternLastSnapshot[pattern.id] = snapshot;
+        }));
+      }, 500);
+    }, {deep: true});
+
+    const applyPatternSnapshot = (pattern, snapshotJson) => {
+      const data = JSON.parse(snapshotJson);
+      PATTERN_HISTORY_KEYS.forEach((key) => {
+        pattern[key] = data[key];
+      });
+      // Written directly (not through the watcher above) so restoring a
+      // snapshot is never itself mistaken for a new edit worth recording.
+      patternLastSnapshot[pattern.id] = snapshotJson;
+    };
+    const canUndoPattern = (pattern) => (patternUndoStacks.value[pattern.id] || []).length > 0;
+    const canRedoPattern = (pattern) => (patternRedoStacks.value[pattern.id] || []).length > 0;
+    const handleUndoPattern = (song, pattern) => {
+      const stack = patternUndoStacks.value[pattern.id] || [];
+      if (!stack.length) return;
+      const redoStack = patternRedoStacks.value[pattern.id] || [];
+      patternRedoStacks.value = {...patternRedoStacks.value, [pattern.id]: [...redoStack, snapshotPattern(pattern)]};
+      patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: stack.slice(0, -1)};
+      applyPatternSnapshot(pattern, stack[stack.length - 1]);
+      recalculateFitBaseWidth(song, pattern);
+      handleChildChange();
+      forceUpdate();
+    };
+    const handleRedoPattern = (song, pattern) => {
+      const stack = patternRedoStacks.value[pattern.id] || [];
+      if (!stack.length) return;
+      const undoStack = patternUndoStacks.value[pattern.id] || [];
+      patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: [...undoStack, snapshotPattern(pattern)]};
+      patternRedoStacks.value = {...patternRedoStacks.value, [pattern.id]: stack.slice(0, -1)};
+      applyPatternSnapshot(pattern, stack[stack.length - 1]);
+      recalculateFitBaseWidth(song, pattern);
+      handleChildChange();
+      forceUpdate();
     };
 
     // The Tempo (BPM) field's own min/max HTML attributes alone don't
@@ -2487,6 +2602,7 @@ export default defineComponent({
       handleAddSong, handleDeleteSong, handleExportSong, handleImportSong,
       handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange,
       handlePatternFieldChange,
+      canUndoPattern, canRedoPattern, handleUndoPattern, handleRedoPattern,
       handleExportPattern, handleImportPattern,
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
       handleAddSequenceStep, handleRemoveSequenceGroup,
@@ -2734,6 +2850,27 @@ export default defineComponent({
      tight value keeps this badge's own text position independent of
      wherever it's placed. */
   line-height: 1;
+}
+
+/* Same monospace/tight-line-height idea as .music-id-badge just above, but
+   lives INSIDE the chip (see the template) rather than floating over/beside
+   it. No explicit color here - the chip itself always carries Vuetify's
+   "dark" prop (white text), regardless of the chip's own actual background
+   lightness/darkness (see .sequence-chip's own "dark" in the template), so
+   this just inherits that same white rather than computing its own
+   brightness-based color against patternSequenceColor - which looked
+   inconsistent (the pattern name and count staying white while the id badge
+   independently switched to black) since the two were following different
+   rules for text that's supposed to read as one unit. */
+.sequence-chip-id-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.75;
+  line-height: 1;
+  vertical-align: middle;
+  margin-right: 4px;
 }
 
 .music-collapse-btn {
