@@ -8,7 +8,7 @@ import {processSoundEffectsStorageDefaults, DEFAULT_ARPEGGIO_DIVISION,
 import {MAX_DATA_TABLE_VALUES} from '../../blocks/data';
 import {useConfigurationStorage, useSoundEffectsStorage, useSongsStorage} from '../../hooks/project';
 import {effectiveTempo} from '../../utils/music-playback';
-import {audcHasTunableNotes} from '../../utils/music-notes';
+import {audcHasTunableNotes, noteAudv} from '../../utils/music-notes';
 import {DEFAULT_DIM_PERCENT, dimVolume} from './soundfx';
 
 const FRAMES_PER_SECOND = 60; // NTSC - matches "set tv ntsc" in bbasic.bb.hbs
@@ -332,6 +332,30 @@ const musicSeqTableName = (channel, songIndex) =>
 const musicSeqRepeatTableName = (songIndex) =>
   songIndex === undefined ? '_musicSeqRep' : `_musicSong${songIndex}SeqRep`;
 
+// Prototype alternative to the per-song musicSeqTableName/
+// musicSeqRepeatTableName split above, only used once
+// music.combinedSeqTables is true (see resolveProjectMusic - gated on the
+// combined table actually fitting in MAX_DATA_TABLE_VALUES). Every song's
+// own sequenceStartPage/sequenceRepeatPacked array is concatenated back to
+// back into ONE table (per channel, for Seq; project-wide, for SeqRep, same
+// "not per-channel" reasoning as musicSeqRepeatTableName itself) instead of
+// one small table per song - see musicSongSeqOffsetTableName for how a
+// specific song's own slice within it is found. Collapses the O(songs)
+// "if songIndexVar <> X then goto next" dispatch chain generateMusicChecks
+// used to need at every page/repeat lookup down to a single indexed table
+// read, at the cost of one small per-song offset table shared by both.
+const musicCombinedSeqTableName = (channel) => `_musicCh${channel}SeqAll`;
+const musicCombinedSeqRepeatTableName = () => '_musicSeqRepAll';
+// One entry per song (in songIndex order) - that song's own start offset
+// within EVERY combined table above (musicCombinedSeqTableName for each
+// channel, and musicCombinedSeqRepeatTableName) - all built by concatenating
+// the same per-song arrays in the same songIndex order, so one offset table
+// locates a song's own slice in all of them at once. Read once per
+// pattern-transition dispatch point (not once per song), then just added to
+// seqPosVar to get the final index - see generateMusicChecks' own
+// combinedSeqIndexLines.
+const musicSongSeqOffsetTableName = () => '_musicSongSeqOffset';
+
 // Name of the subroutine (see buildMusicPlayResetBody/RUN_ONCE_EDGE_RESET_NAME's
 // own comment in bbasic.js for the identical reasoning) a "Play song" call
 // gosubs into, instead of each inlining its own full copy of the per-channel
@@ -600,8 +624,6 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     if (!notesByChannel[channel]) return;
     const soundEffect = soundEffects.find(({id}) => `${id}` === `${track.soundEffectId}`);
     if (!soundEffect) return;
-    const audv = config.dimSoundFx ?
-      dimVolume(soundEffect.audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : soundEffect.audv;
     // arpeggioDivision is tempo-relative (e.g. 8 = "flip every 1/8 step" -
     // see blocks/soundfx.js), converted here into this note's own actual
     // frame count using the framesPerUnit already computed above for this
@@ -622,6 +644,14 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     const isTunable = audcHasTunableNotes(soundEffect.audc);
     (track.notes || []).forEach((note) => {
       const audf = !isTunable || note.midi === 'hit' ? soundEffect.audf : note.audf;
+      // Per-note override (see the Music tab's own piano-roll volume row),
+      // falling back to the instrument's own preset - same DIM-scaling as
+      // before, just applied to whichever value is actually in effect for
+      // THIS note (an earlier version of this computed audv once per
+      // TRACK, applying the exact same value to every note on it).
+      const audv = config.dimSoundFx ?
+        dimVolume(noteAudv(note, soundEffect), config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) :
+        noteAudv(note, soundEffect);
       notesByChannel[channel].push({
         startUnits: note.step,
         lengthUnits: note.length,
@@ -958,6 +988,26 @@ export const resolveProjectMusic = (workspace) => {
     };
   });
 
+  // Prototype: one cumulative offset per song (songSeqOffset[i] = sum of
+  // every earlier song's own sequenceLength) - where that song's own slice
+  // starts within the combined tables below, once combinedSeqTables is on.
+  // Computed regardless of songs.length (cheap either way), but only
+  // actually consulted by generateMusicChecks/generateMusicDataTables when
+  // combinedSeqTables is true.
+  let cumulative = 0;
+  const songSeqOffset = songs.map((song) => {
+    const offset = cumulative;
+    cumulative += song.sequenceLength;
+    return offset;
+  });
+  // Only worth doing (and only valid at all) once there's more than one
+  // song to actually combine, and only once the combined table fits in a
+  // single "data" block's own MAX_DATA_TABLE_VALUES limit - a project with
+  // either many songs or long sequences falls back to the original
+  // per-song table + if-chain dispatch instead (see musicSeqTableName),
+  // exactly as before this prototype existed.
+  const combinedSeqTables = songs.length > 1 && cumulative <= MAX_DATA_TABLE_VALUES;
+
   return {
     songs,
     channels: [...channels],
@@ -965,6 +1015,8 @@ export const resolveProjectMusic = (workspace) => {
     channelHasFade,
     channelHasArpeggio,
     usesSongById,
+    songSeqOffset,
+    combinedSeqTables,
     // True as soon as ANY included song has ANY group repeating more than
     // once - gates whether musicSeqRepeatVarName/musicSeqRepeatTableName are
     // reserved/generated at all (see bbasic.js's dev-var reservation and
@@ -1187,6 +1239,26 @@ export default (Blockly) => {
       } else {
         seqTables = '';
       }
+    } else if (music.combinedSeqTables) {
+      // Prototype: one combined table per channel (every song's own
+      // sequenceStartPage[channel] concatenated in songIndex order) plus one
+      // shared offset table, instead of a whole separate table per song -
+      // see musicSongSeqOffsetTableName's own comment for why this replaces
+      // generateMusicChecks' old O(songs) if-chain dispatch with a single
+      // indexed read.
+      const offsetRows = chunk(music.songSeqOffset, 16).map((row) => '  ' + row.join(', '));
+      const offsetTable = ` data ${musicSongSeqOffsetTableName()}\n${offsetRows.join('\n')}\nend`;
+      const pageTables = Object.keys(music.channelPages).map((channel) => {
+        const combined = music.songs.flatMap((song) => song.sequenceStartPage[channel]);
+        const rows = chunk(combined, 16).map((row) => '  ' + row.join(', '));
+        return ` data ${musicCombinedSeqTableName(channel)}\n${rows.join('\n')}\nend`;
+      }).join('\n\n');
+      const repeatTable = music.hasRepeats ? (() => {
+        const combined = music.songs.flatMap((song) => song.sequenceRepeatPacked);
+        const repeatRows = chunk(combined, 16).map((row) => '  ' + row.join(', '));
+        return `\n\n data ${musicCombinedSeqRepeatTableName()}\n${repeatRows.join('\n')}\nend`;
+      })() : '';
+      seqTables = offsetTable + '\n\n' + pageTables + repeatTable;
     } else {
       seqTables = music.songs.map((song) => {
         const pageTables = Object.keys(music.channelPages).map((channel) => {
@@ -1351,38 +1423,50 @@ export default (Blockly) => {
           {general: null, pairs: new Map(), byChipId: new Map()};
         const lines = flags.general ?
           [` ${resolveVar(flags.general.varName)}{${flags.general.bit}} = 1`] : [];
-        // One occurrence's own set line, gated on songIndexVar (unique
-        // label per occurrence, so multiple occurrences sharing one flag -
-        // see byChipId below - each get their own skip target) once the
-        // project has more than one song (two different songs' own
-        // sequences can share the same numeric position, so seqPosVar alone
-        // wouldn't disambiguate which one just finished) - the same
-        // "if songIndexVar <> X then goto skip" dispatch style already used
-        // elsewhere in this function, rather than an unverified-in-this-
-        // codebase "&&" combined condition.
-        const emitOccurrence = (varName, bit, songIndex, seqIndex, labelSuffix) => {
-          const setLine = ` if ${seqPosVar} = ${seqIndex} then ${resolveVar(varName)}{${bit}} = 1`;
-          if (multiSong) {
-            const skipLabel = `_chipfin${channel}_${labelSuffix}_skip`;
-            lines.push(` if ${songIndexVar} <> ${songIndex} then goto ${skipLabel}`, setLine, skipLabel);
-          } else {
-            lines.push(setLine);
-          }
-        };
-        [...flags.pairs.values()]
-            .filter((pair) => pair.primaryChannel === channel)
-            .forEach((pair) => {
-              emitOccurrence(pair.varName, pair.bit, pair.songIndex, pair.seqIndex, `${pair.songId}_${pair.chipId}`);
-            });
-        [...flags.byChipId.values()]
-            .forEach((entry) => {
-              entry.occurrences
-                  .filter((occurrence) => occurrence.primaryChannel === channel)
-                  .forEach((occurrence) => {
-                    emitOccurrence(entry.varName, entry.bit, occurrence.songIndex, occurrence.seqIndex,
-                        `cur_${entry.chipId}_${occurrence.songId}`);
-                  });
-            });
+        // Every (varName, bit, songIndex, seqIndex) occurrence THIS channel
+        // needs to check - from both pairs (one specific song+chip watch)
+        // and byChipId (one chip id watched across every song that has a
+        // matching chip) - combined into one flat list so they can be
+        // grouped by song below, rather than handled as two separate loops
+        // the way this used to work.
+        const occurrences = [
+          ...[...flags.pairs.values()]
+              .filter((pair) => pair.primaryChannel === channel)
+              .map((pair) => ({varName: pair.varName, bit: pair.bit,
+                songIndex: pair.songIndex, seqIndex: pair.seqIndex})),
+          ...[...flags.byChipId.values()].flatMap((entry) =>
+            entry.occurrences
+                .filter((occurrence) => occurrence.primaryChannel === channel)
+                .map((occurrence) => ({varName: entry.varName, bit: entry.bit,
+                  songIndex: occurrence.songIndex, seqIndex: occurrence.seqIndex}))),
+        ];
+        const setLine = ({varName, bit, seqIndex}) =>
+          ` if ${seqPosVar} = ${seqIndex} then ${resolveVar(varName)}{${bit}} = 1`;
+        if (!multiSong) {
+          occurrences.forEach((occurrence) => lines.push(setLine(occurrence)));
+          return lines;
+        }
+        // Grouped by songIndex - every occurrence targeting the SAME song
+        // now shares ONE "if songIndexVar <> X then goto skip" guard,
+        // instead of each occurrence re-checking songIndexVar entirely on
+        // its own (the original version of this) - a project with several
+        // chip-finished watches on the same song used to pay for that same
+        // songIndexVar check once per watch; grouping first means it only
+        // pays for it once per DISTINCT song referenced. seqPosVar alone
+        // still disambiguates within a song's own guard, same as before -
+        // two different songs' own sequences can share the same numeric
+        // position, which is exactly what the guard itself protects against.
+        const bySong = new Map();
+        occurrences.forEach((occurrence) => {
+          if (!bySong.has(occurrence.songIndex)) bySong.set(occurrence.songIndex, []);
+          bySong.get(occurrence.songIndex).push(occurrence);
+        });
+        [...bySong.entries()].forEach(([songIndex, songOccurrences]) => {
+          const skipLabel = `_chipfin${channel}_song${songIndex}_skip`;
+          lines.push(` if ${songIndexVar} <> ${songIndex} then goto ${skipLabel}`);
+          songOccurrences.forEach((occurrence) => lines.push(setLine(occurrence)));
+          lines.push(skipLabel);
+        });
         return lines;
       })() : [];
       // Only reserved/used at all once the project actually has some
@@ -1410,7 +1494,16 @@ export default (Blockly) => {
       // which would emit a duplicate DASM label whenever both are present.
       // A no-op array whenever pageVar doesn't even exist (every pattern on
       // this channel fits in a single page).
-      const buildPageResetLines = (tag) => !pageVar ? [] : multiSong ? [
+      // Prototype: music.combinedSeqTables replaces the whole per-song
+      // if-chain below with a single indexed read into
+      // musicCombinedSeqTableName's own table - see its own comment. temp1
+      // is safe to reuse here (immediately consumed, same convention as
+      // pagedReadLines/the repeat-count masking below).
+      const buildPageResetLines = (tag) => !pageVar ? [] : music.combinedSeqTables ? [
+        ` temp1 = ${musicSongSeqOffsetTableName()}[${songIndexVar}]`,
+        ` temp1 = temp1 + ${seqPosVar}`,
+        ` ${pageVar} = ${musicCombinedSeqTableName(channel)}[temp1]`,
+      ] : multiSong ? [
         ...music.songs.map((song, i) => {
           const isLast = i === music.songs.length - 1;
           const nextLabel = `_music${channel}_seqpage${tag}_song${song.songIndex}_next`;
@@ -1603,7 +1696,19 @@ export default (Blockly) => {
           // exactly as safe as the decrement above already was.
           ...(multiSong ? [
             ...buildPageResetLines('advance'),
-            ...(seqRepeatVar ? [
+            ...(seqRepeatVar ? (music.combinedSeqTables ? [
+              // Same combined-table read as buildPageResetLines' own
+              // combinedSeqTables branch - recomputed here (rather than
+              // relying on temp1 still holding it from that call right
+              // above) so this stays correct even if something is ever
+              // spliced between the two.
+              ` temp1 = ${musicSongSeqOffsetTableName()}[${songIndexVar}]`,
+              ` temp1 = temp1 + ${seqPosVar}`,
+              ` temp1 = ${musicCombinedSeqRepeatTableName()}[temp1]`,
+              seqRepeatHigh ?
+                ` ${seqRepeatVar} = (${seqRepeatVar} & $0F) | (temp1 & $F0)` :
+                ` ${seqRepeatVar} = (${seqRepeatVar} & $F0) | (temp1 & $0F)`,
+            ] : [
               ...music.songs.map((song, i) => {
                 const isLast = i === music.songs.length - 1;
                 const nextLabel = `_music${channel}_seqrepsong${song.songIndex}_next`;
@@ -1619,7 +1724,7 @@ export default (Blockly) => {
               seqRepeatHigh ?
                 ` ${seqRepeatVar} = (${seqRepeatVar} & $0F) | (temp1 & $F0)` :
                 ` ${seqRepeatVar} = (${seqRepeatVar} & $F0) | (temp1 & $0F)`,
-            ] : []),
+            ]) : []),
           ] : [
             ...buildPageResetLines('advance'),
             ...(seqRepeatVar ? [

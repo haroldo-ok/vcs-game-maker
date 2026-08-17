@@ -163,7 +163,7 @@
             <v-icon>mdi-music-note</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Music</v-list-item-title>
+            <v-list-item-title>Music (Alpha)</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -889,6 +889,53 @@ export default {
 <!-- Unscoped: #javatari-screen is injected by Javatari at runtime, so it never
      carries this component's scope attribute. -->
 <style>
+/* The app's own default font, as a custom property so switching it later
+   (see public/index.html's own <link> for the actual font file/weights)
+   only means changing this one value, not hunting down every place that
+   might otherwise hardcode a font name. .v-application is the exact
+   selector Vuetify's own bundled CSS itself uses for its default
+   (Roboto) font-family - matching it here, with !important, is what lets
+   this override win over that built-in rule instead of just adding a
+   second, lower-priority one beside it. */
+:root {
+  --app-font-family: 'Inter', sans-serif;
+}
+
+.v-application {
+  font-family: var(--app-font-family) !important;
+}
+
+/* Blockly ships its own bundled CSS (font: 11pt sans-serif on these exact
+   selectors) rather than inheriting the page's own font-family, so the
+   block canvas/flyout text stayed in the browser's generic sans-serif even
+   after .v-application above switched everywhere else - confirmed directly
+   by inspecting Blockly's own injected stylesheet. font-family only (not
+   the shorthand font: ... property) so this doesn't also touch the 11pt
+   size Blockly itself sets. [class*="-theme"] (not a specific theme name
+   like .app-theme) - ActionEditor.vue's own "Modern block style" option
+   swaps between two differently-named themes (see APP_BLOCKLY_THEME/
+   APP_BLOCKLY_THEME_MODERN there), and Blockly's own injected class is
+   literally that theme's own name + "-theme" (see Theme.prototype.
+   getClassName), so a single fixed class here would only have matched
+   ONE of the two - confirmed directly as the reason an earlier version of
+   this rule (.classic-theme, copied from Blockly's own default theme name
+   rather than the actual "app-theme" class this project's custom theme
+   produces) never actually matched anything at all. */
+.geras-renderer[class*="-theme"] .blocklyText,
+.geras-renderer[class*="-theme"] .blocklyFlyoutLabelText {
+  font-family: var(--app-font-family) !important;
+}
+
+/* Vuetify's own hint/error text under a field (e.g. the description under
+   the "Enable Superchip RAM..." switch on the Options tab) - default
+   line-height (12px, exactly matching its own 12px font-size, i.e. no
+   leading at all) reads as cramped once a hint runs to more than one line.
+   Global (not scoped to one field) since every hint/detail message in the
+   app uses this same class. */
+.v-messages__message {
+  line-height: 1.4 !important;
+}
+
 #javatari-target-container {
   overflow: hidden;
   /* This sits inside .emulator-drawer-inner's flex column, at a fixed
@@ -1325,6 +1372,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   white-space: pre-wrap;
   margin: 0;
   line-height: 1.3;
+  padding-left: 8px;
 }
 
 .compile-log-info {

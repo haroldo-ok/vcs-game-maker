@@ -333,29 +333,6 @@ Blockly.BBasic.init = function(workspace) {
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'collision_check_position') this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
   });
-  // The tallest frame (in drawn pixel rows) across every animation each
-  // collision-checking player actually has - a compile-time constant the
-  // block's own generator (generators/bbasic/collision.js) uses as a fixed,
-  // deliberately conservative box height (see its own comment for why: no
-  // runtime per-frame-height lookup exists anywhere in this codebase, and
-  // using the max instead can only make the box check trigger a revert
-  // slightly more eagerly than a tighter box would, never less safely).
-  // Computed here (not in collision.js itself) since it needs the exact same
-  // processPlayerStorageDefaults/usePlayer{N}Storage this file's own
-  // generateAnimations already reads frame row counts from.
-  this.collisionMaxHeight = {};
-  this.collisionMovePlayers.forEach((playerNum) => {
-    let playerData = null;
-    try {
-      playerData = processPlayerStorageDefaults(playerNum === '0' ? usePlayer0Storage() : usePlayer1Storage());
-    } catch (e) {
-      playerData = null;
-    }
-    const heights = ((playerData && playerData.animations) || [])
-        .flatMap((animation) => (animation && animation.frames) || [])
-        .map((frame) => (frame.pixels || []).length);
-    this.collisionMaxHeight[playerNum] = heights.length ? Math.max(...heights) : 8;
-  });
 
   // Resolves every song the project references and builds their combined
   // per-channel data ahead of time (see generators/bbasic/music.js) - needed
@@ -1883,7 +1860,27 @@ Blockly.BBasic.generateDataTables = function(bank) {
       })
       .map((table) => {
         const name = dataTableSymbolName(table, bank);
-        const rows = chunk(table.values, 16).map((row) => '  ' + row.join(', '));
+        // Formatted (decimal literal, an 8-bit %binary literal, or a
+        // $-prefixed hex literal - see DataEditor.vue's own valueFormat/
+        // toggleValueFormat) BEFORE chunking into rows of 16, so each
+        // value's own format travels with it regardless of which row it
+        // lands in. table.valueFormats may be shorter than table.values (or
+        // missing entirely, for any table saved before this existed) - a
+        // value with no format entry of its own defaults to decimal,
+        // unchanged from before this feature existed. Confirmed directly
+        // that batari Basic's own "data" statement accepts a %binary
+        // literal mixed freely with decimal ones in the very same table
+        // (compiled a real ROM with both in one row before this was built);
+        // $hex uses the exact same DASM numeric-literal syntax math_number's
+        // own hex support already relies on (see generators/bbasic/math.js).
+        const formatted = table.values.map((value, i) => {
+          const clamped = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+          const format = (table.valueFormats && table.valueFormats[i]) || 'dec';
+          if (format === 'bin') return `%${clamped.toString(2).padStart(8, '0')}`;
+          if (format === 'hex') return `$${clamped.toString(16).padStart(2, '0').toUpperCase()}`;
+          return `${clamped}`;
+        });
+        const rows = chunk(formatted, 16).map((row) => '  ' + row.join(', '));
         return ` data ${name}\n${rows.join('\n')}\nend`;
       })
       .join('\n\n');

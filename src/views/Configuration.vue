@@ -99,7 +99,7 @@
         <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
           <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
         </v-btn>
-        <span class="text-subtitle-1">Kernel Optimization</span>
+        <span class="text-subtitle-1">Kernel Optimization (Advanced)</span>
       </div>
       <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
         <v-switch
@@ -157,7 +157,9 @@ export default defineComponent({
     // so this page looks the same as before collapsing existed. Not
     // persisted - like every other tab's own collapse state, it resets on
     // reload rather than being remembered.
-    const collapsedSections = ref(new Set());
+    // 'rom' starts open (the most commonly-tweaked settings); 'vcsgm' and
+    // 'kernel' both start closed (less commonly needed).
+    const collapsedSections = ref(new Set(['vcsgm', 'kernel']));
     const isSectionCollapsed = (key) => collapsedSections.value.has(key);
     const toggleSection = (key) => {
       const next = new Set(collapsedSections.value);

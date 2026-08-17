@@ -39,7 +39,7 @@
                   >
                     <v-icon>{{ isCollapsed(background) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                   </v-btn>
-                  <div class="background-id-badge">ID: {{ background.id }}</div>
+                  <div class="background-id-badge">ID:{{ background.id }}</div>
                   <v-text-field
                     class="background-name-field"
                     label="Background name"

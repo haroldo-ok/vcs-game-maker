@@ -16,7 +16,7 @@ import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../bl
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_FADE_LENGTH} from '../blocks/soundfx';
 import {useConfigurationStorage} from '../hooks/project';
-import {audcHasTunableNotes} from './music-notes';
+import {audcHasTunableNotes, noteAudv} from './music-notes';
 
 let audioContext = null;
 const getAudioContext = () => {
@@ -465,8 +465,6 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     // "buzzy tones") still need the buffer-based buzzy synthesis, not a
     // plain square oscillator.
     const isTunable = audcHasTunableNotes(soundEffect.audc);
-    const audv = config.dimSoundFx ?
-      dimVolume(soundEffect.audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : soundEffect.audv;
     // Same "always on for every note this instrument plays" rule as the
     // compiled ROM (see soundfx.js/generators/bbasic/music.js) - not
     // something set per-note. arpeggioDivision is tempo-relative (e.g. 8 =
@@ -493,6 +491,12 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       const heldSeconds = (note.step + note.length - audibleStartUnits) * unitSeconds;
       const releaseSeconds = Math.min(heldSeconds * 0.2, 0.08);
       const audf = isTunable && note.midi !== 'hit' ? note.audf : soundEffect.audf;
+      // Per-note override (see the Music tab's own piano-roll volume row),
+      // falling back to the instrument's own preset - same DIM-scaling
+      // applied either way, just to whichever value is actually in effect.
+      const audv = config.dimSoundFx ?
+        dimVolume(noteAudv(note, soundEffect), config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) :
+        noteAudv(note, soundEffect);
 
       activeSources.push(...playInstrumentHit(context, {
         audc: soundEffect.audc,
@@ -521,19 +525,22 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
  * @param {Object} pattern The pattern to play.
  * @param {Array<Object>} soundEffects Stored Sound tab presets.
  * @param {{onDone: Function, isTrackMuted: Function}} callbacks
- *     onDone is called once playback finishes (never, while pattern.loop is
- *     set - only stopPatternPlayback ends it then); isTrackMuted(pattern,
- *     track) skips a muted instrument's own notes entirely (a Music tab view
- *     preference, not something the compiled ROM has any concept of).
+ *     onDone is called once playback finishes (never, while
+ *     song.patternPreviewLoop is set - only stopPatternPlayback ends it
+ *     then); isTrackMuted(pattern, track) skips a muted instrument's own
+ *     notes entirely (a Music tab view preference, not something the
+ *     compiled ROM has any concept of).
  *     startUnits (default 0) seeks the first pass to start partway through
  *     the pattern instead of from its own beginning - see handleSeekToStep
  *     in MusicEditor.vue. Only the first pass; a looping pattern's later
  *     passes always restart from 0, same as clicking Play normally would.
- *     Whether to loop is read live off pattern.loop on every single pass
- *     (not captured once up front), same as its notes already were - so
- *     toggling Loop mid-playback (see handleToggleLoopPattern in
- *     MusicEditor.vue) takes effect on the very next pass, rather than only
- *     after Stop/Play again.
+ *     Whether to loop is read live off song.patternPreviewLoop (one shared
+ *     preference for every pattern in the song, not stored per pattern -
+ *     see its own comment in blocks/music.js) on every single pass (not
+ *     captured once up front), same as its notes already were - so toggling
+ *     Loop mid-playback (see handleToggleLoopPattern in MusicEditor.vue)
+ *     takes effect on the very next pass, rather than only after Stop/Play
+ *     again.
  */
 export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, startUnits = 0} = {}) => {
   stopPatternPlayback();
@@ -586,18 +593,18 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
       patternId: pattern.id, startTime, endTime, unitSeconds: unitSecondsForTempo(tempo), startUnits: passStartUnits,
     });
     // Always scheduled near this pass's own end, regardless of whether
-    // pattern.loop happens to be on or off right now - the ACTUAL decision
-    // (loop again, or stop) is only made once this callback fires, reading
-    // pattern.loop fresh at that point. A pass that STARTED as non-looping
-    // used to never check again before calling onDone, so turning Loop ON
-    // partway through it did nothing until Play was clicked again -
-    // confirmed directly as a real bug, the mirror image of the (already
-    // working) loop-ON-to-OFF direction, which happened to work already
-    // only because that direction's own decision was already re-checked
-    // here on every pass.
+    // song.patternPreviewLoop happens to be on or off right now - the
+    // ACTUAL decision (loop again, or stop) is only made once this callback
+    // fires, reading it fresh at that point. A pass that STARTED as
+    // non-looping used to never check again before calling onDone, so
+    // turning Loop ON partway through it did nothing until Play was clicked
+    // again - confirmed directly as a real bug, the mirror image of the
+    // (already working) loop-ON-to-OFF direction, which happened to work
+    // already only because that direction's own decision was already
+    // re-checked here on every pass.
     const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
     stopTimer = window.setTimeout(() => {
-      if (pattern.loop) {
+      if (song.patternPreviewLoop) {
         scheduleOnce(endTime, 0);
       } else {
         stopTimer = window.setTimeout(() => {
@@ -622,7 +629,7 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
  *     own comment in blocks/music.js); isTrackMuted(pattern, track) skips a
  *     muted instrument's own notes entirely (see playPattern). Whether to
  *     loop is read live off song.loop on every pass, same reasoning as
- *     playPattern's own pattern.loop - see its comment. startIndex (default
+ *     playPattern's own song.patternPreviewLoop - see its comment. startIndex (default
  *     0) skips straight to that Sequence GROUP (see blocks/music.js's own
  *     {id, patternId, count} shape) on the first pass instead of starting
  *     from the beginning - see handleSequenceChipClick in MusicEditor.vue,
@@ -636,67 +643,67 @@ export const playSequence = (song, soundEffects, {onDone, isTrackMuted, startInd
   const context = getAudioContext();
 
   // Mirrors playPattern's own self-rescheduling loop (see its comment for
-  // the full reasoning) - re-scheduling the WHOLE sequence from scratch
-  // each pass, not one long upfront loop, picks up any mid-loop pattern/
-  // sequence edit on the very next pass, and scheduling the next pass a
-  // little before the current one's own end - rather than after - avoids
-  // an audible gap every repeat.
+  // the full reasoning), but at CHIP granularity instead of whole-sequence
+  // granularity: only the one chip-repeat about to play is scheduled now,
+  // with the next one armed via a timer that re-reads song.sequence live
+  // right before it fires. The original version scheduled every chip for
+  // an entire pass upfront in one synchronous walk of song.sequence, so
+  // adding/removing/reordering chips mid-playback had no effect until the
+  // whole sequence looped back around to the start (confirmed directly as
+  // a real bug) - re-reading per chip instead means an edit takes effect
+  // on the very next chip transition, same as a pattern/note edit already
+  // does within schedulePattern itself.
   const LOOP_RESCHEDULE_LEAD_SECONDS = 0.2;
-  const scheduleOnce = (startTime, passStartIndex = 0) => {
-    let cursorSeconds = 0;
-    const timeline = [];
-    // Each GROUP (one Sequence chip, possibly repeating count > 1 times in
-    // a row - see blocks/music.js's own {id, patternId, count} shape)
-    // schedules `count` back-to-back real plays, all tagged with the SAME
-    // sequenceIndex (this group's own position in song.sequence) - so the
-    // chip stays highlighted (see isSequenceGroupPlaying in MusicEditor.vue)
-    // for every one of its own repeats, not just the first.
-    (song.sequence || []).forEach((group, sequenceIndex) => {
-      if (sequenceIndex < passStartIndex) return;
-      const pattern = song.patterns.find(({id}) => id == group.patternId);
-      if (!pattern) return;
-      const tempo = effectiveTempo(song, pattern);
-      const repeatCount = Math.max(1, Math.round(Number(group.count) || 1));
-      for (let rep = 0; rep < repeatCount; rep++) {
-        const segmentStart = startTime + cursorSeconds;
-        const segmentSeconds = schedulePattern(context, pattern, soundEffects, segmentStart, tempo, isTrackMuted);
-        timeline.push({
-          patternId: pattern.id, sequenceIndex, startTime: segmentStart, endTime: segmentStart + segmentSeconds,
-          unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
-        });
-        cursorSeconds += segmentSeconds;
-      }
-    });
-    const endTime = startTime + cursorSeconds;
-    // Same "keep the previous pass' own timeline entries around a little
-    // past their own end" reasoning as playPattern's own comment - always
-    // appended/filtered rather than conditionally replaced outright,
-    // since (see below) whether there'll even BE a next pass isn't decided
-    // until later, right before this one ends.
-    playbackTimeline = [
-      ...playbackTimeline.filter(({endTime: prevEndTime}) => prevEndTime > context.currentTime), ...timeline,
-    ];
-    // Always scheduled near this pass's own end regardless of song.loop's
-    // CURRENT value - see playPattern's own identical comment for why: the
-    // real decision only happens once this fires, reading song.loop fresh
-    // at that point, so toggling Loop either direction mid-playback (see
-    // handleToggleLoopSong in MusicEditor.vue) takes effect on the very
-    // next boundary rather than only sometimes (previously, a sequence
-    // that STARTED non-looping never rechecked song.loop again before
-    // calling onDone, so turning Loop on partway through silently did
-    // nothing until Play was clicked again).
-    const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
-    stopTimer = window.setTimeout(() => {
+  const scheduleGroup = (startTime, sequenceIndex, repIndex) => {
+    const sequence = song.sequence || [];
+    if (sequenceIndex >= sequence.length) {
+      // End of one full pass - same "decide fresh, right at the boundary"
+      // reasoning as playPattern's own song.patternPreviewLoop check, so
+      // toggling Loop either direction mid-playback takes effect on the
+      // very next boundary rather than only sometimes.
       if (song.loop) {
-        scheduleOnce(endTime, 0);
+        scheduleGroup(startTime, 0, 0);
       } else {
         stopTimer = window.setTimeout(() => {
           stopTimer = null;
           activeSources = [];
           if (onDone) onDone();
-        }, stopTimerDelayMs(context, endTime, 0));
+        }, stopTimerDelayMs(context, startTime, 0));
       }
+      return;
+    }
+    const group = sequence[sequenceIndex];
+    const pattern = song.patterns.find(({id}) => id == group.patternId);
+    if (!pattern) {
+      // Stale/deleted pattern reference - skip straight to the next chip
+      // rather than stalling playback on it.
+      scheduleGroup(startTime, sequenceIndex + 1, 0);
+      return;
+    }
+    const tempo = effectiveTempo(song, pattern);
+    // Re-derived from the live group on every repeat (not captured once for
+    // all of a chip's repeats), so editing a chip's own repeat count
+    // mid-playback is picked up the same way any other sequence edit is.
+    const repeatCount = Math.max(1, Math.round(Number(group.count) || 1));
+    const segmentSeconds = schedulePattern(context, pattern, soundEffects, startTime, tempo, isTrackMuted);
+    const endTime = startTime + segmentSeconds;
+    // Same "keep the previous entry around a little past its own end"
+    // reasoning as playPattern's own comment - appended/filtered on every
+    // chip transition now, not just once per whole pass.
+    playbackTimeline = [
+      ...playbackTimeline.filter(({endTime: prevEndTime}) => prevEndTime > context.currentTime),
+      {
+        patternId: pattern.id, sequenceIndex, startTime, endTime,
+        unitSeconds: unitSecondsForTempo(tempo), startUnits: 0,
+      },
+    ];
+    const nextRepIndex = repIndex + 1;
+    const [nextSequenceIndex, nextRepStart] = nextRepIndex < repeatCount ?
+      [sequenceIndex, nextRepIndex] : [sequenceIndex + 1, 0];
+    const delayMs = Math.max(0, (endTime - LOOP_RESCHEDULE_LEAD_SECONDS - context.currentTime) * 1000);
+    stopTimer = window.setTimeout(() => {
+      scheduleGroup(endTime, nextSequenceIndex, nextRepStart);
     }, delayMs);
   };
-  scheduleOnce(context.currentTime + 0.05, Math.max(0, startIndex));
+  scheduleGroup(context.currentTime + 0.05, Math.max(0, startIndex), 0);
 };

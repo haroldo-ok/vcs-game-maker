@@ -49,7 +49,7 @@
                   <v-icon>{{ isCollapsed(entry) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
                 <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot; - stays the same no matter how cards are rearranged below.">
-                  ID: {{ entry.id }}
+                  ID:{{ entry.id }}
                 </div>
                 <v-menu
                   v-if="state.textStrings.length > 1"

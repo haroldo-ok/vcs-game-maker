@@ -3,21 +3,25 @@
     <v-card class="editor-container">
       <v-card-title>
         Generated bBasic code
-        <v-spacer />
+      </v-card-title>
+      <div class="generated-code-toolbar">
         <v-btn
-          color="primary"
-          class="mr-2"
+          icon
+          class="generated-code-flat-icon-btn"
+          :title="copyButtonTitle"
           @click="handleCopyGeneratedCode"
         >
-          {{ copyButtonLabel }}
+          <v-icon>mdi-content-copy</v-icon>
         </v-btn>
         <v-btn
-          color="primary"
+          icon
+          class="generated-code-flat-icon-btn"
+          title="Save Generated Code"
           @click="handleSaveGeneratedCode"
         >
-          Save Generated Code
+          <v-icon>mdi-content-save</v-icon>
         </v-btn>
-      </v-card-title>
+      </div>
       <div class="code-scroll">
         <pre class="line-numbers-gutter">{{ lineNumbersText }}</pre>
         <vue-code-highlight language="basic" class="code-container">
@@ -49,8 +53,10 @@ export default defineComponent({
       return Array.from({length: lineCount}, (_, i) => i + 1).join('\n');
     });
     // Reverts on its own after a couple seconds - see handleCopyGeneratedCode.
-    const copyButtonLabel = ref('Copy Generated Code');
-    return {generatedBasic, lineNumbersText, copyButtonLabel};
+    // Shown as this icon-only button's own title tooltip now (there's no
+    // visible label left to show it in directly).
+    const copyButtonTitle = ref('Copy Generated Code');
+    return {generatedBasic, lineNumbersText, copyButtonTitle};
   },
   methods: {
     handleSaveGeneratedCode() {
@@ -60,13 +66,13 @@ export default defineComponent({
     async handleCopyGeneratedCode() {
       try {
         await navigator.clipboard.writeText(this.generatedBasic);
-        this.copyButtonLabel = 'Copied!';
+        this.copyButtonTitle = 'Copied!';
       } catch (e) {
         console.error('Error copying generated code to clipboard', e);
-        this.copyButtonLabel = 'Copy failed';
+        this.copyButtonTitle = 'Copy failed';
       }
       setTimeout(() => {
-        this.copyButtonLabel = 'Copy Generated Code';
+        this.copyButtonTitle = 'Copy Generated Code';
       }, 2000);
     },
   },
@@ -79,6 +85,43 @@ export default defineComponent({
   top: 0;
   bottom: 0;
   width: 100%;
+}
+
+/* Flush left (no v-spacer/justify-content pushing them right, unlike when
+   these lived inline in the v-card-title next to the title text) - just a
+   plain left-to-right row now that they're their own row below the title,
+   above the code itself. */
+.generated-code-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px 2px 8px;
+}
+
+/* Same flat-icon, fade-in-on-hover/blue-on-press treatment as the Music
+   tab's own play/stop buttons (MusicEditor.vue's .music-flat-icon-btn) -
+   transparent background (no Vuetify default hover circle), icon fades
+   from a faint grey to near-black on hover, and flashes the app's own blue
+   on an actual click/press. */
+.generated-code-flat-icon-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.generated-code-flat-icon-btn::before {
+  display: none;
+}
+
+.generated-code-flat-icon-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.generated-code-flat-icon-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.generated-code-flat-icon-btn:active >>> .v-icon {
+  color: #1976d2 !important;
 }
 
 .code-scroll {

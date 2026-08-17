@@ -25,7 +25,7 @@
                 >
                   <v-icon>{{ isCollapsed(table) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="data-id-badge">ID: {{ table.id }}</div>
+                <div class="data-id-badge">ID:{{ table.id }}</div>
 
                 <div class="data-toolbar-top-right">
                   <v-btn
@@ -111,7 +111,7 @@
                       dense
                       hide-details
                       label="Columns"
-                      title="How many value fields to show per row before wrapping to a new one"
+                      title="The most value fields to show per row before wrapping to a new one - fewer show automatically if the window's too narrow to fit this many at a legible width"
                       class="data-columns-field"
                     />
                   </div>
@@ -124,7 +124,8 @@
                     </div>
                   </div>
 
-                  <div class="data-values" :style="{gridTemplateColumns: `repeat(${tableColumns(table)}, minmax(0, 1fr))`}">
+                  <div class="data-values" :style="{gridTemplateColumns:
+                    `repeat(auto-fit, minmax(max(calc((100% - ${tableColumns(table) - 1}px) / ${tableColumns(table)}), ${DATA_VALUE_CELL_MIN_PX}px), 1fr))`}">
                     <div
                       v-for="(value, index) in table.values"
                       v-bind:key="index"
@@ -137,17 +138,30 @@
                         draggable="true"
                         title="Drag to reorder"
                         v-on="valueHandleListeners(table, index)"
-                      >[{{ index }}]</span>
+                      >{{ index }}</span>
                       <v-text-field
-                        v-model.number="table.values[index]"
-                        type="number"
-                        min="0"
-                        max="255"
+                        :value="displayValue(table, index)"
+                        @input="(v) => handleValueInput(table, index, v)"
+                        :type="valueFormat(table, index) === 'dec' ? 'number' : 'text'"
+                        :min="valueFormat(table, index) === 'dec' ? 0 : undefined"
+                        :max="valueFormat(table, index) === 'dec' ? 255 : undefined"
+                        :maxlength="valueFormat(table, index) === 'bin' ? 8 : valueFormat(table, index) === 'hex' ? 2 : undefined"
                         dense
                         hide-details
                         @change="() => handleValueChange(table, index)"
+                        @focus="() => handleSelectValue(table, index)"
                         class="data-value-field"
+                        :class="{'data-value-field-binary': valueFormat(table, index) !== 'dec'}"
                       />
+                      <v-btn
+                        icon
+                        small
+                        :title="FORMAT_TOGGLE_TITLES[valueFormat(table, index)]"
+                        class="data-format-toggle-btn"
+                        @click="() => toggleValueFormat(table, index)"
+                      >
+                        <v-icon small>{{ FORMAT_ICONS[valueFormat(table, index)] }}</v-icon>
+                      </v-btn>
                       <v-btn
                         icon
                         small
@@ -160,6 +174,16 @@
                     </div>
                   </div>
 
+                  <v-btn
+                    text
+                    small
+                    title="Removes the value cell last clicked into, or the table's own last value if none has been"
+                    :disabled="table.values.length <= 1"
+                    @click="() => handleSubtractValue(table)"
+                  >
+                    <v-icon left small>mdi-minus</v-icon>
+                    Subtract value
+                  </v-btn>
                   <v-btn
                     text
                     small
@@ -213,6 +237,37 @@ const valueToCsvNumber = (value) => Math.min(255, Math.max(0, Math.round(value))
 // each value field would need to shrink well past being usably clickable to
 // keep them all fitting on screen without horizontal scrolling.
 const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
+
+// The narrowest a single value cell (index label + field + format toggle +
+// delete button) can get before it stops being usable - matches
+// .data-value-field's own min-width (46px) plus its neighbors/gaps/padding,
+// with a little headroom. Used as the grid's own auto-fit floor (see
+// .data-values' inline gridTemplateColumns below): each column's own
+// minimum width is max(its fair share at the table's own Columns setting,
+// this floor) - on a wide enough window, "fair share" is already bigger
+// than this floor, so auto-fit still lands on exactly Columns tracks
+// (nothing else fits, since each one's already sized to fill its own equal
+// share); once the window's too narrow for that fair share to clear this
+// floor, this floor wins instead, and auto-fit settles on however many
+// FEWER columns actually fit at that width, wrapping the rest onto
+// additional rows - never letting any cell (not just however many happen
+// to overflow the last row) get squeezed narrower than this.
+// min() instead of max() here was tried first and was actually backwards:
+// on a wide window, "fair share at Columns" is the LARGER number, so min()
+// picked this floor instead - a value smaller than fair share, which let
+// auto-fit fit MORE than Columns-many tracks into a wide row and only
+// wrapped whatever didn't divide evenly onto its own final row, confirmed
+// directly as the cause of a real "only the last cell wraps oddly" bug.
+// "Fair share" itself is calc((100% - (Columns-1)*1px) / Columns), not a
+// plain 100%/Columns - a plain percentage split leaves NO room for the
+// (Columns-1) 1px column-gaps between tracks (see .data-values' own
+// column-gap), so Columns tracks at exactly 100%/Columns each need
+// (Columns-1)px MORE than the container actually has once gaps are added
+// in - auto-fit correctly (if confusingly) responds by dropping to
+// Columns-1 tracks instead. Confirmed directly: Columns set to 2/3/8
+// rendered as 1/2/7 actual columns, always exactly one short, until this
+// calc() started subtracting the gap total before dividing.
+const DATA_VALUE_CELL_MIN_PX = 120;
 
 export default defineComponent({
   setup() {
@@ -338,14 +393,117 @@ export default defineComponent({
     const handleDeleteValue = (table, index) => {
       if (table.values.length <= 1) return;
       table.values.splice(index, 1);
+      // Kept aligned with values above - same reasoning as the drag-reorder
+      // drop handler's own identical splice.
+      if (table.valueFormats) table.valueFormats.splice(index, 1);
       handleChildChange();
       instance.proxy.$forceUpdate();
+    };
+
+    // Which value cell (by index) was last clicked into, per table (keyed by
+    // table.id, a page-local UI-only concern, not project data) - what the
+    // "- Subtract value" button below deletes, so it acts on whichever cell
+    // the user was just working with rather than always the last one. Set
+    // on focus (see the value field's own @focus in the template) - simply
+    // clicking into a field to edit it is enough to "select" it here, no
+    // separate selection affordance needed.
+    const selectedValueIndex = ref({});
+    const handleSelectValue = (table, index) => {
+      instance.proxy.$set(selectedValueIndex.value, table.id, index);
+    };
+    // Deletes whichever cell was last focused in THIS table (see
+    // selectedValueIndex above), or the table's own last value if nothing's
+    // been focused yet (or the previously-selected index no longer exists -
+    // e.g. it was already removed some other way) - reuses handleDeleteValue
+    // itself, so this shares its exact same "never delete the last
+    // remaining value" guard and valueFormats bookkeeping.
+    const handleSubtractValue = (table) => {
+      const selected = selectedValueIndex.value[table.id];
+      const index = Number.isInteger(selected) && selected < table.values.length ?
+        selected : table.values.length - 1;
+      handleDeleteValue(table, index);
     };
 
     const handleValueChange = (table, index) => {
       const value = Number(table.values[index]);
       table.values[index] = Number.isFinite(value) ? Math.min(255, Math.max(0, Math.round(value))) : 0;
       handleChildChange();
+    };
+
+    // Per-value display/entry format - 'dec' (default, including any table
+    // saved before this existed), 'bin' (an 8-digit 0/1 string), or 'hex' (a
+    // 2-digit 0-F string). Purely a UI/generator-output concern: the
+    // underlying value (table.values[index]) is always the same 0-255 number
+    // either way, this only changes how it's typed/shown and which literal
+    // form generateDataTables (bbasic.js) emits for it - confirmed directly
+    // that batari Basic's own "data" statement accepts a plain %-prefixed
+    // binary literal mixed freely with decimal ones in the same table
+    // (compiled a real ROM with both in one row before building this); $-
+    // prefixed hex literals are DASM's own standard numeric-literal syntax
+    // (the same one math_number's own hex support already relies on - see
+    // generators/bbasic/math.js), so the same "data" statement accepts those
+    // too.
+    // mdi-binary doesn't actually exist in this app's bundled MDI icon set
+    // (confirmed directly - it rendered as a blank glyph) - these three use
+    // the same "boxed letter" icon language as the Music tab's Mute/Solo
+    // toggles instead (mdi-alpha-*-box), which does exist.
+    const FORMAT_CYCLE = ['dec', 'bin', 'hex'];
+    const FORMAT_ICONS = {dec: 'mdi-alpha-d-box', bin: 'mdi-alpha-b-box', hex: 'mdi-alpha-h-box'};
+    const FORMAT_TOGGLE_TITLES = {
+      dec: 'Decimal entry (click to switch to 8-bit binary)',
+      bin: 'Binary entry (click to switch to hex)',
+      hex: 'Hex entry (click to switch to decimal)',
+    };
+    const valueFormat = (table, index) => (table.valueFormats && table.valueFormats[index]) || 'dec';
+    // $set (not plain assignment) for the same reason handleColumnsInput's
+    // own comment gives - valueFormats doesn't exist at all on a table saved
+    // before this feature existed, and Vue 2 can't detect a brand new
+    // property being added to an already-reactive object any other way.
+    const toggleValueFormat = (table, index) => {
+      if (!table.valueFormats) instance.proxy.$set(table, 'valueFormats', []);
+      const next = FORMAT_CYCLE[(FORMAT_CYCLE.indexOf(valueFormat(table, index)) + 1) % FORMAT_CYCLE.length];
+      instance.proxy.$set(table.valueFormats, index, next);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    // What the value field itself actually displays - a plain decimal
+    // number, or that same number's own 8-digit binary/2-digit hex form,
+    // per valueFormat above.
+    const displayValue = (table, index) => {
+      const raw = Number(table.values[index]) || 0;
+      const clamped = Math.min(255, Math.max(0, Math.round(raw)));
+      const format = valueFormat(table, index);
+      if (format === 'bin') return clamped.toString(2).padStart(8, '0');
+      if (format === 'hex') return clamped.toString(16).padStart(2, '0').toUpperCase();
+      return clamped;
+    };
+
+    // Parses whatever the field's own current format expects - lenient the
+    // same way handleValueChange already is (a stray non-numeric/non-binary/
+    // non-hex entry falls back to 0 rather than rejecting the keystroke
+    // outright), since this fires on every keystroke (see the template's own
+    // @input), not just on blur/change.
+    const handleValueInput = (table, index, rawInput) => {
+      const format = valueFormat(table, index);
+      if (format === 'bin') {
+        // Strips anything that isn't a literal 0/1 (a pasted "0b..." prefix,
+        // stray whitespace, etc.) before parsing, and caps at 8 digits (a
+        // 9th+ digit would silently overflow a byte) - maxlength on the
+        // field itself (see the template) already stops most of this at
+        // input time, this is the belt-and-suspenders parse-time guard.
+        const bits = String(rawInput).replace(/[^01]/g, '').slice(0, 8);
+        instance.proxy.$set(table.values, index, bits ? parseInt(bits, 2) : 0);
+      } else if (format === 'hex') {
+        // Same belt-and-suspenders shape as binary above - strips anything
+        // that isn't 0-9/A-F (a pasted "0x"/"$" prefix, stray whitespace,
+        // lowercase letters) and caps at 2 digits (a byte's own max).
+        const digits = String(rawInput).replace(/[^0-9a-fA-F]/g, '').slice(0, 2);
+        instance.proxy.$set(table.values, index, digits ? parseInt(digits, 16) : 0);
+      } else {
+        const value = Number(rawInput);
+        instance.proxy.$set(table.values, index, Number.isFinite(value) ? value : 0);
+      }
     };
 
     // Drag-and-drop reordering for one table's own value fields - not built
@@ -475,6 +633,16 @@ export default defineComponent({
         const [moved] = values.splice(from.index, 1);
         values.splice(insertAt, 0, moved);
         table.values = values;
+        // Kept aligned with the reordered values above - without this, a
+        // reordered value would silently pick up whatever format (decimal/
+        // binary) used to belong to a DIFFERENT value now sitting at its old
+        // index, rather than following the value it's actually attached to.
+        if (table.valueFormats) {
+          const formats = table.valueFormats.slice();
+          const [movedFormat] = formats.splice(from.index, 1);
+          formats.splice(insertAt, 0, movedFormat);
+          table.valueFormats = formats;
+        }
         handleChildChange();
       },
     });
@@ -512,11 +680,13 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
-      handleAddValue, handleDeleteValue, handleValueChange,
+      handleAddValue, handleDeleteValue, handleValueChange, handleSelectValue, handleSubtractValue,
+      valueFormat, toggleValueFormat, displayValue, handleValueInput, FORMAT_ICONS, FORMAT_TOGGLE_TITLES,
       handleExportCsv, handleImportCsv,
       tableColumns, handleColumnsInput, handleColumnsChange,
       isCollapsed, toggleCollapsed,
       maxValues: MAX_DATA_TABLE_VALUES,
+      DATA_VALUE_CELL_MIN_PX,
       maxColumns: MAX_DATA_TABLE_COLUMNS_DISPLAY,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       valueDragClass, valueHandleListeners, valueRowListeners,
@@ -798,18 +968,55 @@ export default defineComponent({
   opacity: 0.7;
   text-align: right;
   cursor: grab;
+  /* Nudged down 1px - .data-value-row's own align-items: center still left
+     this sitting a pixel too high next to the value field beside it, likely
+     the monospace font's own metrics not centering quite the same as the
+     field's text. */
+  position: relative;
+  top: 1px;
+  margin-left: 5px;
 }
 
-/* 0-255 is at most 3 digits - widened twice now (from an original 34px,
-   then a still-too-tight 42px) to comfortably fit all 3 digits of a value
-   like 255 without them crowding the field's own edges. min-width: 0
-   lets it shrink further still if a row ever has more columns than even
-   this minimum comfortably fits. The deep selectors below strip Vuetify's
-   own default input padding/alignment, which otherwise dominates the
-   field's width far more than the 3-digit value itself does. */
+/* One shared sizing rule for every format (decimal, binary, hex) - it used
+   to be a fixed 58px for decimal but a separately shrinkable 92px basis for
+   binary/hex (see .data-value-field-binary below, which now only handles
+   font styling), so toggling format changed this field's own rendered
+   width, which visibly shifted the delete button next to it (that button's
+   own margin-left: auto repositions it based on how much space this field
+   is actually taking up) - confirmed directly as a real bug. Same
+   flex-basis/min-width for every format fixes that at the root, rather than
+   trying to compensate for the width change elsewhere. min-width (46px, not
+   0) keeps at least most of an 8-digit binary/2-digit hex value legible -
+   safe against ever overflowing into the next cell now that .data-values'
+   own grid (see its inline gridTemplateColumns) guarantees each cell at
+   least DATA_VALUE_CELL_MIN_PX (120px) of real room, wrapping extra columns
+   onto new rows instead of ever squeezing a cell smaller than that. A
+   hard-coded min-width here WITHOUT that grid-level floor previously let
+   this field's own minimum genuinely exceed a many-column table's actual
+   per-cell width, spilling into the neighboring cell - confirmed directly
+   as a real bug, fixed at the grid level rather than by removing this
+   field's own min-width again. The deep selectors below strip
+   Vuetify's own default input padding/alignment, which otherwise dominates
+   the field's width far more than the (up to 3-digit decimal/8-digit
+   binary/2-digit hex) value itself does. */
 .data-value-field {
-  flex: 0 0 58px;
-  min-width: 0;
+  flex: 1 1 84px;
+  min-width: 46px;
+  margin-left: 4px;
+}
+
+/* Monospace keeps every digit a consistent width instead of drifting as
+   0s/1s (or hex digits) are typed/deleted - sizing itself is shared with
+   plain decimal now (see .data-value-field's own comment on why). */
+.data-value-field-binary {
+  /* Empty on purpose (was width) - kept as its own class since the
+     template still needs somewhere to hang the font-family override
+     below, scoped to binary/hex only (a 3-digit decimal value reads fine
+     in the default font). */
+}
+
+.data-value-field-binary >>> input {
+  font-family: monospace;
 }
 
 .data-value-field >>> input {
@@ -819,7 +1026,7 @@ export default defineComponent({
      the digits sitting a little low relative to the row's own other
      content ([index] label, delete button), once the underline below is
      gone and there's no floating label pushing it down to make room for. */
-  margin-top: -5px;
+  margin-top: -6px;
 }
 
 .data-value-field >>> .v-input__slot {

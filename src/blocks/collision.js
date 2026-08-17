@@ -58,17 +58,15 @@ const playerOptions = [
 // category) in the same event - it only backs up and restores position, it
 // never moves the player itself.
 //
-// CXP0FB/CXP1FB is a single combined bit with no way to tell which axis
-// caused an overlap directly from hardware - but once a collision fires,
-// this block checks, in software (pfread against the player's current
-// on-screen box), whether reverting just X or just Y alone would clear it,
-// and only reverts that axis - so moving diagonally into a wall slides along
-// it instead of stopping dead. A corner hit (or an overlap caused purely by
-// an animation frame getting wider/taller with no position change at all)
-// falls back to reverting both, same as always - see
-// generators/bbasic/collision.js's own comment for the full account,
-// including why this checks only runs on a frame a collision already fired
-// (not every frame - that was tried, predictively, and caused screen roll).
+// This checks X and Y together (both revert if either axis collided), not
+// separately - CXP0FB/CXP1FB is a single combined bit with no way to tell
+// which axis caused the overlap, so per-axis wall sliding isn't possible
+// with this technique on its own. A software (pfread-based) axis-aware
+// version of this was tried and reverted after causing two separate real
+// bugs on an actual project (a ROM lockup, then - even after fixing that - a
+// hard crash on contact) - see generators/bbasic/collision.js's own
+// top-of-file comment for the full account. This version is simpler and
+// known-correct: it stops dead at a wall instead of sliding along it.
 const buildCollisionCheckBlock = () => ({
   'type': 'collision_check_position',
   'message0': `${PLAYER_ICON} Undo %1's last move if it collided with Playfield`,
@@ -80,10 +78,9 @@ const buildCollisionCheckBlock = () => ({
   'colour': 'purple',
   'tooltip': 'Checks last frame\'s collision result between the chosen player and the ' +
     'Playfield (using real TIA hardware collision detection) and reverts to the position ' +
-    'from before that move - only on whichever axis (X, Y, or both) actually caused the ' +
-    'overlap, so moving diagonally into a wall slides along it instead of stopping dead. ' +
-    'Place this before whatever block(s) actually move the player each frame - it only backs ' +
-    'up and restores position, it does not move the player itself.',
+    'from before that move if it collided. Place this before whatever block(s) actually move ' +
+    'the player each frame - it only backs up and restores position, it does not move the ' +
+    'player itself.',
 });
 
 Blockly.defineBlocksWithJsonArray([

@@ -69,13 +69,22 @@ export const DEFAULT_SONGS = {
       name: 'Song 1',
       tempo: DEFAULT_TEMPO,
       // Whether the Music tab's own song-level preview playback (Play on
-      // the song card, not any pattern's own preview - see pattern.loop
-      // below and handlePlaySong/playSequence) repeats the whole sequence
-      // once it reaches the end, instead of stopping there. A Music-tab-only
-      // preview convenience, like pattern.loop - has no bearing on the
-      // compiled ROM, which has its own separate Loop checkbox on the "Play
-      // song" block itself (see music_play_song in this same file).
+      // the song card, not any pattern's own preview - see
+      // patternPreviewLoop below and handlePlaySong/playSequence) repeats
+      // the whole sequence once it reaches the end, instead of stopping
+      // there. A Music-tab-only preview convenience, like
+      // patternPreviewLoop - has no bearing on the compiled ROM, which has
+      // its own separate Loop checkbox on the "Play song" block itself (see
+      // music_play_song in this same file).
       loop: false,
+      // Same idea, for previewing a single PATTERN (see handleToggleLoopPattern
+      // in MusicEditor.vue) - one shared preference for every pattern in
+      // this song, not stored per pattern (a pattern object has no "loop"
+      // field of its own at all anymore) - switching which pattern is
+      // active used to silently carry over whatever THAT pattern's own
+      // stored flag happened to be, which read as "switching patterns turns
+      // looping on" whenever the newly-selected one's own flag was true.
+      patternPreviewLoop: false,
       patterns: [
         {
           id: 1,
@@ -87,7 +96,6 @@ export const DEFAULT_SONGS = {
           // would expect.
           useOwnTempo: false,
           stepCount: DEFAULT_PATTERN_STEPS,
-          loop: false,
           tracks: [emptyTrack(1, 1)],
         },
       ],
@@ -200,6 +208,23 @@ export const processSongsStorageDefaults = (songsStorage) => {
     if (typeof song.loop !== 'boolean') {
       song.loop = false;
     }
+    // One shared preview-loop preference for every pattern in this song,
+    // not stored per pattern (see handleToggleLoopPattern in
+    // MusicEditor.vue) - switching which pattern you're looking at (e.g.
+    // clicking a Sequence chip) used to silently carry over whatever THAT
+    // pattern's own stored loop flag happened to be, which read as "clicking
+    // a chip turns looping on" whenever the newly-selected pattern's own
+    // flag happened to be true, even though the user never touched the Loop
+    // button at all. A single per-song preference means switching patterns
+    // can never change it on its own. Not migrated FROM the old per-pattern
+    // field (every pattern.loop that already exists is just left in place,
+    // unused) - there's no single "right" value to carry forward when
+    // different patterns in the same song may have disagreed, so this
+    // starts fresh at the same "off" default a song saved before per-pattern
+    // loop existed already got.
+    if (typeof song.patternPreviewLoop !== 'boolean') {
+      song.patternPreviewLoop = false;
+    }
     song.sequence = normalizeSequenceGroups(song.sequence);
     (song.patterns || []).forEach((pattern) => {
       pattern.tempo = clampTempo(pattern.tempo ?? DEFAULT_TEMPO);
@@ -213,14 +238,6 @@ export const processSongsStorageDefaults = (songsStorage) => {
       }
       if (!PATTERN_STEP_OPTIONS.includes(pattern.stepCount)) {
         pattern.stepCount = DEFAULT_PATTERN_STEPS;
-      }
-      // Whether the pattern's own preview (see MusicEditor.vue's Play
-      // button on the pattern card) keeps repeating until manually stopped
-      // - a Music tab view preference only, not saved/used by the compiled
-      // ROM (which loops at the whole SONG level instead - see the "Loop"
-      // checkbox on the Play song block).
-      if (pattern.loop == null) {
-        pattern.loop = false;
       }
       (pattern.tracks || []).forEach((track) => {
         if (track.channel == null) {

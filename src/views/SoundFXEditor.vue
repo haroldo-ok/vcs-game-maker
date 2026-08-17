@@ -57,7 +57,7 @@
                 >
                   <v-icon>{{ isCollapsed(soundEffect) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
+                <div class="soundfx-id-badge">ID:{{ soundEffect.id }}</div>
 
                 <div class="soundfx-toolbar-top-right">
                   <v-btn

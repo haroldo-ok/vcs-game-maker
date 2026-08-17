@@ -13,6 +13,7 @@
 
 <script>
 import Handlebars from 'handlebars';
+import Blockly from 'blockly';
 
 import BlocklyComponent from './BlocklyComponent.vue';
 
@@ -49,6 +50,33 @@ import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage} from '../
 import {useGeneratedBasic} from '../hooks/generated';
 import {markRomOutdated} from '../hooks/rom';
 
+// Keep in sync with --app-font-family in App.vue's own global <style> -
+// there's no build-time bridge between a CSS custom property and this JS
+// theme config, so the two have to be updated together by hand. Blockly
+// measures every block's own text width at layout time using ITS OWN
+// font-metrics call (a hidden canvas context, not the DOM/CSS engine), so
+// switching the app's font via CSS alone (see App.vue's own .blocklyText
+// override) left Blockly still measuring block width as if the text were
+// still in its own default (11pt sans-serif) - text rendered in the new,
+// often-wider font then visibly overran the space Blockly had reserved for
+// it, overlapping whatever field/input came right after (confirmed
+// directly: "plus" on the "every X frames" block overlapping its own value
+// field, "to" on "change state to" overlapping its dropdown). Registering
+// the real font here instead means Blockly's own measurement uses it from
+// the start, so block width is computed correctly to begin with - the CSS
+// override above is then mostly redundant for block text specifically) but
+// still needed for the toolbox/flyout labels here, which use this same
+// theme's fontStyle too.
+const APP_BLOCKLY_THEME = Blockly.Theme.defineTheme('app', {
+  name: 'app',
+  base: Blockly.Themes.Classic,
+  fontStyle: {
+    family: 'Inter, sans-serif',
+    weight: 'normal',
+    size: 11,
+  },
+});
+
 export default {
   components: {BlocklyComponent},
   name: 'HelloWorld',
@@ -60,6 +88,7 @@ export default {
       options: {
         media: 'media/',
         sounds: !(configurationStorage.value || {}).muteBlocklySounds,
+        theme: APP_BLOCKLY_THEME,
         grid: {
           spacing: 25,
           length: 3,

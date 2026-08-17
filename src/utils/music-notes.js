@@ -202,3 +202,18 @@ export const audfByMidiForAudc = (audc) => {
   notesForAudc(audc).forEach(({value, midi}) => map.set(midi, value));
   return map;
 };
+
+/**
+ * A note's own effective AUDV (volume, 0-15) - an explicit per-note
+ * override (see the Music tab's own piano-roll volume row) if one's been
+ * set, else the instrument's own preset value, exactly like a note with no
+ * override already behaved before per-note volume existed. Shared by the
+ * editor's own live preview, the Web Audio preview playback, and the
+ * compiled ROM's own event generator, so all three always agree on
+ * whichever value is actually in effect for a given note.
+ * @param {Object} note The note to resolve a volume for.
+ * @param {Object} soundEffect The note's own instrument (Sound tab preset).
+ * @return {number} The effective AUDV, 0-15.
+ */
+export const noteAudv = (note, soundEffect) =>
+  Number.isInteger(note.audv) ? note.audv : (Number(soundEffect.audv) || 0);
