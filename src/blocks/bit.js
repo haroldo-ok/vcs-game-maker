@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {BIT_ICON} from './icon';
 
-const BIT_OPTIONS = [...Array(8).keys()].map((n) => [`${n}`, `${n}`]);
+export const BIT_OPTIONS = [...Array(8).keys()].map((n) => [`${n}`, `${n}`]);
 
 // Built-in batari Basic variables that are worth addressing bit by bit. These
 // are plain names, unlike the user's own variables, which are listed by id.
