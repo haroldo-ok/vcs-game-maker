@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card class="editor-container">
-      <v-card-title>SoundFX</v-card-title>
+      <v-card-title>Sound</v-card-title>
       <v-card-text>
         <div class="dim-controls">
           <v-switch
@@ -26,10 +26,33 @@
           percentage of its own set volume. Off: sound effects play at their
           own set volume.
         </p>
-        <v-list>
-          <v-list-item class="entry-list-item" v-for="soundEffect in state.soundEffects" v-bind:key="soundEffect.id">
+        <v-select
+          v-model="soundFilter"
+          label="Show"
+          :items="soundFilterItems"
+          hide-details
+          class="soundfx-filter"
+        />
+        <v-list class="soundfx-list">
+          <v-list-item
+            v-for="(soundEffect, index) in state.soundEffects"
+            v-show="matchesSoundFilter(soundEffect)"
+            class="entry-list-item"
+            v-bind:key="soundEffect.id"
+          >
             <v-list-item-content>
-              <v-card outlined class="soundfx-card">
+              <v-card
+                outlined
+                class="soundfx-card"
+                :class="dragCardClass(index)"
+                v-on="dragTargetListeners(index)"
+              >
+                <div
+                  class="soundfx-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-btn
                   :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
                   icon
@@ -42,53 +65,78 @@
                 >
                   <v-icon>{{ isCollapsed(soundEffect) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="soundfx-id-badge">ID: {{ soundEffect.id }}</div>
-                <v-menu
-                  v-if="state.soundEffects.length > 1"
-                  top
-                >
-                  <template v-slot:activator="{ on, attrs }">
-                    <v-btn
-                      title="Delete this sound effect"
-                      icon
-                      small
-                      absolute
-                      top
-                      right
-                      class="soundfx-delete-btn delete-icon-btn"
-                      v-bind="attrs"
-                      v-on="on"
-                    >
-                      <v-icon>mdi-delete</v-icon>
-                    </v-btn>
-                  </template>
+                <div class="soundfx-id-badge">ID:{{ soundEffect.id }}</div>
 
-                  <v-card>
-                    <v-card-title>Delete this sound effect?</v-card-title>
-                    <v-list>
-                      <v-list-item @click="handleDeleteSoundEffect(soundEffect)">
-                        <v-list-item-icon>
-                          <v-icon>mdi-check</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>Yes, delete</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item>
-                        <v-list-item-icon>
-                          <v-icon>mdi-cancel</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>No, don't delete</v-list-item-title>
-                      </v-list-item>
-                    </v-list>
-                  </v-card>
-                </v-menu>
+                <div class="soundfx-toolbar-top-right">
+                  <v-btn
+                    icon
+                    small
+                    title="Export sound effect to .JSON file"
+                    class="soundfx-stop-btn soundfx-icon-btn-size"
+                    @click="() => handleExportSoundEffect(soundEffect)"
+                  >
+                    <v-icon>mdi-export</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Import sound effect from .JSON file"
+                    class="soundfx-stop-btn soundfx-icon-btn-size"
+                    @click="() => handleImportSoundEffect(soundEffect)"
+                  >
+                    <v-icon>mdi-import</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Stop the sound preview"
+                    class="soundfx-stop-btn soundfx-icon-btn-size"
+                    @click="handleStopPreview"
+                  >
+                    <v-icon>mdi-stop</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Play this sound effect"
+                    class="soundfx-play-btn soundfx-icon-btn-size"
+                    @click="() => handlePlaySoundEffect(soundEffect)"
+                  >
+                    <v-icon>mdi-play</v-icon>
+                  </v-btn>
+                </div>
 
                 <v-card-text class="soundfx-name-section">
-                  <v-text-field
-                    class="soundfx-name-field"
-                    label="Sound effect name"
-                    v-model="soundEffect.name"
-                    @change="handleChildChange"
-                  />
+                  <div class="soundfx-name-row">
+                    <color-swatch-picker
+                      class="soundfx-color-picker"
+                      :value="soundEffect.color"
+                      :fallback-color="autoInstrumentColor(soundEffect.id)"
+                      title="Click to set this instrument's note color on the Music tab"
+                      @input="(byte) => handleSetSoundEffectColor(soundEffect, byte)"
+                    />
+                    <v-text-field
+                      class="soundfx-name-field"
+                      label="Sound name"
+                      v-model="soundEffect.name"
+                      @change="handleChildChange"
+                    />
+                    <v-btn
+                      icon
+                      small
+                      class="soundfx-instrument-btn soundfx-icon-btn-size"
+                      :class="{'soundfx-instrument-btn-active': soundEffect.isInstrument}"
+                      :title="(soundEffect.isInstrument ?
+                        'Tagged as an instrument (click to untag) ' :
+                        'Not tagged as an instrument (click to tag) ') +
+                        '- purely a tag for this tab\'s own \'Show\' filter above; every sound effect can ' +
+                        'already be used both as a soundfx_play trigger and as a Music tab instrument ' +
+                        'regardless of this.'"
+                      @click="() => handleToggleInstrument(soundEffect)"
+                    >
+                      <v-icon small>mdi-piano</v-icon>
+                    </v-btn>
+                  </div>
                 </v-card-text>
 
                 <v-card-text v-if="!isCollapsed(soundEffect)" class="soundfx-fields-section">
@@ -97,10 +145,20 @@
                       label="Sound type"
                       v-model="soundEffect.audc"
                       :items="audcOptionItems"
-                      @change="handleChildChange"
+                      @change="() => handleAudcChange(soundEffect)"
                       class="soundfx-audc"
                     />
+                    <v-select
+                      v-if="audcHasTunableNotes(soundEffect.audc)"
+                      label="Frequency"
+                      title="Limited to the AUDF values that play a clean, in-tune note on this sound type - same set the piano roll allows on the Music tab."
+                      v-model.number="soundEffect.audf"
+                      :items="frequencyItems(soundEffect.audc)"
+                      @change="handleChildChange"
+                      class="soundfx-number"
+                    />
                     <v-text-field
+                      v-else
                       label="Frequency"
                       v-model.number="soundEffect.audf"
                       type="number"
@@ -126,14 +184,56 @@
                       @change="handleChildChange"
                       class="soundfx-number"
                     />
-                    <v-btn
-                      icon
-                      title="Play this sound effect"
-                      @click="() => handlePlaySoundEffect(soundEffect)"
-                    >
-                      <v-icon>mdi-play</v-icon>
-                    </v-btn>
+                    <!-- Fade and Arpeggio are both temporarily hidden here
+                    (not removed - see processSoundEffectsStorageDefaults'
+                    own comment in blocks/soundfx.js, which forces both off
+                    everywhere regardless of this UI): each one's generated
+                    per-channel dispatch code could grow large enough to blow
+                    ROM capacity on some projects. -->
                   </div>
+                </v-card-text>
+
+                <!-- Its own row (not inline with soundfx-fields-section above,
+                     where this used to sit next to Fade) so it lands in the
+                     same place - close to the card's own bottom edge - whether
+                     expanded or collapsed, instead of being roughly mid-card
+                     while expanded but bottom-edge while collapsed. -->
+                <v-card-text class="soundfx-delete-section">
+                  <v-menu
+                    v-if="state.soundEffects.length > 1"
+                    top
+                  >
+                    <template v-slot:activator="{ on, attrs }">
+                      <v-btn
+                        title="Delete this sound effect"
+                        icon
+                        small
+                        class="soundfx-delete-btn delete-icon-btn soundfx-icon-btn-size"
+                        v-bind="attrs"
+                        v-on="on"
+                      >
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </template>
+
+                    <v-card>
+                      <v-card-title>Delete this sound effect?</v-card-title>
+                      <v-list>
+                        <v-list-item @click="handleDeleteSoundEffect(soundEffect)">
+                          <v-list-item-icon>
+                            <v-icon>mdi-check</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>Yes, delete</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-list-item-icon>
+                            <v-icon>mdi-cancel</v-icon>
+                          </v-list-item-icon>
+                          <v-list-item-title>No, don't delete</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-card>
+                  </v-menu>
                 </v-card-text>
               </v-card>
             </v-list-item-content>
@@ -157,17 +257,28 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
 import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
-import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults} from '../blocks/soundfx';
+import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
+  DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
+  MAX_ARPEGGIO_INTERVAL, DEFAULT_ARPEGGIO_RANGE, ARPEGGIO_RANGE_OPTIONS,
+  FADE_LENGTH_OPTIONS} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
-import {previewSoundEffect} from '../utils/sound-preview';
+import {getDateInfix} from '../utils/date';
+import {openFileDialog} from '../utils/file';
+import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
+import {autoInstrumentColor} from '../utils/instrument-colors';
+import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
+import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 
 export default defineComponent({
+  components: {ColorSwatchPicker},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     const configurationStorage = useConfigurationStorage();
@@ -214,6 +325,43 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('soundfx');
 
+    // Purely a display filter for this tab's own card list (see the
+    // Instrument checkbox in the name row) - not persisted, and doesn't
+    // touch soundEffect.isInstrument itself or anything else that reads it.
+    // Cards not matching stay in the underlying array/v-for at their own
+    // real index (v-show, not a filtered array or v-if - ESLint's
+    // vue/no-use-v-if-with-v-for rule forbids the latter on the same
+    // element as v-for anyway) specifically so drag-reorder (see
+    // hooks/drag-reorder.js, which reorders by splicing the real array at
+    // whatever index it's given) keeps working correctly even mid-filter,
+    // rather than reordering against filtered-out indices that don't match
+    // the real array at all.
+    const soundFilter = ref('all');
+    const soundFilterItems = [
+      {text: 'All', value: 'all'},
+      {text: 'Instruments', value: 'instrument'},
+      {text: 'Sound effects', value: 'sound'},
+    ];
+    const matchesSoundFilter = (soundEffect) => {
+      if (soundFilter.value === 'instrument') return !!soundEffect.isInstrument;
+      if (soundFilter.value === 'sound') return !soundEffect.isInstrument;
+      return true;
+    };
+
+    // Card reordering (see hooks/drag-reorder.js and TextEditor.vue's own
+    // first use of this same hook) - sound effects are already referenced
+    // everywhere by their own permanent id (see findSoundEffectById/
+    // buildSoundEffectOptions in blocks/soundfx.js), never by array
+    // position, so unlike the Text tab this needed no separate
+    // display-order/ROM-order decoupling work - reordering is already safe.
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.soundEffects,
+        (items) => {
+          state.value.soundEffects = items;
+          handleChildChange();
+        },
+    );
+
     const instance = getCurrentInstance();
     const handleAddSoundEffect = () => {
       const soundEffects = state.value.soundEffects;
@@ -225,6 +373,13 @@ export default defineComponent({
         audf: 16,
         audv: 15,
         duration: 5,
+        fade: false,
+        arpeggio: false,
+        arpeggioDivision: DEFAULT_ARPEGGIO_DIVISION,
+        arpeggioInterval: DEFAULT_ARPEGGIO_INTERVAL,
+        arpeggioRange: DEFAULT_ARPEGGIO_RANGE,
+        color: null,
+        isInstrument: false,
       };
 
       state.value.soundEffects.push(newSoundEffect);
@@ -239,6 +394,50 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // Sound effect data as a standalone .json file, for sharing an
+    // instrument between projects or keeping an external backup - same
+    // pattern as MusicEditor.vue's own handleExportSong/handleImportSong
+    // (including leaving the card's own id out of the export, kept as the
+    // IMPORTING card's id on import instead, since ids only mean anything
+    // within a single project's own storage).
+    const handleExportSoundEffect = (soundEffect) => {
+      // eslint-disable-next-line no-unused-vars
+      const {id, ...soundEffectData} = soundEffect;
+      const blob = new Blob([JSON.stringify(soundEffectData, null, 2)], {type: 'application/json'});
+      const filename = (soundEffect.name || `sound-${soundEffect.id}`).replace(/[^A-Za-z0-9]+/g, '_');
+      saveAs(blob, `Sound_${filename}-${getDateInfix()}.json`);
+    };
+
+    // Overwrites this sound effect card's own data with a previously
+    // exported .json file's contents - keeps this card's own id (see
+    // handleExportSoundEffect) untouched so every soundfx_play block and
+    // Music tab track already pointing at this card keeps working.
+    const handleImportSoundEffect = (soundEffect) => {
+      openFileDialog('.json,application/json')
+          .then((file) => file.text())
+          .then((text) => {
+            const soundEffectData = JSON.parse(text);
+            if (!soundEffectData || typeof soundEffectData !== 'object' || !('audc' in soundEffectData)) {
+              throw new Error('File does not contain valid sound effect data');
+            }
+            Object.assign(soundEffect, soundEffectData, {id: soundEffect.id});
+            // Not just handleChildChange() - an imported file's own audf
+            // (especially one hand-edited, or exported from a build before
+            // the curated "in tune" Frequency list existed) can be a raw
+            // byte that isn't one of the current AUDC type's own valid
+            // options, which left the Frequency select showing blank
+            // forever (a value with no matching item never displays one)
+            // even though the data underneath was actually imported fine.
+            // handleAudcChange already does exactly this snap-to-closest-
+            // valid-value fixup on an AUDC change; running it here re-uses
+            // that same fixup for an AUDF that came in invalid instead
+            // (this also calls handleChildChange() itself).
+            handleAudcChange(soundEffect);
+            instance.proxy.$forceUpdate();
+          })
+          .catch((e) => console.error('Failed to import sound effect', e));
+    };
+
     const handlePlaySoundEffect = (soundEffect) => {
       // Matches what actually plays in the compiled ROM (see soundfx_play in
       // generators/bbasic/soundfx.js) - previewing at the un-dimmed volume
@@ -249,11 +448,65 @@ export default defineComponent({
       previewSoundEffect({...soundEffect, audv});
     };
 
+    const handleStopPreview = () => stopSoundEffectPreview();
+
+    const handleSetSoundEffectColor = (soundEffect, colorByte) => {
+      soundEffect.color = colorByte;
+      handleChildChange();
+    };
+
+    const handleToggleInstrument = (soundEffect) => {
+      soundEffect.isInstrument = !soundEffect.isInstrument;
+      handleChildChange();
+    };
+
+    // Same "in tune" AUDF set the piano roll limits its own rows to for a
+    // given instrument (see utils/music-notes.js's notesForAudc) - the
+    // Frequency field only offers a value picked from here instead of any
+    // 0-31 byte, so it can't land on an AUDF this sound type can't actually
+    // play a clean note at. The note name is shown right alongside the raw
+    // AUDF value (not instead of it) since the underlying byte is still
+    // what's stored/generated.
+    const frequencyItems = (audc) =>
+      notesForAudc(audc).map(({value, label}) => ({text: `${value} (${label})`, value}));
+
+    // AUDC types with no well-defined pitch (most percussion/noise sounds)
+    // keep the old plain 0-31 number field instead - there's no "valid
+    // frequency" set to limit to, every byte is equally as (un)musical.
+    const handleAudcChange = (soundEffect) => {
+      if (audcHasTunableNotes(soundEffect.audc)) {
+        const items = frequencyItems(soundEffect.audc);
+        if (!items.some(({value}) => value === soundEffect.audf)) {
+          // Snaps to the closest still-valid AUDF rather than always
+          // resetting to the same default, so switching between two
+          // similar instruments tends to land near the same pitch instead
+          // of jumping around.
+          let closest = items[0];
+          items.forEach((item) => {
+            if (Math.abs(item.value - soundEffect.audf) < Math.abs(closest.value - soundEffect.audf)) {
+              closest = item;
+            }
+          });
+          soundEffect.audf = closest.value;
+        }
+      }
+      handleChildChange();
+    };
+
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
+      handleExportSoundEffect, handleImportSoundEffect,
+      handleStopPreview, handleSetSoundEffectColor, handleToggleInstrument, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
+      audcHasTunableNotes, frequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent,
+      soundFilter, soundFilterItems, matchesSoundFilter,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
+      arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
+      arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
+      fadeLengthOptionItems: FADE_LENGTH_OPTIONS.map((value) => ({text: `${value} frames`, value})),
+      MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
 });
@@ -272,6 +525,26 @@ export default defineComponent({
    directly in a v-card-text with no list-item wrapper. */
 .entry-list-item {
   padding-left: 0;
+}
+
+/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
+   .background-list/.entry-list-item rules - v-list-item__content's default
+   12px top/bottom padding was adding extra space between cards beyond
+   anything explicitly set (there was no explicit gap here at all before),
+   so this tab's own card spacing didn't match the Background tab's.
+   flex+gap plays the role .background-list's own CSS grid gap does (this
+   tab stays single-column); margin-top puts back the space above the FIRST
+   card that zeroing v-list-item__content's own padding would otherwise
+   have also removed. */
+.soundfx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
 }
 
 .dim-controls {
@@ -314,10 +587,38 @@ export default defineComponent({
   font-size: 0.75rem;
 }
 
+.soundfx-filter {
+  max-width: 220px;
+  margin-top: 8px;
+}
+
 .soundfx-card {
   position: relative;
   width: 100%;
   max-width: 640px;
+}
+
+/* Same reasoning/placement as TextEditor.vue's identical .text-drag-handle
+   rule (see hooks/drag-reorder.js's own comment) - only this top strip is
+   actually draggable, so click-and-drag still selects text everywhere else
+   in the card. */
+.soundfx-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  cursor: grab;
+}
+
+/* Same two classes/reasoning as hooks/drag-reorder.js's own comment and
+   TextEditor.vue's identical rules (its own first use of this hook). */
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.drag-reorder-over {
+  border-top: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Same placement/style as the Text tab's "ID: N" badge (TextEditor.vue's
@@ -326,7 +627,7 @@ export default defineComponent({
    .soundfx-collapse-btn, which sits in the same row to its left. */
 .soundfx-id-badge {
   position: absolute;
-  top: 8px;
+  top: 10px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
@@ -338,15 +639,138 @@ export default defineComponent({
    has to line up against .soundfx-id-badge's own text baseline right next to
    it, not just sit inside the card. */
 .soundfx-collapse-btn {
-  top: 0 !important;
+  top: 2px !important;
   left: 4px !important;
   box-shadow: none !important;
 }
 
-/* Same 12px reserved below the badge as PixelEditor.vue's
-   .editor-with-sidebar--has-badge (see PlayerEditor.vue's "FRAME: N"). */
+/* Top-right corner, hugging it the same way .soundfx-collapse-btn hugs the
+   top-left (top: 0, relying on the buttons' own internal padding rather
+   than extra container inset) - stop/play stay reachable with the card
+   collapsed, same reason they were pulled out of the collapsible fields
+   section. */
+.soundfx-toolbar-top-right {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 1;
+}
+
+/* Same 4px gap as the Music tab's own .track-instrument-row, but flex-start
+   (not flex-end) - unlike that row's dense, hide-details fields, Sound
+   name is a full-size v-text-field with a good deal of reserved underline
+   space below its own value text, so bottom-aligning the swatch to the
+   field's outer box (like the Music tab's shorter fields) would land it in
+   that empty space, below the visible text rather than next to it. */
+.soundfx-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* Clears .soundfx-toolbar-top-right, which would otherwise overlap the name
+   field's own label/text at the top of the card - matches the Music tab's
+   own song cards' card-top-to-label gap (measured directly: 36.67px there
+   vs this field's own 40.67px at 24px margin-top, so 20px lines the two
+   up) - was 36px originally. */
 .soundfx-name-field {
-  margin-top: 12px;
+  margin-top: 20px;
+  flex: 1 1 auto;
+}
+
+/* Same flat-icon, fade-in-on-hover treatment as .soundfx-stop-btn/
+   .soundfx-play-btn below, plus an "on" tint (see .soundfx-instrument-btn-
+   active) matching the Music tab's own mute/solo toggle buttons
+   (MusicEditor.vue's .music-icon-btn-active - same blue, #1976d2, Vuetify's
+   default "primary"). 30px roughly centers it against .soundfx-name-field's
+   own floating label/text (20px offset) - not a measured value, nudge if it
+   doesn't quite line up. !important because this element also carries
+   .soundfx-icon-btn-size (defined later in this same file), whose own
+   "margin: 0 1px" shorthand resets margin-top to 0 and would otherwise win
+   on source order alone despite matching specificity - confirmed as the
+   actual cause of this button rendering hard against the row's own top
+   edge instead of lined up with the name field next to it. */
+.soundfx-instrument-btn {
+  flex: 0 0 auto;
+  margin-top: 38px !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.soundfx-instrument-btn::before {
+  display: none;
+}
+
+.soundfx-instrument-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.soundfx-instrument-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.soundfx-instrument-btn.soundfx-instrument-btn-active >>> .v-icon {
+  color: #1976d2 !important;
+}
+
+/* Vuetify's v-menu renders its activator slot content as a SIBLING of its
+   own (empty, zero-size) root element, not nested inside it - a class on
+   <color-swatch-picker> itself lands on that invisible marker, not on the
+   actual visible swatch, so this has to pierce into the component's own
+   internal .color-swatch-picker-dot class instead. 41px (.soundfx-name-
+   field's own 20px margin-top, plus 21px to reach the vertical center of
+   its floating label + value text) - measured directly against the
+   rendered field, since a fixed field like this one doesn't share the
+   Instrument row's own dense/hide-details proportions to eyeball from. */
+.soundfx-name-row >>> .color-swatch-picker-dot {
+  margin-top: 41px;
+  margin-left: -6px;
+}
+
+/* Same flat-icon, fade-in-on-hover treatment as the pixel editor's own
+   toolbar icons (PixelEditor.vue's .pixel-editor-tools rules) instead of
+   Vuetify's default grey circle: dim at rest, darker on hover, no ripple. */
+.soundfx-stop-btn,
+.soundfx-play-btn {
+  flex: 0 0 auto;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Vuetify paints its own grey hover/focus overlay here - removed in favor of
+   the icon colour transition below. */
+.soundfx-stop-btn::before,
+.soundfx-play-btn::before {
+  display: none;
+}
+
+.soundfx-stop-btn >>> .v-icon,
+.soundfx-play-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.soundfx-stop-btn:hover >>> .v-icon,
+.soundfx-play-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+/* Same icon/button sizing as the Player Sprite tab's own toolbar icons
+   (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
+   changes, so .delete-icon-btn's red-on-hover convention is untouched. */
+.soundfx-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.soundfx-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
 }
 
 /* Split from the rest of the card's content (soundfx-fields-section) so the
@@ -359,13 +783,26 @@ export default defineComponent({
 
 .soundfx-fields-section {
   padding-top: 0;
+  padding-bottom: 0;
 }
 
-/* Vuetify's fab+absolute+top combo centers the button on the card's top
-   edge, poking half of it out (and clipped there); pull it down so the whole
-   button sits inside the card instead. */
+/* Its own row, not inline with soundfx-fields-section above (where Delete
+   used to sit, pushed to the row's far right by a v-spacer) - that made
+   Delete land roughly mid-card while expanded but hard against the card's
+   own bottom edge while collapsed (see soundfx-fields-section, which is
+   entirely hidden then), two different positions for the same button.
+   Rendered unconditionally now (not just while collapsed) so it lands in
+   this same bottom-edge spot either way. Always in normal flow rather than
+   absolutely positioned, unlike its previous spot at the card's
+   bottom-right - that put it behind the name field once collapsing
+   shrank the card down around it. */
+.soundfx-delete-section {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
 .soundfx-delete-btn {
-  top: 8px !important;
   box-shadow: none !important;
 }
 
@@ -383,6 +820,22 @@ export default defineComponent({
 
 .soundfx-number {
   flex: 0 0 90px;
+}
+
+/* Same margin-top override as SoundFXEditor's own .dim-switch - Vuetify's
+   selection-control margin-top (meant for stacking below other fields)
+   otherwise pushes this out of line with the text fields next to it. */
+.soundfx-fade,
+.soundfx-arpeggio {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+}
+
+/* These sit right after the Arpeggio checkbox, which has its own margin-top
+   zeroed out above - without a matching nudge here, the fields read as
+   sitting a little higher than the checkbox's own label/input baseline. */
+.soundfx-arpeggio-field {
+  margin-top: 4px;
 }
 
 .add-soundfx-buttom {

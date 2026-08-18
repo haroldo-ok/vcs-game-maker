@@ -57,6 +57,7 @@ export const computeRomCapacity = ({output, symbolmap}) => {
 
   return {
     bank1: perBank[0],
+    perBank,
     total: {
       freeBytes: perBank.reduce((sum, b) => sum + b.freeBytes, 0),
       usableBytes: perBank.reduce((sum, b) => sum + b.usableBytes, 0),

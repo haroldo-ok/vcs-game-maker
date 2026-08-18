@@ -11,10 +11,31 @@
           with spaces.
         </p>
 
-        <v-list>
+        <div class="text-bkcolor-row">
+          <color-swatch-picker
+            :value="textBkColor"
+            :allow-clear="false"
+            title="Click to set the Text Minikernel's own message background color"
+            @input="(byte) => (textBkColor = byte)"
+          />
+          <span class="text-bkcolor-label">Text background color</span>
+        </div>
+
+        <v-list class="text-list">
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
-              <v-card outlined class="text-card">
+              <v-card
+                outlined
+                class="text-card"
+                :class="dragCardClass(index)"
+                v-on="dragTargetListeners(index)"
+              >
+                <div
+                  class="text-drag-handle"
+                  title="Drag to reorder"
+                  v-bind="dragAttrs(index)"
+                  v-on="dragHandleListeners(index)"
+                />
                 <v-btn
                   :title="isCollapsed(entry) ? 'Expand this message' : 'Collapse this message'"
                   icon
@@ -27,22 +48,47 @@
                 >
                   <v-icon>{{ isCollapsed(entry) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot;">
-                  ID: {{ index + 1 }}
+                <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot; - stays the same no matter how cards are rearranged below.">
+                  ID:{{ entry.id }}
                 </div>
-                <v-btn
-                  title="Delete this message"
-                  icon
-                  small
-                  absolute
+                <v-menu
+                  v-if="state.textStrings.length > 1"
                   top
-                  right
-                  class="text-delete-btn delete-icon-btn"
-                  :disabled="state.textStrings.length <= 1"
-                  @click="() => handleDeleteEntry(entry)"
                 >
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
+                  <template v-slot:activator="{ on, attrs }">
+                    <v-btn
+                      title="Delete this message"
+                      icon
+                      small
+                      absolute
+                      top
+                      right
+                      class="text-delete-btn delete-icon-btn text-icon-btn-size"
+                      v-bind="attrs"
+                      v-on="on"
+                    >
+                      <v-icon>mdi-delete</v-icon>
+                    </v-btn>
+                  </template>
+
+                  <v-card>
+                    <v-card-title>Delete this message?</v-card-title>
+                    <v-list>
+                      <v-list-item @click="handleDeleteEntry(entry)">
+                        <v-list-item-icon>
+                          <v-icon>mdi-check</v-icon>
+                        </v-list-item-icon>
+                        <v-list-item-title>Yes, delete</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item>
+                        <v-list-item-icon>
+                          <v-icon>mdi-cancel</v-icon>
+                        </v-list-item-icon>
+                        <v-list-item-title>No, don't delete</v-list-item-title>
+                      </v-list-item>
+                    </v-list>
+                  </v-card>
+                </v-menu>
 
                 <v-card-text class="text-name-section">
                   <v-text-field
@@ -61,6 +107,23 @@
                     counter="12"
                     @change="() => handleTextChange(entry)"
                   />
+                  <v-btn-toggle
+                    v-model="entry.justify"
+                    mandatory
+                    dense
+                    class="text-justify-toggle"
+                    @change="handleChildChange"
+                  >
+                    <v-btn value="left" small title="Left-justified: pads the message with spaces on the right.">
+                      <v-icon small>mdi-format-align-left</v-icon>
+                    </v-btn>
+                    <v-btn value="center" small title="Centered: pads the message with spaces on both sides.">
+                      <v-icon small>mdi-format-align-center</v-icon>
+                    </v-btn>
+                    <v-btn value="right" small title="Right-justified: pads the message with spaces on the left.">
+                      <v-icon small>mdi-format-align-right</v-icon>
+                    </v-btn>
+                  </v-btn-toggle>
                 </v-card-text>
               </v-card>
             </v-list-item-content>
@@ -84,16 +147,48 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import {useCollapsedIds} from '../hooks/collapse';
-import {useTextStringsStorage} from '../hooks/project';
-import {DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH, processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
+import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
+import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH,
+  processTextStringsStorageDefaults} from '../blocks/text-strings';
 
 export default defineComponent({
+  components: {ColorSwatchPicker},
   setup() {
     const textStringsStorage = useTextStringsStorage();
+    const configurationStorage = useConfigurationStorage();
+
+    // The Text Minikernel's own message background color (the "textbkcolor"
+    // const - see generators/bbasic.js's generateConfiguration) - a single
+    // project-wide setting stored alongside the rest of Configuration.vue's
+    // own options, not per-message, since only one Text Minikernel instance
+    // can ever be active in a project. Defaults to black (0), matching the
+    // same "?? 0" fallback generateConfiguration itself uses (and what
+    // text12a.asm's own ifnconst fallback already defaults to).
+    const textBkColor = computed({
+      get() {
+        try {
+          const value = (configurationStorage.value || {}).textBkColor;
+          return value == null ? 0 : value;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return 0;
+        }
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          textBkColor: value,
+        };
+      },
+    });
+
     const state = computed({
       get() {
         try {
@@ -115,6 +210,86 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('text');
 
+    // Card reordering - NOT built on hooks/drag-reorder.js's own
+    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
+    // single-column card lists), since that hook's own top-border
+    // drag-over convention only makes sense for a strictly vertical stack.
+    // .text-list is a CSS grid (see its own comment - two or more cards can
+    // sit side by side on a wide enough window), where the meaningful
+    // drop-target edge is left/right (which card this lands before/after in
+    // reading order), not top/bottom - confirmed directly as a real gap
+    // otherwise: the shared hook's top-border highlight only ever offered
+    // "insert above," with no way to drop a card at the END of a row or
+    // between two cards sharing that row.
+    const draggedEntryIndex = ref(null);
+    // {index, side} - side is 'before' or 'after', which HALF of card
+    // `index` the pointer is currently over - same halfway-point
+    // convention MusicEditor.vue's own dragOverSideFor/DataEditor.vue's
+    // own valueRowListeners already use for their identical grid-drop
+    // problem.
+    const dragOverEntry = ref(null);
+    const isEntryDragging = (index) => draggedEntryIndex.value === index;
+    const isEntryDragOver = (index) =>
+      !!dragOverEntry.value && dragOverEntry.value.index === index && !isEntryDragging(index);
+    const entryDragOverSide = (index) => (isEntryDragOver(index) ? dragOverEntry.value.side : null);
+    const dragCardClass = (index) => ({
+      [CSS_CLASS_DRAGGING]: isEntryDragging(index),
+      'text-card-drag-over-before': entryDragOverSide(index) === 'before',
+      'text-card-drag-over-after': entryDragOverSide(index) === 'after',
+    });
+    const dragOverSideFor = (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    };
+    const dragAttrs = () => ({draggable: true});
+    const dragHandleListeners = (index) => ({
+      dragstart: (event) => {
+        draggedEntryIndex.value = index;
+        event.dataTransfer.effectAllowed = 'move';
+        // Same Firefox requirement as hooks/drag-reorder.js's own
+        // dragHandleListeners - the value itself is never read back.
+        event.dataTransfer.setData('text/plain', String(index));
+      },
+      dragend: () => {
+        draggedEntryIndex.value = null;
+        dragOverEntry.value = null;
+      },
+    });
+    const dragTargetListeners = (index) => ({
+      dragover: (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const side = dragOverSideFor(event);
+        const current = dragOverEntry.value;
+        if (!current || current.index !== index || current.side !== side) {
+          dragOverEntry.value = {index, side};
+        }
+      },
+      dragleave: (event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (isEntryDragOver(index) || isEntryDragging(index)) dragOverEntry.value = null;
+      },
+      drop: (event) => {
+        event.preventDefault();
+        const from = draggedEntryIndex.value;
+        draggedEntryIndex.value = null;
+        dragOverEntry.value = null;
+        if (from == null || from === index) return;
+        // Computed fresh off the actual drop event's own pointer position -
+        // see MusicEditor.vue's own sequenceChipListeners drop handler for
+        // why this isn't just read back off dragOverEntry instead.
+        const side = dragOverSideFor(event);
+        let insertAt = side === 'after' ? index + 1 : index;
+        if (from < insertAt) insertAt--;
+        if (insertAt === from) return;
+        const items = state.value.textStrings.slice();
+        const [moved] = items.splice(from, 1);
+        items.splice(insertAt, 0, moved);
+        state.value.textStrings = items;
+        handleChildChange();
+      },
+    });
+
     const instance = getCurrentInstance();
     const handleAddEntry = () => {
       const textStrings = state.value.textStrings;
@@ -123,6 +298,7 @@ export default defineComponent({
         id: maxId + 1,
         name: `Message ${maxId + 1}`,
         text: '',
+        justify: DEFAULT_TEXT_JUSTIFY,
       };
 
       state.value.textStrings.push(newEntry);
@@ -145,7 +321,8 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
-      isCollapsed, toggleCollapsed,
+      isCollapsed, toggleCollapsed, textBkColor,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
 });
@@ -159,11 +336,16 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default left padding stacks on top of v-card-text's,
+/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
    pushing the message card in further than the Score tab's, which sits
-   directly in a v-card-text with no list-item wrapper. */
+   directly in a v-card-text with no list-item wrapper. Zeroing both sides
+   (not just left, as this used to) matches the Player/Data/Background tabs'
+   own identical fix - the unzeroed right padding was otherwise most visible
+   on the last column of .text-list's grid, sitting further from the tab's
+   right edge than the left column sits from the left edge. */
 .entry-list-item {
   padding-left: 0;
+  padding-right: 0;
 }
 
 .text-hint {
@@ -171,10 +353,82 @@ export default defineComponent({
   max-width: 640px;
 }
 
+.text-bkcolor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+/* A 12-character message doesn't need anywhere near .text-list's own full
+   column width (previously capped at 640px, sized for that) - grid instead
+   of the v-list's normal single-column stacking, so two (or more, on a wide
+   enough window) fit side by side instead of each wasting most of a full
+   row's width. */
+.text-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  /* Grid items stretch to fill their row's height by default - a collapsed
+     card next to an expanded one in the same row would otherwise stretch
+     tall to match it, instead of sitting flush at the top like its card
+     content actually sizes to. */
+  align-items: start;
+  /* Matches BackgroundEditor.vue's own .background-list - restores the
+     space above the FIRST row that zeroing v-list-item__content's own
+     top padding below removes. */
+  margin-top: 12px;
+}
+
+/* v-list-item__content's default 12px top/bottom padding was adding extra
+   space between grid ROWS on top of this grid's own 8px gap (same issue as
+   BackgroundEditor.vue's own .background-list, see its comment there),
+   without anything similar between columns - zeroing it here keeps this
+   grid's own gap as the only source of spacing, matching the Background
+   tab's spacing exactly. */
+.entry-list-item >>> .v-list-item__content {
+  padding: 0;
+}
+
 .text-card {
   position: relative;
   width: 100%;
-  max-width: 640px;
+}
+
+/* Only this top strip is actually draggable (see hooks/drag-reorder.js's
+   own comment on why) - covers the same header band the collapse/ID/delete
+   controls already occupy. Sits behind them (they're later in DOM order,
+   so they paint on top and stay clickable) but in front of everything
+   else, so a click-and-drag gesture anywhere else in the card - the name/
+   text fields especially - still selects text instead of starting a drag. */
+.text-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  cursor: grab;
+}
+
+/* hooks/drag-reorder.js's own CSS_CLASS_DRAGGING (see its comment for why
+   this lives per-tab instead of globally) - faded so the card being moved
+   reads as "lifted" rather than duplicated. */
+.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+/* Which side of THIS card a dragged one would land on (see
+   entryDragOverSide/dragOverSideFor) - left/right, not hooks/
+   drag-reorder.js's own top-border convention, since .text-list is a CSS
+   grid that can put more than one card on the same row (see its own
+   comment) - left/right is what actually reflects reading-order position
+   within it. */
+.text-card-drag-over-before {
+  border-left: 3px solid var(--v-primary-base, #1976d2) !important;
+}
+
+.text-card-drag-over-after {
+  border-right: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top
@@ -182,6 +436,7 @@ export default defineComponent({
    button sits inside the card instead. */
 .text-delete-btn {
   top: 8px !important;
+  right: 8px !important;
   box-shadow: none !important;
 }
 
@@ -190,26 +445,40 @@ export default defineComponent({
    up against .text-id-badge's own text baseline right next to it, not just
    sit inside the card. */
 .text-collapse-btn {
-  top: 0 !important;
+  top: 2px !important;
   left: 4px !important;
   box-shadow: none !important;
+}
+
+/* Same icon/button sizing as the Player Sprite tab's own toolbar icons
+   (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
+   changes, so .delete-icon-btn's red-on-hover convention is untouched. */
+.text-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+.text-icon-btn-size >>> .v-icon {
+  font-size: 19px !important;
 }
 
 /* Shifted right to clear .text-collapse-btn, which now sits in the same
    row to its left. */
 .text-id-badge {
   position: absolute;
-  top: 8px;
+  top: 10px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
   opacity: 0.6;
 }
 
-/* Same 12px reserved below the badge as the SoundFX tab's
-   .soundfx-name-field. */
+/* Same margin-top as the SoundFX tab's .soundfx-name-field, for consistent
+   badge-to-name spacing across every tab. */
 .text-name-field {
-  margin-top: 12px;
+  margin-top: 20px;
 }
 
 /* Split from the rest of the card's content (text-message-section) so the
@@ -222,6 +491,10 @@ export default defineComponent({
 
 .text-message-section {
   padding-top: 0;
+}
+
+.text-justify-toggle {
+  margin-top: 8px;
 }
 
 .add-text-button {

@@ -46,3 +46,5 @@ export const PLAY_ICON = String.fromCodePoint(0x25B6) + String.fromCodePoint(0xF
 export const PAUSE_ICON = String.fromCodePoint(0x23F8) + String.fromCodePoint(0xFE0F);
 export const PRIORITY_ICON = String.fromCodePoint(0x1F5C2) + String.fromCodePoint(0xFE0F);
 export const COMMENT_ICON = String.fromCodePoint(0x1F4AC);
+export const MUSIC_ICON = String.fromCodePoint(0x1F3B5);
+export const STOP_ICON = String.fromCodePoint(0x23F9) + String.fromCodePoint(0xFE0F);

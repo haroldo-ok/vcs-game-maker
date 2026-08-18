@@ -38,8 +38,12 @@
           <v-icon>mdi-map</v-icon>
         </v-btn>
 
-        <v-btn to="/soundfx" link class="sound-item" title="SoundFX" elevation="0">
+        <v-btn to="/soundfx" link class="sound-item" title="Sound" elevation="0">
           <v-icon>mdi-waveform</v-icon>
+        </v-btn>
+
+        <v-btn to="/music" link class="music-item" title="Music" elevation="0">
+          <v-icon>mdi-music-note</v-icon>
         </v-btn>
 
         <v-btn to="/scorefont" link class="scorefont-item" title="Score" elevation="0">
@@ -72,7 +76,9 @@
       v-model="drawer"
       app
       width="200"
+      class="nav-drawer"
     >
+      <div class="nav-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
       <v-sheet
         color="grey lighten-5"
         height="128"
@@ -144,7 +150,20 @@
             <v-icon>mdi-waveform</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>SoundFX</v-list-item-title>
+            <v-list-item-title>Sound</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/music"
+          link
+          class="music-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-music-note</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Music (Alpha)</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -226,14 +245,14 @@
           </v-list-item-content>
         </v-list-item>
       </v-list>
-
+      </div>
     </v-navigation-drawer>
 
     <v-navigation-drawer
+      v-model="emulatorVisible"
       app
       clipped
       right
-      permanent
       class="emulator-drawer"
       :width="emulatorWidth"
     >
@@ -242,35 +261,89 @@
         title="Drag to resize the emulator"
         @mousedown.prevent="startResize"
       ></div>
-      <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
-      <v-btn
-        block
-        class="mt-2"
-        :color="romOutdated ? 'warning' : 'primary'"
-        :loading="building"
-        @click="handleRomUpdate"
-      >
-        {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
-      </v-btn>
-      <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
-        Get generated ROM
-      </v-btn>
-      <div
-        v-if="romCapacityText"
-        class="rom-capacity"
-        :class="romCapacityLow ? 'rom-capacity-low' : ''"
-        :title="romCapacityTitle"
-      >
-        {{ romCapacityText }}
-      </div>
-      <div
-        v-if="autoRelocatedEventsText"
-        class="rom-capacity"
-        title="This project's code didn't fit in bank 1, so these were automatically moved to another bank to make room."
-      >
-        {{ autoRelocatedEventsText }}
+      <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
+        <v-btn
+          block
+          small
+          text
+          class="emulator-refresh-button"
+          title="Reload the page to fix the emulator preview if it has disappeared - you'll need to click Update ROM again afterward"
+          @click="handleRefreshEmulator"
+        >
+          <v-icon left small>mdi-refresh</v-icon>
+          Refresh emulator
+        </v-btn>
+        <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
+        <v-btn
+          block
+          class="mt-2"
+          :color="romOutdated ? 'warning' : 'primary'"
+          :loading="building"
+          @click="handleRomUpdate"
+        >
+          {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
+        </v-btn>
+        <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
+          Get generated ROM
+        </v-btn>
+        <div
+          v-if="romCapacityText"
+          class="rom-capacity"
+          :class="romCapacityLow ? 'rom-capacity-low' : ''"
+        >
+          {{ romCapacityText }}
+        </div>
+        <v-progress-linear
+          v-if="romCapacityText"
+          :value="romCapacityPercentFilled"
+          :color="romCapacityBarColor"
+          height="6"
+          rounded
+          class="rom-capacity-bar"
+        />
+        <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
+        <div v-if="romVariablesText" class="rom-capacity-summary">{{ romVariablesText }}</div>
+        <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
+          <div v-for="bank in romCapacityBanks" :key="bank.number" class="rom-capacity-bank">
+            <div class="rom-capacity-bank-header">
+              <strong>Bank {{ bank.number }}:</strong> {{ bank.freeText }}
+            </div>
+            <div v-if="bank.contents.length" class="rom-capacity-bank-contents">
+              <div v-for="part in bank.contents" :key="part.label">
+                <strong>{{ part.label }}{{ part.names ? ':' : '' }}</strong> {{ part.names }}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </v-navigation-drawer>
+
+    <v-btn
+      v-if="emulatorVisible"
+      fab
+      x-small
+      dark
+      color="grey"
+      title="Hide the emulator preview to free up more space for the block editor"
+      class="emulator-hide-button emulator-toggle-button"
+      :style="{right: emulatorWidth + 'px'}"
+      @click="emulatorVisible = false"
+    >
+      <v-icon small>mdi-chevron-right</v-icon>
+    </v-btn>
+
+    <v-btn
+      v-if="!emulatorVisible"
+      fab
+      x-small
+      dark
+      color="grey"
+      title="Show the emulator preview"
+      class="emulator-show-button emulator-toggle-button"
+      @click="emulatorVisible = true"
+    >
+      <v-icon small>mdi-chevron-left</v-icon>
+    </v-btn>
 
     <v-main class="app-main">
       <router-view/>
@@ -282,14 +355,25 @@
         title="Drag to resize the error pane"
         @mousedown.prevent="startResizeError"
       ></div>
-      <pre v-text="errorStorage"></pre>
+      <div class="error-scroll-wrapper">
+        <div class="error-console-content">
+          <div
+            v-for="(entry, index) in compileLog"
+            :key="index"
+            class="compile-log-line"
+            :class="entry.level === 'error' ? 'compile-log-error' : 'compile-log-info'"
+            :style="{fontWeight: entry.level === 'stage' ? 'bold' : 'normal'}"
+          >{{ entry.text }}</div>
+          <pre v-if="errorStorage" v-text="errorStorage"></pre>
+        </div>
+      </div>
     </v-footer>
   </v-app>
 </template>
 
 <script>
-import {useErrorStorage} from './hooks/project';
-import {buildRom, useAutoRelocatedEvents, useRomCapacity, useRomOutdated} from './hooks/rom';
+import {useCompileLog, useErrorStorage} from './hooks/project';
+import {buildRom, useRomCapacity, useRomOutdated} from './hooks/rom';
 import {productName, version} from '../package.json';
 
 // Below this fraction of the bank's usable space remaining, the capacity
@@ -306,6 +390,11 @@ const EMULATOR_MAX_WIDTH = 900;
 // Keep enough room for the editor when dragging on smaller screens.
 const EDITOR_MIN_WIDTH = 320;
 const EMULATOR_WIDTH_KEY = 'vcs-game-maker.emulatorWidth';
+// Whether the emulator drawer is shown at all - separate from emulatorWidth
+// (which only ever remembers its width while visible), so hiding it to free
+// up space for the block editor survives a reload instead of resetting
+// every time.
+const EMULATOR_VISIBLE_KEY = 'vcs-game-maker.emulatorVisible';
 // Matches the footer's old fixed "max-height: 7em" (at the default 16px root
 // font size) as the default/minimum, so an unresized pane looks the same as
 // before this was made resizable.
@@ -331,10 +420,16 @@ const readStoredErrorHeight = () => {
   return Number.isFinite(stored) ? stored : ERROR_DEFAULT_HEIGHT;
 };
 
+// Stored as the raw string "false" (not JSON-encoded) - same convention as
+// useLoadLastProjectStorage in hooks/project.js. Anything else, including
+// never having been set, means "visible" (the default).
+const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KEY) !== 'false';
+
 export default {
   data: () => ({
     drawer: null,
     emulatorWidth: readStoredWidth(),
+    emulatorVisible: readStoredEmulatorVisible(),
     emulatorScale: 1,
     emulatorHeight: null,
     resizing: false,
@@ -346,8 +441,8 @@ export default {
     const errorStorage = useErrorStorage();
     console.info('Text', version);
     return {
-      errorStorage, romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      autoRelocatedEvents: useAutoRelocatedEvents(), productName, version,
+      errorStorage, compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
+      productName, version,
     };
   },
   mounted() {
@@ -386,7 +481,22 @@ export default {
       if (!capacity) return '';
       return `${capacity.total.freeBytes.toLocaleString()} bytes free`;
     },
-    romCapacityTitle() {
+    // Feeds the progress bar right under the "bytes free" line above -
+    // same total-across-every-bank figure that text is already built from,
+    // just expressed as a 0-100 percentage instead of a byte count.
+    romCapacityPercentFilled() {
+      const capacity = this.romCapacity;
+      if (!capacity || !capacity.total.usableBytes) return 0;
+      const used = capacity.total.usableBytes - capacity.total.freeBytes;
+      return (used / capacity.total.usableBytes) * 100;
+    },
+    // Plain, always-visible, selectable text (see the summary/per-bank
+    // blocks right under the "bytes free" line in the template) rather than
+    // a native title="..." tooltip - a browser tooltip can't be
+    // selected/copied at all, which defeats the whole point of this existing
+    // specifically to be pasted into a bug report or back into this
+    // conversation.
+    romCapacitySummary() {
       const capacity = this.romCapacity;
       if (!capacity) return '';
       const totalUsed = capacity.total.usableBytes - capacity.total.freeBytes;
@@ -395,22 +505,56 @@ export default {
         `across every bank (bank 1, which always holds your main code, is ` +
         `${bank1Used.toLocaleString()} of ${capacity.bank1.usableBytes.toLocaleString()} used)`;
     },
+    // Variable-pool usage (see hooks/rom.js's computeVariableUsage) - shown
+    // separately from the byte-capacity text above since these are a
+    // completely different, hard-capped resource (25-55 slots project-wide
+    // depending on Superchip, not bytes) that can run out well before ROM
+    // space does. Superchip's own half is omitted entirely when it's off
+    // (available is 0 then - see computeVariableUsage's own comment) rather
+    // than shown as "0 of 0", which would read as broken rather than simply
+    // not applicable yet.
+    romVariablesText() {
+      const usage = this.romCapacity && this.romCapacity.variableUsage;
+      if (!usage) return '';
+      const letters = `${usage.letters.used} of ${usage.letters.available} letters`;
+      if (!usage.superchip.available) return `Variables: ${letters} used.`;
+      return `Variables: ${letters}, ${usage.superchip.used} of ${usage.superchip.available} Superchip RAM used.`;
+    },
+    // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
+    // summary above averages over every bank, which can look like there's
+    // plenty of room even when a SPECIFIC bank (the one a new relocated unit
+    // would actually need to land in) has almost none left. Each bank's own
+    // contents (see hooks/rom.js's computeBankContents) are rendered right
+    // under its own "free" line - covers every bank, not just ones something
+    // got relocated INTO this build (the old autoRelocatedEventsText this
+    // replaced only ever showed those).
+    romCapacityBanks() {
+      const capacity = this.romCapacity;
+      if (!capacity || !capacity.perBank || !capacity.perBank.length) return [];
+      return capacity.perBank.map((bank, i) => ({
+        number: i + 1,
+        freeText: `${bank.freeBytes.toLocaleString()} free`,
+        contents: this.bankContentsParts(i + 1),
+      }));
+    },
+    // Drives the "bytes free" text turning red, and the capacity bar's own
+    // red tier (see romCapacityBarColor) - keyed off the TOTAL across every
+    // bank (matching what "bytes free" itself already shows), at the user's
+    // own explicit request, rather than bank 1 specifically.
     romCapacityLow() {
       const capacity = this.romCapacity;
-      if (!capacity || !capacity.bank1.usableBytes) return false;
-      return capacity.bank1.freeBytes / capacity.bank1.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
+      if (!capacity || !capacity.total.usableBytes) return false;
+      return capacity.total.freeBytes / capacity.total.usableBytes < ROM_CAPACITY_LOW_THRESHOLD;
     },
-    autoRelocatedEventsText() {
-      const events = this.autoRelocatedEvents;
-      if (!events || !events.length) return '';
-      const byBank = {};
-      events.forEach(({name, bank}) => {
-        (byBank[bank] || (byBank[bank] = [])).push(name);
-      });
-      return Object.keys(byBank)
-          .sort((a, b) => a - b)
-          .map((bank) => `Bank ${bank}: ${byBank[bank].join(', ')}`)
-          .join(' | ');
+    // Three-tier: red once genuinely close to full (romCapacityLow - same
+    // threshold/text the "bytes free" line itself already turns red at),
+    // orange past 80% as an earlier heads-up, otherwise the same blue
+    // "primary" color used elsewhere in the app (e.g. the Update ROM
+    // button).
+    romCapacityBarColor() {
+      if (this.romCapacityLow) return 'red';
+      if (this.romCapacityPercentFilled > 80) return 'warning';
+      return 'primary';
     },
   },
   watch: {
@@ -418,8 +562,42 @@ export default {
       // Wait for the drawer's new width to reach the DOM before measuring.
       this.$nextTick(this.updateEmulatorScale);
     },
+    emulatorVisible(value) {
+      localStorage.setItem(EMULATOR_VISIBLE_KEY, value ? 'true' : 'false');
+      // Re-measure once it's shown again - updateEmulatorScale's own retry
+      // loop already tolerates being called before the drawer's slide-in
+      // transition (transform/visibility - see .emulator-drawer's own
+      // transition-property) finishes, the same way it already tolerates a
+      // width-drag mid-reflow.
+      if (value) this.$nextTick(this.updateEmulatorScale);
+    },
   },
   methods: {
+    // Formats one bank's own contents (see hooks/rom.js's computeBankContents)
+    // as a list of {label, names} entries for romCapacityBanks's own per-bank
+    // entry - one entry per kind present (rather than one long comma-separated
+    // line) so a bank holding several different kinds of content stays
+    // scannable, and an empty array for a bank with nothing in it. Kept
+    // structured (not pre-joined into one string) so the template can bold
+    // just the label - see .rom-capacity-bank-contents in the template.
+    bankContentsParts(bankNumber) {
+      const contents = this.romCapacity && this.romCapacity.bankContents && this.romCapacity.bankContents[bankNumber];
+      if (!contents) return [];
+      const groups = [
+        ['Events', contents.events],
+        ['Backgrounds', contents.backgrounds],
+        ['Player 0', contents.player0Sprites],
+        ['Player 1', contents.player1Sprites],
+        ['Music', contents.music],
+        ['Subroutines', contents.subroutines],
+        ['Data tables', contents.dataTables],
+      ];
+      const parts = groups
+          .filter(([, names]) => names.length)
+          .map(([label, names]) => ({label, names: names.join(', ')}));
+      if (contents.textMinikernel) parts.push({label: 'Text Minikernel', names: ''});
+      return parts;
+    },
     // Javatari's own size is whatever it chose at startup, so scale it to the
     // column by measuring both. offsetWidth/offsetHeight are layout sizes and
     // so are unaffected by the transform already applied.
@@ -439,10 +617,28 @@ export default {
         return;
       }
       container.appendChild(javatariScreen);
-      javatariScreen.style = '';
+      this.resetScreenStyle(javatariScreen);
       this.observeEmulatorSize(container, javatariScreen);
       this.observeEmulatorReparenting(container);
+      this.pollEmulatorVisibility(container);
       this.updateEmulatorScale();
+    },
+    // Wipes the screen element's inline style (Javatari sets some of its own
+    // when it owns the element's placement, e.g. while it's parked in its
+    // default DOM location) EXCEPT margin-bottom, which Javatari also uses,
+    // separately, to reserve room below the screen for its own console-panel
+    // graphic (power/reset/difficulty switches) whenever that panel is
+    // active. A blanket "style = ''" here used to wipe that margin along with
+    // everything else; updateEmulatorScale() then sized the container from
+    // the now-zero margin, and since the container clips overflow, the panel
+    // was still being drawn - just below the bottom edge of a container too
+    // short to show it. Confirmed by manually restoring the margin and
+    // triggering a rescale, which brought the panel back with no other
+    // change. Preserving it here keeps the container sized to include it.
+    resetScreenStyle(screen) {
+      const marginBottom = screen.style.marginBottom;
+      screen.style = '';
+      screen.style.marginBottom = marginBottom;
     },
     // Javatari sometimes re-inserts its own screen element back into its
     // default location in the DOM (observed after loading a new ROM via
@@ -453,17 +649,50 @@ export default {
     // Javatari does the move on its own schedule; watching for it and moving
     // the screen back the moment it happens is more robust than reacting only
     // once, after the fact.
+    //
+    // Also dismisses Javatari's own dialogs here rather than only once from
+    // handleRomUpdate - see dismissEmulatorDialogs()'s own comment for why a
+    // dialog can open on Javatari's own schedule, after the one-shot
+    // post-build call already ran, and previously stayed open forever since
+    // nothing ever checked again. "attributes: true" with a class filter is
+    // needed for that: opening a dialog toggles an existing element's
+    // "jt-show" class rather than inserting a new node, which the
+    // childList-only observer below never saw.
+    // Shared by both the event-driven MutationObserver below and the
+    // time-based poller (pollEmulatorVisibility) - the observer only fires
+    // for mutations it was specifically told to watch (childList, "class",
+    // "style"), so any OTHER way the screen could end up hidden or
+    // misplaced (a Javatari-internal state change that doesn't touch those,
+    // or one this app doesn't know about yet) would slip past it silently.
+    // Polling the same check on a timer catches those too, since it doesn't
+    // depend on knowing what caused the problem - only on verifying the
+    // current state is correct.
+    checkAndFixEmulatorVisibility(container) {
+      this.dismissEmulatorDialogs();
+      const screen = document.getElementById('javatari-screen');
+      if (!screen) return;
+      const reparented = screen.parentElement !== container;
+      if (reparented) container.appendChild(screen);
+      if (reparented || screen.style.display === 'none' || screen.style.visibility === 'hidden' ||
+          screen.style.opacity === '0') {
+        this.resetScreenStyle(screen);
+        this.updateEmulatorScale();
+      }
+    },
     observeEmulatorReparenting(container) {
       if (this.emulatorReparentObserver) return;
-      this.emulatorReparentObserver = new MutationObserver(() => {
-        const screen = document.getElementById('javatari-screen');
-        if (screen && screen.parentElement !== container) {
-          container.appendChild(screen);
-          screen.style = '';
-          this.updateEmulatorScale();
-        }
-      });
-      this.emulatorReparentObserver.observe(document.body, {childList: true, subtree: true});
+      this.emulatorReparentObserver = new MutationObserver(() => this.checkAndFixEmulatorVisibility(container));
+      this.emulatorReparentObserver.observe(document.body,
+          {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style']});
+    },
+    // Time-based backstop for whatever the event-driven observer above
+    // misses - see checkAndFixEmulatorVisibility's own comment. Runs
+    // indefinitely (this component is never unmounted in normal use - it's
+    // the app's own root), so no clearInterval on a matching lifecycle hook.
+    pollEmulatorVisibility(container) {
+      if (this.emulatorVisibilityPoller) return;
+      this.emulatorVisibilityPoller = window.setInterval(
+          () => this.checkAndFixEmulatorVisibility(container), 500);
     },
     // Root cause of the preview "vanishing" after "Update ROM": Javatari's
     // own "Select Cartridge"/"Select ROM Format"/"Save/Load State" dialogs
@@ -538,8 +767,16 @@ export default {
       if (!container || !screen) return;
       // Javatari lays out after this component mounts, so it may still have no
       // size. Measuring then would collapse the container to zero height and
-      // clip the emulator away entirely.
-      if (!screen.offsetWidth || !screen.offsetHeight) {
+      // clip the emulator away entirely. Also guards the container's own
+      // width, not just the screen's - this is called synchronously right
+      // after a ROM build finishes (see handleRomUpdate), which can land
+      // before the drawer has laid out again since the last reflow, momentarily
+      // reading clientWidth as 0. That zeroes emulatorScale, which both sets
+      // this container's CSS height to a literal "0px" and (via
+      // "transform: scale(var(--emulator-scale))") shrinks the emulator's
+      // actual content to nothing - and since nothing else re-triggers a
+      // recalculation afterward, it stayed that way instead of self-correcting.
+      if (!container.clientWidth || !screen.offsetWidth || !screen.offsetHeight) {
         if (retriesLeft > 0) {
           window.setTimeout(
               () => this.updateEmulatorScale(retriesLeft - 1), EMULATOR_MEASURE_INTERVAL);
@@ -628,6 +865,28 @@ export default {
         });
       }, 0);
     },
+    // Manual escape hatch for the emulator preview intermittently vanishing.
+    // Re-parenting/re-styling the existing screen element (the same recovery
+    // dismissEmulatorDialogs()/attachEmulator()/checkAndFixEmulatorVisibility
+    // already do automatically) turned out not to be enough on its own -
+    // confirmed the DOM element can be present, correctly parented, and
+    // correctly styled while still showing nothing, meaning Javatari's own
+    // internal rendering had actually stopped, not just been hidden or
+    // misplaced. There's no supported way to restart only Javatari's
+    // internals from here (it's a page-embedded <script>, not something this
+    // app owns or can re-inject on its own), so this reloads the whole page
+    // instead - the one guaranteed way to get a fresh, working instance.
+    // Project data lives in localStorage and survives this; the compiled ROM
+    // (kept in memory by Javatari) and the Generated tab's own in-memory
+    // code ref don't, so the user needs to click "Update ROM" again
+    // afterward. Deliberately NOT done automatically here: if a bad ROM is
+    // itself what froze the emulator, auto-rebuilding it the moment the
+    // page comes back up would just re-trigger the same freeze immediately,
+    // soft-locking the user out of ever seeing a stable page to fix the
+    // project from.
+    handleRefreshEmulator() {
+      window.location.reload();
+    },
     handleRomDownload() {
       if (!window.Javatari?.compiledResult) {
         this.errorStorage.value =
@@ -646,14 +905,77 @@ export default {
 <!-- Unscoped: #javatari-screen is injected by Javatari at runtime, so it never
      carries this component's scope attribute. -->
 <style>
+/* The app's own default font, as a custom property so switching it later
+   (see public/index.html's own <link> for the actual font file/weights)
+   only means changing this one value, not hunting down every place that
+   might otherwise hardcode a font name. .v-application is the exact
+   selector Vuetify's own bundled CSS itself uses for its default
+   (Roboto) font-family - matching it here, with !important, is what lets
+   this override win over that built-in rule instead of just adding a
+   second, lower-priority one beside it. */
+:root {
+  --app-font-family: 'Inter', sans-serif;
+}
+
+.v-application {
+  font-family: var(--app-font-family) !important;
+}
+
+/* Blockly ships its own bundled CSS (font: 11pt sans-serif on these exact
+   selectors) rather than inheriting the page's own font-family, so the
+   block canvas/flyout text stayed in the browser's generic sans-serif even
+   after .v-application above switched everywhere else - confirmed directly
+   by inspecting Blockly's own injected stylesheet. font-family only (not
+   the shorthand font: ... property) so this doesn't also touch the 11pt
+   size Blockly itself sets. [class*="-theme"] (not a specific theme name
+   like .app-theme) - ActionEditor.vue's own "Modern block style" option
+   swaps between two differently-named themes (see APP_BLOCKLY_THEME/
+   APP_BLOCKLY_THEME_MODERN there), and Blockly's own injected class is
+   literally that theme's own name + "-theme" (see Theme.prototype.
+   getClassName), so a single fixed class here would only have matched
+   ONE of the two - confirmed directly as the reason an earlier version of
+   this rule (.classic-theme, copied from Blockly's own default theme name
+   rather than the actual "app-theme" class this project's custom theme
+   produces) never actually matched anything at all. */
+.geras-renderer[class*="-theme"] .blocklyText,
+.geras-renderer[class*="-theme"] .blocklyFlyoutLabelText {
+  font-family: var(--app-font-family) !important;
+}
+
+/* Vuetify's own hint/error text under a field (e.g. the description under
+   the "Enable Superchip RAM..." switch on the Options tab) - default
+   line-height (12px, exactly matching its own 12px font-size, i.e. no
+   leading at all) reads as cramped once a hint runs to more than one line.
+   Global (not scoped to one field) since every hint/detail message in the
+   app uses this same class. */
+.v-messages__message {
+  line-height: 1.4 !important;
+}
+
 #javatari-target-container {
   overflow: hidden;
+  /* This sits inside .emulator-drawer-inner's flex column, at a fixed
+     JS-computed height (see App.vue's own updateEmulatorScale) - without
+     this, once the ROM capacity bank-contents text below it (see
+     .rom-capacity-detail) grew long enough after a build that everything in
+     the column no longer fit, the flex column's own default flex-shrink: 1
+     silently compressed this container below its real height instead of
+     leaving it alone, clipping the bottom of the emulator (Javatari's own
+     console-panel graphic) behind whatever sits right after it - the
+     Update ROM/Get generated ROM buttons - instead of showing it. That text
+     block already has its own overflow-y: auto (see its own flex: 1 1 auto)
+     specifically to absorb space shortages like this on its own, so nothing
+     above it - this container, the buttons, the summary text - should ever
+     need to shrink at all.
+  */
+  flex-shrink: 0;
 }
 
 #javatari-target-container > #javatari-screen {
   transform: scale(var(--emulator-scale, 1));
   transform-origin: top left;
 }
+
 
 /* App-wide: no drop shadow on any button or switch toggle - flat, matching
    the outlined-card style used elsewhere, instead of Vuetify's default
@@ -665,6 +987,33 @@ export default {
 
 .v-input--switch__thumb {
   box-shadow: none !important;
+}
+
+/* App-wide: lighter underline for a text field (or a v-select/v-combobox,
+   which are both built on top of v-text-field in this Vuetify version - the
+   same class carries their own underline too) while it's NOT focused -
+   Vuetify's own default resting-state color (rgba(0,0,0,.42), see
+   node_modules/vuetify/dist/vuetify.css's own ".theme--light.v-text-field >
+   .v-input__control > .v-input__slot:before" rule) reads as fairly dark/
+   prominent even on a field nobody's currently using. Only the plain
+   ":before" (resting) rule below is touched - the focused state (its own
+   ":after" rule, which Vuetify animates in via a separate scaleX
+   transform - untouched here) still gets the normal, full-strength primary-
+   color underline, so a focused field still reads clearly as active. Every
+   field in this app already uses the default (non-outlined/filled/solo)
+   style that actually shows this underline at all - confirmed via a
+   project-wide grep - so no variant exclusion is needed here.
+
+   :not(:hover) keeps this from also flattening Vuetify's own hover-darken
+   rule (its own ".theme--light.v-text-field:not(.v-input--has-state):hover
+   > ... :before", rgba(0,0,0,.87)) - that rule and this one both target the
+   same ::before, so without this exclusion the !important below (needed to
+   beat Vuetify's own un-!important resting rule) was winning on hover too,
+   silently killing the hover feedback instead of just lightening the
+   resting state. Letting Vuetify's own already-tuned hover rule apply
+   unopposed here is simpler than duplicating/guessing a new hover value. */
+.theme--light.v-text-field:not(:hover) > .v-input__control > .v-input__slot:before {
+  border-color: rgba(0, 0, 0, 0.15) !important;
 }
 
 /* A switch that's off gets a grey outline on its thumb, the same grey as an
@@ -727,6 +1076,90 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .emulator-resize-handle:hover {
   background-color: rgba(0, 0, 0, 0.15);
+}
+
+.emulator-refresh-button {
+  margin-bottom: 4px;
+}
+
+/* A sibling of the drawer (see the template), NOT a child of it - v-
+   navigation-drawer sets overflow: hidden on itself (to mask its own slide
+   transition), which was clipping away the left half of this button when it
+   lived inside the drawer as an absolutely-positioned child straddling its
+   edge. Fixed to the window instead, with "right" bound inline to
+   emulatorWidth (see the template) so it still tracks the drawer's own left
+   edge as it's resized. top: 104px clears the fixed chrome above the drawer
+   (v-system-bar's default 24px + the app-bar's own 72px, plus a little
+   breathing room), putting this at the top of the emulator column instead
+   of vertically centered on it. z-index bumped well past Vuetify's own
+   app-bar/navigation-drawer chrome, which otherwise sat on top of and ate
+   clicks meant for this button. */
+.emulator-hide-button {
+  position: fixed;
+  top: 104px;
+  transform: translateX(-50%);
+  z-index: 20;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* right: 16px (not flush against the window's own edge) - flush placement
+   sat exactly where the browser's native scrollbar renders, which (unlike
+   the DOM z-index fix .emulator-hide-button needed) can't be fixed with
+   z-index at all: an OS/browser-drawn scrollbar always paints on top of
+   page content regardless, and was silently eating clicks (starting a
+   scroll drag instead) meant for this button. Clearing that strip entirely,
+   rather than straddling it, is the only real fix. */
+.emulator-show-button {
+  position: fixed;
+  top: 104px;
+  right: 16px;
+  z-index: 20;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Faded and grey at rest (see color="grey" in the template) - a quieter
+   default than the app's usual blue "primary" accent, since this floats
+   over whatever tab is open rather than living inside a toolbar/panel with
+   other controls, and shouldn't compete for attention until the user is
+   actually reaching for it. Full opacity plus the app's own primary blue on
+   hover together read as "now active"/clickable. */
+.emulator-toggle-button {
+  opacity: 0.5;
+}
+
+.emulator-toggle-button:hover {
+  opacity: 1;
+  background-color: var(--v-primary-base, #1976d2) !important;
+}
+
+/* Flex column so .rom-capacity-detail (the last child) can grow to fill
+   whatever vertical space the emulator/buttons/summary line above it don't
+   use, instead of sizing to its own content and leaving dead space below.
+   box-sizing: border-box makes the padding-bottom below (which reserves room
+   for the error console footer, which overlaps the bottom of this drawer
+   since it isn't an "app" element Vuetify reserves layout space for) count
+   against this 100% height, instead of being added on top of it - otherwise
+   the flex children size themselves as if the footer weren't there, and
+   .rom-capacity-detail's own scrollbar never kicks in until content is
+   pushed further down than the footer already covers. */
+.emulator-drawer-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* Same reasoning as .emulator-drawer-inner above: the error console footer
+   overlaps the bottom of this drawer too (it isn't an "app" element Vuetify
+   reserves layout space for), so a plain height: 100% scroll area would let
+   the last couple of tabs end up hidden behind it. box-sizing: border-box
+   makes the reactive padding-bottom count against the 100% height instead of
+   adding to it, so the scrollbar appears in time to reach everything above
+   the footer. */
+.nav-drawer-inner {
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .v-list-item__icon {
@@ -818,11 +1251,24 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(39, 136, 176) !important;
 }
 
+/* Vuetify's "block" prop sets flex: 1 0 auto on a v-btn (so a full-width
+   button behaves inside a flex row) - inside .emulator-drawer-inner's flex
+   COLUMN that instead makes every block button grow to fill the leftover
+   vertical space whenever .rom-capacity-detail isn't rendered yet (no ROM
+   built yet), stretching them tall. Buttons should only ever size to their
+   own content here. */
+.emulator-drawer-inner .v-btn {
+  flex: 0 0 auto !important;
+}
+
 .rom-capacity {
   text-align: center;
   font-size: 0.8em;
+  font-weight: bold;
   opacity: 0.7;
   margin-top: 6px;
+  padding: 0 8px;
+  flex-shrink: 0;
 }
 
 .rom-capacity-low {
@@ -831,22 +1277,139 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   font-weight: bold;
 }
 
+.rom-capacity-bar {
+  margin: 4px 8px 8px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.rom-capacity-summary {
+  font-size: 0.75em;
+  opacity: 0.6;
+  text-align: left;
+  margin: 2px 0 0;
+  padding: 0 8px;
+  user-select: text;
+  flex-shrink: 0;
+}
+
+/* flex: 1 (with the drawer content column below) lets this grow to fill
+   whatever room is left under the emulator/buttons/summary line instead of
+   staying a fixed height, with its own scrollbar (min-height: 0 is required
+   for a flex child to be allowed to shrink below its content size and
+   actually scroll instead of overflowing the drawer). */
+.rom-capacity-detail {
+  font-size: 0.75em;
+  opacity: 0.6;
+  text-align: left;
+  margin: 6px 0 0;
+  padding: 0 8px;
+  user-select: text;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.rom-capacity-bank {
+  margin-bottom: 6px;
+}
+
+.rom-capacity-bank-header {
+  white-space: pre-wrap;
+}
+
+.rom-capacity-bank-contents {
+  padding-left: 1em;
+  opacity: 0.85;
+}
+
+.rom-capacity-bank-contents > div {
+  white-space: pre-wrap;
+}
+
 .error-message {
   position: relative;
   z-index: 10;
-  overflow-y: scroll;
 }
 
 .theme--light.v-footer.error-message {
   color: rgb(244, 67, 54);
 }
 
+/* The actual scroll container - moved here from .error-message itself
+   (which used to have overflow-y: scroll directly) so .error-resize-handle
+   (a sibling of this, not a descendant) never scrolls along with the log
+   content: .error-resize-handle's own position: absolute is anchored to
+   .error-message, which is also where a scrollbar's scroll OFFSET used to
+   be tracked - a still-scrolling ancestor drags an absolutely-positioned
+   child's rendered position along with it exactly like any other content,
+   confirmed directly as why the handle became unreachable (scrolled out
+   of view along with the log text) once there was enough log content to
+   scroll at all.
+   Absolutely positioned (inset: 0 within .error-message's own
+   position: relative, its own top-8px left free for the resize handle's
+   own strip) rather than sized through flexbox (a v-footer's row-direction
+   flex layout makes height the CROSS axis, which turned out to still let
+   this grow to fit its own content instead of actually clipping to the
+   footer's own fixed height even with align-self: stretch + flex +
+   min-height: 0 all set - confirmed directly: scrollHeight kept exactly
+   matching clientHeight, i.e. never actually overflowing/scrolling
+   internally at all, which spilled the overflow out into the page's own
+   document flow instead, making the WHOLE PAGE scroll to reveal it - this
+   sidesteps that flexbox cross-axis sizing question entirely with a hard,
+   unambiguous 0/0/0/0 inset instead of a size that has to be derived. */
+.error-scroll-wrapper {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: scroll;
+}
+
+/* v-footer's own default is a row-direction flex container (fine for a
+   single <pre>, wrong once this holds many stacked lines) - column instead,
+   with no gap of its own, so spacing between lines comes only from
+   .compile-log-line's own tight line-height below. */
+.error-console-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding-top: 8px;
+}
+
+/* Live progress feed for the build pipeline (see hooks/rom.js's buildRom())
+   - overrides the footer's own blanket red (meant for errorStorage's actual
+   error banner just below it) back to ordinary text color for anything that
+   isn't itself an error-level entry. margin: 0 and a tight line-height keep
+   many lines from spreading out - the default paragraph-like spacing looked
+   like a blank line between every single message. */
+.compile-log-line {
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.3;
+  padding-left: 8px;
+}
+
+.compile-log-info {
+  color: rgba(0, 0, 0, 0.87);
+}
+
+.compile-log-error {
+  color: rgb(244, 67, 54);
+  font-weight: bold;
+}
+
 .error-resize-handle {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
-  height: 6px;
+  /* Straddles the footer's own top edge (-5px to +5px) rather than sitting
+     entirely inside it - a plain 6px strip fully inside the panel was too
+     easy to miss by a pixel and land on the error text right below it
+     instead, starting a text selection instead of a resize drag. */
+  top: -5px;
+  height: 10px;
   cursor: ns-resize;
   z-index: 2;
 }

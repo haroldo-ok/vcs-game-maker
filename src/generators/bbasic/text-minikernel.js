@@ -40,10 +40,21 @@ export const CHAR_TO_GLYPH = {
 // Converts free-typed text into a fixed-width row of glyph tokens for the
 // "data text_strings" table: upper-cased, unsupported characters become
 // spaces, and the result is always exactly TEXT_MESSAGE_LENGTH tokens long
-// (truncated or right-padded with spaces).
-export const encodeTextMessage = (text) => {
+// (truncated or padded with spaces). justify (see the Text tab's own
+// Left/Center/Right buttons - one of TEXT_JUSTIFY_OPTIONS in
+// blocks/text-strings.js) decides where the padding goes: 'left' (the
+// default) puts it all on the right, 'right' puts it all on the left,
+// 'center' splits it across both sides - shorted by one space on the left
+// than an even split would give when the padding is odd (confirmed against
+// the actual rendered row - the Text Minikernel's own drawing doesn't quite
+// treat both sides symmetrically, so a plain floor/ceil split still landed
+// one space too far left).
+export const encodeTextMessage = (text, justify = 'left') => {
   const upper = String(text || '').toUpperCase().slice(0, TEXT_MESSAGE_LENGTH);
-  const padded = upper.padEnd(TEXT_MESSAGE_LENGTH, ' ');
+  const totalPad = TEXT_MESSAGE_LENGTH - upper.length;
+  const leftPad = justify === 'right' ? totalPad :
+    justify === 'center' ? Math.max(0, Math.floor(totalPad / 2) - 1) : 0;
+  const padded = ' '.repeat(leftPad) + upper.padEnd(TEXT_MESSAGE_LENGTH - leftPad, ' ');
   return padded.split('').map((char) => CHAR_TO_GLYPH[char] || '_sp');
 };
 
@@ -53,15 +64,17 @@ export default (Blockly) => {
   };
 
   // Every message defined on the Text tab occupies a FIXED table row, one
-  // more than its position in that list (row 0 is reserved blank - see
-  // generateTextMinikernel() below) - not assigned lazily as blocks happen
-  // to reference them. That's what makes "Show text with ID" possible at
-  // all: its number is only known at runtime, so there's no block-visitation
-  // moment to hang a lazy registration off of. A pure function of the Text
-  // tab's own stored order also means a compile-time reference (the "Show
-  // text" dropdown) and a runtime one (a variable someone sets to 1, 2, ...)
-  // always agree on which message a given position means - typing "2" gets
-  // you the second message listed on the Text tab, full stop.
+  // more than its position in listTextStrings()'s own id-sorted order (row 0
+  // is reserved blank - see generateTextMinikernel() below) - not assigned
+  // lazily as blocks happen to reference them. That's what makes "Show text
+  // with ID" possible at all: its number is only known at runtime, so
+  // there's no block-visitation moment to hang a lazy registration off of.
+  // Deliberately keyed off id, not Text tab DISPLAY order (see
+  // listTextStrings' own comment) - display order is freely drag-reorderable
+  // (see TextEditor.vue), and a message's ROM row/ID number staying fixed
+  // regardless of where its card happens to sit in the editor is exactly the
+  // point: typing "2" always gets you the same message, whether or not it's
+  // been dragged somewhere else on the Text tab since.
   const namedMessagePosition = (id) => {
     const entries = listTextStrings();
     const index = entries.findIndex((entry) => `${entry.id}` === `${id}`);
@@ -189,11 +202,13 @@ export default (Blockly) => {
     // 1..N: every Text tab entry, in that same order (position N = row N -
     // see namedMessagePosition() above and "Show text with ID"). Remaining
     // rows: free-typed messages, in first-referenced order.
-    const namedTexts = listTextStrings().map(({text}) => text);
-    const freeTypedTexts = this.freeTypedMessages || [];
-    const allTexts = ['', ...namedTexts, ...freeTypedTexts];
-    const rows = allTexts.map((text) =>
-      '  ' + encodeTextMessage(text).join(', '));
+    // Free-typed messages ("Show text: <literal>") have no Justify buttons
+    // of their own to read - only Text tab entries do.
+    const namedTexts = listTextStrings().map(({text, justify}) => ({text, justify}));
+    const freeTypedTexts = (this.freeTypedMessages || []).map((text) => ({text, justify: 'left'}));
+    const allTexts = [{text: '', justify: 'left'}, ...namedTexts, ...freeTypedTexts];
+    const rows = allTexts.map(({text, justify}) =>
+      '  ' + encodeTextMessage(text, justify).join(', '));
     const dataTable = ` data text_strings\n${rows.join('\n')}\nend`;
 
     // Matches the reference demo's own layout exactly: the data table comes
@@ -226,9 +241,23 @@ export default (Blockly) => {
     // errors - harmless empty "bank N ... bank 1" placeholders for every
     // skipped bank fixed it. Bank 1 itself doesn't need one (it's always
     // visited - the whole rest of the program lives there).
+    //
+    // A bank the auto-relocation system (see hooks/rom.js) has actually put
+    // real content in is skipped here, NOT given an empty placeholder on top
+    // of that - generateRelocatedSections already declares "bank N ... bank
+    // 1" for it with real content inside. Confirmed directly as a real bug
+    // otherwise: declaring the same bank a second time, non-contiguously (an
+    // empty placeholder here, real content later), corrupts DASM's address
+    // tracking for it (reported as "Origin Reverse-indexed" - see
+    // generateRelocatedSections' own comment on this same failure mode) -
+    // which only ever surfaces once relocation actually needs a bank number
+    // below the Text Minikernel's own reserved one, so it went unnoticed
+    // until a project's bank 1 overflow was small enough to be fixed by
+    // relocating into exactly such a bank.
+    const usedBanks = Blockly.BBasic.usedRelocationBankNumbers();
     const skippedBankPlaceholders = [];
     for (let bank = 2; bank < kernelBank; bank++) {
-      skippedBankPlaceholders.push(` bank ${bank}\n bank 1`);
+      if (!usedBanks.has(bank)) skippedBankPlaceholders.push(` bank ${bank}\n bank 1`);
     }
 
     return `${skippedBankPlaceholders.join('\n')}\n bank ${kernelBank}\n${block}\n bank 1`;

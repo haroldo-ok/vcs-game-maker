@@ -117,6 +117,46 @@ export default (Blockly) => {
       const paused = block.getFieldValue('STATE') === 'pause';
       return `${name}size{6} = ${paused ? 1 : 0}\n`;
     };
+
+    // player0pointer/player1pointer and player0height/player1height are
+    // real batari Basic kernel symbols (confirmed directly against
+    // public/bb19/includes/2600basic.h and std_kernel.asm) - plain,
+    // already-defined zero-page RAM the standard kernel reads every
+    // scanline as "lda (player0pointer),y" (y counting down from
+    // player0height), the exact same mechanism the compiler's own
+    // "player0: ... end" graphic-literal syntax sets up automatically
+    // behind the scenes for every normal animation frame (see
+    // generateAnimations in generators/bbasic.js). Every OTHER player
+    // graphic in this app goes through that literal-bitmap path; this is
+    // the only generator that assigns those two RAM variables directly,
+    // pointing them at ordinary CODE instead of a drawn graphic - the
+    // classic Yars' Revenge "neutral zone" trick.
+    //
+    // ROM_NOISE_BASE_LABEL ("commongamelogic") is a fixed anchor point,
+    // not a data table the user has to set up first (an earlier version
+    // of this required creating and picking a data table specifically to
+    // guarantee a real, always-present bank 1 address) - commongamelogic
+    // itself is unconditionally present in every compiled ROM, always in
+    // bank 1, and never relocated (see bbasic.bb.hbs's own template and
+    // hooks/relocation-banks.js's own comments on what is/isn't eligible
+    // for relocation), so this needs no per-project setup or bank
+    // tracking at all to stay valid - unlike a data table's own address,
+    // which only exists (and only in bank 1 specifically) because
+    // something else already asked for it there.
+    const ROM_NOISE_BASE_LABEL = 'commongamelogic';
+    Blockly.BBasic[`sprite_${name}_rom_noise`] = function(block) {
+      // Defaults to framecounter (already ticking every frame regardless
+      // of anything else in the project) rather than a plain "0" fallback
+      // - the whole point of this block is a shimmering, ever-changing
+      // pattern with no setup required, and a fixed offset would instead
+      // show the exact same static bytes forever until the user thought
+      // to wire up their own changing value.
+      const offset = Blockly.BBasic.valueToCode(block, 'OFFSET', Blockly.BBasic.ORDER_ADDITION) ||
+        'framecounter';
+      const height = Math.max(1, Math.min(32, Number(block.getFieldValue('HEIGHT')) || 8));
+      return `${name}pointer = ${ROM_NOISE_BASE_LABEL} + (${offset})\n` +
+        `${name}height = ${height}\n`;
+    };
   };
 
   const createGeneratorForMissile = (name) => {

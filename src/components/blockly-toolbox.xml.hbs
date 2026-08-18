@@ -55,7 +55,7 @@
             <field name="NUM">123</field>
         </block>
         <block type="math_arithmetic"></block>
-        <block type="math_single"></block>
+        <block type="math_abs_set"></block>
     </category>
     <category name="Variables" custom="VARIABLE" colour="%{BKY_VARIABLES_HUE}">
     </category>
@@ -79,6 +79,7 @@
         <block type="sprite_player0_size" />
         <block type="sprite_player0_animation_select"></block>
         <block type="sprite_player0_animation_playback"></block>
+        <block type="sprite_player0_rom_noise"></block>
         <block type="sprite_player0_set">
             <field name="VAR">player0realcolor</field>
             <value name="VALUE">
@@ -106,6 +107,7 @@
         <block type="sprite_player1_size" />
         <block type="sprite_player1_animation_select"></block>
         <block type="sprite_player1_animation_playback"></block>
+        <block type="sprite_player1_rom_noise"></block>
         <block type="sprite_player1_set">
             <field name="VAR">player1realcolor</field>
             <value name="VALUE">
@@ -173,8 +175,26 @@
         <block type="input_joy1_get"></block>
 
         <block type="collision_get"></block>
+        <block type="collision_check_position"></block>
         <block type="input_console_switch_get"></block>
         <block type="color_get"></block>
+
+        <block type="distance_x_get"></block>
+        <block type="distance_y_get"></block>
+        <block type="distance_x_to_point_get">
+            <value name="POINT">
+                <shadow type="math_number">
+                <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="distance_y_to_point_get">
+            <value name="POINT">
+                <shadow type="math_number">
+                <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="random_get"></block>
         <block type="random_range_get"></block>
@@ -228,15 +248,30 @@
                     <field name="NUM">20</field>
                 </shadow>
             </value>
-        </block>            
+        </block>
         <block type="background_set_color">
             <field name="VAR">COLUBK</field>
-            <value name="VALUE">                
+            <value name="VALUE">
                 <shadow type="color_get">
                     <field name="COLOR">146</field>
                 </shadow>
             </value>
-        </block>        
+        </block>
+        <block type="background_fade_to">
+            <field name="VAR">COLUBK</field>
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">158</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="background_fade_finished"></block>
+        <block type="background_fade_active"></block>
         <block type="background_get_pixel">
             <value name="X">
                 <shadow type="math_number">
@@ -248,7 +283,7 @@
                     <field name="NUM">1</field>
                 </shadow>
             </value>
-        </block>        
+        </block>
         <block type="background_change_pixel">
             <value name="X">
                 <shadow type="math_number">
@@ -260,7 +295,7 @@
                     <field name="NUM">1</field>
                 </shadow>
             </value>
-        </block>        
+        </block>
         <block type="background_change_hv_line">
             <value name="LENGTH">
                 <shadow type="math_number">
@@ -277,9 +312,11 @@
                     <field name="NUM">1</field>
                 </shadow>
             </value>
-        </block>        
+        </block>
         <block type="background_scroll">
         </block>
+        <block type="background_clear"></block>
+        <block type="background_get_resolution"></block>
         <block type="draw_screen"></block>
     </category>
     <category name="Score" colour="#f2691e">
@@ -376,6 +413,27 @@
                 </shadow>
             </value>
         </block>
+        <block type="data_get_bit">
+            <value name="INDEX">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="data_get_element_by_id">
+            <value name="INDEX">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="data_get_bit_by_id">
+            <value name="INDEX">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
     </category>
     <category name="Text" colour="#3F51B5">
         <block type="text_minikernel_show"></block>
@@ -399,6 +457,33 @@
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
         <block type="soundfx_play"></block>
+    </category>
+    <category name="Music" colour="rgb(255, 87, 34)">
+        <block type="music_play_song"></block>
+        <block type="music_play_song_by_id">
+            <value name="SONG_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="music_stop_song"></block>
+        <block type="music_pause_song"></block>
+        <block type="music_unpause_song"></block>
+        <block type="music_song_stopped"></block>
+        <block type="music_song_stopped_by_id"></block>
+        <block type="music_song_stopped_by_number">
+            <value name="SONG_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="music_sequence_chip_finished"></block>
+        <block type="music_sequence_chip_finished_by_id"></block>
+        <block type="music_sequence_chip_finished_current_song"></block>
+        <block type="music_note_played"></block>
+        <block type="music_note_played_by_id"></block>
     </category>
     <category name="Event" colour="rgb(39, 176, 176)">
 

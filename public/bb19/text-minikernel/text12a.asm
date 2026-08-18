@@ -30,7 +30,13 @@ minikernel
     sta WSYNC               ; 3     (0)
  	ifconst scorebkcolor
  	    ifnconst noscoretxt
-	        lda #scorebkcolor
+	        ; vcs-game-maker: was "lda #scorebkcolor" (immediate) upstream -
+	        ; changed to absolute so scorebkcolor can be a real RAM variable
+	        ; (e.g. aliased onto playfieldrealcolor) instead of only a
+	        ; compile-time constant. +1 cycle (zero-page load vs immediate);
+	        ; this block runs right after WSYNC, at the very start of the
+	        ; scanline, where that's well within the existing slack.
+	        lda scorebkcolor
 	        sta COLUBK
 	    endif
 	endif

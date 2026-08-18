@@ -7,12 +7,21 @@ import {useTextStringsStorage} from '../hooks/project';
 // (see encodeTextMessage in generators/bbasic/text-minikernel.js).
 export const TEXT_MESSAGE_LENGTH = 12;
 
+// How a message's own padding (see encodeTextMessage in
+// generators/bbasic/text-minikernel.js) is split across the 12-character
+// row - 'left' (all padding on the right, the original/default behavior),
+// 'center' (padding split across both sides), or 'right' (all padding on
+// the left).
+export const TEXT_JUSTIFY_OPTIONS = ['left', 'center', 'right'];
+export const DEFAULT_TEXT_JUSTIFY = 'left';
+
 export const DEFAULT_TEXT_STRINGS = {
   textStrings: [
     {
       id: 1,
       name: 'Example message',
       text: 'HELLO WORLD!',
+      justify: DEFAULT_TEXT_JUSTIFY,
     },
   ],
 };
@@ -22,6 +31,12 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
   if (!textStrings || !textStrings.textStrings || !textStrings.textStrings.length) {
     return structuredClone(DEFAULT_TEXT_STRINGS);
   }
+  // Entries saved before Justify existed won't have it yet - including ones
+  // saved with the short-lived boolean "Center" checkbox this replaced,
+  // which never shipped as a release so isn't worth its own migration path.
+  textStrings.textStrings.forEach((entry) => {
+    if (!TEXT_JUSTIFY_OPTIONS.includes(entry.justify)) entry.justify = DEFAULT_TEXT_JUSTIFY;
+  });
   return textStrings;
 };
 
@@ -51,14 +66,20 @@ export const findTextStringById = (id) => {
   }
 };
 
-// Every stored text string, in the same order shown on the Text tab - the
-// order "Show text with ID"'s runtime number counts against (see
-// generators/bbasic/text-minikernel.js), so a raw compile-time reference
-// (dropdown) and a runtime one (a variable holding a typed-in number) always
-// agree on which message a given position means.
+// Every stored text string, sorted by its own permanent id - NOT the order
+// shown on the Text tab (see TextEditor.vue's own drag-reorder, which only
+// ever touches display order, reading state.textStrings directly rather
+// than through this function). "Show text with ID"'s runtime number counts
+// positions in THIS id-sorted order (see generators/bbasic/
+// text-minikernel.js, both for the compiled data table's own row order and
+// namedMessagePosition's lookup), so a raw compile-time reference
+// (dropdown) and a runtime one (a variable holding a typed-in number)
+// always agree on which message a given position means, and neither one
+// shifts just because a card got dragged to a new spot in the editor.
 export const listTextStrings = () => {
   try {
-    return processTextStringsStorageDefaults(useTextStringsStorage()).textStrings;
+    return processTextStringsStorageDefaults(useTextStringsStorage())
+        .textStrings.slice().sort((a, b) => a.id - b.id);
   } catch (e) {
     console.error('Failed to list text strings', e);
     return [];

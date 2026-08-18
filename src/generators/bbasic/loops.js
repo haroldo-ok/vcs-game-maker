@@ -62,10 +62,14 @@ export default (Blockly) => {
   // Wait a number of video frames. Each frame runs the same per-frame work as
   // the main loop (gosub commongamelogic : drawscreen) so sprite colors, sizes,
   // animations and sound keep updating and the screen keeps drawing normally
-  // during the wait, instead of freezing or losing the sprites.
+  // during the wait, instead of freezing or losing the sprites. commongamelogic
+  // is fixed, always-bank-1 content (see bbasic.bb.hbs) - needs its own bank
+  // tag whenever this block itself is relocated away from bank 1 (see
+  // bankJumpSuffix), same as generateGameLoopEvent's own identical fix.
     const argument0 = Blockly.BBasic.valueToCode(block, 'FRAMES',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
-    return `for loopcounter = 1 to ${argument0} : gosub commongamelogic : drawscreen : next\n`;
+    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), 1);
+    return `for loopcounter = 1 to ${argument0} : gosub commongamelogic${suffix} : drawscreen : next\n`;
   };
 
   Blockly.BBasic['controls_whileUntil'] = function(block) {

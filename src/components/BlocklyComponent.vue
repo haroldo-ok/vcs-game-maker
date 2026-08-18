@@ -35,6 +35,34 @@
 import Blockly from 'blockly';
 import {debounce} from 'lodash';
 
+// Live-snap-while-dragging: stock Blockly only ever snaps a block to the
+// grid once, at the very END of a drag (BlockSvg.prototype.snapToGrid,
+// reached via BlockDragger's own endDrag flow) - moveDuringDrag (called on
+// every single mousemove, with the block's live workspace-coordinate
+// target position) never consults the grid at all, so a dragged block's
+// on-screen position never visibly snaps until you let go, even with grid
+// snap turned on. Patched once here, at the shared prototype level (there's
+// no per-workspace hook Blockly itself offers for this - confirmed via its
+// own docs at https://docs.blockly.com/guides/configure/grid/, which only
+// documents the injection-time "snap" option, nothing for drag-time
+// behaviour) - rounds the live position to the nearest grid vertex on every
+// move too, using the exact same half-spacing formula
+// BlockSvg.prototype.snapToGrid itself uses (see node_modules/blockly/core/
+// block_svg.js), so what's shown while dragging always agrees with where
+// the block will actually land.
+const originalMoveDuringDrag = Blockly.BlockSvg.prototype.moveDuringDrag;
+Blockly.BlockSvg.prototype.moveDuringDrag = function(newLoc) {
+  const grid = this.workspace && this.workspace.getGrid && this.workspace.getGrid();
+  if (grid && grid.shouldSnap()) {
+    const spacing = grid.getSpacing();
+    const half = spacing / 2;
+    newLoc = new Blockly.utils.Coordinate(
+        Math.round((newLoc.x - half) / spacing) * spacing + half,
+        Math.round((newLoc.y - half) / spacing) * spacing + half);
+  }
+  originalMoveDuringDrag.call(this, newLoc);
+};
+
 export default {
   name: 'BlocklyComponent',
   props: ['options', 'value'],

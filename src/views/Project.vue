@@ -75,8 +75,9 @@ import {defineComponent, reactive} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useSoundEffectsStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
+import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -96,13 +97,15 @@ export default defineComponent({
     const workspaceStorage = useWorkspaceStorage();
     const configurationStorage = useConfigurationStorage();
     const scoreFontStorage = useScoreFontStorage();
+    const squishCustomScoreFontStorage = useSquishCustomScoreFontStorage();
     const dataTablesStorage = useDataTablesStorage();
     const textStringsStorage = useTextStringsStorage();
     const soundEffectsStorage = useSoundEffectsStorage();
+    const songsStorage = useSongsStorage();
 
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
-      workspaceStorage, configurationStorage, scoreFontStorage, dataTablesStorage,
-      textStringsStorage, soundEffectsStorage};
+      workspaceStorage, configurationStorage, scoreFontStorage, squishCustomScoreFontStorage, dataTablesStorage,
+      textStringsStorage, soundEffectsStorage, songsStorage};
   },
   methods: {
     handleSaveProject() {
@@ -137,6 +140,11 @@ export default defineComponent({
         digits: this.scoreFontStorage.digits.map(matrixToPlayfield),
       };
 
+      const squishCustomScoreFont = !this.squishCustomScoreFontStorage ? null : {
+        ...this.squishCustomScoreFontStorage,
+        digits: this.squishCustomScoreFontStorage.digits.map(matrixToPlayfield),
+      };
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
@@ -147,9 +155,18 @@ export default defineComponent({
         'player-1': player1,
         backgrounds,
         'score-font': scoreFont,
+        'squish-custom-score-font': squishCustomScoreFont,
         'data-tables': this.dataTablesStorage,
         'text-strings': this.textStringsStorage,
         'sound-effects': this.soundEffectsStorage,
+        // Songs, sequences, patterns, instruments (tracks) and their notes -
+        // all live in this one storage object (see hooks/project.js's
+        // useSongsStorage/blocks/music.js's DEFAULT_SONGS shape). Was never
+        // wired into save/load at all, so a saved .vcsgm silently dropped
+        // every Music tab edit - the song would still play back in the
+        // editor itself (localStorage was never cleared), but loading that
+        // saved file elsewhere, or after clearing storage, lost it all.
+        'songs': this.songsStorage,
       });
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
@@ -208,6 +225,13 @@ export default defineComponent({
           };
         }
 
+        if (project['squish-custom-score-font']) {
+          this.squishCustomScoreFontStorage = {
+            ...project['squish-custom-score-font'],
+            digits: project['squish-custom-score-font'].digits.map(playfieldToMatrix),
+          };
+        }
+
         if (project.backgrounds) {
           const backgrounds = {
             ...project.backgrounds,
@@ -233,6 +257,18 @@ export default defineComponent({
           this.soundEffectsStorage = project['sound-effects'];
         }
 
+        if (project.songs) {
+          this.songsStorage = project.songs;
+        }
+
+        // Song/pattern/track IDs in the loaded project collide with
+        // whatever the previous project used (both start counting from 1) -
+        // without this, the Music tab's own active pattern/track selection
+        // (see hooks/music-editor-state.js) would keep pointing at IDs left
+        // over from before, showing the piano roll against the wrong
+        // pattern/track, or one that doesn't exist in this project at all.
+        resetMusicEditorActiveState();
+
         this.router.push('/');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
@@ -246,9 +282,16 @@ export default defineComponent({
       this.player1Storage = null;
       this.backgroundsStorage = null;
       this.scoreFontStorage = null;
+      this.squishCustomScoreFontStorage = null;
       this.dataTablesStorage = null;
       this.textStringsStorage = null;
       this.soundEffectsStorage = null;
+      this.songsStorage = null;
+
+      // Same reasoning as handleLoadProject's own call - a fresh project's
+      // song/pattern/track IDs start counting from 1 again too, colliding
+      // with whatever the previous project used.
+      resetMusicEditorActiveState();
 
       this.data.newProjectDialog = false;
       this.router.push('/');

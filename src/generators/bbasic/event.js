@@ -80,24 +80,35 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic['event_run_once'] = function(block) {
-    // Run once - see bbasic.js's init() for where runOnceCounter/
-    // runOnceByteLetters come from: one bit per instance, packed 8 to a
-    // byte, in the same dimmed-and-lettered bytes every "Run once" block in
-    // the project shares.
+    // Run once PER ACTIVATION of whatever condition contains this block
+    // (e.g. once each time an enclosing "if BGScene = 2" becomes true,
+    // again next time it does) - not just once ever. See bbasic.js's
+    // init() for where runOnceCounter/runOnceByteLetters come from (one
+    // shared byte per 4 instances - low nibble bit p is instance p's
+    // "touched" flag, high nibble bit p+4 is its "fired" flag), and
+    // generateRunOnceEdgeReset for the other half of this: this block's own
+    // code only ever runs while its gate is true, so it can mark itself
+    // "touched" whenever it's reached, but can't itself detect the gate
+    // going false - that's what the unconditional per-frame reset (spliced
+    // into commongamelogic, always running before this) is for, clearing
+    // the "fired" bit for any instance that went a whole frame untouched.
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const labelEnd = `_run_once_${blockNumber}_end`;
 
-    const bitIndex = Blockly.BBasic.runOnceCounter++;
-    const byteIndex = Math.floor(bitIndex / 8);
-    const bitInByte = bitIndex % 8;
+    const instanceIndex = Blockly.BBasic.runOnceCounter++;
+    const byteIndex = Math.floor(instanceIndex / 4);
+    const pairInByte = instanceIndex % 4;
+    const touchedBit = pairInByte;
+    const firedBit = pairInByte + 4;
     const flagByte = Blockly.BBasic.runOnceByteLetters[byteIndex];
 
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
 
     return '\n' +
     [
-      `if ${flagByte}{${bitInByte}} then goto ${labelEnd}`,
-      `${flagByte}{${bitInByte}} = 1`,
+      `${flagByte}{${touchedBit}} = 1`,
+      `if ${flagByte}{${firedBit}} then goto ${labelEnd}`,
+      `${flagByte}{${firedBit}} = 1`,
       code,
       `@ ${labelEnd}`,
     ].join('\n') +

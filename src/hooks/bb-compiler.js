@@ -45,18 +45,26 @@ const buildTree = (files) => {
 
 // Runs a WASI "command" module to completion. `preopens` maps a preopen name
 // (e.g. "." or "/bbinc") to a flat {relativePath: contentString} map.
-// Returns {exitCode, stdout, stderr, dirs, rawFiles} - `dirs` mirrors every
-// preopen's final text contents (for chaining into the next stage, matching
-// how the real CLI pipeline shares one physical directory across all four
-// tool invocations), `rawFiles` gives the same content as raw bytes (needed
-// for main.bin, which isn't valid UTF-8).
-const runWasi = async (wasmPath, args, stdinText, preopens) => {
+// `log`, if given, is called once with the equivalent CLI invocation right
+// before it runs - lets the caller (hooks/rom.js's buildRom()) surface the
+// real batari Basic toolchain commands live in the error console, the same
+// way running the actual CLI locally would show them.
+// Returns {exitCode, stdout, stderr, dirs, rawFiles, elapsedMs} - `dirs`
+// mirrors every preopen's final text contents (for chaining into the next
+// stage, matching how the real CLI pipeline shares one physical directory
+// across all four tool invocations), `rawFiles` gives the same content as
+// raw bytes (needed for main.bin, which isn't valid UTF-8), `elapsedMs` is
+// how long the wasm module itself took to run (excludes fetchWasm - cached
+// after the first call anyway, see wasmCache above).
+const runWasi = async (wasmPath, args, stdinText, preopens, log) => {
   // The shim passes `args` straight through as argv with no synthesized
   // argv[0] - these are clang/wasi-sdk C binaries expecting a real program
   // name in argv[0] (argument parsing starts at argv[1]), so omitting it
   // silently shifts every flag out of place (e.g. "-i" lands in the
   // program-name slot and is never seen as a flag at all).
   const argv = ['program', ...(args || [])];
+  const commandName = wasmPath.split('/').pop().replace(/\.wasm$/, '');
+  if (log) log(`$ ${[commandName, ...(args || [])].join(' ')}`.trim());
   const mod = await fetchWasm(wasmPath);
   const stdoutBytes = [];
   const stderrBytes = [];
@@ -89,11 +97,13 @@ const runWasi = async (wasmPath, args, stdinText, preopens) => {
   const wasi = new WASI(argv, [], fds);
   const inst = await WebAssembly.instantiate(mod, {wasi_snapshot_preview1: wasi.wasiImport});
   let exitCode = 0;
+  const startedAt = performance.now();
   try {
     exitCode = wasi.start(inst);
   } catch (e) {
     exitCode = (e && e.code !== undefined) ? e.code : -1;
   }
+  const elapsedMs = performance.now() - startedAt;
   const stdout = new TextDecoder().decode(new Uint8Array(stdoutBytes));
   const stderr = new TextDecoder().decode(new Uint8Array(stderrBytes));
 
@@ -115,7 +125,7 @@ const runWasi = async (wasmPath, args, stdinText, preopens) => {
     collect(dir, '');
   });
 
-  return {exitCode, stdout, stderr, dirs, rawFiles};
+  return {exitCode, stdout, stderr, dirs, rawFiles, elapsedMs};
 };
 
 // Matches the real toolchain's own "(N) message" diagnostic format (used by
@@ -141,8 +151,11 @@ const parseDasmErrors = (text) => {
   return errors;
 };
 
-const prepareException = (mainMessage, errors) => {
-  const joined = errors
+// joinedOverride lets a caller that's already built its own (better-
+// annotated) multi-line summary - see assemble()'s main.asm context lines -
+// use that verbatim instead of the plain "Line N: msg" default.
+const prepareException = (mainMessage, errors, joinedOverride) => {
+  const joined = joinedOverride !== undefined ? joinedOverride : errors
       .map((err) => err.msg ? `Line ${err.line}: ${err.msg}` : JSON.stringify(err))
       .join('\n');
   const err = new Error(mainMessage + (joined ? '\n' + joined : ''));
@@ -150,12 +163,13 @@ const prepareException = (mainMessage, errors) => {
   return err;
 };
 
-export const preprocessBatariBasic = async (code) => {
-  const r = await runWasi('bb19/preprocess.wasm', [], code, {});
+export const preprocessBatariBasic = async (code, log) => {
+  const r = await runWasi('bb19/preprocess.wasm', [], code, {}, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while preprocessing.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
   }
+  if (log) log(`Preprocessing took ${Math.round(r.elapsedMs)}ms.`);
   return r.stdout;
 };
 
@@ -172,20 +186,21 @@ const getIncludesManifest = () => {
 // disk next to a .bas file - so a "inline text12a.asm" style directive (or
 // the extended score_graphics.asm swap) resolves the same way it would for a
 // real local compile.
-const compile = async (preprocessedCode, siblingFiles) => {
+const compile = async (preprocessedCode, siblingFiles, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi('bb19/2600basic.wasm', ['-i', '/bbinc'], preprocessedCode, {
     '.': {...(siblingFiles || {})},
     '/bbinc': includes,
-  });
+  }, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while compiling.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
   }
-  return {bBAsm: r.stdout, workDir: r.dirs['.']};
+  if (log) log(`2600basic took ${Math.round(r.elapsedMs)}ms.`);
+  return {bBAsm: r.stdout, workDir: r.dirs['.'], elapsedMs: r.elapsedMs};
 };
 
-const postprocess = async (bBAsmContent, workDir) => {
+const postprocess = async (bBAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   // 2600basic.sh writes 2600basic.wasm's stdout to a "bB.asm" *file* rather
   // than piping it - postprocess.wasm then opens "bB.asm" by name from ".",
@@ -193,15 +208,29 @@ const postprocess = async (bBAsmContent, workDir) => {
   const r = await runWasi('bb19/postprocess.wasm', ['-i', '/bbinc'], '', {
     '.': {...workDir, 'bB.asm': bBAsmContent},
     '/bbinc': includes,
-  });
+  }, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while generating assembly.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
   }
-  return {mainAsm: r.stdout, workDir: r.dirs['.']};
+  if (log) log(`postprocess took ${Math.round(r.elapsedMs)}ms.`);
+  return {mainAsm: r.stdout, workDir: r.dirs['.'], elapsedMs: r.elapsedMs};
 };
 
-const assemble = async (mainAsmContent, workDir) => {
+// Shared with the success path below and with the error-path diagnostic
+// capture (see assemble()'s own comment on partialOutput/partialSymbolmap) -
+// factored out so both places parse DASM's own symbol table text identically
+// rather than risking the two drifting apart.
+const parseSymbolmap = (symText) => {
+  const symbolmap = {};
+  (symText || '').split('\n').forEach((line) => {
+    const toks = line.trim().split(/\s+/);
+    if (toks.length >= 2 && !toks[0].startsWith('-')) symbolmap[toks[0]] = parseInt(toks[1], 16);
+  });
+  return symbolmap;
+};
+
+const assemble = async (mainAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
       'bb19/dasm.wasm',
@@ -211,24 +240,84 @@ const assemble = async (mainAsmContent, workDir) => {
         '.': {...workDir, 'main.asm': mainAsmContent},
         '/bbinc': includes,
       },
+      log,
   );
   const output = r.rawFiles['./main.bin'];
   const symText = r.dirs['.']['main.sym'];
+  // Parsed before the output/symText check below, not after: DASM can fail
+  // to produce a binary/symbol table for reasons that have nothing to do
+  // with a segment overflow (a real syntax/label error, for instance), and
+  // r.stdout still names the actual problem in that case. Silently
+  // relabeling every such failure as "maybe segment overflow?" was masking
+  // that - and worse, feeding it straight into rom.js's isOverflowError(),
+  // which would then "fix" a completely unrelated error by relocating code
+  // that was never the actual problem.
+  const errors = parseDasmErrors(r.stdout);
+  // DASM writes main.bin/main.sym to the WASI filesystem as it goes, not
+  // only on a clean exit - runWasi's own rawFiles/dirs capture is
+  // unconditional (see its own comment), so whatever partial output/symbol
+  // table DASM managed to produce before hitting a segment overflow is
+  // already sitting right here, even though the two throws below used to
+  // discard it. Attached to both thrown exceptions (as best-effort,
+  // possibly-undefined properties - DASM may not have written a symbol
+  // table at all for some failures, e.g. a genuine syntax error before pass
+  // 2 ever starts) purely as diagnostic capture: hooks/rom.js's overflow
+  // handling doesn't read these yet, this is step one of confirming
+  // whether DASM's own partial symbol table is even usable (specifically,
+  // whether "scoretable" - the same symbol utils/rom-capacity.js's
+  // computeRomCapacity keys off of - exists and is trustworthy in an
+  // overflowed bank) before building anything that acts on it.
+  const partialOutput = output;
+  const partialSymbolmap = symText ? parseSymbolmap(symText) : undefined;
+  if (errors.length) {
+    // DASM's own "Line N" refers to main.asm - the fully macro-expanded
+    // assembly DASM actually saw, NOT the bBasic source shown elsewhere in
+    // the app (hooks/rom.js's showError annotates against that SOURCE
+    // instead, so its line numbers never line up here - confirmed directly:
+    // that mismatch was surfacing as a bare "undefined" where the source
+    // line should have been, since the bBasic source is far shorter than
+    // main.asm and the lookup just fell off the end of it). Annotated here,
+    // against main.asm itself (which this function already has in hand),
+    // so the real offending line - and a few lines of context around it,
+    // since a single line rarely explains a bank/segment-tracking error on
+    // its own - travels with the error instead of being silently lost.
+    const asmLines = mainAsmContent.split('\n');
+    // A generous window before the error (not just a few lines) - an
+    // "Origin Reverse-indexed" failure is frequently reported several
+    // "bank N"/ECHO-table entries after whatever content actually caused
+    // it (DASM's own running PC tracking doesn't go wrong until it reaches
+    // the NEXT origin-setting directive, not at the true overflow point
+    // itself), so seeing only a handful of lines right at the reported one
+    // routinely shows nothing but the compiler's own fixed boilerplate.
+    const annotated = errors.map((err) => {
+      const header = `Line ${err.line}: ${err.msg}`;
+      if (!err.line || err.line < 1 || err.line > asmLines.length) return header;
+      const start = Math.max(0, err.line - 40);
+      const end = Math.min(asmLines.length, err.line + 5);
+      const context = asmLines.slice(start, end)
+          .map((text, i) => `${start + i + 1 === err.line ? '>' : ' '} ${start + i + 1}: ${text}`)
+          .join('\n');
+      return `${header}\n${context}`;
+    }).join('\n\n');
+    const err = prepareException('Errors while assembling.', errors, annotated);
+    err.partialOutput = partialOutput;
+    err.partialSymbolmap = partialSymbolmap;
+    throw err;
+  }
   if (!output || !symText) {
     // Matches the old npm wrapper's own fallback message, which
     // hooks/rom.js's isOverflowError() specifically looks for to trigger its
-    // automatic event/graphics relocation retry.
-    throw prepareException('Errors while assembling.', [{line: 0, msg: 'No symbol table generated, maybe segment overflow?'}]);
+    // automatic event/graphics relocation retry. Only reached now when DASM
+    // failed to produce output AND left no parseable error of its own -
+    // genuinely the "ran out of room, no specific line to blame" case.
+    const err = prepareException('Errors while assembling.',
+        [{line: 0, msg: 'No symbol table generated, maybe segment overflow?'}]);
+    err.partialOutput = partialOutput;
+    err.partialSymbolmap = partialSymbolmap;
+    throw err;
   }
-  const errors = parseDasmErrors(r.stdout);
-  if (errors.length) {
-    throw prepareException('Errors while assembling.', errors);
-  }
-  const symbolmap = {};
-  symText.split('\n').forEach((line) => {
-    const toks = line.trim().split(/\s+/);
-    if (toks.length >= 2 && !toks[0].startsWith('-')) symbolmap[toks[0]] = parseInt(toks[1], 16);
-  });
+  const symbolmap = parseSymbolmap(symText);
+  if (log) log(`Assembling took ${Math.round(r.elapsedMs)}ms.`);
   return {output, symbolmap};
 };
 
@@ -243,11 +332,15 @@ const assemble = async (mainAsmContent, workDir) => {
  * score_graphics.asm).
  * @param {string} preprocessedCode
  * @param {!Object<string, string>} siblingFiles
+ * @param {function(string)=} log Called with each underlying tool's own CLI
+ *   invocation, and this stage's total elapsed time once both tools finish.
  * @return {!Promise<{mainAsm: string, workDir: !Object<string, string>}>}
  */
-export const compileBatariBasicToAsm = async (preprocessedCode, siblingFiles) => {
-  const compiled = await compile(preprocessedCode, siblingFiles);
-  return postprocess(compiled.bBAsm, compiled.workDir);
+export const compileBatariBasicToAsm = async (preprocessedCode, siblingFiles, log) => {
+  const compiled = await compile(preprocessedCode, siblingFiles, log);
+  const result = await postprocess(compiled.bBAsm, compiled.workDir, log);
+  if (log) log(`Compiling took ${Math.round(compiled.elapsedMs + result.elapsedMs)}ms.`);
+  return result;
 };
 
 /**
@@ -255,6 +348,8 @@ export const compileBatariBasicToAsm = async (preprocessedCode, siblingFiles) =>
  * binary.
  * @param {string} mainAsm
  * @param {!Object<string, string>} workDir
+ * @param {function(string)=} log Called with the underlying tool's own CLI
+ *   invocation, and this stage's elapsed time once it finishes.
  * @return {!Promise<{output: !Uint8Array, symbolmap: !Object<string, number>}>}
  */
-export const assembleBatariBasic = (mainAsm, workDir) => assemble(mainAsm, workDir);
+export const assembleBatariBasic = (mainAsm, workDir, log) => assemble(mainAsm, workDir, log);

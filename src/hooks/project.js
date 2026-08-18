@@ -39,12 +39,14 @@ export const useDataTablesStorage = () =>
   withRomInvalidation(useJsonProjectStorage('dataTables'));
 export const useTextStringsStorage = () =>
   withRomInvalidation(useJsonProjectStorage('textStrings'));
+export const useSongsStorage = () =>
+  withRomInvalidation(useJsonProjectStorage('songs'));
 
 // Everything that makes up a project. Kept in one place so starting fresh and
 // clearing on launch can't drift apart as new pieces are added.
 export const PROJECT_STORAGE_TYPES = [
   'workspace', 'backgrounds', 'player0', 'player1', 'configuration', 'scoreFont', 'soundEffects',
-  'dataTables', 'textStrings',
+  'dataTables', 'textStrings', 'songs',
 ];
 
 /**
@@ -63,3 +65,47 @@ export const useErrorStorage = () => computed({
     errorRef.value = value;
   },
 });
+
+// Live progress feed for the ROM build pipeline (see hooks/rom.js's
+// buildRom()) - a separate store from errorRef above so a build's own
+// step-by-step narration (which stage is running, which bank got relocated
+// and why) doesn't clobber - or get clobbered by - the single persistent
+// error banner errorRef holds for the build's own final failure (still shown
+// in red; see App.vue). Kept as a plain array of {text, level} entries so
+// each line can be colored independently ('error' red, anything else black).
+const compileLogRef = ref([]);
+export const useCompileLog = () => computed({
+  get() {
+    return compileLogRef.value;
+  },
+  set(value) {
+    compileLogRef.value = value;
+  },
+});
+
+export const clearCompileLog = () => {
+  compileLogRef.value = [];
+};
+
+export const appendCompileLog = (text, level = 'info') => {
+  compileLogRef.value = [...compileLogRef.value, {text, level}];
+};
+
+// Whether to restore the last saved project on startup, or always start from
+// the empty/default one instead - a standing app preference, not part of the
+// project itself (see PROJECT_STORAGE_TYPES above), so it has to survive
+// clearProjectStorage() and be readable before deciding whether to call it.
+// Stored as the raw string "false" (useLocalStorage doesn't JSON-encode) -
+// anything else, including never having been set, means "load" (the default).
+const LOAD_LAST_PROJECT_KEY = 'vcs-game-maker.loadLastProject';
+export const useLoadLastProjectStorage = () => {
+  const raw = useLocalStorage(LOAD_LAST_PROJECT_KEY);
+  return computed({
+    get() {
+      return raw.value !== 'false';
+    },
+    set(value) {
+      raw.value = value ? 'true' : 'false';
+    },
+  });
+};

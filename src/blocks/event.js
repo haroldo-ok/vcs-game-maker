@@ -4,10 +4,11 @@ import {COMMENT_ICON, GAMEOVER_ICON, GAME_ICON, START_ICON, SYSTEM_ICON, TITLE_I
 // Distinct from every other block colour in the app (see blocks/*.js's own
 // palette: purple, red, blue, background's orange, score's orange-red,
 // data's brown, text's brown, sound's magenta, sprites' teal, and this
-// category's own existing rgb(39, 176, 176) teal) - a comment has no effect
-// on the compiled program at all, so it reads as visually distinct from
-// every block that actually does something.
-const COMMENT_COLOR = '#607D8B';
+// category's own existing rgb(39, 176, 176) teal) - plain (non-blue) grey
+// reads as neutral/inert, fitting for a block that has no effect on the
+// compiled program at all, unlike every other block, which actually does
+// something.
+const COMMENT_COLOR = '#BDBDBD';
 
 const EVENT_OPTIONS = [
   [`${SYSTEM_ICON} ${START_ICON} System start`, `system_start`],
@@ -24,7 +25,10 @@ const STATE_OPTIONS = [
   [`${GAMEOVER_ICON} Gameover`, 'gameover'],
 ];
 
-const FRAME_OPTIONS = [...Array(7).keys()]
+// A bitmask check ("if frameCounter & mask = 0"), not an arbitrary interval
+// counter, so every option has to stay a power of 2 - 256 (mask 255, the
+// largest that still fits in a single byte) is the last one that works.
+const FRAME_OPTIONS = [...Array(8).keys()]
     .map((n) => Math.pow(2, n + 1))
     .map((n) => [`${n}`, `${n - 1}`]);
 
