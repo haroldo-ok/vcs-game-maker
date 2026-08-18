@@ -93,6 +93,13 @@ export const DEFAULT_SOUND_EFFECTS = {
       // for "auto-assigned" - see utils/instrument-colors.js. Used by the
       // Music tab to color this sound's notes in the piano roll.
       color: null,
+      // Purely a display tag for the Sound tab's own "show all/instruments/
+      // sounds" filter (see SoundFXEditor.vue) - every sound effect preset
+      // is already usable BOTH as a soundfx_play trigger and as a Music tab
+      // instrument regardless of this flag, so it doesn't gate or change
+      // anything else. Defaults false (a plain "sound effect") since that's
+      // what every preset already was before this existed.
+      isInstrument: false,
     },
   ],
 };
@@ -145,6 +152,10 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     } else {
       soundEffect.fadeLength = Number(soundEffect.fadeLength);
     }
+    // Presets saved before this existed won't have it yet - defaults false
+    // (a plain "sound effect"), matching every preset's own behavior before
+    // this tag existed.
+    soundEffect.isInstrument = !!soundEffect.isInstrument;
   });
   return soundEffects;
 };
@@ -152,7 +163,7 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
 // Read the sound effects afresh rather than through the module level storage:
 // that is a computed over localStorage, which is not reactive, so it caches the
 // first value it ever read and would keep serving stale names.
-const buildSoundEffectOptions = () => {
+export const buildSoundEffectOptions = () => {
   try {
     const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
 

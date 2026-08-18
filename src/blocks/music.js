@@ -2,6 +2,7 @@
 
 import * as Blockly from 'blockly/core';
 
+import {buildSoundEffectOptions} from './soundfx';
 import {useSongsStorage} from '../hooks/project';
 import {MUSIC_ICON, STOP_ICON} from './icon';
 
@@ -525,6 +526,51 @@ Blockly.Blocks['music_sequence_chip_finished_current_song'] = {
       'reaches a Sequence chip with this ID and finishes its own configured repeat count - checks every ' +
       'song that happens to have a chip with this ID, not just one fixed song. Read the ID off the small ' +
       'badge next to that chip in the Sequence list. Does nothing if no song has a chip with this ID.');
+  },
+};
+
+// Fires once, the moment ANY channel starts a new note using this
+// instrument - not just the first note, every single one, for as long as
+// the song keeps playing. "Instrument" here means the Sound tab preset a
+// track is pointed at when its own notes get compiled in, not any one
+// specific note/track/channel - the same instrument used on more than one
+// track (even across different songs) fires this from any of them. See
+// resolveNotePlayedInstruments in generators/bbasic/music.js for how each
+// watched instrument gets its own small packed ID baked into the compiled
+// note data (there's no room to store a whole instrument reference per
+// note, only a few spare bits), and generateMusicChecks for where that ID
+// is compared against, right as each new note is actually fetched.
+Blockly.Blocks['music_note_played'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} When a note is played by instrument:`)
+        .appendField(new Blockly.FieldDropdown(buildSoundEffectOptions), 'INSTRUMENT');
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Runs the connected blocks once every time any channel starts a new note using ' +
+      'this instrument (a Sound tab preset), on any track or song that uses it. Up to 14 distinct ' +
+      'instruments can be watched this way project-wide (counting both this block and "When a note is ' +
+      'played by instrument ID").');
+  },
+};
+
+// Same trigger as music_note_played above, just chosen by typing its own ID
+// number directly (see the ID badge on its card on the Sound tab) instead
+// of picking it from a name dropdown - same relationship
+// data_get_element_by_id has to data_get_element.
+Blockly.Blocks['music_note_played_by_id'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} When a note is played by instrument ID`)
+        .appendField(new Blockly.FieldNumber(1, 1), 'INSTRUMENT_ID');
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Same as "When a note is played by instrument", just chosen by typing its own ID ' +
+      'number (see the ID badge on its card on the Sound tab) instead of picking it from a dropdown.');
   },
 };
 

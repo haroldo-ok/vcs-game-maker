@@ -14,6 +14,9 @@
           @change="handleChangeConfiguration"
           :items="romSizeOptions"
           label="ROM size"
+          :hint="configurationState.enableSuperchip ?
+            'Smaller sizes are hidden while Superchip RAM is on - see below.' : undefined"
+          :persistent-hint="configurationState.enableSuperchip"
         />
         <v-switch
           v-model="configurationState.showScore"
@@ -220,6 +223,14 @@ export default defineComponent({
     const romSizeIsBankswitched = computed(() =>
       Boolean(BANK_COUNT_BY_ROMSIZE[configurationState.value.romSize]));
 
+    // 2k/4k never bankswitch, so Superchip's SC suffix is silently ignored on
+    // them (see MIN_SUPERCHIP_ROM_SIZE_INDEX above) - hidden from the
+    // dropdown entirely while Superchip is on, rather than letting the user
+    // pick one only to have handleChangeResolution immediately bump it back
+    // up again behind their back.
+    const romSizeOptions = computed(() => configurationState.value.enableSuperchip ?
+      ROM_SIZE_OPTIONS.slice(MIN_SUPERCHIP_ROM_SIZE_INDEX) : ROM_SIZE_OPTIONS);
+
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together (last row black, and with more than one background
     // the colors come out wrong and the black area returns), so the two
@@ -282,7 +293,7 @@ export default defineComponent({
       handleChangeConfiguration,
       handleChangeResolution,
       handleToggleSuperchip,
-      romSizeOptions: ROM_SIZE_OPTIONS,
+      romSizeOptions,
       romSizeIsBankswitched,
       loadLastProject,
       isSectionCollapsed,

@@ -207,6 +207,19 @@ const resolveMusicSongLabels = () => {
   });
 };
 
+// Snapshot of this build's own variable-pool usage (see letterVarsUsed/
+// letterVarsAvailable/superchipVarsUsed/superchipVarsAvailable's own comment
+// in generators/bbasic.js) for the ROM capacity display - both pools are
+// filled fresh on every regenerateCode() call, so this only needs to read
+// whatever the just-finished build already left on BlocklyBB, not recompute
+// anything itself. superchip.available is 0 (not the full 29-slot budget)
+// when Superchip RAM is off, matching how routeDevVar itself never touches
+// that pool in that case either.
+const computeVariableUsage = () => ({
+  letters: {used: BlocklyBB.letterVarsUsed || 0, available: BlocklyBB.letterVarsAvailable || 0},
+  superchip: {used: BlocklyBB.superchipVarsUsed || 0, available: BlocklyBB.superchipVarsAvailable || 0},
+});
+
 // Every graphics/event/music/subroutine unit's own current bank, grouped by
 // bank instead of by unit (the shape getRelocationBanks/pickRelocationCandidate
 // use) - built fresh after a successful build for the ROM capacity display,
@@ -329,6 +342,30 @@ const pickRelocationCandidate = (banks, hasReservedMusicBank) => {
   return candidates.sort((a, b) => b.size - a.size)[0];
 };
 
+// Summed estimated size of every relocatable unit (of every kind, including
+// music - unlike pickRelocationCandidate above, this isn't picking a single
+// winner, it wants the true total) still sitting in bank 1 - used only by
+// buildRom()'s own proactive relocation pre-pass, to compare against a real,
+// previously-measured bank 1 capacity before that pre-pass ever moves
+// anything. Same "must run right after regenerateCode()" requirement as
+// pickRelocationCandidate.
+const estimateBank1Total = (banks) => {
+  const inBank1 = (bankMap, name) => (bankMap[name] || 1) === 1;
+  const eventTotal = RELOCATABLE_EVENT_NAMES
+      .filter((name) => inBank1(banks.eventBanks || {}, name))
+      .reduce((sum, name) => sum + BlocklyBB.estimateEventSize(name), 0);
+  const graphicsTotal = BlocklyBB.getGraphicsUnitKeys()
+      .filter((name) => inBank1(banks.graphicsBanks || {}, name))
+      .reduce((sum, name) => sum + BlocklyBB.estimateGraphicsUnitSize(name), 0);
+  const musicTotal = BlocklyBB.getMusicUnitKeys()
+      .filter((name) => inBank1(banks.musicBanks || {}, name))
+      .reduce((sum, name) => sum + BlocklyBB.estimateMusicUnitSize(name), 0);
+  const subroutineTotal = BlocklyBB.getSubroutineNames()
+      .filter((name) => inBank1(banks.subroutineBanks || {}, name))
+      .reduce((sum, name) => sum + BlocklyBB.estimateSubroutineSize(name), 0);
+  return eventTotal + graphicsTotal + musicTotal + subroutineTotal;
+};
+
 // The single highest-numbered available bank (excluding the Text
 // Minikernel's own reserved top bank, same as pickNextBank below) is set
 // aside for music units specifically, rather than sharing the same pool
@@ -448,18 +485,79 @@ export const buildRom = async () => {
   clearCompileLog();
   const buildStartedAt = performance.now();
 
-  // Reverted: graphics used to also be relocated out of bank 1 PROACTIVELY
-  // here, before the very first compile attempt, so a project that already
-  // compiled fine wouldn't leave bank 1 packed tight while other banks sat
-  // empty. Confirmed directly as a net loss on a large, already-tight
-  // project: every relocated unit costs its own small entry/return
-  // trampoline (wrapRelocatableGraphics) that plain inline code in bank 1
-  // doesn't pay - forcing ALL graphics out unconditionally, even ones that
-  // never needed to move, added enough total overhead across a project with
-  // many graphics units to cost more room than it freed, turning some
-  // builds that used to compile into failures. Back to purely reactive
-  // relocation below (only ever moves a unit once a real compile attempt
-  // proves bank 1 doesn't fit as-is) for every relocatable kind alike.
+  // An earlier version of this also relocated graphics out of bank 1
+  // PROACTIVELY here, before the very first compile attempt, so a project
+  // that already compiled fine wouldn't leave bank 1 packed tight while
+  // other banks sat empty - and was reverted after being confirmed as a net
+  // loss on a large, already-tight project: every relocated unit costs its
+  // own small entry/return trampoline (wrapRelocatableGraphics) that plain
+  // inline code in bank 1 doesn't pay, and that version moved EVERY graphics
+  // unit out unconditionally, even the (usual) majority that never actually
+  // needed to move - paying that overhead broadly enough to cost more room
+  // than it freed, turning some builds that used to compile into failures.
+  //
+  // The proactive pre-pass below is deliberately narrower, to avoid
+  // repeating exactly that mistake: it only moves anything when there's a
+  // REAL, MEASURED reason to expect bank 1 won't fit - this project's own
+  // last successful build's actual bank 1 capacity (useRomCapacity(), set
+  // at the bottom of this function on every success), not a guess made up
+  // before ever compiling once. It's skipped entirely whenever no such
+  // measurement exists yet (a brand new project, or one whose ROM size just
+  // changed - see setRomCapacity's own comment on why romSize has to match
+  // exactly), which makes it a strict no-op the first time any given
+  // project/ROM-size combination is ever built, same as before this change.
+  // A generous 15% margin over that measured capacity (not a hair-trigger
+  // "any excess at all") absorbs the size estimators' own known looseness
+  // (see pickRelocationCandidate's callers - estimateEventSize/
+  // estimateGraphicsUnitSize/etc. are source-length proxies, not compiled-
+  // byte-accurate) without needing them to be exact, only roughly right.
+  // Bounded to a handful of moves (not unbounded) so even a badly wrong
+  // estimate can't relocate excessively before the real compile below gets
+  // a chance to prove whether it was actually needed - and every unit moved
+  // here still goes through setRelocationBank the exact same way a reactive
+  // move does, so nothing about the retry loop right after this needs to
+  // know or care whether a unit got there proactively or reactively.
+  try {
+    const proactiveConfig = configurationStorage.value || {};
+    const proactiveMaxBanks = BANK_COUNT_BY_ROMSIZE[proactiveConfig.romSize];
+    const lastCapacity = useRomCapacity().value;
+    if (proactiveMaxBanks && lastCapacity && lastCapacity.bank1 &&
+        lastCapacity.romSize === proactiveConfig.romSize) {
+      // Needed so the size estimators below reflect THIS project's current
+      // content - graphics/music unit keys and subroutine names are only
+      // known after a real code-generation pass (same requirement
+      // pickRelocationCandidate's own comment documents). The retry loop
+      // right below regenerates again at attempt 0 regardless of whether
+      // this pre-pass moved anything - a small, deliberate redundancy
+      // that's cheap next to the real compile/assemble stages, traded for
+      // never having to thread a cached code string through both places.
+      regenerateCode();
+      const threshold = lastCapacity.bank1.usableBytes * 1.15;
+      const textMinikernelActive = BlocklyBB.isTextMinikernelActive();
+      const reservedMusicBank = musicReservedBank(proactiveMaxBanks, textMinikernelActive);
+      for (let i = 0; i < 8; i++) {
+        const banks = getRelocationBanks();
+        if (estimateBank1Total(banks) <= threshold) break;
+        const candidate = pickRelocationCandidate(banks, !!reservedMusicBank);
+        if (!candidate) break;
+        const bank = candidate.kind === 'musicBanks' && reservedMusicBank ?
+          reservedMusicBank :
+          pickNextBank(banks, proactiveMaxBanks, textMinikernelActive, reservedMusicBank);
+        if (!bank) break;
+        setRelocationBank(candidate.kind, candidate.name, bank);
+        appendCompileLog(
+            `Proactively relocating ${candidate.kind.replace('Banks', '')} "${candidate.name}" to bank ${bank} ` +
+            '(estimated bank 1 content exceeds last known capacity).');
+      }
+    }
+  } catch (proactiveErr) {
+    // Never lets a mistake in this pre-pass block the real build - falls
+    // through to the unchanged reactive loop below exactly as if this whole
+    // pre-pass had been skipped, same as the "no prior measurement" case
+    // above.
+    appendCompileLog(`Proactive relocation pre-pass skipped: ${proactiveErr.message}`);
+  }
+
   for (let attempt = 0; attempt <= MAX_RELOCATION_ATTEMPTS; attempt++) {
     appendCompileLog(attempt === 0 ? 'Generating bBasic code...' :
       `Attempt ${attempt + 1}: generating bBasic code...`, 'stage');
@@ -531,7 +629,19 @@ export const buildRom = async () => {
       markRomUpToDate();
       const capacity = computeRomCapacity(compiledResult);
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
-      setRomCapacity(capacity && maxBanks ? {...capacity, bankContents: computeBankContents(maxBanks)} : capacity);
+      // romSize is stored alongside the measurement (not just the bank
+      // contents) so a LATER build's own proactive relocation pre-pass (see
+      // its own comment near the top of this function) can confirm this
+      // capacity was actually measured under the SAME ROM size before
+      // trusting it - bank 1's own usable-byte boundary genuinely differs
+      // between a bankswitched and non-bankswitched build (only bankswitched
+      // sizes pay for the hotspot-detection trampoline at all), so a cached
+      // measurement from a since-changed ROM size would misinform rather
+      // than help.
+      setRomCapacity(capacity ?
+        {...capacity, romSize: config.romSize, bankContents: maxBanks ? computeBankContents(maxBanks) : undefined,
+          variableUsage: computeVariableUsage()} :
+        capacity);
       appendCompileLog('Build succeeded.', 'stage');
       appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
       return true;
@@ -540,6 +650,33 @@ export const buildRom = async () => {
       lastFailure = e;
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
       if (isOverflowError(e) && maxBanks) {
+        // Diagnostic-only for now (see bb-compiler.js's own comment on
+        // partialOutput/partialSymbolmap) - not read by anything below yet.
+        // DASM writes its symbol table incrementally as it assembles, so an
+        // overflow caught partway through a LATER bank can still leave an
+        // earlier bank's own boundary-adjacent symbols (e.g. "scoretable")
+        // resolved and usable; whether that holds for the bank that
+        // actually overflowed is exactly what this is here to find out,
+        // logged so a real overflow during normal use surfaces the answer
+        // without needing a separate investigation session. Wrapped in a
+        // try/catch since computeRomCapacity assumes a well-formed binary/
+        // symbol table that a partial, overflowed assembly may not actually
+        // have - a failure here must never break the real relocation retry
+        // below, only skip logging.
+        if (e.partialSymbolmap) {
+          try {
+            const partialCapacity = computeRomCapacity({output: e.partialOutput, symbolmap: e.partialSymbolmap});
+            appendCompileLog(partialCapacity ?
+              `[diagnostic] Partial capacity on overflow - bank 1 free: ${partialCapacity.bank1.freeBytes}b, ` +
+              `per-bank free: ${partialCapacity.perBank.map((b) => b.freeBytes).join(', ')}` :
+              '[diagnostic] Partial symbol table present but computeRomCapacity returned null ' +
+              '(no "scoretable" symbol, or bank size mismatch).');
+          } catch (diagErr) {
+            appendCompileLog(`[diagnostic] computeRomCapacity threw on partial data: ${diagErr.message}`);
+          }
+        } else {
+          appendCompileLog('[diagnostic] No partial symbol table available on this overflow.');
+        }
         const textMinikernelActive = BlocklyBB.isTextMinikernelActive();
         const reservedMusicBank = musicReservedBank(maxBanks, textMinikernelActive);
         const banks = getRelocationBanks();

@@ -17,7 +17,10 @@ import {sumBy, chunk} from 'lodash';
 
 import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
 import {getRelocationBanks} from '../hooks/relocation-banks';
-import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults} from '../blocks/background';
+import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
+  backgroundFadeTimerVarName, backgroundFadePaceVarName, backgroundFadeTargetVarName,
+  backgroundFadeFlagsVarName,
+  resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks} from '../blocks/background';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
@@ -26,11 +29,10 @@ import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance'
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults} from './bbasic/sprites';
-import {resolveProjectMusic, musicIndexVarName, musicTimerVarName, musicPageVarName,
-  musicSeqPosVarName, musicSeqRepeatVarName, musicFlagsVarName, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
-  musicPlayByIdArgVarName, musicSongIndexVarName, musicSeqLenVarName, musicPlaySongResetName,
-  registerMusicPlayResetSubroutine, resolveSequenceChipFinishedFlags,
-  musicSequenceChipFinishedOverflowVarName} from './bbasic/music';
+import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
+  musicPlayByIdArgVarName, musicPlaySongResetName,
+  registerMusicPlayResetSubroutine, resolveMusicEventFlags,
+  resolveNotePlayedInstruments, reserveMusicDevVars} from './bbasic/music';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -334,6 +336,22 @@ Blockly.BBasic.init = function(workspace) {
     if (block.type === 'collision_check_position') this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
   });
 
+  // Every "fade finished" watch (background_fade_finished in blocks/
+  // background.js) resolved to the (register, direction) pairs it actually
+  // watches - see resolveBackgroundFadeFinishedWatches's own comment.
+  // Needed this early so backgroundFadeFlagsVarName below only gets
+  // reserved when at least one such watch really exists.
+  this.backgroundFadeFinishedWatches = resolveBackgroundFadeFinishedWatches(workspace);
+
+  // Every "note played by instrument" watch (music_note_played/_by_id in
+  // blocks/music.js) resolved to its own small packed index - needed even
+  // earlier than this.projectMusic below, since resolveProjectMusic itself
+  // needs this map to actually bake each watched instrument's own index
+  // into its notes' AUDV bytes (see eventsToPages in generators/bbasic/
+  // music.js). Pure workspace scan, no dependency on this.projectMusic the
+  // way resolveMusicEventFlags below has.
+  this.notePlayedInstruments = resolveNotePlayedInstruments(workspace);
+
   // Resolves every song the project references and builds their combined
   // per-channel data ahead of time (see generators/bbasic/music.js) - needed
   // this early so its hidden index/timer variables can be reserved below,
@@ -341,16 +359,18 @@ Blockly.BBasic.init = function(workspace) {
   // Stored on the instance (not module-level state) since this Generator is
   // a shared singleton reused across every workspaceToCode() call - same
   // reasoning as textMinikernelUsed above.
-  this.projectMusic = resolveProjectMusic(workspace);
+  this.projectMusic = resolveProjectMusic(workspace, this.notePlayedInstruments);
 
-  // Every "sequence chip finished" watch (music_sequence_chip_finished/_by_id
-  // in blocks/music.js) resolved to its own flag-bit assignment - needed
-  // this early (same reasoning as this.projectMusic just above) since it may
-  // need to reserve a new dev var (see musicSequenceChipFinishedOverflowVarName's
-  // own comment - only past the first 2 distinct watches, which reuse
-  // musicFlagsVarName's own spare bits instead) before nameDB_ hands out
-  // letters below.
-  this.sequenceChipFinishedFlags = resolveSequenceChipFinishedFlags(workspace, this.projectMusic);
+  // Every one-shot music event watch - "sequence chip finished"
+  // (music_sequence_chip_finished/_by_id) AND "note played by instrument"
+  // (music_note_played/_by_id), pooled into ONE shared flag-bit assignment
+  // (see resolveMusicEventFlags' own comment for why sharing the pool
+  // matters) - needed this early (same reasoning as this.projectMusic just
+  // above) since it may need to reserve a new dev var (see
+  // musicEventFlagsOverflowVarName's own comment - only past the first 2
+  // distinct watches, which reuse musicFlagsVarName's own spare bits
+  // instead) before nameDB_ hands out letters below.
+  this.musicEventFlags = resolveMusicEventFlags(workspace, this.projectMusic, this.notePlayedInstruments);
 
   // Once there's more than one song, each gets its own dedicated reset
   // subroutine name (see musicPlaySongResetName in bbasic/music.js) that
@@ -494,79 +514,50 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(collisionMoveOldYVar(playerNum));
   }
 
-  // Same bucket again, for the music player's per-channel index/timer bytes
-  // (see the projectMusic pre-scan above and generators/bbasic/music.js) -
-  // only reserved for channels ANY included song actually uses.
-  if (this.projectMusic) {
-    const music = this.projectMusic;
-    const multiSong = music.songs.length > 1;
-    // totalSteps (real repeats included), not sequenceLength (now a GROUP
-    // count - see resolveProjectMusic in generators/bbasic/music.js) - see
-    // buildMusicPlayResetBody's own comment for why those two differ.
-    const multiSeq = multiSong || music.songs[0].totalSteps > 1;
-    for (const channel of Object.keys(music.channelPages)) {
-      reserveDevVar(musicIndexVarName(channel));
-      reserveDevVar(musicTimerVarName(channel));
-      // Only reserved when this channel's own combined data spans more
-      // than one page - see generateMusicChecks' own comment on pageVar
-      // for why a single-page channel has no use for it at all, even once
-      // the song has more than one sequence position (confirmed directly
-      // as a real, pure waste in an earlier version of this: a whole dev
-      // var reserved and written to on every pattern transition for a
-      // value nothing downstream ever read back).
-      if (music.channelPages[channel].length > 1) {
-        reserveDevVar(musicPageVarName(channel));
-      }
-      if (multiSeq) {
-        reserveDevVar(musicSeqPosVarName(channel));
-      }
-    }
-    // Only reserved once the project actually has a repeated pattern
-    // somewhere (see musicSeqRepeatVarName's own comment) - a project with
-    // none pays nothing extra for this feature. ONE shared var for every
-    // channel (not per-channel - see musicSeqRepeatVarName's own comment on
-    // the packed-nibble layout), reserved once here regardless of how many
-    // channels the project actually uses.
-    if (multiSeq && music.hasRepeats) {
-      reserveDevVar(musicSeqRepeatVarName());
-    }
-    // One shared byte for playing/loop/justStopped plus every channel's own
-    // active flag (see musicFlagsVarName's comment) - used to cost 3 vars
-    // plus 1 more per channel on its own.
-    reserveDevVar(musicFlagsVarName());
-    // Only reserved once this project's own "sequence chip finished" watches
-    // (see this.sequenceChipFinishedFlags just above) actually need it -
-    // musicFlagsVarName's own 2 spare bits cover the first 2 distinct
-    // watches for free (see resolveSequenceChipFinishedFlags' own comment).
-    const chipFinishedFlags = this.sequenceChipFinishedFlags;
-    const usesChipFinishedOverflow = (chipFinishedFlags.general &&
-      chipFinishedFlags.general.varName === musicSequenceChipFinishedOverflowVarName()) ||
-      [...chipFinishedFlags.pairs.values(), ...chipFinishedFlags.byChipId.values()]
-          .some((entry) => entry.varName === musicSequenceChipFinishedOverflowVarName());
-    if (usesChipFinishedOverflow) {
-      reserveDevVar(musicSequenceChipFinishedOverflowVarName());
-    }
-    // Only needed once the project references more than one song (see
-    // musicSongIndexVarName/musicSeqLenVarName's own comments) - a
-    // single-song project keeps using a literal constant instead, same as
-    // it always has, zero extra dev-var cost.
-    if (multiSong) {
-      reserveDevVar(musicSongIndexVarName());
-      reserveDevVar(musicSeqLenVarName());
-      // Only "Play song by ID" actually reads/writes this scratch var (see
-      // its own comment) - no need to reserve it for a project that only
-      // ever uses the fixed-dropdown "Play song" block.
-      if (music.usesSongById) {
-        reserveDevVar(musicPlayByIdArgVarName());
-      }
-    }
-  }
+  // Same bucket again, for every dev var the music player's own generated
+  // code needs (see the projectMusic pre-scan above) - every "does this
+  // project actually need this specific var" decision lives in
+  // generators/bbasic/music.js's own reserveMusicDevVars now, right next to
+  // the rest of that file's music-generation logic, rather than duplicated
+  // here. A no-op when this.projectMusic is null (nothing here is worth
+  // reserving without real music to play).
+  reserveMusicDevVars(reserveDevVar, this.projectMusic, this.musicEventFlags);
 
   // Same bucket again, for scorebkcolor's own dev var (see the
   // scoreBkColorNeedsOwnVar pre-scan above and generators/bbasic/score.js's
   // generateScoreBkColorRuntimeDims).
   if (this.scoreBkColorNeedsOwnVar) {
     reserveDevVar(scoreBkColorVarName());
+  }
+
+  // Same bucket again, for background_fade_to's own per-register state
+  // (see blocks/background.js's own comment on backgroundFadeTimerVarName
+  // and its neighbors) - only reserved for a register (COLUBK/COLUPF) some
+  // fade block in the project actually targets, and only the ONE set of
+  // vars that register needs, however many fade blocks target it. Stored
+  // on the instance (not a local) so generateBackgroundFadeChecks, which
+  // runs later during the final generation pass, knows which registers to
+  // emit a per-frame check for.
+  this.backgroundFadeVarsUsed = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type === 'background_fade_to') {
+      this.backgroundFadeVarsUsed.add(block.getFieldValue('VAR'));
+    }
+  });
+  this.backgroundFadeVarsUsed.forEach((rawVar) => {
+    reserveDevVar(backgroundFadeTimerVarName(rawVar));
+    reserveDevVar(backgroundFadePaceVarName(rawVar));
+    reserveDevVar(backgroundFadeTargetVarName(rawVar));
+  });
+  // One shared byte for every background_fade_finished watch bit AND every
+  // background_fade_to "active" bit (see backgroundFadeFlagsVarName's own
+  // comment) - reserved as soon as any of the three is needed, since the
+  // "active" bits alone (with no finished watch and, via
+  // background_fade_active, not even a matching fade_to block on that same
+  // register) still need this byte to exist for the read to be valid.
+  if (this.backgroundFadeFinishedWatches.size || this.backgroundFadeVarsUsed.size ||
+      hasBackgroundFadeActiveChecks(workspace)) {
+    reserveDevVar(backgroundFadeFlagsVarName());
   }
 
   // Add user variables, but only ones that are being used.
@@ -605,11 +596,22 @@ Blockly.BBasic.init = function(workspace) {
   // letter-assignment loop at all once Superchip is on). With the Text
   // Minikernel active, TEXT_MINIKERNEL_RESERVED_LETTERS also comes off the
   // top regardless of Superchip - see its own comment for why.
+  const baseAvailableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
+  const availableLetters = this.isTextMinikernelActive() ?
+    baseAvailableLetters.filter((letter) => !TEXT_MINIKERNEL_RESERVED_LETTERS.includes(letter)) :
+    baseAvailableLetters;
+  // Exposed for the ROM capacity display (see hooks/rom.js's own
+  // computeVariableUsage) - how many of each variable pool this real build
+  // actually used, not just the hard totals those pools' own exported
+  // constants (SUPERCHIP_VAR_START/END, USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP)
+  // already describe. Computed unconditionally (even when defvars.length is
+  // 0, e.g. every dev var fit inside the Superchip pool alone) so the display
+  // still has real numbers rather than needing its own fallback logic.
+  this.letterVarsUsed = defvars.length;
+  this.letterVarsAvailable = availableLetters.length;
+  this.superchipVarsUsed = this.superchipVars.length;
+  this.superchipVarsAvailable = config.enableSuperchip ? superchipVarBudget : 0;
   if (defvars.length) {
-    const baseAvailableLetters = config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP;
-    const availableLetters = this.isTextMinikernelActive() ?
-      baseAvailableLetters.filter((letter) => !TEXT_MINIKERNEL_RESERVED_LETTERS.includes(letter)) :
-      baseAvailableLetters;
     if (defvars.length > availableLetters.length) {
       throw new Error(`Too many variables: this project defines ${defvars.length + this.superchipVars.length}, ` +
         `but only ${availableLetters.length + (config.enableSuperchip ? superchipVarBudget : 0)} are available` +
@@ -1152,6 +1154,11 @@ Blockly.BBasic.finish = function(code) {
   // side effect (the nibble packing math needs mul8/div8), which
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
   const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
+  // No ordering constraint of its own - background_fade_to's usesDivMul
+  // side effect already happened during the main workspaceToCode() pass
+  // (this file's own blockToCode call, well before finish() runs), same as
+  // every other block's own side effects generateDivMul() below depends on.
+  const generatedBackgroundFadeChecks = Blockly.BBasic.generateBackgroundFadeChecks();
   // Also has to run before generateRelocatedSections() below: it registers
   // its own "musicEngine" unit into relocatableGraphicsUnits (see its own
   // comment, right where it calls wrapRelocatableGraphics), which that call
@@ -1182,8 +1189,8 @@ Blockly.BBasic.finish = function(code) {
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
-    generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks, generatedScoreBkColorAsm,
-    generatedRunOnceEdgeReset});
+    generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
+    generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the
@@ -1923,12 +1930,6 @@ Blockly.BBasic.generateAnimations = function() {
   // "inline text12a.asm" mechanism (see text-minikernel-files.js).
   Blockly.BBasic.playerAnimAsmFiles = {};
 
-  // TEMPORARY DIAGNOSTIC SWAP: restored to the pre-table-driven original
-  // implementation, to test whether the still-failing "musicEngine can't
-  // find room anywhere" build error is actually caused by this animation
-  // work at all, or is fully independent of it (musicEngine/Superchip).
-  // Real implementation preserved in git history / the conversation - to
-  // be restored right after this test.
   const processAnimation = (name, animation, animationIndex) => {
     if (!animation) {
       return '';
@@ -1937,14 +1938,41 @@ Blockly.BBasic.generateAnimations = function() {
     const animationLabel = `${name}animation${animationIndex}`;
     const totalDuration = sumBy(animation.frames, (frame) => frame.duration || 0);
 
+    // Two frames with pixel-for-pixel identical bitmaps (e.g. a walk cycle
+    // that returns to its own starting pose) don't need to store that
+    // bitmap's own 8 graphic bytes twice - a later duplicate just jumps
+    // straight into the FIRST frame's own already-emitted "name: ... end"
+    // block instead of re-declaring the same rows again. Scoped to THIS
+    // ONE animation only (a fresh Map per processAnimation call, not
+    // shared across animations): every frame of one animation is always
+    // wrapped into the exact same relocatable unit together (see
+    // wrapRelocatableGraphics below - one unit per ANIMATION, not per
+    // frame), so a plain "goto" between two of its own frames is always
+    // safe. Two DIFFERENT animations' frames are NOT deduped against each
+    // other even if identical - they're separate relocatable units that
+    // can each land in a different bank, and a bank isn't known until
+    // later (rom.js's own allocator), so a cross-animation "goto" here
+    // could easily become an illegal cross-bank jump.
+    const pixelKeyToGraphicLabel = new Map();
     let frameLimit = 0;
     const stateMachine = animation.frames.map((frame, frameIndex) => {
       frameLimit += frame.duration || 0;
-      const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
       const endLabel = `${animationLabel}frame${frameIndex}End`;
       const skipCondition = `  if ${name}frame > ${frameLimit} then goto ${endLabel}\n`;
+      const pixelKey = frame.pixels.map((row) => row.join('')).join('|');
 
+      const existingGraphicLabel = pixelKeyToGraphicLabel.get(pixelKey);
+      if (existingGraphicLabel) {
+        return skipCondition +
+          `  goto ${existingGraphicLabel}\n` +
+          endLabel;
+      }
+
+      const graphicLabel = `${animationLabel}frame${frameIndex}Graphic`;
+      pixelKeyToGraphicLabel.set(pixelKey, graphicLabel);
+      const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
       return skipCondition +
+        `${graphicLabel}\n` +
         `  ${name}:\n` +
         pixelSource.join('\n') +
         '\nend\n' +

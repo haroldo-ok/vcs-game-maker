@@ -217,6 +217,19 @@ const postprocess = async (bBAsmContent, workDir, log) => {
   return {mainAsm: r.stdout, workDir: r.dirs['.'], elapsedMs: r.elapsedMs};
 };
 
+// Shared with the success path below and with the error-path diagnostic
+// capture (see assemble()'s own comment on partialOutput/partialSymbolmap) -
+// factored out so both places parse DASM's own symbol table text identically
+// rather than risking the two drifting apart.
+const parseSymbolmap = (symText) => {
+  const symbolmap = {};
+  (symText || '').split('\n').forEach((line) => {
+    const toks = line.trim().split(/\s+/);
+    if (toks.length >= 2 && !toks[0].startsWith('-')) symbolmap[toks[0]] = parseInt(toks[1], 16);
+  });
+  return symbolmap;
+};
+
 const assemble = async (mainAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
@@ -240,6 +253,22 @@ const assemble = async (mainAsmContent, workDir, log) => {
   // which would then "fix" a completely unrelated error by relocating code
   // that was never the actual problem.
   const errors = parseDasmErrors(r.stdout);
+  // DASM writes main.bin/main.sym to the WASI filesystem as it goes, not
+  // only on a clean exit - runWasi's own rawFiles/dirs capture is
+  // unconditional (see its own comment), so whatever partial output/symbol
+  // table DASM managed to produce before hitting a segment overflow is
+  // already sitting right here, even though the two throws below used to
+  // discard it. Attached to both thrown exceptions (as best-effort,
+  // possibly-undefined properties - DASM may not have written a symbol
+  // table at all for some failures, e.g. a genuine syntax error before pass
+  // 2 ever starts) purely as diagnostic capture: hooks/rom.js's overflow
+  // handling doesn't read these yet, this is step one of confirming
+  // whether DASM's own partial symbol table is even usable (specifically,
+  // whether "scoretable" - the same symbol utils/rom-capacity.js's
+  // computeRomCapacity keys off of - exists and is trustworthy in an
+  // overflowed bank) before building anything that acts on it.
+  const partialOutput = output;
+  const partialSymbolmap = symText ? parseSymbolmap(symText) : undefined;
   if (errors.length) {
     // DASM's own "Line N" refers to main.asm - the fully macro-expanded
     // assembly DASM actually saw, NOT the bBasic source shown elsewhere in
@@ -270,7 +299,10 @@ const assemble = async (mainAsmContent, workDir, log) => {
           .join('\n');
       return `${header}\n${context}`;
     }).join('\n\n');
-    throw prepareException('Errors while assembling.', errors, annotated);
+    const err = prepareException('Errors while assembling.', errors, annotated);
+    err.partialOutput = partialOutput;
+    err.partialSymbolmap = partialSymbolmap;
+    throw err;
   }
   if (!output || !symText) {
     // Matches the old npm wrapper's own fallback message, which
@@ -278,13 +310,13 @@ const assemble = async (mainAsmContent, workDir, log) => {
     // automatic event/graphics relocation retry. Only reached now when DASM
     // failed to produce output AND left no parseable error of its own -
     // genuinely the "ran out of room, no specific line to blame" case.
-    throw prepareException('Errors while assembling.', [{line: 0, msg: 'No symbol table generated, maybe segment overflow?'}]);
+    const err = prepareException('Errors while assembling.',
+        [{line: 0, msg: 'No symbol table generated, maybe segment overflow?'}]);
+    err.partialOutput = partialOutput;
+    err.partialSymbolmap = partialSymbolmap;
+    throw err;
   }
-  const symbolmap = {};
-  symText.split('\n').forEach((line) => {
-    const toks = line.trim().split(/\s+/);
-    if (toks.length >= 2 && !toks[0].startsWith('-')) symbolmap[toks[0]] = parseInt(toks[1], 16);
-  });
+  const symbolmap = parseSymbolmap(symText);
   if (log) log(`Assembling took ${Math.round(r.elapsedMs)}ms.`);
   return {output, symbolmap};
 };

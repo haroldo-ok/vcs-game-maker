@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
-import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON} from './icon';
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
 
@@ -168,6 +168,56 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
       'nextStatement': null,
       colour,
       'tooltip': `Plays or pauses ${description}'s animation`,
+    },
+    // Points this player directly at a slice of the ROM's own bank 1 code
+    // (plus a runtime offset) instead of one of its own defined animation
+    // frames - the classic Yars' Revenge "neutral zone" trick: real batari
+    // Basic sprites are just a pointer + a row count read from wherever
+    // that pointer happens to be (see generators/bbasic/sprites.js's own
+    // comment on player0pointer/player0height for the confirmed real
+    // kernel mechanics), so pointing it at ordinary CODE instead of a
+    // drawn graphic makes the sprite display those bytes as a pixel
+    // pattern - genuinely arbitrary-looking, not tied to anything the
+    // user has to set up first. No data table to create or pick - an
+    // earlier version of this required one, specifically to guarantee a
+    // real, always-present bank 1 address; generators/bbasic/sprites.js's
+    // own generator now points at a fixed kernel label that's already
+    // guaranteed present in every compiled ROM instead, so this block
+    // works immediately with no other setup. OFFSET defaults to the frame
+    // counter when left unplugged (see that generator's own comment) so
+    // the pattern already shimmers on its own - it's still a real, typed
+    // input if a specific offset expression is ever wanted instead.
+    {
+      'type': `sprite_${name}_rom_noise`,
+      'message0': `${icon} ${description}: display ${DATA_ICON} ROM noise, offset %1 height %2 rows`,
+      'args0': [
+        {
+          'type': 'input_value',
+          'name': 'OFFSET',
+          'check': 'Number',
+        },
+        {
+          'type': 'field_number',
+          'name': 'HEIGHT',
+          'value': 8,
+          'min': 1,
+          'max': 32,
+          'precision': 1,
+        },
+      ],
+      'inputsInline': true,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Makes ${description} display raw ROM bytes as its own graphic, instead of one ` +
+        'of its normal animation frames - the same trick Yars\' Revenge used for its "neutral ' +
+        'zone" static effect. Always reads from bank 1 (regardless of which bank this block ' +
+        'itself ends up in). Leave "offset" unplugged for an automatically shimmering pattern ' +
+        '(it defaults to the frame counter) - or plug in your own expression to control exactly ' +
+        'which bytes show. This replaces whatever animation frame the player was showing until ' +
+        'something else (a normal animation frame, or another use of this block) points it ' +
+        'elsewhere again; it does NOT affect player width/quantity (NUSIZ) - a size set with the ' +
+        '"set width/quantity" block above still applies normally on top of this.',
     },
   ]);
 };

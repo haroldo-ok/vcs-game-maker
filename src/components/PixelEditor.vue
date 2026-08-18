@@ -109,7 +109,7 @@
                     title="Set height"
                     v-bind="attrs"
                     v-on="on"
-                    @click="heightMenuValue = value.length"
+                    @click="heightMenuValue = value.length; heightMenuScaleContents = false; heightMenuApplyToAllFrames = false"
                   >
                     <v-icon>mdi-human-male-height-variant</v-icon>
                   </v-btn>
@@ -152,6 +152,29 @@
                     </v-list-item>
                   </v-list>
 
+                  <!-- A plain div, not another v-list-item like the slider
+                       above it - v-list-item's own padding (meant for a
+                       list of separate, evenly-spaced rows) left a wide gap
+                       above this AND visually separated the checkbox from
+                       its own label, when the two are really one small,
+                       single control that belongs right under the slider
+                       it modifies. -->
+                  <div class="pixel-editor-scale-checkbox">
+                    <v-checkbox
+                      v-model="heightMenuScaleContents"
+                      label="Scale existing contents (nearest neighbor)"
+                      hide-details
+                      dense
+                    />
+                    <v-checkbox
+                      v-if="allowApplyToAllFrames"
+                      v-model="heightMenuApplyToAllFrames"
+                      label="Apply to every frame in this animation"
+                      hide-details
+                      dense
+                    />
+                  </div>
+
                   <v-card-actions>
                     <v-spacer></v-spacer>
 
@@ -188,6 +211,7 @@ import {isMatrixEqual} from '../utils/array';
 import {getDateInfix} from '../utils/date';
 import {loadImageFromFile, openFileDialog} from '../utils/file';
 import {createResizedCanvas} from '../utils/image';
+import {resizePixelMatrixHeight} from '../utils/pixels';
 
 export default {
   props: {
@@ -210,6 +234,15 @@ export default {
     // button isn't worth the risk of a misclick there. Backgrounds are the
     // one place a whole-grid clear is actually useful on its own.
     showClearButton: {type: Boolean, default: false},
+    // Shows a second "Set height" checkbox that applies the SAME resize
+    // (and the "scale existing contents" choice above it) to every other
+    // frame in this sprite's own animation, not just this one - opt-in
+    // (default off, see allowApplyToAllFrames' own gating below) since
+    // only a frame that's actually PART of an animation (a player sprite)
+    // has other frames to apply anything to at all; a background or the
+    // score font (allowChangingHeight itself is already false for both)
+    // never shows this regardless.
+    allowApplyToAllFrames: {type: Boolean, default: false},
   },
   data() {
     return {
@@ -218,6 +251,18 @@ export default {
 
       heightMenuVisible: false,
       heightMenuValue: 0,
+      // Off by default (reset every time the popup opens - see the
+      // activator's own click handler) - the existing truncate/pad
+      // behavior (see handleSetHeight) is what every frame resize has
+      // always done, so a first-time or occasional resize doesn't silently
+      // start distorting artwork the user only meant to crop or extend.
+      heightMenuScaleContents: false,
+      // Off by default, same reasoning and same activator reset as
+      // heightMenuScaleContents above - a resize should only ever touch
+      // every other frame in the animation when the user explicitly asks
+      // for that, not as a lingering choice from the last time this popup
+      // happened to be open (possibly on a totally different frame).
+      heightMenuApplyToAllFrames: false,
 
       // String values (see the Eraser/Pencil/Clear v-btn "value" props),
       // not index-based - Clear sits between them in the group so it can
@@ -240,6 +285,26 @@ export default {
     rowColors() {
       if (this.editor) {
         this.setPixels(this.getPixels());
+      }
+    },
+    // Picks up a row-count change this component DIDN'T itself just emit -
+    // needed for "Apply to every frame in this animation" (see
+    // handleSetHeight's own resize-all-frames event): every OTHER frame's
+    // own PixelEditor instance never sees that resize happen locally (only
+    // the ONE frame the popup was actually open on does, via
+    // handleSetHeight's own initEditor call), it only sees its "value" prop
+    // change out from under it once PlayerEditor.vue applies the resize to
+    // its frame.pixels - and the underlying PixelEditor library has no
+    // built-in way to change its own row count after construction (see
+    // initEditor's own comment), so without this, every other frame would
+    // keep silently rendering at its OLD height/content until manually
+    // reopened. Guarded on an actual length mismatch (not just any "value"
+    // change) so this doesn't also fire - and redundantly reinitialize,
+    // discarding the in-progress draw - on every ordinary pixel edit,
+    // which updates "value" just as often but never changes its length.
+    value(newValue) {
+      if (this.editor && newValue && newValue.length !== this.editor.height) {
+        this.initEditor(newValue.length, newValue);
       }
     },
   },
@@ -342,15 +407,22 @@ export default {
 
       const pixels = this.getPixels();
       if (this.heightMenuValue != this.value.length) {
-        pixels.length = this.heightMenuValue;
-        for (let rowNumber = 0; rowNumber < pixels.length; rowNumber++) {
-          if (!pixels[rowNumber]) {
-            pixels[rowNumber] = new Array(this.editor.width).fill(0);
-          }
-        }
+        const resized = resizePixelMatrixHeight(
+            pixels, this.heightMenuValue, this.editor.width, this.heightMenuScaleContents);
 
-        this.$emit('input', pixels);
-        this.initEditor(this.heightMenuValue, pixels);
+        this.$emit('input', resized);
+        this.initEditor(this.heightMenuValue, resized);
+      }
+
+      // Every OTHER frame in this sprite's own animation - this component
+      // has no idea what those are (it only ever sees its own one frame's
+      // pixels), so the actual resizing happens one level up, in
+      // PlayerEditor.vue's own handler for this event; this only reports
+      // what the user asked for (the same height/scale choice this frame
+      // itself just used, above) and lets that handler decide who "every
+      // other frame" actually is.
+      if (this.allowApplyToAllFrames && this.heightMenuApplyToAllFrames) {
+        this.$emit('resize-all-frames', {height: this.heightMenuValue, scaleContents: this.heightMenuScaleContents});
       }
 
       this.heightMenuVisible = false;
@@ -511,6 +583,20 @@ export default {
 
 .pixel-editor-tools >>> .v-btn.pixel-editor-height-btn:hover {
   color: rgba(0, 0, 0, 0.87);
+}
+
+/* Pulled up close to the slider's own list-item above (a larger negative
+   top margin - confirmed the first attempt at this still left a visible
+   gap). left: 16px matches v-list-item's own default horizontal padding
+   (the slider row above still has that padding, being a real v-list-item;
+   this row is a plain div specifically to avoid v-list-item's much larger
+   VERTICAL padding, but still needs the same LEFT inset to actually line
+   up with it) - confirmed as a real bug leaving that out entirely: with
+   zero padding of its own, this row sat flush against the card's edge,
+   further left than the slider above it, not aligned with it. */
+.pixel-editor-scale-checkbox {
+  margin-top: -30px;
+  padding-left: 16px;
 }
 
 /* A plain flex row instead of Vuetify's v-row/v-col: their grid negative

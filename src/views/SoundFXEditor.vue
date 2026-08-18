@@ -26,10 +26,18 @@
           percentage of its own set volume. Off: sound effects play at their
           own set volume.
         </p>
+        <v-select
+          v-model="soundFilter"
+          label="Show"
+          :items="soundFilterItems"
+          hide-details
+          class="soundfx-filter"
+        />
         <v-list class="soundfx-list">
           <v-list-item
-            class="entry-list-item"
             v-for="(soundEffect, index) in state.soundEffects"
+            v-show="matchesSoundFilter(soundEffect)"
+            class="entry-list-item"
             v-bind:key="soundEffect.id"
           >
             <v-list-item-content>
@@ -113,6 +121,21 @@
                       v-model="soundEffect.name"
                       @change="handleChildChange"
                     />
+                    <v-btn
+                      icon
+                      small
+                      class="soundfx-instrument-btn soundfx-icon-btn-size"
+                      :class="{'soundfx-instrument-btn-active': soundEffect.isInstrument}"
+                      :title="(soundEffect.isInstrument ?
+                        'Tagged as an instrument (click to untag) ' :
+                        'Not tagged as an instrument (click to tag) ') +
+                        '- purely a tag for this tab\'s own \'Show\' filter above; every sound effect can ' +
+                        'already be used both as a soundfx_play trigger and as a Music tab instrument ' +
+                        'regardless of this.'"
+                      @click="() => handleToggleInstrument(soundEffect)"
+                    >
+                      <v-icon small>mdi-piano</v-icon>
+                    </v-btn>
                   </div>
                 </v-card-text>
 
@@ -234,7 +257,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
@@ -302,6 +325,29 @@ export default defineComponent({
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('soundfx');
 
+    // Purely a display filter for this tab's own card list (see the
+    // Instrument checkbox in the name row) - not persisted, and doesn't
+    // touch soundEffect.isInstrument itself or anything else that reads it.
+    // Cards not matching stay in the underlying array/v-for at their own
+    // real index (v-show, not a filtered array or v-if - ESLint's
+    // vue/no-use-v-if-with-v-for rule forbids the latter on the same
+    // element as v-for anyway) specifically so drag-reorder (see
+    // hooks/drag-reorder.js, which reorders by splicing the real array at
+    // whatever index it's given) keeps working correctly even mid-filter,
+    // rather than reordering against filtered-out indices that don't match
+    // the real array at all.
+    const soundFilter = ref('all');
+    const soundFilterItems = [
+      {text: 'All', value: 'all'},
+      {text: 'Instruments', value: 'instrument'},
+      {text: 'Sound effects', value: 'sound'},
+    ];
+    const matchesSoundFilter = (soundEffect) => {
+      if (soundFilter.value === 'instrument') return !!soundEffect.isInstrument;
+      if (soundFilter.value === 'sound') return !soundEffect.isInstrument;
+      return true;
+    };
+
     // Card reordering (see hooks/drag-reorder.js and TextEditor.vue's own
     // first use of this same hook) - sound effects are already referenced
     // everywhere by their own permanent id (see findSoundEffectById/
@@ -333,6 +379,7 @@ export default defineComponent({
         arpeggioInterval: DEFAULT_ARPEGGIO_INTERVAL,
         arpeggioRange: DEFAULT_ARPEGGIO_RANGE,
         color: null,
+        isInstrument: false,
       };
 
       state.value.soundEffects.push(newSoundEffect);
@@ -408,6 +455,11 @@ export default defineComponent({
       handleChildChange();
     };
 
+    const handleToggleInstrument = (soundEffect) => {
+      soundEffect.isInstrument = !soundEffect.isInstrument;
+      handleChildChange();
+    };
+
     // Same "in tune" AUDF set the piano roll limits its own rows to for a
     // given instrument (see utils/music-notes.js's notesForAudc) - the
     // Frequency field only offers a value picked from here instead of any
@@ -444,10 +496,11 @@ export default defineComponent({
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
       handleExportSoundEffect, handleImportSoundEffect,
-      handleStopPreview, handleSetSoundEffectColor, autoInstrumentColor,
+      handleStopPreview, handleSetSoundEffectColor, handleToggleInstrument, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent,
+      soundFilter, soundFilterItems, matchesSoundFilter,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
@@ -532,6 +585,11 @@ export default defineComponent({
   margin-top: 8px;
   color: rgba(0, 0, 0, 0.6);
   font-size: 0.75rem;
+}
+
+.soundfx-filter {
+  max-width: 220px;
+  margin-top: 8px;
 }
 
 .soundfx-card {
@@ -621,6 +679,42 @@ export default defineComponent({
 .soundfx-name-field {
   margin-top: 20px;
   flex: 1 1 auto;
+}
+
+/* Same flat-icon, fade-in-on-hover treatment as .soundfx-stop-btn/
+   .soundfx-play-btn below, plus an "on" tint (see .soundfx-instrument-btn-
+   active) matching the Music tab's own mute/solo toggle buttons
+   (MusicEditor.vue's .music-icon-btn-active - same blue, #1976d2, Vuetify's
+   default "primary"). 30px roughly centers it against .soundfx-name-field's
+   own floating label/text (20px offset) - not a measured value, nudge if it
+   doesn't quite line up. !important because this element also carries
+   .soundfx-icon-btn-size (defined later in this same file), whose own
+   "margin: 0 1px" shorthand resets margin-top to 0 and would otherwise win
+   on source order alone despite matching specificity - confirmed as the
+   actual cause of this button rendering hard against the row's own top
+   edge instead of lined up with the name field next to it. */
+.soundfx-instrument-btn {
+  flex: 0 0 auto;
+  margin-top: 38px !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.soundfx-instrument-btn::before {
+  display: none;
+}
+
+.soundfx-instrument-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.soundfx-instrument-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.soundfx-instrument-btn.soundfx-instrument-btn-active >>> .v-icon {
+  color: #1976d2 !important;
 }
 
 /* Vuetify's v-menu renders its activator slot content as a SIBLING of its

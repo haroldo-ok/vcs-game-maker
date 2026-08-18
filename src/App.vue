@@ -302,6 +302,7 @@
           class="rom-capacity-bar"
         />
         <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
+        <div v-if="romVariablesText" class="rom-capacity-summary">{{ romVariablesText }}</div>
         <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
           <div v-for="bank in romCapacityBanks" :key="bank.number" class="rom-capacity-bank">
             <div class="rom-capacity-bank-header">
@@ -503,6 +504,21 @@ export default {
       return `${totalUsed.toLocaleString()} of ${capacity.total.usableBytes.toLocaleString()} bytes used ` +
         `across every bank (bank 1, which always holds your main code, is ` +
         `${bank1Used.toLocaleString()} of ${capacity.bank1.usableBytes.toLocaleString()} used)`;
+    },
+    // Variable-pool usage (see hooks/rom.js's computeVariableUsage) - shown
+    // separately from the byte-capacity text above since these are a
+    // completely different, hard-capped resource (25-55 slots project-wide
+    // depending on Superchip, not bytes) that can run out well before ROM
+    // space does. Superchip's own half is omitted entirely when it's off
+    // (available is 0 then - see computeVariableUsage's own comment) rather
+    // than shown as "0 of 0", which would read as broken rather than simply
+    // not applicable yet.
+    romVariablesText() {
+      const usage = this.romCapacity && this.romCapacity.variableUsage;
+      if (!usage) return '';
+      const letters = `${usage.letters.used} of ${usage.letters.available} letters`;
+      if (!usage.superchip.available) return `Variables: ${letters} used.`;
+      return `Variables: ${letters}, ${usage.superchip.used} of ${usage.superchip.available} Superchip RAM used.`;
     },
     // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
     // summary above averages over every bank, which can look like there's

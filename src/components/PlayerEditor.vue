@@ -44,6 +44,32 @@
                     @change="handleChildChange"
                   />
 
+                  <!-- Preview-only: stretches how wide each frame's own
+                       pixel grid RENDERS here, to sanity-check what a
+                       NUSIZ-doubled/quadrupled sprite would actually look
+                       like on real hardware, without touching the frame's
+                       own stored pixel data (a genuinely wider sprite is a
+                       different bB feature - "player0size"/"player1size" -
+                       this is purely a display aid for previewing that
+                       choice's visual effect while still drawing at the
+                       real 8-pixel resolution). Per-animation, not global
+                       or per-frame: different animations on the same
+                       player commonly use different NUSIZ settings (e.g. a
+                       normal walk cycle vs. a doubled-width "power-up"
+                       pose), so a single shared setting wouldn't preview
+                       either one accurately once the other diverged. -->
+                  <v-btn-toggle
+                    :value="animation.previewWidthScale || 1"
+                    class="animation-preview-scale-toggle"
+                    dense
+                    mandatory
+                    @change="(scale) => handleSetPreviewScale(animation, scale)"
+                  >
+                    <v-btn :value="1" x-small title="Preview at normal (1x) width">1x</v-btn>
+                    <v-btn :value="2" x-small title="Preview at doubled (2x) width">2x</v-btn>
+                    <v-btn :value="4" x-small title="Preview at quadrupled (4x) width">4x</v-btn>
+                  </v-btn-toggle>
+
                   <v-menu
                         top
                         v-if="state.animations.length > 1"
@@ -93,7 +119,7 @@
                     <div
                       class="pixel-editor-container"
                       :class="{'pixel-editor-container-wide': zoom >= 1}"
-                      :style="{width: editorWidth}"
+                      :style="{width: frameEditorWidth(animation)}"
                     >
                       <v-text-field
                         label="Duration"
@@ -105,12 +131,14 @@
                       <pixel-editor
                         :width="8"
                         :height="frame.pixels.length || 1"
-                        :aspectRatio="(8 / (frame.pixels.length || 1)) * 160/192"
+                        :aspectRatio="(8 / (frame.pixels.length || 1)) * 160/192 * (animation.previewWidthScale || 1)"
                         v-model="frame.pixels"
                         :fgColor="fgColor"
                         :name="name"
                         :showClearButton="true"
+                        :allowApplyToAllFrames="true"
                         @input="handleChildChange"
+                        @resize-all-frames="(opts) => handleResizeAllFrames(animation, frame, opts)"
                       >
                         <template v-slot:badge>
                           <div class="frame-number-badge">FRAME: {{ frameIndex + 1 }}</div>
@@ -197,7 +225,7 @@ import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {useEditorZoom} from '../hooks/zoom';
-import {playfieldToMatrix} from '../utils/pixels';
+import {playfieldToMatrix, resizePixelMatrixHeight} from '../utils/pixels';
 
 // Width of one frame editor at 100% zoom. The container is normally sized by
 // its own contents, so this pins it before the zoom factor is applied.
@@ -210,6 +238,19 @@ export default defineComponent({
     // Player 0 and Player 1 are separate instances, so each keeps its own zoom.
     const zoom = useEditorZoom(props.name);
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
+    // Widens the frame editor's own container by the SAME factor the
+    // aspectRatio calculation below scales by, instead of just increasing
+    // aspectRatio alone against a fixed-width container - confirmed as a
+    // real bug that way: the proportion-wrapper's height is a PERCENTAGE OF
+    // ITS OWN WIDTH (padding-bottom: 100/aspectRatio%, see PixelEditor.vue),
+    // so widening the aspect ratio while the container's own width stayed
+    // fixed just made the box shorter, not wider. Scaling width and
+    // aspectRatio by the same factor keeps the derived height exactly
+    // where it was at 1x (height = width / aspectRatio - both the
+    // numerator and denominator grow by the same factor, cancelling out),
+    // so only the width actually changes as the toggle goes from 1x to 4x.
+    const frameEditorWidth = (animation) =>
+      `${Math.round(EDITOR_BASE_WIDTH * zoom.value * (animation.previewWidthScale || 1))}px`;
     const getMaxId = (elements) => {
       return max(elements.map((o) => o.id))||0;
     };
@@ -299,11 +340,51 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // Applies the SAME resize (and "scale existing contents" choice) the
+    // triggering frame's own PixelEditor instance just used on itself, to
+    // every OTHER frame in the same animation - the triggering frame
+    // itself is skipped here since its own handleSetHeight already
+    // resized it locally (see PixelEditor.vue's own resize-all-frames
+    // comment); redoing it here too would just repeat the same work.
+    // Every OTHER frame's own PixelEditor instance picks up its new
+    // pixels via its own "value" watcher (see that component's own
+    // comment on why a watcher is needed there at all, not just a prop).
+    const handleResizeAllFrames = (animation, triggeringFrame, {height, scaleContents}) => {
+      animation.frames.forEach((frame) => {
+        if (frame.id === triggeringFrame.id) return;
+        frame.pixels = resizePixelMatrixHeight(frame.pixels, height, 8, scaleContents);
+      });
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    // A single blank frame, not a copy of the previous animation's own
+    // frames - confirmed as the wanted behavior directly: a brand new
+    // animation starting pre-filled with an unrelated animation's entire
+    // frame set (every frame, every pose) meant deleting all of them by
+    // hand was the normal first step before drawing anything new, every
+    // time. Same empty 8x8 grid handleAddFrame's own "no frames yet"
+    // fallback uses, so a fresh animation's first frame looks the same
+    // either way it was reached.
     const handleAddAnimation = () => {
-      const newAnimation = structuredClone(state.value.animations[state.value.animations.length-1]);
       state.value.animations.push({
-        ...newAnimation,
         id: getMaxId(state.value.animations) + 1,
+        name: `Animation ${state.value.animations.length + 1}`,
+        frames: [
+          {
+            id: 1,
+            duration: 10,
+            pixels: playfieldToMatrix(
+                '........\n'+
+              '........\n'+
+              '........\n'+
+              '........\n'+
+              '........\n'+
+              '........\n'+
+              '........\n'+
+              '........'),
+          },
+        ],
       });
 
       handleChildChange();
@@ -317,12 +398,23 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // Preview-only display setting (see the toggle's own template comment) -
+    // stored on the animation itself, not a separate zoom-style hook, since
+    // it's meant to persist with the project the same way every other
+    // animation/frame property here already does, unlike the Player 0/1
+    // zoom level, which deliberately resets every reload.
+    const handleSetPreviewScale = (animation, scale) => {
+      animation.previewWidthScale = scale;
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
     return {state, handleChildChange,
-      handleAddFrame, handleDeleteFrame,
-      handleAddAnimation, handleDeleteAnimation,
+      handleAddFrame, handleDeleteFrame, handleResizeAllFrames,
+      handleAddAnimation, handleDeleteAnimation, handleSetPreviewScale,
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
-      zoom, editorWidth,
+      zoom, editorWidth, frameEditorWidth,
       props};
   },
 });
@@ -471,6 +563,40 @@ export default defineComponent({
   margin-top: 20px;
 }
 
+/* Sits right after the name field, in the same normal-flow row as the rest
+   of this card's header controls - small/dense to read as a minor display
+   toggle, not a primary action competing with the name field or the
+   delete button (absolutely positioned into the corner, see
+   .delete-btn-inset, so it never overlaps this either). Left-aligned to 0,
+   matching the sprite frame's own left edge below
+   (.pixel-editor-parent-container's own "padding-left: 0") rather than the
+   field's default Vuetify indent. A NEGATIVE top margin, not just a small
+   positive one - the name field isn't hide-details, so Vuetify already
+   reserves its own ~18px hint/error-message strip below the input whether
+   or not anything is actually showing there, which read as extra dead
+   space stacking on top of any positive margin this toggle added of its
+   own; pulling up into that reserved strip (rather than adding to it)
+   closes the gap down to what's actually visible. */
+.animation-preview-scale-toggle {
+  margin: -14px 40px 0 0;
+}
+
+.animation-preview-scale-toggle >>> .v-btn {
+  height: 24px !important;
+  min-width: 32px !important;
+  font-size: 11px;
+}
+
+/* Matches the app's own primary blue (already used for the "Add frame"/
+   "Add animation" fab buttons and the drawing-tool active state right
+   above), white text for contrast - Vuetify's own v-btn-toggle default
+   "selected" look (a faint grey tint, barely different from unselected)
+   didn't read as clearly "this one's active" against the other two. */
+.animation-preview-scale-toggle >>> .v-btn.v-btn--active {
+  background-color: #1976d2 !important;
+  color: #fff !important;
+}
+
 /* top/right match every other tab's own delete corner button (see
    MusicEditor.vue's .music-toolbar-top-right) exactly, for a consistent
    corner position across every card type. */
@@ -506,11 +632,16 @@ export default defineComponent({
 
 /* Sits inline after the last frame, vertically centered against the frame
    cards' height via vertical-align (rather than the list item's own default
-   flex centering, which only centers within its own row). */
+   flex centering, which only centers within its own row). margin-top only
+   matters once this wraps onto its own line below the frame cards (there's
+   nothing to space it from while it's still sharing a row with them) - a
+   real gap there, not flush against the row of cards above it, confirmed
+   as needed once a frame count/zoom combination actually causes that wrap. */
 .add-frame-list-item {
   display: inline-block;
   vertical-align: middle;
   width: auto;
+  margin-top: 16px;
 }
 
 /* Same circular style as "Add animation" below (and the Background tab's "+"

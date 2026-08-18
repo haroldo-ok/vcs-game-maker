@@ -147,22 +147,16 @@ import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, effectiveBackgroundRows,
 // Width of one background editor at 100% zoom.
 const EDITOR_BASE_WIDTH = 480;
 
-// A simple rectangular border, sized to whatever the current playfield
-// resolution is. Used for new backgrounds instead of a fixed 11-row pattern,
-// since Superchip's pfres setting can make that row count anything from 11
-// to 32.
-const buildDefaultBackgroundPixels = (rows, cols = 32) => {
-  const matrix = new Array(rows).fill(0).map(() => new Array(cols).fill(0));
-  for (let x = 0; x < cols; x++) {
-    matrix[0][x] = 1;
-    matrix[rows - 1][x] = 1;
-  }
-  for (let y = 0; y < rows; y++) {
-    matrix[y][0] = 1;
-    matrix[y][cols - 1] = 1;
-  }
-  return matrix;
-};
+// A blank canvas (every pixel off), sized to whatever the current playfield
+// resolution is - not a fixed row count, since Superchip's pfres setting can
+// make that row count anything from 11 to 32. Used for new backgrounds
+// instead of pre-drawing anything (a rectangular border was tried first and
+// reverted: a brand new background starting with existing pixels already
+// set meant clearing them by hand was the normal first step before drawing
+// anything new, every time - matches how a new player animation frame
+// starts blank too, see PlayerEditor.vue's own handleAddAnimation).
+const buildDefaultBackgroundPixels = (rows, cols = 32) =>
+  new Array(rows).fill(0).map(() => new Array(cols).fill(0));
 
 export default defineComponent({
   components: {EditorZoom, PixelEditor, PlayfieldColorStrip},
