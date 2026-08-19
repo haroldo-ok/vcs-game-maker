@@ -129,6 +129,29 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': `Sets a single score digit, counting from the left, without ` +
       `changing the other digits. Use a value from 0 to 9.`,
   },
+  // Block for changing a single score digit in place.
+  {
+    'type': `score_digit_change`,
+    'message0': `${SCORE_ICON} Score digit %1: change by: %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'DIGIT',
+        'options': SCORE_DIGIT_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'DELTA',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Adds to a single score digit, counting from the left, without changing the other digits. ` +
+      `Use a negative value to subtract. Doesn't wrap or carry into the neighboring digit - keep the ` +
+      `result between 0 and 9 yourself, same as the plain "set" block already requires.`,
+  },
   // Block for the score bar getter.
   {
     'type': `score_bar_get`,

@@ -530,6 +530,33 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(scoreBkColorVarName());
   }
 
+  // "rand16" is a real batari Basic feature (see std_routines.asm's own
+  // "ifconst rand16" check), not an app invention - simply DIMming a
+  // variable with this EXACT name switches the standard kernel's randomize
+  // routine from an 8-bit-period LFSR to a 16-bit-period one, widening
+  // "rand"'s own cycle length before it starts visibly repeating. "rand"
+  // itself (see random_get/random_range_get in generators/bbasic/random.js)
+  // is read completely unchanged either way - a project-wide kernel
+  // behavior switch, not a per-block choice, so it's a single Options tab
+  // toggle (Configuration.vue's "Use 16-bit random number generator", under
+  // Kernel Optimization) rather than a per-Random-block checkbox (an
+  // earlier version of this had one there instead, reverted at the user's
+  // own request in favor of one setting for the whole project). Routed
+  // through the normal reserveDevVar pool (confirmed directly against
+  // Blockly's own Names class: a simple, never-colliding name like this
+  // passes through nameDB_.getName() completely unchanged, so the emitted
+  // "dim rand16 = ..." line keeps the exact literal symbol name
+  // "ifconst rand16" checks for) rather than a hand-picked fixed slot like
+  // var44-47 - that 4-byte pool is already tightly booked between
+  // soundFadeVolumes, TextIndex, and TextDataPtr's own high byte (see their
+  // own comments), so claiming one more of those slots here risked a real
+  // collision that the dynamic pool's own dedup logic doesn't have. Only
+  // reserved while the toggle is actually on, so a project that doesn't
+  // need the wider period never pays the variable's cost.
+  if (config.enableRand16) {
+    reserveDevVar('rand16');
+  }
+
   // Same bucket again, for background_fade_to's own per-register state
   // (see blocks/background.js's own comment on backgroundFadeTimerVarName
   // and its neighbors) - only reserved for a register (COLUBK/COLUPF) some
@@ -1606,6 +1633,19 @@ Blockly.BBasic.generateConfiguration = function() {
   // the Text Minikernel itself is in use.
   const textFontConfigurationCode = (scoreFont === SQUISH_SCORE_FONT || scoreFont === SQUISH_CUSTOM_SCORE_FONT) ?
     'const fontstyle = SQUISH' : '';
+  // Activates the extended score_graphics.asm's own "ifconst fontcharsHEX"
+  // gate (see score_graphics_extended.asm - every font style there, not
+  // just Squish, has one) - only for Squish CUSTOM, not plain Squish: only
+  // Squish Custom's own override (buildSquishScoreFontOverride in
+  // utils/score-font.js) actually splices anything meaningful into that
+  // gated block; plain Squish's own bundled digits leave it at its
+  // built-in stock A-F hex glyphs, which nothing in this app currently
+  // exposes a reason to turn on for a font the user isn't otherwise
+  // editing. The PLAIN (non-Squish) Custom path needs no equivalent const
+  // at all - its own drawing routine has no such gate to begin with (see
+  // buildScoreFontOverride's own comment).
+  const scoreFontExtraGlyphsConfigurationCode = scoreFont === SQUISH_CUSTOM_SCORE_FONT ?
+    'const fontcharsHEX = 1' : '';
   // Two different, INDEPENDENTLY settable colors inside text12a.asm/
   // text12b.asm's own "minikernel" subroutine:
   // - "scorebkcolor" (from the Score tab's own background color picker -
@@ -1662,6 +1702,7 @@ Blockly.BBasic.generateConfiguration = function() {
     scoreConfigurationCode,
     scoreFontConfigurationCode,
     textFontConfigurationCode,
+    scoreFontExtraGlyphsConfigurationCode,
     textBkColorConfigurationCode,
     pfresConfigurationCode,
     optimizationConfigurationCode,

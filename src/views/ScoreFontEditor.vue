@@ -20,6 +20,14 @@
       <p>
         Draw the ten score digits below. They are used when the score font is
         set to <strong>Custom</strong> or <strong>Squish Custom</strong>.
+        <template v-if="showExtraGlyphs">
+          Six extra glyphs (10-15) are also available - batari Basic score
+          digits are a raw 4-bit value, not limited to 0-9, so these extra
+          slots can hold anything an 8x8 shape can represent. Ordinary
+          scoring can never reach them (it's real decimal arithmetic); a
+          "Score digit: change by" block writing a value of 10 or higher
+          is the only way to actually show one.
+        </template>
       </p>
       <editor-zoom v-model="zoom" />
       <div class="digit-list">
@@ -27,6 +35,7 @@
           class="digit"
           :style="{width: digitWidth}"
           v-for="(digit, index) in state.digits"
+          v-show="index < DECIMAL_DIGIT_COUNT || showExtraGlyphs"
           :key="index"
         >
           <div class="digit-label">{{ index }}</div>
@@ -38,6 +47,7 @@
               :aspectRatio="PIXEL_ASPECT"
               v-model="state.digits[index]"
               fgColor="#f2691e"
+              :showClearButton="true"
               :name="'score-font-digit-' + index"
               :allowChangingHeight="false"
               @input="handleChange"
@@ -64,6 +74,7 @@ import {colorByteToCss} from '../utils/palette';
 import {SCORE_FONT_NAMES} from '../generators/score-fonts';
 import {
   CUSTOM_SCORE_FONT,
+  DECIMAL_DIGIT_COUNT,
   DEFAULT_SCORE_FONT,
   DIGIT_HEIGHT,
   SQUISH_SCORE_FONT,
@@ -187,6 +198,16 @@ export default defineComponent({
     // instead of the standard 8-row digits), so the editor below switches
     // which one it's bound to based on the current selection.
     const isSquishCustomSelected = computed(() => selectedFont.value === SQUISH_CUSTOM_SCORE_FONT);
+    // Gates the 6 extra glyph cards (10-15, see DECIMAL_DIGIT_COUNT's own
+    // comment) below - only the two fonts a project can actually EDIT get
+    // them; every preset (and plain Squish) is a fixed, non-editable
+    // bitmap already, so there's nothing useful to draw for slots those
+    // fonts don't expose in the compiled ROM anyway (see
+    // buildScoreFontOverride/buildSquishScoreFontOverride in
+    // utils/score-font.js - only CUSTOM/SQUISH_CUSTOM ever splice them in
+    // at all).
+    const showExtraGlyphs = computed(() =>
+      selectedFont.value === CUSTOM_SCORE_FONT || isSquishCustomSelected.value);
     const activeScoreFontStorage = computed(() =>
       isSquishCustomSelected.value ? squishCustomScoreFontStorage : scoreFontStorage);
     const activeDefaultFont = computed(() =>
@@ -245,6 +266,8 @@ export default defineComponent({
       PIXEL_ASPECT,
       zoom,
       digitWidth,
+      showExtraGlyphs,
+      DECIMAL_DIGIT_COUNT,
     };
   },
 });

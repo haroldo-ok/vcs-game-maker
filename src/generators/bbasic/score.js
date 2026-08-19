@@ -250,6 +250,27 @@ export default (Blockly) => {
     return buildDigitPokeLines(address, high, argument0) + '\n';
   };
 
+  Blockly.BBasic[`score_digit_change`] = function(block) {
+    // Same "score is special-cased, so writing a single digit needs inline
+    // asm" reasoning as score_digit_set above - this just reads the current
+    // digit back out first (same expression score_digit_get's own generator
+    // builds) and feeds "current +/- delta" into the same poke helper,
+    // instead of a plain literal/expression. Whatever that computes is
+    // masked down to 4 bits when it's poked back in (see
+    // buildDigitPokeLines's own "and #$0F") - not a decimal wrap or carry
+    // into the neighboring digit, just a hex nibble truncation, which is
+    // why the block's own tooltip tells the user to keep the result inside
+    // 0-9 themselves rather than claiming any automatic correction.
+    Blockly.BBasic.definitions_['score_digit_aliases'] = SCORE_DIGIT_ALIASES;
+    const {alias, address, high} = scoreDigitTarget(block.getFieldValue('DIGIT'));
+    const currentDigit = high ? `(${alias} / 16)` : `(${alias} & $0F)`;
+    const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
+    const isNegativeConstant = /^\s*-\s*\d+\s*$/.test(argument0);
+    const operator = isNegativeConstant ? '' : '+';
+    return buildDigitPokeLines(address, high, `${currentDigit} ${operator} ${argument0}`) + '\n';
+  };
+
   Blockly.BBasic[`score_bar_get`] = function(block) {
     // Score bar getter.
     const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),

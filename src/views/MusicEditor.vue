@@ -208,7 +208,7 @@
                       >
                         <span
                           class="sequence-chip-id-badge"
-                          title="This chip's own ID - see the &quot;When sequence chip has finished playing&quot; block"
+                          title="This chip's own position in the sequence (1 = first) - see the &quot;When sequence chip has finished playing&quot; block. Changes if you reorder, insert, or delete chips before it."
                         >ID:{{ group.id }}</span>
                         {{ patternName(song, group.patternId) }}<template v-if="sequenceGroupPreviewCount(song, group) > 1"> ×{{ sequenceGroupPreviewCount(song, group) }}</template>
                       </v-chip>
@@ -1786,14 +1786,30 @@ export default defineComponent({
     // pushing a new one whenever it already matches, so repeatedly picking
     // the same pattern from the dropdown behaves the same as dragging the
     // resize handle would.
+    // A chip's own "id" IS its current 1-based position in song.sequence -
+    // not a separate, permanent identity tracked alongside position (an
+    // earlier version of this kept the two as distinct values, one stable
+    // across reordering and one just for display - reverted at the user's
+    // own explicit request in favor of a single number that always means
+    // "position right now"). Called after every mutation that can change
+    // ANY chip's own position (add, remove, reorder) so id never drifts out
+    // of sync with where a chip actually sits - existing lookups elsewhere
+    // in this file (handleRemoveSequenceGroup, the resize/drag handlers)
+    // keep matching by "id" completely unchanged, since id and position are
+    // now simply the same number.
+    const renumberSequenceIds = (song) => {
+      song.sequence.forEach((group, index) => {
+        group.id = index + 1;
+      });
+    };
+
     const handleAddSequenceStep = (song, patternId) => {
       if (patternId == null) return;
       const last = song.sequence[song.sequence.length - 1];
       if (last && last.patternId === patternId) {
         last.count++;
       } else {
-        const maxId = max(song.sequence.map((group) => group.id)) || 0;
-        song.sequence.push({id: maxId + 1, patternId, count: 1});
+        song.sequence.push({id: song.sequence.length + 1, patternId, count: 1});
       }
       handleChildChange();
       forceUpdate();
@@ -1801,6 +1817,7 @@ export default defineComponent({
 
     const handleRemoveSequenceGroup = (song, group) => {
       song.sequence = song.sequence.filter(({id}) => id !== group.id);
+      renumberSequenceIds(song);
       handleChildChange();
       forceUpdate();
     };
@@ -2012,6 +2029,7 @@ export default defineComponent({
         const [moved] = sequence.splice(fromIndex, 1);
         sequence.splice(insertAt, 0, moved);
         song.sequence = sequence;
+        renumberSequenceIds(song);
         handleChildChange();
         forceUpdate();
       },

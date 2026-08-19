@@ -114,6 +114,14 @@
           class="option-switch"
         />
         <v-switch
+          v-model="configurationState.enableRand16"
+          @change="handleChangeConfiguration"
+          label="Use 16-bit random number generator (rand16)"
+          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="configurationState.enableInlineRand"
           @change="handleChangeConfiguration"
           :disabled="!romSizeIsBankswitched"
@@ -143,6 +151,30 @@ const MAX_PFRES = 32;
 // leaving pfres pointed at RAM that was never actually enabled.
 const MIN_SUPERCHIP_ROM_SIZE_INDEX = ROM_SIZE_OPTIONS.indexOf('8k');
 
+// A view preference, not part of the project itself - same "survives
+// navigating away and back" reasoning as hooks/collapse.js's own
+// collapsedRefs (Vue Router destroys and recreates this whole component on
+// navigation, which would otherwise reset any state kept inside setup()
+// itself). Not reused straight from that hook: its isCollapsed/
+// toggleCollapsed take an {id} object and always default to "not
+// collapsed," whereas this page wants 'vcsgm'/'kernel' to default to
+// collapsed and 'rom' to default open the FIRST time (before the user has
+// ever toggled anything) - a plain module-scope ref, hydrated from
+// localStorage once here, covers both without changing that shared hook's
+// own contract for its other callers.
+const OPTIONS_COLLAPSED_SECTIONS_KEY = 'vcs-game-maker.collapsed.options-sections';
+const DEFAULT_COLLAPSED_SECTIONS = ['vcsgm', 'kernel'];
+const loadCollapsedSections = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(OPTIONS_COLLAPSED_SECTIONS_KEY));
+    if (Array.isArray(stored)) return new Set(stored);
+  } catch (e) {
+    // Fall through to the default below.
+  }
+  return new Set(DEFAULT_COLLAPSED_SECTIONS);
+};
+const collapsedSections = ref(loadCollapsedSections());
+
 export default defineComponent({
   setup(props, context) {
     const configurationStorage = useConfigurationStorage();
@@ -156,18 +188,14 @@ export default defineComponent({
     // Which sections are collapsed - a Set of section keys, matching the
     // collapse pattern already used by the other tabs' own cards (a plain
     // left-aligned chevron icon button, not Vuetify's own v-expansion-panels,
-    // which puts its arrow on the right). Starts empty (everything expanded)
-    // so this page looks the same as before collapsing existed. Not
-    // persisted - like every other tab's own collapse state, it resets on
-    // reload rather than being remembered.
-    // 'rom' starts open (the most commonly-tweaked settings); 'vcsgm' and
-    // 'kernel' both start closed (less commonly needed).
-    const collapsedSections = ref(new Set(['vcsgm', 'kernel']));
+    // which puts its arrow on the right). See collapsedSections' own
+    // module-scope definition above for why this isn't just a local ref.
     const isSectionCollapsed = (key) => collapsedSections.value.has(key);
     const toggleSection = (key) => {
       const next = new Set(collapsedSections.value);
       if (next.has(key)) next.delete(key); else next.add(key);
       collapsedSections.value = next;
+      localStorage.setItem(OPTIONS_COLLAPSED_SECTIONS_KEY, JSON.stringify([...next]));
     };
 
     const configurationState = computed({
@@ -181,6 +209,7 @@ export default defineComponent({
           enableSuperchip: false,
           enableOptimizationSpeed: false,
           enableInlineRand: false,
+          enableRand16: false,
           pfres: 24,
           romSize: '4k',
           scoreFont: '',

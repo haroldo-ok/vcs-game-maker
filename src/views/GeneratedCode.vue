@@ -22,20 +22,26 @@
           <v-icon>mdi-content-save</v-icon>
         </v-btn>
       </div>
-      <div class="code-scroll">
-        <pre class="line-numbers-gutter">{{ lineNumbersText }}</pre>
-        <vue-code-highlight language="basic" class="code-container">
-          <pre v-html="generatedBasic"></pre>
-        </vue-code-highlight>
+      <div class="code-scroll-wrapper">
+        <div class="code-scroll">
+          <pre class="line-numbers-gutter">{{ lineNumbersText }}</pre>
+          <vue-code-highlight language="basic" class="code-container">
+            <pre v-html="generatedBasic"></pre>
+          </vue-code-highlight>
+        </div>
       </div>
-      <!-- A normal-flow sibling of .code-scroll, placed AFTER it (not
-           layered on top with position: absolute) so it never covers the
-           code text it's searching, and so "position: sticky; bottom: 0"
-           below pins it to the BOTTOM of .editor-container (the actual
-           scrolling element - see that class's own comment) as the code
-           scrolls underneath, rather than the top - sticky-to-bottom needs
-           the element to be the LAST thing in scroll order, not the
-           first. -->
+      <!-- A genuine flex footer of .editor-container now (see that class's
+           own comment), not "position: sticky" layered over the scrollable
+           area anymore - an earlier version used sticky, which visually
+           overlaid the bottom slice of .code-scroll-wrapper rather than
+           actually reserving its own space, so a match on one of the last
+           few lines could render right underneath it with no way to scroll
+           it clear (confirmed as a real, reproducible bug - the container
+           has no room to scroll past its own max scrollHeight, so no amount
+           of centering math could fix it). Being a real flex item instead
+           means .code-scroll-wrapper's own height is simply reduced to fit
+           above it, so every line - including the last one - has real
+           scrollable room to reach the middle of the actually-visible area. -->
       <div class="generated-code-search-dock">
         <v-text-field
           v-model="searchQuery"
@@ -241,7 +247,14 @@ export default defineComponent({
       // proportional estimate, not a pixel-exact one, but built entirely
       // from numbers that stay valid regardless of what vue-code-highlight
       // is doing to the DOM at any given moment.
-      const container = document.querySelector('.editor-container');
+      // .code-scroll-wrapper (not .editor-container) is the actual
+      // scrolling element now - the search dock moved out to be a real flex
+      // footer of .editor-container instead of a "position: sticky" overlay
+      // on top of the scrollable area (see the dock's own template comment
+      // for the real, reproducible bug that caused), so clientHeight here
+      // is already just the genuinely-visible code area with no need to
+      // subtract the dock's own height from it anymore.
+      const container = document.querySelector('.code-scroll-wrapper');
       if (container && typeof line === 'number') {
         const totalLines = ((generatedBasic.value || '').match(/\n/g) || []).length + 1;
         const scrollRange = container.scrollHeight - container.clientHeight;
@@ -360,45 +373,69 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* A flex column filling the whole tab now (title/toolbar, then the
+   scrollable code area, then the search dock as a real footer) - it no
+   longer scrolls itself (see .code-scroll-wrapper, which does) now that the
+   dock needs to be a genuine flex item pinned below the scrollable area
+   instead of a "position: sticky" overlay on top of it. */
 .editor-container {
   position: absolute;
-  overflow: auto;
   top: 0;
   bottom: 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Vuetify's default v-card corner-rounding, combined with the
+     "overflow: hidden" above (needed for the flex column layout itself),
+     clips the search dock's own square white background into the card's
+     rounded shape at the bottom two corners - not fixable from the dock's
+     own side alone (its own border-radius: 0 wasn't enough, since it's the
+     PARENT's rounding doing the clipping) since the dock now sits flush
+     against this card's own edge as a real flex footer, unlike every other
+     tab's own .editor-container, where content never reaches the rounded
+     corners in the first place. */
+  border-radius: 0;
 }
 
-/* Flush left, own row below the title, above the code itself - same as
-   before the search dock existed, which now lives in its own sticky row
-   (see .generated-code-search-dock) rather than sharing this one. */
+/* Flush left, own row below the title, above the code itself. */
 .generated-code-toolbar {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 16px 2px 8px;
+  flex: 0 0 auto;
 }
 
-/* Sticks to the BOTTOM of .editor-container (the actual scrolling element,
-   confirmed directly - "position: sticky" here needs ITS OWN scrolling
-   ancestor to have a real overflow, which .code-scroll deliberately
-   doesn't: that inner element is sized to fit its content exactly, with no
-   overflow of its own - only .editor-container, further up, actually
-   scrolls) as the code scrolls underneath it. Placed AFTER .code-scroll in
-   the template (not just given "bottom: 0" here) - sticky-to-bottom only
-   works for the LAST element in scroll order, the same reason sticky-to-
-   top only worked for the FIRST. Left-aligned within its own full-width
-   row (justify-content, not float) so the search field itself sits at the
-   dock's own left edge, with the count/prev/next controls trailing right
-   after it - not pushed to the row's own right edge as a group. Plain
-   white background (the standard v-card background every other field in
-   this app sits on, e.g. Configuration.vue's own fields) rather than
-   matching the dark code area behind it - a dark background needed its
-   own bespoke light-text overrides for the field to stay readable, which
-   fought the standard v-text-field styling instead of just using it. */
+/* The actual scrolling element now (see .editor-container's own comment) -
+   takes up whatever space is left once the title/toolbar above and the
+   search dock below (both flex: 0 0 auto, sized to their own content) claim
+   theirs. min-height: 0 overrides flexbox's own default min-height: auto on
+   a flex item, which would otherwise let this refuse to shrink smaller than
+   its content and break scrolling entirely within a flex column - a real,
+   well-known flexbox gotcha, not a hypothetical one. */
+.code-scroll-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* A genuine flex footer of .editor-container (see its own template comment
+   for why this replaced "position: sticky; bottom: 0" - that overlaid the
+   scrollable area instead of actually reserving its own space, which made
+   a match on one of the last few lines permanently unreachable no matter
+   how the highlight's own scroll target was computed). Left-aligned within
+   its own full-width row (justify-content, not float) so the search field
+   itself sits at the dock's own left edge, with the count/prev/next
+   controls trailing right after it - not pushed to the row's own right
+   edge as a group. Plain white background (the standard v-card background
+   every other field in this app sits on, e.g. Configuration.vue's own
+   fields) rather than matching the dark code area behind it - a dark
+   background needed its own bespoke light-text overrides for the field to
+   stay readable, which fought the standard v-text-field styling instead of
+   just using it. */
 .generated-code-search-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -406,6 +443,12 @@ export default defineComponent({
   padding: 6px 16px 6px 8px;
   background: #fff;
   border-top: 1px solid rgba(0, 0, 0, 0.12);
+  /* Being the last child now (see .editor-container's own comment), this
+     sits flush against the v-card's own bottom edge - Vuetify's default
+     card corner-rounding otherwise shows through as two rounded notches at
+     this row's bottom corners, clipping its square white background into a
+     rounded shape that doesn't match the rest of the row. */
+  border-radius: 0;
 }
 
 /* No bespoke color/border/background overrides here - deliberately, to
@@ -417,6 +460,13 @@ export default defineComponent({
    next to the small icon buttons beside it. */
 .generated-code-search-field {
   flex: 0 0 260px;
+  /* A dense v-text-field reserves space above its own input line for a
+     floating label even with a plain placeholder (no floating label text
+     ever actually shown here), which reads as sitting a little low against
+     the row's other centered controls (count text, prev/next buttons) -
+     nudges it up to compensate. Estimated, not measured - adjust if it's
+     still off. */
+  margin-top: -4px;
 }
 
 .generated-code-search-count {

@@ -198,6 +198,13 @@
 
         <block type="random_get"></block>
         <block type="random_range_get"></block>
+        <block type="random_seed_set">
+            <value name="SEED">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="bit_get"></block>
         <block type="bit_set">
@@ -357,6 +364,13 @@
             <value name="VALUE">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_digit_change">
+            <value name="DELTA">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>

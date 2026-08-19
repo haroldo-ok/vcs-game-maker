@@ -510,11 +510,14 @@ export default defineComponent({
   right: 8px !important;
 }
 
+/* margin: 0 (not "0 1px") to match PixelEditor.vue's own base toolbar
+   button trim - see its own comment on why every bit of width matters for
+   this row to fit without wrapping at higher zoom. */
 .player-icon-btn-size {
   min-width: 0;
   height: 26px !important;
   width: 26px !important;
-  margin: 0 1px;
+  margin: 0;
 }
 
 .player-icon-btn-size >>> .v-icon {

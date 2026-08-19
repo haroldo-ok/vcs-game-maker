@@ -16,7 +16,7 @@
             class="editor-canvas"
             @mousedown="handleMouse"
             @mouseenter="handleMouse"
-            @mouseleave="handleMouse"
+            @mouseleave="handleMouseLeave"
             @mouseup="handleMouse"
             @mousemove="handleMouse"
           />
@@ -55,7 +55,7 @@
               <v-icon>mdi-pencil</v-icon>
             </v-btn>
           </v-btn-toggle>
-          <v-divider class="mx-1" vertical />
+          <v-divider class="pixel-editor-toolbar-divider" vertical />
           <v-btn
             icon
             small
@@ -73,7 +73,7 @@
             <v-icon>mdi-redo</v-icon>
           </v-btn>
 
-          <v-divider class="mx-1" vertical />
+          <v-divider class="pixel-editor-toolbar-divider" vertical />
 
           <v-btn
             icon
@@ -93,7 +93,7 @@
           </v-btn>
 
           <template v-if="allowChangingHeight">
-            <v-divider class="mx-1" vertical />
+            <v-divider class="pixel-editor-toolbar-divider" vertical />
 
             <div class="text-center">
               <v-menu
@@ -309,6 +309,32 @@ export default {
     },
   },
   methods: {
+    // The underlying @curtishughes/pixel-editor library only listens for
+    // "mouseup" on the canvas ITSELF (see its own constructor) - it has no
+    // "mouseleave" handling at all. Dragging the pointer off the canvas
+    // while a button is still held (a real, easy-to-do gesture, e.g.
+    // drawing right up to an edge) and releasing OUTSIDE it means the
+    // canvas's own "mouseup" never fires, so the library's own tool (see
+    // its handlePointerDown/handlePointerUp) is left thinking the button
+    // is still down - re-entering the canvas afterward, with the button
+    // genuinely up, then immediately resumes drawing on the very next
+    // "mousemove", with no mousedown of its own. Confirmed as a real,
+    // reproducible bug across every card that uses this component (Player
+    // Sprite, Background, Score digits - anywhere PixelEditor.vue is used).
+    // Forcing a synthetic "mouseup" the instant the pointer leaves the
+    // canvas - passing the real mouseleave event through, since
+    // PixelEditor's own mouseup(e) reads e.clientX/clientY the exact same
+    // way a real mouseup event would - releases the tool's own state
+    // immediately, regardless of whether the button is later released
+    // inside or outside the canvas. Not debounced (unlike handleMouse
+    // below, which still runs right after to resync Vue's own reactive
+    // pixel state) - the release itself needs to happen synchronously, or
+    // a mousemove landing before the debounce fires would still draw.
+    handleMouseLeave(event) {
+      if (this.editor) this.editor.mouseup(event);
+      this.handleMouse();
+    },
+
     handleMouse: debounce(function() {
       // eslint-disable-next-line no-invalid-this
       const pixels = this.getPixels();
@@ -529,7 +555,13 @@ export default {
 }
 
 /* Flat icon buttons: no grey box, no elevation, and a hit area only a little
-   larger than the icon itself. */
+   larger than the icon itself. No horizontal margin (an earlier version had
+   "0 1px") - at 200% zoom, the Score tab's own digit cards (narrower than
+   Player/Background's, since they're sized off DIGIT_BASE_WIDTH rather than
+   a full sprite frame) were just barely too narrow for the full button row
+   (eraser/clear/pencil, undo/redo, export/import) to fit without wrapping -
+   reclaiming the 2px/button this margin cost (see .pixel-editor-toolbar-
+   divider's own matching trim below) was enough to close that gap. */
 .pixel-editor-tools >>> .v-btn {
   background-color: transparent !important;
   box-shadow: none !important;
@@ -537,7 +569,13 @@ export default {
   min-width: 0;
   height: 26px;
   width: 26px;
-  margin: 0 1px;
+  margin: 0;
+}
+
+/* Tighter than Vuetify's own "mx-1" (4px each side) - see .pixel-editor-
+   tools >>> .v-btn's own comment on why every bit of width matters here. */
+.pixel-editor-tools >>> .pixel-editor-toolbar-divider {
+  margin: 0 2px;
 }
 
 /* Vuetify paints its own grey hover/focus overlay here, which is the box we

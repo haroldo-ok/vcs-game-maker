@@ -917,6 +917,24 @@ export default {
   --app-font-family: 'Inter', sans-serif;
 }
 
+/* Overrides Vuetify's own bundled reset (ress.css), which sets
+   "html { overflow-y: scroll }" deliberately (its own comment: "All
+   browsers without overlaying scrollbars") to reserve scrollbar space
+   up front and avoid a width shift on pages that sometimes need to
+   scroll and sometimes don't. Confirmed directly (via computed style
+   and a search of every loaded stylesheet's own rules) as the actual
+   source of an always-present, non-functional scrollbar flush against
+   the browser's own right edge - not a bug in this app's own layout,
+   and not something overflowing. This app's own design already has
+   every panel (nav drawer, emulator sidebar, each editor tab, the
+   error console) scroll internally on its own, so the document itself
+   is never actually meant to scroll at all - Vuetify's own "always
+   reserve the gutter" tradeoff has nothing real to protect against
+   here, just an inert scrollbar with no content to scroll to. */
+html {
+  overflow-y: auto !important;
+}
+
 .v-application {
   font-family: var(--app-font-family) !important;
 }
@@ -1327,6 +1345,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   white-space: pre-wrap;
 }
 
+/* REVERTED: "position: fixed" correctly pinned this to the viewport and
+   stopped it scrolling away, but it also made this a full-width,
+   high-stacking overlay that covers EVERY tab's own floating "+" button
+   (Background, Player0/1, Sound, Music, Data - all of them use the same
+   Vuetify "absolute right fab" pattern with no z-index of their own) -
+   confirmed as a real, widespread regression, not a one-off. Reverted at
+   the user's own explicit request rather than chasing z-index fixes
+   across every affected tab individually - the "scrolls away" bug this
+   undoes is real too, but a smaller problem than "can't add new content"
+   across half the app. */
 .error-message {
   position: relative;
   z-index: 10;
@@ -1358,13 +1386,21 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    document flow instead, making the WHOLE PAGE scroll to reveal it - this
    sidesteps that flexbox cross-axis sizing question entirely with a hard,
    unambiguous 0/0/0/0 inset instead of a size that has to be derived. */
+/* overflow-y: auto (not "scroll") - "scroll" unconditionally reserves a
+   scrollbar track even when the log has too few lines to actually need
+   one, which renders as an inert, un-draggable scrollbar (no real content
+   to scroll to) flush against the browser's own right edge, confirmed as
+   a real, confusing bug on its own (looked like something was broken,
+   since dragging it did nothing) rather than an intentional "always show
+   the gutter to avoid layout shift" choice - nothing in this rule's own
+   history documented that as the reason "scroll" was used here. */
 .error-scroll-wrapper {
   position: absolute;
   top: 8px;
   left: 0;
   right: 0;
   bottom: 0;
-  overflow-y: scroll;
+  overflow-y: auto;
 }
 
 /* v-footer's own default is a row-direction flex container (fine for a

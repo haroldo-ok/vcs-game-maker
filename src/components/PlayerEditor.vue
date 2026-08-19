@@ -618,12 +618,15 @@ export default defineComponent({
 
 /* Same icon/button sizing as the Player Sprite tab's own toolbar icons
    (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
-   changes, so .delete-icon-btn's red-on-hover convention is untouched. */
+   changes, so .delete-icon-btn's red-on-hover convention is untouched.
+   margin: 0 (not "0 1px") to match that same base component's own trim -
+   see its own comment on why every bit of width matters for this row to
+   fit without wrapping at higher zoom. */
 .player-icon-btn-size {
   min-width: 0;
   height: 26px !important;
   width: 26px !important;
-  margin: 0 1px;
+  margin: 0;
 }
 
 .player-icon-btn-size >>> .v-icon {

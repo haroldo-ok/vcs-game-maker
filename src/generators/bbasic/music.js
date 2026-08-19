@@ -215,6 +215,22 @@ export const resolveMusicEventFlags = (workspace, music, notePlayedIndexById = n
   // own timing following that one channel's own note data specifically.
   const primaryChannelFor = (resolvedSong) => String(Math.min(...[...resolvedSong.channelsUsed]));
 
+  // "Chip ID" (both here and on the block's own field/tooltip) is the
+  // chip's own CURRENT POSITION in the Sequence list (1 = first), matching
+  // the "ID: N" badge MusicEditor.vue now shows on each chip - deliberately
+  // NOT a permanent identity: reordering, inserting, or deleting chips
+  // changes which chip a given number refers to, at the user's own explicit
+  // request (an earlier version of this used each chip's own separate,
+  // permanent id field instead, which stayed pointed at the same chip
+  // regardless of reordering - reverted in favor of this simpler
+  // "number = current position" mental model). Out-of-range (chip deleted,
+  // or the number was never valid) resolves to -1, same as a not-found
+  // lookup always has.
+  const chipIdToSeqIndex = (rawSong, chipId) => {
+    const sequence = (rawSong && rawSong.sequence) || [];
+    return chipId >= 1 && chipId <= sequence.length ? chipId - 1 : -1;
+  };
+
   const seenPairKeys = [];
   const resolvedPairs = new Map();
   workspace.getAllBlocks(false)
@@ -225,7 +241,7 @@ export const resolveMusicEventFlags = (workspace, music, notePlayedIndexById = n
         const key = `${songId}:${chipId}`;
         if (resolvedPairs.has(key)) return;
         const rawSong = findSongById(songId);
-        const seqIndex = rawSong ? (rawSong.sequence || []).findIndex(({id}) => Number(id) === chipId) : -1;
+        const seqIndex = chipIdToSeqIndex(rawSong, chipId);
         // Only actually included in the compiled ROM if resolveProjectMusic
         // itself decided to include this song (e.g. it's referenced by some
         // "Play song" block somewhere) - a chip-finished watch on a song
@@ -240,10 +256,10 @@ export const resolveMusicEventFlags = (workspace, music, notePlayedIndexById = n
       });
 
   // Same idea as resolvedPairs above, but keyed by chipId ALONE - checked
-  // against every song that happens to have a chip with that id (chip ids
-  // are only unique WITHIN one song's own Sequence list, not project-wide),
-  // each its own {songIndex, seqIndex, primaryChannel} occurrence sharing
-  // ONE flag bit. At runtime only whichever song is actually playing can
+  // against every song that has a chip in that position (position is only
+  // meaningful WITHIN one song's own Sequence list, not project-wide), each
+  // its own {songIndex, seqIndex, primaryChannel} occurrence sharing ONE
+  // flag bit. At runtime only whichever song is actually playing can
   // ever satisfy any one occurrence's own songIndexVar gate, so this never
   // double-fires across songs despite watching more than one.
   const seenChipIds = [];
@@ -256,7 +272,7 @@ export const resolveMusicEventFlags = (workspace, music, notePlayedIndexById = n
         const occurrences = [];
         (music ? music.songs : []).forEach((resolvedSong) => {
           const rawSong = findSongById(resolvedSong.songId);
-          const seqIndex = rawSong ? (rawSong.sequence || []).findIndex(({id}) => Number(id) === chipId) : -1;
+          const seqIndex = chipIdToSeqIndex(rawSong, chipId);
           if (seqIndex === -1) return;
           occurrences.push({
             songId: resolvedSong.songId, songIndex: resolvedSong.songIndex, seqIndex,
@@ -1041,10 +1057,18 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   const channelPages = {};
   const channelHasFade = {};
   const channelHasArpeggio = {};
+  // Parallel to channelPages[channel] - which song's own songId contributed
+  // each page (patterns aren't shared across songs, so every page in the
+  // combined array belongs to exactly one song, even once several songs'
+  // own pages are concatenated together here). Purely for the Generated
+  // Code tab's own "rem" labels on each data table (see songLabel/
+  // generateMusicDataTables below) - nothing here reads it back at runtime.
+  const channelPageSongIds = {};
   channels.forEach((channel) => {
     channelPages[channel] = [];
     channelHasFade[channel] = false;
     channelHasArpeggio[channel] = false;
+    channelPageSongIds[channel] = [];
   });
 
   const songs = resolvedSongs.map(({id, song}, songIndex) => {
@@ -1089,6 +1113,7 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
         const pages = eventsToPages(events);
         patternStartPage[channel][patternId] = channelPages[channel].length;
         channelPages[channel].push(...pages);
+        pages.forEach(() => channelPageSongIds[channel].push(id));
         if (musicChannelHasFade(events)) channelHasFade[channel] = true;
         if (musicChannelHasArpeggio(events)) channelHasArpeggio[channel] = true;
         if (channelPages[channel].length > MAX_MUSIC_PAGES) {
@@ -1172,6 +1197,7 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     songs,
     channels: [...channels],
     channelPages,
+    channelPageSongIds,
     channelHasFade,
     channelHasArpeggio,
     usesSongById,
@@ -1460,12 +1486,28 @@ export default (Blockly) => {
   // stream - spliced alongside generatedDataTables in bbasic.bb.hbs (a "data"
   // block is a read-only ROM table, not executable code, so it has to live in
   // the file's own never-fallen-into trailing section).
+  // Labels each generated music data table with the same explanation this
+  // file's own comments already give the JS side, for anyone reading the
+  // Generated Code tab directly - purely a "rem" comment line ahead of each
+  // "data" block, no effect on the compiled ROM.
+  const songLabel = (songId) => {
+    const song = findSongById(songId);
+    return song && song.name ? song.name : `Song ${songId}`;
+  };
+
   Blockly.BBasic.generateMusicDataTables = function() {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return '';
     const eventTables = Object.entries(music.channelPages).map(([channel, pages]) => pages.map((bytes, page) => {
       const rows = chunk(bytes, 16).map((row) => '  ' + row.join(', '));
-      return ` data ${musicDataTableName(channel, page)}\n${rows.join('\n')}\nend`;
+      const pageNote = pages.length > 1 ? `, page ${page}` : '';
+      // Every page belongs to exactly one song (see channelPageSongIds' own
+      // comment) - falls back to no song mention at all if that mapping is
+      // somehow missing for this page, rather than a misleading guess.
+      const songId = (music.channelPageSongIds && music.channelPageSongIds[channel] || [])[page];
+      const songNote = songId != null ? ` for ${songLabel(songId)}` : '';
+      return ` rem Channel ${channel}${songNote} note data${pageNote} (AUDV, AUDC, AUDF, duration per note)\n` +
+        ` data ${musicDataTableName(channel, page)}\n${rows.join('\n')}\nend`;
     }).join('\n\n')).join('\n\n');
     // One small lookup table per channel - see generateMusicChecks' own
     // loop-reset for the one place these are ever read. Single-song project:
@@ -1490,11 +1532,13 @@ export default (Blockly) => {
       if (song.totalSteps > 1) {
         const pageTables = Object.keys(music.channelPages).map((channel) => {
           const rows = chunk(song.sequenceStartPage[channel], 16).map((row) => '  ' + row.join(', '));
-          return ` data ${musicSeqTableName(channel)}\n${rows.join('\n')}\nend`;
+          return ` rem Channel ${channel} sequence order (which note-data page plays at each step)\n` +
+            ` data ${musicSeqTableName(channel)}\n${rows.join('\n')}\nend`;
         }).join('\n\n');
         const repeatTable = music.hasRepeats ? (() => {
           const repeatRows = chunk(song.sequenceRepeatPacked, 16).map((row) => '  ' + row.join(', '));
-          return `\n\n data ${musicSeqRepeatTableName()}\n${repeatRows.join('\n')}\nend`;
+          return `\n\n rem Repeat count per sequence step (channel 0 low nibble, channel 1 high nibble)\n` +
+            ` data ${musicSeqRepeatTableName()}\n${repeatRows.join('\n')}\nend`;
         })() : '';
         seqTables = pageTables + repeatTable;
       } else {
@@ -1508,16 +1552,20 @@ export default (Blockly) => {
       // generateMusicChecks' old O(songs) if-chain dispatch with a single
       // indexed read.
       const offsetRows = chunk(music.songSeqOffset, 16).map((row) => '  ' + row.join(', '));
-      const offsetTable = ` data ${musicSongSeqOffsetTableName()}\n${offsetRows.join('\n')}\nend`;
+      const offsetTable = ` rem Each song's own starting offset into the combined sequence tables below\n` +
+        ` data ${musicSongSeqOffsetTableName()}\n${offsetRows.join('\n')}\nend`;
       const pageTables = Object.keys(music.channelPages).map((channel) => {
         const combined = music.songs.flatMap((song) => song.sequenceStartPage[channel]);
         const rows = chunk(combined, 16).map((row) => '  ' + row.join(', '));
-        return ` data ${musicCombinedSeqTableName(channel)}\n${rows.join('\n')}\nend`;
+        return ` rem Channel ${channel} sequence order for every song combined (see the offset table above ` +
+          `for where each song's own slice starts)\n data ${musicCombinedSeqTableName(channel)}\n` +
+          `${rows.join('\n')}\nend`;
       }).join('\n\n');
       const repeatTable = music.hasRepeats ? (() => {
         const combined = music.songs.flatMap((song) => song.sequenceRepeatPacked);
         const repeatRows = chunk(combined, 16).map((row) => '  ' + row.join(', '));
-        return `\n\n data ${musicCombinedSeqRepeatTableName()}\n${repeatRows.join('\n')}\nend`;
+        return `\n\n rem Repeat count per sequence step for every song combined (channel 0 low nibble, ` +
+          `channel 1 high nibble)\n data ${musicCombinedSeqRepeatTableName()}\n${repeatRows.join('\n')}\nend`;
       })() : '';
       seqTables = offsetTable + '\n\n' + pageTables + repeatTable;
     } else {
@@ -1529,13 +1577,16 @@ export default (Blockly) => {
       // already-known byte" reasoning the single-song branch above already
       // applies via its own totalSteps > 1 check.
       seqTables = music.songs.filter((song) => song.totalSteps > 1).map((song) => {
+        const label = songLabel(song.songId);
         const pageTables = Object.keys(music.channelPages).map((channel) => {
           const rows = chunk(song.sequenceStartPage[channel], 16).map((row) => '  ' + row.join(', '));
-          return ` data ${musicSeqTableName(channel, song.songIndex)}\n${rows.join('\n')}\nend`;
+          return ` rem ${label}: channel ${channel} sequence order (which note-data page plays at each step)\n` +
+            ` data ${musicSeqTableName(channel, song.songIndex)}\n${rows.join('\n')}\nend`;
         }).join('\n\n');
         const repeatTable = music.hasRepeats ? (() => {
           const repeatRows = chunk(song.sequenceRepeatPacked, 16).map((row) => '  ' + row.join(', '));
-          return `\n\n data ${musicSeqRepeatTableName(song.songIndex)}\n${repeatRows.join('\n')}\nend`;
+          return `\n\n rem ${label}: repeat count per sequence step (channel 0 low nibble, channel 1 high ` +
+            `nibble)\n data ${musicSeqRepeatTableName(song.songIndex)}\n${repeatRows.join('\n')}\nend`;
         })() : '';
         return pageTables + repeatTable;
       }).join('\n\n');
@@ -1834,6 +1885,34 @@ export default (Blockly) => {
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
 
+      // Lets a sound effect sharing this channel (see soundfx.js's
+      // soundfx_play/channnel0duration+channnel1duration) keep exclusive
+      // hardware control of AUDC/AUDF/AUDV for its own full duration -
+      // wraps a single register write so it's skipped whenever durationVar
+      // is nonzero (a sound effect currently owns this channel), covering
+      // both a note fetch happening mid-effect (audcRead/audfRead/the
+      // fetch-time AUDV write below) AND this channel simply falling
+      // silent at its own song/pattern end while an effect is still
+      // playing (the "AUDV = 0" writes below) - either would otherwise
+      // audibly cut the effect off early. Declared this early (before
+      // audcRead/audfRead, which are its first callers) rather than down
+      // by the resume-check logic it's conceptually paired with, purely
+      // because of JS's own temporal dead zone - a genuine ordering bug in
+      // an earlier version of this had audcRead/audfRead call it before
+      // its own declaration ran. See generateSoundDurationChecks... rather,
+      // see resumeCheck further below for the other half of this same
+      // interleaving feature: once durationVar's effect actually ends,
+      // that's what hands audio back to music (or correctly mutes it, via
+      // its own "!activeBit" branch, if this channel already fell silent
+      // while suppressed) - so gating these writes here never needs its
+      // own separate mute-on-suppressed-silence handling.
+      const durationVar = `channnel${channel}duration`;
+      const suppressibleWrite = (tag, line) => [
+        ` if ${durationVar} <> 0 then goto _musicsup${channel}_${tag}_skip`,
+        line,
+        `_musicsup${channel}_${tag}_skip`,
+      ];
+
       // Fade and Arpeggio are both hidden/forced off everywhere right now
       // (see processSoundEffectsStorageDefaults in blocks/soundfx.js) - their
       // whole code generation path (fadeApply/arpApply, the extra duration/
@@ -1852,13 +1931,13 @@ export default (Blockly) => {
       const audcRead = [
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}audc`),
         ` ${indexVar} = ${indexVar} + 1`,
-        ` AUDC${channel} = temp1`,
+        ...suppressibleWrite('audc', ` AUDC${channel} = temp1`),
       ];
 
       const audfRead = [
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}audf`),
         ` ${indexVar} = ${indexVar} + 1`,
-        ` AUDF${channel} = temp1`,
+        ...suppressibleWrite('audf', ` AUDF${channel} = temp1`),
       ];
 
       // A page-break (see eventsToPages) only ever shows up where a new
@@ -1955,7 +2034,6 @@ export default (Blockly) => {
         ...pagedReadLines(tables, pageVar, 'temp1', tag),
         ` ${targetVar} = temp1`,
       ];
-      const durationVar = `channnel${channel}duration`;
       const resumeCheck = [
         ` if ${durationVar} <> 1 then goto _musicresume${channel}_skip`,
         ` if !${activeBit} then goto _musicresume${channel}_skip`,
@@ -2033,7 +2111,7 @@ export default (Blockly) => {
           ` ${seqPosVar} = ${seqPosVar} + 1`,
           ` if ${seqPosVar} <> ${seqLenExpr} then goto _music${channel}_seqcontinue`,
           ` if ${loopBit} then goto _music${channel}_seqwrap`,
-          ` AUDV${channel} = 0`,
+          ...suppressibleWrite('audvseqend', ` AUDV${channel} = 0`),
           ` ${activeBit} = 0`,
           ...finishCheck,
           ` goto _music${channel}_skip`,
@@ -2122,7 +2200,7 @@ export default (Blockly) => {
           ...(seqRepeatVar ? [`_music${channel}_seqrestart`] : []),
         ] : [
           ` if ${loopBit} then goto _music${channel}_loopreset`,
-          ` AUDV${channel} = 0`,
+          ...suppressibleWrite('audvsingleend', ` AUDV${channel} = 0`),
           ` ${activeBit} = 0`,
           ...finishCheck,
           ` goto _music${channel}_skip`,
@@ -2133,7 +2211,7 @@ export default (Blockly) => {
         ...pagedReadLines(tables, pageVar, indexVar, `${channel}looppeek`),
         `_music${channel}_read`,
         ` ${indexVar} = ${indexVar} + 1`,
-        ` AUDV${channel} = temp1`,
+        ...suppressibleWrite('audvfetch', ` AUDV${channel} = temp1`),
         // Every watched "note played" instrument's own set-flag check (see
         // notePlayedSetLines above, including why this is a masked compare
         // rather than a division) - temp1 still holds the just-fetched AUDV
@@ -2177,9 +2255,18 @@ export default (Blockly) => {
     // read), but that's a handful of cycles, not a real cost.
     const dataTables = this.generateMusicDataTables();
     const dataSkipLabel = '_music_update_data_skip';
-    const payload = dataTables ?
+    // Same banner style as the fixed section headers in bbasic.bb.hbs (e.g.
+    // "Code generated by VCS Game Maker.") - added at the user's own
+    // explicit request, crediting the Music tab/engine's own author.
+    const banner = [
+      ' rem **************************************************************************',
+      ' rem Music engine by AbstractPolygon - https://abstractpolygon.com/',
+      ' rem **************************************************************************',
+    ].join('\n');
+    const body = dataTables ?
       [perChannelChecks, ` goto ${dataSkipLabel}`, dataTables, dataSkipLabel].join('\n\n') :
       perChannelChecks;
+    const payload = `${banner}\n\n${body}`;
     return this.wrapRelocatableMusic('musicEngine', payload);
   };
 };
