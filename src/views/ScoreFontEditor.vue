@@ -20,22 +20,22 @@
       <p>
         Draw the ten score digits below. They are used when the score font is
         set to <strong>Custom</strong> or <strong>Squish Custom</strong>.
-        <template v-if="showExtraGlyphs">
-          Six extra glyphs (10-15) are also available - batari Basic score
-          digits are a raw 4-bit value, not limited to 0-9, so these extra
-          slots can hold anything an 8x8 shape can represent. Ordinary
-          scoring can never reach them (it's real decimal arithmetic); a
-          "Score digit: change by" block writing a value of 10 or higher
-          is the only way to actually show one.
-        </template>
       </p>
+      <v-switch
+        v-if="showExtraGlyphs"
+        v-model="extraGlyphsEnabled"
+        label="Use extra glyphs (10-15)"
+        hint="Costs 48 extra bytes of ROM space."
+        persistent-hint
+        class="option-switch"
+      />
       <editor-zoom v-model="zoom" />
       <div class="digit-list">
         <div
           class="digit"
           :style="{width: digitWidth}"
           v-for="(digit, index) in state.digits"
-          v-show="index < DECIMAL_DIGIT_COUNT || showExtraGlyphs"
+          v-show="index < DECIMAL_DIGIT_COUNT || (showExtraGlyphs && extraGlyphsEnabled)"
           :key="index"
         >
           <div class="digit-label">{{ index }}</div>
@@ -208,6 +208,29 @@ export default defineComponent({
     // at all).
     const showExtraGlyphs = computed(() =>
       selectedFont.value === CUSTOM_SCORE_FONT || isSquishCustomSelected.value);
+    // Explicit, stored opt-in (see utils/score-font.js's own
+    // customScoreFontExtraGlyphsEnabled/trimUnusedExtraGlyphs, the actual
+    // source of truth this reads/writes the same configuration key as) -
+    // off by default, so a project that's never visited this toggle keeps
+    // paying nothing extra for glyphs 10-15, and hiding those cards
+    // whenever it's off (see the v-show above) keeps "not shown" and "not
+    // compiled into the ROM" always in agreement.
+    const extraGlyphsEnabled = computed({
+      get() {
+        try {
+          return !!(configurationStorage.value || {}).scoreFontExtraGlyphsEnabled;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return false;
+        }
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          scoreFontExtraGlyphsEnabled: value,
+        };
+      },
+    });
     const activeScoreFontStorage = computed(() =>
       isSquishCustomSelected.value ? squishCustomScoreFontStorage : scoreFontStorage);
     const activeDefaultFont = computed(() =>
@@ -267,12 +290,20 @@ export default defineComponent({
       zoom,
       digitWidth,
       showExtraGlyphs,
+      extraGlyphsEnabled,
       DECIMAL_DIGIT_COUNT,
     };
   },
 });
 </script>
 <style scoped>
+/* Same as Configuration.vue's own .option-switch rule - Vuetify aligns a
+   switch's hint under the toggle track by default; indent it to line up
+   under the label text instead, matching the toggle's own width. */
+.option-switch >>> .v-messages {
+  margin-left: 46px;
+}
+
 .score-bkcolor-row {
   display: flex;
   align-items: center;

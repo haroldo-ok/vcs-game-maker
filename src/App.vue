@@ -346,7 +346,9 @@
     </v-btn>
 
     <v-main class="app-main">
-      <router-view/>
+      <div class="app-main-inner" :style="{height: `calc(100% - ${errorHeight}px)`}">
+        <router-view/>
+      </div>
     </v-main>
 
     <v-footer class="error-message" :style="{height: errorHeight + 'px', maxHeight: errorHeight + 'px'}">
@@ -935,6 +937,48 @@ html {
   overflow-y: auto !important;
 }
 
+/* Vuetify's own .v-application--wrap (the flex column that lays out the
+   app-bar/v-main/footer) only sets "min-height: 100vh" - a FLOOR, not a
+   fixed size. flex-shrink only ever kicks in when a flex CONTAINER's own
+   main-size is definite/fixed and smaller than its children's combined
+   hypothetical sizes; with only a min-height, the browser instead just
+   grows this container to fit whatever its children want, so .app-main's
+   own "flex: 1 1 auto; min-height: 0" override (see that rule's own
+   comment) never actually had a reason to shrink anything - there was
+   never a real space shortage for it to respond to, just an ever-growing
+   container. height: 100vh makes this a genuinely fixed-size flex
+   container, which is what actually makes .app-main shrink to fit instead
+   of dictating the page's own height - confirmed as the real remaining
+   piece after the flex-shrink change alone turned out not to be enough on
+   its own. v-app's own auto-generated v-application--wrap div is rendered
+   by the v-app COMPONENT itself, not written in App.vue's own template, so
+   (like .v-main__wrap elsewhere in this file) this has to live in this
+   UNSCOPED block rather than the scoped one below - a scoped version
+   matches nothing here, the same reason the fab z-index rule above had to
+   move. */
+.v-application--wrap {
+  height: 100vh;
+}
+
+/* Keeps every tab's floating "+" fab (Background, Player0/1, Sound, Music,
+   Data) above .error-message's own fixed, viewport-pinned footer (see that
+   rule, in this file's OWN scoped style block below - .error-message is in
+   App.vue's own template, so scoped CSS reaches it fine). This rule has to
+   live in this UNSCOPED block instead, even though it's right next to
+   .error-message conceptually: every one of those fab buttons is rendered
+   by a CHILD component's own template (PlayerEditor.vue, BackgroundEditor.vue,
+   etc.), and Vue's scoped CSS only ever auto-attaches its scope attribute to
+   elements written directly in THIS component's own template - a scoped
+   version of this exact rule silently matched nothing at all in any other
+   component, confirmed directly as why the fabs went missing again even
+   after this same fix was already applied once (it just never actually
+   ran). z-index: 20 matches the same value already used for
+   .emulator-hide-button/.emulator-show-button, the other controls in this
+   app that already needed to sit above ordinary app chrome. */
+.v-btn--absolute.v-btn--fab {
+  z-index: 20;
+}
+
 .v-application {
   font-family: var(--app-font-family) !important;
 }
@@ -1080,6 +1124,68 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    nothing needs to animate. */
 .app-main {
   transition: none;
+  /* Vuetify's own .v-main is "flex: 1 0 auto" - flex-shrink: 0 means it
+     NEVER shrinks below its own content's natural height, regardless of how
+     little space v-application--wrap (min-height: 100vh, otherwise
+     content-driven) actually has left for it - so a tab with enough content
+     to be genuinely taller than the viewport (16 score-font glyph cards,
+     for instance) grew the WHOLE PAGE taller instead of ever reaching
+     .app-main-inner's own overflow-y: auto at all, which only ever gets a
+     chance to clip/scroll content that doesn't already fit within the
+     height this element itself was already given. flex-shrink: 1
+     (overriding Vuetify's 0) lets this actually shrink to fit its real
+     allocated space instead of dictating the page's own height upward, and
+     min-height: 0 removes flexbox's own separate "never shrink below
+     content size" default floor (distinct from flex-shrink, and it applies
+     even with flex-shrink: 1 unless overridden) that would otherwise still
+     block the same thing from working. Confirmed directly as the real root
+     cause of a "phantom" scrollbar appearing at the literal browser window
+     edge (not this app's own internal panel scrollbars) specifically on
+     tabs with enough content to actually be taller than one viewport. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Vuetify's own .v-main is "flex: 1 0 auto" (flex-shrink: 0) with no fixed
+   height of its own - a paddingBottom bound directly to it (an earlier
+   version of this) just grew that box past whatever space the outer
+   v-application--wrap flex column actually had left, overflowing the
+   whole page (a real, new scrollbar this time, not the inert forced-
+   scrollbar case fixed elsewhere) instead of being absorbed anywhere. This
+   inner div is a plain block, not a flex item with its own shrink-doesn't-
+   happen behavior - height: calc(100% - Npx) takes exactly whatever height
+   v-main's own flex-grow already resolved (stretched across via v-main's
+   default row-direction align-items: stretch on its real single child,
+   .v-main__wrap, which this sits inside), reduced by errorHeight to reserve
+   room for .error-message's own fixed footer (which isn't an "app" element
+   Vuetify lays out room for).
+   position: relative makes THIS the containing block for any
+   position: absolute descendant a routed view renders (e.g.
+   ActionEditor.vue's own "#blockly2 { position: absolute; bottom: 0; }",
+   which sizes the whole Blockly canvas including its toolbox/flyout, or
+   GeneratedCode.vue's own ".editor-container", same pattern) - without it,
+   such a descendant skips past this div (position: static doesn't
+   establish a containing block) straight to the next actual positioned
+   ancestor up the tree, Vuetify's own .v-main__wrap, which still extends
+   all the way to the TRUE viewport bottom.
+   A PADDING-based version of this (height: 100% + padding-bottom: Npx +
+   box-sizing: border-box, matching .nav-drawer-inner/.emulator-drawer-inner's
+   own pattern) was tried here first and confirmed NOT equivalent for this
+   specific job: a position: absolute child's own "bottom: 0" aligns with
+   its containing block's PADDING-box edge, which is the same as the
+   border-box edge (the outermost edge, padding included) whenever there's
+   no border - so "bottom: 0" landed exactly at this div's own OUTER edge,
+   completely ignoring the padding meant to hold it back, and every
+   position: absolute view (ActionEditor's Blockly canvas, GeneratedCode's
+   whole editor pane including its search dock) kept rendering straight
+   through .error-message's fixed footer regardless. Actually reducing the
+   HEIGHT itself (not padding it) is what genuinely moves this div's own
+   bottom edge - and so its padding-box edge too - up above the footer, the
+   only version of this fix confirmed (via direct getBoundingClientRect
+   measurement) to actually change where "bottom: 0" resolves to. */
+.app-main-inner {
+  position: relative;
+  overflow-y: auto;
 }
 
 .emulator-resize-handle {
@@ -1345,18 +1451,20 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   white-space: pre-wrap;
 }
 
-/* REVERTED: "position: fixed" correctly pinned this to the viewport and
-   stopped it scrolling away, but it also made this a full-width,
-   high-stacking overlay that covers EVERY tab's own floating "+" button
-   (Background, Player0/1, Sound, Music, Data - all of them use the same
-   Vuetify "absolute right fab" pattern with no z-index of their own) -
-   confirmed as a real, widespread regression, not a one-off. Reverted at
-   the user's own explicit request rather than chasing z-index fixes
-   across every affected tab individually - the "scrolls away" bug this
-   undoes is real too, but a smaller problem than "can't add new content"
-   across half the app. */
+/* position: fixed pins this to the viewport bottom so it can't scroll away
+   with page content. This previously covered every tab's own floating "+"
+   button (Background, Player0/1, Sound, Music, Data - all use Vuetify's
+   "absolute right fab" pattern with no z-index of their own) since a fab
+   with no explicit z-index loses the stacking fight against this footer's
+   z-index: 10. Fixed for real this time, rather than reverting again, by
+   giving those fabs their own explicit z-index above this footer's (see
+   the .v-btn--absolute.v-btn--fab rule below) instead of just removing the
+   fixed positioning that was the actual point of this rule. */
 .error-message {
-  position: relative;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 10;
 }
 

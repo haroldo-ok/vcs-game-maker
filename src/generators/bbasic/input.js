@@ -2,6 +2,37 @@
 
 import {canonicalDistanceVarName, distancePointVarName} from '../../utils/distance';
 
+// Shared by every "Distance" and "Distance to point" check (see
+// generateDistanceChecks/generateDistancePointChecks below) - computes
+// abs(temp1 - temp2) into temp1. Registered as an ordinary subroutine (see
+// subroutine.js's own "this.subroutines[name] = code" pattern) rather than
+// inlined at every call site: a project with several distance checks used
+// to pay this same 6-line abs-difference block in full at EACH one (with
+// only the operand/target variable NAMES differing, the actual logic
+// identical every time) - one shared copy, called via a plain "gosub" (3
+// lines per call site instead of 6, plus one copy of the shared block
+// instead of one per check), same win registering the run-once bookkeeping
+// and _music_play_reset as ordinary subroutines already got: a genuine
+// relocatable unit too (see getSubroutineBank), not just fixed in bank 1
+// forever the way this was before.
+const DISTANCE_ABS_DIFF_NAME = '_distance_abs_diff';
+const registerDistanceAbsDiffSubroutine = (Blockly) => {
+  Blockly.BBasic.subroutines[DISTANCE_ABS_DIFF_NAME] = [
+    ' if temp1 < temp2 then goto _distance_abs_diff_neg',
+    ' temp1 = temp1 - temp2',
+    ' return',
+    '_distance_abs_diff_neg',
+    ' temp1 = temp2 - temp1',
+  ].join('\n');
+};
+// "return" is added by generateSubroutines/generateRelocatedSections
+// themselves (see subroutine.js's own comment on why - it's spliced onto
+// every subroutine body automatically, the same way "gosub"'s own bank
+// suffix never appears on the definition side), so the body registered
+// above deliberately doesn't end with one of its own - only the interior
+// early "return" (right after the non-negative branch) is this function's
+// own to add.
+
 export default (Blockly) => {
   const createGeneratorForJoystick = (name) => {
     Blockly.BBasic[`input_${name}_get`] = function(block) {
@@ -63,25 +94,34 @@ export default (Blockly) => {
   // finding: any "asm ... end" block spliced into this per-frame code path
   // corrupts DASM's local-label scoping in this toolchain, regardless of
   // what it contains.
+  //
+  // Each check is now a 3-line call into the shared DISTANCE_ABS_DIFF_NAME
+  // subroutine (see its own comment at the top of this file) instead of its
+  // own fully inlined 6-line abs-difference block - a project with several
+  // distance checks used to pay the full 6 lines EVERY time, despite the
+  // logic being identical every single time (only the operand/target
+  // variable names ever differed). Called with a bank suffix hardcoded to
+  // "from bank 1" (bankJumpSuffix's first argument) rather than
+  // Blockly.BBasic.getCurrentBank() - this whole function's own output is
+  // always spliced into commongamelogic (see bbasic.bb.hbs), which is
+  // always bank 1 itself, unlike a subroutine or event body's own code
+  // (which getCurrentBank() resolves per wherever THAT unit itself ends up),
+  // so the caller's bank here is always simply 1, not something that varies.
   Blockly.BBasic.generateDistanceChecks = function() {
     const checks = this.distanceChecks;
     if (!checks || !checks.size) return '';
+    registerDistanceAbsDiffSubroutine(Blockly);
+    const suffix = Blockly.BBasic.bankJumpSuffix(1, Blockly.BBasic.getSubroutineBank(DISTANCE_ABS_DIFF_NAME));
     const lines = [];
-    let i = 0;
     checks.forEach(({axis, obj0, obj1}, rawVarName) => {
-      i++;
       const varName = Blockly.BBasic.nameDB_.getName(rawVarName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const coord0 = `${obj0}${axis}`;
       const coord1 = `${obj1}${axis}`;
-      const negLabel = `_distance_check_${i}_neg`;
-      const doneLabel = `_distance_check_${i}_done`;
       lines.push(
-          ` if ${coord0} < ${coord1} then goto ${negLabel}`,
-          ` ${varName} = ${coord0} - ${coord1}`,
-          ` goto ${doneLabel}`,
-          `${negLabel}`,
-          ` ${varName} = ${coord1} - ${coord0}`,
-          `${doneLabel}`,
+          ` temp1 = ${coord0}`,
+          ` temp2 = ${coord1}`,
+          ` gosub ${DISTANCE_ABS_DIFF_NAME}${suffix}`,
+          ` ${varName} = temp1`,
       );
     });
     return lines.join('\n');
@@ -111,31 +151,31 @@ export default (Blockly) => {
   // bbasic.js). The POINT input is an arbitrary expression - possibly
   // something with a side effect each time it's evaluated (e.g. "Random"),
   // not just a plain variable read like the two-object version's coordinate
-  // vars - so it's captured into temp1 exactly ONCE up front and every
-  // comparison/subtraction below reads temp1 back, the same reasoning
-  // random_between_set's own whitening formula captures "rand" into temp1
-  // once rather than inlining it three times (see generators/bbasic/
-  // random.js). temp1 is safe here for the same reason it is there: this
-  // runs as plain sequential statements with no drawscreen in between.
+  // vars - so it's captured into temp2 exactly ONCE up front (temp1 is the
+  // shared DISTANCE_ABS_DIFF_NAME subroutine's own other input - see this
+  // file's own top comment - so POINT's value has to sit somewhere that
+  // survives the coord0 assignment right after it) rather than reading
+  // pointCode back more than once, the same reasoning random_between_set's
+  // own whitening formula captures "rand" into a temp once instead of
+  // inlining it three times (see generators/bbasic/random.js). Safe here
+  // for the same reason it is there: this runs as plain sequential
+  // statements with no drawscreen in between.
   Blockly.BBasic.generateDistancePointChecks = function() {
     const checks = this.distancePointChecks;
     if (!checks || !checks.size) return '';
+    registerDistanceAbsDiffSubroutine(Blockly);
+    const suffix = Blockly.BBasic.bankJumpSuffix(1, Blockly.BBasic.getSubroutineBank(DISTANCE_ABS_DIFF_NAME));
     const lines = [];
     checks.forEach(({axis, obj0, index, block}) => {
       const varName = Blockly.BBasic.nameDB_.getName(
           distancePointVarName(axis, index), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const coord0 = `${obj0}${axis}`;
       const pointCode = Blockly.BBasic.valueToCode(block, 'POINT', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-      const negLabel = `_distance_point_check_${index}_neg`;
-      const doneLabel = `_distance_point_check_${index}_done`;
       lines.push(
-          ` temp1 = ${pointCode}`,
-          ` if ${coord0} < temp1 then goto ${negLabel}`,
-          ` ${varName} = ${coord0} - temp1`,
-          ` goto ${doneLabel}`,
-          `${negLabel}`,
-          ` ${varName} = temp1 - ${coord0}`,
-          `${doneLabel}`,
+          ` temp2 = ${pointCode}`,
+          ` temp1 = ${coord0}`,
+          ` gosub ${DISTANCE_ABS_DIFF_NAME}${suffix}`,
+          ` ${varName} = temp1`,
       );
     });
     return lines.join('\n');

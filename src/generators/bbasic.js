@@ -24,7 +24,8 @@ import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
-import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
+import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
+  customScoreFontUsesExtraGlyphs} from '../utils/score-font';
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
@@ -1619,10 +1620,19 @@ Blockly.BBasic.generateConfiguration = function() {
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that
-  // would carry them into an exported source file.
+  // would carry them into an exported source file. An earlier version of this
+  // emitted "const font = hex" for Custom specifically, to activate
+  // score_graphics.asm's own "if font == hex: ORG . - 48" shift instead of
+  // buildScoreFontOverride adding its own separate copy of it - reverted
+  // after that turned out to actually break real, working projects once
+  // extra glyphs were on (Squish Custom's own independent extra-glyph
+  // mechanism kept working the whole time on the exact same project/content,
+  // isolating the problem to specifically this "const font = hex" path -
+  // see buildScoreFontOverride's own comment in utils/score-font.js, which
+  // now has its own self-contained shift again instead).
   const scoreFontConfigurationCode = (!scoreFont || scoreFont === SQUISH_SCORE_FONT || scoreFont === SQUISH_CUSTOM_SCORE_FONT) ? '' :
     scoreFont === CUSTOM_SCORE_FONT ?
-      'rem Custom score font: digits are supplied by the compiler include.' :
+      '' :
       `const font = ${scoreFont}`;
   // Squish (and Squish Custom, which starts from Squish's own digits and is
   // then editable - see utils/score-font.js) are special score font options
@@ -1643,9 +1653,12 @@ Blockly.BBasic.generateConfiguration = function() {
   // exposes a reason to turn on for a font the user isn't otherwise
   // editing. The PLAIN (non-Squish) Custom path needs no equivalent const
   // at all - its own drawing routine has no such gate to begin with (see
-  // buildScoreFontOverride's own comment).
-  const scoreFontExtraGlyphsConfigurationCode = scoreFont === SQUISH_CUSTOM_SCORE_FONT ?
-    'const fontcharsHEX = 1' : '';
+  // buildScoreFontOverride's own comment). Same "only when actually used"
+  // gating as scoreFontConfigurationCode's own "const font = hex" above,
+  // via the same customScoreFontUsesExtraGlyphs check - a Squish Custom
+  // project that never touches glyphs 10-15 shouldn't pay this either.
+  const scoreFontExtraGlyphsConfigurationCode = scoreFont === SQUISH_CUSTOM_SCORE_FONT &&
+    customScoreFontUsesExtraGlyphs(SQUISH_CUSTOM_SCORE_FONT) ? 'const fontcharsHEX = 1' : '';
   // Two different, INDEPENDENTLY settable colors inside text12a.asm/
   // text12b.asm's own "minikernel" subroutine:
   // - "scorebkcolor" (from the Score tab's own background color picker -

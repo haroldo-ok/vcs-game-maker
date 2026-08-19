@@ -95,6 +95,21 @@ export default {
           colour: '#ccc',
           snap: true,
         },
+        // move.wheel enables wheel-scrolling at all - unset (this app never
+        // set a "move" option before), Blockly's own default only turns
+        // wheel-scroll on when moveOptions.scrollbars is passed as a plain
+        // per-axis OBJECT, not the plain "true" its own hasCategories-based
+        // default resolves to (see node_modules/blockly/core/options.js'
+        // parseMoveOptions_) - so plain wheel silently did nothing but zoom
+        // before this, regardless of BlocklyComponent.vue's own
+        // shift-to-zoom patch. drag: true matches what Blockly would have
+        // defaulted to anyway (scrollbars implies drag-to-pan) - listed
+        // explicitly here since scrollbars is no longer left to infer it.
+        move: {
+          scrollbars: true,
+          wheel: true,
+          drag: true,
+        },
         zoom: {
           controls: true,
           wheel: true,

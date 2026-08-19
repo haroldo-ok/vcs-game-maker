@@ -47,6 +47,16 @@ const LOOP_SENTINEL = 255;
 // the AUDV position, means "end of this page, not the whole song - advance
 // to the next page's table and keep reading" (see generateMusicChecks).
 const PAGE_BREAK_SENTINEL = 254;
+// Also in the AUDV position (same convention as LOOP_SENTINEL/
+// PAGE_BREAK_SENTINEL above) - means "this isn't a note at all, it's an
+// instrument change: the next byte is an index into the shared instrument
+// table (see musicInstrumentTableName/resolveProjectMusic's own
+// instrumentBytes) - apply it, then keep reading for the real note that
+// follows" (see generateMusicChecks). Safely below PAGE_BREAK_SENTINEL/
+// LOOP_SENTINEL and above the highest a real AUDV byte can ever legitimately
+// reach (15 | (14 << 4) = 239, see MAX_WATCHED_NOTE_PLAYED_INSTRUMENTS's own
+// cap), so it can never collide with either.
+const INSTRUMENT_CHANGE_SENTINEL = 253;
 // A generous ceiling on how many pages one channel can spread across, purely
 // as a sanity guard against a pathologically long song generating enormous
 // amounts of dispatch code - not a hard format limit. Applies to the SUM of
@@ -63,6 +73,18 @@ const MAX_MUSIC_PAGES = 16;
 // collisionMoveOldXVar/canonicalDistanceVarName).
 export const musicIndexVarName = (channel) => `_musicCh${channel}Index`;
 export const musicTimerVarName = (channel) => `_musicCh${channel}Timer`;
+// This channel's own CURRENT instrument byte (AUDC|arpeggioSpeed<<4) - kept
+// up to date only at an actual INSTRUMENT_CHANGE_SENTINEL marker (see
+// generateMusicChecks), not on every note fetch, now that AUDC is no longer
+// part of the regular per-note record at all (see eventsToPages' own
+// comment on why). Needed specifically for the music/sound-effect
+// interleaving feature's own resume logic: restoring AUDC once a sound
+// effect's own hold on this channel ends used to just re-read the last-
+// fetched record's own AUDC byte at a fixed offset from indexVar, which
+// only worked because every record always had exactly one - a record with
+// no AUDC byte of its own at all has no such offset to re-read, so this
+// dev var is what resumeCheck copies from instead.
+export const musicLastAudcVarName = (channel) => `_musicCh${channel}LastAudc`;
 // Only reserved/used for a channel whose data spans more than one page (see
 // eventsToPages/MAX_DATA_TABLE_VALUES) - which table (of that channel's own
 // set) is currently being read.
@@ -432,6 +454,13 @@ export const musicArpPhaseVarName = (channel) => `_musicCh${channel}ArpPhase`;
 // lands on it (see arpApply's computeLines).
 export const musicArpBaseIntervalVarName = (channel) => `_musicCh${channel}ArpBaseInterval`;
 const musicDataTableName = (channel, page) => `_musicCh${channel}Data${page}`;
+// The shared instrument lookup table (see resolveProjectMusic's own
+// instrumentBytes build pass and eventsToPages' own INSTRUMENT_CHANGE_SENTINEL
+// marker) - one AUDC|arpeggioSpeed<<4 byte per distinct instrument, indexed
+// in the same stable order instrumentBytes itself uses. Project-wide, not
+// per-channel or per-song, since an instrument's own byte value means the
+// same thing regardless of which channel or song plays it.
+const musicInstrumentTableName = () => '_musicInstruments';
 // One entry per position in a song's own sequence (see resolveProjectMusic)
 // - the page that channel's data starts at for whichever pattern plays at
 // that position, so a repeated pattern's page only has to be looked up
@@ -887,64 +916,116 @@ export const musicChannelHasFade = (events) => events.some((event) => event.fade
 export const musicChannelHasArpeggio = (events) => events.some((event) => event.arpeggioSpeed > 0);
 
 // Converts one channel's event list into the raw byte pages for its data
-// tables: 4 bytes/event - AUDV, AUDC, AUDF, duration-in-frames - plus a 5th
-// on a channel that has ANY faded note anywhere (see hasFade below), since
-// the other four are already fully packed with nothing left to spare for a
-// per-instrument fade length. Three of the 4 always-present bytes carry a
-// little more than their own hardware register needs, in spare bits the TIA
-// never reads, at zero extra cost per event:
+// tables: 3 bytes/event - AUDV, AUDF, duration-in-frames - plus a 4th on a
+// channel that has ANY faded note anywhere (see hasFade below), since the
+// other three are already fully packed with nothing left to spare for a
+// per-instrument fade length. AUDC is NOT part of the regular record at all
+// any more (see the INSTRUMENT_CHANGE_SENTINEL marker below for where it
+// actually lives now) - it doesn't vary per note in the first place (it
+// comes straight from the note's own track/instrument, never the note
+// itself), so repeating it in every single record was pure waste: a real
+// project's own music engine payload measured over 4x the size of its data
+// tables combined, entirely from this kind of per-note duplication of
+// values that don't actually change per note.
+//
+// Two of the 3 always-present bytes still carry a little more than their
+// own hardware register needs, in spare bits the TIA never reads, at zero
+// extra cost per event:
 // - Duration bit 7: this note fades (see FADE_BIT/generateMusicChecks).
 // - Duration bits 6-4: arpeggio range/shape, an index into
 //   ARPEGGIO_PHASE_SEQUENCES (0 when not arpeggiating - harmless, since
 //   arpeggioSpeed 0 already means the reader ignores this note's arpeggio
 //   fields entirely).
-// - AUDC bits 7-4 (hardware only reads 3-0): arpeggio speed, frames between
-//   each pitch flip - 0 means no arpeggio.
 // - AUDF bits 7-5 (hardware only reads 4-0): arpeggio interval, the fixed
 //   AUDF bump to the "other" pitch.
 // - AUDV bits 7-4 (hardware only reads 3-0): this note's own "note played"
 //   watch index (see resolveNotePlayedInstruments) - 0 means no instrument
 //   playing this note is currently watched. Capped at 14, not the full
-//   nibble's 15, specifically so this byte can never reach 254/255 (see
+//   nibble's 15, specifically so this byte can never reach 253/254/255 (see
 //   MAX_WATCHED_NOTE_PLAYED_INSTRUMENTS's own comment) and collide with
-//   PAGE_BREAK_SENTINEL/LOOP_SENTINEL below.
-// The optional 5th byte is an index into FADE_LENGTH_OPTIONS (0-4, always
+//   INSTRUMENT_CHANGE_SENTINEL/PAGE_BREAK_SENTINEL/LOOP_SENTINEL below.
+// The optional 4th byte is an index into FADE_LENGTH_OPTIONS (0-4, always
 // fits in 3 bits) - stored for every event on a fade-using channel, not
 // just the actually-fading ones, so every record on that channel is the
 // same fixed width and the reader never has to guess how many bytes to
-// read (see pagedReadLines/generateMusicChecks).
+// read (see pagedReadLines/generateMusicChecks). arpeggioSpeed itself (0
+// meaning "not arpeggiating") is folded into the instrument byte a marker
+// carries - see below - exactly like AUDC, since it's the same kind of
+// per-track constant, never per-note.
 //
-// A single "data" table can only hold MAX_DATA_TABLE_VALUES bytes, so events
-// are split across multiple pages/tables as needed - never splitting a
-// single event's own record across a page boundary, since the reader always
-// reads one whole record at a time. Every page but the last is terminated by
-// PAGE_BREAK_SENTINEL alone (advance to the next page and keep reading); the
-// last page is terminated by LOOP_SENTINEL alone (loop back to page 0) -
-// neither is padded out to a full record, the reader checks for them before
-// trying to read the rest of a record (see generateMusicChecks below).
-const eventsToPages = (events) => {
+// getInstrumentIndex (see resolveProjectMusic's own build pass, ALWAYS
+// called first, project-wide, before this function ever runs for any
+// channel - see its own comment on why that ordering matters) resolves an
+// AUDC|arpeggioSpeed<<4 byte to its stable index in the shared instrument
+// table. Whenever an AUDIBLE event's (audv > 0 - see the same reasoning in
+// that build pass) own instrument differs from the last one THIS pass
+// itself wrote, a 2-byte marker (INSTRUMENT_CHANGE_SENTINEL, index) is
+// inserted right before it. Reset per pattern (lastInstrument starts null
+// on every call, never carried in from a caller) rather than tracked
+// globally across patterns - a pattern can be reached from many different
+// points in a song's own sequence (see resolveProjectMusic/
+// generateMusicChecks' own sequenceStartPage), so assuming continuity from
+// "whatever pattern happened to be encoded right before this one" would be
+// wrong the instant actual playback order differs from encoding order.
+// Every pattern's own first audible note is therefore always preceded by
+// an explicit marker, guaranteeing correct playback no matter which
+// sequence position jumps straight to it.
+//
+// A single "data" table can only hold MAX_DATA_TABLE_VALUES bytes, so
+// events (and now markers) are split across multiple pages/tables as
+// needed - never splitting a single item's own bytes across a page
+// boundary, since the reader always reads one whole item at a time. Every
+// page but the last is terminated by PAGE_BREAK_SENTINEL alone (advance to
+// the next page and keep reading); the last page is terminated by
+// LOOP_SENTINEL alone (loop back to page 0) - neither is padded out to a
+// full record, the reader checks for them before trying to read the rest
+// of an item (see generateMusicChecks below).
+const eventsToPages = (events, getInstrumentIndex) => {
   const hasFade = events.some((event) => event.fade);
-  const recordSize = hasFade ? 5 : 4;
+  const recordSize = hasFade ? 4 : 3;
+  const MARKER_SIZE = 2;
+
+  const items = [];
+  let lastInstrumentByte = null;
+  events.forEach((event) => {
+    const {audv, audc, arpeggioSpeed} = event;
+    if (Number(audv) > 0) {
+      const instrumentByte = Number(audc) | (arpeggioSpeed << 4);
+      if (instrumentByte !== lastInstrumentByte) {
+        items.push({marker: true, index: getInstrumentIndex(instrumentByte)});
+        lastInstrumentByte = instrumentByte;
+      }
+    }
+    items.push({marker: false, event});
+  });
+
   const pages = [];
   let current = [];
-  events.forEach((event) => {
-    // +recordSize for the event about to be added, +1 reserved for this
-    // page's own terminator byte.
-    if (current.length * recordSize + recordSize + 1 > MAX_DATA_TABLE_VALUES) {
+  let currentSize = 0;
+  items.forEach((item) => {
+    const size = item.marker ? MARKER_SIZE : recordSize;
+    // +size for the item about to be added, +1 reserved for this page's
+    // own terminator byte.
+    if (currentSize + size + 1 > MAX_DATA_TABLE_VALUES) {
       pages.push(current);
       current = [];
+      currentSize = 0;
     }
-    current.push(event);
+    current.push(item);
+    currentSize += size;
   });
   pages.push(current);
 
-  return pages.map((pageEvents, pageIndex) => {
+  return pages.map((pageItems, pageIndex) => {
     const bytes = [];
-    pageEvents.forEach(({audv, audc, audf, frames, fade, arpeggioSpeed, arpeggioInterval, arpeggioRange,
-      fadeLength, notePlayedIndex}) => {
+    pageItems.forEach((item) => {
+      if (item.marker) {
+        bytes.push(INSTRUMENT_CHANGE_SENTINEL, item.index);
+        return;
+      }
+      const {audv, audf, frames, fade, arpeggioInterval, arpeggioRange, fadeLength, notePlayedIndex} = item.event;
       bytes.push(
           Number(audv) | ((notePlayedIndex || 0) << 4),
-          Number(audc) | (arpeggioSpeed << 4),
           Number(audf) | (arpeggioInterval << 5),
           frames | (fade ? FADE_BIT : 0) | (arpeggioRange << ARPEGGIO_RANGE_BITS_SHIFT),
       );
@@ -1054,6 +1135,44 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     });
   }
 
+  // Every distinct AUDC|arpeggioSpeed<<4 "instrument" byte actually used by
+  // any AUDIBLE note (audv > 0 - a rest's own placeholder audc=0 would
+  // otherwise falsely register as its own distinct "instrument") in any
+  // pattern any included song's sequence actually references, deduplicated
+  // project-wide (not per-channel/per-pattern) into one small shared lookup
+  // table - see musicInstrumentTableName/generateMusicChecks' own
+  // INSTRUMENT_CHANGE_SENTINEL handling for where this gets used. Assigned
+  // index in first-seen order, walked here in its own pass (calling
+  // flattenPatternEvents a second time - it's pure, so this is safe, just
+  // some repeated compile-time work) SPECIFICALLY so every table index is
+  // already known and stable before eventsToPages below ever needs to
+  // reference one - a table built up lazily DURING that same pass could
+  // assign a different index to the same instrument depending on which
+  // channel or pattern happened to encode it first, silently corrupting
+  // playback for whichever channel didn't "win" that race.
+  const instrumentBytes = [];
+  const instrumentIndexByByte = new Map();
+  const getInstrumentIndex = (byte) => {
+    if (instrumentIndexByByte.has(byte)) return instrumentIndexByByte.get(byte);
+    const index = instrumentBytes.length;
+    instrumentBytes.push(byte);
+    instrumentIndexByByte.set(byte, index);
+    return index;
+  };
+  resolvedSongs.forEach(({song}) => {
+    const distinctPatternIds = [...new Set((song.sequence || []).map((group) => `${group.patternId}`))];
+    distinctPatternIds.forEach((patternId) => {
+      const pattern = (song.patterns || []).find(({id: pid}) => `${pid}` === patternId);
+      if (!pattern) return;
+      const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById);
+      Object.values(perChannel).forEach((events) => {
+        events.forEach(({audv, audc, arpeggioSpeed}) => {
+          if (Number(audv) > 0) getInstrumentIndex(Number(audc) | (arpeggioSpeed << 4));
+        });
+      });
+    });
+  });
+
   const channelPages = {};
   const channelHasFade = {};
   const channelHasArpeggio = {};
@@ -1110,7 +1229,7 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
       if (!pattern) return;
       const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById);
       Object.entries(perChannel).forEach(([channel, events]) => {
-        const pages = eventsToPages(events);
+        const pages = eventsToPages(events, getInstrumentIndex);
         patternStartPage[channel][patternId] = channelPages[channel].length;
         channelPages[channel].push(...pages);
         pages.forEach(() => channelPageSongIds[channel].push(id));
@@ -1204,6 +1323,12 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     songSeqOffset,
     combinedSeqTables,
     notePlayedChannelsById,
+    // The shared instrument lookup table (see its own build pass above) -
+    // one AUDC|arpeggioSpeed<<4 byte per distinct instrument actually used,
+    // in stable index order. Empty (never emitted as a real "data" table -
+    // see generateMusicDataTables) for a project with no audible notes at
+    // all.
+    instrumentBytes,
     // True as soon as ANY included song has ANY group repeating more than
     // once - gates whether musicSeqRepeatVarName/musicSeqRepeatTableName are
     // reserved/generated at all (see bbasic.js's dev-var reservation and
@@ -1240,6 +1365,13 @@ export const reserveMusicDevVars = (reserveDevVar, music, musicEventFlags) => {
   for (const channel of Object.keys(music.channelPages)) {
     reserveDevVar(musicIndexVarName(channel));
     reserveDevVar(musicTimerVarName(channel));
+    // Only reserved once this channel actually plays some real (audible)
+    // note - a channel with nothing but rests, or no data at all, never
+    // hits an INSTRUMENT_CHANGE_SENTINEL marker and so never needs this
+    // (see musicLastAudcVarName's own comment).
+    if (music.instrumentBytes.length) {
+      reserveDevVar(musicLastAudcVarName(channel));
+    }
     // Only reserved when this channel's own combined data spans more than
     // one page - see generateMusicChecks' own comment on pageVar for why a
     // single-page channel has no use for it at all, even once the song has
@@ -1506,9 +1638,19 @@ export default (Blockly) => {
       // somehow missing for this page, rather than a misleading guess.
       const songId = (music.channelPageSongIds && music.channelPageSongIds[channel] || [])[page];
       const songNote = songId != null ? ` for ${songLabel(songId)}` : '';
-      return ` rem Channel ${channel}${songNote} note data${pageNote} (AUDV, AUDC, AUDF, duration per note)\n` +
+      return ` rem Channel ${channel}${songNote} note data${pageNote} (AUDV, AUDF, duration per note - ` +
+        `instrument changes are interleaved as their own 2-byte markers, see the instrument table below)\n` +
         ` data ${musicDataTableName(channel, page)}\n${rows.join('\n')}\nend`;
     }).join('\n\n')).join('\n\n');
+    // See musicInstrumentTableName's own comment - one AUDC|arpeggioSpeed<<4
+    // byte per distinct instrument, in instrumentBytes' own stable index
+    // order. Empty (this whole table omitted) for a project with no audible
+    // notes anywhere.
+    const instrumentTable = music.instrumentBytes.length ?
+      ` rem Shared instrument table (AUDC|arpeggioSpeed<<4 per instrument) - indexed by an ` +
+      `INSTRUMENT_CHANGE_SENTINEL marker in the note data above\n` +
+      ` data ${musicInstrumentTableName()}\n${chunk(music.instrumentBytes, 16).map((row) => '  ' + row.join(', ')).join('\n')}\nend` :
+      '';
     // One small lookup table per channel - see generateMusicChecks' own
     // loop-reset for the one place these are ever read. Single-song project:
     // only generated for a song with any real repetition at all (totalSteps,
@@ -1591,7 +1733,7 @@ export default (Blockly) => {
         return pageTables + repeatTable;
       }).join('\n\n');
     }
-    return [eventTables, seqTables].filter(Boolean).join('\n\n');
+    return [eventTables, instrumentTable, seqTables].filter(Boolean).join('\n\n');
   };
 
   // Spliced into commongamelogic (see bbasic.bb.hbs), the same per-frame slot
@@ -1646,26 +1788,61 @@ export default (Blockly) => {
   // chain entirely and reads directly, at zero extra cost. Never advances
   // indexVar itself - callers do that separately once they've decided
   // whether this read was a peek or a real consume.
-  const pagedReadLines = (tables, pageVar, indexVar, uniqueId) => {
-    if (tables.length === 1) {
-      return [` temp1 = ${tables[0]}[${indexVar}]`];
-    }
-    const doneLabel = `_musicpr${uniqueId}_done`;
-    const lines = [];
+  // A multi-page channel's own page-select dispatch chain (4 lines per page
+  // beyond the first) used to be inlined FRESH at every single call site
+  // below - and there were up to 9 of them per channel (durationRead,
+  // audcRead [since removed - see eventsToPages' own comment], audfRead,
+  // the loop-reset peek, 3x resumeRead via buildPageDispatchSubroutine's
+  // own 3 offsets, the main peek, and the final read) - confirmed as the
+  // single largest contributor to
+  // musicEngine's own compiled size on a real project (its per-channel
+  // dispatch measured over 22KB of source, more than 4x its data tables'
+  // own size), and the direct cause of a real "Origin Reverse-indexed"
+  // build failure once a project's musicEngine payload genuinely didn't fit
+  // in its own reserved bank even with EVERY other relocatable unit already
+  // evicted elsewhere. Factored into ONE physical copy per channel instead,
+  // reached via gosub from every call site rather than re-expanded inline
+  // each time - the exact same dispatch logic, just paid for once per
+  // channel instead of up to 9 times. Only actually built (see
+  // buildPageDispatchSubroutine below) when tables.length > 1 - a
+  // single-page channel's own pagedReadLines call stays exactly as
+  // lightweight (and inline) as it always was, since there's no dispatch to
+  // share in the first place.
+  const pageDispatchLabel = (channel) => `_musicpr${channel}_dispatch`;
+  const buildPageDispatchSubroutine = (channel, tables, pageVar) => {
+    if (tables.length <= 1) return null;
+    const doneLabel = `_musicpr${channel}_done`;
+    const lines = [pageDispatchLabel(channel)];
     tables.forEach((table, page) => {
       const isLast = page === tables.length - 1;
       if (!isLast) {
-        const nextLabel = `_musicpr${uniqueId}_p${page + 1}`;
+        const nextLabel = `_musicpr${channel}_p${page + 1}`;
         lines.push(` if ${pageVar} <> ${page} then goto ${nextLabel}`);
-        lines.push(` temp1 = ${table}[${indexVar}]`);
+        lines.push(` temp1 = ${table}[temp1]`);
         lines.push(` goto ${doneLabel}`);
         lines.push(nextLabel);
       } else {
-        lines.push(` temp1 = ${table}[${indexVar}]`);
+        lines.push(` temp1 = ${table}[temp1]`);
       }
     });
     lines.push(doneLabel);
-    return lines;
+    lines.push(' return');
+    return lines.join('\n');
+  };
+  // indexExpr is read into temp1 first (skipped when it's already temp1
+  // itself - resumeRead's own call already computes its offset read
+  // straight into temp1, see its own comment) so the shared subroutine
+  // always has exactly one calling convention (read temp1, page-select off
+  // pageVar, leave the result in temp1) regardless of which named dev var
+  // (or temp1 itself) a given call site's own index actually lives in.
+  const pagedReadLines = (tables, pageVar, indexExpr, channel) => {
+    if (tables.length === 1) {
+      return [` temp1 = ${tables[0]}[${indexExpr}]`];
+    }
+    return [
+      ...(indexExpr === 'temp1' ? [] : [` temp1 = ${indexExpr}`]),
+      ` gosub ${pageDispatchLabel(channel)}`,
+    ];
   };
 
   Blockly.BBasic.generateMusicChecks = function() {
@@ -1884,21 +2061,25 @@ export default (Blockly) => {
       const indexVar = resolveVar(musicIndexVarName(channel));
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
+      // Only meaningful once the project actually has some instrument to
+      // track at all - see musicLastAudcVarName/reserveMusicDevVars' own
+      // matching gate.
+      const lastAudcVar = music.instrumentBytes.length ? resolveVar(musicLastAudcVarName(channel)) : null;
 
       // Lets a sound effect sharing this channel (see soundfx.js's
       // soundfx_play/channnel0duration+channnel1duration) keep exclusive
       // hardware control of AUDC/AUDF/AUDV for its own full duration -
       // wraps a single register write so it's skipped whenever durationVar
       // is nonzero (a sound effect currently owns this channel), covering
-      // both a note fetch happening mid-effect (audcRead/audfRead/the
-      // fetch-time AUDV write below) AND this channel simply falling
-      // silent at its own song/pattern end while an effect is still
-      // playing (the "AUDV = 0" writes below) - either would otherwise
-      // audibly cut the effect off early. Declared this early (before
-      // audcRead/audfRead, which are its first callers) rather than down
-      // by the resume-check logic it's conceptually paired with, purely
-      // because of JS's own temporal dead zone - a genuine ordering bug in
-      // an earlier version of this had audcRead/audfRead call it before
+      // both a note fetch happening mid-effect (buildInstrumentMarkerSubroutine's
+      // own AUDC write/audfRead/the fetch-time AUDV write below) AND this
+      // channel simply falling silent at its own song/pattern end while an
+      // effect is still playing (the "AUDV = 0" writes below) - either
+      // would otherwise audibly cut the effect off early. Declared this
+      // early (before audfRead, which is one of its first callers) rather
+      // than down by the resume-check logic it's conceptually paired with,
+      // purely because of JS's own temporal dead zone - a genuine ordering
+      // bug in an earlier version of this had a caller reach it before
       // its own declaration ran. See generateSoundDurationChecks... rather,
       // see resumeCheck further below for the other half of this same
       // interleaving feature: once durationVar's effect actually ends,
@@ -1923,19 +2104,47 @@ export default (Blockly) => {
       // conditionally-spliced Fade/Arpeggio code in the middle of it. Both
       // remain fully implemented in git history if they need to come back.
       const durationRead = [
-        ...pagedReadLines(tables, pageVar, indexVar, `${channel}dur`),
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
         ` ${indexVar} = ${indexVar} + 1`,
         ` ${timerVar} = temp1`,
       ];
 
-      const audcRead = [
-        ...pagedReadLines(tables, pageVar, indexVar, `${channel}audc`),
+      // AUDC is no longer part of the regular per-note record at all (see
+      // eventsToPages' own comment) - it's applied here instead, whenever an
+      // INSTRUMENT_CHANGE_SENTINEL marker (see that same comment) is
+      // encountered. This is a genuine SUBROUTINE (gosub/return), not
+      // inlined at each of the 3 places that peek a fresh byte (the initial
+      // peek, the page-break re-peek, and the loop/sequence-advance
+      // re-peek - see pageBreakCheck and the multiSeq/single-loop branches
+      // below) - each of those just adds one "gosub" call right after its
+      // own existing peek, with NO other change needed, since this
+      // subroutine's own contract is simple: given temp1 already holding a
+      // freshly-peeked byte, silently consume and apply as many
+      // back-to-back instrument-change markers as are actually there (only
+      // ever one in practice, but looping costs nothing extra to also
+      // handle the case correctly), and return with temp1 holding
+      // whatever real, non-marker byte follows (a note's own AUDV, or
+      // PAGE_BREAK_SENTINEL, or LOOP_SENTINEL) - exactly what every caller
+      // already expects right after its own peek.
+      const instrumentMarkerLabel = `_music${channel}_skipinstr`;
+      const skipInstrumentMarkers = lastAudcVar ? [` gosub ${instrumentMarkerLabel}`] : [];
+      const buildInstrumentMarkerSubroutine = () => !lastAudcVar ? null : [
+        instrumentMarkerLabel,
+        ` if temp1 <> ${INSTRUMENT_CHANGE_SENTINEL} then goto ${instrumentMarkerLabel}_done`,
         ` ${indexVar} = ${indexVar} + 1`,
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
+        ` ${indexVar} = ${indexVar} + 1`,
+        ` temp1 = ${musicInstrumentTableName()}[temp1]`,
+        ` ${lastAudcVar} = temp1`,
         ...suppressibleWrite('audc', ` AUDC${channel} = temp1`),
-      ];
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
+        ` goto ${instrumentMarkerLabel}`,
+        `${instrumentMarkerLabel}_done`,
+        ' return',
+      ].join('\n');
 
       const audfRead = [
-        ...pagedReadLines(tables, pageVar, indexVar, `${channel}audf`),
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
         ` ${indexVar} = ${indexVar} + 1`,
         ...suppressibleWrite('audf', ` AUDF${channel} = temp1`),
       ];
@@ -1949,7 +2158,8 @@ export default (Blockly) => {
         ` if temp1 <> ${PAGE_BREAK_SENTINEL} then goto _music${channel}_notpagebreak`,
         ` ${pageVar} = ${pageVar} + 1`,
         ` ${indexVar} = 0`,
-        ...pagedReadLines(tables, pageVar, indexVar, `${channel}pgpeek`),
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
+        ...skipInstrumentMarkers,
         `_music${channel}_notpagebreak`,
       ] : [];
 
@@ -1988,15 +2198,19 @@ export default (Blockly) => {
       // hardware output for its own duration, then hand it back once that
       // duration ends, WITHOUT any new dev var to remember what was playing:
       // AUDV/AUDC/AUDF for whichever note is CURRENTLY due are always
-      // exactly the last 3 bytes this channel fetched from its own data
-      // table (see the AUDV/audcRead/audfRead reads below - each is always
-      // followed by "indexVar += 1", so right after a fetch, indexVar
-      // points 1 past the AUDF byte just read: AUDV is indexVar-4, AUDC is
-      // indexVar-3, AUDF is indexVar-2). Those bytes are read-only ROM, so
-      // re-reading them costs nothing extra to keep around - built fresh
-      // here on every check (this per-channel block already has tables/
-      // pageVar/indexVar/pagedReadLines in scope) rather than cached in any
-      // new dev var. This does NOT freeze anything: timerVar/indexVar keep
+      // exactly the last bytes this channel fetched from its own data table
+      // (see the AUDV/audfRead reads below - each is always followed by
+      // "indexVar += 1", so right after a fetch, indexVar points 1 past the
+      // AUDF byte just read: AUDV is indexVar-3, AUDF is indexVar-2). Those
+      // bytes are read-only ROM, so re-reading them costs nothing extra to
+      // keep around - built fresh here on every check (this per-channel
+      // block already has tables/pageVar/indexVar/pagedReadLines in scope)
+      // rather than cached in any new dev var. AUDC is different: it isn't
+      // part of the regular per-note record at all any more (see
+      // eventsToPages' own comment), so there's no fixed offset to re-read
+      // it FROM - lastAudcVar (see its own comment) is what this restores
+      // it from instead, a plain dev-var copy rather than another table
+      // read. This does NOT freeze anything: timerVar/indexVar keep
       // advancing every frame regardless of whether a sound effect
       // currently owns this channel's hardware output, so by the time the
       // effect ends, indexVar/pageVar already point at whichever note is
@@ -2023,34 +2237,37 @@ export default (Blockly) => {
       // would otherwise skip entirely, e.g. mid-note with plenty of timerVar
       // left) - checked independently of them, so it never depends on this
       // frame's own fetch/advance logic actually running at all. `if
-      // indexVar < 4` guards a fetch that's never actually happened yet on
+      // indexVar < 3` guards a fetch that's never actually happened yet on
       // this channel (indexVar still at its dim'd-0 default) - only
       // reachable at all if activeBit is somehow set before this channel's
       // very first real fetch, which shouldn't happen, but costs one cheap
       // comparison to rule out for certain rather than risk an 8-bit
-      // underflow wrapping the read index to 252+.
-      const resumeRead = (offset, tag, targetVar) => [
+      // underflow wrapping the read index to 253+ (now genuinely reachable
+      // math - see INSTRUMENT_CHANGE_SENTINEL's own value - not just a
+      // theoretical concern this guard was already cheap insurance against).
+      const resumeRead = (offset, targetVar) => [
         ` temp1 = ${indexVar} - ${offset}`,
-        ...pagedReadLines(tables, pageVar, 'temp1', tag),
+        ...pagedReadLines(tables, pageVar, 'temp1', channel),
         ` ${targetVar} = temp1`,
       ];
       const resumeCheck = [
         ` if ${durationVar} <> 1 then goto _musicresume${channel}_skip`,
         ` if !${activeBit} then goto _musicresume${channel}_skip`,
-        ` if ${indexVar} < 4 then goto _musicresume${channel}_skip`,
-        ...resumeRead(4, `${channel}resumeaudv`, `AUDV${channel}`),
-        ...resumeRead(3, `${channel}resumeaudc`, `AUDC${channel}`),
-        ...resumeRead(2, `${channel}resumeaudf`, `AUDF${channel}`),
+        ` if ${indexVar} < 3 then goto _musicresume${channel}_skip`,
+        ...resumeRead(3, `AUDV${channel}`),
+        ...(lastAudcVar ? [` AUDC${channel} = ${lastAudcVar}`] : []),
+        ...resumeRead(2, `AUDF${channel}`),
         `_musicresume${channel}_skip`,
       ];
 
-      return [
+      const channelBody = [
         ...resumeCheck,
         ` if ${flagsVar}{${musicPausedBit}} then goto _music${channel}_skip`,
         ` if !${activeBit} then goto _music${channel}_skip`,
         ` ${timerVar} = ${timerVar} - 1`,
         ` if ${timerVar} <> 0 then goto _music${channel}_skip`,
-        ...pagedReadLines(tables, pageVar, indexVar, `${channel}peek`),
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
+        ...skipInstrumentMarkers,
         ...pageBreakCheck,
         ` if temp1 <> ${LOOP_SENTINEL} then goto _music${channel}_read`,
         // Single-pattern song (the common case, and the only case before
@@ -2208,22 +2425,39 @@ export default (Blockly) => {
           ...(multiPage ? [` ${pageVar} = 0`] : []),
         ]),
         ` ${indexVar} = 0`,
-        ...pagedReadLines(tables, pageVar, indexVar, `${channel}looppeek`),
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
+        ...skipInstrumentMarkers,
         `_music${channel}_read`,
         ` ${indexVar} = ${indexVar} + 1`,
         ...suppressibleWrite('audvfetch', ` AUDV${channel} = temp1`),
         // Every watched "note played" instrument's own set-flag check (see
         // notePlayedSetLines above, including why this is a masked compare
         // rather than a division) - temp1 still holds the just-fetched AUDV
-        // byte unmodified here (audcRead below reuses temp1 for its own
-        // read right after, so this has to run before that).
+        // byte unmodified here (audfRead below reuses temp1 for its own
+        // read right after, so this has to run before that). AUDC is no
+        // longer read here at all - see skipInstrumentMarkers/
+        // buildInstrumentMarkerSubroutine's own comment.
         ...notePlayedSetLines,
-        ...audcRead,
         ...audfRead,
         ...durationRead,
         `_music${channel}_skip`,
       ].join('\n');
-    }).join('\n\n');
+      return {
+        body: channelBody,
+        subroutine: [buildPageDispatchSubroutine(channel, tables, pageVar), buildInstrumentMarkerSubroutine()]
+            .filter(Boolean).join('\n\n') || null,
+      };
+    });
+    const perChannelChecksBody = perChannelChecks.map(({body}) => body).join('\n\n');
+    // Every channel's own page-dispatch subroutine (see
+    // buildPageDispatchSubroutine's own comment for why this exists at all)
+    // - null for a single-page channel, which never builds one. Placed
+    // after the normal per-frame fall-through body (same reasoning as the
+    // data tables just below: reached only via gosub, never meant to run on
+    // its own every frame) but before the data tables themselves, so the
+    // SAME "goto dataSkipLabel" already skipping over the data tables skips
+    // over these too - no second skip/goto pair needed.
+    const pageDispatchSubroutines = perChannelChecks.map(({subroutine}) => subroutine).filter(Boolean).join('\n\n');
 
     // This whole per-channel dispatch (especially with Fade/Arpeggio, which
     // can each add a substantial amount of code per channel) is spliced
@@ -2263,9 +2497,20 @@ export default (Blockly) => {
       ' rem Music engine by AbstractPolygon - https://abstractpolygon.com/',
       ' rem **************************************************************************',
     ].join('\n');
-    const body = dataTables ?
-      [perChannelChecks, ` goto ${dataSkipLabel}`, dataTables, dataSkipLabel].join('\n\n') :
-      perChannelChecks;
+    // The page-dispatch subroutines (see pageDispatchSubroutines' own
+    // comment) are gosub'd, never fallen into, so they need the exact same
+    // "goto past this, land on a label right after" protection the data
+    // tables already need for their own, different reason (raw bytes, not
+    // code) - reusing dataSkipLabel for both rather than a second skip/goto
+    // pair. Needed whenever EITHER exists, not just when dataTables does -
+    // a project with at least one multi-page channel but (hypothetically)
+    // no data tables would otherwise leave its own subroutines completely
+    // unprotected, exposed to plain fall-through execution as if they were
+    // ordinary per-frame code.
+    const skippable = [pageDispatchSubroutines, dataTables].filter(Boolean).join('\n\n');
+    const body = skippable ?
+      [perChannelChecksBody, ` goto ${dataSkipLabel}`, skippable, dataSkipLabel].join('\n\n') :
+      perChannelChecksBody;
     const payload = `${banner}\n\n${body}`;
     return this.wrapRelocatableMusic('musicEngine', payload);
   };

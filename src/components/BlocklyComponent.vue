@@ -63,6 +63,17 @@ Blockly.BlockSvg.prototype.moveDuringDrag = function(newLoc) {
   originalMoveDuringDrag.call(this, newLoc);
 };
 
+// No wheel-behavior patch needed here (an earlier version of this had one,
+// for a since-reverted shift-to-zoom scheme) - Ctrl+wheel to zoom, plain
+// wheel to scroll vertically, is already stock Blockly's own default
+// onMouseWheel_ behavior (node_modules/blockly/core/workspace_svg.js: zooms
+// when canWheelZoom && e.ctrlKey, otherwise scrolls). The only reason plain
+// wheel used to always zoom regardless of Ctrl was that this app never set
+// a "move" option at all, leaving wheel-scrolling off entirely (see
+// ActionEditor.vue's own "move: {wheel: true}" option, which is the actual
+// fix) - once that's on, stock Blockly's own logic already does exactly
+// what's wanted with no override needed.
+
 export default {
   name: 'BlocklyComponent',
   props: ['options', 'value'],

@@ -298,6 +298,28 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Sets the background color`,
   },
+  // Block for the color getter - one block with a Background/Playfield
+  // dropdown (same VAR options as the setter above), rather than two
+  // separate blocks, since both read the exact same kind of value and a
+  // project switching which one it reads only ever needs to change the
+  // dropdown, not swap blocks out.
+  {
+    'type': `background_get_color`,
+    'message0': `${BACKGROUND_ICON} Get %1 ${COLOR_ICON} color`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': [
+          ['Background', `COLUBK`],
+          ['Playfield', `COLUPF`],
+        ],
+      },
+    ],
+    'output': 'Number',
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Gets the current background or playfield color`,
+  },
   // Block for fading a background/playfield color TOWARD a target color -
   // a one-shot TRIGGER (see backgroundFadeTimerVarName's own comment
   // above): call it once and the color keeps stepping toward the target on

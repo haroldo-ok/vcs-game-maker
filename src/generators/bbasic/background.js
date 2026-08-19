@@ -63,6 +63,20 @@ export default (Blockly) => {
     return varName + ' = ' + argument0 + '\n';
   };
 
+  Blockly.BBasic[`background_get_color`] = function(block) {
+    // Same COLUPF/COLUBK -> playfieldrealcolor/backgroundrealcolor mapping
+    // as background_set_color's own setter above - reads the live shadow
+    // variable both blocks share, not the hardware register directly
+    // (which the score/text drawing routines overwrite every frame - see
+    // that setter's own comment).
+    const rawVar = block.getFieldValue('VAR');
+    const targetVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' :
+      rawVar === 'COLUBK' ? 'backgroundrealcolor' : rawVar;
+    const varName = Blockly.BBasic.nameDB_.getName(
+        targetVar, Blockly.VARIABLE_CATEGORY_NAME);
+    return [varName, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
 
