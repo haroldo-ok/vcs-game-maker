@@ -24,7 +24,7 @@
           />
           <span class="dim-percent">{{ dimSoundFxPercent }}%</span>
         </div>
-        <p class="dim-hint">
+        <p class="dim-hint v-messages theme--light v-messages__message">
           When DIM is on, every note plays at the volume above, as a percentage of its own set volume - same
           setting as the Sound tab's own DIM (changing it here changes it there too). Off: notes play at their
           own set volume.
@@ -1387,6 +1387,12 @@ export default defineComponent({
         sequence: [{id: 1, patternId: 1, count: 1}],
       };
       songs.push(newSong);
+      // Starts collapsed rather than the default expanded state new ids
+      // otherwise get (see isSongCollapsed/hooks/collapse.js) - a fresh song
+      // is just an empty pattern until it's actually built out, so leaving
+      // it expanded only pushes every other song card further down the page
+      // for no reason yet.
+      toggleSongCollapsed(newSong);
       handleChildChange();
       forceUpdate();
       // pianoRollBaseWidth/pianoRollZoom are shared across every song (not
@@ -3128,11 +3134,12 @@ export default defineComponent({
   min-width: 2.5em;
 }
 
+/* font-size/color/line-height now come from the "v-messages theme--light
+   v-messages__message" classes on the element itself (see the template) -
+   the same classes every hint/description paragraph in the app uses. */
 .dim-hint {
   margin-top: 8px;
   margin-bottom: 0;
-  color: rgba(0, 0, 0, 0.6);
-  font-size: 0.75rem;
 }
 
 /* Zeroed (was the default 16px v-card-text padding) - between .dim-section's

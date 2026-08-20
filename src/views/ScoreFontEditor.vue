@@ -17,7 +17,7 @@
         />
         <span class="score-bkcolor-label">Score background color</span>
       </div>
-      <p>
+      <p class="v-messages theme--light v-messages__message">
         Draw the ten score digits below. They are used when the score font is
         set to <strong>Custom</strong> or <strong>Squish Custom</strong>.
       </p>
@@ -29,7 +29,7 @@
         persistent-hint
         class="option-switch"
       />
-      <editor-zoom v-model="zoom" />
+      <editor-zoom v-model="zoom" class="score-editor-zoom" />
       <div class="digit-list">
         <div
           class="digit"
@@ -302,6 +302,13 @@ export default defineComponent({
    under the label text instead, matching the toggle's own width. */
 .option-switch >>> .v-messages {
   margin-left: 46px;
+}
+
+/* Breathing room from the "Use extra glyphs" switch's own hint text
+   ("Costs 48 extra bytes of ROM space.") directly above - the two sat flush
+   against each other otherwise. */
+.score-editor-zoom {
+  margin-top: 12px;
 }
 
 .score-bkcolor-row {

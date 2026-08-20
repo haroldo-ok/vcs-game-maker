@@ -18,41 +18,58 @@ goog.require('Blockly.BBasic');
 
 export default (Blockly) => {
   Blockly.BBasic['controls_if'] = function(block) {
-  // If/elseif/else condition.
+  // If/elseif/else condition. Loops over every "IFn"/"DOn" pair the
+  // block's own mutator added (n = 0, 1, 2, ... - same "keep reading until
+  // the next IFn input doesn't exist" loop Blockly's own real JavaScript
+  // generator uses for this block) rather than only ever reading IF0/DO0 -
+  // a previous version of this only handled a single if/else, which SILENTLY
+  // dropped every "else if" branch from the compiled output (the block's
+  // own gear-icon mutator still let a project add as many as it wanted; they
+  // just never made it into the ROM, with no build error to notice by).
+  //
+  // Each branch gets its own condition-check label and body label, chained
+  // by "if cond then goto <body> else goto <next check, or else, or end>" -
+  // the same "if X then goto Y else goto Z" shape the single-branch version
+  // already used, just repeated once per branch instead of assuming there's
+  // only one.
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const labelStart = `_if_${blockNumber}`;
-
-    let code = ''; let branchCode;
-
-    const conditionCode = Blockly.BBasic.valueToCode(block, 'IF0',
-        Blockly.BBasic.ORDER_NONE) || '0';
     const hasElseBlock = block.getInput('ELSE') || Blockly.BBasic.STATEMENT_SUFFIX;
+    const endLabel = `${labelStart}_end`;
+    const elseLabel = `${labelStart}_else`;
 
-    branchCode = Blockly.BBasic.statementToCode(block, 'DO0').trim();
-    if (!branchCode.trim()) {
-      branchCode = 'a = a';
+    let branchCount = 0;
+    while (block.getInput(`IF${branchCount}`)) branchCount++;
+
+    const lines = [];
+    for (let n = 0; n < branchCount; n++) {
+      const conditionCode = Blockly.BBasic.valueToCode(block, `IF${n}`,
+          Blockly.BBasic.ORDER_NONE) || '0';
+      let branchCode = Blockly.BBasic.statementToCode(block, `DO${n}`).trim();
+      if (!branchCode) branchCode = 'a = a';
+
+      const bodyLabel = `${labelStart}_body${n}`;
+      const isLast = n === branchCount - 1;
+      const nextLabel = isLast ? (hasElseBlock ? elseLabel : endLabel) : `${labelStart}_check${n + 1}`;
+
+      if (n > 0) lines.push(`@ ${labelStart}_check${n}`);
+      lines.push(`  if ${conditionCode} then goto ${bodyLabel} else goto ${nextLabel}`);
+      lines.push(`@ ${bodyLabel}`);
+      lines.push(`${branchCode}\ngoto ${endLabel}`);
     }
-    code += [`  if ${conditionCode} then goto ${labelStart} else goto ${labelStart}_end`,
-      `@ ${labelStart}`,
-      branchCode +
-      (hasElseBlock ? `\ngoto ${labelStart}_else_end` : ''),
-      `@ ${labelStart}_end`,
-    ].join('\n');
 
     if (hasElseBlock) {
-      branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
+      let branchCode = Blockly.BBasic.statementToCode(block, 'ELSE');
       if (Blockly.BBasic.STATEMENT_SUFFIX) {
         branchCode = Blockly.BBasic.prefixLines(
             Blockly.BBasic.injectId(Blockly.BBasic.STATEMENT_SUFFIX,
                 block), Blockly.BBasic.INDENT) + branchCode;
       }
-      code += [
-        '\n',
-        branchCode,
-        `@ ${labelStart}_else_end`,
-      ].join('\n');
+      lines.push(`@ ${elseLabel}`, branchCode);
     }
-    return '\n' + code + '\n';
+    lines.push(`@ ${endLabel}`);
+
+    return '\n' + lines.join('\n') + '\n';
   };
 
   Blockly.BBasic['controls_ifelse'] = Blockly.BBasic['controls_if'];

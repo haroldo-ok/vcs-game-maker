@@ -25,6 +25,7 @@ import '../blocks/collision';
 import '../blocks/color';
 import '../blocks/data';
 import '../blocks/event';
+import '../blocks/function';
 import '../blocks/input';
 import '../blocks/loops';
 import '../blocks/math';
@@ -93,7 +94,7 @@ export default {
           spacing: 25,
           length: 3,
           colour: '#ccc',
-          snap: true,
+          snap: false,
         },
         // move.wheel enables wheel-scrolling at all - unset (this app never
         // set a "move" option before), Blockly's own default only turns
@@ -132,8 +133,11 @@ export default {
       // Mirrors options.grid.snap's own initial value - a page-local UI
       // preference (not persisted, unlike muteBlocklySounds), since this is
       // just a quick on/off toggle for the current session, not a project
-      // setting.
-      gridSnapEnabled: true,
+      // setting. Starts off/false (blue = "on", grey = "off" - see
+      // setupGridSnapZoomButton's render()) so the icon starts in its
+      // grey/inactive state and a click visibly turns it on/blue, rather
+      // than starting pre-toggled blue with nothing yet clicked.
+      gridSnapEnabled: false,
     };
   },
   methods: {
@@ -160,6 +164,15 @@ export default {
 
       const NS = 'http://www.w3.org/2000/svg';
       const group = document.createElementNS(NS, 'g');
+      // -43 = -(HEIGHT_ [32] + LARGE_SPACING_ [11]) from zoom_controls.js,
+      // one slot past the reset button (nearest workspace center) - the
+      // DEFAULT (vertical) layout's own final position, set once here since
+      // nothing else ever repositions it in that mode. The horizontal
+      // layout option overrides this via BlocklyComponent.vue's own
+      // ZoomControls.position patch instead (see zoomControls.gridSnapGroup_
+      // just below, and workspace.resize() right after this function
+      // appends the group) - so this initial value only matters, and only
+      // briefly, when that option is off.
       group.setAttribute('transform', 'translate(0, -43)');
       group.style.cursor = 'pointer';
 
@@ -190,25 +203,31 @@ export default {
       const title = document.createElementNS(NS, 'title');
       group.appendChild(title);
 
-      // Same three opacity steps as Blockly's own zoom controls (rest/
-      // hover/active, see BlocklyComponent.vue's own moveDuringDrag patch
-      // comment for where that convention is documented), except the
-      // "enabled" state stays at full opacity in blue - the one deliberate
-      // difference, since Blockly's own icons have no on/off state to show.
+      // Active (toggled on) is always full opacity, solid blue - it should
+      // read as clearly "on" regardless of whether the mouse happens to be
+      // over it. Inactive starts fainter (.25, dimmer than Blockly's own
+      // zoom-icon rest opacity of .4) so it visibly recedes next to the
+      // solid active state, brightening the same way those icons do as the
+      // mouse gets closer to actually clicking it. Fill starts from the same
+      // near-black those icons are actually drawn at (confirmed directly:
+      // sampling the zoom-out icon's own pixels averaged to ~rgb(45,45,45) -
+      // a flat mid-grey like '#757575' BEFORE opacity is applied came out
+      // visibly lighter/washed-out next to them).
       const render = () => {
-        icon.setAttribute('fill', this.gridSnapEnabled ? '#1976d2' : '#000');
-        icon.style.opacity = this.gridSnapEnabled ? '1' : '.4';
-        title.textContent = this.gridSnapEnabled ?
+        const active = this.gridSnapEnabled;
+        icon.setAttribute('fill', active ? '#1976d2' : '#000000');
+        icon.style.opacity = active ? '1' : '.25';
+        title.textContent = active ?
           'Turn off block grid snap' : 'Turn on block grid snap';
       };
       render();
 
       group.addEventListener('mouseenter', () => {
-        if (!this.gridSnapEnabled) icon.style.opacity = '.6';
+        if (!this.gridSnapEnabled) icon.style.opacity = '.5';
       });
       group.addEventListener('mouseleave', render);
       group.addEventListener('mousedown', () => {
-        if (!this.gridSnapEnabled) icon.style.opacity = '.8';
+        if (!this.gridSnapEnabled) icon.style.opacity = '.75';
       });
       group.addEventListener('click', () => {
         this.toggleGridSnap();
@@ -217,6 +236,28 @@ export default {
 
       zoomControls.svgGroup_.appendChild(group);
       this.gridSnapSvgGroup_ = group;
+      // Read directly by BlocklyComponent.vue's own ZoomControls.position
+      // override (horizontal layout only) - a direct reference rather than
+      // making that code go hunting through svgGroup_'s own children by
+      // index, which broke outright once actually tried (fragile: relies on
+      // this being exactly the Nth child, with no error if that assumption
+      // ever stops holding).
+      zoomControls.gridSnapGroup_ = group;
+
+      // Appending a new child here doesn't itself trigger Blockly to
+      // reposition anything - the very first layout pass (triggered by
+      // Blockly.inject itself, in BlocklyComponent's own mounted(), which
+      // runs before this one) already finished before this 4th child even
+      // existed. In the default (vertical) layout that's fine, since this
+      // group's own initial transform above is already its final position -
+      // but the horizontal layout (see BlocklyComponent.vue's own
+      // ZoomControls.position override) recomputes THIS group's own
+      // position dynamically every time position() runs, so without a fresh
+      // pass here it stays wherever it happened to render for the first
+      // (and only, until some later resize) time: nowhere, since it was
+      // never positioned by that logic at all yet. workspace.resize() is
+      // the same method window-resize events themselves trigger.
+      workspace.resize();
     },
     // Blockly (this bundled version, 6.20210701.0) has no public setter for
     // grid snap - Grid.prototype.shouldSnap() only ever reads its own

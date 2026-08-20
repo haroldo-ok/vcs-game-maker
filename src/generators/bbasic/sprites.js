@@ -64,7 +64,16 @@ export default (Blockly) => {
       const varName = Blockly.BBasic.nameDB_.getName(
           block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
       if (varName === 'ballwidth') {
-        return 'CTRLPF = (' + argument0 + ') * 16 + 1\n';
+        // Ball width packs into CTRLPF's own bits 4-5 - masked in against
+        // CTRLPF's CURRENT value (207 = 0b11001111, clearing only bits 4-5)
+        // rather than overwriting the whole byte, which used to also
+        // hardcode bit 0 (playfield reflect) permanently on and reset bit 2
+        // (playfield priority - see sprite_priority_set's own `CTRLPF{2} =`
+        // bit-safe write just below) back to 0 every time ball width was
+        // set - a real bug (reported as "changing sprite priority flips the
+        // right half of the playfield," since whichever of the two blocks
+        // ran later silently undid the other's own bit).
+        return `CTRLPF = (CTRLPF & 207) + (${argument0}) * 16\n`;
       } else if (varName.endsWith('visibility')) {
         const blockNumber = Blockly.BBasic.blockNumbers.next();
         const baseLabel = `_visibility_${blockNumber}`;

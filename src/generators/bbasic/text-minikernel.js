@@ -1,7 +1,11 @@
 'use strict';
 
+import {chunk} from 'lodash';
+
 import {useConfigurationStorage} from '../../hooks/project';
-import {TEXT_MESSAGE_LENGTH, listTextStrings} from '../../blocks/text-strings';
+import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {getNamedScrollLayout, registerFreeTypedScrollMessage, buildTextScrollSetupLines,
+  trackTextByIdScrollUsage, textScrollOffsetVarName, textScrollMaxVarName} from './text-scroll';
 
 // The standard kernel's own code calls "jsr minikernel" as a plain,
 // same-bank call (never a bankswitched "BS_jsr") - so on a bankswitched ROM,
@@ -20,42 +24,37 @@ import {TEXT_MESSAGE_LENGTH, listTextStrings} from '../../blocks/text-strings';
 // bbasic.js's own BANKSWITCHED_ROM_SIZES duplicate).
 const KERNEL_BANK_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
 
-// Maps each supported character to the glyph constant name declared in
-// text12a.asm/text12b.asm's left_text/right_text tables. Anything not listed
-// here (lowercase letters get upper-cased first) falls back to a blank space
-// rather than failing the build.
-export const CHAR_TO_GLYPH = {
-  'A': '__A', 'B': '__B', 'C': '__C', 'D': '__D', 'E': '__E', 'F': '__F',
-  'G': '__G', 'H': '__H', 'I': '__I', 'J': '__J', 'K': '__K', 'L': '__L',
-  'M': '__M', 'N': '__N', 'O': '__O', 'P': '__P', 'Q': '__Q', 'R': '__R',
-  'S': '__S', 'T': '__T', 'U': '__U', 'V': '__V', 'W': '__W', 'X': '__X',
-  'Y': '__Y', 'Z': '__Z',
-  '0': '__0', '1': '__1', '2': '__2', '3': '__3', '4': '__4',
-  '5': '__5', '6': '__6', '7': '__7', '8': '__8', '9': '__9',
-  ' ': '_sp', '.': '_pd', '?': '_qu', '!': '_ex', ',': '_cm', '-': '_hy',
-  '+': '_pl', '\'': '_ap', '(': '_lp', ')': '_rp', ':': '_co', '/': '_sl',
-  '=': '_eq', '"': '_qt', '#': '_po',
-};
-
-// Converts free-typed text into a fixed-width row of glyph tokens for the
+// Converts text into a fixed-width row of glyph tokens for the
 // "data text_strings" table: upper-cased, unsupported characters become
-// spaces, and the result is always exactly TEXT_MESSAGE_LENGTH tokens long
-// (truncated or padded with spaces). justify (see the Text tab's own
-// Left/Center/Right buttons - one of TEXT_JUSTIFY_OPTIONS in
-// blocks/text-strings.js) decides where the padding goes: 'left' (the
-// default) puts it all on the right, 'right' puts it all on the left,
-// 'center' splits it across both sides - shorted by one space on the left
-// than an even split would give when the padding is odd (confirmed against
-// the actual rendered row - the Text Minikernel's own drawing doesn't quite
-// treat both sides symmetrically, so a plain floor/ceil split still landed
-// one space too far left).
-export const encodeTextMessage = (text, justify = 'left') => {
-  const upper = String(text || '').toUpperCase().slice(0, TEXT_MESSAGE_LENGTH);
-  const totalPad = TEXT_MESSAGE_LENGTH - upper.length;
+// spaces, and the result is always exactly TEXT_MESSAGE_LENGTH tokens long.
+// Used for every static row AND every individual scroll page (see
+// getNamedScrollLayout's own "pages" comment in text-scroll.js) - maxWidth
+// is a hard cap either way, so a scroll page is really just one more
+// TEXT_MESSAGE_LENGTH-wide row built the exact same way, never a longer,
+// untruncated one.
+//
+// Text is justified within a maxWidth-wide field first (justify - see the
+// Text tab's own Left/Center/Right buttons, one of TEXT_JUSTIFY_OPTIONS in
+// blocks/text-strings.js - decides where the padding WITHIN that field
+// goes: 'left', the default, puts it all on the right, 'right' puts it all
+// on the left, 'center' splits it across both sides, shorted by one space
+// on the left than an even split would give when the padding is odd -
+// confirmed against the actual rendered row, the Text Minikernel's own
+// drawing doesn't quite treat both sides symmetrically, so a plain
+// floor/ceil split still landed one space too far left). That maxWidth-wide
+// field always starts at the row's own first character slot - the
+// remaining TEXT_MESSAGE_LENGTH - maxWidth slots are always blank and
+// always at the END of the row, regardless of justify, so a narrower
+// maxWidth always reads as "the rest of the row got truncated," never as
+// the message shifting position.
+export const encodeTextMessage = (text, justify = 'left', maxWidth = resolveTextMaxDisplayWidth()) => {
+  const upper = String(text || '').toUpperCase().slice(0, maxWidth);
+  const totalPad = maxWidth - upper.length;
   const leftPad = justify === 'right' ? totalPad :
     justify === 'center' ? Math.max(0, Math.floor(totalPad / 2) - 1) : 0;
-  const padded = ' '.repeat(leftPad) + upper.padEnd(TEXT_MESSAGE_LENGTH - leftPad, ' ');
-  return padded.split('').map((char) => CHAR_TO_GLYPH[char] || '_sp');
+  const withinWidth = ' '.repeat(leftPad) + upper.padEnd(maxWidth - leftPad, ' ');
+  const fullRow = withinWidth.padEnd(TEXT_MESSAGE_LENGTH, ' ');
+  return fullRow.split('').map((char) => CHAR_TO_GLYPH[char] || '_sp');
 };
 
 export default (Blockly) => {
@@ -83,8 +82,12 @@ export default (Blockly) => {
 
   // Free-typed messages ("Show text: <literal>") have no Text tab entry to
   // number them by, so they keep the old lazy, dedup-by-content scheme,
-  // appended after every Text tab entry's fixed row (see
-  // generateTextMinikernel()).
+  // appended after every Text tab entry's own fixed-width row (see
+  // generateTextMinikernel()) - always TEXT_MESSAGE_LENGTH wide and always
+  // truncated to maxWidth (see encodeTextMessage), same as every named row,
+  // since maxWidth is a hard cap every "Show text" block respects,
+  // scrolling variants included (see getNamedScrollLayout's own comment in
+  // text-scroll.js).
   const registerFreeTypedMessage = (text) => {
     Blockly.BBasic.freeTypedMessages = Blockly.BBasic.freeTypedMessages || [];
     const messages = Blockly.BBasic.freeTypedMessages;
@@ -93,33 +96,92 @@ export default (Blockly) => {
       index = messages.length;
       messages.push(text);
     }
-    return (listTextStrings().length + 1 + index) * TEXT_MESSAGE_LENGTH;
+    const offset = (listTextStrings().length + 1 + index) * TEXT_MESSAGE_LENGTH;
+    return {offset, maxOffset: 0};
+  };
+
+  // Every "Show text" generator ends by calling this with the offset/
+  // maxOffset it already knows (a compile-time constant for named/free-typed
+  // messages, a runtime table lookup for "Show text with ID" - see its own
+  // generators below) and the scroll speed/pause codes to use (either the
+  // fixed defaults below, for the plain "Show text" blocks, or a
+  // "..._scroll" block's own SCROLL_SPEED/SCROLL_PAUSE fields) - see
+  // buildTextScrollSetupLines' own comment in text-scroll.js for why every
+  // call reconfigures the full scroll state, even for a static message.
+  const emitScrollSetup = (offsetExpr, maxOffsetExpr, speed, pause) => {
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const lines = [
+      `TextIndex = ${offsetExpr}`,
+      ...buildTextScrollSetupLines(resolveVar, offsetExpr, maxOffsetExpr, speed, pause),
+    ];
+    return lines.join('\n') + '\n';
+  };
+
+  // Used by the plain "Show text" blocks (no SCROLL_SPEED/SCROLL_PAUSE
+  // fields of their own) whenever a message they show turns out to be too
+  // long to fit statically - see blocks/text-minikernel.js's own "(scrolling)"
+  // block variants for ones with tunable fields instead.
+  const DEFAULT_SCROLL_SPEED = '20';
+  const DEFAULT_SCROLL_PAUSE = '30';
+
+  const scrollFieldCodes = (block) => [
+    Blockly.BBasic.valueToCode(block, 'SCROLL_SPEED', Blockly.BBasic.ORDER_ASSIGNMENT) || DEFAULT_SCROLL_SPEED,
+    Blockly.BBasic.valueToCode(block, 'SCROLL_PAUSE', Blockly.BBasic.ORDER_ASSIGNMENT) || DEFAULT_SCROLL_PAUSE,
+  ];
+
+  // Plain named block: always the ordinary, single, maxWidth-truncated
+  // static row (position*TEXT_MESSAGE_LENGTH), maxOffset always 0 - never
+  // touches the scroll append region at all.
+  Blockly.BBasic['text_minikernel_show_named'] = function(block) {
+    markTextMinikernelUsed();
+    const offset = namedMessagePosition(block.getFieldValue('TEXT_ID')) * TEXT_MESSAGE_LENGTH;
+    return emitScrollSetup(offset, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
+  };
+  // Scroll named block: uses the SAME position to look up that entry's own
+  // page-0 offset/maxOffset in the scroll append region (see
+  // getNamedScrollLayout in text-scroll.js) - naturally maxOffset = 0 for a
+  // message with only one page (fits within maxWidth already), same
+  // end-to-end effect as the plain block above for that message.
+  Blockly.BBasic['text_minikernel_show_named_scroll'] = function(block) {
+    markTextMinikernelUsed();
+    const position = namedMessagePosition(block.getFieldValue('TEXT_ID'));
+    const layout = getNamedScrollLayout();
+    const entry = layout[position] || layout[0];
+    return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
   };
 
   Blockly.BBasic['text_minikernel_show'] = function(block) {
     markTextMinikernelUsed();
-    const message = block.getFieldValue('TEXT');
-    const offset = registerFreeTypedMessage(message);
-    return `TextIndex = ${offset}\n`;
+    const entry = registerFreeTypedMessage(block.getFieldValue('TEXT'));
+    return emitScrollSetup(entry.offset, entry.maxOffset, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
   };
-
-  Blockly.BBasic['text_minikernel_show_named'] = function(block) {
+  Blockly.BBasic['text_minikernel_show_scroll'] = function(block) {
     markTextMinikernelUsed();
-    const offset = namedMessagePosition(block.getFieldValue('TEXT_ID')) * TEXT_MESSAGE_LENGTH;
-    return `TextIndex = ${offset}\n`;
+    const entry = registerFreeTypedScrollMessage(Blockly, block.getFieldValue('TEXT'));
+    return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
   };
 
   Blockly.BBasic['text_minikernel_show_by_id'] = function(block) {
     markTextMinikernelUsed();
-    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
-        Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
     // Hand-written "*" rather than routing through the math_arithmetic
-    // block generator - see Blockly.BBasic.usesDivMul's own comment in
-    // bbasic.js: any multiply/divide has to flag usesDivMul itself so
-    // generateDivMul() knows to pull in div_mul.asm, since nothing else
-    // triggers on a "*" appearing in hand-written generator output.
+    // block generator - see Blockly.BBasic.usesDivMul's own comment
+    // elsewhere in this codebase: any multiply/divide has to flag
+    // usesDivMul itself so generateDivMul() knows to pull in div_mul.asm.
     Blockly.BBasic.usesDivMul = true;
-    return `TextIndex = (${argument0}) * ${TEXT_MESSAGE_LENGTH}\n`;
+    return emitScrollSetup(`(${argument0}) * ${TEXT_MESSAGE_LENGTH}`, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
+  };
+  // Scroll by-id block: which entry gets shown isn't known until runtime,
+  // so unlike the compile-time-known blocks above, this needs an actual
+  // runtime table lookup - see trackTextByIdScrollUsage/
+  // generateTextOffsetTables' own comments in text-scroll.js.
+  Blockly.BBasic['text_minikernel_show_by_id_scroll'] = function(block) {
+    markTextMinikernelUsed();
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    trackTextByIdScrollUsage(Blockly, Blockly.BBasic.getCurrentBank());
+    return emitScrollSetup(
+        `text_offsets[${argument0}]`, `text_scroll_max[${argument0}]`, ...scrollFieldCodes(block));
   };
 
   Blockly.BBasic['text_minikernel_clear'] = function(block) {
@@ -132,6 +194,23 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     return `TextColor = ${argument0}\n`;
+  };
+
+  // A single comparison against the shared scroll state (see
+  // text-scroll.js) - modeled directly on background_fade_active's own
+  // simple-bit-read pattern in generators/bbasic/background.js. "Left"
+  // reads offset = 0 (also true, harmlessly, for a message that never
+  // needed to scroll at all - see buildTextScrollSetupLines' own comment);
+  // "Right" reads offset = max, which is only ever reached by a message
+  // that's actually scrolling.
+  Blockly.BBasic['text_minikernel_scroll_at'] = function(block) {
+    markTextMinikernelUsed();
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const off = resolveVar(textScrollOffsetVarName());
+    const side = block.getFieldValue('SIDE');
+    const code = side === 'right' ? `${off} = ${resolveVar(textScrollMaxVarName())}` : `${off} = 0`;
+    return [code, Blockly.BBasic.ORDER_EQUALITY];
   };
 
   // Drives generateSystemDims()'s TextIndex/TextDataPtr dims below - needs to
@@ -199,17 +278,45 @@ export default (Blockly) => {
     // clears to 0 at power-on, and stays 0 until some block explicitly
     // assigns it, so this is what shows (nothing) before that happens,
     // rather than whichever message happened to be defined first. Rows
-    // 1..N: every Text tab entry, in that same order (position N = row N -
-    // see namedMessagePosition() above and "Show text with ID"). Remaining
-    // rows: free-typed messages, in first-referenced order.
-    // Free-typed messages ("Show text: <literal>") have no Justify buttons
-    // of their own to read - only Text tab entries do.
-    const namedTexts = listTextStrings().map(({text, justify}) => ({text, justify}));
-    const freeTypedTexts = (this.freeTypedMessages || []).map((text) => ({text, justify: 'left'}));
-    const allTexts = [{text: '', justify: 'left'}, ...namedTexts, ...freeTypedTexts];
-    const rows = allTexts.map(({text, justify}) =>
-      '  ' + encodeTextMessage(text, justify).join(', '));
-    const dataTable = ` data text_strings\n${rows.join('\n')}\nend`;
+    // 1..N: every Text tab entry, in that same order (position N's own byte
+    // offset = N * TEXT_MESSAGE_LENGTH - see namedMessagePosition() above
+    // and "Show text with ID"'s own generator). Next: free-typed messages,
+    // in first-referenced order (see registerFreeTypedMessage above). Every
+    // row so far is always exactly TEXT_MESSAGE_LENGTH wide and always
+    // truncated to maxWidth via encodeTextMessage - this is the region the
+    // PLAIN "Show text" blocks exclusively read from.
+    //
+    // After that: the scroll append region (see getNamedScrollLayout/
+    // registerFreeTypedScrollMessage's own comments in text-scroll.js) - one
+    // extra, untruncated row for every entry a "(scrolling)" block variant
+    // actually needed one for (an entry short enough to not need scrolling
+    // reuses its own static row above instead, and has no `glyphs` here at
+    // all - see getNamedScrollLayout's own null-glyphs case).
+    // bB's own "data" statement caps how many comma-separated values a
+    // single line can hold (confirmed directly: a real build of a long
+    // scrollable message failed with "Maximum line length exceeded in data
+    // statement") - every row's own glyphs are chunked into lines of at
+    // most 16 (same chunk size generateDataTables() in generators/bbasic.js
+    // already uses for the same reason) before being joined. Purely a
+    // source-formatting concern: DASM concatenates every value in a
+    // "data...end" block into one contiguous byte run regardless of how
+    // many lines it's split across, so this never changes any offset above.
+    const glyphRows = (glyphs) => chunk(glyphs, 16).map((row) => '  ' + row.join(', '));
+
+    const maxWidth = resolveTextMaxDisplayWidth();
+    const staticEntries = [{text: '', justify: 'left'}, ...listTextStrings()];
+    const namedRows = staticEntries.flatMap(({text, justify}) =>
+      glyphRows(encodeTextMessage(text, justify, maxWidth)));
+    const freeTypedRows = (this.freeTypedMessages || []).flatMap((text) =>
+      glyphRows(encodeTextMessage(text, 'left', maxWidth)));
+    const namedScrollRows = getNamedScrollLayout()
+        .filter((entry) => entry.glyphs)
+        .flatMap(({glyphs}) => glyphRows(glyphs));
+    const freeTypedScrollRows = (this.freeTypedScrollMessages || [])
+        .flatMap(({glyphs}) => glyphRows(glyphs));
+    const dataTable = ` data text_strings\n${
+      [...namedRows, ...freeTypedRows, ...namedScrollRows, ...freeTypedScrollRows].join('\n')
+    }\nend`;
 
     // Matches the reference demo's own layout exactly: the data table comes
     // first, then both inline files back to back with nothing between them.

@@ -34,6 +34,7 @@ import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
   resolveNotePlayedInstruments, reserveMusicDevVars} from './bbasic/music';
+import {reserveTextScrollDevVars, generateTextScrollAdvance, generateTextOffsetTables} from './bbasic/text-scroll';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -151,6 +152,35 @@ Blockly.BBasic.addReservedWords(
     // this.projectMusic is resolved, so those are reserved separately, in
     // init() below.
     `${RUN_ONCE_EDGE_RESET_NAME},${MUSIC_PLAY_RESET_NAME},${MUSIC_PLAY_BY_ID_NAME},${musicPlayByIdArgVarName()},` +
+    // Every hardcoded pseudo-register/absolute-address name batari Basic's
+    // own 2600basic.h defines (public/bb19/includes/2600basic.h) - a user
+    // variable named e.g. "temp2" or "player0x" wasn't being renamed away
+    // from that collision the way a JS-keyword-named one already was above,
+    // so nameDB_.getName() handed it back completely unchanged, and the
+    // generated code ended up declaring a NEW "dim temp2 = ..." on top of
+    // 2600basic.h's own pre-existing "temp2 = $9D" - two different addresses
+    // for the same symbol name, which DASM reports as "EQU: Value mismatch"
+    // (confirmed directly: a project with Blockly variables literally named
+    // temp/temp2/temp3 failed to assemble with exactly that error). Single
+    // letters (a-z/A-Z) and var0-var47 are deliberately included too, even
+    // though this app's own letter/Superchip-slot allocator (routeDevVar
+    // below) already hands those out itself - a user-created variable
+    // literally named "a" or "var5" would otherwise collide with whatever
+    // this app assigns to that same symbol on its own.
+    'player0x,player1x,missile0x,missile1x,ballx,' +
+    'objecty,player0y,player1y,missile1height,missile1y,bally,' +
+    'player1color,' +
+    'player0pointer,player0pointerlo,player0pointerhi,player1pointer,player1pointerlo,player1pointerhi,' +
+    'player0height,player1height,missile0height,missile0y,ballheight,' +
+    'currentpaddle,paddle,player0colorstore,player0color,' +
+    'score,scorepointers,temp1,temp2,temp3,temp4,temp5,temp6,temp7,' +
+    'rand,scorecolor,playfieldpos,' +
+    'aux1,aux2,aux3,aux4,aux5,aux6,' +
+    'pfcolortable,pfheighttable,lifepointer,lifecolor,lives,statusbarlength,' +
+    'pfscore1,pfscore2,pfscorecolor,stack1,stack2,stack3,stack4,' +
+    [...Array(48).keys()].map((i) => `var${i}`).join(',') + ',' +
+    'a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,' +
+    'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,' +
     // Everything in the current environment (835 items in Chrome, 104 in Node).
     Object.getOwnPropertyNames(Blockly.utils.global).join(','));
 
@@ -262,6 +292,10 @@ Blockly.BBasic.init = function(workspace) {
   // inflating that table's size on every single build until the page was
   // hard-reloaded.
   this.freeTypedMessages = [];
+  // Same reset reasoning as freeTypedMessages above, for free-typed "Show
+  // text (scrolling): <literal>" messages (see registerFreeTypedScrollMessage
+  // in generators/bbasic/text-scroll.js).
+  this.freeTypedScrollMessages = [];
   // Same reset reasoning as textMinikernelUsed above - see math.js's
   // math_arithmetic handler, which sets this as a side effect.
   this.usesDivMul = false;
@@ -531,6 +565,12 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(scoreBkColorVarName());
   }
 
+  // Same bucket again, for the Text Minikernel's own per-character
+  // scrolling feature (see generators/bbasic/text-scroll.js) - a no-op
+  // unless textMinikernelUsed's own early pre-scan (above) found it active,
+  // same reasoning as scoreBkColorNeedsOwnVar just above.
+  reserveTextScrollDevVars(reserveDevVar, this.textMinikernelUsed);
+
   // "rand16" is a real batari Basic feature (see std_routines.asm's own
   // "ifconst rand16" check), not an app invention - simply DIMming a
   // variable with this EXACT name switches the standard kernel's randomize
@@ -684,6 +724,19 @@ Blockly.BBasic.init = function(workspace) {
   // body, populated as subroutine_define blocks are walked, then spliced
   // into their own section by generateSubroutines() below.
   this.subroutines = {};
+
+  // User-defined native batari Basic "function"s (see generators/bbasic/
+  // function.js) - a real value-returning callable, distinct from the
+  // gosub/return-only subroutines above. Kept in its own separate map
+  // (rather than sharing this.subroutines) since a function's own header
+  // line ("function <name>", not a bare "@<name>" label) and body (which
+  // always ends in an explicit "return <value>" from a function_return
+  // block, never an auto-appended bare "return") don't fit
+  // generateSubroutineBody's shared wrapper - see generateFunctions() below.
+  // Always bank 1 in this first implementation (see generateFunctions'
+  // own comment) - unlike subroutines, functions don't participate in
+  // getSubroutineBank/generateRelocatedSections at all yet.
+  this.functions = {};
 
   // See RUN_ONCE_EDGE_RESET_NAME's own comment - registered as an ordinary
   // subroutine (rather than left as a separately-templated, always-bank-1
@@ -1118,6 +1171,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
         .filter(([name]) => Blockly.BBasic.getSubroutineBank(name) === bank)
         .map(([name, body]) => generateSubroutineBody(name, body));
     const tablesForBank = Blockly.BBasic.generateDataTables(bank);
+    const textOffsetTablesForBank = generateTextOffsetTables(Blockly, bank);
     return [
       ` bank ${bank}`,
       ...eventBodies,
@@ -1125,6 +1179,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
       ...musicBodies,
       ...subroutineBodies,
       tablesForBank,
+      textOffsetTablesForBank,
       ` bank 1`,
     ].filter(Boolean).join('\n\n');
   }).join('\n\n');
@@ -1164,7 +1219,14 @@ Blockly.BBasic.finish = function(code) {
   Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
+  // Bank 1's own copy of the Text Minikernel's "show by id" lookup tables
+  // (see generateTextOffsetTables' own comment in bbasic/text-scroll.js) -
+  // each relocated bank gets its own copy directly inside
+  // generateRelocatedSections above instead, alongside that bank's own data
+  // tables.
+  const generatedTextOffsetTables = generateTextOffsetTables(Blockly, 1);
   const generatedSubroutines = Blockly.BBasic.generateSubroutines();
+  const generatedFunctions = Blockly.BBasic.generateFunctions();
 
   const systemStartEvent = this.generateGameEvent('system_start');
   const relocatable = Object.fromEntries(
@@ -1203,6 +1265,11 @@ Blockly.BBasic.finish = function(code) {
   // usesDivMul is by the time IT runs, same ordering reasoning as
   // generatedSoundFadeChecks above.
   const generatedDistancePointChecks = Blockly.BBasic.generateDistancePointChecks();
+  // Per-frame scroll-advance check for the Text Minikernel's own scrolling
+  // messages (see generators/bbasic/text-scroll.js) - has no usesDivMul (or
+  // any other) side effects of its own, so it has no ordering constraint
+  // relative to generateDivMul() below, unlike its neighbors above.
+  const generatedTextScrollAdvance = generateTextScrollAdvance(Blockly);
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
   const generatedRunOnceEdgeReset = Blockly.BBasic.generateRunOnceEdgeResetCall();
@@ -1212,13 +1279,13 @@ Blockly.BBasic.finish = function(code) {
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
-    generatedAnimations, generatedDataTables,
-    generatedSubroutines, generatedRelocatedEvents, generatedTextMinikernel,
+    generatedAnimations, generatedDataTables, generatedTextOffsetTables,
+    generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
     generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
-    generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
+    generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the
@@ -1977,6 +2044,24 @@ Blockly.BBasic.generateSubroutines = function() {
       .join('\n\n');
 };
 
+// Splices every user-defined function (see function_define in
+// generators/bbasic/function.js) into the same never-fallen-into spot
+// generateSubroutines uses, right alongside it - "function <name>" is
+// batari Basic's own real header for this (not a bare "@name" label), and
+// the body already ends in an explicit "return <value>" from a
+// function_return block, so unlike generateSubroutineBody this never
+// appends its own trailing "return" - one always defined by a function's
+// own real syntax, would be unreachable dead code past every branch's own
+// return, or (for a body with no function_return block at all - a project
+// mistake, not something to paper over) a bare valueless "return" that
+// doesn't match the "always returns a number" contract every function_call
+// site assumes.
+Blockly.BBasic.generateFunctions = function() {
+  return Object.entries(Blockly.BBasic.functions)
+      .map(([name, body]) => Blockly.BBasic.normalizeIndents(`function ${name}\n${body}`))
+      .join('\n\n');
+};
+
 Blockly.BBasic.generateAnimations = function() {
   // Reset fresh every generation, same reasoning/mechanism as
   // musicGateAsmFiles in generators/bbasic/music.js - hooks/rom.js merges
@@ -2106,12 +2191,12 @@ import color from './bbasic/color';
 import colour from './bbasic/colour';
 import data from './bbasic/data';
 import event from './bbasic/event';
+import functionGenerators from './bbasic/function';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
 import loops from './bbasic/loops';
 import math from './bbasic/math';
 import music from './bbasic/music';
-import procedures from './bbasic/procedures';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
@@ -2122,7 +2207,7 @@ import text from './bbasic/text';
 import textMinikernel from './bbasic/text-minikernel';
 import variables from './bbasic/variables';
 
-[background, bit, collision, color, colour, data, event, input, logic, loops, math, music, procedures,
+[background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
   random, score, sound, soundfx, sprites, subroutine, text, textMinikernel, variables]
     .forEach((init) => init(Blockly));
 

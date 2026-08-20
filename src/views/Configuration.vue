@@ -95,6 +95,22 @@
           persistent-hint
           class="option-switch"
         />
+        <v-switch
+          v-model="configurationState.blocklyControlsHorizontal"
+          @change="handleChangeConfiguration"
+          label="Arrange Blockly controls horizontally"
+          hint="When off (default), the zoom in/out/reset/grid-snap buttons on the Actions tab's Blockly canvas are stacked vertically along the right edge. When on, they're arranged in a row along the bottom edge instead."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.hideDescriptionText"
+          @change="handleChangeConfiguration"
+          label="Expert mode"
+          hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
+          persistent-hint
+          class="option-switch"
+        />
       </div>
 
       <v-divider class="my-2" />
@@ -215,6 +231,8 @@ export default defineComponent({
           scoreFont: '',
           muteAllAudio: false,
           muteBlocklySounds: false,
+          blocklyControlsHorizontal: false,
+          hideDescriptionText: false,
         };
 
         try {
@@ -374,10 +392,31 @@ export default defineComponent({
   margin-left: 46px;
 }
 
+/* Vuetify's own ".v-input--selection-controls" gives every switch a fixed
+   16px margin-top regardless of whether its own hint text is even showing
+   (see node_modules/vuetify/dist/vuetify.css) - once "Expert mode" (see
+   App.vue's own hide-description-text support) removes that hint text,
+   that much space between switches reads as too generous with nothing left
+   below to justify it. */
+.hide-description-text .option-switch {
+  margin-top: 2px;
+}
+
 /* Reads as a sub-option of the Superchip switch above it, so it's indented to
-   line up under that switch's label text rather than its toggle track. */
+   line up under that switch's label text rather than its toggle track.
+   margin-top adds a bit of breathing room from that switch's own hint text
+   directly above - the two otherwise sat flush against each other. */
 .pfres-field {
   margin-left: 46px;
+  margin-top: 12px;
   max-width: calc(100% - 46px);
+}
+
+/* See App.vue's own "Hide small description text" support - with that
+   switch's hint text gone, there's no longer anything for the margin-top
+   above to create breathing room from, so it can sit right under the
+   switch itself again. */
+.hide-description-text .pfres-field {
+  margin-top: 0;
 }
 </style>

@@ -36,6 +36,15 @@
               <v-icon>mdi-eraser</v-icon>
             </v-btn>
             <v-btn
+              icon
+              small
+              title="Pencil"
+              value="pencil"
+              @click="editor.tool = pencil"
+            >
+              <v-icon>mdi-pencil</v-icon>
+            </v-btn>
+            <v-btn
               v-if="showClearButton"
               icon
               small
@@ -44,15 +53,6 @@
               @click="handleClear"
             >
               <v-icon>mdi-delete-sweep</v-icon>
-            </v-btn>
-            <v-btn
-              icon
-              small
-              title="Pencil"
-              value="pencil"
-              @click="editor.tool = pencil"
-            >
-              <v-icon>mdi-pencil</v-icon>
             </v-btn>
           </v-btn-toggle>
           <v-divider class="pixel-editor-toolbar-divider" vertical />
@@ -265,11 +265,11 @@ export default {
       heightMenuApplyToAllFrames: false,
 
       // String values (see the Eraser/Pencil/Clear v-btn "value" props),
-      // not index-based - Clear sits between them in the group so it can
-      // be positioned to the right of Eraser without touching Eraser's own
-      // index, but it isn't a real drawing tool, so it's excluded here and
-      // reset back to whichever tool was actually active after every click
-      // (see handleClear) rather than staying lit up as if selected.
+      // not index-based - Clear sits last in the group (after Pencil) so it
+      // can be repositioned without touching Eraser's/Pencil's own values,
+      // but it isn't a real drawing tool, so it's excluded here and reset
+      // back to whichever tool was actually active after every click (see
+      // handleClear) rather than staying lit up as if selected.
       toggledTool: 'pencil',
     };
   },

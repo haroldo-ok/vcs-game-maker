@@ -1,5 +1,5 @@
 <template>
-  <v-app id="inspire">
+  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText}">
     <v-system-bar app>
       <v-card-text>{{ productName }} {{ version }}</v-card-text>
 
@@ -17,59 +17,56 @@
       clipped-right
       flat
       height="72"
+      color="white"
+      class="navigation-list top-toolbar"
     >
-      <v-toolbar
-        flat
-        class="navigation-list"
-      >
-        <v-btn to="/" link class="actions-item" title="Actions" elevation="0">
+        <v-btn to="/" link text class="actions-item" title="Actions" elevation="0">
           <v-icon>mdi-chart-scatter-plot</v-icon>
         </v-btn>
 
-        <v-btn to="/player0" link class="player0-item" title="Player 0" elevation="0">
+        <v-btn to="/player0" link text class="player0-item" title="Player 0" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
         </v-btn>
 
-        <v-btn to="/player1" link class="player1-item" title="Player 1" elevation="0">
+        <v-btn to="/player1" link text class="player1-item" title="Player 1" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
         </v-btn>
 
-        <v-btn to="/background" link class="background-item" title="Background" elevation="0">
+        <v-btn to="/background" link text class="background-item" title="Background" elevation="0">
           <v-icon>mdi-map</v-icon>
         </v-btn>
 
-        <v-btn to="/soundfx" link class="sound-item" title="Sound" elevation="0">
+        <v-btn to="/soundfx" link text class="sound-item" title="Sound" elevation="0">
           <v-icon>mdi-waveform</v-icon>
         </v-btn>
 
-        <v-btn to="/music" link class="music-item" title="Music" elevation="0">
+        <v-btn to="/music" link text class="music-item" title="Music" elevation="0">
           <v-icon>mdi-music-note</v-icon>
         </v-btn>
 
-        <v-btn to="/scorefont" link class="scorefont-item" title="Score" elevation="0">
+        <v-btn to="/scorefont" link text class="scorefont-item" title="Score" elevation="0">
           <v-icon>mdi-numeric</v-icon>
         </v-btn>
 
-        <v-btn to="/text" link class="text-tab-item" title="Text" elevation="0">
+        <v-btn to="/text" link text class="text-tab-item" title="Text" elevation="0">
           <v-icon>mdi-card-text-outline</v-icon>
         </v-btn>
 
-        <v-btn to="/data" link class="data-item" title="Data" elevation="0">
+        <v-btn to="/data" link text class="data-item" title="Data" elevation="0">
           <v-icon>mdi-table</v-icon>
         </v-btn>
 
-        <v-btn to="/configuration" link class="configuration-item" title="Options" elevation="0">
+        <v-btn to="/configuration" link text class="configuration-item" title="Options" elevation="0">
           <v-icon>mdi-cog</v-icon>
         </v-btn>
 
-        <v-btn to="/generated" link class="generated-item" title="Generated" elevation="0">
+        <v-btn to="/generated" link text class="generated-item" title="Generated" elevation="0">
           <v-icon>mdi-card-text</v-icon>
         </v-btn>
 
-        <v-btn to="/project" link class="project-item" title="Project" elevation="0">
+        <v-btn to="/project" link text class="project-item" title="Project" elevation="0">
           <v-icon>mdi-pencil-ruler</v-icon>
         </v-btn>
-      </v-toolbar>
     </v-app-bar>
 
     <v-navigation-drawer
@@ -256,11 +253,6 @@
       class="emulator-drawer"
       :width="emulatorWidth"
     >
-      <div
-        class="emulator-resize-handle"
-        title="Drag to resize the emulator"
-        @mousedown.prevent="startResize"
-      ></div>
       <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
         <v-btn
           block
@@ -318,6 +310,14 @@
       </div>
     </v-navigation-drawer>
 
+    <div
+      v-if="emulatorVisible"
+      class="emulator-resize-handle"
+      title="Drag to resize the emulator"
+      :style="{right: (emulatorWidth - 5) + 'px'}"
+      @mousedown.prevent="startResize"
+    ></div>
+
     <v-btn
       v-if="emulatorVisible"
       fab
@@ -374,7 +374,7 @@
 </template>
 
 <script>
-import {useCompileLog, useErrorStorage} from './hooks/project';
+import {useCompileLog, useConfigurationStorage, useErrorStorage} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated} from './hooks/rom';
 import {productName, version} from '../package.json';
 
@@ -444,7 +444,7 @@ export default {
     console.info('Text', version);
     return {
       errorStorage, compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      productName, version,
+      productName, version, configurationStorage: useConfigurationStorage(),
     };
   },
   mounted() {
@@ -464,6 +464,24 @@ export default {
     }
   },
   computed: {
+    // See Configuration.vue's "Hide small description text" switch - reads
+    // the same "hideDescriptionText" config field every VCSGM Options
+    // switch already uses, bound as a class on the root v-app below so the
+    // global ".hide-description-text .v-messages__message" CSS rule can
+    // reach every hint/description paragraph in the app from one place,
+    // now that they all consistently use that same class (see TextEditor.vue's
+    // own hint paragraph for the pattern every other tab's hint text follows).
+    hideDescriptionText() {
+      // this.configurationStorage is a computed RETURNED from setup() - Vue's
+      // Composition API auto-unwraps that when accessed through the
+      // component instance (confirmed against this file's own romCapacityText
+      // above, which reads "this.romCapacity" the same unwrapped way), so
+      // it's already the plain config object here, not a ref needing its own
+      // ".value" - that extra ".value" was silently reading undefined off
+      // the config object itself, not off a ref, which is why this always
+      // evaluated to false regardless of the actual stored setting.
+      return !!(this.configurationStorage || {}).hideDescriptionText;
+    },
     emulatorScaleStyle() {
       return {
         '--emulator-scale': this.emulatorScale,
@@ -919,6 +937,99 @@ export default {
   --app-font-family: 'Inter', sans-serif;
 }
 
+/* Every scrollbar in the app (the left sidebar, the emulator column, each
+   editor tab's own scroll area, the error console) was previously left at
+   the browser's own default width/appearance - unstyled anywhere in this
+   codebase (confirmed directly, no "::-webkit-scrollbar"/"scrollbar-width"
+   rule existed before this one). Global rather than scoped to any one
+   panel, so all of them read as one consistent, subdued design: a slim,
+   low-opacity grey bar at rest (barely there until you actually look for
+   it), a little darker on hover so it's still easy to find and grab. 16px
+   gutter, 12px visible thumb - the thumb is narrower than the gutter via a
+   transparent border + background-clip: content-box (the border eats into
+   the thumb's own box without changing the gutter it's laid out in, and
+   clipping the background to content-box keeps that border area from
+   getting painted over) - the standard trick for "thinner bar than its own
+   track." Firefox has no equivalent for a specific pixel gutter/thumb size
+   (only the generic "scrollbar-width: thin/auto/none" keywords), so it only
+   gets the color change here, not the exact sizing. */
+* {
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.25);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+/* Blockly draws its own scrollbars as SVG rects (.blocklyScrollbarHandle),
+   not real browser scrollbars, so the ::-webkit-scrollbar rules above never
+   reach them - overridden here with the same rest/hover colors so they read
+   as the same design instead of Blockly's own default light grey.
+   Blockly's own stock stylesheet (node_modules/blockly/core/css.js) already
+   has a ".blocklyFlyout .blocklyScrollbarHandle"/"...:hover" pair (two
+   classes) specifically for flyout scrollbars, darkened for its grey
+   background - that beats a plain ".blocklyScrollbarHandle" rule on
+   specificity regardless of source order, so the flyout's own scrollbar was
+   still showing Blockly's stock grey (#bbb/#aaa) instead of this app's
+   rgba(0,0,0,0.25/0.4), particularly obvious on hover. Repeating the
+   ".blocklyFlyout" prefix here matches that specificity so this app's colors
+   win in the flyout too, not just the main workspace. */
+.blocklyScrollbarHandle,
+.blocklyFlyout .blocklyScrollbarHandle {
+  fill: rgba(0, 0, 0, 0.25);
+}
+
+.blocklyScrollbarBackground:hover + .blocklyScrollbarHandle,
+.blocklyScrollbarHandle:hover,
+.blocklyFlyout .blocklyScrollbarBackground:hover + .blocklyScrollbarHandle,
+.blocklyFlyout .blocklyScrollbarHandle:hover {
+  fill: rgba(0, 0, 0, 0.4);
+}
+
+/* Matches the grid-snap icon's own rest/hover/press opacity steps (see
+   ActionEditor.vue's setupGridSnapZoomButton) - overrides Blockly's own
+   stock ".blocklyZoom>image"/"...:hover"/"...:active" rule (css.js,
+   .4/.6/.8), which is the SAME selector this app's own stylesheet uses, so
+   which one wins is otherwise just a source-order coin flip (Blockly injects
+   its CSS at runtime, after this file's own compiled <style> tag) -
+   !important makes this app's values win unconditionally instead. */
+.blocklyZoom > image,
+.blocklyZoom > svg > image {
+  opacity: .25 !important;
+}
+
+.blocklyZoom > image:hover,
+.blocklyZoom > svg > image:hover {
+  opacity: .5 !important;
+}
+
+.blocklyZoom > image:active,
+.blocklyZoom > svg > image:active {
+  opacity: .75 !important;
+}
+
+/* The handle's exact 12px width/inset (matching the app's global scrollbar
+   thumb) is set directly on the SVG attributes in BlocklyComponent.vue's
+   createDom_ patch, not here - CSS geometry-property support for SVG
+   width/x/rx isn't reliable enough across browsers for something this
+   visible. */
+
 /* Overrides Vuetify's own bundled reset (ress.css), which sets
    "html { overflow-y: scroll }" deliberately (its own comment: "All
    browsers without overlaying scrollbars") to reserve scrollbar space
@@ -1012,6 +1123,20 @@ html {
    app uses this same class. */
 .v-messages__message {
   line-height: 1.4 !important;
+}
+
+/* See Configuration.vue's "Hide small description text" switch (VCSGM
+   Options) and this file's own hideDescriptionText computed, bound as a
+   class on the root v-app above - hides every hint/description paragraph
+   app-wide from one place, now that they all consistently share this same
+   Vuetify class (see TextEditor.vue's own hint paragraph for the pattern).
+   Left targeting the plain class (not "v-messages" too) since a field's
+   OWN validation/error messages also render through the same DOM structure
+   and use ".v-messages__message" too - scoping any tighter would need
+   distinguishing "hint" text from "error" text, which Vuetify itself
+   doesn't expose a separate class for. */
+.hide-description-text .v-messages__message {
+  display: none;
 }
 
 #javatari-target-container {
@@ -1117,6 +1242,19 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   transition-property: transform, visibility;
 }
 
+/* Separates the top toolbar from everything below it (the middle pane AND
+   the emulator column) with one continuous line, rather than adding the
+   same border separately to each pane below it (tried first - two
+   separately-bordered panes, each only as wide as its own column, instead
+   of one line spanning the full width in one place). !important because
+   the v-app-bar's own "color=white" prop applies Vuetify's ".white" color
+   utility class, which sets "border-color: #fff !important" - confirmed
+   directly (computed style showed this border rendering solid white,
+   invisible against the toolbar's own white background) rather than assumed. */
+.top-toolbar {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12) !important;
+}
+
 /* Vuetify offsets the main content with an animated padding matching the
    drawer width, which makes the Blockly canvas ease into its new size while
    the column and emulator resize instantly. It also means the canvas is
@@ -1188,21 +1326,60 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   overflow-y: auto;
 }
 
+/* A sibling of the drawer (see the template), NOT a child of it - same
+   reasoning as .emulator-hide-button below: v-navigation-drawer sets
+   overflow: hidden on itself, which clipped away the left half of this
+   handle's straddle when it lived inside the drawer as an absolutely-
+   positioned child, so the hover highlight never actually spilled onto the
+   content to its left the way .error-resize-handle's does (that one lives in
+   a v-footer, which doesn't clip). Fixed to the window instead, with "right"
+   bound inline to emulatorWidth so it still tracks the drawer's own left
+   edge as it's resized. */
 .emulator-resize-handle {
-  position: absolute;
-  left: 0;
+  position: fixed;
   top: 0;
   bottom: 0;
-  width: 6px;
+  /* Straddles the drawer's own left edge (-5px to +5px, via the "right"
+     style bound to emulatorWidth - 5 in the template), matching
+     .error-resize-handle's own straddle - a plain 6px strip fully inside
+     the drawer was too easy to miss by a pixel and land on the emulator
+     content instead. */
+  width: 10px;
   cursor: ew-resize;
-  z-index: 2;
+  /* Same z-index the toggle buttons below use to sit above the drawer -
+     without this, the drawer (a higher-z-index Vuetify "app" element)
+     painted over the right half of this straddle and ate its hover/clicks,
+     leaving only the left half interactive - looked both shrunken and
+     shifted left of where it used to sit. */
+  z-index: 20;
 }
 
 .emulator-resize-handle:hover {
   background-color: rgba(0, 0, 0, 0.15);
 }
 
+/* A visible grip bar centered in the drag strip - same rest/hover grey as
+   the scrollbar thumbs and .error-resize-handle's own grip below, so all of
+   the app's draggable handles read as one consistent design instead of
+   being invisible until hovered. */
+.emulator-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 40px;
+  border-radius: 2px;
+  background-color: rgba(0, 0, 0, 0.25);
+}
+
+.emulator-resize-handle:hover::after {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
 .emulator-refresh-button {
+  margin-top: 8px;
   margin-bottom: 4px;
 }
 
@@ -1221,9 +1398,9 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-hide-button {
   position: fixed;
   top: 104px;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% - 4px));
   z-index: 20;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: none !important;
 }
 
 /* right: 16px (not flush against the window's own edge) - flush placement
@@ -1236,9 +1413,9 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-show-button {
   position: fixed;
   top: 104px;
-  right: 16px;
+  right: 21px;
   z-index: 20;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: none !important;
 }
 
 /* Faded and grey at rest (see color="grey" in the template) - a quieter
@@ -1271,6 +1448,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   flex-direction: column;
   height: 100%;
   box-sizing: border-box;
+  /* The "Refresh emulator"/"Update ROM"/"Get generated ROM" buttons are all
+     "block" (100% width of this container), which previously ran them
+     flush edge to edge with no breathing room. #javatari-target-container
+     (the emulator screen itself) also ends up very slightly narrower as a
+     result, rather than compensating it back out with its own negative
+     margin - that container's own width feeds a live ResizeObserver-driven
+     scale calculation (see updateEmulatorScale/observeEmulatorSize below),
+     and a negative margin there risks that measurement disagreeing with
+     what's actually laid out, for a fix this small. */
+  padding: 0 8px;
 }
 
 /* Same reasoning as .emulator-drawer-inner above: the error console footer
@@ -1294,8 +1481,53 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left: 8px solid;
 }
 
-.navigation-list > .v-list-item:not(.v-list-item--active) {
-  opacity: 0.65;
+/* REMOVED: "opacity: 0.65" on every inactive sidebar item - the top bar's
+   own tab buttons have no equivalent dimming (always full-strength color,
+   active or not), so this was the actual source of the sidebar's icon/text
+   colors looking washed out compared to the top bar's for any tab that
+   wasn't the current page - confirmed directly via computed style: both
+   already resolved to the exact same "color: rgb(...)" (the shared
+   .actions-item/.player0-item/etc rules below already cover both bars
+   identically), it was purely this element-wide opacity multiplying that
+   same color down for the sidebar alone. */
+
+/* The top v-app-bar's own tab buttons (.actions-item/.player0-item/etc,
+   the exact same class names as the sidebar's own v-list-item entries just
+   above - see the rules right below this one) used to render with
+   Vuetify's own default v-btn appearance, a solid light grey fill
+   (".theme--light.v-btn.v-btn--has-bg { background-color: #f5f5f5 }" - see
+   node_modules/vuetify/dist/vuetify.css), unlike the sidebar's own
+   v-list-item entries, which have no background fill of their own at all -
+   confirmed as the actual source of the two navigation bars visibly not
+   matching. The "text" prop (added on each of these v-btn in the template)
+   is what removes that default fill, the same way it would for any other
+   Vuetify text-style button - no CSS override needed here for that part.
+   Once that grey fill is gone, the hover/active TINT COLOR already matches
+   the sidebar for free: Vuetify's own v-btn already uses
+   "background-color: currentColor" for its built-in hover/focus/active
+   overlay (".v-btn:before"/".v-btn--active::before" in the same vuetify.css),
+   and the color rules below already force "color: rgbX !important" on
+   these exact same classes. The tint's own STRENGTH still didn't match
+   though (confirmed directly against vuetify.css) - v-list-item's own
+   overlay opacities (hover 0.04, active 0.12) are roughly HALF v-btn's own
+   (hover 0.08, active 0.18), which read as visibly lighter/washed-out on
+   the sidebar than the same color looked on the top bar even once both
+   used the same base color. The override right below brings the sidebar's
+   own v-list-item opacities UP to match the top bar's v-btn values
+   exactly, scoped to just these nav items (not every v-list-item
+   app-wide). */
+.navigation-list.v-list .v-list-item:hover::before {
+  opacity: 0.08 !important;
+}
+.navigation-list.v-list .v-list-item:focus::before {
+  opacity: 0.24 !important;
+}
+.navigation-list.v-list .v-list-item--active:hover::before,
+.navigation-list.v-list .v-list-item--active::before {
+  opacity: 0.18 !important;
+}
+.navigation-list.v-list .v-list-item--active:focus::before {
+  opacity: 0.16 !important;
 }
 
 .actions-item,
@@ -1466,6 +1698,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   right: 0;
   bottom: 0;
   z-index: 10;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .theme--light.v-footer.error-message {
@@ -1560,5 +1793,23 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .error-resize-handle:hover {
   background-color: rgba(0, 0, 0, 0.15);
+}
+
+/* Matches .emulator-resize-handle's own grip bar above - same rest/hover
+   grey, just rotated for this handle's horizontal drag axis. */
+.error-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: rgba(0, 0, 0, 0.25);
+}
+
+.error-resize-handle:hover::after {
+  background-color: rgba(0, 0, 0, 0.4);
 }
 </style>

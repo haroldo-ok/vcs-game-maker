@@ -1,11 +1,31 @@
 'use strict';
 
-import {useTextStringsStorage} from '../hooks/project';
+import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 
 // Matches text12b.asm's TextPointersLoop, which always reads exactly 12
-// bytes starting at TextIndex - every stored message is fixed at this width
-// (see encodeTextMessage in generators/bbasic/text-minikernel.js).
+// bytes starting at TextIndex, unconditionally - a hard hardware ceiling
+// baked into that hand-tuned, cycle-counted routine, not something this app
+// can raise. Every message's own STORED row is still exactly this wide
+// regardless of the project's own configured max display width below (a
+// narrower setting only blanks out the unused tail, it never shrinks
+// storage - see encodeTextMessage in generators/bbasic/text-minikernel.js).
 export const TEXT_MESSAGE_LENGTH = 12;
+
+// How many of TEXT_MESSAGE_LENGTH's own 12 positions a project actually
+// wants to USE at once - a project-wide, compile-time-only setting (see
+// TextEditor.vue's own dropdown), never runtime-adjustable: letting it
+// change at runtime would mean a message's own padding/justification could
+// no longer be baked in at compile time the way it is now, and would need
+// an extra RAM scratch buffer + per-display reformatting instead of
+// reading straight from ROM - real added cost for a feature nobody asked
+// for once "just clip statically" covered the actual need. Positions from
+// this value up to TEXT_MESSAGE_LENGTH-1 are always left blank, in every
+// message, regardless of that message's own justify setting - "only the
+// first N slots are ever used" applies literally, not just to where the
+// text happens to sit within them.
+export const TEXT_MAX_DISPLAY_WIDTH_OPTIONS =
+  Array.from({length: TEXT_MESSAGE_LENGTH}, (_, i) => i + 1);
+export const DEFAULT_TEXT_MAX_DISPLAY_WIDTH = TEXT_MESSAGE_LENGTH;
 
 // How a message's own padding (see encodeTextMessage in
 // generators/bbasic/text-minikernel.js) is split across the 12-character
@@ -14,6 +34,42 @@ export const TEXT_MESSAGE_LENGTH = 12;
 // the left).
 export const TEXT_JUSTIFY_OPTIONS = ['left', 'center', 'right'];
 export const DEFAULT_TEXT_JUSTIFY = 'left';
+
+// Read fresh every call (same reasoning as listTextStrings below - a
+// computed over localStorage isn't reactive) rather than cached. Clamped to
+// 1..TEXT_MESSAGE_LENGTH so a corrupt/out-of-range stored value (or one from
+// a hypothetical future version with a wider option list) can never produce
+// a negative pad count or blank out the whole row.
+export const resolveTextMaxDisplayWidth = () => {
+  try {
+    const value = Number((useConfigurationStorage().value || {}).textMaxDisplayWidth);
+    if (!Number.isFinite(value)) return DEFAULT_TEXT_MAX_DISPLAY_WIDTH;
+    return Math.max(1, Math.min(TEXT_MESSAGE_LENGTH, Math.round(value)));
+  } catch (e) {
+    console.error('Error loading configuration from local storage', e);
+    return DEFAULT_TEXT_MAX_DISPLAY_WIDTH;
+  }
+};
+
+// Maps each supported character to the glyph constant name declared in
+// text12a.asm/text12b.asm's left_text/right_text tables. Anything not
+// listed here (lowercase letters get upper-cased first) falls back to a
+// blank space rather than failing the build. Lives here (not in
+// generators/bbasic/text-minikernel.js, where every OTHER encoding
+// function using it does) so generators/bbasic/text-scroll.js can share it
+// too without an import cycle between those two generator files.
+export const CHAR_TO_GLYPH = {
+  'A': '__A', 'B': '__B', 'C': '__C', 'D': '__D', 'E': '__E', 'F': '__F',
+  'G': '__G', 'H': '__H', 'I': '__I', 'J': '__J', 'K': '__K', 'L': '__L',
+  'M': '__M', 'N': '__N', 'O': '__O', 'P': '__P', 'Q': '__Q', 'R': '__R',
+  'S': '__S', 'T': '__T', 'U': '__U', 'V': '__V', 'W': '__W', 'X': '__X',
+  'Y': '__Y', 'Z': '__Z',
+  '0': '__0', '1': '__1', '2': '__2', '3': '__3', '4': '__4',
+  '5': '__5', '6': '__6', '7': '__7', '8': '__8', '9': '__9',
+  ' ': '_sp', '.': '_pd', '?': '_qu', '!': '_ex', ',': '_cm', '-': '_hy',
+  '+': '_pl', '\'': '_ap', '(': '_lp', ')': '_rp', ':': '_co', '/': '_sl',
+  '=': '_eq', '"': '_qt', '#': '_po',
+};
 
 export const DEFAULT_TEXT_STRINGS = {
   textStrings: [
