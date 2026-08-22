@@ -47,7 +47,8 @@ import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-eve
 
 import BlocklyBB from '../generators/bbasic';
 import {showError} from '../utils/build-error';
-import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage} from '../hooks/project';
+import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage, useMuteBlocklySoundsStorage,
+  useGridSnapStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 import {markRomOutdated} from '../hooks/rom';
 
@@ -78,23 +79,51 @@ const APP_BLOCKLY_THEME = Blockly.Theme.defineTheme('app', {
   },
 });
 
+// Re-run whenever "Enable per-row sprite colors" (see Configuration.vue)
+// changes, not just once at mount - both here (the initial options.toolbox)
+// and via updateToolbox() in the enableSpriteColors watcher below, so the
+// rainbow colors blocks (gated on {{#if enableSpriteColors}} in
+// blockly-toolbox.xml.hbs) appear/disappear from the toolbox live as the
+// toggle changes, without needing a page reload. Only gates whether the
+// blocks are OFFERED in the toolbox - a block already placed on the canvas
+// before the toggle was turned off keeps working exactly as it did (see
+// generators/bbasic.js's own isEnabled()-based pre-scan, unaffected by
+// this), same as any other toolbox-only restriction in this app.
+const buildToolboxXml = (enableSpriteColors) => Handlebars.compile(blocklyToolboxTemplate)({
+  blocklyToolboxPlayer0Movement,
+  blocklyToolboxPlayer1Movement,
+  blocklyToolboxBallMovement,
+  blocklyToolboxBackground,
+  blocklyToolboxExampleEvent,
+  enableSpriteColors,
+});
+
 export default {
   components: {BlocklyComponent},
   name: 'HelloWorld',
 
   data() {
     const configurationStorage = useConfigurationStorage();
+    const muteBlocklySoundsStorage = useMuteBlocklySoundsStorage();
+    const gridSnapStorage = useGridSnapStorage();
     return {
       generatedBasic: useGeneratedBasic(),
+      muteBlocklySoundsStorage,
+      gridSnapStorage,
       options: {
         media: 'media/',
-        sounds: !(configurationStorage.value || {}).muteBlocklySounds,
+        sounds: !muteBlocklySoundsStorage.value,
         theme: APP_BLOCKLY_THEME,
         grid: {
           spacing: 25,
           length: 3,
           colour: '#ccc',
-          snap: false,
+          // Blockly.inject() only ever reads this once, at injection time
+          // (see toggleGridSnap's own comment on Grid.prototype.shouldSnap
+          // having no supported setter) - seeding it from the persisted
+          // setting here is what makes a remembered "on" actually snap
+          // blocks from the very first drag, not just show the icon as on.
+          snap: gridSnapStorage.value,
         },
         // move.wheel enables wheel-scrolling at all - unset (this app never
         // set a "move" option before), Blockly's own default only turns
@@ -119,25 +148,16 @@ export default {
           minScale: 0.3,
           scaleSpeed: 1.2,
         },
-        toolbox: Handlebars.compile(blocklyToolboxTemplate)({
-          blocklyToolboxPlayer0Movement,
-          blocklyToolboxPlayer1Movement,
-          blocklyToolboxBallMovement,
-          blocklyToolboxBackground,
-          blocklyToolboxExampleEvent,
-        }),
+        toolbox: buildToolboxXml((configurationStorage.value || {}).enableSpriteColors),
       },
       workspaceStorage: useWorkspaceStorage(),
       errorStorage: useErrorStorage(),
       configurationStorage,
-      // Mirrors options.grid.snap's own initial value - a page-local UI
-      // preference (not persisted, unlike muteBlocklySounds), since this is
-      // just a quick on/off toggle for the current session, not a project
-      // setting. Starts off/false (blue = "on", grey = "off" - see
-      // setupGridSnapZoomButton's render()) so the icon starts in its
-      // grey/inactive state and a click visibly turns it on/blue, rather
-      // than starting pre-toggled blue with nothing yet clicked.
-      gridSnapEnabled: false,
+      // Mirrors options.grid.snap's own initial value (see just above) -
+      // seeded from the persisted setting (same storage, gridSnapStorage)
+      // so the toggle icon and the actual live grid stay in sync with
+      // whatever the user last left it as, across navigating away and back.
+      gridSnapEnabled: gridSnapStorage.value,
     };
   },
   methods: {
@@ -270,6 +290,7 @@ export default {
     // actually offers for a live toggle.
     toggleGridSnap() {
       this.gridSnapEnabled = !this.gridSnapEnabled;
+      this.gridSnapStorage.value = this.gridSnapEnabled;
       const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
       const grid = workspace && workspace.getGrid && workspace.getGrid();
       if (grid) grid.snapToGrid_ = this.gridSnapEnabled;
@@ -296,7 +317,10 @@ export default {
   },
   computed: {
     blocklySoundsEnabled() {
-      return !(this.configurationStorage.value || {}).muteBlocklySounds;
+      return !this.muteBlocklySoundsStorage.value;
+    },
+    spriteColorsEnabled() {
+      return !!(this.configurationStorage.value || {}).enableSpriteColors;
     },
     workspaceData: {
       get() {
@@ -315,6 +339,16 @@ export default {
   watch: {
     blocklySoundsEnabled(newVal) {
       this.options.sounds = newVal;
+    },
+    // Live-rebuilds the toolbox XML and pushes it into the already-running
+    // Blockly workspace via its own updateToolbox() - options.toolbox
+    // itself is only ever read once, at Blockly.inject() time (see
+    // BlocklyComponent.vue's own mounted()), so just reassigning it
+    // wouldn't do anything after the fact.
+    spriteColorsEnabled(newVal) {
+      const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
+      if (!workspace) return;
+      workspace.updateToolbox(buildToolboxXml(newVal));
     },
   },
   mounted() {

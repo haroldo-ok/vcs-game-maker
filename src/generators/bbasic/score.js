@@ -72,10 +72,66 @@ export default (Blockly) => {
   ].join('\n');
 
   Blockly.BBasic[`score_set`] = function(block) {
-    // Score setter.
+    // Score setter. batari Basic special-cases "score = <expr>" to parse a
+    // LITERAL BCD digit string, not evaluate a real expression - a runtime
+    // value (a variable, "framecounter", "loopcounter", ...) just gets its
+    // raw BINARY byte poked straight into the packed BCD bytes with no
+    // conversion at all, so it displays as whatever decimal digits that
+    // byte's own hex NIBBLES happen to spell out, not the actual number -
+    // confirmed as a real reported bug this way ("loopcounter" showing a
+    // fixed "60", "framecounter" a fixed "54", neither ever changing:
+    // exactly what byte 0x60/0x54 read as packed BCD would show).
+    //
+    // Converted here via real binary-to-decimal digit extraction instead -
+    // repeated subtraction (100s, then 10s), not division: a real,
+    // reproducible compiler bug ruled out combining division with
+    // multiplication in one expression for exactly this kind of conversion
+    // (see RAND_OPTIONS' old "1 to 24" comment history in blocks/
+    // random.js), and repeated subtraction needs neither.
+    //
+    // The three computed digits (temp1 = ones, temp2 = hundreds, temp3 =
+    // tens after the loops below) are copied to temp4/temp5/temp6 before
+    // any poke happens - buildDigitPokeLines' own inline asm always uses
+    // temp1/temp2 as ITS OWN scratch space internally, which would
+    // otherwise stomp these before every one of them has been read.
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return 'score = ' + argument0 + '\n';
+    const blockNumber = Blockly.BBasic.blockNumbers.next('scoreSet');
+    const hLoop = `_score_set_hloop_${blockNumber}`;
+    const hDone = `_score_set_hdone_${blockNumber}`;
+    const tLoop = `_score_set_tloop_${blockNumber}`;
+    const tDone = `_score_set_tdone_${blockNumber}`;
+    const lines = [
+      `temp1 = (${argument0}) & 255`,
+      `temp2 = 0`,
+      `@${hLoop}`,
+      `if temp1 < 100 then goto ${hDone}`,
+      `temp1 = temp1 - 100`,
+      `temp2 = temp2 + 1`,
+      `goto ${hLoop}`,
+      `@${hDone}`,
+      `temp3 = 0`,
+      `@${tLoop}`,
+      `if temp1 < 10 then goto ${tDone}`,
+      `temp1 = temp1 - 10`,
+      `temp3 = temp3 + 1`,
+      `goto ${tLoop}`,
+      `@${tDone}`,
+      `temp4 = temp1`,
+      `temp5 = temp2`,
+      `temp6 = temp3`,
+    ];
+    [1, 2, 3].forEach((digit) => {
+      const {address, high} = scoreDigitTarget(String(digit));
+      lines.push(buildDigitPokeLines(address, high, '0'));
+    });
+    const hundreds = scoreDigitTarget('4');
+    lines.push(buildDigitPokeLines(hundreds.address, hundreds.high, 'temp5'));
+    const tens = scoreDigitTarget('5');
+    lines.push(buildDigitPokeLines(tens.address, tens.high, 'temp6'));
+    const ones = scoreDigitTarget('6');
+    lines.push(buildDigitPokeLines(ones.address, ones.high, 'temp4'));
+    return lines.join('\n') + '\n';
   };
 
   Blockly.BBasic[`score_change`] = function(block) {
@@ -98,6 +154,30 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     return 'scorecolor = ' + argument0 + '\n';
+  };
+
+  Blockly.BBasic[`score_fade_to`] = function(block) {
+    // Score's color fade trigger - same shared mechanism as Background's
+    // own "Fade color to" (see emitColorFadeTrigger in
+    // generators/bbasic/background.js), always targeting scorecolor.
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    return Blockly.BBasic.emitColorFadeTrigger('scorecolor', color, frames);
+  };
+
+  Blockly.BBasic[`score_bk_color_set`] = function(block) {
+    // Score's background color setter. scorebkcolor only ever gets dimmed
+    // (see generateScoreBkColorRuntimeDims/the scoreBkColorNeedsOwnVar
+    // pre-scan in generators/bbasic.js) when the Text Minikernel is active
+    // elsewhere in the project - the standard drawscreen kernel's score row
+    // has no runtime-settable background color at all, so referencing the
+    // variable without that would be a compile error against an undeclared
+    // name. Silently no-op otherwise, same convention as
+    // generateScoreBkColorAsm/Defaults' own "nothing to do" cases just above.
+    if (!Blockly.BBasic.isTextMinikernelActive()) return '';
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return `${scoreBkColorVarName()} = ${argument0}\n`;
   };
 
   Blockly.BBasic[`score_color_change`] = function(block) {

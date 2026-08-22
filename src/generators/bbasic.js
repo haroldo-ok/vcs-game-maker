@@ -29,7 +29,9 @@ import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
-import {processPlayerStorageDefaults} from './bbasic/sprites';
+import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
+  generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
+  reserveRomNoiseDevVars, reserveRainbowColorDevVars} from './bbasic/sprites';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
@@ -152,35 +154,32 @@ Blockly.BBasic.addReservedWords(
     // this.projectMusic is resolved, so those are reserved separately, in
     // init() below.
     `${RUN_ONCE_EDGE_RESET_NAME},${MUSIC_PLAY_RESET_NAME},${MUSIC_PLAY_BY_ID_NAME},${musicPlayByIdArgVarName()},` +
-    // Every hardcoded pseudo-register/absolute-address name batari Basic's
-    // own 2600basic.h defines (public/bb19/includes/2600basic.h) - a user
-    // variable named e.g. "temp2" or "player0x" wasn't being renamed away
-    // from that collision the way a JS-keyword-named one already was above,
-    // so nameDB_.getName() handed it back completely unchanged, and the
-    // generated code ended up declaring a NEW "dim temp2 = ..." on top of
-    // 2600basic.h's own pre-existing "temp2 = $9D" - two different addresses
-    // for the same symbol name, which DASM reports as "EQU: Value mismatch"
-    // (confirmed directly: a project with Blockly variables literally named
-    // temp/temp2/temp3 failed to assemble with exactly that error). Single
-    // letters (a-z/A-Z) and var0-var47 are deliberately included too, even
-    // though this app's own letter/Superchip-slot allocator (routeDevVar
-    // below) already hands those out itself - a user-created variable
-    // literally named "a" or "var5" would otherwise collide with whatever
-    // this app assigns to that same symbol on its own.
-    'player0x,player1x,missile0x,missile1x,ballx,' +
-    'objecty,player0y,player1y,missile1height,missile1y,bally,' +
-    'player1color,' +
-    'player0pointer,player0pointerlo,player0pointerhi,player1pointer,player1pointerlo,player1pointerhi,' +
-    'player0height,player1height,missile0height,missile0y,ballheight,' +
-    'currentpaddle,paddle,player0colorstore,player0color,' +
-    'score,scorepointers,temp1,temp2,temp3,temp4,temp5,temp6,temp7,' +
-    'rand,scorecolor,playfieldpos,' +
-    'aux1,aux2,aux3,aux4,aux5,aux6,' +
-    'pfcolortable,pfheighttable,lifepointer,lifecolor,lives,statusbarlength,' +
-    'pfscore1,pfscore2,pfscorecolor,stack1,stack2,stack3,stack4,' +
-    [...Array(48).keys()].map((i) => `var${i}`).join(',') + ',' +
-    'a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,' +
-    'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,' +
+    // temp1-temp6 (2600basic.h's own fixed scratch registers - see
+    // public/bb19/includes/2600basic.h) - a user variable named e.g. "temp2"
+    // wasn't being renamed away from that collision the way a JS-keyword-
+    // named one already was above, so nameDB_.getName() handed it back
+    // completely unchanged, and the generated code ended up declaring a NEW
+    // "dim temp2 = ..." on top of 2600basic.h's own pre-existing
+    // "temp2 = $9D" - two different addresses for the same symbol name,
+    // which DASM reports as "EQU: Value mismatch" (confirmed directly: a
+    // project with Blockly variables literally named temp/temp2/temp3
+    // failed to assemble with exactly that error).
+    // Deliberately NOT extended to every other pseudo-register 2600basic.h
+    // defines (player0x, score, var0-47, single letters, etc.) - an earlier,
+    // broader version of this list did exactly that and immediately broke
+    // EVERY sprite/score/background block in the app instead: those blocks
+    // pass their own already-known-safe register name through this SAME
+    // nameDB_.getName(name, VARIABLE_CATEGORY_NAME) call (see e.g.
+    // generators/bbasic/sprites.js), so reserving "player0x" made
+    // getDistinctName rename that call's own output to "player0x2" - a
+    // symbol nothing ever declares - on every single build, not just when a
+    // user variable happened to collide with it. Confirmed directly as a
+    // real regression (a working project failed with "Unknown Mnemonic
+    // player0x2"/"missile1y2"/etc. throughout) before being reverted back to
+    // just temp1-6, the one addition actually confirmed safe (never itself
+    // passed through nameDB_ elsewhere - it's always spliced in as a raw
+    // literal, e.g. generators/bbasic/bit.js).
+    'temp1,temp2,temp3,temp4,temp5,temp6,' +
     // Everything in the current environment (835 items in Chrome, 104 in Node).
     Object.getOwnPropertyNames(Blockly.utils.global).join(','));
 
@@ -310,6 +309,62 @@ Blockly.BBasic.init = function(workspace) {
   if (workspace.getAllBlocks(false).some((block) => block.type.startsWith('text_minikernel_'))) {
     this.textMinikernelUsed = true;
   }
+
+  // Same early block-type pre-scan reasoning as textMinikernelUsed just
+  // above, for sprite_player0_rom_noise/sprite_player1_rom_noise (see
+  // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) -
+  // has to be known before reserveDevVar hands out user variable letters
+  // below, well before either block's own generator would otherwise run.
+  this.romNoiseUsedFor = new Set();
+  // Same reasoning, for the separate sprite_*_rainbow_colors block (see
+  // ROM_NOISE_COLOR_REGISTERS' own comment in generators/bbasic/sprites.js)
+  // - pre-scanned here too (not just read when its own generator runs) so
+  // generateConfiguration's own "set kernel_options" line (built well
+  // before any block generator runs) knows whether to include
+  // "playercolors"/"player1colors".
+  this.rainbowColorUsedFor = new Set();
+  // isEnabled() (not just block.type) - a disabled block's own generator
+  // never runs (Blockly's blockToCode skips disabled blocks, so the trigger
+  // that would set the shared active bit never emits), but this pre-scan
+  // used to count it anyway - forcing kernel_options ("playercolors"/
+  // "player1colors"), the pfcolors table, and the blank-lines override on
+  // for a feature that was actually inert, a real reported bug ("the
+  // rainbow block is being exported even when disabled").
+  ['player0', 'player1'].forEach((name) => {
+    if (workspace.getAllBlocks(false).some((block) =>
+      (block.type === `sprite_${name}_rom_noise` || block.type === `sprite_${name}_rom_noise_stop`) &&
+      block.isEnabled())) {
+      this.romNoiseUsedFor.add(name);
+    }
+    if (workspace.getAllBlocks(false).some((block) =>
+      (block.type === `sprite_${name}_rainbow_colors` || block.type === `sprite_${name}_rainbow_colors_stop`) &&
+      block.isEnabled())) {
+      this.rainbowColorUsedFor.add(name);
+    }
+  });
+
+  // Same early block-type pre-scan reasoning as the ones above - see
+  // controls_repeat_ext's own comment in generators/bbasic/loops.js for
+  // why a "repeat" block whose count is a complex expression needs its own
+  // dedicated, properly-declared variable (REPEAT_BOUND_VAR_NAME below),
+  // not a shared scratch register like temp1 - has to be known before
+  // reserveDevVar hands out user variable letters below, well before that
+  // block's own generator would otherwise run. Reserved whenever ANY
+  // repeat block exists at all, regardless of whether ITS OWN count
+  // expression actually turns out to need it - simpler and safer than
+  // replicating that same "is this expression complex enough" check here
+  // a second time, at the cost of reserving one byte a plain-number-count
+  // project never technically needed.
+  this.repeatLoopUsed = workspace.getAllBlocks(false).some((block) =>
+    (block.type === 'controls_repeat_ext' || block.type === 'controls_repeat') && block.isEnabled());
+
+  // Same early pre-scan reasoning as repeatLoopUsed just above, for
+  // WAIT_FRAMES_COUNTER_VAR_NAME (see its own comment in
+  // generators/bbasic/loops.js) - "Wait N frames" needs its own dedicated
+  // loop counter, not the shared "loopcounter" a "repeat" block's own "for"
+  // loop uses, so the two can be safely nested.
+  this.waitFramesUsed = workspace.getAllBlocks(false).some((block) =>
+    block.type === 'wait_frames' && block.isEnabled());
 
   // Whether scorebkcolor (the Score tab's own background color picker - see
   // views/ScoreFontEditor.vue and generators/bbasic/score.js's
@@ -508,7 +563,19 @@ Blockly.BBasic.init = function(workspace) {
   const config = (configurationStorage && configurationStorage.value) || {};
   const superchipVarBudget = SUPERCHIP_VAR_END - SUPERCHIP_VAR_START + 1;
   this.superchipVars = [];
+  // Reserving the SAME canonical dev var twice (e.g. ROM noise and rainbow
+  // colors both reserve romNoiseFlagsVarName's shared flags byte - see
+  // generators/bbasic/sprites.js's own "one shared flags byte" comment) has
+  // to be a no-op the second time: routeDevVar used to push unconditionally
+  // on every call, so using both features together bound the same symbol
+  // name to two different letters/slots - a real DASM "EQU: Value mismatch"
+  // build failure (the same symbol assigned two different addresses),
+  // confirmed by testing rom noise + rainbow colors together and finding
+  // that removing either one alone fixed the build.
+  const routedDevVarNames = new Set();
   const routeDevVar = (name) => {
+    if (routedDevVarNames.has(name)) return name;
+    routedDevVarNames.add(name);
     if (config.enableSuperchip && this.superchipVars.length < superchipVarBudget) {
       this.superchipVars.push(name);
     } else {
@@ -571,6 +638,27 @@ Blockly.BBasic.init = function(workspace) {
   // same reasoning as scoreBkColorNeedsOwnVar just above.
   reserveTextScrollDevVars(reserveDevVar, this.textMinikernelUsed);
 
+  // Same bucket again, for the ROM noise feature's own per-player state (see
+  // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) - a
+  // no-op unless romNoiseUsedFor's own early pre-scan (above) found it used.
+  reserveRomNoiseDevVars(reserveDevVar, this.romNoiseUsedFor);
+
+  // Same bucket again, for the separate rainbow-colors block's own per-
+  // player state - a no-op unless rainbowColorUsedFor's own early pre-scan
+  // (above) found it used.
+  reserveRainbowColorDevVars(reserveDevVar, this.rainbowColorUsedFor);
+
+  // Same bucket again, for "repeat" loops whose own count is a complex
+  // expression (see REPEAT_BOUND_VAR_NAME's own comment) - a no-op unless
+  // repeatLoopUsed's own early pre-scan (above) found a repeat block at
+  // all.
+  if (this.repeatLoopUsed) reserveDevVar(REPEAT_BOUND_VAR_NAME);
+
+  // Same bucket again, for "Wait N frames"' own dedicated loop counter (see
+  // WAIT_FRAMES_COUNTER_VAR_NAME's own comment) - a no-op unless
+  // waitFramesUsed's own early pre-scan (above) found one at all.
+  if (this.waitFramesUsed) reserveDevVar(WAIT_FRAMES_COUNTER_VAR_NAME);
+
   // "rand16" is a real batari Basic feature (see std_routines.asm's own
   // "ifconst rand16" check), not an app invention - simply DIMming a
   // variable with this EXACT name switches the standard kernel's randomize
@@ -606,10 +694,20 @@ Blockly.BBasic.init = function(workspace) {
   // on the instance (not a local) so generateBackgroundFadeChecks, which
   // runs later during the final generation pass, knows which registers to
   // emit a per-frame check for.
+  // score_fade_to/text_minikernel_fade_to (Score/Text tab equivalents of
+  // background_fade_to - see generators/bbasic/score.js and
+  // generators/bbasic/text-minikernel.js) share this exact same mechanism,
+  // just always targeting their own fixed register rather than offering a
+  // VAR dropdown (there's only ever one possible score color or text color
+  // register, unlike background/playfield).
   this.backgroundFadeVarsUsed = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'background_fade_to') {
       this.backgroundFadeVarsUsed.add(block.getFieldValue('VAR'));
+    } else if (block.type === 'score_fade_to') {
+      this.backgroundFadeVarsUsed.add('scorecolor');
+    } else if (block.type === 'text_minikernel_fade_to') {
+      this.backgroundFadeVarsUsed.add('TextColor');
     }
   });
   this.backgroundFadeVarsUsed.forEach((rawVar) => {
@@ -1151,13 +1249,43 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
   // bank 3 happened to be relocated first) corrupted DASM's running origin
   // tracking, reported as "Origin Reverse-indexed" at a LATER bank's own
   // fixed trampoline code, not at the actual out-of-order section itself.
-  const banks = [...new Set([
+  const banksBeforeGapFill = [...new Set([
     ...eventResults.map((r) => r.bank),
     ...graphicsEntries.map(([, unit]) => unit.bank),
     ...musicEntries.map(([, unit]) => unit.bank),
     ...subroutineEntries.map(([name]) => Blockly.BBasic.getSubroutineBank(name)),
     ...everyDeclaredBank,
-  ])].filter((bank) => bank !== 1).sort((a, b) => a - b);
+  ])].filter((bank) => bank !== 1);
+
+  // Ascending, CONTIGUOUS order matters, not just ascending - the comment
+  // above already covers ordering; this covers gaps. Confirmed directly as
+  // a second, distinct real bug: a project with Superchip RAM, a pfres above
+  // the standard kernel's default (12), and a bankswitched ROM size above
+  // 8k - nothing else needed, an otherwise-blank project reproduces it -
+  // jumped straight from bank 1 to everyDeclaredBank's own forced top bank
+  // (e.g. bank 8 on a 32k ROM), skipping banks 2-7 entirely since nothing
+  // else used them. 2600basic's per-bank bookkeeping needs EVERY bank
+  // number up to the highest one actually visited, not just the ones with
+  // real content - skipping any of them desyncs it, surfacing (confirmed
+  // against the real failing build) as a cascade of "Unknown Mnemonic 'jmp
+  // BS_jsr'"/"BS_return" errors scattered through completely unrelated
+  // stock runtime code, not a recognizable "this bank is missing" message.
+  // generateTextMinikernel's own kernelBank placement already fixed this
+  // exact failure mode for itself the same way (see its own comment) - this
+  // generalizes that fix to every other reason a bank might get force-
+  // declared, filling only the gaps actually needed to make the sequence
+  // contiguous up to whatever the highest required bank genuinely is, NOT
+  // unconditionally every bank 2..maxBanks regardless of need (the ORIGINAL
+  // version of everyDeclaredBank's own comment above explains why that
+  // blanket approach was reverted: wasted stub sections for banks nothing
+  // ever needed hit the compiler's own bank-transition bookkeeping limit on
+  // a large project). Data-driven from banksBeforeGapFill's own highest
+  // entry instead, so a large project's real content never gets padded any
+  // higher than it already needs to reach.
+  const highestBankNeeded = banksBeforeGapFill.length ? Math.max(...banksBeforeGapFill) : 0;
+  const gapFillBanks = highestBankNeeded > 1 ?
+    Array.from({length: highestBankNeeded - 1}, (_, i) => i + 2) : [];
+  const banks = [...new Set([...banksBeforeGapFill, ...gapFillBanks])].sort((a, b) => a - b);
 
   return banks.map((bank) => {
     const eventBodies = eventResults.filter((r) => r.bank === bank).map((r) => r.body).filter(Boolean);
@@ -1191,6 +1319,28 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
  * @return {string} Completed code.
  */
 Blockly.BBasic.finish = function(code) {
+  // "On gameplay update" (event.js's own EVENT_OPTIONS) is deliberately NOT
+  // one of RELOCATABLE_EVENT_NAMES' own five events - it doesn't get its own
+  // begin/end-labeled splice point in bbasic.bb.hbs at all. Plain top-level
+  // blocks (no event wrapper) already run every frame during gameplay - the
+  // fixed "main" loop in the template IS the implicit gameplay-update loop,
+  // by construction, since gameplay_start always falls through into it and
+  // nothing reaches it except via that fallthrough or a gameover_update ->
+  // fullgameloop -> ... -> gameplay_start round trip. So "On gameplay
+  // update" is purely an organizational wrapper for symmetry with Title/
+  // Gameover's own explicit Start+Update pairs - its own collected code
+  // (event_block's generator pushes it into this.gameEvents via
+  // addGameEvent, same as every other named event) is appended directly
+  // onto the plain top-level "code" here, BEFORE the base
+  // Generator.finish()/normalizeIndents() calls below run - so it goes
+  // through the exact same processing every other top-level block's own
+  // code does, rather than needing its own separate normalizeIndents pass
+  // the way generateGameEvent's real named events do.
+  const gameplayUpdateEventCode = this.getGameEvent('gameplay_update').join('\n\n');
+  if (gameplayUpdateEventCode.trim()) {
+    code = code + '\n\n' + gameplayUpdateEventCode;
+  }
+
   // Convert the definitions dictionary into a list.
   const definitions = Blockly.utils.object.values(this.definitions_);
 
@@ -1219,6 +1369,9 @@ Blockly.BBasic.finish = function(code) {
   Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
+  const generatedRomNoiseChecks = generateRomNoiseChecks(Blockly);
+  const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
+  const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
   // Bank 1's own copy of the Text Minikernel's "show by id" lookup tables
   // (see generateTextOffsetTables' own comment in bbasic/text-scroll.js) -
   // each relocated bank gets its own copy directly inside
@@ -1279,7 +1432,9 @@ Blockly.BBasic.finish = function(code) {
   this.nameDB_.reset();
   const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
-    generatedAnimations, generatedDataTables, generatedTextOffsetTables,
+    generatedAnimations, generatedDataTables, generatedRomNoiseChecks,
+    generatedRainbowColorGraphics, generatedRainbowColorChecks,
+    generatedTextOffsetTables,
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
@@ -1618,6 +1773,65 @@ Blockly.BBasic.usePlayfieldRowColors = function() {
   return config.enablePfColors ?? false;
 };
 
+// Whether generated code should include per-row SPRITE colors
+// (playercolors/player1colors) as a standing project setting (the
+// "enableSpriteColors" option on the Options tab), independent of whether
+// any sprite_*_rainbow_colors block actually exists on the canvas - unlike
+// that block-presence check (rainbowColorUsedFor), this is the user
+// explicitly opting in ahead of time, the same way enablePfColors is a
+// standing toggle rather than being driven by which backgrounds happen to
+// have custom row colors set. Deliberately NOT excluded while Superchip RAM
+// is on (unlike usePlayfieldRowColors just above) - per-row sprite colors
+// reads through player0color/player1color (aliased onto paddle/missile1y),
+// a completely separate pointer from the playfield's own pfcolortable, and
+// testing confirms it renders correctly with Superchip on.
+Blockly.BBasic.useSpriteColors = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  return config.enableSpriteColors ?? false;
+};
+
+// Whether a real, populated pfcolortable (one "pfcolors:" block per
+// background, built by generateBackgrounds) needs to exist in ROM - either
+// because the user's own "playfield row colors" toggle is on, or because
+// player0 rainbow colors is in use (a rainbow-colors block on the canvas, OR
+// the standing "enable per-row sprite colors" toggle). Per bB's own
+// kernel_options combination table (pulled from the strings embedded in
+// public/bb19/2600basic.wasm), "playercolors" is never valid paired with
+// just "player1colors" alone - it always needs a real "pfcolors" (or
+// "pfheights") companion too. "pfheights" turned out to need its own
+// undocumented, never-populated pfheighttable (reads (pfheighttable),y in
+// std_kernel.asm with nothing in this codebase ever writing to it -
+// confirmed by testing, produced a rolling/garbled screen), so pfcolors -
+// which this codebase already builds correctly - is the companion actually
+// used. This deliberately bypasses usePlayfieldRowColors' own
+// config.enablePfColors gate: player0 rainbow colors must be able to pull
+// in a real color table even if the user never turned that separate
+// feature on themselves.
+Blockly.BBasic.needsPlayfieldColorTable = function() {
+  return this.usePlayfieldRowColors() || rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) ||
+    this.useSpriteColors();
+};
+
+// Whether "no_blank_lines" can actually go on the kernel_options line.
+// Per the same combination table referenced above, "playercolors" never
+// appears alongside "no_blank_lines" in ANY valid row - the combination is
+// simply unsupported by the kernel, confirmed by a real "Invalid
+// combination of options" build failure when both were emitted together.
+// So the user's own "show blank lines" toggle is overridden back on
+// whenever player0 rainbow colors is active. Shared between
+// generateConfiguration (the kernel_options line itself) and
+// generateBackgrounds (whose pfcolors: row-color tables are built with one
+// fewer/extra entry depending on which mode is active - see buildPfcolors'
+// own comment) so the two stay in agreement.
+Blockly.BBasic.effectiveShowBlankLines = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const requested = config.showBlankLines ?? true;
+  if (requested) return true;
+  return rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) || this.useSpriteColors();
+};
+
 // Spliced into bbasic.bb.hbs's main loop right after the user's own generated
 // code (not into commongamelogic, which runs before that code each frame -
 // putting it there would let a Sound block triggered later the same frame
@@ -1662,13 +1876,52 @@ Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
 
-  const {showScore, showBlankLines, scoreFont, enableSuperchip, pfres} = config;
+  const {showScore, scoreFont, enableSuperchip, pfres} = config;
 
   // batari Basic honours a single "set kernel_options" line, so every option
   // has to go on it together.
+  // batari Basic's own kernel_options combination table (pulled from the
+  // strings embedded in public/bb19/2600basic.wasm) lists valid
+  // combinations in a fixed order, e.g. "playercolors player1colors
+  // pfcolors" - never "pfcolors playercolors player1colors". Emitting the
+  // right SET of options in the wrong order still produced a real "Invalid
+  // combination of options" failure (confirmed by testing), so these are
+  // pushed in the documented order: playercolors, then player1colors, then
+  // pfcolors/no_blank_lines.
   const kernelOptions = [];
-  if (this.usePlayfieldRowColors()) kernelOptions.push('pfcolors');
-  if (!(showBlankLines ?? true)) kernelOptions.push('no_blank_lines');
+  // Rainbow colors block - see ROM_NOISE_COLOR_REGISTERS' own comment in
+  // generators/bbasic/sprites.js, and rainbowColorNeedsPlayerColors' own
+  // comment there for the real, confirmed language rule this follows: a
+  // real working example program (using "set kernel_options player1colors"
+  // for a player1-only multicolor sprite) proves this DOES belong on the
+  // shared kernel_options line alongside pfcolors/no_blank_lines.
+  //
+  // "playercolors" is never valid on its own with just "player1colors" -
+  // every valid combination that includes "playercolors" also includes
+  // "pfcolors" and/or "pfheights". "pfheights" needs its own undocumented,
+  // never-populated pfheighttable (see needsPlayfieldColorTable's own
+  // comment) and produced a rolling/garbled screen when tried, so pfcolors -
+  // forced on via needsPlayfieldColorTable, which this codebase already
+  // knows how to build a real, populated table for - is the companion
+  // actually used; pfheights is intentionally never emitted. "playercolors"
+  // also never appears alongside "no_blank_lines" in any valid combination
+  // row, so effectiveShowBlankLines forces blank lines back on (and
+  // Configuration.vue disables the toggle outright) whenever player0
+  // rainbow colors is active.
+  //
+  // The standing "enable per-row sprite colors" toggle (useSpriteColors)
+  // forces both options on the same way a rainbow-colors block would, even
+  // with no such block on the canvas - the same "opt in ahead of time"
+  // relationship enablePfColors already has with backgrounds' own row
+  // colors (see useSpriteColors' own comment).
+  const needsPlayerColors = rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) || this.useSpriteColors();
+  if (needsPlayerColors) kernelOptions.push('playercolors');
+  if (rainbowColorNeedsPlayer1Colors(this.rainbowColorUsedFor) || this.useSpriteColors()) {
+    kernelOptions.push('player1colors');
+  }
+  const usePfColorsOption = this.needsPlayfieldColorTable();
+  if (usePfColorsOption) kernelOptions.push('pfcolors');
+  if (!this.effectiveShowBlankLines()) kernelOptions.push('no_blank_lines');
   const kernelOptionsConfigurationCode = kernelOptions.length ?
     `set kernel_options ${kernelOptions.join(' ')}` : '';
   // "noscore" is a compile-time ifconst gate in the standard kernel - it
@@ -1836,9 +2089,6 @@ Blockly.BBasic.generateBackgrounds = function() {
   const backgroundData = this.getBackgroundsData();
   const backgrounds = backgroundData && backgroundData.backgrounds;
 
-  const configurationStorage = useConfigurationStorage();
-  const config = (configurationStorage && configurationStorage.value) || {};
-
   const convertPlayfield = (playField) =>
     playField.split('\n').map((line) => '  ' + line).join('\n');
 
@@ -1880,8 +2130,8 @@ Blockly.BBasic.generateBackgrounds = function() {
   //   Duplicating the first row's color as an extra leading entry - keeping
   //   all 11 original colors after it, none dropped - fixes it the same
   //   way: the sliver and the row after it read as one normal first row.
-  const usePfColors = this.usePlayfieldRowColors();
-  const blankLinesShown = config.showBlankLines ?? true;
+  const usePfColors = this.needsPlayfieldColorTable();
+  const blankLinesShown = this.effectiveShowBlankLines();
   const buildPfcolors = (pixels, rowColors) => {
     const resolved = [];
     for (let i = 0; i < pixels.length; i++) {
@@ -2110,11 +2360,33 @@ Blockly.BBasic.generateAnimations = function() {
       const graphicLabel = `${animationLabel}frame${frameIndex}Graphic`;
       pixelKeyToGraphicLabel.set(pixelKey, graphicLabel);
       const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
+      // Per-row sprite colors (useSpriteColors, see Configuration.vue's own
+      // "enable per-row sprite colors" toggle) - a real "playercolor:" block
+      // declared right alongside this frame's own graphic, exactly the same
+      // way generateBackgrounds' buildPfcolors declares a "pfcolors:" block
+      // right alongside each background's own "playfield:" - both are real
+      // batari Basic declarative triggers that take effect the instant
+      // execution reaches them, not a runtime pointer assignment. Read with
+      // the SAME row order (reversed, matching pixelSource just above) since
+      // the kernel indexes both tables with the exact same per-scanline y
+      // (see std_kernel.asm's own "lda (player0pointer),y" / "lda
+      // (player0color),y" pair). Unlike buildPfcolors, no extra
+      // padding/duplicate row is needed - that quirk was specific to the
+      // playfield's own pfres-based row-count math, not this 1:1 per-scanline
+      // indexing, which the graphic pointer already relies on working
+      // correctly.
+      const colorSource = this.useSpriteColors() ? (() => {
+        const rowColors = frame.rowColors || [];
+        const resolved = frame.pixels.map((_, i) => rowColors[i] ?? DEFAULT_ROW_COLOR);
+        const rows = resolved.slice().reverse().map((byte) => '  ' + colorByteToBBasic(byte));
+        return `  ${name}color:\n` + rows.join('\n') + '\nend\n';
+      })() : '';
       return skipCondition +
         `${graphicLabel}\n` +
         `  ${name}:\n` +
         pixelSource.join('\n') +
         '\nend\n' +
+        colorSource +
         `  goto ${animationLabel}animationEnd\n` +
         endLabel;
     });
@@ -2194,7 +2466,7 @@ import event from './bbasic/event';
 import functionGenerators from './bbasic/function';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
-import loops from './bbasic/loops';
+import loops, {REPEAT_BOUND_VAR_NAME, WAIT_FRAMES_COUNTER_VAR_NAME} from './bbasic/loops';
 import math from './bbasic/math';
 import music from './bbasic/music';
 import random from './bbasic/random';

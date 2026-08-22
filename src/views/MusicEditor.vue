@@ -1,9 +1,9 @@
 <template>
   <div>
     <v-card flat class="editor-container">
-      <v-card-title>Music (alpha)</v-card-title>
+      <v-card-title>Music (alpha 0.3)</v-card-title>
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
-        This feature is in early alpha. Features may change or break. In fact, it's guaranteed. You've been warned!
+        This feature is in early alpha. Things may change or break. In fact, it's guaranteed. You've been warned!
       </v-alert>
       <v-card-text class="dim-section">
         <div class="dim-controls">

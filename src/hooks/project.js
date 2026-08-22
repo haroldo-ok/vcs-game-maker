@@ -27,6 +27,16 @@ export const usePlayer0Storage = () =>
   withRomInvalidation(useJsonProjectStorage('player0'));
 export const usePlayer1Storage = () =>
   withRomInvalidation(useJsonProjectStorage('player1'));
+// A pure editor convenience (see components/QuickColorPalette.vue) - a
+// curated shortlist of color bytes for fast reuse while picking row
+// colors, shared across every tab that shows a Quick colors bar (Player 0,
+// Player 1, Backgrounds), never itself read by code generation, so unlike
+// every storage above it deliberately isn't wrapped in withRomInvalidation:
+// adding/removing a swatch here shouldn't mark the ROM stale. Storage key
+// ("spriteColorPalette") predates this becoming a shared, cross-tab
+// feature - kept as-is rather than renamed, so an existing project's
+// already-saved quick colors aren't silently dropped.
+export const useColorPaletteStorage = () => useJsonProjectStorage('spriteColorPalette');
 export const useConfigurationStorage = () =>
   withRomInvalidation(useJsonProjectStorage('configuration'));
 export const useScoreFontStorage = () =>
@@ -109,3 +119,39 @@ export const useLoadLastProjectStorage = () => {
     },
   });
 };
+
+// Same "standing app preference, not part of the project itself" reasoning
+// as useLoadLastProjectStorage above - these three used to live in
+// configurationState (see Configuration.vue), which round-trips with
+// project storage and is wiped by clearProjectStorage(), meaning switching
+// projects (or starting a new one) silently reset how you like the editor
+// UI to behave, not just the game itself. Stored as the raw string
+// "true"/"false" (useLocalStorage doesn't JSON-encode), defaulting to
+// false (never having been set) - matching every one of these three
+// settings' own original default in configurationState.
+const useBooleanAppSetting = (key) => {
+  const raw = useLocalStorage(key);
+  return computed({
+    get() {
+      return raw.value === 'true';
+    },
+    set(value) {
+      raw.value = value ? 'true' : 'false';
+    },
+  });
+};
+
+export const useBlocklyControlsHorizontalStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.blocklyControlsHorizontal');
+export const useHideDescriptionTextStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.hideDescriptionText');
+export const useMuteBlocklySoundsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.muteBlocklySounds');
+// Same "standing app preference, not a project setting" reasoning as the
+// three above - the grid-snap toggle (see ActionEditor.vue's own
+// setupGridSnapZoomButton/toggleGridSnap) used to be page-local-only data,
+// reset every time the Actions tab was left and revisited. A real reported
+// request ("remember the grid snap setting on the blockly screen when
+// navigating away").
+export const useGridSnapStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.gridSnap');

@@ -118,7 +118,15 @@ function setFunctionDropdownValue(field, newValue) {
 function fixFunctionCallNames(workspace) {
   const names = definedFunctionNames(workspace);
   if (!names.length) return;
-  workspace.getBlocksByType('function_call', false).forEach((callBlock) => {
+  // Both call block types (the value-returning "function_call" and the
+  // standalone "function_call_statement") share the same NAME dropdown - a
+  // call block dropped before any function existed shows '' ("No functions
+  // defined"), and this is what snaps it onto the first real function the
+  // moment one gets defined, matching subroutine_call's own pre-fill
+  // behavior. Missing function_call_statement here was a real bug: a
+  // statement-style call block never got this treatment at all.
+  [...workspace.getBlocksByType('function_call', false),
+    ...workspace.getBlocksByType('function_call_statement', false)].forEach((callBlock) => {
     const current = callBlock.getFieldValue('NAME');
     if (names.includes(current)) return;
     const field = callBlock.getField('NAME');
@@ -138,7 +146,9 @@ function cascadeFunctionRename(workspace, event) {
   if (!event.oldValue || !event.newValue || event.oldValue === event.newValue) return;
   const changedBlock = workspace.getBlockById(event.blockId);
   if (!changedBlock || changedBlock.type !== 'function_define') return;
-  workspace.getBlocksByType('function_call', false).forEach((callBlock) => {
+  // Same "both call block types" reasoning as fixFunctionCallNames above.
+  [...workspace.getBlocksByType('function_call', false),
+    ...workspace.getBlocksByType('function_call_statement', false)].forEach((callBlock) => {
     if (callBlock.getFieldValue('NAME') !== event.oldValue) return;
     const field = callBlock.getField('NAME');
     if (field) setFunctionDropdownValue(field, event.newValue);
@@ -160,6 +170,59 @@ function ensureFunctionCallListener(workspace) {
   setTimeout(() => fixFunctionCallNames(workspace), 0);
 }
 
+/**
+ * Shows exactly one empty ARG slot past whatever's already connected (up to
+ * MAX_FUNCTION_ARGS), and hides the rest - a call site that only needs 2
+ * arguments doesn't have to stare at 4 unused ones. Never hides a slot that
+ * already has something plugged into it, so this is safe to call after any
+ * connect/disconnect (including ones from loading a saved project, which
+ * reconnects blocks in whatever order the XML happens to list them) without
+ * ever orphaning a live connection behind a hidden input.
+ * ARG1's own permanent 0 shadow (see blockly-toolbox.xml.hbs) doesn't count
+ * as "connected" here - only a real block the user actually dragged in
+ * does, so dropping a fresh call block from the toolbox shows just ARG1
+ * (with its shadow), not ARG1+ARG2, until something real is plugged in.
+ * A no-op on a headless workspace - the one ROM builds use for code
+ * generation (see hooks/rom.js's withHeadlessWorkspace, a plain
+ * Blockly.Workspace, not a WorkspaceSvg) creates plain Blockly.Connection
+ * objects rather than RenderedConnection, which Input.setVisible() calls
+ * straight into (startTrackingAll/stopTrackingAll, RenderedConnection-only
+ * methods) - confirmed directly as a real crash otherwise ("stopTrackingAll
+ * is not a function") the moment this ran during a build. Checked via
+ * workspace.rendered (a stable, TYPE-level flag - false on Workspace, true
+ * on WorkspaceSvg, from their own respective prototypes) rather than
+ * block.rendered (which starts false/null on EVERY block, interactive or
+ * not, until its first actual paint - the wrong thing to gate on here,
+ * since this can legitimately run before that first paint on a real
+ * interactive block too). Visibility is a purely visual concern the
+ * generator itself never reads, so skipping it entirely on a headless
+ * workspace is always safe.
+ * @param {!Blockly.Block} block
+ */
+function updateFunctionCallArgVisibility(block) {
+  if (!block.workspace || !block.workspace.rendered) return;
+  let highestConnected = 0;
+  for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
+    const target = block.getInputTargetBlock(`ARG${i}`);
+    if (target && !target.isShadow()) highestConnected = i;
+  }
+  const visibleCount = Math.min(MAX_FUNCTION_ARGS, highestConnected + 1);
+  let changed = false;
+  for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
+    const input = block.getInput(`ARG${i}`);
+    if (!input) continue;
+    const shouldBeVisible = i <= visibleCount;
+    if (input.isVisible() !== shouldBeVisible) {
+      input.setVisible(shouldBeVisible);
+      changed = true;
+    }
+  }
+  if (changed && typeof block.render === 'function') {
+    block.render();
+    if (block.workspace && block.workspace.resizeContents) block.workspace.resizeContents();
+  }
+}
+
 // Shared by function_call and function_call_statement below - the dropdown
 // and up to MAX_FUNCTION_ARGS argument inputs are identical either way, only
 // how the block connects to its surroundings (a value vs. a statement)
@@ -174,6 +237,39 @@ const appendFunctionCallFields = (block) => {
   block.setInputsInline(true);
   block.setColour(FUNCTION_COLOR);
   if (block.workspace) ensureFunctionCallListener(block.workspace);
+  // Blockly.Block's own constructor already wires up this.onchange (see
+  // node_modules/blockly/core/block.js) if it's defined - checks BLOCK_MOVE
+  // specifically (Blockly's own event type for a connection changing,
+  // covering both a user dragging a block in/out AND a saved project
+  // reconnecting one during load) rather than recomputing on every
+  // workspace event, which would also fire for unrelated blocks moving
+  // around the same canvas.
+  block.onchange = function(event) {
+    if (event.type !== Blockly.Events.BLOCK_MOVE) return;
+    if (this.workspace && this.workspace.isFlyout) return;
+    updateFunctionCallArgVisibility(this);
+  };
+  // Sets the initial ARG visibility (just ARG1, unless this block was loaded
+  // from a saved project with more already connected) - deferred rather
+  // than called directly here, since this runs during init(), before the
+  // block has a rendered SVG root to actually update (calling
+  // updateFunctionCallArgVisibility's own render()/resizeContents() that
+  // early throws - confirmed directly: "Cannot set properties of null
+  // (setting 'nodeValue')" deep inside Blockly's own render pipeline). The
+  // same deferred-until-load-settles pattern ensureFunctionCallListener
+  // already uses for fixFunctionCallNames, for the same reason.
+  //
+  // Applies in the toolbox flyout too, not just the main workspace - a
+  // flyout's own workspace is a real, rendered WorkspaceSvg (isFlyout is
+  // just a flag on it, not a different, unrendered kind of workspace), so
+  // updateFunctionCallArgVisibility's own `workspace.rendered` guard already
+  // allows this safely. Without running it there, the toolbox always showed
+  // the "Call function" block with all 6 argument slots, cluttered and
+  // identical regardless of which function it'll actually call - a real
+  // reported issue.
+  if (block.workspace) {
+    setTimeout(() => updateFunctionCallArgVisibility(block), 0);
+  }
 };
 
 // Block for calling a function defined with "function_define" - used as a

@@ -75,6 +75,58 @@ Blockly.defineBlocksWithJsonArray([
     'colour': SCORE_COLOR,
     'tooltip': `Updates the score's color`,
   },
+  // Block for fading the score's color - same mechanism as Background's own
+  // "Fade color to" (see blocks/background.js's own fade var-name helpers
+  // and generateBackgroundFadeChecks in generators/bbasic/background.js,
+  // both now generalized past just COLUBK/COLUPF), just always targeting
+  // scorecolor rather than offering a register choice - there's only one
+  // possible score color register. Fire-and-forget, same as Background's
+  // own version: triggering this once keeps the color stepping toward the
+  // target every frame afterward on its own.
+  {
+    'type': `score_fade_to`,
+    'message0': `${SCORE_ICON} Fade Score ${COLOR_ICON} color to: %1 over %2 frames`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+      {
+        'type': 'input_value',
+        'name': 'FRAMES',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': 'Starts fading the score\'s color toward the given color over roughly this many frames - ' +
+      'same hue as the target, brightness automatically climbing or dropping from wherever it currently ' +
+      'is. Only needs to be triggered once - the fade keeps running by itself every frame afterward, ' +
+      'even from inside an "if" block that only briefly becomes true, until it reaches the target and stops.',
+  },
+  // Block for the background color setter - only takes effect when the
+  // project also uses the Text Minikernel (see generators/bbasic/score.js's
+  // own generator): the standard score bar has no runtime-settable
+  // background color at all, only the Text Minikernel's own "minikernel"
+  // subroutine reads scorebkcolor.
+  {
+    'type': `score_bk_color_set`,
+    'message0': `${SCORE_ICON} Score: set background ${COLOR_ICON} color to: %1`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Updates the score row's background color. Only takes effect when the ` +
+      `Text Minikernel is in use elsewhere in the project (e.g. a "Show text" block) - ` +
+      `the standard score bar's background color is fixed at compile time (Score tab).`,
+  },
   // Block for adding to the score's color in place.
   {
     'type': `score_color_change`,

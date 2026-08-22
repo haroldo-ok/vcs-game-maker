@@ -49,13 +49,13 @@ export default (Blockly) => {
   // generators/bbasic/subroutine.js - see its comment for the full
   // explanation) and builds the "name(arg1, arg2, ...)" call expression
   // itself.
-  // Arguments are positional (arg 1 -> temp1, arg 2 -> temp2, ...), so a gap
-  // can't just be skipped - leaving ARG1 empty but filling ARG3 has to still
-  // emit 3 comma-separated values (with a "0" placeholder for the empty
-  // ARG1/ARG2) or the real argument meant for slot 3 would land in temp1
-  // instead. Only trims the UNUSED tail past the highest slot actually
-  // connected, matching the real language's own "extra arguments are
-  // ignored" behavior for a function that reads fewer than 6.
+  // Always emits all MAX_FUNCTION_ARGS positions, "0" for any slot the user
+  // hasn't plugged something into (rather than trimming the call to however
+  // many are actually connected) - with the call block's own ARG inputs now
+  // starting hidden past whatever's connected (see blocks/function.js's
+  // updateFunctionCallArgVisibility), a called function reading further
+  // arguments than the caller happened to show/fill in would otherwise read
+  // whatever stale value temp1-temp6 last held, not a predictable 0.
   const buildFunctionCallExpression = (block) => {
     let fieldValue = block.getFieldValue('NAME');
     if (block.workspace) {
@@ -70,12 +70,8 @@ export default (Blockly) => {
     }
     const name = Blockly.BBasic.nameDB_.getName(
         fieldValue, Blockly.PROCEDURE_CATEGORY_NAME);
-    let highestConnected = 0;
-    for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
-      if (block.getInputTargetBlock(`ARG${i}`)) highestConnected = i;
-    }
     const args = [];
-    for (let i = 1; i <= highestConnected; i++) {
+    for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
       args.push(Blockly.BBasic.valueToCode(block, `ARG${i}`, Blockly.BBasic.ORDER_NONE) || '0');
     }
     return `${name}(${args.join(', ')})`;

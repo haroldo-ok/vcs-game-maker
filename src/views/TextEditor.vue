@@ -5,7 +5,7 @@
       <v-card-text>
         <p class="v-messages theme--light v-messages__message">
           Define named messages here, then display one at runtime with either the "Show text"
-          block (pick from a list) or "Show text with ID" (pick by the number shown below - useful
+          block (pick from a list) or "Show text ID" (pick by the number shown below - useful
           for choosing a message from a variable). A-Z, 0-9, and basic punctuation only -
           unsupported characters and shorter text are padded with spaces. Use the "(scrolling)"
           versions of the "Show text" blocks to reveal a message longer than 12 characters by
@@ -31,7 +31,7 @@
         <p class="v-messages theme--light v-messages__message">
           For static (non-scrolling) text only. Only the first this-many of the 12 available character
           slots are ever used - the rest always stay blank, regardless of message length or justify. The
-          "Show text (scrolling)" blocks ignore this and always scroll through the full message using
+          "Scroll text" blocks ignore this and always scroll through the full message using
           all 12 character slots.
         </p>
 
@@ -62,7 +62,7 @@
                 >
                   <v-icon>{{ isCollapsed(entry) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot; - stays the same no matter how cards are rearranged below.">
+                <div class="text-id-badge" title="The number to use with &quot;Show text ID&quot; - stays the same no matter how cards are rearranged below.">
                   ID:{{ entry.id }}
                 </div>
                 <v-menu
@@ -117,7 +117,6 @@
                   <v-text-field
                     label="Text"
                     v-model="entry.text"
-                    maxlength="12"
                     counter="12"
                     @change="() => handleTextChange(entry)"
                   />
@@ -248,7 +247,7 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds('text');
+    const {isCollapsed, toggleCollapsed, ensureExpanded} = useCollapsedIds('text');
 
     // Card reordering - NOT built on hooks/drag-reorder.js's own
     // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
@@ -342,6 +341,7 @@ export default defineComponent({
       };
 
       state.value.textStrings.push(newEntry);
+      ensureExpanded(newEntry);
 
       handleChildChange();
       instance.proxy.$forceUpdate();

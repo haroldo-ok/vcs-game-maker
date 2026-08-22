@@ -4,20 +4,36 @@ import {BIT_ICON} from './icon';
 
 export const BIT_OPTIONS = [...Array(8).keys()].map((n) => [`${n}`, `${n}`]);
 
-// Built-in batari Basic variables that are worth addressing bit by bit. These
-// are plain names, unlike the user's own variables, which are listed by id.
-const BUILT_IN_VARIABLES = [
+// Built-in batari Basic variables worth reading/writing directly - plain
+// names, unlike the user's own variables, which are listed by id. Shared
+// between the per-bit blocks below (BUILT_IN_VARIABLES) and
+// system_variable_get further down (SYSTEM_VARIABLE_OPTIONS, same list,
+// already in dropdown-option [label, value] shape) - reading the WHOLE
+// byte only makes sense for the built-in names, not the user's own
+// variables (those already have a plain Blockly "variables_get" block for
+// that), so this doesn't reuse variableOptions()'s combined list below.
+export const SYSTEM_VARIABLE_OPTIONS = [
   'player0size',
   'player1size',
   'player0frame',
   'player1frame',
   'framecounter',
+  // The "repeat X times" block's own real bB loop variable (see
+  // controls_repeat_ext in generators/bbasic/loops.js) - "for loopcounter
+  // = 1 to X : ... : next", so this counts up from 1 to X across the loop
+  // body's own iterations. Also reused (unrelated to any repeat block) by
+  // wait_frames and generateGameLoopEvent's own frame-wait loops - reading
+  // it there would just show wherever THAT loop's own countdown currently
+  // is, not anything to do with a "repeat" block, so its value only means
+  // "current repeat loop iteration" while one is actually running.
+  'loopcounter',
   'CTRLPF',
   'NUSIZ0',
   'NUSIZ1',
   'SWCHA',
   'SWCHB',
 ].map((name) => [name, name]);
+const BUILT_IN_VARIABLES = SYSTEM_VARIABLE_OPTIONS;
 
 // A block in the toolbox flyout belongs to the flyout's own workspace, which
 // has no variables of its own.
@@ -133,3 +149,25 @@ Blockly.Blocks['bit_set'] = {
     return variable ? [variable] : [];
   },
 };
+
+// Reads any of the built-in batari Basic variables (see
+// SYSTEM_VARIABLE_OPTIONS above) as a whole byte, not one bit at a time
+// like bit_get.
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'system_variable_get',
+    'message0': `${BIT_ICON} %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': SYSTEM_VARIABLE_OPTIONS,
+      },
+    ],
+    'output': 'Number',
+    'colour': 'purple',
+    'tooltip': 'Reads the current value of a built-in batari Basic variable, e.g. ' +
+      '"framecounter" (how many frames have passed since power-on) - useful anywhere a ' +
+      'real, changing value is needed, like seeding the random number generator.',
+  },
+]);

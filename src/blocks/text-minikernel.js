@@ -21,12 +21,12 @@ const TEXT_COLOR = '#3F51B5';
 const appendScrollInputs = (block) => {
   block.appendValueInput('SCROLL_SPEED')
       .setCheck('Number')
-      .appendField('scroll every');
+      .appendField('every');
   block.appendDummyInput().appendField('frames,');
   block.appendValueInput('SCROLL_PAUSE')
       .setCheck('Number')
-      .appendField('pause');
-  block.appendDummyInput().appendField('frames at each end');
+      .appendField('wait');
+  block.appendDummyInput().appendField('at limits');
   block.setInputsInline(true);
 };
 
@@ -48,7 +48,7 @@ Blockly.Blocks['text_minikernel_show_named'] = {
     this.setColour(TEXT_COLOR);
     this.setTooltip('Displays a message defined on the Text tab, in place of the score, ' +
       'using the Text Minikernel. Automatically scrolls back and forth if the message is ' +
-      'longer than the Text tab\'s own max display width - see "Show text (scrolling)" for ' +
+      'longer than the Text tab\'s own max display width - see "Scroll text" for ' +
       'a version with its own tunable scroll speed/pause.');
   },
 };
@@ -63,7 +63,7 @@ Blockly.Blocks['text_minikernel_show_named'] = {
 Blockly.Blocks['text_minikernel_show_named_scroll'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${TEXT_ICON} Show text (scrolling):`)
+        .appendField(`${TEXT_ICON} Scroll text:`)
         .appendField(new Blockly.FieldDropdown(buildTextStringOptions), 'TEXT_ID');
     appendScrollInputs(this);
     this.setPreviousStatement(true, null);
@@ -97,7 +97,7 @@ Blockly.defineBlocksWithJsonArray([
     'colour': TEXT_COLOR,
     'tooltip': 'Displays a message in place of the score, using the Text Minikernel ' +
       '(A-Z, 0-9, and basic punctuation). Automatically scrolls back and forth if longer ' +
-      'than the Text tab\'s own max display width - see "Show text (scrolling)" for a ' +
+      'than the Text tab\'s own max display width - see "Scroll text" for a ' +
       'version with its own tunable scroll speed/pause.',
   },
   // Sets the displayed message from a number expression (a variable,
@@ -107,7 +107,7 @@ Blockly.defineBlocksWithJsonArray([
   // runtime instead of always being the same fixed one.
   {
     'type': 'text_minikernel_show_by_id',
-    'message0': `${TEXT_ICON} Show text with ID: %1`,
+    'message0': `${TEXT_ICON} Show text ID: %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -148,6 +148,38 @@ Blockly.defineBlocksWithJsonArray([
     'colour': TEXT_COLOR,
     'tooltip': 'Sets the color of Text Minikernel messages.',
   },
+  // Fades TextColor toward a target - same shared mechanism as Background's
+  // own "Fade color to" (see blocks/background.js's own fade var-name
+  // helpers and generateBackgroundFadeChecks in generators/bbasic/
+  // background.js, both now generalized past just COLUBK/COLUPF), just
+  // always targeting TextColor rather than offering a register choice.
+  // Fire-and-forget, same as Background's own version: triggering this once
+  // keeps the color stepping toward the target every frame afterward on its
+  // own, only while the Text Minikernel is in use elsewhere in the project.
+  {
+    'type': 'text_minikernel_fade_to',
+    'message0': `${TEXT_ICON} Fade Text ${COLOR_ICON} color to: %1 over %2 frames`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+      {
+        'type': 'input_value',
+        'name': 'FRAMES',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Starts fading the Text Minikernel\'s own message color toward the given color over ' +
+      'roughly this many frames - same hue as the target, brightness automatically climbing or ' +
+      'dropping from wherever it currently is. Only needs to be triggered once - the fade keeps ' +
+      'running by itself every frame afterward, even from inside an "if" block that only briefly ' +
+      'becomes true, until it reaches the target and stops.',
+  },
   // A single comparison against the shared scroll offset/max (see
   // generateTextScrollAdvance in generators/bbasic/text-minikernel.js) -
   // true at the moment a scrolling message has reached (and is pausing at)
@@ -156,6 +188,46 @@ Blockly.defineBlocksWithJsonArray([
   // 0 then, so "Left" reads true and "Right" reads false at every frame -
   // the "already all the way left" state a non-scrolling message is always
   // in).
+  // Runtime control over the shared scroll state (see generateTextScrollAdvance
+  // in generators/bbasic/text-scroll.js) - a single block with a dropdown
+  // rather than five separate blocks, since they're all just one flag/reset
+  // write apiece and share the exact same "which action" shape.
+  //
+  // Start/Unpause both just clear the paused flag - Start reads better at a
+  // call site meant to kick scrolling off (e.g. right after a "Show text"
+  // call that intentionally left it paused), Unpause reads better paired
+  // with a "Pause" earlier in the same logic, but they do the same thing.
+  //
+  // Stop freezes the message at its own start (offset 0) and pauses it
+  // there - Restart resets to offset 0 too, but leaves it running (and
+  // waits the "pause at limits" duration before its first step, the same
+  // as a genuinely new message - see buildTextScrollSetupLines' own
+  // comment in text-scroll.js).
+  {
+    'type': 'text_minikernel_scroll_control',
+    'message0': `${TEXT_ICON} Text scroll: %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'ACTION',
+        'options': [
+          ['Start', 'start'],
+          ['Pause', 'pause'],
+          ['Unpause', 'unpause'],
+          ['Stop', 'stop'],
+          ['Restart', 'restart'],
+        ],
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Controls the currently shown scrolling text message. Start/Unpause resume it ' +
+      'from wherever it currently is. Pause freezes it in place. Stop resets it back to its ' +
+      'own beginning and freezes it there. Restart resets it back to its own beginning too, ' +
+      'but keeps it scrolling. Has no visible effect on a message that never needed to scroll ' +
+      'in the first place.',
+  },
   {
     'type': 'text_minikernel_scroll_at',
     'message0': `${TEXT_ICON} Is text scroll at %1 ?`,
@@ -180,7 +252,7 @@ Blockly.defineBlocksWithJsonArray([
 Blockly.Blocks['text_minikernel_show_scroll'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${TEXT_ICON} Show text (scrolling):`)
+        .appendField(`${TEXT_ICON} Scroll text:`)
         .appendField(new Blockly.FieldTextInput('HELLO WORLD!'), 'TEXT');
     appendScrollInputs(this);
     this.setPreviousStatement(true, null);
@@ -204,7 +276,7 @@ Blockly.Blocks['text_minikernel_show_by_id_scroll'] = {
   init: function() {
     this.appendValueInput('VALUE')
         .setCheck('Number')
-        .appendField(`${TEXT_ICON} Show text with ID (scrolling):`);
+        .appendField(`${TEXT_ICON} Scroll text ID:`);
     appendScrollInputs(this);
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);

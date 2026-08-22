@@ -49,9 +49,20 @@ const BACKGROUND_COLOR = '#ffa500';
 // an earlier version of this had: a separate brightness tracker defaulting
 // to 0 made a "fade down"-only block snap straight to black on its very
 // first call, regardless of whatever color was actually on screen.
-export const backgroundFadeTimerVarName = (rawVar) => rawVar === 'COLUPF' ? '_pfFadeTimer' : '_bgFadeTimer';
-export const backgroundFadePaceVarName = (rawVar) => rawVar === 'COLUPF' ? '_pfFadePace' : '_bgFadePace';
-export const backgroundFadeTargetVarName = (rawVar) => rawVar === 'COLUPF' ? '_pfFadeTarget' : '_bgFadeTarget';
+// Generalized past just COLUBK/COLUPF - scorecolor (score.js's own
+// score_fade_to) and TextColor (text-minikernel.js's own
+// text_minikernel_fade_to) share this exact same stepping mechanism, since
+// they're ordinary Atari color bytes with the identical hue/brightness
+// nibble layout. Unlike COLUBK/COLUPF, neither needs a separate "shadow"
+// variable (see generateBackgroundFadeChecks' own targetShadowVar comment in
+// generators/bbasic/background.js) - nothing else overwrites scorecolor or
+// TextColor every frame the way the score/text drawing routines overwrite
+// COLUBK/COLUPF, so the real variable itself doubles as its own shadow.
+const FADE_TAG_BY_VAR = {COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text'};
+const fadeTag = (rawVar) => FADE_TAG_BY_VAR[rawVar] || rawVar;
+export const backgroundFadeTimerVarName = (rawVar) => `_${fadeTag(rawVar)}FadeTimer`;
+export const backgroundFadePaceVarName = (rawVar) => `_${fadeTag(rawVar)}FadePace`;
+export const backgroundFadeTargetVarName = (rawVar) => `_${fadeTag(rawVar)}FadeTarget`;
 
 // Fixed at 4 (not a user-choosable STEPS dropdown, as an earlier version of
 // this had) specifically because 4 is a power of 2: "frames / 4" always
@@ -71,12 +82,15 @@ export const backgroundFadeTargetVarName = (rawVar) => rawVar === 'COLUPF' ? '_p
 // the exact same result as 4 anyway, so fixing it there costs nothing.
 export const FADE_STEPS = 4;
 
-// One shared byte covers both the "fade finished" watch flags AND the
-// "fade currently active" flags for both registers - only ever 6 possible
-// bits total (2 registers x 2 directions, for "finished", plus 2 registers
-// x 1 for "active"), so fixed bits are simpler than the Music tab's own
-// pooled/overflow allocation (built for open-ended, user-defined watch
-// counts) and never need more than this one byte. "Finished" is split by
+// One shared byte covers both the "fade finished" watch flags (COLUBK/COLUPF
+// only - see background_fade_finished's own comment; scorecolor/TextColor
+// have no equivalent finished-watch block) AND the "fade currently active"
+// flags for all four fadeable registers - exactly 8 possible bits total (2
+// registers x 2 directions for "finished", plus 4 registers x 1 for
+// "active"), filling the byte exactly, so fixed bits are simpler than the
+// Music tab's own pooled/overflow allocation (built for open-ended,
+// user-defined watch counts) and never need more than this one byte.
+// "Finished" is split by
 // direction (fading in/brightening vs fading out/dimming), not just by
 // register, since a background_fade_finished watch needs to tell those
 // apart - e.g. a "flash brighter then settle back down" sequence (two
@@ -92,7 +106,11 @@ export const FADE_STEPS = 4;
 export const backgroundFadeFlagsVarName = () => '_bgFadeFlags';
 export const backgroundFadeFinishedBit = (rawVar, direction) =>
   (rawVar === 'COLUPF' ? 2 : 0) + (direction === 'down' ? 1 : 0);
-export const backgroundFadeActiveBit = (rawVar) => rawVar === 'COLUPF' ? 5 : 4;
+// Bits 0-3 are the COLUBK/COLUPF "finished" bits above (2 registers x 2
+// directions) - active bits for all four fadeable registers pack into the
+// remaining 4-7, filling the byte exactly.
+const FADE_ACTIVE_BIT_BY_VAR = {COLUBK: 4, COLUPF: 5, scorecolor: 6, TextColor: 7};
+export const fadeActiveBit = (rawVar) => FADE_ACTIVE_BIT_BY_VAR[rawVar];
 
 // Every (register, direction) pair a background_fade_finished block in the
 // project actually watches, keyed as "VAR:DIRECTION" - a plain Set, since
@@ -195,17 +213,17 @@ export const DEFAULT_BACKGROUNDS = {
       id: 1,
       name: 'Test 1',
       pixels: playfieldToMatrix(
-          'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
-        'X....X...................X....X\n' +
-        'X.............................X\n' +
-        'X.............................X\n' +
-        'X.............................X\n' +
-        'X.............................X\n' +
-        'X.............................X\n' +
-        'X.............................X\n' +
-        'X.............................X\n' +
-        'X....X...................X....X\n' +
-        'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
+          'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'X..............................X\n' +
+        'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
     },
   ],
 };
@@ -542,7 +560,7 @@ Blockly.Blocks['background_fade_finished'] = {
   },
 };
 
-// Plain, always-current boolean read of backgroundFadeActiveBit - not an
+// Plain, always-current boolean read of fadeActiveBit - not an
 // event like background_fade_finished above (nothing to "watch" or clear),
 // just whatever the bit currently holds: true from the moment a matching
 // background_fade_to block triggers until the per-frame check (see

@@ -3,7 +3,7 @@
 import {useConfigurationStorage} from '../../hooks/project';
 import {effectiveBackgroundRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
   backgroundFadeTargetVarName, backgroundFadeFlagsVarName, FADE_STEPS,
-  backgroundFadeFinishedBit, backgroundFadeActiveBit, backgroundFadeWatchKey} from '../../blocks/background';
+  backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey} from '../../blocks/background';
 
 // FADE_STEPS (4) is fixed rather than user-choosable - see its own comment
 // in blocks/background.js. floor(14 / 4) = 3, rounded down to the nearest
@@ -12,6 +12,13 @@ import {effectiveBackgroundRows, backgroundFadeTimerVarName, backgroundFadePaceV
 // finest brightness step this hardware can do, so it's just a literal here
 // rather than restating the general formula for a single fixed input.
 const FADE_INCREMENT = 2;
+
+// Per-register label tag for generateBackgroundFadeChecks below - has to be
+// distinct per register (unlike a shared "bg" for everything) now that
+// scorecolor/TextColor share this same check-generating function alongside
+// COLUBK/COLUPF, or two registers' own labels would collide into the exact
+// same names and only the first would ever compile correctly.
+const FADE_LABEL_TAG_BY_VAR = {COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text'};
 
 export default (Blockly) => {
   // A compile-time constant, not runtime state - the playfield's vertical
@@ -80,26 +87,28 @@ export default (Blockly) => {
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
 
-  // Fires background_fade_to's trigger once - stores the target color and
-  // this fade's own pace (this fade's total requested duration, divided
-  // across FADE_STEPS installments - "over roughly this many frames" is
-  // the OVERALL fade time, not a per-step delay), then sets the "active"
-  // bit (generateBackgroundFadeChecks below reads that bit every frame
-  // from then on and does the actual stepping; see backgroundFadeTimerVarName's
-  // own comment in blocks/background.js for why this is a one-shot
-  // trigger rather than a "call every frame yourself" block). Retriggering
-  // an already-active fade (e.g. the user's own code calls this again
-  // before the previous one finished) simply overwrites the target/pace
-  // and re-primes the timer - the new fade just continues from wherever
-  // the color currently is, same as a fresh trigger would.
-  Blockly.BBasic[`background_fade_to`] = function(block) {
-    const rawVar = block.getFieldValue('VAR');
+  // Fires a fade trigger once - stores the target color and this fade's own
+  // pace (this fade's total requested duration, divided across FADE_STEPS
+  // installments - "over roughly this many frames" is the OVERALL fade
+  // time, not a per-step delay), then sets the "active" bit
+  // (generateBackgroundFadeChecks below reads that bit every frame from
+  // then on and does the actual stepping; see backgroundFadeTimerVarName's
+  // own comment in blocks/background.js for why this is a one-shot trigger
+  // rather than a "call every frame yourself" block). Retriggering an
+  // already-active fade (e.g. the user's own code calls this again before
+  // the previous one finished) simply overwrites the target/pace and
+  // re-primes the timer - the new fade just continues from wherever the
+  // color currently is, same as a fresh trigger would.
+  //
+  // Shared by background_fade_to below and score.js's own score_fade_to /
+  // text-minikernel.js's own text_minikernel_fade_to - the trigger body is
+  // identical regardless of which register it targets, only rawVar (and so
+  // which dev vars/bit it resolves to) differs.
+  Blockly.BBasic.emitColorFadeTrigger = function(rawVar, color, frames) {
     const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
     const paceVar = resolveVar(backgroundFadePaceVarName(rawVar));
     const targetVar = resolveVar(backgroundFadeTargetVarName(rawVar));
-    const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeActiveBit(rawVar)}}`;
-    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
-    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
     // frames/FADE_STEPS is still a genuine runtime division (frames isn't
     // known at compile time) - needs the shared div8 routine UNLESS the
     // divisor is a compile-time constant power of 2, in which case the
@@ -129,6 +138,13 @@ export default (Blockly) => {
       `${timerVar} = ${paceVar}`,
       `${activeBit} = 1`,
     ].join('\n') + '\n';
+  };
+
+  Blockly.BBasic[`background_fade_to`] = function(block) {
+    const rawVar = block.getFieldValue('VAR');
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    return Blockly.BBasic.emitColorFadeTrigger(rawVar, color, frames);
   };
 
   // Spliced into commongamelogic (see bbasic.bb.hbs), right after the
@@ -175,14 +191,26 @@ export default (Blockly) => {
     const watches = this.backgroundFadeFinishedWatches || new Set();
 
     const checksForVar = (rawVar) => {
-      const targetShadowVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' : 'backgroundrealcolor';
-      const colorVarName = Blockly.BBasic.nameDB_.getName(targetShadowVar, Blockly.VARIABLE_CATEGORY_NAME);
+      // COLUBK/COLUPF need a separate shadow variable (see background_set_
+      // color's own comment above) since the score/text drawing routines
+      // overwrite the real register every frame - scorecolor/TextColor have
+      // no such override, so the real variable doubles as its own shadow.
+      const isShadowedRegister = rawVar === 'COLUPF' || rawVar === 'COLUBK';
+      const targetShadowVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' :
+        rawVar === 'COLUBK' ? 'backgroundrealcolor' : rawVar;
+      // scorecolor/TextColor are real batari Basic identifiers already
+      // (score.js's own score_color_get/set and text-minikernel.js's own
+      // TextColor blocks both reference them as plain literals, never
+      // through nameDB_) - only COLUBK/COLUPF's own shadow vars are
+      // app-internal dev vars that actually need letter resolution.
+      const colorVarName = isShadowedRegister ?
+        Blockly.BBasic.nameDB_.getName(targetShadowVar, Blockly.VARIABLE_CATEGORY_NAME) : targetShadowVar;
       const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
       const paceVar = resolveVar(backgroundFadePaceVarName(rawVar));
       const targetVar = resolveVar(backgroundFadeTargetVarName(rawVar));
-      const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeActiveBit(rawVar)}}`;
+      const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
 
-      const tag = rawVar === 'COLUPF' ? 'pf' : 'bg';
+      const tag = FADE_LABEL_TAG_BY_VAR[rawVar] || rawVar;
       const skipLabel = `_bgfadechk_${tag}_skip`;
       const upLabel = `_bgfadechk_${tag}_up`;
       const downClampedLabel = `_bgfadechk_${tag}_downclamped`;
@@ -365,7 +393,7 @@ export default (Blockly) => {
   // the bit is always safe to read here even if it will only ever hold 0.
   Blockly.BBasic[`background_fade_active`] = function(block) {
     const rawVar = block.getFieldValue('VAR');
-    const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeActiveBit(rawVar)}}`;
+    const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
     return [activeBit, Blockly.BBasic.ORDER_ATOMIC];
   };
 
@@ -388,7 +416,18 @@ export default (Blockly) => {
     const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
 
-    return `pfpixel ${argumentX} ${argumentY} ${operation}\n`;
+    // "pfpixel X Y OPERATION" is a whitespace-separated positional macro,
+    // not a real function call - a multi-token argument (e.g. a Random
+    // block's own "(rand / 8) + 1", which has spaces in it) gets split into
+    // several garbage tokens instead of read as one expression, confirmed
+    // directly as a real build failure ("Syntax Error ''" from a
+    // malformed "LDA #(" with nothing after it). Assigning to temp1/temp2
+    // first and passing THOSE (always a single plain token) sidesteps the
+    // whitespace-splitting entirely, regardless of how complex the
+    // plugged-in X/Y expression is.
+    return `temp1 = ${argumentX}\n` +
+      `temp2 = ${argumentY}\n` +
+      `pfpixel temp1 temp2 ${operation}\n`;
   };
 
   Blockly.BBasic[`background_change_hv_line`] = function(block) {
@@ -402,8 +441,14 @@ export default (Blockly) => {
     const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
 
-    return `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? argumentX : argumentY} - 1\n` +
-      `${direction} ${argumentX} ${argumentY} temp1 ${operation}\n`;
+    // Same "pfhline/pfvline X Y LENGTH OPERATION" whitespace-splitting risk
+    // as background_change_pixel above, for both X and Y (temp2/temp3 -
+    // temp1 is already used for the length calculation just below, so X/Y
+    // need their own separate scratch vars rather than reusing it).
+    return `temp2 = ${argumentX}\n` +
+      `temp3 = ${argumentY}\n` +
+      `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? 'temp2' : 'temp3'} - 1\n` +
+      `${direction} temp2 temp3 temp1 ${operation}\n`;
   };
 
   Blockly.BBasic[`background_clear`] = function(block) {

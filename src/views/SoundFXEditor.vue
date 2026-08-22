@@ -536,11 +536,22 @@ export default defineComponent({
    tab stays single-column); margin-top puts back the space above the FIRST
    card that zeroing v-list-item__content's own padding would otherwise
    have also removed. */
+/* Same reasoning as TextEditor.vue's own .text-list - grid instead of the
+   v-list's default single-column stacking, so multiple cards fit side by
+   side on a wide enough window instead of every one wasting most of a full
+   row's own width. 360px (wider than .text-list's 280px) accounts for
+   .soundfx-card's own Sound type/Frequency/Volume/Duration row, which needs
+   more horizontal room than a text card's single message field. */
 .soundfx-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 8px;
   margin-top: 12px;
+  /* Grid items stretch to fill their row's height by default - a collapsed
+     card next to an expanded one in the same row would otherwise stretch
+     tall to match it, instead of sitting flush at the top like its card
+     content actually sizes to. */
+  align-items: start;
 }
 
 .entry-list-item >>> .v-list-item__content {

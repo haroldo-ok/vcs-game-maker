@@ -197,12 +197,9 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
           'check': 'Number',
         },
         {
-          'type': 'field_number',
+          'type': 'input_value',
           'name': 'HEIGHT',
-          'value': 8,
-          'min': 1,
-          'max': 32,
-          'precision': 1,
+          'check': 'Number',
         },
       ],
       'inputsInline': true,
@@ -214,10 +211,97 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
         'zone" static effect. Always reads from bank 1 (regardless of which bank this block ' +
         'itself ends up in). Leave "offset" unplugged for an automatically shimmering pattern ' +
         '(it defaults to the frame counter) - or plug in your own expression to control exactly ' +
-        'which bytes show. This replaces whatever animation frame the player was showing until ' +
-        'something else (a normal animation frame, or another use of this block) points it ' +
-        'elsewhere again; it does NOT affect player width/quantity (NUSIZ) - a size set with the ' +
-        '"set width/quantity" block above still applies normally on top of this.',
+        'which bytes show. This keeps overriding the player\'s graphic every frame, even over a ' +
+        'normal animation frame set afterward, until the separate "stop ROM noise" block is used ' +
+        '- it does NOT affect player width/quantity (NUSIZ) - a size set with the "set width/' +
+        'quantity" block above still applies normally on top of this. See the separate ' +
+        `"rainbow colors" block for a different color on every row of ${description} too.`,
+    },
+    // ROM noise (above) sets a runtime "active" flag that keeps overriding
+    // this player's graphic pointer every single frame, forever, once
+    // triggered - a normal "Set animation" block alone can't undo that,
+    // since generateRomNoiseChecks' own per-frame override runs AFTER the
+    // animation logic every frame and only ever gets set, never cleared
+    // (confirmed as a real reported gap: "I want to be able to switch back
+    // to using sprite graphics after using the noise block"). This just
+    // clears that flag, letting the animation pointer generateAnimations
+    // already reasserts every frame regardless take back over immediately -
+    // no pixel/graphic changes of its own.
+    {
+      'type': `sprite_${name}_rom_noise_stop`,
+      'message0': `${icon} ${description}: stop ${DATA_ICON} ROM noise`,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Switches ${description} back to showing its normal animation frames again, ` +
+        'undoing the "display ROM noise" block above - that block keeps overriding the graphic ' +
+        'every frame until this one is used, even if a normal animation frame is set in the ' +
+        'meantime.',
+    },
+    // A different color on every scanline of this player - a REAL, existing
+    // batari Basic kernel feature ("playercolors"/"player1colors" kernel
+    // options - see std_kernel.asm's own "ifnconst playercolors" checks),
+    // not built from scratch here. Deliberately its own separate block, not
+    // a checkbox on sprite_*_rom_noise: this reads ROM bytes into
+    // player0color/player1color the exact same "no data table, no ROM cost"
+    // way the noise block reads them into player0pointer/player1pointer
+    // (see generators/bbasic/sprites.js's own ROM_NOISE_COLOR_REGISTERS
+    // comment for the confirmed real register aliasing this relies on), but
+    // that mechanism is entirely independent of what the player's own
+    // GRAPHIC pointer is doing - it works identically whether this player
+    // is showing a normal drawn animation frame OR ROM noise, so keeping it
+    // separate lets either be used without the other.
+    {
+      'type': `sprite_${name}_rainbow_colors`,
+      'message0': `${icon} ${description}: rainbow colors, offset %1`,
+      'args0': [
+        {
+          'type': 'input_value',
+          'name': 'OFFSET',
+          'check': 'Number',
+        },
+      ],
+      'inputsInline': true,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Gives ${description} a different color on every one of its rows, reading real ` +
+        'ROM bytes the same way the "display ROM noise" block does - works with any graphic, a ' +
+        'normal animation frame or ROM noise. Leave "offset" unplugged for an automatically ' +
+        'shimmering pattern (it defaults to the frame counter). Turns on a real batari Basic ' +
+        `kernel feature that repurposes ${name === 'player0' ? 'missile0' : 'missile1'}'s own ` +
+        `hardware circuitry to do this, so ${name === 'player0' ? 'missile0' : 'missile1'} can no ` +
+        'longer be used as a sprite anywhere in the project while this block is used (same ' +
+        'tradeoff as the "blank lines between background rows" option)' +
+        (name === 'player0' ? ', and paddle input becomes unavailable too' : '') + '.',
+    },
+    // Same "active flag only ever gets set, never cleared" gap as
+    // sprite_${name}_rom_noise_stop above, for the rainbow-colors trigger
+    // instead - see that block's own comment. One real difference: once
+    // "playercolors"/"player1colors" is in kernel_options at all, the
+    // KERNEL itself always reads (player0color),y every scanline - there's
+    // no way to turn that back into a plain flat COLUP0/COLUP1 color at
+    // runtime, so this can't fully "undo" rainbow colors the way the ROM
+    // noise stop block can fully undo noise. What it DOES do: with the
+    // Options tab's "Enable per-row sprite colors" toggle on, each
+    // animation frame already declares its own real per-row color table
+    // (see generateAnimations in generators/bbasic.js) every time that
+    // frame is (re)shown - clearing this flag lets THAT take back over,
+    // the same "something else already reasserts every frame" mechanism
+    // the ROM noise stop block relies on. Without that toggle, this just
+    // freezes the color pointer wherever it currently is.
+    {
+      'type': `sprite_${name}_rainbow_colors_stop`,
+      'message0': `${icon} ${description}: stop rainbow colors`,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Stops ${description}'s "rainbow colors" block from continuing to override its ` +
+        'row colors every frame. With the Options tab\'s "Enable per-row sprite colors" toggle ' +
+        `on, ${description} goes back to each animation frame's own declared colors (or the ` +
+        'default color if none were set); without that toggle, the color pointer just stays ' +
+        'wherever rainbow colors last left it, since batari Basic has no way to fully return to ' +
+        'a single flat color once this kernel feature is active.',
     },
   ]);
 };

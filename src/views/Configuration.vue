@@ -29,8 +29,20 @@
         <v-switch
           v-model="configurationState.showBlankLines"
           @change="handleChangeConfiguration"
+          :disabled="player0RainbowColorsActive"
+          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
           label="Show blank lines between background rows (no_blank_lines)"
-          hint="Turning this off packs playfield rows tighter together, but uses missile0's graphics circuitry, so missile0 can no longer be used as a sprite."
+          :hint="player0RainbowColorsActive ?
+            'Forced on: the player0 rainbow colors block requires this to stay on - batari Basic never allows player-colors and no_blank_lines together.' :
+            'Turning this off packs playfield rows tighter together, but uses missile0\'s graphics circuitry, so missile0 can no longer be used as a sprite.'"
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enableSpriteColors"
+          @change="handleChangeConfiguration"
+          label="Enable per-row sprite colors (playercolors player1colors)"
+          hint="Lets player sprites show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on."
           persistent-hint
           class="option-switch"
         />
@@ -80,6 +92,14 @@
           class="option-switch"
         />
         <v-switch
+          v-model="configurationState.enableRand16"
+          @change="handleChangeConfiguration"
+          label="Use 16-bit random number generator (rand16)"
+          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="configurationState.muteAllAudio"
           @change="handleChangeConfiguration"
           label="Mute all in-game audio"
@@ -88,24 +108,21 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.muteBlocklySounds"
-          @change="handleChangeConfiguration"
+          v-model="muteBlocklySounds"
           label="Mute Blockly sounds"
           hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; above for that."
           persistent-hint
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.blocklyControlsHorizontal"
-          @change="handleChangeConfiguration"
+          v-model="blocklyControlsHorizontal"
           label="Arrange Blockly controls horizontally"
           hint="When off (default), the zoom in/out/reset/grid-snap buttons on the Actions tab's Blockly canvas are stacked vertically along the right edge. When on, they're arranged in a row along the bottom edge instead."
           persistent-hint
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.hideDescriptionText"
-          @change="handleChangeConfiguration"
+          v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
           persistent-hint
@@ -130,14 +147,6 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.enableRand16"
-          @change="handleChangeConfiguration"
-          label="Use 16-bit random number generator (rand16)"
-          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
-          persistent-hint
-          class="option-switch"
-        />
-        <v-switch
           v-model="configurationState.enableInlineRand"
           @change="handleChangeConfiguration"
           :disabled="!romSizeIsBankswitched"
@@ -151,11 +160,12 @@
     </v-card>
 </template>
 <script>
-import {computed, defineComponent, ref} from '@vue/composition-api';
+import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
-import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage, useLoadLastProjectStorage} from '../hooks/project';
-import {BANK_COUNT_BY_ROMSIZE, countUsedVariables} from '../hooks/rom';
+import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage, useErrorStorage,
+  useHideDescriptionTextStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage} from '../hooks/project';
+import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
@@ -200,6 +210,12 @@ export default defineComponent({
     // below so it survives clearProjectStorage() and can be checked at
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
+    // Same reasoning as loadLastProject above - these three used to round-trip
+    // with the project itself via configurationState, silently resetting
+    // every time you switched or started a new project.
+    const muteBlocklySounds = useMuteBlocklySoundsStorage();
+    const blocklyControlsHorizontal = useBlocklyControlsHorizontalStorage();
+    const hideDescriptionText = useHideDescriptionTextStorage();
 
     // Which sections are collapsed - a Set of section keys, matching the
     // collapse pattern already used by the other tabs' own cards (a plain
@@ -221,6 +237,7 @@ export default defineComponent({
         const DEFAULT_CONFIGURATION = {
           showScore: true,
           showBlankLines: true,
+          enableSpriteColors: false,
           enablePfColors: false,
           enableSuperchip: false,
           enableOptimizationSpeed: false,
@@ -230,9 +247,6 @@ export default defineComponent({
           romSize: '4k',
           scoreFont: '',
           muteAllAudio: false,
-          muteBlocklySounds: false,
-          blocklyControlsHorizontal: false,
-          hideDescriptionText: false,
         };
 
         try {
@@ -265,6 +279,27 @@ export default defineComponent({
       },
     });
 
+    // Whether the project uses the player0 rainbow colors block - if so,
+    // "Show blank lines" can't be turned off (see usesPlayer0RainbowColors'
+    // own comment in hooks/rom.js): batari Basic's kernel_options never
+    // allows "playercolors" alongside "no_blank_lines", so the toggle is
+    // forced on and disabled rather than letting the user pick a
+    // combination that's guaranteed to fail to build.
+    const player0RainbowColorsActive = computed(() => usesPlayer0RainbowColors());
+
+    // Catches the block being added (or the workspace loading a project that
+    // already has it) even when the user never touches this switch directly
+    // themselves - not just the handleChangeConfiguration path below, which
+    // only runs when some OTHER switch on this page is what triggered the
+    // change.
+    watch(player0RainbowColorsActive, (active) => {
+      if (!active) return;
+      const state = configurationState.value;
+      if (state.showBlankLines) return;
+      state.showBlankLines = true;
+      configurationState.value = state;
+    }, {immediate: true});
+
     // Whether the selected ROM size actually bankswitches (see
     // BANK_COUNT_BY_ROMSIZE in hooks/rom.js - 2k/4k never do).
     const romSizeIsBankswitched = computed(() =>
@@ -281,7 +316,13 @@ export default defineComponent({
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together (last row black, and with more than one background
     // the colors come out wrong and the black area returns), so the two
-    // options can't both be on. Inlining random-number calls (see
+    // options can't both be on. Per-row SPRITE colors doesn't share this
+    // problem - it reads through player0color/player1color (aliased onto
+    // paddle/missile1y - see ROM_NOISE_COLOR_REGISTERS' own comment in
+    // generators/bbasic/sprites.js), a completely separate pointer from the
+    // playfield's own pfcolortable, and testing confirms it renders
+    // correctly with Superchip on - so it's deliberately NOT excluded here.
+    // Inlining random-number calls (see
     // useInlineRand in bbasic.js) only makes sense on a bankswitched ROM
     // size too, so it's forced off whenever the ROM size changes away from
     // one.
@@ -296,7 +337,9 @@ export default defineComponent({
     };
 
     const handleChangeConfiguration = () => {
-      configurationState.value = enforceSuperchipPfColorsExclusivity(configurationState.value);
+      const state = configurationState.value;
+      if (player0RainbowColorsActive.value) state.showBlankLines = true;
+      configurationState.value = enforceSuperchipPfColorsExclusivity(state);
     };
 
     // The playfield's vertical resolution (pfres) is a single setting for the
@@ -342,7 +385,9 @@ export default defineComponent({
       handleToggleSuperchip,
       romSizeOptions,
       romSizeIsBankswitched,
+      player0RainbowColorsActive,
       loadLastProject,
+      muteBlocklySounds, blocklyControlsHorizontal, hideDescriptionText,
       isSectionCollapsed,
       toggleSection,
     };

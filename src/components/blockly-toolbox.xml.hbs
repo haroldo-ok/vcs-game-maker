@@ -9,6 +9,9 @@
         <block type="logic_operation"></block>
         <block type="logic_negate"></block>
         <block type="logic_boolean"></block>
+        <block type="logic_boolean">
+            <field name="BOOL">FALSE</field>
+        </block>
     </category>
     <category name="Loops" colour="%{BKY_LOOPS_HUE}">
         <block type="controls_repeat_ext">
@@ -79,7 +82,29 @@
         <block type="sprite_player0_size" />
         <block type="sprite_player0_animation_select"></block>
         <block type="sprite_player0_animation_playback"></block>
-        <block type="sprite_player0_rom_noise"></block>
+        <block type="sprite_player0_rom_noise">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="HEIGHT">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player0_rom_noise_stop"></block>
+        {{#if enableSpriteColors}}
+        <block type="sprite_player0_rainbow_colors">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player0_rainbow_colors_stop"></block>
+        {{/if}}
         <block type="sprite_player0_set">
             <field name="VAR">player0realcolor</field>
             <value name="VALUE">
@@ -107,7 +132,29 @@
         <block type="sprite_player1_size" />
         <block type="sprite_player1_animation_select"></block>
         <block type="sprite_player1_animation_playback"></block>
-        <block type="sprite_player1_rom_noise"></block>
+        <block type="sprite_player1_rom_noise">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="HEIGHT">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player1_rom_noise_stop"></block>
+        {{#if enableSpriteColors}}
+        <block type="sprite_player1_rainbow_colors">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player1_rainbow_colors_stop"></block>
+        {{/if}}
         <block type="sprite_player1_set">
             <field name="VAR">player1realcolor</field>
             <value name="VALUE">
@@ -214,6 +261,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="system_variable_get"></block>
 
         <block type="sprite_player0_set">
             <field name="VAR">player0x</field>
@@ -323,8 +371,8 @@
         </block>
         <block type="background_scroll">
         </block>
-        <block type="background_clear"></block>
         <block type="background_get_resolution"></block>
+        <block type="background_clear"></block>
         <block type="draw_screen"></block>
     </category>
     <category name="Score" colour="#f2691e">
@@ -356,6 +404,25 @@
             <value name="DELTA">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_bk_color_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">146</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_fade_to">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">146</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
                 </shadow>
             </value>
         </block>
@@ -452,6 +519,14 @@
     </category>
     <category name="Text" colour="#3F51B5">
         <block type="text_minikernel_show"></block>
+        <block type="text_minikernel_show_named"></block>
+        <block type="text_minikernel_show_by_id">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="text_minikernel_show_scroll">
             <value name="SCROLL_SPEED">
                 <shadow type="math_number">
@@ -464,7 +539,6 @@
                 </shadow>
             </value>
         </block>
-        <block type="text_minikernel_show_named"></block>
         <block type="text_minikernel_show_named_scroll">
             <value name="SCROLL_SPEED">
                 <shadow type="math_number">
@@ -474,13 +548,6 @@
             <value name="SCROLL_PAUSE">
                 <shadow type="math_number">
                     <field name="NUM">30</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="text_minikernel_show_by_id">
-            <value name="VALUE">
-                <shadow type="math_number">
-                    <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
@@ -501,7 +568,6 @@
                 </shadow>
             </value>
         </block>
-        <block type="text_minikernel_clear"></block>
         <block type="text_minikernel_set_color">
             <value name="VALUE">
                 <shadow type="color_get">
@@ -509,7 +575,21 @@
                 </shadow>
             </value>
         </block>
+        <block type="text_minikernel_fade_to">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">15</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="text_minikernel_scroll_control"></block>
         <block type="text_minikernel_scroll_at"></block>
+        <block type="text_minikernel_clear"></block>
     </category>
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
@@ -589,59 +669,9 @@
                     <field name="NUM">0</field>
                 </shadow>
             </value>
-            <value name="ARG2">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG3">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG4">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG5">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG6">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
         </block>
         <block type="function_call">
             <value name="ARG1">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG2">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG3">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG4">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG5">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="ARG6">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
                 </shadow>

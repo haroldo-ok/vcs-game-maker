@@ -1,16 +1,12 @@
 <template>
   <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText}">
-    <v-system-bar app>
-      <v-card-text>{{ productName }} {{ version }}</v-card-text>
-
-      <v-spacer></v-spacer>
-
-      <v-icon>mdi-square</v-icon>
-
-      <v-icon>mdi-circle</v-icon>
-
-      <v-icon>mdi-triangle</v-icon>
-    </v-system-bar>
+    <div
+      class="app-logo"
+      :class="{'app-logo-hidden': !drawer, 'app-logo-no-transition': !logoTransitionsEnabled}"
+    >
+      <img src="./assets/logo.svg" alt="VCS Game Maker" class="app-logo-img" />
+      <div class="app-logo-version">{{ version }}</div>
+    </div>
 
     <v-app-bar
       app
@@ -72,16 +68,11 @@
     <v-navigation-drawer
       v-model="drawer"
       app
+      clipped
       width="200"
       class="nav-drawer"
     >
       <div class="nav-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
-      <v-sheet
-        color="grey lighten-5"
-        height="128"
-        width="100%"
-      ></v-sheet>
-
       <v-list
         shaped
         class="navigation-list"
@@ -160,7 +151,7 @@
             <v-icon>mdi-music-note</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Music (Alpha)</v-list-item-title>
+            <v-list-item-title>Music α</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -314,7 +305,7 @@
       v-if="emulatorVisible"
       class="emulator-resize-handle"
       title="Drag to resize the emulator"
-      :style="{right: (emulatorWidth - 5) + 'px'}"
+      :style="{right: (emulatorWidth - 5) + 'px', bottom: errorHeight + 'px'}"
       @mousedown.prevent="startResize"
     ></div>
 
@@ -374,7 +365,7 @@
 </template>
 
 <script>
-import {useCompileLog, useConfigurationStorage, useErrorStorage} from './hooks/project';
+import {useCompileLog, useErrorStorage, useHideDescriptionTextStorage} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated} from './hooks/rom';
 import {productName, version} from '../package.json';
 
@@ -430,6 +421,16 @@ const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KE
 export default {
   data: () => ({
     drawer: null,
+    // Starts false so the logo's own opacity/transform transition (see
+    // .app-logo's own CSS) is suppressed for whatever the FIRST real class
+    // change turns out to be - "drawer" itself starts null, only settling
+    // to its real true/false value once Vuetify's own v-navigation-drawer
+    // resolves its responsive default on mount, which was animating the
+    // logo in on every single page load/refresh, not just on a real
+    // sidebar toggle the user actually triggered. Flipped true shortly
+    // after mount (see mounted() below), once that initial settling has
+    // had a chance to happen.
+    logoTransitionsEnabled: false,
     emulatorWidth: readStoredWidth(),
     emulatorVisible: readStoredEmulatorVisible(),
     emulatorScale: 1,
@@ -444,12 +445,23 @@ export default {
     console.info('Text', version);
     return {
       errorStorage, compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      productName, version, configurationStorage: useConfigurationStorage(),
+      productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
     };
   },
   mounted() {
     this.attachEmulator();
     window.addEventListener('resize', this.handleWindowResize);
+    // Waits for the DOM to actually paint the drawer's own initial settled
+    // state (Vue's own $nextTick alone only guarantees the DOM has been
+    // patched, not that the browser has painted it yet - a raf after that
+    // is the usual way to wait for the actual paint) before turning the
+    // logo's transition back on, so that initial settling can't itself be
+    // animated - only a real, later toggle the user triggers.
+    this.$nextTick(() => {
+      requestAnimationFrame(() => {
+        this.logoTransitionsEnabled = true;
+      });
+    });
   },
   beforeDestroy() {
     this.stopResize();
@@ -464,23 +476,22 @@ export default {
     }
   },
   computed: {
-    // See Configuration.vue's "Hide small description text" switch - reads
-    // the same "hideDescriptionText" config field every VCSGM Options
-    // switch already uses, bound as a class on the root v-app below so the
+    // See Configuration.vue's "Expert mode" switch - reads the same standing
+    // app preference (useHideDescriptionTextStorage, see its own comment in
+    // hooks/project.js - not part of the project itself, unlike the rest of
+    // configurationState), bound as a class on the root v-app below so the
     // global ".hide-description-text .v-messages__message" CSS rule can
     // reach every hint/description paragraph in the app from one place,
     // now that they all consistently use that same class (see TextEditor.vue's
     // own hint paragraph for the pattern every other tab's hint text follows).
     hideDescriptionText() {
-      // this.configurationStorage is a computed RETURNED from setup() - Vue's
-      // Composition API auto-unwraps that when accessed through the
+      // this.hideDescriptionTextStorage is a computed RETURNED from setup() -
+      // Vue's Composition API auto-unwraps that when accessed through the
       // component instance (confirmed against this file's own romCapacityText
       // above, which reads "this.romCapacity" the same unwrapped way), so
-      // it's already the plain config object here, not a ref needing its own
-      // ".value" - that extra ".value" was silently reading undefined off
-      // the config object itself, not off a ref, which is why this always
-      // evaluated to false regardless of the actual stored setting.
-      return !!(this.configurationStorage || {}).hideDescriptionText;
+      // it's already the plain boolean here, not a ref needing its own
+      // ".value".
+      return !!this.hideDescriptionTextStorage;
     },
     emulatorScaleStyle() {
       return {
@@ -953,6 +964,18 @@ export default {
    track." Firefox has no equivalent for a specific pixel gutter/thumb size
    (only the generic "scrollbar-width: thin/auto/none" keywords), so it only
    gets the color change here, not the exact sizing. */
+/* Vuetify's default v-card corner radius (4px) is only actually visible on
+   an OUTLINED card - a flat card (Options, Score, Generated, Project) has
+   no border tracing that curve, so it reads as square even though the same
+   4px radius is technically still there underneath. Data, Player 0/1, and
+   Background all use outlined cards for each entry, where the rounding IS
+   visible - overridden globally here (rather than adding "tile" to every
+   individual <v-card outlined> across the app) so every outlined card reads
+   consistently square everywhere, present and future, in one place. */
+.v-sheet--outlined {
+  border-radius: 0 !important;
+}
+
 * {
   scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
 }
@@ -1255,6 +1278,76 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-bottom: 1px solid rgba(0, 0, 0, 0.12) !important;
 }
 
+/* Sits in the empty top-left corner: to the left of .top-toolbar (which
+   only starts at x: 200px, past the navigation drawer's own width), above
+   the drawer itself (which is "clipped" and starts at y: 72px, see the
+   template). Fixed positioning (not part of any Vuetify "app" element's
+   own flow) since none of the surrounding chrome has a slot for it. */
+.app-logo {
+  position: fixed;
+  top: 0;
+  left: 8px;
+  width: 184px;
+  height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  opacity: 1;
+  transform: translateX(0);
+  /* Matches the drawer's own 200ms slide transition (see .nav-drawer's
+     comment below) so the logo fades/slides out in step with the sidebar
+     collapsing, instead of just popping in/out with it. */
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Suppresses the transition above for the drawer's own initial settling on
+   page load (see logoTransitionsEnabled's own comment in data()) - the
+   logo should just appear (or not) in its correct starting state
+   instantly, not animate in every time the page refreshes. */
+.app-logo-no-transition {
+  transition: none;
+}
+
+.app-logo-img {
+  /* height: auto (not a fixed box with object-fit) so the image's real
+     rendered height matches its aspect ratio exactly, with no leftover
+     whitespace inside a taller box pushing the version text below it away. */
+  width: 100%;
+  height: auto;
+}
+
+.app-logo-version {
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+  line-height: 1;
+}
+
+.app-logo-hidden {
+  opacity: 0;
+  transform: translateX(-16px);
+}
+
+/* Same divider, same color, on the sidebar's own top edge - now that the
+   drawer is "clipped" (starts below the app-bar instead of the system-bar
+   above it, see the template), this lines up exactly with .top-toolbar's
+   own border-bottom above, reading as one continuous line across the whole
+   window instead of two separate borders that happen to match colors. */
+/* margin-top: -1px nudges the border up a hair from where it'd otherwise
+   land - even though the drawer's own top (now "clipped" below the app-bar,
+   see the template) and .top-toolbar's own bottom edge compute to the exact
+   same y-coordinate, the two borders still rendered a device pixel apart at
+   this window's 1.5x scale factor, a common sub-pixel rounding artifact
+   between two independently-positioned elements whose edges only coincide
+   in CSS px, not real device px. */
+.nav-drawer {
+  margin-top: -1px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12) !important;
+}
+
 /* Vuetify offsets the main content with an animated padding matching the
    drawer width, which makes the Blockly canvas ease into its new size while
    the column and emulator resize instantly. It also means the canvas is
@@ -1337,8 +1430,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    edge as it's resized. */
 .emulator-resize-handle {
   position: fixed;
-  top: 0;
-  bottom: 0;
+  /* 72px clears the fixed chrome above the drawer (the app-bar's own
+     height, see .emulator-hide-button's own comment below) - this used to
+     be a plain 0, which ran the handle up over that chrome instead of
+     starting at the drawer's own clipped top edge. */
+  top: 72px;
+  /* bottom is set inline (bound to errorHeight, see the template) rather
+     than a plain 0 here - this handle used to run the full viewport height,
+     rendering on top of the console footer (a sibling, not a descendant, so
+     the console's own z-index couldn't help) instead of stopping above it
+     the way the emulator drawer itself already does. */
   /* Straddles the drawer's own left edge (-5px to +5px, via the "right"
      style bound to emulatorWidth - 5 in the template), matching
      .error-resize-handle's own straddle - a plain 6px strip fully inside
@@ -1389,15 +1490,14 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    lived inside the drawer as an absolutely-positioned child straddling its
    edge. Fixed to the window instead, with "right" bound inline to
    emulatorWidth (see the template) so it still tracks the drawer's own left
-   edge as it's resized. top: 104px clears the fixed chrome above the drawer
-   (v-system-bar's default 24px + the app-bar's own 72px, plus a little
-   breathing room), putting this at the top of the emulator column instead
-   of vertically centered on it. z-index bumped well past Vuetify's own
-   app-bar/navigation-drawer chrome, which otherwise sat on top of and ate
-   clicks meant for this button. */
+   edge as it's resized. top: 80px clears the fixed chrome above the drawer
+   (the app-bar's own 72px, plus a little breathing room), putting this at
+   the top of the emulator column instead of vertically centered on it.
+   z-index bumped well past Vuetify's own app-bar/navigation-drawer chrome,
+   which otherwise sat on top of and ate clicks meant for this button. */
 .emulator-hide-button {
   position: fixed;
-  top: 104px;
+  top: 80px;
   transform: translateX(calc(-50% - 4px));
   z-index: 20;
   box-shadow: none !important;
@@ -1412,7 +1512,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    rather than straddling it, is the only real fix. */
 .emulator-show-button {
   position: fixed;
-  top: 104px;
+  top: 80px;
   right: 21px;
   z-index: 20;
   box-shadow: none !important;

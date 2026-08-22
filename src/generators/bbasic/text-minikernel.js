@@ -5,7 +5,9 @@ import {chunk} from 'lodash';
 import {useConfigurationStorage} from '../../hooks/project';
 import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 import {getNamedScrollLayout, registerFreeTypedScrollMessage, buildTextScrollSetupLines,
-  trackTextByIdScrollUsage, textScrollOffsetVarName, textScrollMaxVarName} from './text-scroll';
+  trackTextByIdScrollUsage, textScrollOffsetVarName, textScrollMaxVarName,
+  textScrollBaseVarName, textScrollDirVarName, textScrollPausedVarName,
+  textScrollPauseVarName, textScrollTimerVarName} from './text-scroll';
 
 // The standard kernel's own code calls "jsr minikernel" as a plain,
 // same-bank call (never a bankswitched "BS_jsr") - so on a bankswitched ROM,
@@ -106,15 +108,14 @@ export default (Blockly) => {
   // generators below) and the scroll speed/pause codes to use (either the
   // fixed defaults below, for the plain "Show text" blocks, or a
   // "..._scroll" block's own SCROLL_SPEED/SCROLL_PAUSE fields) - see
-  // buildTextScrollSetupLines' own comment in text-scroll.js for why every
-  // call reconfigures the full scroll state, even for a static message.
+  // buildTextScrollSetupLines' own comment in text-scroll.js for exactly
+  // what gets reconfigured unconditionally vs. only when the message
+  // actually changes.
   const emitScrollSetup = (offsetExpr, maxOffsetExpr, speed, pause) => {
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const lines = [
-      `TextIndex = ${offsetExpr}`,
-      ...buildTextScrollSetupLines(resolveVar, offsetExpr, maxOffsetExpr, speed, pause),
-    ];
+    const uniqueId = Blockly.BBasic.blockNumbers.next('textScroll');
+    const lines = buildTextScrollSetupLines(resolveVar, offsetExpr, maxOffsetExpr, speed, pause, uniqueId);
     return lines.join('\n') + '\n';
   };
 
@@ -186,7 +187,35 @@ export default (Blockly) => {
 
   Blockly.BBasic['text_minikernel_clear'] = function(block) {
     markTextMinikernelUsed();
-    return 'TextIndex = 0\n';
+    // Setting TextIndex alone isn't enough: if the message being cleared was
+    // scrolling, generateTextScrollAdvance (text-scroll.js) runs every frame
+    // in commongamelogic and keeps recomputing "TextIndex = base + off" from
+    // the OLD scroll state, overwriting this back to the scrolling message on
+    // the very next frame - a real reported bug ("text isn't staying clear
+    // after using 'clear text'"). Zeroing max makes that per-frame check bail
+    // immediately (its own first line is "if max = 0 then goto done"), and
+    // base/off/dir are reset too so a later "Show text (scrolling)" call
+    // starts from a clean slate rather than whatever was left over. paused is
+    // set to 2, not 1 - a tri-state (see textScrollPausedVarName's own
+    // comment) that also forces the NEXT "Show text" call to fully reset even
+    // if it's showing the exact same message as before the clear (otherwise
+    // buildTextScrollSetupLines' own lastBase-matches guard would think
+    // nothing changed and skip re-pointing TextIndex at it - a real reported
+    // follow-up bug, "scroll text is not coming back after using clear
+    // text").
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const base = resolveVar(textScrollBaseVarName());
+    const off = resolveVar(textScrollOffsetVarName());
+    const max = resolveVar(textScrollMaxVarName());
+    const dir = resolveVar(textScrollDirVarName());
+    const paused = resolveVar(textScrollPausedVarName());
+    return `TextIndex = 0\n` +
+      `${base} = 0\n` +
+      `${off} = 0\n` +
+      `${max} = 0\n` +
+      `${dir} = 0\n` +
+      `${paused} = 2\n`;
   };
 
   Blockly.BBasic['text_minikernel_set_color'] = function(block) {
@@ -194,6 +223,16 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     return `TextColor = ${argument0}\n`;
+  };
+
+  Blockly.BBasic['text_minikernel_fade_to'] = function(block) {
+    // Text's color fade trigger - same shared mechanism as Background's own
+    // "Fade color to" (see emitColorFadeTrigger in
+    // generators/bbasic/background.js), always targeting TextColor.
+    markTextMinikernelUsed();
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    return Blockly.BBasic.emitColorFadeTrigger('TextColor', color, frames);
   };
 
   // A single comparison against the shared scroll state (see
@@ -211,6 +250,38 @@ export default (Blockly) => {
     const side = block.getFieldValue('SIDE');
     const code = side === 'right' ? `${off} = ${resolveVar(textScrollMaxVarName())}` : `${off} = 0`;
     return [code, Blockly.BBasic.ORDER_EQUALITY];
+  };
+
+  // See text_minikernel_scroll_control's own comment in blocks/
+  // text-minikernel.js for what each action means. All five just write the
+  // shared scroll state directly (see text-scroll.js) - none of them need
+  // to know which message is currently showing, since there's only ever
+  // one at a time.
+  Blockly.BBasic['text_minikernel_scroll_control'] = function(block) {
+    markTextMinikernelUsed();
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const base = resolveVar(textScrollBaseVarName());
+    const off = resolveVar(textScrollOffsetVarName());
+    const dir = resolveVar(textScrollDirVarName());
+    const timer = resolveVar(textScrollTimerVarName());
+    const pause = resolveVar(textScrollPauseVarName());
+    const paused = resolveVar(textScrollPausedVarName());
+    const action = block.getFieldValue('ACTION');
+    // Snaps back to the message's own start (offset 0, TextIndex = base) -
+    // shared by Stop/Restart, which only differ in whether they leave the
+    // paused flag set afterward.
+    const resetToStart = `${off} = 0\n` +
+      `${dir} = 0\n` +
+      `TextIndex = ${base}\n`;
+    if (action === 'pause') return `${paused} = 1\n`;
+    if (action === 'start' || action === 'unpause') return `${paused} = 0\n`;
+    if (action === 'stop') return resetToStart + `${paused} = 1\n`;
+    // 'restart' - waits the "pause at limits" duration before its first
+    // step, matching buildTextScrollSetupLines' own reasoning for why a
+    // freshly (re)started message shouldn't immediately start scrolling
+    // away after only a "speed"-length delay.
+    return resetToStart + `${paused} = 0\n` + `${timer} = ${pause}\n`;
   };
 
   // Drives generateSystemDims()'s TextIndex/TextDataPtr dims below - needs to

@@ -49,6 +49,13 @@ export default (Blockly) => {
       'MULTIPLY': [' * ', Blockly.BBasic.ORDER_MULTIPLICATION],
       'DIVIDE': [' / ', Blockly.BBasic.ORDER_DIVISION],
       'POWER': [null, Blockly.BBasic.ORDER_NONE], // Handle power separately.
+      // Real batari Basic bitwise operators (confirmed against the real
+      // command reference) - unlike POWER, these need no special handling,
+      // batari Basic supports them as plain infix operators the same as
+      // +/-/*//.
+      'BITAND': [' & ', Blockly.BBasic.ORDER_BITWISE_AND],
+      'BITOR': [' | ', Blockly.BBasic.ORDER_BITWISE_OR],
+      'BITXOR': [' ^ ', Blockly.BBasic.ORDER_BITWISE_XOR],
     };
     const op = block.getFieldValue('OP');
     // "*"/"/" by a compile-time constant power of 2 gets optimized into a

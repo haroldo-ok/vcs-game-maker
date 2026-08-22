@@ -101,6 +101,25 @@ const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.work
 export const countUsedVariables = () =>
   withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
 
+// Whether the project needs "playercolors" (player0's own per-row sprite
+// color kernel option) - either a real sprite_player0_rainbow_colors block
+// on the canvas, or the standing "enable per-row sprite colors" toggle (see
+// useSpriteColors in generators/bbasic.js) - needed by Configuration.vue to
+// force "Show blank lines" back on (and disable the toggle) whenever either
+// is active. See generators/bbasic.js's effectiveShowBlankLines for why:
+// batari Basic's own kernel_options combination table never pairs
+// "playercolors" with "no_blank_lines" in any valid row, confirmed by a
+// real "Invalid combination of options" build failure when both were
+// emitted together.
+export const usesPlayer0RainbowColors = () => {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (config.enableSpriteColors) return true;
+  return withHeadlessWorkspace((workspace) =>
+    workspace.getAllBlocks(false).some((block) =>
+      block.type === 'sprite_player0_rainbow_colors' && block.isEnabled()));
+};
+
 
 // The compiler hardcodes the pfcolors table pointer as "pfcolorlabelN-84",
 // which only lands on the right byte when the kernel's own row index starts
@@ -130,7 +149,28 @@ const patchSuperchipPfColorsPointer = ({mainAsm, workDir}, config) => {
 // surfacing it as an unrelocatable error immediately. Anything else is a
 // genuine problem in the user's own project that auto-relocating an event
 // would only obscure, so it's surfaced immediately instead.
-const isOverflowError = (e) => /segment overflow|origin reverse-indexed/i.test((e && e.message) || '');
+//
+// A THIRD overflow shape, confirmed directly against a real build (Superchip
+// RAM + a pfres above the standard 12 + a bankswitched ROM size above 8k -
+// none of those three alone reproduces it, only all three together):
+// bank 1 overflowing its RORG'd segment in a way DASM doesn't report as a
+// clean "segment overflow" at all - instead its own two-pass symbol
+// resolution desyncs, and it cascades into "Unknown Mnemonic" errors on
+// dozens of unrelated lines throughout the rest of the file, none of which
+// the user's own project touches (stock runtime labels like the bankswitch
+// trampoline itself, or the score digit table). The one consistent, safe-
+// to-match signature across every reproduction of this: DASM can no longer
+// resolve "BS_jsr"/"BS_return", the bankswitch call/return trampoline's own
+// labels - a user's own project can never reference those directly (they're
+// pure DASM-internal symbols emitted by the "gosub"/"return" macros), so
+// this is unambiguous evidence of the same "bank 1 doesn't fit" condition
+// as a plain segment overflow, just reported unrecognizably. Whichever unit
+// the retry loop picks to relocate next also shrinks bank 1 by the same
+// amount either way, so no separate handling is needed once caught here -
+// it just needs to be recognized as "try relocating" instead of surfacing
+// the cascade directly.
+const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown Mnemonic 'jmp BS_(jsr|return)'/i
+    .test((e && e.message) || '');
 
 // How many physical banks each bankswitched ROM size actually provides
 // (2k/4k don't bankswitch at all, so they're absent - overflowing there just

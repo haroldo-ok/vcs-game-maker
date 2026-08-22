@@ -35,7 +35,7 @@
 import Blockly from 'blockly';
 import {debounce} from 'lodash';
 
-import {useConfigurationStorage} from '../hooks/project';
+import {useBlocklyControlsHorizontalStorage} from '../hooks/project';
 
 // Deliberately thinner than App.vue's global ::-webkit-scrollbar (16px) -
 // the Blockly canvas is dense with blocks, so a scrollbar that size reads as
@@ -97,10 +97,12 @@ Blockly.Variables.flyoutCategoryBlocks = function(workspace) {
 // See Configuration.vue's "Arrange Blockly zoom controls horizontally along
 // the bottom edge" switch - a live read (not cached at patch time, since
 // this module only ever runs once but the setting can change any time
-// afterward) of that one config field.
+// afterward) of that setting. A standing app preference (see
+// useBlocklyControlsHorizontalStorage's own comment in hooks/project.js),
+// not part of the project itself.
 const isBlocklyControlsHorizontal = () => {
   try {
-    return !!(useConfigurationStorage().value || {}).blocklyControlsHorizontal;
+    return !!useBlocklyControlsHorizontalStorage().value;
   } catch (e) {
     return false;
   }
@@ -212,18 +214,18 @@ Blockly.ZoomControls.prototype.position = function(metrics, savedPositions) {
   }
 
   if (cornerPosition.horizontal === Blockly.uiPosition.horizontalPosition.LEFT) {
-    this.zoomOutGroup_.setAttribute('transform', `translate(${realButtonsOffset}, 0)`);
-    const zoomInTranslateX = realButtonsOffset + this.SMALL_SPACING_ + this.WIDTH_;
-    this.zoomInGroup_.setAttribute('transform', `translate(${zoomInTranslateX}, 0)`);
+    this.zoomInGroup_.setAttribute('transform', `translate(${realButtonsOffset}, 0)`);
+    const zoomOutTranslateX = realButtonsOffset + this.SMALL_SPACING_ + this.WIDTH_;
+    this.zoomOutGroup_.setAttribute('transform', `translate(${zoomOutTranslateX}, 0)`);
     if (this.zoomResetGroup_) {
-      const zoomResetTranslateX = zoomInTranslateX + this.LARGE_SPACING_ + this.WIDTH_;
+      const zoomResetTranslateX = zoomOutTranslateX + this.LARGE_SPACING_ + this.WIDTH_;
       this.zoomResetGroup_.setAttribute('transform', `translate(${zoomResetTranslateX}, 0)`);
     }
   } else {
-    const zoomInTranslateX = realButtonsOffset + (this.zoomResetGroup_ ? this.LARGE_SPACING_ + this.WIDTH_ : 0);
-    this.zoomInGroup_.setAttribute('transform', `translate(${zoomInTranslateX}, 0)`);
-    const zoomOutTranslateX = zoomInTranslateX + this.SMALL_SPACING_ + this.WIDTH_;
+    const zoomOutTranslateX = realButtonsOffset + (this.zoomResetGroup_ ? this.LARGE_SPACING_ + this.WIDTH_ : 0);
     this.zoomOutGroup_.setAttribute('transform', `translate(${zoomOutTranslateX}, 0)`);
+    const zoomInTranslateX = zoomOutTranslateX + this.SMALL_SPACING_ + this.WIDTH_;
+    this.zoomInGroup_.setAttribute('transform', `translate(${zoomInTranslateX}, 0)`);
     if (this.zoomResetGroup_) {
       this.zoomResetGroup_.setAttribute('transform', `translate(${realButtonsOffset}, 0)`);
     }

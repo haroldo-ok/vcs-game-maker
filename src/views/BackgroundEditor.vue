@@ -4,6 +4,7 @@
       <v-card-title>Backgrounds</v-card-title>
       <v-card-text>
         <editor-zoom v-model="zoom" />
+        <quick-color-palette v-if="pfColorsEnabled" v-model="selectedQuickColor" />
         <v-list
           class="background-list"
           :style="{gridTemplateColumns: `repeat(auto-fill, calc(${editorWidth} + 24px))`}"
@@ -102,6 +103,8 @@
                       <template v-if="pfColorsEnabled" v-slot:sidebar>
                         <playfield-color-strip
                           :value="background.rowColors"
+                          :quickColors="quickColorPalette"
+                          :activeQuickColor="selectedQuickColor"
                           @input="(colors) => handleRowColorsInput(background, colors)"
                         />
                       </template>
@@ -138,7 +141,8 @@ import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
-import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
+import QuickColorPalette from '../components/QuickColorPalette.vue';
+import {useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, effectiveBackgroundRows,
@@ -159,12 +163,23 @@ const buildDefaultBackgroundPixels = (rows, cols = 32) =>
   new Array(rows).fill(0).map(() => new Array(cols).fill(0));
 
 export default defineComponent({
-  components: {EditorZoom, PixelEditor, PlayfieldColorStrip},
+  components: {EditorZoom, PixelEditor, PlayfieldColorStrip, QuickColorPalette},
   setup() {
     const backgroundsStorage = useBackgroundsStorage();
     const configurationStorage = useConfigurationStorage();
     const zoom = useEditorZoom('background');
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
+
+    // Same "armed color for direct-painting" reasoning as PlayerEditor.vue's
+    // own selectedQuickColor - v-model'd to the QuickColorPalette instance
+    // above, passed into PlayfieldColorStrip's own activeQuickColor prop
+    // below. Read-only access to the palette DATA itself
+    // (quickColorPalette) - QuickColorPalette owns writing to that shared
+    // storage; this just needs the list to pass into PlayfieldColorStrip's
+    // own quickColors prop.
+    const selectedQuickColor = ref(null);
+    const colorPaletteStorage = useColorPaletteStorage();
+    const quickColorPalette = computed(() => colorPaletteStorage.value || []);
 
     // The playfield's row count is a single setting for the whole ROM (see
     // the Options tab's Superchip/pfres controls), not something each
@@ -332,6 +347,7 @@ export default defineComponent({
     };
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
+      selectedQuickColor, quickColorPalette,
       handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
       zoom, editorWidth, backgroundRows, pfColorsEnabled,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners};

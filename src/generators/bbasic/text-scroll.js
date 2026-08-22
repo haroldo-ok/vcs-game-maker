@@ -7,7 +7,7 @@
 // concern with its own dev vars, its own data tables, and its own per-frame
 // runtime check, that the "Show text" block generators just call into.
 
-import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings} from '../../blocks/text-strings';
+import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 
 // One shared copy of this runtime state project-wide, reconfigured by
 // whichever "Show text" block most recently triggered a message - the Text
@@ -25,26 +25,62 @@ export const textScrollDirVarName = () => '_textScrollDir';
 export const textScrollTimerVarName = () => '_textScrollTimer';
 export const textScrollSpeedVarName = () => '_textScrollSpeed';
 export const textScrollPauseVarName = () => '_textScrollPauseVar';
+// Which base offset the scroll state was last configured for - lets
+// buildTextScrollSetupLines below tell "the same message is being shown
+// again" apart from "a genuinely different message just started", since a
+// "Show text (scrolling)" block placed in a per-frame event (a real,
+// reported case - "the scroll text blocks aren't scrolling the text") calls
+// this every single frame, not just once.
+export const textScrollLastBaseVarName = () => '_textScrollLastBase';
+// Set/cleared by the "Text scroll: Pause"/"Unpause" actions (see
+// text_minikernel_scroll_control's own generator in text-minikernel.js) -
+// checked first thing in generateTextScrollAdvance below, so a paused
+// message holds at exactly whatever offset it was showing, with none of
+// off/dir/timer disturbed, ready to pick back up exactly where it left off
+// once unpaused.
+// Tri-state, not boolean: 0 = playing, 1 = genuinely paused (via "Text
+// scroll: Pause"/"Stop"), 2 = cleared (via "Clear text"). Reusing this one
+// var for both rather than adding a second "cleared" flag keeps the Text
+// Minikernel's own reserved-dev-var count from growing - a real concern
+// (confirmed directly: a project already near the 11/12-letter variable
+// budget hit "Too many variables" the moment a 10th text-scroll var was
+// added). generateTextScrollAdvance's own "if paused then goto done" check
+// already treats any nonzero value as "don't advance", which is exactly the
+// behavior a cleared message needs too - only buildTextScrollSetupLines'
+// setup guard below needs to tell the two apart (2 forces a full reset even
+// when the message being shown again is the same one as last time; 1 does
+// not, so a per-frame "Show text (scrolling)" call doesn't fight a genuine
+// user Pause).
+export const textScrollPausedVarName = () => '_textScrollPaused';
 
 export const reserveTextScrollDevVars = (reserveDevVar, textMinikernelUsed) => {
   if (!textMinikernelUsed) return;
   [
     textScrollBaseVarName(), textScrollOffsetVarName(), textScrollMaxVarName(),
     textScrollDirVarName(), textScrollTimerVarName(), textScrollSpeedVarName(),
-    textScrollPauseVarName(),
+    textScrollPauseVarName(), textScrollLastBaseVarName(), textScrollPausedVarName(),
   ].forEach((name) => reserveDevVar(name));
 };
 
-// The maxWidth setting (see resolveTextMaxDisplayWidth) only ever applies
-// to STATIC text (text-minikernel.js's own encodeTextMessage/plain "Show
-// text" blocks) - the "(scrolling)" block variants ignore it entirely and
-// always scroll through the message's own FULL, untruncated length using
-// the kernel's full TEXT_MESSAGE_LENGTH-wide read window, one character at
-// a time. A message longer than TEXT_MESSAGE_LENGTH doesn't fit in one
-// static row at all - it needs its own untruncated, contiguous copy here
-// instead of the plain fixed-row one every shorter message still uses
-// unchanged.
-const isScrollable = (text) => String(text || '').length > TEXT_MESSAGE_LENGTH;
+// Whether a message needs the scrolling append-region path at all, rather
+// than the plain static row every shorter message uses. Compared against
+// resolveTextMaxDisplayWidth() (the Text tab's own "Max characters to
+// display at once" setting, 1..TEXT_MESSAGE_LENGTH), NOT the raw
+// TEXT_MESSAGE_LENGTH ceiling - matching the documented, user-facing
+// contract every "Show text" block's own tooltip states ("Automatically
+// scrolls...if the message is longer than the Text tab's own max display
+// width" - see blocks/text-minikernel.js's own top-of-file comment). A
+// message longer than the configured display width but still <=
+// TEXT_MESSAGE_LENGTH chars used to fall through to the static path
+// instead (comparing against TEXT_MESSAGE_LENGTH here), which silently
+// truncated it to the display width with no way to ever see the rest - a
+// real reported regression ("the scroll text blocks aren't scrolling the
+// text"), since a static row's own encodeTextMessage always clips to
+// maxWidth regardless. Once scrolling starts, it still uses the kernel's
+// full TEXT_MESSAGE_LENGTH-wide read window (see scrollMaxOffset below) -
+// only the THRESHOLD for whether to scroll at all uses the narrower
+// configured width, not the scroll motion itself.
+const isScrollable = (text) => String(text || '').length > resolveTextMaxDisplayWidth();
 
 // How many bytes a scrollable message needs reserved: its own (uppercased)
 // character count, or TEXT_MESSAGE_LENGTH if that's larger - guarantees the
@@ -107,7 +143,7 @@ export const getNamedScrollLayout = () => {
   return layout;
 };
 
-// Free-typed scrolling messages ("Show text (scrolling): <literal>") have
+// Free-typed scrolling messages ("Scroll text: <literal>") have
 // no Text tab entry to number them by, so - same reasoning as
 // text-minikernel.js's own registerFreeTypedMessage for the plain,
 // non-scrolling case - they get a lazy, dedup-by-content registry of their
@@ -153,7 +189,30 @@ export const registerFreeTypedScrollMessage = (Blockly, text) => {
 // any scrolling left running from whatever was shown before it, rather than
 // the per-frame check (see generateTextScrollAdvance below) silently
 // continuing to animate a message that already changed underneath it.
-export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr, speedCode, pauseCode) => {
+//
+// The actual RESET (offset/direction/timer/TextIndex all snapping back to
+// the start) only happens when offsetExpr differs from the base the scroll
+// state was last configured for (textScrollLastBaseVarName) - guarded by a
+// real "if lastBase = offsetExpr then goto <skip>" rather than
+// unconditional, because a "Show text (scrolling)" block placed in a
+// per-frame event (title_update, say) calls this every single frame for
+// the SAME message: unconditionally resetting offset/timer/TextIndex back
+// to the start every time that happens meant the per-frame advance in
+// generateTextScrollAdvance (which runs earlier in commongamelogic, so its
+// own progress got immediately overwritten right after) could never
+// accumulate past a single frame's worth of movement - a real reported bug
+// ("the scroll text blocks aren't scrolling the text"), confirmed directly
+// against a real project's own generated code. base/max/speed/pause still
+// update unconditionally either way - they don't affect in-progress scroll
+// state, so keeping them in sync with every call (even a same-message one,
+// in case speed/pause were changed) is harmless.
+//
+// uniqueId needs to be different per call SITE (not per message) - multiple
+// "Show text" block generators all route through this one function (see
+// text-minikernel.js's own emitScrollSetup), and DASM requires every label
+// in the whole program to be unique, so reusing one fixed skip-label name
+// across more than one call site would collide.
+export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr, speedCode, pauseCode, uniqueId) => {
   const base = resolveVar(textScrollBaseVarName());
   const off = resolveVar(textScrollOffsetVarName());
   const max = resolveVar(textScrollMaxVarName());
@@ -161,14 +220,43 @@ export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr,
   const timer = resolveVar(textScrollTimerVarName());
   const speed = resolveVar(textScrollSpeedVarName());
   const pause = resolveVar(textScrollPauseVarName());
+  const lastBase = resolveVar(textScrollLastBaseVarName());
+  const paused = resolveVar(textScrollPausedVarName());
+  const skipLabel = `_textscroll_setup_skip_${uniqueId}`;
+  const resetLabel = `_textscroll_setup_reset_${uniqueId}`;
   return [
+    // "Clear text" leaves paused = 2 (see textScrollPausedVarName's own
+    // comment) - that forces the reset below even though lastBase still
+    // matches (the message never actually changed, only got cleared).
+    // Checked before, not instead of, the ordinary lastBase guard, so the
+    // common per-frame "same message, never cleared" case still skips
+    // straight past the reset as before.
+    `if ${paused} = 2 then goto ${resetLabel}`,
+    `if ${lastBase} = ${offsetExpr} then goto ${skipLabel}`,
+    `@${resetLabel}`,
+    `${lastBase} = ${offsetExpr}`,
+    `TextIndex = ${offsetExpr}`,
     `${base} = ${offsetExpr}`,
     `${off} = 0`,
     `${dir} = 0`,
+    // A genuinely new message always starts unpaused, even if the PREVIOUS
+    // message was left paused (see text_minikernel_scroll_control's own
+    // "Pause" action) - pausing is a per-message runtime state, not
+    // something that should silently carry over onto whatever gets shown
+    // next.
+    `${paused} = 0`,
+    // Starts the message at offset 0, which is itself the SAME "limit" the
+    // per-frame advance (generateTextScrollAdvance below) already pauses
+    // at for "pause" frames every time it's reached mid-scroll (off = 0 or
+    // off = max, both wait "pause" before reversing) - a brand new message
+    // waits that same "pause at limits" duration before its first scroll
+    // step too, instead of the shorter per-character "speed" duration,
+    // which used to make it start scrolling away almost immediately.
+    `${timer} = ${pauseCode}`,
+    `@${skipLabel}`,
     `${max} = ${maxOffsetExpr}`,
     `${speed} = ${speedCode}`,
     `${pause} = ${pauseCode}`,
-    `${timer} = ${speedCode}`,
   ];
 };
 
@@ -190,6 +278,7 @@ export const generateTextScrollAdvance = (Blockly) => {
   const timer = resolveVar(textScrollTimerVarName());
   const speed = resolveVar(textScrollSpeedVarName());
   const pause = resolveVar(textScrollPauseVarName());
+  const paused = resolveVar(textScrollPausedVarName());
   // Spliced directly into bbasic.bb.hbs's commongamelogic, bypassing
   // Blockly.BBasic.normalizeIndents() the same way generateBackgroundFadeChecks/
   // generateSoundFadeChecks/generateMusicChecks do (see
@@ -201,6 +290,12 @@ export const generateTextScrollAdvance = (Blockly) => {
   // leading space and got "Unknown Mnemonic 'lda then'" from a real build).
   return [
     ` if ${max} = 0 then goto _textscroll_done`,
+    // "Text scroll: Pause" (text_minikernel_scroll_control) sets this -
+    // checked right after the "nothing to scroll" bail above, before the
+    // timer is touched at all, so a paused message holds at exactly
+    // whatever offset/timer it had, ready to resume exactly where it left
+    // off once "Unpause"/"Start" clears this flag again.
+    ` if ${paused} then goto _textscroll_done`,
     ` ${timer} = ${timer} - 1`,
     ` if ${timer} <> 0 then goto _textscroll_done`,
     ` if ${dir} = 1 then goto _textscroll_back`,
