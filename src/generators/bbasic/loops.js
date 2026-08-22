@@ -81,13 +81,27 @@ export default (Blockly) => {
     }
 
     if (!branch.trim()) {
-      branch = 'a = a';
+      branch = 'a = a\n';
     }
 
-    branch = branch.replace(/\s*\n\s*/g, ' : ').trim().replace(/\s*:\s*$/g, '');
-    code += 'for loopcounter = 1 to ' + endVar + ': ' +
+    // Kept as real, separate lines (never colon-joined onto one physical
+    // line, as an earlier version of this did) - a loop body containing
+    // ANY block that emits its own label (controls_if's own "@ _if_N_bodyN"
+    // goto targets, chief among them, but also score_set, background fades,
+    // Text Minikernel blocks, etc.) breaks under colon-joining: a label has
+    // to sit at the START of its own line, and squashing it onto the same
+    // line as neighboring statements via " : " produces a stray "@"
+    // mid-statement - a real, reported compile error ("unrecognized
+    // character '@'") from an "if" block nested inside a "repeat" block.
+    // Plain multi-line "for X = 1 to Y" / body / "next" is standard,
+    // already-proven-working batari Basic syntax (same shape
+    // Blockly.BBasic.normalizeIndents() already handles correctly for every
+    // OTHER block's own multi-line, label-bearing output), so there was
+    // never a real need to flatten this to one line in the first place.
+    if (!branch.endsWith('\n')) branch += '\n';
+    code += 'for loopcounter = 1 to ' + endVar + '\n' +
       branch +
-      ' : next\n';
+      'next\n';
 
     return code;
   };

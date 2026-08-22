@@ -1,7 +1,8 @@
 'use strict';
 
 import {findSoundEffectById, processSoundEffectsStorageDefaults} from '../../blocks/soundfx';
-import {useConfigurationStorage, useSoundEffectsStorage} from '../../hooks/project';
+import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage,
+  useSoundEffectsStorage} from '../../hooks/project';
 
 // The DIM toggle's default percentage, used until the user picks their own
 // on the slider next to it.
@@ -76,8 +77,10 @@ export default (Blockly) => {
     if (config.muteAllAudio) return 'rem Sound muted\n';
 
     const {audc, audf, audv, duration, fade} = soundEffect;
-    const effectiveAudv = config.dimSoundFx ?
-      dimVolume(audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : audv;
+    // App-wide preference (see useDimSoundFxStorage's own comment), not part
+    // of this project's own saved configuration.
+    const effectiveAudv = useDimSoundFxStorage().value ?
+      dimVolume(audv, useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) : audv;
 
     // Every soundfx_play - fade-enabled or not - has to (re)set its
     // channel's nibble in soundFadeVolumes as long as Fade is used ANYWHERE

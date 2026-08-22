@@ -2,6 +2,14 @@
   <v-card flat class="editor-container">
     <v-card-title>Options</v-card-title>
     <v-card-text>
+      <v-btn
+        text
+        class="reset-to-defaults-btn"
+        @click="handleResetToDefaults"
+      >
+        Reset to Defaults
+      </v-btn>
+
       <div class="option-section-header" @click="() => toggleSection('rom')">
         <v-btn icon small :title="isSectionCollapsed('rom') ? 'Expand this section' : 'Collapse this section'">
           <v-icon>{{ isSectionCollapsed('rom') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
@@ -92,10 +100,9 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.enableRand16"
-          @change="handleChangeConfiguration"
-          label="Use 16-bit random number generator (rand16)"
-          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
+          v-model="projectAutoIncrementVersion"
+          label="Auto-increment version on save"
+          hint="Bumps the last segment of the Project tab's own Version field (e.g. 1.2.3 -> 1.2.4) every time you save the project."
           persistent-hint
           class="option-switch"
         />
@@ -135,14 +142,14 @@
         <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
           <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
         </v-btn>
-        <span class="text-subtitle-1">Kernel Optimization (Advanced)</span>
+        <span class="text-subtitle-1">Kernel Options</span>
       </div>
       <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
         <v-switch
-          v-model="configurationState.enableOptimizationSpeed"
+          v-model="configurationState.enableRand16"
           @change="handleChangeConfiguration"
-          label="Optimize for speed (speed)"
-          hint="May increase speed - particularly of multiplication and division - at the cost of code size."
+          label="Use 16-bit random number generator (rand16)"
+          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
           persistent-hint
           class="option-switch"
         />
@@ -155,6 +162,14 @@
           persistent-hint
           class="option-switch"
         />
+        <v-switch
+          v-model="configurationState.enableOptimizationSpeed"
+          @change="handleChangeConfiguration"
+          label="Optimize for speed (speed)"
+          hint="May increase speed - particularly of multiplication and division - at the cost of code size."
+          persistent-hint
+          class="option-switch"
+        />
       </div>
     </v-card-text>
     </v-card>
@@ -164,7 +179,8 @@ import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
 import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage, useErrorStorage,
-  useHideDescriptionTextStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage} from '../hooks/project';
+  useHideDescriptionTextStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage,
+  useProjectAutoIncrementVersionStorage} from '../hooks/project';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
@@ -183,13 +199,12 @@ const MIN_SUPERCHIP_ROM_SIZE_INDEX = ROM_SIZE_OPTIONS.indexOf('8k');
 // navigation, which would otherwise reset any state kept inside setup()
 // itself). Not reused straight from that hook: its isCollapsed/
 // toggleCollapsed take an {id} object and always default to "not
-// collapsed," whereas this page wants 'vcsgm'/'kernel' to default to
-// collapsed and 'rom' to default open the FIRST time (before the user has
-// ever toggled anything) - a plain module-scope ref, hydrated from
-// localStorage once here, covers both without changing that shared hook's
-// own contract for its other callers.
+// collapsed," whereas this page wants every section collapsed the FIRST
+// time (before the user has ever toggled anything) - a plain module-scope
+// ref, hydrated from localStorage once here, covers both without changing
+// that shared hook's own contract for its other callers.
 const OPTIONS_COLLAPSED_SECTIONS_KEY = 'vcs-game-maker.collapsed.options-sections';
-const DEFAULT_COLLAPSED_SECTIONS = ['vcsgm', 'kernel'];
+const DEFAULT_COLLAPSED_SECTIONS = ['rom', 'vcsgm', 'kernel'];
 const loadCollapsedSections = () => {
   try {
     const stored = JSON.parse(localStorage.getItem(OPTIONS_COLLAPSED_SECTIONS_KEY));
@@ -200,6 +215,25 @@ const loadCollapsedSections = () => {
   return new Set(DEFAULT_COLLAPSED_SECTIONS);
 };
 const collapsedSections = ref(loadCollapsedSections());
+
+// Hoisted out of configurationState's own getter (module scope, like
+// collapsedSections above) so handleResetToDefaults can reuse the exact
+// same values rather than keeping a second, easily-drifting copy of every
+// default in sync by hand.
+const DEFAULT_CONFIGURATION = {
+  showScore: true,
+  showBlankLines: true,
+  enableSpriteColors: false,
+  enablePfColors: false,
+  enableSuperchip: false,
+  enableOptimizationSpeed: false,
+  enableInlineRand: true,
+  enableRand16: true,
+  pfres: 24,
+  romSize: '4k',
+  scoreFont: '',
+  muteAllAudio: false,
+};
 
 export default defineComponent({
   setup(props, context) {
@@ -216,6 +250,7 @@ export default defineComponent({
     const muteBlocklySounds = useMuteBlocklySoundsStorage();
     const blocklyControlsHorizontal = useBlocklyControlsHorizontalStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
+    const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
 
     // Which sections are collapsed - a Set of section keys, matching the
     // collapse pattern already used by the other tabs' own cards (a plain
@@ -231,24 +266,9 @@ export default defineComponent({
     };
 
     const configurationState = computed({
+      // scoreFont is chosen on the Score tab, but is kept here so that
+      // changing any other option round-trips it instead of dropping it.
       get() {
-        // scoreFont is chosen on the Score tab, but is kept here so that
-        // changing any other option round-trips it instead of dropping it.
-        const DEFAULT_CONFIGURATION = {
-          showScore: true,
-          showBlankLines: true,
-          enableSpriteColors: false,
-          enablePfColors: false,
-          enableSuperchip: false,
-          enableOptimizationSpeed: false,
-          enableInlineRand: false,
-          enableRand16: false,
-          pfres: 24,
-          romSize: '4k',
-          scoreFont: '',
-          muteAllAudio: false,
-        };
-
         try {
           const configuration = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
 
@@ -378,16 +398,43 @@ export default defineComponent({
       handleChangeResolution();
     };
 
+    // Only the boolean (v-switch) settings - romSize/pfres/scoreFont are
+    // real project choices, not toggles, so a "reset to defaults" for
+    // toggles specifically leaves them alone. Covers both configurationState
+    // (project-scoped, saved with the .vcsgm file) and the four standing app
+    // preferences kept in their own separate storage (see loadLastProject's
+    // own comment above for why those live apart from configurationState).
+    const handleResetToDefaults = () => {
+      const state = configurationState.value;
+      state.showScore = DEFAULT_CONFIGURATION.showScore;
+      state.showBlankLines = DEFAULT_CONFIGURATION.showBlankLines;
+      state.enableSpriteColors = DEFAULT_CONFIGURATION.enableSpriteColors;
+      state.enablePfColors = DEFAULT_CONFIGURATION.enablePfColors;
+      state.enableSuperchip = DEFAULT_CONFIGURATION.enableSuperchip;
+      state.enableOptimizationSpeed = DEFAULT_CONFIGURATION.enableOptimizationSpeed;
+      state.enableInlineRand = DEFAULT_CONFIGURATION.enableInlineRand;
+      state.enableRand16 = DEFAULT_CONFIGURATION.enableRand16;
+      state.muteAllAudio = DEFAULT_CONFIGURATION.muteAllAudio;
+      configurationState.value = state;
+
+      loadLastProject.value = false;
+      muteBlocklySounds.value = false;
+      blocklyControlsHorizontal.value = false;
+      hideDescriptionText.value = false;
+      projectAutoIncrementVersion.value = false;
+    };
+
     return {
       configurationState,
       handleChangeConfiguration,
       handleChangeResolution,
       handleToggleSuperchip,
+      handleResetToDefaults,
       romSizeOptions,
       romSizeIsBankswitched,
       player0RainbowColorsActive,
       loadLastProject,
-      muteBlocklySounds, blocklyControlsHorizontal, hideDescriptionText,
+      muteBlocklySounds, blocklyControlsHorizontal, hideDescriptionText, projectAutoIncrementVersion,
       isSectionCollapsed,
       toggleSection,
     };
@@ -416,6 +463,32 @@ export default defineComponent({
   width: 100%;
 }
 
+/* A solid background (no "text" prop, unlike this app's usual flat-icon
+   buttons) - this is a destructive-ish, whole-page action, so it reads as
+   more deliberate/prominent than the section toggles below it. */
+.reset-to-defaults-btn {
+  margin-bottom: 16px;
+}
+
+/* Same flat-icon, fade-in-on-hover/blue-on-press color pattern as every
+   icon button elsewhere in the app (e.g. Project.vue's own
+   .project-flat-icon-btn, GeneratedCode.vue's own
+   .generated-code-flat-icon-btn) - here applied to the button's TEXT color
+   instead of an icon's, since this button has a label, not an icon.
+   Vuetify's own "text" prop already gives the transparent background/no
+   box-shadow those other buttons get from more manual CSS. */
+.reset-to-defaults-btn.v-btn {
+  color: rgba(0, 0, 0, 0.38) !important;
+}
+
+.reset-to-defaults-btn.v-btn:hover {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.reset-to-defaults-btn.v-btn:active {
+  color: #1976d2 !important;
+}
+
 /* Left-aligned collapse chevron + section title - matches the other tabs'
    own per-card collapse control (e.g. DataEditor's .data-collapse-btn),
    rather than Vuetify's own v-expansion-panel-header, which puts its arrow
@@ -442,8 +515,11 @@ export default defineComponent({
    (see node_modules/vuetify/dist/vuetify.css) - once "Expert mode" (see
    App.vue's own hide-description-text support) removes that hint text,
    that much space between switches reads as too generous with nothing left
-   below to justify it. */
-.hide-description-text .option-switch {
+   below to justify it. Only switches that FOLLOW another switch (the "+"
+   combinator, rather than a blanket ".option-switch") - the section's own
+   FIRST switch sits right under its own header instead, and that spacing
+   is unrelated to any hint text, so it shouldn't change with this toggle. */
+.hide-description-text .option-switch + .option-switch {
   margin-top: 2px;
 }
 

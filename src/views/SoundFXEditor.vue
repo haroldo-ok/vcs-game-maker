@@ -11,7 +11,9 @@
             class="dim-switch"
           />
           <v-slider
-            v-model="dimSoundFxPercent"
+            :value="dimSoundFxPercentDisplay"
+            @input="(v) => (dimSoundFxPercentDisplay = v)"
+            @change="(v) => (dimSoundFxPercent = v)"
             :disabled="!dimSoundFx"
             min="0"
             max="100"
@@ -19,7 +21,7 @@
             hide-details
             class="dim-slider"
           />
-          <span class="dim-percent">{{ dimSoundFxPercent }}%</span>
+          <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
         </div>
         <p class="dim-hint v-messages theme--light v-messages__message">
           When DIM is on, every sound effect plays at the volume above, as a
@@ -257,13 +259,13 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref, watch} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
-import {useConfigurationStorage, useSoundEffectsStorage} from '../hooks/project';
+import {useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
   DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
@@ -281,28 +283,24 @@ export default defineComponent({
   components: {ColorSwatchPicker},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
-    const configurationStorage = useConfigurationStorage();
-    const dimSoundFx = computed({
-      get() {
-        return !!(configurationStorage.value || {}).dimSoundFx;
-      },
-      set(value) {
-        configurationStorage.value = {
-          ...(configurationStorage.value || {}),
-          dimSoundFx: value,
-        };
-      },
-    });
-    const dimSoundFxPercent = computed({
-      get() {
-        return (configurationStorage.value || {}).dimSoundFxPercent ?? DEFAULT_DIM_PERCENT;
-      },
-      set(value) {
-        configurationStorage.value = {
-          ...(configurationStorage.value || {}),
-          dimSoundFxPercent: value,
-        };
-      },
+    // App-wide preference, not part of this project's own saved
+    // configuration - see useDimSoundFxStorage's own comment in
+    // hooks/project.js.
+    const dimSoundFx = useDimSoundFxStorage();
+    const dimSoundFxPercent = useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT);
+    // Same reasoning as MusicEditor.vue's own identical dimSoundFxPercentDisplay -
+    // dimSoundFxPercent's own setter still does a synchronous localStorage
+    // write on every call, which v-slider's v-model would otherwise trigger
+    // on every "input" tick while dragging - the exact repeated-main-thread-
+    // work pattern that caused the visible thumb to lag behind the mouse and
+    // only catch up once dragging stopped (a real reported bug, originally
+    // against the old, much heavier whole-configurationStorage-object write
+    // this used to do). This cheap local ref absorbs every "input" tick
+    // instead; the persisted write only happens once, on "change" (drag
+    // release).
+    const dimSoundFxPercentDisplay = ref(dimSoundFxPercent.value);
+    watch(dimSoundFxPercent, (value) => {
+      dimSoundFxPercentDisplay.value = value;
     });
     const state = computed({
       get() {
@@ -499,7 +497,7 @@ export default defineComponent({
       handleStopPreview, handleSetSoundEffectColor, handleToggleInstrument, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, handleAudcChange,
-      dimSoundFx, dimSoundFxPercent,
+      dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
       soundFilter, soundFilterItems, matchesSoundFilter,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),

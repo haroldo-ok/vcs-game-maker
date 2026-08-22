@@ -52,12 +52,12 @@
           <v-icon>mdi-table</v-icon>
         </v-btn>
 
-        <v-btn to="/configuration" link text class="configuration-item" title="Options" elevation="0">
-          <v-icon>mdi-cog</v-icon>
-        </v-btn>
-
         <v-btn to="/generated" link text class="generated-item" title="Generated" elevation="0">
           <v-icon>mdi-card-text</v-icon>
+        </v-btn>
+
+        <v-btn to="/configuration" link text class="configuration-item" title="Options" elevation="0">
+          <v-icon>mdi-cog</v-icon>
         </v-btn>
 
         <v-btn to="/project" link text class="project-item" title="Project" elevation="0">
@@ -195,19 +195,6 @@
         </v-list-item>
 
         <v-list-item
-          to="/configuration"
-          link
-          class="configuration-item"
-        >
-          <v-list-item-icon>
-            <v-icon>mdi-cog</v-icon>
-          </v-list-item-icon>
-          <v-list-item-content>
-            <v-list-item-title>Options</v-list-item-title>
-          </v-list-item-content>
-        </v-list-item>
-
-        <v-list-item
           to="/generated"
           link
           class="generated-item"
@@ -217,6 +204,19 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Generated</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/configuration"
+          link
+          class="configuration-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-cog</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Options</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 

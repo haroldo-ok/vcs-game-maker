@@ -6,7 +6,8 @@ import {findSongById, processSongsStorageDefaults, DEFAULT_PATTERN_STEPS, LENGTH
 import {processSoundEffectsStorageDefaults, DEFAULT_ARPEGGIO_DIVISION,
   FADE_LENGTH_OPTIONS, DEFAULT_FADE_LENGTH} from '../../blocks/soundfx';
 import {MAX_DATA_TABLE_VALUES} from '../../blocks/data';
-import {useConfigurationStorage, useSoundEffectsStorage, useSongsStorage} from '../../hooks/project';
+import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage,
+  useSoundEffectsStorage, useSongsStorage} from '../../hooks/project';
 import {effectiveTempo} from '../../utils/music-playback';
 import {audcHasTunableNotes, noteAudv} from '../../utils/music-notes';
 import {DEFAULT_DIM_PERCENT, dimVolume} from './soundfx';
@@ -811,8 +812,11 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       // before, just applied to whichever value is actually in effect for
       // THIS note (an earlier version of this computed audv once per
       // TRACK, applying the exact same value to every note on it).
-      const audv = config.dimSoundFx ?
-        dimVolume(noteAudv(note, soundEffect), config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) :
+      // App-wide preference (see useDimSoundFxStorage's own comment in
+      // hooks/project.js), not part of this project's own saved
+      // configuration.
+      const audv = useDimSoundFxStorage().value ?
+        dimVolume(noteAudv(note, soundEffect), useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) :
         noteAudv(note, soundEffect);
       notesByChannel[channel].push({
         startUnits: note.step,

@@ -15,7 +15,7 @@ import {
 import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_FADE_LENGTH} from '../blocks/soundfx';
-import {useConfigurationStorage} from '../hooks/project';
+import {useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
 import {audcHasTunableNotes, noteAudv} from './music-notes';
 
 let audioContext = null;
@@ -349,10 +349,8 @@ export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision
   // note could be heard (pattern/song playback, the compiled ROM) - without
   // this, a click-to-place preview would sound louder than the note
   // actually plays back everywhere else.
-  const configurationStorage = useConfigurationStorage();
-  const config = (configurationStorage && configurationStorage.value) || {};
-  const dimmedAudv = config.dimSoundFx ?
-    dimVolume(audv, config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) : audv;
+  const dimmedAudv = useDimSoundFxStorage().value ?
+    dimVolume(audv, useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) : audv;
   const peakGain = Math.min(1, Math.max(0, Number(dimmedAudv) || 0) / 15) * 0.3;
   const startTime = context.currentTime;
   const seconds = 0.18;
@@ -434,12 +432,12 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
   const unitSeconds = stepSeconds / LENGTH_UNITS_PER_STEP;
   const stepCount = pattern.stepCount || DEFAULT_PATTERN_STEPS;
 
-  // Same "Dim SFX volume" Options-tab setting the compiled ROM applies (see
+  // Same app-wide "Dim SFX volume" setting the compiled ROM applies (see
   // flattenPatternEvents in generators/bbasic/music.js) - read fresh each call
   // rather than cached, for the same reason as everywhere else this hook is
   // used (a computed() over localStorage would keep serving a stale value).
-  const configurationStorage = useConfigurationStorage();
-  const config = (configurationStorage && configurationStorage.value) || {};
+  const dimSoundFx = useDimSoundFxStorage();
+  const dimSoundFxPercent = useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT);
 
   let maxEndUnits = stepCount * LENGTH_UNITS_PER_STEP;
   pattern.tracks.forEach((track) => {
@@ -494,8 +492,8 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       // Per-note override (see the Music tab's own piano-roll volume row),
       // falling back to the instrument's own preset - same DIM-scaling
       // applied either way, just to whichever value is actually in effect.
-      const audv = config.dimSoundFx ?
-        dimVolume(noteAudv(note, soundEffect), config.dimSoundFxPercent ?? DEFAULT_DIM_PERCENT) :
+      const audv = dimSoundFx.value ?
+        dimVolume(noteAudv(note, soundEffect), dimSoundFxPercent.value) :
         noteAudv(note, soundEffect);
 
       activeSources.push(...playInstrumentHit(context, {

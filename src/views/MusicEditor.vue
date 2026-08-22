@@ -14,7 +14,9 @@
             class="dim-switch"
           />
           <v-slider
-            v-model="dimSoundFxPercent"
+            :value="dimSoundFxPercentDisplay"
+            @input="(v) => (dimSoundFxPercentDisplay = v)"
+            @change="(v) => (dimSoundFxPercent = v)"
             :disabled="!dimSoundFx"
             min="0"
             max="100"
@@ -22,7 +24,7 @@
             hide-details
             class="dim-slider"
           />
-          <span class="dim-percent">{{ dimSoundFxPercent }}%</span>
+          <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
         </div>
         <p class="dim-hint v-messages theme--light v-messages__message">
           When DIM is on, every note plays at the volume above, as a percentage of its own set volume - same
@@ -178,7 +180,7 @@
                     >
                       <v-icon small>{{ isSequenceCollapsed(song) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
                     </v-btn>
-                    <div class="music-section-label">Sequence (play order)</div>
+                    <div class="music-section-label">Sequence</div>
                   </div>
                   <div v-if="!isSequenceCollapsed(song)" class="sequence-row">
                     <div
@@ -391,7 +393,7 @@
                           </v-icon>
                         </v-btn>
                         <div class="music-section-label">
-                          Instruments (click one to choose which its notes go to below)
+                          Instruments
                         </div>
                       </div>
                       <template v-if="!isInstrumentsCollapsed(song)">
@@ -776,7 +778,8 @@ import {max} from 'lodash';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {useMusicEditorActiveState} from '../hooks/music-editor-state';
-import {useConfigurationStorage, useSongsStorage, useSoundEffectsStorage} from '../hooks/project';
+import {useDimSoundFxPercentStorage, useDimSoundFxStorage, useSongsStorage,
+  useSoundEffectsStorage} from '../hooks/project';
 import {
   clampTempo, DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
   LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_TEMPO, normalizeSequenceGroups, PATTERN_STEP_OPTIONS,
@@ -862,36 +865,37 @@ export default defineComponent({
   setup() {
     const songsStorage = useSongsStorage();
     const soundEffectsStorage = useSoundEffectsStorage();
-    // Same shared configurationStorage keys as SoundFXEditor.vue's own
-    // identical dimSoundFx/dimSoundFxPercent computed pair - deliberately
-    // not scoped to this tab, so toggling/adjusting either one here or on
-    // the Sound tab updates the exact same underlying value both read from,
-    // no separate sync logic needed. Music's own note volumes already read
-    // these same two config keys (see generators/bbasic/music.js's own
-    // buildMusicPlayResetBody/flattenPatternEvents), so this UI is the only
-    // piece that was actually missing.
-    const configurationStorage = useConfigurationStorage();
-    const dimSoundFx = computed({
-      get() {
-        return !!(configurationStorage.value || {}).dimSoundFx;
-      },
-      set(value) {
-        configurationStorage.value = {
-          ...(configurationStorage.value || {}),
-          dimSoundFx: value,
-        };
-      },
-    });
-    const dimSoundFxPercent = computed({
-      get() {
-        return (configurationStorage.value || {}).dimSoundFxPercent ?? DEFAULT_DIM_PERCENT;
-      },
-      set(value) {
-        configurationStorage.value = {
-          ...(configurationStorage.value || {}),
-          dimSoundFxPercent: value,
-        };
-      },
+    // Same shared app-wide storage keys as SoundFXEditor.vue's own identical
+    // dimSoundFx/dimSoundFxPercent pair (see useDimSoundFxStorage's own
+    // comment in hooks/project.js - a standing app preference, not part of
+    // this project's own saved configuration) - deliberately not scoped to
+    // this tab, so toggling/adjusting either one here or on the Sound tab
+    // updates the exact same underlying value both read from, no separate
+    // sync logic needed. Music's own note volumes already read these same
+    // two keys (see generators/bbasic/music.js's own buildMusicPlayResetBody/
+    // flattenPatternEvents), so this UI is the only piece that was actually
+    // missing.
+    const dimSoundFx = useDimSoundFxStorage();
+    const dimSoundFxPercent = useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT);
+    // The slider's own visible thumb position/percentage - deliberately NOT
+    // bound directly to dimSoundFxPercent above. That computed's setter still
+    // does a synchronous localStorage write on every call, and v-slider's
+    // v-model fires on every "input" event - many times per second while
+    // actually dragging. Doing that write on every single drag tick (worse
+    // still, an earlier version of this wrote the ENTIRE shared
+    // configurationStorage object, plus the reactive re-render cascade that
+    // triggered everywhere else it's read) was blocking the main thread badly
+    // enough that the visible thumb lagged behind the mouse and only
+    // "caught up" once dragging stopped - a real reported bug. This ref
+    // instead absorbs every "input" tick for free (cheap, local, nothing
+    // else depends on it), and the persisted write only happens once, on
+    // "change" (drag release) - see the v-slider below.
+    const dimSoundFxPercentDisplay = ref(dimSoundFxPercent.value);
+    // Keeps the slider in sync if the value changes from elsewhere (e.g. the
+    // Sound tab's own identical slider, since both read/write the same
+    // underlying configurationStorage key).
+    watch(dimSoundFxPercent, (value) => {
+      dimSoundFxPercentDisplay.value = value;
     });
     const pianoRollZoomStored = ref(clampPianoRollZoom(parseFloat(localStorage.getItem(PIANO_ROLL_ZOOM_KEY))));
     const pianoRollZoom = computed({
@@ -3034,7 +3038,7 @@ export default defineComponent({
     });
 
     return {
-      dimSoundFx, dimSoundFxPercent,
+      dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
       state, handleChildChange, handleChangeSubdivision, snapEnabled, handleToggleSnap,
       handleTempoChange, minTempo: MIN_TEMPO, maxTempo: MAX_TEMPO,
       handleAddSong, handleDeleteSong, handleExportSong, handleImportSong,

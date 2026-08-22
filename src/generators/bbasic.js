@@ -1357,6 +1357,7 @@ Blockly.BBasic.finish = function(code) {
   // Workaround negation that's not working
   code = code.replaceAll(/(\W)not_(switch\w+(\W?))/g, '$1 !$2');
 
+  const generatedProjectInfo = Blockly.BBasic.generateProjectInfo();
   const generatedConfiguration = Blockly.BBasic.generateConfiguration();
   const generatedRomSize = Blockly.BBasic.generateRomSize();
   const generatedSystemDims = Blockly.BBasic.generateSystemDims();
@@ -1437,7 +1438,7 @@ Blockly.BBasic.finish = function(code) {
     generatedTextOffsetTables,
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedConfiguration, generatedRomSize, generatedSystemDims,
+    gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
     generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
     generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
@@ -1870,6 +1871,108 @@ Blockly.BBasic.useInlineRand = function() {
   const config = (configurationStorage && configurationStorage.value) || {};
   if (!BANKSWITCHED_ROM_SIZES.includes(config.romSize)) return false;
   return config.enableInlineRand ?? false;
+};
+
+// Spliced into bbasic.bb.hbs as its own "rem"-commented block, right above
+// the "Options" block (see generateConfiguration just below) - these are
+// pure documentation, read by a human looking at the generated source,
+// never by the compiler itself. Unlike every other "****/label/****"
+// section header in this template (Options, Setup, etc, where the closing
+// "****" line sits right under the label, with the section's own real code
+// following after), this block has no label line of its own (redundant -
+// "Title:"/"Developer:"/etc already say what it is) and its closing "****"
+// divider is the LAST line of the whole thing (see bbasic.bb.hbs itself) -
+// there's no real code to put after it, only more of this same comment.
+// Lives on the same configuration bag every other Project tab field does
+// (see Project.vue's own useConfigField) - only a field the user actually
+// filled in gets its own line, so an unused project (nothing set on the
+// Project tab at all) doesn't leave a block of empty "rem :" noise up top.
+// Project Description is free-typed, multi-line text - split one "rem" line
+// per source line rather than one long line, both because a comment can't
+// itself contain a real newline and because DASM has no line-length limit
+// on a "rem" the way it does on a "data" statement, but a very long single
+// line would still be awkward to actually read here. Every line (not just
+// Description's) is also word-wrapped to the divider's own width (see
+// wrapProjectInfoLine below) - a long Title/Website/etc wouldn't otherwise
+// be capped at all.
+// Matches the "****...****" divider's own length (see bbasic.bb.hbs) - a
+// line this block emits is never allowed to run longer than the box drawn
+// around it. " rem " (leading space + "rem" + trailing space) is the fixed
+// prefix every line in this block already carries, so that's subtracted
+// once here rather than at every call site below.
+const PROJECT_INFO_LINE_WIDTH = 79;
+const PROJECT_INFO_PREFIX = ' rem ';
+const PROJECT_INFO_TEXT_WIDTH = PROJECT_INFO_LINE_WIDTH - PROJECT_INFO_PREFIX.length;
+
+/**
+ * Greedily word-wraps text to PROJECT_INFO_TEXT_WIDTH-character lines - a
+ * single word longer than that on its own is hard-broken instead (e.g. a
+ * long unbroken URL), rather than left to overflow the divider width.
+ * @param {string} text
+ * @return {!Array<string>}
+ */
+function wrapProjectInfoLine(text) {
+  const wrapped = [];
+  let current = '';
+  String(text).split(/\s+/).filter(Boolean).forEach((rawWord) => {
+    let word = rawWord;
+    while (word.length > PROJECT_INFO_TEXT_WIDTH) {
+      const spaceLeft = PROJECT_INFO_TEXT_WIDTH - current.length - (current ? 1 : 0);
+      if (spaceLeft > 0) {
+        current = current ? `${current} ${word.slice(0, spaceLeft)}` : word.slice(0, spaceLeft);
+        word = word.slice(spaceLeft);
+      }
+      wrapped.push(current);
+      current = '';
+    }
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > PROJECT_INFO_TEXT_WIDTH) {
+      wrapped.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  });
+  if (current) wrapped.push(current);
+  return wrapped.length ? wrapped : [''];
+}
+
+Blockly.BBasic.generateProjectInfo = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const lines = [];
+  [
+    ['Title', config.projectTitle],
+    ['Developer', config.projectDeveloper],
+    ['Version', config.projectVersion],
+    ['Website', config.projectWebsite],
+    ['Email', config.projectEmail],
+  ].forEach(([label, value]) => {
+    if (!value) return;
+    wrapProjectInfoLine(`${label}: ${value}`).forEach((line) => lines.push(`${PROJECT_INFO_PREFIX}${line}`));
+  });
+  if (config.projectDescription) {
+    lines.push(' rem');
+    lines.push(`${PROJECT_INFO_PREFIX}Description:`);
+    // The user's own paragraph breaks (real newlines they typed) are kept
+    // as-is - only each RESULTING line gets word-wrapped, so a short line
+    // they typed doesn't get glued onto the next one.
+    String(config.projectDescription).split('\n').forEach((rawLine) => {
+      wrapProjectInfoLine(rawLine).forEach((line) => lines.push(`${PROJECT_INFO_PREFIX}${line}`));
+    });
+  }
+  // App credit - always present regardless of which (if any) fields above
+  // were actually filled in, unlike every other line in this block. A
+  // deliberate line break before "Create your own..." (not left to
+  // word-wrap's own judgment) - two separate sentences, so they always
+  // start on their own line regardless of exactly where either one happens
+  // to wrap.
+  lines.push(' rem');
+  lines.push(`${PROJECT_INFO_PREFIX}${'*'.repeat(PROJECT_INFO_TEXT_WIDTH)}`);
+  wrapProjectInfoLine('Created with VCS Game Maker.').forEach((line) => lines.push(`${PROJECT_INFO_PREFIX}${line}`));
+  wrapProjectInfoLine('Create your own Atari VCS games: https://haroldo-ok.itch.io/vcs-game-maker')
+      .forEach((line) => lines.push(`${PROJECT_INFO_PREFIX}${line}`));
+  return lines.join('\n');
 };
 
 Blockly.BBasic.generateConfiguration = function() {

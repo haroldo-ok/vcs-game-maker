@@ -155,3 +155,40 @@ export const useMuteBlocklySoundsStorage = () =>
 // navigating away").
 export const useGridSnapStorage = () =>
   useBooleanAppSetting('vcs-game-maker.gridSnap');
+// Same "standing app preference, not a project setting" reasoning as the
+// others above - a real reported correction (it started out living in
+// configurationState/Project.vue's own configuration bag, meaning it reset
+// to off every time you switched or started a new project, which defeats
+// the point of a "always bump the version for me" habit).
+export const useProjectAutoIncrementVersionStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.projectAutoIncrementVersion');
+
+// Same "standing app preference, not a project setting" reasoning as the
+// others above - a real reported correction. Unlike those, DIM also gets
+// read by the real bBasic generators (generators/bbasic/music.js,
+// soundfx.js, sound.js) and baked into the compiled ROM's own audio
+// behavior - moving it here means a saved .vcsgm project no longer carries
+// its own DIM setting; opening it elsewhere (or after changing this
+// yourself) compiles using whoever's local app-wide preference is current,
+// not whatever the project was originally authored/tested with. Confirmed
+// as the intended tradeoff (asked directly) rather than an oversight.
+export const useDimSoundFxStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.dimSoundFx');
+
+// Percent (0-100), not boolean - same raw-string localStorage mechanism as
+// useBooleanAppSetting above, parsed as a number instead. defaultValue is
+// passed in by each caller (DEFAULT_DIM_PERCENT lives in generators/bbasic/
+// soundfx.js, which this hooks file doesn't otherwise depend on) rather than
+// duplicated here.
+export const useDimSoundFxPercentStorage = (defaultValue) => {
+  const raw = useLocalStorage('vcs-game-maker.dimSoundFxPercent');
+  return computed({
+    get() {
+      const parsed = parseFloat(raw.value);
+      return Number.isFinite(parsed) ? parsed : defaultValue;
+    },
+    set(value) {
+      raw.value = String(value);
+    },
+  });
+};

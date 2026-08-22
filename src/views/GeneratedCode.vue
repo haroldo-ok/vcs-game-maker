@@ -8,18 +8,18 @@
         <v-btn
           icon
           class="generated-code-flat-icon-btn"
-          :title="copyButtonTitle"
-          @click="handleCopyGeneratedCode"
-        >
-          <v-icon>mdi-content-copy</v-icon>
-        </v-btn>
-        <v-btn
-          icon
-          class="generated-code-flat-icon-btn"
           title="Save Generated Code"
           @click="handleSaveGeneratedCode"
         >
           <v-icon>mdi-content-save</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          class="generated-code-flat-icon-btn"
+          :title="copyButtonTitle"
+          @click="handleCopyGeneratedCode"
+        >
+          <v-icon>mdi-content-copy</v-icon>
         </v-btn>
       </div>
       <div class="code-scroll-wrapper">
@@ -398,11 +398,12 @@ export default defineComponent({
   border-radius: 0;
 }
 
-/* Flush left, own row below the title, above the code itself. */
+/* Flush left, own row below the title, above the code itself. Same "gap"
+   spacing method as Project.vue's own .project-actions. */
 .generated-code-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   padding: 0 16px 2px 8px;
   flex: 0 0 auto;
 }
@@ -439,7 +440,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 4px;
+  gap: 0;
   padding: 6px 16px 6px 8px;
   background: #fff;
   border-top: 1px solid rgba(0, 0, 0, 0.12);
