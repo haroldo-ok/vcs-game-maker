@@ -192,7 +192,7 @@ export const findSoundEffectById = (id) => {
 Blockly.Blocks['soundfx_play'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${SOUND_ICON} Play sound effect:`)
+        .appendField(`${SOUND_ICON} Play sound effect`)
         .appendField(new Blockly.FieldDropdown(buildSoundEffectOptions), 'SOUNDFX')
         .appendField('on')
         .appendField(new Blockly.FieldDropdown(CHANNEL_OPTIONS), 'CHANNEL');

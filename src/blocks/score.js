@@ -24,7 +24,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the score setter.
   {
     'type': `score_set`,
-    'message0': `${SCORE_ICON} Score: set to: %1`,
+    'message0': `${SCORE_ICON} Score set to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -39,7 +39,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for adding to the score in place.
   {
     'type': `score_change`,
-    'message0': `${SCORE_ICON} Score: change by: %1`,
+    'message0': `${SCORE_ICON} Score change by %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -63,7 +63,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the color setter.
   {
     'type': `score_color_set`,
-    'message0': `${SCORE_ICON} Score: set ${COLOR_ICON} color to: %1`,
+    'message0': `${SCORE_ICON} Score set ${COLOR_ICON} color to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -85,7 +85,7 @@ Blockly.defineBlocksWithJsonArray([
   // target every frame afterward on its own.
   {
     'type': `score_fade_to`,
-    'message0': `${SCORE_ICON} Fade Score ${COLOR_ICON} color to: %1 over %2 frames`,
+    'message0': `${SCORE_ICON} Fade Score ${COLOR_ICON} color to %1 over %2 frames`,
     'args0': [
       {
         'type': 'input_value',
@@ -113,7 +113,7 @@ Blockly.defineBlocksWithJsonArray([
   // subroutine reads scorebkcolor.
   {
     'type': `score_bk_color_set`,
-    'message0': `${SCORE_ICON} Score: set background ${COLOR_ICON} color to: %1`,
+    'message0': `${SCORE_ICON} Score set background ${COLOR_ICON} color to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -130,7 +130,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for adding to the score's color in place.
   {
     'type': `score_color_change`,
-    'message0': `${SCORE_ICON} Score: change ${COLOR_ICON} color by: %1`,
+    'message0': `${SCORE_ICON} Score change ${COLOR_ICON} color by %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -162,7 +162,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for a single score digit setter.
   {
     'type': `score_digit_set`,
-    'message0': `${SCORE_ICON} Score digit %1: set to: %2`,
+    'message0': `${SCORE_ICON} Score digit %1 set to %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -184,7 +184,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for changing a single score digit in place.
   {
     'type': `score_digit_change`,
-    'message0': `${SCORE_ICON} Score digit %1: change by: %2`,
+    'message0': `${SCORE_ICON} Score digit %1 change by %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -222,7 +222,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the score bar setter.
   {
     'type': `score_bar_set`,
-    'message0': `${SCORE_ICON} Score Bar %1: set to: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 set to %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -243,7 +243,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for adding to a score bar in place.
   {
     'type': `score_bar_change`,
-    'message0': `${SCORE_ICON} Score Bar %1: change by: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 change by %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -265,7 +265,7 @@ Blockly.defineBlocksWithJsonArray([
   // instead of a raw binary pattern.
   {
     'type': `score_bar_set_health`,
-    'message0': `${SCORE_ICON} Score Bar %1: set health to: %2 (0-8)`,
+    'message0': `${SCORE_ICON} Score Bar %1 set health to %2 (0-8)`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -288,7 +288,7 @@ Blockly.defineBlocksWithJsonArray([
   // instead of a raw binary pattern.
   {
     'type': `score_bar_set_lives`,
-    'message0': `${SCORE_ICON} Score Bar %1: set lives to: %2 (0-4)`,
+    'message0': `${SCORE_ICON} Score Bar %1 set lives to %2 (0-4)`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -310,7 +310,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for changing a health-style score bar by a number of units.
   {
     'type': `score_bar_change_health`,
-    'message0': `${SCORE_ICON} Score Bar %1: change health by: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 change health by %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -333,7 +333,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for changing a lives-style score bar by a number of dots.
   {
     'type': `score_bar_change_lives`,
-    'message0': `${SCORE_ICON} Score Bar %1: change lives by: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 change lives by %2`,
     'args0': [
       {
         'type': 'field_dropdown',

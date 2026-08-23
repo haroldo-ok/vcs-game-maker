@@ -348,7 +348,7 @@
         title="Drag to resize the error pane"
         @mousedown.prevent="startResizeError"
       ></div>
-      <div class="error-scroll-wrapper">
+      <div class="error-scroll-wrapper" ref="errorScrollWrapper">
         <div class="error-console-content">
           <div
             v-for="(entry, index) in compileLog"
@@ -602,8 +602,34 @@ export default {
       // width-drag mid-reflow.
       if (value) this.$nextTick(this.updateEmulatorScale);
     },
+    // Keeps the bottom console pinned to its newest line as a build
+    // progresses, rather than leaving it wherever it happened to be
+    // scrolled (usually the top, showing only the earliest "Preprocessing
+    // started..."-style lines) while new lines keep appending below the
+    // visible area. compileLog gets a whole new array reference on every
+    // append (see hooks/project.js's own appendCompileLog), so a plain
+    // (non-deep) watcher already fires on every line, not just the first.
+    compileLog() {
+      this.$nextTick(this.scrollErrorConsoleToBottom);
+    },
+    // Same reasoning as compileLog above - a build's own final failure
+    // message renders through this separate ref (see errorStorage's own
+    // comment in hooks/project.js), not as another compileLog line.
+    errorStorage() {
+      this.$nextTick(this.scrollErrorConsoleToBottom);
+    },
   },
   methods: {
+    // Scrolls the bottom console pane (see .error-scroll-wrapper's own
+    // ref) to its newest line - called after $nextTick from the
+    // compileLog/errorStorage watchers above, so the DOM has already
+    // grown to include whatever line just triggered this before the
+    // scroll position is read/set.
+    scrollErrorConsoleToBottom() {
+      const el = this.$refs.errorScrollWrapper;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+    },
     // Formats one bank's own contents (see hooks/rom.js's computeBankContents)
     // as a list of {label, names} entries for romCapacityBanks's own per-bank
     // entry - one entry per kind present (rather than one long comma-separated

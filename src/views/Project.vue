@@ -6,7 +6,7 @@
       <v-btn
         icon
         class="project-flat-icon-btn"
-        title="Save Project"
+        title="Save"
         @click="handleSaveProject"
       >
         <v-icon>mdi-content-save</v-icon>
@@ -14,10 +14,18 @@
       <v-btn
         icon
         class="project-flat-icon-btn"
-        title="Import Project"
-        @click="() => $refs.importFileInput.click()"
+        title="Save As..."
+        @click="handleSaveProjectAs"
       >
-        <v-icon>mdi-import</v-icon>
+        <v-icon>mdi-content-save-edit</v-icon>
+      </v-btn>
+      <v-btn
+        icon
+        class="project-flat-icon-btn"
+        title="Open Project"
+        @click="handleOpenProjectClick"
+      >
+        <v-icon>mdi-folder-open</v-icon>
       </v-btn>
       <template>
           <v-dialog
@@ -132,17 +140,37 @@
   </v-card>
 </template>
 <script>
-import {defineComponent, reactive, computed} from '@vue/composition-api';
+import {defineComponent, reactive, computed, onMounted} from '@vue/composition-api';
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useProjectAutoIncrementVersionStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
+import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useProjectAutoIncrementVersionStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
+import {persistActiveFileHandle, loadPersistedFileHandle, ensureWritePermission} from '../utils/file-handle-storage';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
 const FORMAT_VERSION = 1.0;
+
+// True "Save" (silently overwriting the same file, no picker) needs a real
+// FileSystemFileHandle to write back to - only Chromium browsers (Chrome/
+// Edge/Opera) implement the File System Access API these come from;
+// Firefox/Safari have no way to write to an arbitrary file without a
+// picker at all. Confirmed as the intended tradeoff (asked directly): on
+// unsupported browsers, the "Save" button simply never appears - every
+// save there goes through "Save As..." (the existing always-prompts
+// download behavior), rather than "Save" silently falling back to that
+// same behavior under an identical-looking button.
+const SUPPORTS_FILE_SYSTEM_ACCESS =
+  typeof window !== 'undefined' &&
+  typeof window.showSaveFilePicker === 'function' &&
+  typeof window.showOpenFilePicker === 'function';
+
+const FILE_PICKER_TYPES = [{
+  description: 'VCS Game Maker Project',
+  accept: {'application/x-yaml': ['.vcsgm']},
+}];
 
 // Strips characters Windows/macOS/Linux all disallow (or treat specially)
 // in a filename, and collapses whitespace to single underscores - a title
@@ -154,8 +182,18 @@ const sanitizeForFilename = (text) =>
 export default defineComponent({
   setup(props, context) {
     const data = reactive({
-      fileToImport: null,
       newProjectDialog: false,
+      // The handle "Save" writes back to, from the last "Save As..." or
+      // "Open Project" that went through the File System Access API (see
+      // SUPPORTS_FILE_SYSTEM_ACCESS above) - null whenever there's nothing
+      // to save back to yet (nothing opened/saved this session), or on a
+      // browser that never gets one at all. Restored from IndexedDB on
+      // mount (see onMounted below and utils/file-handle-storage.js) so a
+      // page refresh doesn't lose it - a real reported gap: "Save" was
+      // silently falling back to "Save As..." behavior after a reload
+      // even with the exact same project still open, since a
+      // FileSystemFileHandle used to live in memory only.
+      activeFileHandle: null,
     });
     const router = context.root.$router;
 
@@ -175,7 +213,7 @@ export default defineComponent({
     // setting already lives in (scoreBkColor, textBkColor, etc. - see
     // ScoreFontEditor.vue's own scoreBkColor for the identical pattern),
     // rather than a separate storage key - it's saved/loaded as part of the
-    // project file for free that way (handleSaveProject/handleLoadProject
+    // project file for free that way (buildProjectYaml/loadProjectFromFile
     // below already round-trip the whole configuration object), with no
     // extra wiring needed there.
     const useConfigField = (key, defaultValue = '') => computed({
@@ -203,6 +241,32 @@ export default defineComponent({
     // configurationStorage via useConfigField.
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
 
+    // Restores whatever file handle was persisted from the last Save
+    // As.../Open Project this browser did (see utils/file-handle-storage.js)
+    // - queryPermission only ever CHECKS the current status, no user
+    // gesture needed, so this can run unprompted right on mount. A
+    // "denied" status (the user explicitly revoked it, or the file was
+    // moved/deleted) is the one case this deliberately does NOT restore -
+    // "Save" falls back to "Save As..." instead, the same as if nothing
+    // had ever been persisted, rather than repeatedly failing against a
+    // handle that's never going to work again. "prompt" (not yet decided,
+    // common right after a reload even for a previously-granted handle)
+    // still gets restored - the next actual "Save" click re-asks via
+    // ensureWritePermission, which a real click satisfies the user-gesture
+    // requirement for.
+    if (SUPPORTS_FILE_SYSTEM_ACCESS) {
+      onMounted(async () => {
+        const handle = await loadPersistedFileHandle();
+        if (!handle) return;
+        try {
+          const permission = await handle.queryPermission({mode: 'readwrite'});
+          if (permission !== 'denied') data.activeFileHandle = handle;
+        } catch (e) {
+          console.error('Error while checking permission for the restored project file handle', e);
+        }
+      });
+    }
+
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
       workspaceStorage, configurationStorage, scoreFontStorage, squishCustomScoreFontStorage, dataTablesStorage,
       textStringsStorage, soundEffectsStorage, songsStorage, projectTitle, projectDescription,
@@ -221,14 +285,11 @@ export default defineComponent({
       return parts.join('.');
     },
 
-    handleSaveProject() {
-      // Applied before reading configurationStorage below, so both the
-      // saved file AND the field shown on this tab pick up the bump - not
-      // just a one-off value baked into this particular export.
-      if (this.projectAutoIncrementVersion) {
-        this.projectVersion = this.incrementVersion(this.projectVersion);
-      }
-
+    // Shared by handleSaveProjectAs and handleSaveProject - builds the same
+    // YAML content either one writes out, so the two only differ in WHERE
+    // it ends up (a fresh picker vs. writing straight back to
+    // data.activeFileHandle).
+    buildProjectYaml() {
       const configuration = !this.configurationStorage ? null : {
         ...this.configurationStorage,
       };
@@ -289,38 +350,149 @@ export default defineComponent({
         'songs': this.songsStorage,
       });
 
-      const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
-      // Empty when the Project tab's own Title field was never filled in -
-      // filename stays exactly as it was before this (just the date) rather
-      // than starting with a stray "_".
+      return projectYaml;
+    },
+
+    // Builds the suggested filename for a new save - empty title prefix
+    // when the Project tab's own Title field was never filled in, same as
+    // before (just the date, no stray leading "_").
+    buildSaveFilename() {
       const titlePrefix = this.projectTitle ? `${sanitizeForFilename(this.projectTitle)}_` : '';
-      saveAs(projectBlob, `${titlePrefix}${getDateInfix()}.vcsgm`);
+      return `${titlePrefix}${getDateInfix()}.vcsgm`;
+    },
+
+    // Always prompts, regardless of whether a "Save" handle already exists
+    // - the whole point of "Save As...", as distinct from "Save" below.
+    // Picks up a fresh data.activeFileHandle on a browser that supports it
+    // (see SUPPORTS_FILE_SYSTEM_ACCESS), so a subsequent "Save" click
+    // writes back to WHATEVER was picked here, not whatever was open
+    // before.
+    async handleSaveProjectAs() {
+      // Applied before buildProjectYaml() reads configurationStorage, so
+      // both the saved file AND the field shown on this tab pick up the
+      // bump - not just a one-off value baked into this particular export.
+      if (this.projectAutoIncrementVersion) {
+        this.projectVersion = this.incrementVersion(this.projectVersion);
+      }
+      const projectYaml = this.buildProjectYaml();
+      const filename = this.buildSaveFilename();
+
+      if (SUPPORTS_FILE_SYSTEM_ACCESS) {
+        let handle;
+        try {
+          handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: FILE_PICKER_TYPES,
+          });
+        } catch (e) {
+          // The user closing/cancelling the picker throws AbortError -
+          // not a real failure, nothing to report or recover from.
+          if (e && e.name === 'AbortError') return;
+          console.error('Error while saving project', e);
+          return;
+        }
+        const writable = await handle.createWritable();
+        await writable.write(projectYaml);
+        await writable.close();
+        this.data.activeFileHandle = handle;
+        // So "Save" keeps working as "Save" after a reload too - see
+        // utils/file-handle-storage.js's own comment.
+        persistActiveFileHandle(handle);
+        appendCompileLog(`Game saved to ${handle.name}`, 'stage');
+        return;
+      }
+
+      const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
+      saveAs(projectBlob, filename);
+      appendCompileLog(`Game saved to ${filename}`, 'stage');
+    },
+
+    // Always visible, always enabled - writes straight back to whatever
+    // file was last opened/saved this session (data.activeFileHandle), no
+    // picker at all. The FIRST time it's ever clicked in a session (or on
+    // a browser that can never get a handle at all - see
+    // SUPPORTS_FILE_SYSTEM_ACCESS), there's nothing to write back to yet,
+    // so this just falls through to the exact same picker Save As uses -
+    // meaning Save always does SOMETHING useful, and every save after that
+    // first one goes straight back to the same file with no prompt.
+    async handleSaveProject() {
+      if (!SUPPORTS_FILE_SYSTEM_ACCESS || !this.data.activeFileHandle) {
+        await this.handleSaveProjectAs();
+        return;
+      }
+      // A handle restored from a previous session (see the onMounted
+      // restore in setup()) commonly still needs its write permission
+      // re-confirmed after a reload - this click is the user gesture that
+      // makes requestPermission() allowed to actually prompt if needed.
+      const granted = await ensureWritePermission(this.data.activeFileHandle);
+      if (!granted) {
+        console.error('Write permission for the active project file was denied.');
+        return;
+      }
+      if (this.projectAutoIncrementVersion) {
+        this.projectVersion = this.incrementVersion(this.projectVersion);
+      }
+      const projectYaml = this.buildProjectYaml();
+      const writable = await this.data.activeFileHandle.createWritable();
+      await writable.write(projectYaml);
+      await writable.close();
+      appendCompileLog(`Game saved to ${this.data.activeFileHandle.name}`, 'stage');
+    },
+
+    // "Open Project" - on a browser that supports it, uses the same File
+    // System Access API Save As does, so the resulting handle can ALSO
+    // back a later "Save" click (matches the actual request: Save should
+    // write back to whatever file was either imported from OR saved to
+    // previously, not just the latter). Falls back to the existing hidden
+    // native file input otherwise, which yields no handle - "Save" simply
+    // falls back to prompting (see handleSaveProject above) the first time
+    // that way, since there's no way to silently write back to a file
+    // picked through a plain <input type="file">.
+    async handleOpenProjectClick() {
+      if (SUPPORTS_FILE_SYSTEM_ACCESS) {
+        let handles;
+        try {
+          handles = await window.showOpenFilePicker({types: FILE_PICKER_TYPES});
+        } catch (e) {
+          if (e && e.name === 'AbortError') return;
+          console.error('Error while opening project', e);
+          return;
+        }
+        const [handle] = handles;
+        const file = await handle.getFile();
+        this.data.activeFileHandle = handle;
+        persistActiveFileHandle(handle);
+        this.loadProjectFromFile(file);
+        return;
+      }
+      this.$refs.importFileInput.click();
     },
 
     // The native file input (replacing the old v-file-input, now that
     // importing is an icon button matching Save/Create New Project rather
     // than its own field) fires a plain change event with the picked file
-    // on event.target.files - handleLoadProject itself is unchanged, still
-    // reading from data.fileToImport, so this just bridges the two.
+    // on event.target.files - only reached on a browser without the File
+    // System Access API (see handleOpenProjectClick above), so
+    // data.activeFileHandle stays null and "Save" stays unavailable.
     handleImportFileInputChange(event) {
-      this.data.fileToImport = event.target.files[0] || null;
-      this.handleLoadProject();
-      // Clears the native input's own value too (not just data.fileToImport
-      // - see handleLoadProject's own reset below) - without this, picking
+      const file = event.target.files[0] || null;
+      // Clears the native input's own value too - without this, picking
       // the SAME file twice in a row wouldn't fire another change event at
       // all, since the browser only fires "change" when the input's value
       // actually differs from before.
       event.target.value = '';
+      if (!file) return;
+      this.loadProjectFromFile(file);
     },
 
-    handleLoadProject() {
-      if (!this.data.fileToImport) {
+    loadProjectFromFile(file) {
+      if (!file) {
         console.warn('No file to import.');
         return;
       }
 
       const reader = new FileReader();
-      reader.readAsText(this.data.fileToImport, 'UTF-8');
+      reader.readAsText(file, 'UTF-8');
       reader.onload = (evt) => {
         const projectYaml = evt.target.result;
         console.info('YAML', projectYaml);
@@ -413,9 +585,9 @@ export default defineComponent({
         // handleNewProject's own identical change: the user may still want
         // to check/adjust the imported project's own Title/Developer/
         // Version/Description right here first.
+        appendCompileLog(`Imported project ${file.name}`, 'stage');
       };
       reader.onerror = (evt) => console.error('Error while loading project', evt);
-      this.data.fileToImport = null;
     },
 
     handleNewProject() {
@@ -427,17 +599,23 @@ export default defineComponent({
       this.scoreFontStorage = null;
       this.squishCustomScoreFontStorage = null;
       this.dataTablesStorage = null;
+      // A new project has nothing to "Save" back to yet, and shouldn't
+      // silently overwrite whatever file the PREVIOUS project came from -
+      // clears the persisted copy too, or a later reload would restore
+      // the old project's handle right back onto this new, unrelated one.
+      this.data.activeFileHandle = null;
+      persistActiveFileHandle(null);
       this.textStringsStorage = null;
       this.soundEffectsStorage = null;
       this.songsStorage = null;
 
-      // Same reasoning as handleLoadProject's own call - a fresh project's
+      // Same reasoning as loadProjectFromFile's own call - a fresh project's
       // song/pattern/track IDs start counting from 1 again too, colliding
       // with whatever the previous project used.
       resetMusicEditorActiveState();
 
       this.data.newProjectDialog = false;
-      // Unlike handleLoadProject, deliberately stays on this tab rather than
+      // Unlike loadProjectFromFile, deliberately stays on this tab rather than
       // navigating to Actions - a real reported preference: after starting a
       // new project, the user may still want to set its Title/Developer/
       // Version/Description right here before doing anything else.

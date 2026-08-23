@@ -6,7 +6,7 @@ import {
   CONSOLE_SWITCH_ICON, CONSOLE_SWITCH_RESET_ICON, CONSOLE_SWITCH_SELECT_ICON,
   CONSOLE_SWITCH_COLOR_ICON, CONSOLE_SWITCH_BW_ICON,
   PLAYER_ICON, MISSILE_ICON, BALL_ICON,
-  HORIZONTAL_ICON, VERTICAL_ICON,
+  HORIZONTAL_ICON, VERTICAL_ICON, KEYPAD_ICON,
 } from './icon';
 
 // Every object that has an X/Y position to measure a distance between -
@@ -94,6 +94,39 @@ buildInputBlocks({
   options: buildInputOptions('joy1', 'switchrightb'),
   colour: 'blue',
 });
+
+// Key values 1-12 read in the same reading order the physical Atari
+// keypad's 3x4 grid is wired in - 1,2,3 / 4,5,6 / 7,8,9 / *,0,#. 0 itself is
+// reserved for "no key pressed", not a selectable option here (a getter
+// checks one specific key, not "any key"/"no key" - a project that needs
+// that can just compare every key block to false).
+const KEYPAD_KEY_OPTIONS = [
+  ['1', '1'], ['2', '2'], ['3', '3'],
+  ['4', '4'], ['5', '5'], ['6', '6'],
+  ['7', '7'], ['8', '8'], ['9', '9'],
+  ['*', '10'], ['0', '11'], ['#', '12'],
+];
+
+const buildKeypadBlock = (name, description, colour) => ({
+  'type': `input_${name}_get`,
+  'message0': `${KEYPAD_ICON} ${description} key %1 is pressed`,
+  'args0': [
+    {
+      'type': 'field_dropdown',
+      'name': 'KEY',
+      'options': KEYPAD_KEY_OPTIONS,
+    },
+  ],
+  'output': 'Boolean',
+  colour,
+  'tooltip': `Reads whether the given key is currently pressed on ${description} ` +
+    '(the Atari Keypad/Kids Controller peripheral) - recomputed automatically once per frame.',
+});
+
+Blockly.defineBlocksWithJsonArray([
+  buildKeypadBlock('keypad0', 'Keypad 0', 'red'),
+  buildKeypadBlock('keypad1', 'Keypad 1', 'blue'),
+]);
 
 // The two objects being compared are picked at design time (dropdowns, not
 // runtime state), so each distinct (axis, object pair) one of these blocks

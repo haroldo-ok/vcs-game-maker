@@ -27,6 +27,8 @@ import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
   customScoreFontUsesExtraGlyphs} from '../utils/score-font';
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
+import {keypadKeyVarName} from '../utils/keypad';
+import {registerKeypadPollSubroutine} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
@@ -394,6 +396,21 @@ Blockly.BBasic.init = function(workspace) {
     this.distanceChecks.set(canonicalDistanceVarName(axis, obj0, obj1), {axis, obj0, obj1});
   });
 
+  // Whether any "Keypad 0/1: key X is pressed" getter block is actually on
+  // the canvas (see blocks/input.js) - has to be known before reserveDevVar
+  // hands out user variable letters below, same early-pre-scan reasoning as
+  // textMinikernelUsed/repeatLoopUsed above. Kept as two independent flags
+  // (not one "keypadUsed"), not "isEnabled()"-filtered like romNoiseUsedFor
+  // above (a keypad getter block, unlike those, is a plain value block with
+  // no "stop" counterpart to be inconsistent with - a disabled one simply
+  // never gets read, same as any other unused variable) - see
+  // generators/bbasic/input.js's buildKeypadPollAsm/keypadSwacntMask for why
+  // scanning only the port(s) actually in use matters (leaves the other
+  // port's SWCHA bits as inputs, so an ordinary joystick can still be
+  // plugged into it).
+  this.keypad0Used = workspace.getAllBlocks(false).some((block) => block.type === 'input_keypad0_get');
+  this.keypad1Used = workspace.getAllBlocks(false).some((block) => block.type === 'input_keypad1_get');
+
   // Same idea as distanceChecks above, for "Distance to point" blocks (see
   // blocks/input.js's distance_x_to_point_get/distance_y_to_point_get) -
   // the second operand there is an arbitrary value input (typed literal,
@@ -609,6 +626,17 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(distancePointVarName(axis, index));
   }
 
+  // Same bucket again, for the keypad poll routine's own result byte(s)
+  // (see the keypad0Used/keypad1Used pre-scan above and
+  // generators/bbasic/input.js's generateKeypadPollAsm) - only whichever
+  // side(s) are actually used get one.
+  // Resolved names captured on "this" (not just reserved) - registering
+  // the poll subroutine's own body needs them, but has to wait until
+  // "this.subroutines = {}" below runs first (see that assignment's own
+  // comment on why registering any earlier here would just get wiped out).
+  if (this.keypad0Used) this.keypadLeftVarName = reserveDevVar(keypadKeyVarName('0'));
+  if (this.keypad1Used) this.keypadRightVarName = reserveDevVar(keypadKeyVarName('1'));
+
   // Same bucket again, for the collision-check backtrack bytes (see the
   // collisionMovePlayers pre-scan above and generators/bbasic/collision.js).
   for (const playerNum of this.collisionMovePlayers) {
@@ -822,6 +850,19 @@ Blockly.BBasic.init = function(workspace) {
   // body, populated as subroutine_define blocks are walked, then spliced
   // into their own section by generateSubroutines() below.
   this.subroutines = {};
+
+  // Registered here (not from a finish()-time generate* function the way
+  // every other Blockly.BBasic.subroutines entry is) specifically because
+  // it has to run AFTER this reset but the resolved var names it needs
+  // (this.keypadLeftVarName/keypadRightVarName) were already captured
+  // above, before the reset - see registerKeypadPollSubroutine's own
+  // comment for the fuller reasoning.
+  if (this.keypad0Used || this.keypad1Used) {
+    registerKeypadPollSubroutine(Blockly, {
+      useLeft: this.keypad0Used, useRight: this.keypad1Used,
+      leftVarName: this.keypadLeftVarName, rightVarName: this.keypadRightVarName,
+    });
+  }
 
   // User-defined native batari Basic "function"s (see generators/bbasic/
   // function.js) - a real value-returning callable, distinct from the
@@ -1427,6 +1468,8 @@ Blockly.BBasic.finish = function(code) {
   const generatedDivMul = Blockly.BBasic.generateDivMul();
   const generatedMuteAudio = Blockly.BBasic.generateMuteAudio();
   const generatedRunOnceEdgeReset = Blockly.BBasic.generateRunOnceEdgeResetCall();
+  const generatedKeypadPollCall = Blockly.BBasic.generateKeypadPollCall();
+  const generatedKeypadSetup = Blockly.BBasic.generateKeypadSetup();
 
   this.isInitialized = false;
 
@@ -1441,7 +1484,8 @@ Blockly.BBasic.finish = function(code) {
     gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize, generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
     generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
-    generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset});
+    generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset,
+    generatedKeypadPollCall, generatedKeypadSetup});
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the

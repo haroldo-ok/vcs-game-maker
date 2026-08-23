@@ -29,7 +29,7 @@ const buildAnimationSelectBlock = ({name, description, icon, colour, storageFact
   Blockly.Blocks[`sprite_${name}_animation_select`] = {
     init: function() {
       this.appendDummyInput()
-          .appendField(`${icon} ${description} ${ANIMATION_ICON} Animation:`)
+          .appendField(`${icon} ${description} ${ANIMATION_ICON} animation`)
           .appendField(
               new Blockly.FieldDropdown(buildAnimationOptions(storageFactory)), 'VAR');
       this.setOutput(true, 'Number');
@@ -91,7 +91,7 @@ const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOption
     // Block for the setter.
     {
       'type': `sprite_${name}_set`,
-      'message0': `${icon} ${description}: %{BKY_VARIABLES_SET}`,
+      'message0': `${icon} ${description} %{BKY_VARIABLES_SET}`,
       'args0': [
         {
           'type': 'field_dropdown',
@@ -111,7 +111,7 @@ const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOption
     // Block for adding to a variable in place.
     {
       'type': `sprite_${name}_change`,
-      'message0': `${icon} ${description}: %{BKY_MATH_CHANGE_TITLE}`,
+      'message0': `${icon} ${description} %{BKY_MATH_CHANGE_TITLE}`,
       'args0': [
         {
           'type': 'field_dropdown',
@@ -189,7 +189,7 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
     // input if a specific offset expression is ever wanted instead.
     {
       'type': `sprite_${name}_rom_noise`,
-      'message0': `${icon} ${description}: display ${DATA_ICON} ROM noise, offset %1 height %2 rows`,
+      'message0': `${icon} ${description} display ${DATA_ICON} ROM noise, offset %1 height %2 rows`,
       'args0': [
         {
           'type': 'input_value',
@@ -229,7 +229,7 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
     // no pixel/graphic changes of its own.
     {
       'type': `sprite_${name}_rom_noise_stop`,
-      'message0': `${icon} ${description}: stop ${DATA_ICON} ROM noise`,
+      'message0': `${icon} ${description} stop ${DATA_ICON} ROM noise`,
       'previousStatement': null,
       'nextStatement': null,
       colour,
@@ -253,7 +253,7 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
     // separate lets either be used without the other.
     {
       'type': `sprite_${name}_rainbow_colors`,
-      'message0': `${icon} ${description}: rainbow colors, offset %1`,
+      'message0': `${icon} ${description} rainbow colors, offset %1`,
       'args0': [
         {
           'type': 'input_value',
@@ -292,7 +292,7 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
     // freezes the color pointer wherever it currently is.
     {
       'type': `sprite_${name}_rainbow_colors_stop`,
-      'message0': `${icon} ${description}: stop rainbow colors`,
+      'message0': `${icon} ${description} stop rainbow colors`,
       'previousStatement': null,
       'nextStatement': null,
       colour,
@@ -432,7 +432,7 @@ buildSpriteBlocks({
 Blockly.defineBlocksWithJsonArray([
   {
     'type': 'sprite_priority_set',
-    'message0': `${PRIORITY_ICON} Sprite priority: %1`,
+    'message0': `${PRIORITY_ICON} Sprite priority %1`,
     'args0': [
       {
         'type': 'field_dropdown',

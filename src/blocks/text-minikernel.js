@@ -41,7 +41,7 @@ const appendScrollInputs = (block) => {
 Blockly.Blocks['text_minikernel_show_named'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${TEXT_ICON} Show text:`)
+        .appendField(`${TEXT_ICON} Show text`)
         .appendField(new Blockly.FieldDropdown(buildTextStringOptions), 'TEXT_ID');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
@@ -63,7 +63,7 @@ Blockly.Blocks['text_minikernel_show_named'] = {
 Blockly.Blocks['text_minikernel_show_named_scroll'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${TEXT_ICON} Scroll text:`)
+        .appendField(`${TEXT_ICON} Scroll text`)
         .appendField(new Blockly.FieldDropdown(buildTextStringOptions), 'TEXT_ID');
     appendScrollInputs(this);
     this.setPreviousStatement(true, null);
@@ -84,7 +84,7 @@ Blockly.defineBlocksWithJsonArray([
   // version backed by the Text tab.
   {
     'type': 'text_minikernel_show',
-    'message0': `${TEXT_ICON} Show text: %1`,
+    'message0': `${TEXT_ICON} Show text %1`,
     'args0': [
       {
         'type': 'field_input',
@@ -107,7 +107,7 @@ Blockly.defineBlocksWithJsonArray([
   // runtime instead of always being the same fixed one.
   {
     'type': 'text_minikernel_show_by_id',
-    'message0': `${TEXT_ICON} Show text ID: %1`,
+    'message0': `${TEXT_ICON} Show text ID %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -136,7 +136,7 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': 'text_minikernel_set_color',
-    'message0': `${COLOR_ICON} Text: set color to: %1`,
+    'message0': `${COLOR_ICON} Text set color to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -158,7 +158,7 @@ Blockly.defineBlocksWithJsonArray([
   // own, only while the Text Minikernel is in use elsewhere in the project.
   {
     'type': 'text_minikernel_fade_to',
-    'message0': `${TEXT_ICON} Fade Text ${COLOR_ICON} color to: %1 over %2 frames`,
+    'message0': `${TEXT_ICON} Fade Text ${COLOR_ICON} color to %1 over %2 frames`,
     'args0': [
       {
         'type': 'input_value',
@@ -205,7 +205,7 @@ Blockly.defineBlocksWithJsonArray([
   // comment in text-scroll.js).
   {
     'type': 'text_minikernel_scroll_control',
-    'message0': `${TEXT_ICON} Text scroll: %1`,
+    'message0': `${TEXT_ICON} Text scroll %1`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -252,7 +252,7 @@ Blockly.defineBlocksWithJsonArray([
 Blockly.Blocks['text_minikernel_show_scroll'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${TEXT_ICON} Scroll text:`)
+        .appendField(`${TEXT_ICON} Scroll text`)
         .appendField(new Blockly.FieldTextInput('HELLO WORLD!'), 'TEXT');
     appendScrollInputs(this);
     this.setPreviousStatement(true, null);
@@ -276,7 +276,7 @@ Blockly.Blocks['text_minikernel_show_by_id_scroll'] = {
   init: function() {
     this.appendValueInput('VALUE')
         .setCheck('Number')
-        .appendField(`${TEXT_ICON} Scroll text ID:`);
+        .appendField(`${TEXT_ICON} Scroll text ID`);
     appendScrollInputs(this);
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);

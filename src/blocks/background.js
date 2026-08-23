@@ -257,7 +257,7 @@ const buildBackgroundOptions = () => {
 Blockly.Blocks['background_select'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} Background:`)
+        .appendField(`${BACKGROUND_ICON} Background`)
         .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR');
     this.setOutput(true, 'Number');
     this.setColour(BACKGROUND_COLOR);
@@ -268,7 +268,7 @@ Blockly.Blocks['background_select'] = {
 Blockly.Blocks['background_set_select'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} Background:`)
+        .appendField(`${BACKGROUND_ICON} Background`)
         .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
@@ -281,7 +281,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the setter.
   {
     'type': `background_set`,
-    'message0': `${BACKGROUND_ICON} Background: set to: %1`,
+    'message0': `${BACKGROUND_ICON} Background set to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -296,7 +296,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the color setter.
   {
     'type': `background_set_color`,
-    'message0': `${BACKGROUND_ICON} Background: set %1 ${COLOR_ICON} color to: %2`,
+    'message0': `${BACKGROUND_ICON} Background set %1 ${COLOR_ICON} color to %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -356,7 +356,7 @@ Blockly.defineBlocksWithJsonArray([
   // block's own trigger code ended up in a relocated bank.
   {
     'type': `background_fade_to`,
-    'message0': `${BACKGROUND_ICON} Fade %1 ${COLOR_ICON} color to: %2 over %3 frames`,
+    'message0': `${BACKGROUND_ICON} Fade %1 ${COLOR_ICON} color to %2 over %3 frames`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -389,7 +389,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for reading a playfield pixel
   {
     'type': `background_get_pixel`,
-    'message0': `${BACKGROUND_ICON} Background: get pixel at X %1 and Y %2`,
+    'message0': `${BACKGROUND_ICON} Background get pixel at X %1 and Y %2`,
     'args0': [
       {
         'type': 'input_value',
@@ -410,7 +410,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,
-    'message0': `${BACKGROUND_ICON} Background: %1 pixel at X %2 and Y %3`,
+    'message0': `${BACKGROUND_ICON} Background %1 pixel at X %2 and Y %3`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -437,7 +437,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for drawing an horizontal/vertical line
   {
     'type': `background_change_hv_line`,
-    'message0': `${BACKGROUND_ICON} Background:  %1 %2 %3 pixels at X %4 and Y %5`,
+    'message0': `${BACKGROUND_ICON} Background %1 %2 %3 pixels at X %4 and Y %5`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -474,7 +474,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for reading the playfield's vertical resolution (row count)
   {
     'type': `background_get_resolution`,
-    'message0': `${BACKGROUND_ICON} Background: playfield height (rows)`,
+    'message0': `${BACKGROUND_ICON} Background playfield height (rows)`,
     'args0': [],
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
@@ -484,7 +484,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for clearing every playfield pixel at once
   {
     'type': `background_clear`,
-    'message0': `${BACKGROUND_ICON} Background: clear all pixels`,
+    'message0': `${BACKGROUND_ICON} Background clear all pixels`,
     'args0': [],
     'previousStatement': null,
     'nextStatement': null,
@@ -494,7 +494,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for scrolling the background
   {
     'type': `background_scroll`,
-    'message0': `${BACKGROUND_ICON} Background: scroll %1`,
+    'message0': `${BACKGROUND_ICON} Background scroll %1`,
     'args0': [
       {
         'type': 'field_dropdown',

@@ -192,3 +192,12 @@ export const useDimSoundFxPercentStorage = (defaultValue) => {
     },
   });
 };
+
+// A standing app preference, not a project setting or per-tab local state -
+// shared by PlayerEditor.vue and BackgroundEditor.vue's own PixelEditor.vue
+// instances, so toggling it on either tab shows/hides the grid overlay
+// everywhere, and it survives navigating away and back (Vue Router destroys
+// and recreates each tab's own component on navigation - see
+// hooks/collapse.js's own comment on the same lifecycle).
+export const usePixelGridOverlayStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.pixelGridOverlay');

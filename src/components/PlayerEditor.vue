@@ -3,7 +3,10 @@
     <v-card class="editor-container">
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text>
-        <editor-zoom v-model="zoom" />
+        <div class="editor-toolbar-row">
+          <editor-zoom v-model="zoom" />
+          <pixel-grid-toggle v-model="showPixelGrid" />
+        </div>
         <quick-color-palette v-if="spriteColorsEnabled" v-model="selectedQuickColor" />
         <v-list class="animation-list">
           <v-list-item
@@ -139,6 +142,7 @@
                         :name="name"
                         :showClearButton="true"
                         :allowApplyToAllFrames="true"
+                        :showGrid="showPixelGrid"
                         @input="handleChildChange"
                         @resize-all-frames="(opts) => handleResizeAllFrames(animation, frame, opts)"
                       >
@@ -272,13 +276,14 @@ import {max} from 'lodash';
 
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
+import PixelGridToggle from '../components/PixelGridToggle.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
 import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {DEFAULT_ROW_COLOR} from '../blocks/background';
 import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
-import {useColorPaletteStorage, useConfigurationStorage} from '../hooks/project';
+import {useColorPaletteStorage, useConfigurationStorage, usePixelGridOverlayStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {playfieldToMatrix, resizePixelMatrixHeight} from '../utils/pixels';
@@ -307,11 +312,14 @@ const copiedFrameRowColors = ref(null);
 const copiedFrameData = ref(null);
 
 export default defineComponent({
-  components: {EditorZoom, PixelEditor, PlayfieldColorStrip, QuickColorPalette},
+  components: {EditorZoom, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
   props: ['storageFactory', 'title', 'fgColor', 'name'],
   setup(props) {
     // Player 0 and Player 1 are separate instances, so each keeps its own zoom.
     const zoom = useEditorZoom(props.name);
+    // Shared across Player 0/1 AND the Background tab (see
+    // PixelGridToggle.vue's own comment) - not per-player like zoom above.
+    const showPixelGrid = usePixelGridOverlayStorage();
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
     // Widens the frame editor's own container by the SAME factor the
     // aspectRatio calculation below scales by, instead of just increasing
@@ -635,7 +643,7 @@ export default defineComponent({
       spriteColorPalette, selectedQuickColor,
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
-      zoom, editorWidth, frameEditorWidth,
+      zoom, showPixelGrid, editorWidth, frameEditorWidth,
       props};
   },
 });
@@ -900,6 +908,15 @@ export default defineComponent({
 
 .player-icon-btn-size >>> .v-icon {
   font-size: 19px !important;
+}
+
+/* editor-zoom and pixel-grid-toggle are separate components, each with
+   their own inline layout - a flex row keeps them on one visual line and
+   vertically centered against each other regardless of either one's own
+   internal baseline/height quirks. */
+.editor-toolbar-row {
+  display: flex;
+  align-items: center;
 }
 
 /* mdi-delete's own glyph reads visually smaller than mdi-content-copy/
