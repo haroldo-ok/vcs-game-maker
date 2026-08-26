@@ -77,7 +77,8 @@
 </template>
 <script>
 import {defineComponent} from '@vue/composition-api';
-import {ENVELOPE_STAGE_FRAME_OPTIONS, ENVELOPE_SUSTAIN_PERCENT_OPTIONS} from '../blocks/soundfx';
+import {ENVELOPE_STAGE_FRAME_OPTIONS, ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS,
+  ENVELOPE_SUSTAIN_PERCENT_OPTIONS} from '../blocks/soundfx';
 
 // Purely a visual shape indicator (straight ramp lines matching the classic
 // ADSR diagram/FL Studio's Fruity Envelope Controller reference), not a
@@ -201,7 +202,7 @@ export default defineComponent({
       const totalUnits = this.totalUnits;
       const xUnits = xPercent / 100 * totalUnits;
       if (this.dragHandle === 'attack') {
-        const attack = this.snapTo(ENVELOPE_STAGE_FRAME_OPTIONS, xUnits);
+        const attack = this.snapTo(ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, xUnits);
         this.$emit('update:attack', attack);
       } else if (this.dragHandle === 'decaySustain') {
         const decay = this.snapTo(ENVELOPE_STAGE_FRAME_OPTIONS, Math.max(0, xUnits - this.attack));
@@ -224,7 +225,7 @@ export default defineComponent({
         // handle here - the next mousemove's own fresh totalUnits corrects
         // it, same self-correcting approximation decaySustain's own drag
         // already relies on).
-        const release = this.snapTo(ENVELOPE_STAGE_FRAME_OPTIONS, Math.max(0, totalUnits - xUnits));
+        const release = this.snapTo(ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, Math.max(0, totalUnits - xUnits));
         this.$emit('update:release', release);
       }
     },

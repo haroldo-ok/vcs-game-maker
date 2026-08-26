@@ -6,6 +6,13 @@
         <div class="editor-toolbar-row">
           <editor-zoom v-model="zoom" />
           <pixel-grid-toggle v-model="showPixelGrid" />
+          <pixel-grid-toggle
+            v-model="showPixelGridLabels"
+            :icon="null"
+            label="XY"
+            title-on="Hide pixel coordinates"
+            title-off="Show pixel coordinates"
+          />
         </div>
         <quick-color-palette v-if="pfColorsEnabled" v-model="selectedQuickColor" />
         <v-list
@@ -143,7 +150,7 @@
                       :allowChangingHeight="false"
                       :showClearButton="true"
                       :showGrid="showPixelGrid"
-                      :showCellIds="true"
+                      :showCellIds="showPixelGridLabels"
                       @input="handleChildChange"
                     >
                       <template v-if="pfColorsEnabled" v-slot:sidebar>
@@ -190,7 +197,7 @@ import PixelGridToggle from '../components/PixelGridToggle.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
 import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage,
-  usePixelGridOverlayStorage} from '../hooks/project';
+  usePixelGridOverlayStorage, usePixelGridLabelsStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, effectiveBackgroundRows,
@@ -227,6 +234,10 @@ export default defineComponent({
     // Shared with PlayerEditor.vue's own Player 0/1 tabs (see
     // PixelGridToggle.vue's own comment).
     const showPixelGrid = usePixelGridOverlayStorage();
+    // Background-tab-only (see usePixelGridLabelsStorage's own comment) -
+    // controls the grid overlay's "X,Y" cell labels independently of the
+    // grid lines themselves (showPixelGrid above).
+    const showPixelGridLabels = usePixelGridLabelsStorage();
 
     // Same "armed color for direct-painting" reasoning as PlayerEditor.vue's
     // own selectedQuickColor - v-model'd to the QuickColorPalette instance
@@ -437,7 +448,7 @@ export default defineComponent({
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
-      zoom, showPixelGrid, editorWidth, backgroundRows, pfColorsEnabled,
+      zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground};

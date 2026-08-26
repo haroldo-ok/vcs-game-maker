@@ -1,5 +1,6 @@
 'use strict';
 
+import Vue from 'vue';
 import * as Blockly from 'blockly/core';
 
 import {useSoundEffectsStorage} from '../hooks/project';
@@ -73,6 +74,14 @@ export const ARPEGGIO_RANGE_OPTIONS = [
 // per-config data tables small too (see generateEnvelopeChecks in
 // generators/bbasic/soundfx.js).
 export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16];
+// Attack/Release specifically (not Decay, which stays on the smaller set
+// above) get a wider range up to 32 frames - confirmed with the user: only
+// those two needed expanding, not Decay. Each stage's own table cost (see
+// buildEnvelopeConfigTables in generators/bbasic/soundfx.js) is still just
+// one ROM byte per frame of that specific stage, so this only makes an
+// envelope that actually USES a longer attack/release slightly bigger, not
+// every envelope in the project.
+export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32];
 export const DEFAULT_ENVELOPE_ATTACK = 0;
 export const DEFAULT_ENVELOPE_DECAY = 0;
 export const DEFAULT_ENVELOPE_RELEASE = 4;
@@ -126,30 +135,46 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
   // Presets saved before Arpeggio existed won't have these fields yet.
   soundEffects.soundEffects.forEach((soundEffect) => {
     soundEffect.arpeggio = !!soundEffect.arpeggio;
-    soundEffect.envelope = !!soundEffect.envelope;
+    // Vue.set (not a plain assignment) for every envelope* field below -
+    // soundEffectsStorage is a Vue ref whose reactivity was already set up
+    // (once, at load time - see hooks/storage.js's own ref(readInitial())
+    // comment) from whatever plain JSON was in localStorage. A preset saved
+    // before this feature existed simply never HAD an "envelope" key at
+    // that point, so a plain "soundEffect.envelope = ..." assignment here
+    // creates an ordinary, non-reactive property - Vue never defined a
+    // getter/setter for a key that didn't exist during its own initial
+    // walk. Confirmed as a real reported bug this way: the Envelope switch/
+    // dropdowns/graph all silently stopped updating the view (toggling
+    // Arpeggio - an OLD, already-reactive field - incidentally forced a
+    // re-render that revealed the envelope fields' already-correct-but-
+    // untracked values, and closing/reopening the card did the same via a
+    // full remount). Vue.set defines the missing property properly instead,
+    // exactly like $set is already used for the same reason elsewhere in
+    // this app (see DataEditor.vue's own instance.proxy.$set calls).
+    Vue.set(soundEffect, 'envelope', !!soundEffect.envelope);
     // Presets saved before this existed (or before it replaced the old
     // single-stage Fade) won't have these yet - same Number() coercion as
     // arpeggioDivision/arpeggioRange below, for the same Vuetify v-select
     // quirk.
-    if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeAttack))) {
-      soundEffect.envelopeAttack = DEFAULT_ENVELOPE_ATTACK;
+    if (!ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeAttack))) {
+      Vue.set(soundEffect, 'envelopeAttack', DEFAULT_ENVELOPE_ATTACK);
     } else {
-      soundEffect.envelopeAttack = Number(soundEffect.envelopeAttack);
+      Vue.set(soundEffect, 'envelopeAttack', Number(soundEffect.envelopeAttack));
     }
     if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeDecay))) {
-      soundEffect.envelopeDecay = DEFAULT_ENVELOPE_DECAY;
+      Vue.set(soundEffect, 'envelopeDecay', DEFAULT_ENVELOPE_DECAY);
     } else {
-      soundEffect.envelopeDecay = Number(soundEffect.envelopeDecay);
+      Vue.set(soundEffect, 'envelopeDecay', Number(soundEffect.envelopeDecay));
     }
-    if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeRelease))) {
-      soundEffect.envelopeRelease = DEFAULT_ENVELOPE_RELEASE;
+    if (!ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeRelease))) {
+      Vue.set(soundEffect, 'envelopeRelease', DEFAULT_ENVELOPE_RELEASE);
     } else {
-      soundEffect.envelopeRelease = Number(soundEffect.envelopeRelease);
+      Vue.set(soundEffect, 'envelopeRelease', Number(soundEffect.envelopeRelease));
     }
     if (!ENVELOPE_SUSTAIN_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeSustain))) {
-      soundEffect.envelopeSustain = DEFAULT_ENVELOPE_SUSTAIN_PERCENT;
+      Vue.set(soundEffect, 'envelopeSustain', DEFAULT_ENVELOPE_SUSTAIN_PERCENT);
     } else {
-      soundEffect.envelopeSustain = Number(soundEffect.envelopeSustain);
+      Vue.set(soundEffect, 'envelopeSustain', Number(soundEffect.envelopeSustain));
     }
     if (!ARPEGGIO_DIVISION_OPTIONS.includes(Number(soundEffect.arpeggioDivision))) {
       soundEffect.arpeggioDivision = DEFAULT_ARPEGGIO_DIVISION;

@@ -959,6 +959,15 @@ export default {
    second, lower-priority one beside it. */
 :root {
   --app-font-family: 'Inter', sans-serif;
+  /* Blockly's own block/flyout text only - deliberately separate from
+     --app-font-family above (the rest of the app, Vuetify panels included,
+     stays on Inter) - see the .blocklyText/.blocklyFlyoutLabelText rule
+     below and APP_BLOCKLY_THEME's own fontStyle in ActionEditor.vue, which
+     both have to agree on this exact font (that file's own comment explains
+     why: Blockly measures block width from its own theme fontStyle, not
+     from whatever CSS ends up applied, so the two have to be kept in sync
+     by hand). public/index.html loads the actual font file for this. */
+  --blockly-font-family: 'IBM Plex Mono', monospace;
 }
 
 /* Every scrollbar in the app (the left sidebar, the emulator column, each
@@ -1189,19 +1198,23 @@ html {
    after .v-application above switched everywhere else - confirmed directly
    by inspecting Blockly's own injected stylesheet. font-family only (not
    the shorthand font: ... property) so this doesn't also touch the 11pt
-   size Blockly itself sets. [class*="-theme"] (not a specific theme name
-   like .app-theme) - ActionEditor.vue's own "Modern block style" option
-   swaps between two differently-named themes (see APP_BLOCKLY_THEME/
-   APP_BLOCKLY_THEME_MODERN there), and Blockly's own injected class is
-   literally that theme's own name + "-theme" (see Theme.prototype.
-   getClassName), so a single fixed class here would only have matched
-   ONE of the two - confirmed directly as the reason an earlier version of
-   this rule (.classic-theme, copied from Blockly's own default theme name
-   rather than the actual "app-theme" class this project's custom theme
-   produces) never actually matched anything at all. */
-.geras-renderer[class*="-theme"] .blocklyText,
-.geras-renderer[class*="-theme"] .blocklyFlyoutLabelText {
-  font-family: var(--app-font-family) !important;
+   size Blockly itself sets. Deliberately its own --blockly-font-family (see
+   that variable's own comment above), not --app-font-family - only the
+   block/flyout text itself uses this font, everything else in the app
+   stays on Inter. [class*="-theme"] (not a fixed ".app-theme") because
+   Blockly's own injected theme class is literally that theme's own NAME +
+   "-theme" (see Theme.prototype.getClassName) - confirmed as the reason an
+   earlier version of this rule (".classic-theme", copied from Blockly's own
+   default theme name rather than the actual "app-theme" class this
+   project's own custom theme produces) never matched anything at all.
+   [class*="-renderer"] the same way, for the exact same reason - Blockly's
+   injected renderer class is that renderer's own name + "-renderer" (see
+   renderers/common/renderer.js), and this app has already switched which
+   renderer it uses more than once (geras -> zelos -> thrasos), so a fixed
+   class here would go stale again the next time it does. */
+[class*="-renderer"][class*="-theme"] .blocklyText,
+[class*="-renderer"][class*="-theme"] .blocklyFlyoutLabelText {
+  font-family: var(--blockly-font-family) !important;
 }
 
 /* Vuetify's own hint/error text under a field (e.g. the description under

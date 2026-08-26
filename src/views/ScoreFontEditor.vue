@@ -17,48 +17,55 @@
         />
         <span class="score-bkcolor-label">Score background color</span>
       </div>
-      <p class="v-messages theme--light v-messages__message">
+      <p v-if="isEditableFontSelected" class="v-messages theme--light v-messages__message">
         Draw the ten score digits below. They are used when the score font is
         set to <strong>Custom</strong> or <strong>Squish Custom</strong>.
       </p>
-      <v-switch
-        v-if="showExtraGlyphs"
-        v-model="extraGlyphsEnabled"
-        label="Use extra glyphs (10-15)"
-        hint="Costs 48 extra bytes of ROM space."
-        persistent-hint
-        class="option-switch"
-      />
-      <editor-zoom v-model="zoom" class="score-editor-zoom" />
-      <div class="digit-list">
-        <div
-          class="digit"
-          :style="{width: digitWidth}"
-          v-for="(digit, index) in state.digits"
-          v-show="index < DECIMAL_DIGIT_COUNT || (showExtraGlyphs && extraGlyphsEnabled)"
-          :key="index"
-        >
-          <div class="digit-label">{{ index }}</div>
-          <div class="digit-editor">
-            <pixel-editor
-              :key="activeDigitHeight + '-' + resetToken"
-              :width="8"
-              :height="activeDigitHeight"
-              :aspectRatio="PIXEL_ASPECT"
-              v-model="state.digits[index]"
-              fgColor="#f2691e"
-              :showClearButton="true"
-              :name="'score-font-digit-' + index"
-              :allowChangingHeight="false"
-              @input="handleChange"
-            />
+      <p v-else class="v-messages theme--light v-messages__message">
+        Set the score font to <strong>Custom</strong> or <strong>Squish Custom</strong> above to draw your own
+        digits - {{ selectedFont ? 'the selected preset' : 'Default' }} is a fixed, built-in font with nothing
+        to edit here.
+      </p>
+      <template v-if="isEditableFontSelected">
+        <v-switch
+          v-if="showExtraGlyphs"
+          v-model="extraGlyphsEnabled"
+          label="Use extra glyphs (10-15)"
+          hint="Costs 48 extra bytes of ROM space."
+          persistent-hint
+          class="option-switch"
+        />
+        <editor-zoom v-model="zoom" class="score-editor-zoom" />
+        <div class="digit-list">
+          <div
+            class="digit"
+            :style="{width: digitWidth}"
+            v-for="(digit, index) in state.digits"
+            v-show="index < DECIMAL_DIGIT_COUNT || (showExtraGlyphs && extraGlyphsEnabled)"
+            :key="index"
+          >
+            <div class="digit-label">{{ index }}</div>
+            <div class="digit-editor">
+              <pixel-editor
+                :key="activeDigitHeight + '-' + resetToken"
+                :width="8"
+                :height="activeDigitHeight"
+                :aspectRatio="PIXEL_ASPECT"
+                v-model="state.digits[index]"
+                fgColor="#f2691e"
+                :showClearButton="true"
+                :name="'score-font-digit-' + index"
+                :allowChangingHeight="false"
+                @input="handleChange"
+              />
+            </div>
           </div>
         </div>
-      </div>
-      <v-btn class="reset-button" color="secondary" @click="handleReset">
-        <v-icon>mdi-restore</v-icon>
-        <div>Reset to default digits</div>
-      </v-btn>
+        <v-btn class="reset-button" color="secondary" @click="handleReset">
+          <v-icon>mdi-restore</v-icon>
+          <div>Reset to default digits</div>
+        </v-btn>
+      </template>
     </v-card-text>
   </v-card>
 </template>
@@ -152,17 +159,21 @@ export default defineComponent({
     // possible states: a byte (an explicitly picked palette color), the
     // string 'background' (explicitly track the live backgroundrealcolor
     // system variable - see backgroundPreviewColor below), or unset, which
-    // defaults to black (0), matching the same fallback
-    // resolveScoreBkColorByte itself uses, so the swatch always shows a
-    // real, concrete selection instead of looking unset.
+    // is treated the SAME as 'background' (see
+    // Blockly.BBasic.scoreBkColorIsBackground's own comment in generators/
+    // bbasic.js - a project that never visited this picker should match its
+    // actual background, not default to black underneath the score row) -
+    // normalized to the literal string here too, so the swatch always shows
+    // a real, concrete selection (the "Use background color" one) instead
+    // of looking unset.
     const scoreBkColor = computed({
       get() {
         try {
           const value = (configurationStorage.value || {}).scoreBkColor;
-          return value == null ? 0 : value;
+          return value == null ? 'background' : value;
         } catch (e) {
           console.error('Error loading configuration from local storage', e);
-          return 0;
+          return 'background';
         }
       },
 
@@ -207,6 +218,20 @@ export default defineComponent({
     // utils/score-font.js - only CUSTOM/SQUISH_CUSTOM ever splice them in
     // at all).
     const showExtraGlyphs = computed(() =>
+      selectedFont.value === CUSTOM_SCORE_FONT || isSquishCustomSelected.value);
+    // Same condition as showExtraGlyphs above, but gating the base 0-9 digit
+    // editors themselves (see the template's own v-if on .digit-list) - only
+    // Custom/Squish Custom are actually EDITABLE fonts (backed by real
+    // storage this editor writes to); Default and every named preset are
+    // fixed, compiled-in bitmaps (see generators/score-fonts.js) with no
+    // storage of their own to write to at all. Before this, the digit grid
+    // stayed visible and editable regardless of selectedFont - editing it
+    // always silently wrote to the Custom (or Squish Custom) font's own
+    // storage no matter what was actually selected, which looked like (and
+    // was reported as) "editing Default" even though Default itself was
+    // never actually touched - just confusingly implied to be, and any
+    // edits made this way were invisible until Custom was later selected.
+    const isEditableFontSelected = computed(() =>
       selectedFont.value === CUSTOM_SCORE_FONT || isSquishCustomSelected.value);
     // Explicit, stored opt-in (see utils/score-font.js's own
     // customScoreFontExtraGlyphsEnabled/trimUnusedExtraGlyphs, the actual
@@ -291,6 +316,7 @@ export default defineComponent({
       digitWidth,
       showExtraGlyphs,
       extraGlyphsEnabled,
+      isEditableFontSelected,
       DECIMAL_DIGIT_COUNT,
     };
   },

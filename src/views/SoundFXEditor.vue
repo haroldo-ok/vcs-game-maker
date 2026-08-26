@@ -242,7 +242,7 @@
                           label="Attack"
                           title="Frames to ramp up from silence to full volume."
                           v-model="soundEffect.envelopeAttack"
-                          :items="envelopeStageFrameOptionItems"
+                          :items="envelopeAttackReleaseFrameOptionItems"
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
@@ -266,7 +266,7 @@
                           label="Release"
                           title="Frames to ramp down from the Sustain level to silence, ending exactly when the sound ends."
                           v-model="soundEffect.envelopeRelease"
-                          :items="envelopeStageFrameOptionItems"
+                          :items="envelopeAttackReleaseFrameOptionItems"
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
@@ -391,8 +391,9 @@ import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
   DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
   MAX_ARPEGGIO_INTERVAL, DEFAULT_ARPEGGIO_RANGE, ARPEGGIO_RANGE_OPTIONS,
-  ENVELOPE_STAGE_FRAME_OPTIONS, ENVELOPE_SUSTAIN_PERCENT_OPTIONS, DEFAULT_ENVELOPE_ATTACK,
-  DEFAULT_ENVELOPE_DECAY, DEFAULT_ENVELOPE_SUSTAIN_PERCENT, DEFAULT_ENVELOPE_RELEASE} from '../blocks/soundfx';
+  ENVELOPE_STAGE_FRAME_OPTIONS, ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, ENVELOPE_SUSTAIN_PERCENT_OPTIONS,
+  DEFAULT_ENVELOPE_ATTACK, DEFAULT_ENVELOPE_DECAY, DEFAULT_ENVELOPE_SUSTAIN_PERCENT,
+  DEFAULT_ENVELOPE_RELEASE} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
@@ -716,6 +717,10 @@ export default defineComponent({
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
       envelopeStageFrameOptionItems: ENVELOPE_STAGE_FRAME_OPTIONS.map((value) => ({text: `${value} frames`, value})),
+      // Attack/Release only (Decay stays on the smaller set above) - see
+      // ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS' own comment in blocks/soundfx.js.
+      envelopeAttackReleaseFrameOptionItems:
+        ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS.map((value) => ({text: `${value} frames`, value})),
       envelopeSustainPercentOptionItems: ENVELOPE_SUSTAIN_PERCENT_OPTIONS.map((value) => ({text: `${value}%`, value})),
       handleEnvelopeGraphChange,
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,

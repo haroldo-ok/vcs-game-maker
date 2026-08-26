@@ -37,6 +37,28 @@ import {debounce} from 'lodash';
 
 import {useBlocklyControlsHorizontalStorage} from '../hooks/project';
 
+// Blockly's own default for a block style's colourTertiary (the outline/
+// border stroke colour - see renderers/common/path_object.js's own
+// "stroke: this.style.colourTertiary") - whenever a theme doesn't set one
+// explicitly, which the Classic theme this app uses never does (only
+// colourPrimary, a bare hue number, per category - see node_modules/
+// blockly/core/theme/classic.js) - blends the block's own colour 30% of the
+// way toward WHITE, producing a lighter border than the block's own fill.
+// Confirmed as a real reported bug this way ("all the borders/outlines are
+// now a lighter color than the block color") once Thrasos' own flat drawer
+// made that border the ONLY outline a block has (Geras' light/dark bevel
+// highlight used to sit visually on top of it, made the lighter border less
+// noticeable). Same 0.3 blend factor, toward BLACK instead - a plain darker
+// border, no bevel, on every block regardless of which category/custom
+// colour it uses (this app defines plenty of block colours as raw CSS
+// strings outside Classic's own named categories too - e.g. 'purple',
+// SCORE_COLOR - which resolve through this exact same code path via
+// Blockly's "auto_<colour>" style lookup, so patching here covers those the
+// same way, with no per-block-file changes needed).
+Blockly.blockRendering.ConstantProvider.prototype.generateTertiaryColour_ = function(colour) {
+  return Blockly.utils.colour.blend('#000', colour, 0.3) || colour;
+};
+
 // Deliberately thinner than App.vue's global ::-webkit-scrollbar (16px) -
 // the Blockly canvas is dense with blocks, so a scrollbar that size reads as
 // too heavy specifically here, even though it matches the rest of the app.

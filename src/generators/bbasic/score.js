@@ -260,7 +260,7 @@ export default (Blockly) => {
     if (this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const colorLine = config.scoreBkColor === 'background' ?
+    const colorLine = this.scoreBkColorIsBackground(config.scoreBkColor) ?
       '       lda backgroundrealcolor' :
       `       lda #${colorByteToBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}`;
     // "end" has to sit at column 0, same quirk score_digit_set works around
@@ -312,7 +312,7 @@ export default (Blockly) => {
     if (!this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    if (config.scoreBkColor !== 'background') return '';
+    if (!this.scoreBkColorIsBackground(config.scoreBkColor)) return '';
     const comment = (config.showVariableComments ?? true) ?
       '  ; score row\'s own background color, aliased onto the live background color' : '';
     return `\n dim scorebkcolor = ${this.backgroundRealColorRawTarget()}${comment}`;
@@ -330,7 +330,7 @@ export default (Blockly) => {
     if (!this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    if (config.scoreBkColor === 'background') return '';
+    if (this.scoreBkColorIsBackground(config.scoreBkColor)) return '';
     return ` scorebkcolor = ${colorByteToBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}\n`;
   };
 

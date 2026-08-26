@@ -437,7 +437,8 @@ Blockly.BBasic.init = function(workspace) {
   {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    this.scoreBkColorNeedsOwnVar = this.isTextMinikernelActive() && config.scoreBkColor !== 'background';
+    this.scoreBkColorNeedsOwnVar =
+      this.isTextMinikernelActive() && !this.scoreBkColorIsBackground(config.scoreBkColor);
   }
 
   // Collects every distinct (axis, object pair) a "Distance" getter block
@@ -2025,16 +2026,31 @@ Blockly.BBasic.getBackgroundsData = function() {
 };
 
 // Resolves the Score tab's own background color picker (config.scoreBkColor
-// - see views/ScoreFontEditor.vue) to an actual color byte for the
-// literal/default case: a plain number is returned as-is, and anything else
-// (unset, or the 'background' sentinel - which both call sites below handle
-// separately, by aliasing directly onto backgroundrealcolor instead of
-// calling this at all) defaults to black (0). Shared between
+// - see views/ScoreFontEditor.vue) to an actual color byte for the literal
+// case only: a plain number is returned as-is, anything else (there's
+// nothing else valid to reach this with once scoreBkColorIsBackground below
+// already routes both 'background' AND unset away from this function at
+// every real call site) falls back to black (0). Shared between
 // generateScoreBkColorDefaults's Setup-time init (Text Minikernel active)
 // and generateScoreBkColorAsm's standalone "minikernel" hook (Text
 // Minikernel inactive) so both resolve the same picked literal identically.
 Blockly.BBasic.resolveScoreBkColorByte = function(configValue) {
   return typeof configValue === 'number' ? configValue : 0;
+};
+
+// Whether the Score tab's own background color picker should track the
+// live background color (backgroundrealcolor) instead of a fixed literal -
+// true for the explicit 'background' sentinel, but ALSO for unset (the
+// picker never touched at all) - confirmed with the user: a project that
+// never visited the Score tab's color picker should still match whatever
+// its actual background is, not silently default to black underneath the
+// score row. Shared by every one of generateScoreBkColorAsm/
+// generateScoreBkColorRuntimeDims/generateScoreBkColorDefaults (generators/
+// bbasic/score.js) and ScoreFontEditor.vue's own swatch display, so the
+// compiled ROM and the UI's own preview always agree on which case a given
+// project is actually in.
+Blockly.BBasic.scoreBkColorIsBackground = function(configValue) {
+  return configValue == null || configValue === 'background';
 };
 
 // The exact raw dim target (a single letter, or "varN" with Superchip)

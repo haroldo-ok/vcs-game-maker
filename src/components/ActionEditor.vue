@@ -52,9 +52,12 @@ import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage, useMuteBl
 import {useGeneratedBasic} from '../hooks/generated';
 import {markRomOutdated} from '../hooks/rom';
 
-// Keep in sync with --app-font-family in App.vue's own global <style> -
-// there's no build-time bridge between a CSS custom property and this JS
-// theme config, so the two have to be updated together by hand. Blockly
+// Keep in sync with --blockly-font-family in App.vue's own global <style>
+// (deliberately its OWN variable, not --app-font-family - this app's Inter
+// font everywhere else is unaffected, only Blockly's block/flyout text uses
+// this one) - there's no build-time bridge between a CSS custom property
+// and this JS theme config, so the two have to be updated together by hand.
+// Blockly
 // measures every block's own text width at layout time using ITS OWN
 // font-metrics call (a hidden canvas context, not the DOM/CSS engine), so
 // switching the app's font via CSS alone (see App.vue's own .blocklyText
@@ -72,16 +75,18 @@ import {markRomOutdated} from '../hooks/rom';
 const APP_BLOCKLY_THEME = Blockly.Theme.defineTheme('app', {
   name: 'app',
   // Colours stay on Classic (the app's own original palette, per-category
-  // block colours this app has always used) - only the block SHAPE switches
-  // to modern via options.renderer: 'zelos' below. Using Blockly.Themes.Zelos
-  // as the base here instead made every stock block that relies on its own
-  // 3-tone colourPrimary/Secondary/Tertiary style (e.g. controls_if's own
-  // "logic_blocks" style) render solid black - Zelos's own blockStyles
-  // weren't resolving correctly layered under this app's custom theme.
-  // Classic's simpler single-colour block styles don't hit that.
+  // block colours this app has always used) - the block SHAPE is back to
+  // Blockly's default renderer too (see options.renderer's own comment in
+  // this file), so this app is visually back to its original look overall.
+  // Briefly tried Blockly.Themes.Zelos as the base here (paired with the
+  // Zelos renderer) - that made every stock block relying on its own 3-tone
+  // colourPrimary/Secondary/Tertiary style (e.g. controls_if's own
+  // "logic_blocks" style) render solid black, since Zelos's own blockStyles
+  // weren't resolving correctly layered under this app's custom theme;
+  // Classic's simpler single-colour block styles never hit that.
   base: Blockly.Themes.Classic,
   fontStyle: {
-    family: 'Inter, sans-serif',
+    family: 'IBM Plex Mono, monospace',
     weight: 'normal',
     size: 11,
   },
@@ -122,12 +127,16 @@ export default {
         media: 'media/',
         sounds: !muteBlocklySoundsStorage.value,
         theme: APP_BLOCKLY_THEME,
-        // Zelos is Blockly's own "modern" look (rounded blocks, inline
-        // toolbox icons, etc.) - purely a block SHAPE change here, kept
-        // independent of APP_BLOCKLY_THEME's own colours (still Classic's -
-        // see that theme's own comment), which is a valid/supported
-        // combination on Blockly's end.
-        renderer: 'zelos',
+        // 'thrasos' keeps the original puzzle-piece block SHAPES (same tab/
+        // notch geometry as 'geras', the default, and unlike 'zelos'' own
+        // rounded look) but drops Geras' own light/dark bevel highlight
+        // overlay - it shares the same flat "common" drawer Zelos itself is
+        // built on, just without Zelos' rounded corners. What's left is a
+        // single flat fill plus a solid stroke outline (auto-derived, a
+        // darker shade of each block's own colour) - a plain border, no 3D
+        // effect. APP_BLOCKLY_THEME's own colours are unaffected either way
+        // (still Classic's - see that theme's own comment).
+        renderer: 'thrasos',
         grid: {
           spacing: 25,
           length: 3,

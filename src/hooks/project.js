@@ -127,13 +127,15 @@ export const useLoadLastProjectStorage = () => {
 // projects (or starting a new one) silently reset how you like the editor
 // UI to behave, not just the game itself. Stored as the raw string
 // "true"/"false" (useLocalStorage doesn't JSON-encode), defaulting to
-// false (never having been set) - matching every one of these three
-// settings' own original default in configurationState.
-const useBooleanAppSetting = (key) => {
+// defaultValue (false unless a caller says otherwise) when never having
+// been set - false matches every one of the original three settings' own
+// default in configurationState; usePixelGridLabelsStorage below is the one
+// exception, defaulting to true instead (see its own comment on why).
+const useBooleanAppSetting = (key, defaultValue = false) => {
   const raw = useLocalStorage(key);
   return computed({
     get() {
-      return raw.value === 'true';
+      return raw.value == null ? defaultValue : raw.value === 'true';
     },
     set(value) {
       raw.value = value ? 'true' : 'false';
@@ -207,6 +209,21 @@ export const useDimSoundFxPercentStorage = (defaultValue) => {
 // hooks/collapse.js's own comment on the same lifecycle).
 export const usePixelGridOverlayStorage = () =>
   useBooleanAppSetting('vcs-game-maker.pixelGridOverlay');
+
+// Same standing-app-preference reasoning as usePixelGridOverlayStorage
+// above, for the "X,Y" coordinate labels PixelEditor.vue's own grid overlay
+// can additionally draw in each cell (see its own showCellIds prop) -
+// currently only ever wired up on the Background tab (BackgroundEditor.vue,
+// where reading off an exact X/Y matters for wiring up "Background: pixel
+// at X/Y"-style blocks); PlayerEditor.vue never passes showCellIds at all,
+// so this has no effect there regardless of its own stored value. Defaults
+// to true (unlike every other useBooleanAppSetting caller) - showCellIds
+// was hardcoded on before this toggle existed, so a default of false here
+// would silently turn labels off for every existing user on their very
+// first visit after this shipped, not just newly leave them off until
+// explicitly turned on.
+export const usePixelGridLabelsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.pixelGridLabels', true);
 
 // Which Music-tab instrument rows are muted/soloed - a view preference (see
 // MusicEditor.vue's own mutedTrackIds/soloedTrackIds refs, which load these

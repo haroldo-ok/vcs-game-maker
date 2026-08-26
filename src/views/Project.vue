@@ -355,10 +355,20 @@ export default defineComponent({
 
     // Builds the suggested filename for a new save - empty title prefix
     // when the Project tab's own Title field was never filled in, same as
-    // before (just the date, no stray leading "_").
+    // before (just the date, no stray leading "_"). Version is appended
+    // last (also underscore-led) so two saves of the same project on the
+    // same day - a common case with projectAutoIncrementVersion on, see
+    // handleSaveProjectAs/handleSaveProject above - still get distinct
+    // filenames instead of colliding on just the date. Periods (a plain
+    // version like "0.50.23") become dashes - sanitizeForFilename itself
+    // leaves periods alone (they're valid on every platform, unlike the
+    // characters it actually strips), but "0.50.23.vcsgm" reads as though
+    // ".23" were the file's own extension, not part of the version.
     buildSaveFilename() {
       const titlePrefix = this.projectTitle ? `${sanitizeForFilename(this.projectTitle)}_` : '';
-      return `${titlePrefix}${getDateInfix()}.vcsgm`;
+      const versionSuffix = this.projectVersion ?
+        `_${sanitizeForFilename(this.projectVersion).replace(/\./g, '-')}` : '';
+      return `${titlePrefix}${getDateInfix()}${versionSuffix}.vcsgm`;
     },
 
     // Always prompts, regardless of whether a "Save" handle already exists
@@ -431,6 +441,39 @@ export default defineComponent({
       }
       if (this.projectAutoIncrementVersion) {
         this.projectVersion = this.incrementVersion(this.projectVersion);
+        // "Save" (unlike "Save As") writes straight back to the SAME handle
+        // with no picker - createWritable() below always writes under
+        // whatever name that handle already has, so without this, the
+        // version bumped above silently stopped matching the on-disk
+        // filename after the very first save (confirmed as the actual
+        // report: only Save As/the first save ever produced a correctly
+        // versioned name). FileSystemHandle.move() (Chrome 110+) renames a
+        // handle IN PLACE, keeping it valid for every later Save/Save As
+        // call the same way - not universally supported yet, so this is
+        // deliberately best-effort: on a browser/handle without it, the
+        // save below still succeeds, just under the old filename, same as
+        // before this existed.
+        if (typeof this.data.activeFileHandle.move === 'function') {
+          try {
+            await this.data.activeFileHandle.move(this.buildSaveFilename());
+            // Without this, IndexedDB kept holding whichever handle was
+            // persisted at the very first save/open - never updated after
+            // any later rename. Harmless as long as the SAME mount of this
+            // component just keeps reusing its own in-memory
+            // data.activeFileHandle (the live, just-renamed object) - but
+            // this app destroys/recreates this component on navigation (see
+            // hooks/collapse.js's own comment on that same lifecycle), and
+            // the onMounted restore below always reloads from IndexedDB, so
+            // navigating away and back before the next save silently swapped
+            // back in the STALE, pre-rename handle - confirmed as the actual
+            // reported bug ("save a few times with increment on, turn it
+            // off, save again" landed back on an old filename, not the
+            // latest one).
+            persistActiveFileHandle(this.data.activeFileHandle);
+          } catch (e) {
+            console.error('Could not rename the project file to match its auto-incremented version', e);
+          }
+        }
       }
       const projectYaml = this.buildProjectYaml();
       const writable = await this.data.activeFileHandle.createWritable();
@@ -496,7 +539,18 @@ export default defineComponent({
       reader.onload = (evt) => {
         const projectYaml = evt.target.result;
         console.info('YAML', projectYaml);
+        // YAML.parse returns null (not a parse error) for an empty document
+        // - an empty/blank file, or one that's otherwise valid YAML but
+        // just isn't an object (e.g. a bare "null"/"~" or a single scalar
+        // value) - confirmed as a real reported crash this way: unguarded,
+        // "project.type" below threw "Cannot read properties of null
+        // (reading 'type')", a confusing raw TypeError instead of this same
+        // file's own clear "not a valid project" message every OTHER
+        // malformed-file case already gets.
         const project = YAML.parse(projectYaml);
+        if (!project || typeof project !== 'object') {
+          throw new Error('This file does not seem to be a valid project.');
+        }
 
         if (project.type !== FORMAT_TYPE) {
           throw new Error('This file does not seem to be a valid project.');
