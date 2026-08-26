@@ -19,12 +19,12 @@ import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank} from './relocation-banks';
-import {markRomUpToDate, markRomOutdated, useRomOutdated} from './rom-status';
+import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom} from './rom-status';
 import {setRomCapacity, useRomCapacity} from './rom-capacity';
 
 Vue.use(VueCompositionApi);
 
-export {markRomOutdated, useRomOutdated, useRomCapacity};
+export {markRomOutdated, useRomOutdated, useRomCapacity, useHasCompiledRom};
 
 const EMPTY_WORKSPACE = '<xml xmlns="https://developers.google.com/blockly/xml"/>';
 
@@ -180,7 +180,7 @@ const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown 
 // bank, and cross-bank calls work identically regardless of which bank
 // number is used (confirmed for bank 2 directly against the compiler and
 // the emulator - see the bank-targeting feasibility notes).
-export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
+export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
 
 // Graphics unit keys (see wrapRelocatableGraphics in generators/bbasic.js)
 // are generated, code-facing identifiers ("background3", "player0default",

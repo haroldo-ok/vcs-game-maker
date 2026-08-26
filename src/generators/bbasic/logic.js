@@ -45,6 +45,17 @@ export default (Blockly) => {
     for (let n = 0; n < branchCount; n++) {
       const conditionCode = Blockly.BBasic.valueToCode(block, `IF${n}`,
           Blockly.BBasic.ORDER_NONE) || '0';
+      // A condition value block (e.g. background_get_pixel, see its own
+      // comment) can smuggle setup statements ahead of its real expression
+      // as a newline-joined preamble, since there's no other way for a
+      // plain value-block generator to inject lines before whatever
+      // consumes its return value. Only the LAST line is the actual
+      // boolean condition; every line before it gets hoisted onto its own
+      // line(s) ahead of the "if" itself - a bare valueToCode result never
+      // contains a literal newline otherwise, so splitting on it is safe.
+      const conditionLines = conditionCode.split('\n');
+      const conditionPreamble = conditionLines.slice(0, -1);
+      const finalCondition = conditionLines[conditionLines.length - 1];
       let branchCode = Blockly.BBasic.statementToCode(block, `DO${n}`).trim();
       if (!branchCode) branchCode = 'a = a';
 
@@ -53,7 +64,8 @@ export default (Blockly) => {
       const nextLabel = isLast ? (hasElseBlock ? elseLabel : endLabel) : `${labelStart}_check${n + 1}`;
 
       if (n > 0) lines.push(`@ ${labelStart}_check${n}`);
-      lines.push(`  if ${conditionCode} then goto ${bodyLabel} else goto ${nextLabel}`);
+      conditionPreamble.forEach((line) => lines.push(`  ${line}`));
+      lines.push(`  if ${finalCondition} then goto ${bodyLabel} else goto ${nextLabel}`);
       lines.push(`@ ${bodyLabel}`);
       lines.push(`${branchCode}\ngoto ${endLabel}`);
     }

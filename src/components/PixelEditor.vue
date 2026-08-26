@@ -401,7 +401,7 @@ export default {
       const cellWidth = cssWidth / cols;
       const cellHeight = cssHeight / rows;
 
-      ctx.strokeStyle = 'rgba(128, 128, 128, 0.6)';
+      ctx.strokeStyle = 'rgba(170, 170, 170, 0.5)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let col = 0; col <= cols; col++) {
@@ -429,7 +429,7 @@ export default {
       const fontSize = Math.min(cellHeight * 0.6, cellWidth * 0.35, 12);
       if (fontSize < 5) return;
       ctx.font = `${fontSize}px sans-serif`;
-      ctx.fillStyle = 'rgba(80, 80, 80, 0.9)';
+      ctx.fillStyle = 'rgba(140, 140, 140, 0.85)';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       for (let row = 0; row < rows; row++) {

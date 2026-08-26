@@ -141,6 +141,12 @@ const useBooleanAppSetting = (key) => {
   });
 };
 
+// Same "standing app preference, not a project setting" reasoning as the
+// others here - App.vue's own left nav-drawer is removed from the DOM
+// entirely (not just closed) whenever this is on, reclaiming its layout
+// space instead of leaving an empty 200px gap.
+export const useHideSidebarStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.hideSidebar');
 export const useBlocklyControlsHorizontalStorage = () =>
   useBooleanAppSetting('vcs-game-maker.blocklyControlsHorizontal');
 export const useHideDescriptionTextStorage = () =>
@@ -201,3 +207,53 @@ export const useDimSoundFxPercentStorage = (defaultValue) => {
 // hooks/collapse.js's own comment on the same lifecycle).
 export const usePixelGridOverlayStorage = () =>
   useBooleanAppSetting('vcs-game-maker.pixelGridOverlay');
+
+// Which Music-tab instrument rows are muted/soloed - a view preference (see
+// MusicEditor.vue's own mutedTrackIds/soloedTrackIds refs, which load these
+// once at setup() time) that survives navigating away and back, same
+// shape as every other localStorage-backed preference above. Plain
+// load-once functions (not a reactive useLocalStorage wrapper) since
+// MusicEditor.vue already wraps its OWN ref around these and re-persists on
+// every toggle itself - and generators/bbasic/music.js (the OTHER
+// consumer, see isMusicTrackMuted below) only ever needs a one-shot read at
+// compile time, never reactivity. Exported (rather than kept local to
+// MusicEditor.vue, which is where this lived before) specifically so the
+// ROM generator can honor the exact same mute/solo state the Music tab's
+// own preview already does, instead of silently baking in every track
+// regardless of what's muted/soloed on screen.
+export const MUTED_MUSIC_TRACKS_KEY = 'vcs-game-maker.muted.music-tracks';
+export const loadMutedMusicTrackIds = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(MUTED_MUSIC_TRACKS_KEY));
+    return (stored && typeof stored === 'object') ? stored : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+export const SOLOED_MUSIC_TRACKS_KEY = 'vcs-game-maker.soloed.music-tracks';
+export const loadSoloedMusicTrackIds = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SOLOED_MUSIC_TRACKS_KEY));
+    return (stored && typeof stored === 'object') ? stored : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+// A track's REAL, effective muted state - single source of truth shared by
+// MusicEditor.vue's own preview (isTrackMuted) and the ROM generator (see
+// flattenPatternEvents in generators/bbasic/music.js), so both agree on
+// exactly the same answer for the same project state. As soon as ANY track
+// in the pattern is soloed, every OTHER track is effectively muted
+// regardless of its own individual mute flag, and the soloed one(s) play
+// regardless of their own mute flag too (soloing a muted track still plays
+// it - same convention most DAWs use, "solo" overrides "mute" rather than
+// the two fighting). With nothing soloed, this just falls through to the
+// track's own explicit mute flag.
+export const isMusicTrackMuted = (mutedTrackIds, soloedTrackIds, song, pattern, track) => {
+  const trackKey = (t) => `${song.id}:${t.id}`;
+  const patternHasSoloedTrack = (pattern.tracks || []).some((t) => !!soloedTrackIds[trackKey(t)]);
+  if (patternHasSoloedTrack) return !soloedTrackIds[trackKey(track)];
+  return !!mutedTrackIds[trackKey(track)];
+};

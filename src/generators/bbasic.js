@@ -19,8 +19,9 @@ import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, us
 import {getRelocationBanks} from '../hooks/relocation-banks';
 import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
   backgroundFadeTimerVarName, backgroundFadePaceVarName, backgroundFadeTargetVarName,
-  backgroundFadeFlagsVarName,
+  fadeFlagsVarName, backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks} from '../blocks/background';
+import {functionCallDiscardVarName} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
@@ -28,12 +29,14 @@ import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
   customScoreFontUsesExtraGlyphs} from '../utils/score-font';
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {keypadKeyVarName} from '../utils/keypad';
-import {registerKeypadPollSubroutine} from './bbasic/input';
+import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
+  reserveJoystickDirection8DevVars, generateJoystickDirection8Checks} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
-  reserveRomNoiseDevVars, reserveRainbowColorDevVars} from './bbasic/sprites';
+  reserveRomNoiseDevVars, reserveRainbowColorDevVars,
+  generateMissileFireChecks, reserveMissileFireDevVars} from './bbasic/sprites';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
@@ -46,31 +49,54 @@ const handlebarsTemplate = Handlebars.compile(templateText);
 // the standard (non-Superchip) kernel. Without Superchip RAM, batari Basic's
 // playfield buffer physically occupies the same zero-page bytes as var0-var43
 // (playfieldbase = var0's address), so those "var" slots aren't safe to use -
-// only 26 single letters are available, and these 15 claim most of them.
+// only 26 single letters are available, and these 12 claim most of them.
 //
 // With Superchip enabled, the playfield buffer moves to the separate SARA
 // chip RAM page instead, freeing var0-var43 (plus var44-var47, which are
-// always free). Moving these system variables into var0-14 there instead of
+// always free). Moving these system variables into var0-11 there instead of
 // letters frees all 26 letters for user variables - see generateSystemDims
-// and the letter pool below. var15-var43 (still unused even then) is where
+// and the letter pool below. var12-var43 (still unused even then) is where
 // every OTHER dev/user variable goes first instead, before falling back to
 // the letter pool - see SUPERCHIP_VAR_START and generateSuperchipVarDims.
+//
+// "loopcounter" (the "Repeat X times" block's own for-loop variable) and
+// channnel0duration/channnel1duration (the sound-effect-duration/AUDV-auto-
+// silence timers) used to live here too, unconditionally - both moved out to
+// normal conditionally-reserved dev vars instead (see REPEAT_COUNTER_VAR_NAME
+// in generators/bbasic/loops.js, reserved only when this.repeatLoopUsed, and
+// this.channelDurationUsed's own pre-scan in init(), which also gates
+// generateChannelDurationChecks below), since unlike every entry actually
+// left here, neither is needed by every project: a project with zero
+// "Repeat" blocks, or zero "Play sound" blocks and no music, was paying for
+// these letters (or Superchip var0-14 slots) for nothing. Every var still
+// listed below IS genuinely unconditional - each one gets written by a
+// plain, unconditional line in the fixed per-frame template
+// (bbasic.bb.hbs) itself, not by a block the user may or may not have used
+// (confirmed directly for each: player0realcolor/player1realcolor/
+// player0size/player1size restore COLUP0/COLUP1/NUSIZ0/NUSIZ1 every frame
+// regardless, since the standard kernel's own score-digit drawing hijacks
+// those same registers; framecounter increments every frame as a general-
+// purpose fallback several OTHER features default to; player0frame/
+// player1frame/player0animation/player1animation/newbackground are real
+// batari Basic kernel identifiers the standard kernel itself requires to
+// exist for ANY sprite/background to render at all).
+// Third element of each entry is a very short description of why it's
+// reserved - kept as real data (not just a JS comment) so generateSystemDims
+// below can also emit it as a "rem" line right above the matching "dim" in
+// the actual generated bBasic code, not just here in this source file.
 export const SYSTEM_VARIABLES = [
-  ['player0frame', 'x'],
-  ['player1frame', 'z'],
-  ['newbackground', 'y'],
-  ['loopcounter', 'w'],
-  ['channnel0duration', 'v'],
-  ['channnel1duration', 'u'],
-  ['player0size', 't'],
-  ['player1size', 's'],
-  ['player0realcolor', 'r'],
-  ['player1realcolor', 'q'],
-  ['playfieldrealcolor', 'm'],
-  ['backgroundrealcolor', 'l'],
-  ['player0animation', 'p'],
-  ['player1animation', 'o'],
-  ['framecounter', 'n'],
+  ['player0frame', 'x', 'real bB kernel var: which graphic frame player0 shows'],
+  ['player1frame', 'z', 'real bB kernel var: which graphic frame player1 shows'],
+  ['newbackground', 'y', 'real bB kernel var: which background is currently selected'],
+  ['player0size', 't', 'restores NUSIZ0 every frame (score routine clobbers it)'],
+  ['player1size', 's', 'restores NUSIZ1 every frame (score routine clobbers it)'],
+  ['player0realcolor', 'r', 'restores COLUP0 every frame (score routine clobbers it)'],
+  ['player1realcolor', 'q', 'restores COLUP1 every frame (score routine clobbers it)'],
+  ['playfieldrealcolor', 'm', 'restores COLUPF every frame (score routine clobbers it)'],
+  ['backgroundrealcolor', 'l', 'restores COLUBK every frame (score routine clobbers it)'],
+  ['player0animation', 'p', 'which animation is currently playing on player0'],
+  ['player1animation', 'o', 'which animation is currently playing on player1'],
+  ['framecounter', 'n', 'free-running frame counter, default fallback for several features'],
 ];
 
 const ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
@@ -84,15 +110,15 @@ export const USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP =
 
 // Where every dev/user variable (routeDevVar in init(), below) goes first,
 // ahead of the letter pool, once Superchip is enabled (see
-// generateSuperchipVarDims) - var0-var14 are SYSTEM_VARIABLES' own (15
+// generateSuperchipVarDims) - var0-var11 are SYSTEM_VARIABLES' own (12
 // entries, above), var44-var47 are always free regardless of Superchip (see
 // text-minikernel.js/soundfx.js/score.js's own fixed dims there), so
-// var15-var43 (29 slots) is free, unused RAM on every Superchip project
+// var12-var43 (32 slots) is free, unused RAM on every Superchip project
 // today - confirmed via a project-wide grep, nothing else in this codebase
 // references any of these slots. Once this fills up, routeDevVar falls back
 // to the letter pool exactly as it always did, so a Superchip project's real
-// total budget is 29 + 26 = 55 slots, not a hard 29-slot ceiling.
-export const SUPERCHIP_VAR_START = 15;
+// total budget is 32 + 26 = 58 slots, not a hard 32-slot ceiling.
+export const SUPERCHIP_VAR_START = 12;
 export const SUPERCHIP_VAR_END = 43;
 
 // text12b.asm (see generators/bbasic/text-minikernel.js) uses the bare
@@ -270,6 +296,26 @@ Blockly.BBasic.init = function(workspace) {
   // Call Blockly.Generator's init.
   Object.getPrototypeOf(this).init.call(this);
 
+  // Every DISTINCT envelope shape actually used anywhere in the project -
+  // see registerEnvelopeConfig/resetEnvelopeConfigs in
+  // generators/bbasic/soundfx.js for why this pool lives there (module-level
+  // state, not on this Generator instance). MUST run before
+  // resolveProjectMusic below - that call already registers every Music-tab
+  // instrument's own envelope configs as a side effect of paging its note
+  // data (see eventsToPages in generators/bbasic/music.js), and a stray
+  // reset AFTER it (an earlier version of this had the reset much further
+  // down, still inside this same init()) would silently wipe every config
+  // Music just registered before any soundfx_play block ever got a chance
+  // to re-add its own - confirmed directly as a real bug: a project with
+  // envelope enabled ONLY on a Music instrument (no matching "Play sound"
+  // block anywhere) generated data correctly (both the note markers baking
+  // in the RIGHT config index, and this channel's own _envelopeAdLen table)
+  // but the per-frame dispatch that actually reads them
+  // (generateEnvelopeChecks in soundfx.js) silently emitted nothing at all,
+  // since by the time it ran the pool it reads from had already gone
+  // back to empty.
+  resetEnvelopeConfigs();
+
   // textMinikernelUsed/textMessages (see generators/bbasic/text-minikernel.js)
   // are set as a side effect of generating each Text block's code, but
   // nothing else ever clears them - without this reset, once any project
@@ -345,6 +391,18 @@ Blockly.BBasic.init = function(workspace) {
     }
   });
 
+  // Same early block-type pre-scan reasoning as romNoiseUsedFor above, for
+  // sprite_missile0_fire/sprite_missile1_fire (see reserveMissileFireDevVars'
+  // own comment in generators/bbasic/sprites.js) - has to be known before
+  // reserveDevVar hands out user variable letters below.
+  this.missileFireUsedFor = new Set();
+  ['missile0', 'missile1'].forEach((name) => {
+    if (workspace.getAllBlocks(false).some((block) =>
+      block.type === `sprite_${name}_fire` && block.isEnabled())) {
+      this.missileFireUsedFor.add(name);
+    }
+  });
+
   // Same early block-type pre-scan reasoning as the ones above - see
   // controls_repeat_ext's own comment in generators/bbasic/loops.js for
   // why a "repeat" block whose count is a complex expression needs its own
@@ -363,8 +421,8 @@ Blockly.BBasic.init = function(workspace) {
   // Same early pre-scan reasoning as repeatLoopUsed just above, for
   // WAIT_FRAMES_COUNTER_VAR_NAME (see its own comment in
   // generators/bbasic/loops.js) - "Wait N frames" needs its own dedicated
-  // loop counter, not the shared "loopcounter" a "repeat" block's own "for"
-  // loop uses, so the two can be safely nested.
+  // loop counter, not the shared "repeatcounter" a "repeat" block's own
+  // "for" loop uses, so the two can be safely nested.
   this.waitFramesUsed = workspace.getAllBlocks(false).some((block) =>
     block.type === 'wait_frames' && block.isEnabled());
 
@@ -411,6 +469,44 @@ Blockly.BBasic.init = function(workspace) {
   this.keypad0Used = workspace.getAllBlocks(false).some((block) => block.type === 'input_keypad0_get');
   this.keypad1Used = workspace.getAllBlocks(false).some((block) => block.type === 'input_keypad1_get');
 
+  // Same idea, for "Joystick N direction (8-way)" getter blocks (see
+  // joyDir8ResultVarName's own comment in generators/bbasic/input.js for why
+  // this has to be precomputed once per frame rather than read inline) -
+  // has to be known before reserveDevVar hands out user variable letters
+  // below.
+  this.joyDirection8UsedFor = new Set();
+  ['joy0', 'joy1'].forEach((name) => {
+    if (workspace.getAllBlocks(false).some((block) => block.type === `input_${name}_direction8`)) {
+      this.joyDirection8UsedFor.add(name);
+    }
+  });
+
+  // Same idea, for "Background get pixel" blocks' own X/Y scratch dev vars
+  // (see generators/bbasic/background.js's own background_get_pixel and its
+  // backgroundGetPixelXVarName/backgroundGetPixelYVarName comment) - this
+  // block normally uses bB's free temp1/temp2 scratch registers at no dev-
+  // var cost at all, UNLESS it's nested inside a function_define block's own
+  // body, where temp1-temp6 are ALSO bB's fixed argument-passing convention
+  // and could otherwise get silently clobbered - only that specific,
+  // uncommon nesting actually needs (and reserves) these two dev vars.
+  const isInsideFunctionDefine = (block) => {
+    let ancestor = block.getParent();
+    while (ancestor) {
+      if (ancestor.type === 'function_define') return true;
+      ancestor = ancestor.getParent();
+    }
+    return false;
+  };
+  this.backgroundGetPixelUsed = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'background_get_pixel' && isInsideFunctionDefine(block));
+
+  // Same idea, for function_call_statement's own discarded-return-value
+  // scratch var (see generators/bbasic/function.js's own comment on
+  // functionCallDiscardVarName) - only reserved for a project that actually
+  // calls a function as a bare statement at all.
+  this.functionCallStatementUsed = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'function_call_statement');
+
   // Same idea as distanceChecks above, for "Distance to point" blocks (see
   // blocks/input.js's distance_x_to_point_get/distance_y_to_point_get) -
   // the second operand there is an arbitrary value input (typed literal,
@@ -446,7 +542,7 @@ Blockly.BBasic.init = function(workspace) {
   // Every "fade finished" watch (background_fade_finished in blocks/
   // background.js) resolved to the (register, direction) pairs it actually
   // watches - see resolveBackgroundFadeFinishedWatches's own comment.
-  // Needed this early so backgroundFadeFlagsVarName below only gets
+  // Needed this early so fadeFlagsVarName below only gets
   // reserved when at least one such watch really exists.
   this.backgroundFadeFinishedWatches = resolveBackgroundFadeFinishedWatches(workspace);
 
@@ -467,6 +563,20 @@ Blockly.BBasic.init = function(workspace) {
   // a shared singleton reused across every workspaceToCode() call - same
   // reasoning as textMinikernelUsed above.
   this.projectMusic = resolveProjectMusic(workspace, this.notePlayedInstruments);
+
+  // Whether channnel0duration/channnel1duration (see SYSTEM_VARIABLES'
+  // own comment) are needed at all - a "Play sound" block is the only thing
+  // that ever WRITES them (see soundfx.js's own soundfx_play generator), but
+  // music's own generated code READS them unconditionally too, whenever
+  // music exists at all (see generators/bbasic/music.js's own comments on
+  // "soundfx_play/channnel0duration+channnel1duration" - a sound effect
+  // sharing a channel with music needs to keep exclusive hardware control
+  // for its own duration), so either one alone already needs both vars to
+  // exist. A project with neither pays nothing - see
+  // generateChannelDurationChecks below, which reuses this same flag to
+  // skip the per-frame decrement entirely, not just the dev vars.
+  this.channelDurationUsed = !!this.projectMusic || workspace.getAllBlocks(false).some((block) =>
+    block.type === 'soundfx_play' && block.isEnabled());
 
   // Every one-shot music event watch - "sequence chip finished"
   // (music_sequence_chip_finished/_by_id) AND "note played by instrument"
@@ -590,7 +700,21 @@ Blockly.BBasic.init = function(workspace) {
   // confirmed by testing rom noise + rainbow colors together and finding
   // that removing either one alone fixed the build.
   const routedDevVarNames = new Set();
-  const routeDevVar = (name) => {
+  // Very short "why does this variable exist" text, keyed by the FINAL
+  // routed name (not the canonical one reserveDevVar was called with) -
+  // looked up again wherever the actual "dim" lines get emitted (below, and
+  // in generateSuperchipVarDims) to prepend a matching "rem" line in the
+  // real generated bBasic code, not just here in this source file. Only the
+  // FIRST reservation of a given name's own description sticks (matches
+  // routeDevVar's own "first call wins" dedup below) - a shared var reserved
+  // from two different call sites (e.g. romNoiseFlagsVarName) keeps
+  // whichever description arrived first, which is fine since either one
+  // correctly explains that shared byte.
+  this.devVarDescriptions = {};
+  const routeDevVar = (name, description) => {
+    if (description && !(name in this.devVarDescriptions)) {
+      this.devVarDescriptions[name] = description;
+    }
     if (routedDevVarNames.has(name)) return name;
     routedDevVarNames.add(name);
     if (config.enableSuperchip && this.superchipVars.length < superchipVarBudget) {
@@ -600,8 +724,8 @@ Blockly.BBasic.init = function(workspace) {
     }
     return name;
   };
-  const reserveDevVar = (canonicalName, type = Blockly.Names.DEVELOPER_VARIABLE_TYPE) =>
-    routeDevVar(this.nameDB_.getName(canonicalName, type));
+  const reserveDevVar = (canonicalName, type = Blockly.Names.DEVELOPER_VARIABLE_TYPE, description) =>
+    routeDevVar(this.nameDB_.getName(canonicalName, type), description);
 
   // Add developer variables (not created or named by the user).
   const devVarList = Blockly.Variables.allDeveloperVariables(workspace);
@@ -616,14 +740,14 @@ Blockly.BBasic.init = function(workspace) {
   // its own getter/check generators, which look the same name up again
   // later, are guaranteed to agree on whatever nameDB_ actually assigns.
   for (const varName of this.distanceChecks.keys()) {
-    reserveDevVar(varName);
+    reserveDevVar(varName, undefined, '"Distance" block\'s own hidden result byte');
   }
 
   // Same bucket again, for "Distance to point" blocks' own per-instance
   // hidden bytes (see the distancePointChecks pre-scan above and
   // generators/bbasic/input.js's generateDistancePointChecks).
   for (const {axis, index} of this.distancePointChecks.values()) {
-    reserveDevVar(distancePointVarName(axis, index));
+    reserveDevVar(distancePointVarName(axis, index), undefined, '"Distance to point" block\'s own hidden result byte');
   }
 
   // Same bucket again, for the keypad poll routine's own result byte(s)
@@ -634,14 +758,29 @@ Blockly.BBasic.init = function(workspace) {
   // the poll subroutine's own body needs them, but has to wait until
   // "this.subroutines = {}" below runs first (see that assignment's own
   // comment on why registering any earlier here would just get wiped out).
-  if (this.keypad0Used) this.keypadLeftVarName = reserveDevVar(keypadKeyVarName('0'));
-  if (this.keypad1Used) this.keypadRightVarName = reserveDevVar(keypadKeyVarName('1'));
+  if (this.keypad0Used) this.keypadLeftVarName = reserveDevVar(keypadKeyVarName('0'), undefined, 'keypad 0 poll result');
+  if (this.keypad1Used) this.keypadRightVarName = reserveDevVar(keypadKeyVarName('1'), undefined, 'keypad 1 poll result');
+
+  // Same bucket again, for "Background get pixel" blocks' own X/Y scratch
+  // storage (see the backgroundGetPixelUsed pre-scan above and
+  // generators/bbasic/background.js's own background_get_pixel).
+  if (this.backgroundGetPixelUsed) {
+    reserveDevVar(backgroundGetPixelXVarName(), undefined, '"get pixel" X arg, when used inside a Function');
+    reserveDevVar(backgroundGetPixelYVarName(), undefined, '"get pixel" Y arg, when used inside a Function');
+  }
+
+  // Same bucket again, for function_call_statement's own discarded-return-
+  // value scratch var (see the functionCallStatementUsed pre-scan above and
+  // generators/bbasic/function.js's own function_call_statement).
+  if (this.functionCallStatementUsed) {
+    reserveDevVar(functionCallDiscardVarName(), undefined, 'calling a Function as a bare statement discards its return value here');
+  }
 
   // Same bucket again, for the collision-check backtrack bytes (see the
   // collisionMovePlayers pre-scan above and generators/bbasic/collision.js).
   for (const playerNum of this.collisionMovePlayers) {
-    reserveDevVar(collisionMoveOldXVar(playerNum));
-    reserveDevVar(collisionMoveOldYVar(playerNum));
+    reserveDevVar(collisionMoveOldXVar(playerNum), undefined, 'collision-move\'s own "undo" X for this player');
+    reserveDevVar(collisionMoveOldYVar(playerNum), undefined, 'collision-move\'s own "undo" Y for this player');
   }
 
   // Same bucket again, for every dev var the music player's own generated
@@ -657,7 +796,7 @@ Blockly.BBasic.init = function(workspace) {
   // scoreBkColorNeedsOwnVar pre-scan above and generators/bbasic/score.js's
   // generateScoreBkColorRuntimeDims).
   if (this.scoreBkColorNeedsOwnVar) {
-    reserveDevVar(scoreBkColorVarName());
+    reserveDevVar(scoreBkColorVarName(), undefined, 'score row\'s own background color');
   }
 
   // Same bucket again, for the Text Minikernel's own per-character
@@ -676,16 +815,65 @@ Blockly.BBasic.init = function(workspace) {
   // (above) found it used.
   reserveRainbowColorDevVars(reserveDevVar, this.rainbowColorUsedFor);
 
+  // Same bucket again, for "Fire missile"'s own per-missile fired-direction/
+  // speed state (see reserveMissileFireDevVars' own comment in generators/
+  // bbasic/sprites.js) - a no-op unless missileFireUsedFor's own early
+  // pre-scan (above) found it used.
+  reserveMissileFireDevVars(reserveDevVar, this.missileFireUsedFor);
+
+  // Same bucket again, for "Joystick N direction (8-way)"'s own per-frame
+  // result (see joyDir8ResultVarName's own comment in generators/bbasic/
+  // input.js) - a no-op unless joyDirection8UsedFor's own early pre-scan
+  // (above) found it used.
+  reserveJoystickDirection8DevVars(reserveDevVar, this.joyDirection8UsedFor);
+
   // Same bucket again, for "repeat" loops whose own count is a complex
   // expression (see REPEAT_BOUND_VAR_NAME's own comment) - a no-op unless
   // repeatLoopUsed's own early pre-scan (above) found a repeat block at
   // all.
-  if (this.repeatLoopUsed) reserveDevVar(REPEAT_BOUND_VAR_NAME);
+  if (this.repeatLoopUsed) {
+    reserveDevVar(REPEAT_BOUND_VAR_NAME, undefined, '"Repeat X times" own bound, when X is a complex expression');
+  }
+  // Same bucket again, for the "repeat" block's own for-loop variable
+  // itself (see REPEAT_COUNTER_VAR_NAME's own comment in
+  // generators/bbasic/loops.js) - used to live in SYSTEM_VARIABLES,
+  // unconditionally, as the literal identifier "loopcounter"; moved here
+  // instead so a project with zero "Repeat" blocks doesn't pay for it.
+  if (this.repeatLoopUsed) {
+    reserveDevVar(REPEAT_COUNTER_VAR_NAME, undefined, '"Repeat X times" own for-loop counter');
+  }
 
   // Same bucket again, for "Wait N frames"' own dedicated loop counter (see
   // WAIT_FRAMES_COUNTER_VAR_NAME's own comment) - a no-op unless
   // waitFramesUsed's own early pre-scan (above) found one at all.
-  if (this.waitFramesUsed) reserveDevVar(WAIT_FRAMES_COUNTER_VAR_NAME);
+  if (this.waitFramesUsed) {
+    reserveDevVar(WAIT_FRAMES_COUNTER_VAR_NAME, undefined, '"Wait N frames" own for-loop counter');
+  }
+
+  // Same bucket again, for channnel0duration/channnel1duration (see
+  // SYSTEM_VARIABLES' own comment and this.channelDurationUsed's own
+  // pre-scan above) - a no-op unless a "Play sound" block or music is
+  // actually present anywhere in the project.
+  if (this.channelDurationUsed) {
+    reserveDevVar('channnel0duration', undefined, 'frames left before AUDV0 auto-silences');
+    reserveDevVar('channnel1duration', undefined, 'frames left before AUDV1 auto-silences');
+  }
+
+  // Each channel's own attack+decay frame countdown (see
+  // generators/bbasic/soundfx.js's own registerEnvelopeConfig/
+  // generateEnvelopeChecks) - a plain byte, not packed into the shared
+  // envelopeConfig nibble pair (var47), since it needs the full 0-32 range
+  // (up to ENVELOPE_STAGE_FRAME_OPTIONS' own max of 16 frames each for
+  // attack AND decay) rather than a 4-bit index. Only reserved when an
+  // envelope is actually used anywhere in the project (either a Sound
+  // Effect or a Music-tab instrument note - see this.projectMusic's own
+  // channelHasEnvelope, resolved above) - a plain "Play sound"/Music-tab
+  // project with no envelopes pays nothing.
+  if (anySoundEffectHasEnvelope() || (this.projectMusic && this.projectMusic.channelHasEnvelope[0]) ||
+    (this.projectMusic && this.projectMusic.channelHasEnvelope[1])) {
+    reserveDevVar('envelopeStage0', undefined, 'channel 0\'s own attack+decay frame countdown');
+    reserveDevVar('envelopeStage1', undefined, 'channel 1\'s own attack+decay frame countdown');
+  }
 
   // "rand16" is a real batari Basic feature (see std_routines.asm's own
   // "ifconst rand16" check), not an app invention - simply DIMming a
@@ -705,13 +893,13 @@ Blockly.BBasic.init = function(workspace) {
   // "dim rand16 = ..." line keeps the exact literal symbol name
   // "ifconst rand16" checks for) rather than a hand-picked fixed slot like
   // var44-47 - that 4-byte pool is already tightly booked between
-  // soundFadeVolumes, TextIndex, and TextDataPtr's own high byte (see their
+  // envelopeConfig, TextIndex, and TextDataPtr's own high byte (see their
   // own comments), so claiming one more of those slots here risked a real
   // collision that the dynamic pool's own dedup logic doesn't have. Only
   // reserved while the toggle is actually on, so a project that doesn't
   // need the wider period never pays the variable's cost.
   if (config.enableRand16) {
-    reserveDevVar('rand16');
+    reserveDevVar('rand16', undefined, 'literal name the standard kernel checks for to widen the RNG period');
   }
 
   // Same bucket again, for background_fade_to's own per-register state
@@ -739,19 +927,19 @@ Blockly.BBasic.init = function(workspace) {
     }
   });
   this.backgroundFadeVarsUsed.forEach((rawVar) => {
-    reserveDevVar(backgroundFadeTimerVarName(rawVar));
-    reserveDevVar(backgroundFadePaceVarName(rawVar));
-    reserveDevVar(backgroundFadeTargetVarName(rawVar));
+    reserveDevVar(backgroundFadeTimerVarName(rawVar), undefined, 'this register\'s fade: frames left on the current step');
+    reserveDevVar(backgroundFadePaceVarName(rawVar), undefined, 'this register\'s fade: frames per step');
+    reserveDevVar(backgroundFadeTargetVarName(rawVar), undefined, 'this register\'s fade: color it\'s fading toward');
   });
   // One shared byte for every background_fade_finished watch bit AND every
-  // background_fade_to "active" bit (see backgroundFadeFlagsVarName's own
+  // background_fade_to "active" bit (see fadeFlagsVarName's own
   // comment) - reserved as soon as any of the three is needed, since the
   // "active" bits alone (with no finished watch and, via
   // background_fade_active, not even a matching fade_to block on that same
   // register) still need this byte to exist for the read to be valid.
   if (this.backgroundFadeFinishedWatches.size || this.backgroundFadeVarsUsed.size ||
       hasBackgroundFadeActiveChecks(workspace)) {
-    reserveDevVar(backgroundFadeFlagsVarName());
+    reserveDevVar(fadeFlagsVarName(), undefined, 'shared active/finished bit-flags byte for every fadeable register');
   }
 
   // Add user variables, but only ones that are being used.
@@ -811,8 +999,18 @@ Blockly.BBasic.init = function(workspace) {
         `but only ${availableLetters.length + (config.enableSuperchip ? superchipVarBudget : 0)} are available` +
         `${config.enableSuperchip ? '' : ' (enable Superchip RAM on the Options tab to unlock more)'}.`);
     }
+    // Configuration.vue's own "Show reserved variable comments" toggle
+    // (default on) - devVarDescriptions itself is always populated
+    // regardless, so this is purely a display choice made right here at the
+    // one place every description actually gets rendered into a comment,
+    // not something worth threading through every reserveDevVar call site.
+    const showVariableComments = config.showVariableComments ?? true;
     this.definitions_['variables'] = defvars
-        .map((v, i) => `  dim ${v} = ${availableLetters[i]}`)
+        .map((v, i) => {
+          const description = showVariableComments && this.devVarDescriptions[v];
+          const commentSuffix = description ? `  ; ${description}` : '';
+          return `  dim ${v} = ${availableLetters[i]}${commentSuffix}`;
+        })
         .join('\n');
     this.runOnceByteLetters = this.runOnceByteLetters.concat(
         runOnceByteNames.slice(runOnceSuperchipCount)
@@ -1411,15 +1609,21 @@ Blockly.BBasic.finish = function(code) {
   Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
+  const generatedEnvelopeDataTables = Blockly.BBasic.generateEnvelopeDataTables();
   const generatedRomNoiseChecks = generateRomNoiseChecks(Blockly);
   const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
+  const generatedMissileFireChecks = generateMissileFireChecks(Blockly);
   // Bank 1's own copy of the Text Minikernel's "show by id" lookup tables
   // (see generateTextOffsetTables' own comment in bbasic/text-scroll.js) -
   // each relocated bank gets its own copy directly inside
   // generateRelocatedSections above instead, alongside that bank's own data
   // tables.
   const generatedTextOffsetTables = generateTextOffsetTables(Blockly, 1);
+  // Same "bank 1's own copy here, each relocated bank gets its own copy in
+  // generateRelocatedSections" reasoning as generatedTextOffsetTables just
+  // above.
+  const generatedJoyDir8Table = generateJoystickDirection8Table(Blockly);
   const generatedSubroutines = Blockly.BBasic.generateSubroutines();
   const generatedFunctions = Blockly.BBasic.generateFunctions();
 
@@ -1438,7 +1642,8 @@ Blockly.BBasic.finish = function(code) {
   // Has to run before generateDivMul() below - it may set usesDivMul as a
   // side effect (the nibble packing math needs mul8/div8), which
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
-  const generatedSoundFadeChecks = Blockly.BBasic.generateSoundFadeChecks();
+  const generatedChannelDurationChecks = Blockly.BBasic.generateChannelDurationChecks();
+  const generatedEnvelopeChecks = Blockly.BBasic.generateEnvelopeChecks();
   // No ordering constraint of its own - background_fade_to's usesDivMul
   // side effect already happened during the main workspaceToCode() pass
   // (this file's own blockToCode call, well before finish() runs), same as
@@ -1454,6 +1659,11 @@ Blockly.BBasic.finish = function(code) {
   const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
   const generatedDistanceChecks = Blockly.BBasic.generateDistanceChecks();
+  // Same splice region/reasoning as generatedDistanceChecks just above (see
+  // joyDir8ResultVarName's own comment in generators/bbasic/input.js) - has
+  // to run before generateDivMul() below, since it may set usesDivMul as a
+  // side effect.
+  const generatedJoystickDirection8Checks = generateJoystickDirection8Checks(Blockly);
   // Has to run before generateDivMul() below: its own POINT input can be
   // any value block, including one that sets usesDivMul as a side effect
   // (e.g. a math_arithmetic divide) - generateDivMul() only sees whatever
@@ -1473,17 +1683,32 @@ Blockly.BBasic.finish = function(code) {
 
   this.isInitialized = false;
 
+  // Section headings for commongamelogic, matched to whether their own
+  // content below them actually generated anything - a project with no
+  // sound effects/music duration tracking has no "Sound handling" code to
+  // label, same idea for "Fade routines" and background/playfield fades.
+  const hasSoundHandling = generatedChannelDurationChecks !== '' || generatedEnvelopeChecks !== '';
+  const hasFadeRoutines = generatedBackgroundFadeChecks !== '';
+
   this.nameDB_.reset();
-  const generatedBody = definitions.join('\n\n') + '\n\n\n' + code;
+  // Some definitions_ entries end up '' (e.g. a flag-only key like
+  // pfscore_enable, or a feature toggled off) - joining those in still
+  // inserts their own blank-line separator, stacking up extra blank lines
+  // under the "Code generated by VCS Game Maker." heading below.
+  const generatedBody = definitions.filter((definition) => definition.trim() !== '').join('\n\n') +
+    '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
-    generatedAnimations, generatedDataTables, generatedRomNoiseChecks,
-    generatedRainbowColorGraphics, generatedRainbowColorChecks,
-    generatedTextOffsetTables,
+    generatedAnimations, generatedDataTables, generatedEnvelopeDataTables, generatedRomNoiseChecks,
+    generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
+    generatedTextOffsetTables, generatedJoyDir8Table,
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize, generatedSystemDims,
-    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedSoundFadeChecks,
+    gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize,
+    generatedSystemDims,
+    generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedChannelDurationChecks,
+    generatedEnvelopeChecks, hasSoundHandling, hasFadeRoutines,
     generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
+    generatedJoystickDirection8Checks,
     generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset,
     generatedKeypadPollCall, generatedKeypadSetup});
 };
@@ -1513,15 +1738,43 @@ Blockly.BBasic.finish = function(code) {
 // touched counterpart is 0), then shifts the masked result back up - which
 // also has the side effect of zeroing the low nibble, i.e. resetting every
 // touched bit for the next frame's fresh tracking, for free.
+// Hand-written 6502 instead of the 4-line-per-byte bB version this used to
+// be - registered as an ordinary subroutine (see its own caller's comment),
+// so this goes through normalizeIndents() same as _distance_abs_diff in
+// input.js: bare "asm"/mnemonics with no leading whitespace (normalizeIndents
+// adds one uniformly), "@end" (not a bare "end") to force the closing
+// keyword back to column 0 the same way "@end" does there - the auto-
+// appended bB "return" after this body needs the asm block actually closed
+// first. "/16"/"*16" are power-of-2 CONSTANTS, so the real bB compiler
+// already compiles those to inline shifts, not a div_mul.asm "jsr" (see
+// generateDivMul's own comment on when that IS needed) - the actual saving
+// here is smaller than that class of conversion elsewhere: each of the 4 bB
+// statements this replaced reloaded its own operand from memory
+// independently, where this keeps the touched nibble in temp1 and the rest
+// of the work in A throughout, without those redundant reloads.
 Blockly.BBasic.generateRunOnceEdgeReset = function() {
   const bytes = this.runOnceByteLetters || [];
   if (!bytes.length) return '';
-  return bytes.map((byte) => [
-    ` temp1 = ${byte} & 15`,
-    ` temp2 = ${byte} / 16`,
-    ` temp2 = temp2 & temp1`,
-    ` ${byte} = temp2 * 16`,
-  ].join('\n')).join('\n');
+  return [
+    'asm',
+    ...bytes.flatMap((byte) => [
+      'LDA ' + byte,
+      'AND #$0F',
+      'STA temp1',
+      'LDA ' + byte,
+      'LSR',
+      'LSR',
+      'LSR',
+      'LSR',
+      'AND temp1',
+      'ASL',
+      'ASL',
+      'ASL',
+      'ASL',
+      'STA ' + byte,
+    ]),
+    '@end',
+  ].join('\n');
 };
 
 // The actual splice into commongamelogic (see bbasic.bb.hbs) - just a call
@@ -1891,18 +2144,64 @@ Blockly.BBasic.generateMuteAudio = function() {
   return ' AUDV0 = 0\n AUDV1 = 0';
 };
 
+// Per-frame decrement for channnel0duration/channnel1duration (see
+// SYSTEM_VARIABLES' own comment and this.channelDurationUsed's own pre-scan
+// in init()) - a no-op unless a "Play sound" block or music is actually
+// present anywhere in the project, same "spliced in via a JS-generated
+// function that returns '' when unneeded" shape every OTHER per-frame check
+// around it in bbasic.bb.hbs already uses (generatedEnvelopeChecks,
+// generatedMusicChecks, generatedDistanceChecks, etc.) - these 4 lines used
+// to be the one exception, hardcoded directly into the template and running
+// unconditionally on every single project regardless of whether either
+// variable was ever actually written to.
+// Hand-written 6502 instead of the 4-line bB if/then version this used to
+// be - same commongamelogic-splice context (not a subroutine) as
+// generateEnvelopeChecks/buildFadeCheckAsm, so plain column-0 labels/
+// indented mnemonics, no "@" trick needed. Each channel only needs a single
+// zero-check up front (channel==1 implies channel<>0, so the original's two
+// independent bB "if"s always agreed on whether to run at all), and the
+// decrement itself is one DEC on the zero-page dim var instead of bB's
+// load/subtract/store expression evaluation.
+Blockly.BBasic.generateChannelDurationChecks = function() {
+  if (!this.channelDurationUsed) return '';
+  const channel0 = this.nameDB_.getName('channnel0duration', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const channel1 = this.nameDB_.getName('channnel1duration', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  return [
+    ' asm',
+    '       lda ' + channel0,
+    '       beq _channeldurationasm0_skip',
+    '       cmp #1',
+    '       bne _channeldurationasm0_mute_skip',
+    '       lda #0',
+    '       sta AUDV0',
+    '_channeldurationasm0_mute_skip',
+    '       dec ' + channel0,
+    '_channeldurationasm0_skip',
+    '       lda ' + channel1,
+    '       beq _channeldurationasm1_skip',
+    '       cmp #1',
+    '       bne _channeldurationasm1_mute_skip',
+    '       lda #0',
+    '       sta AUDV1',
+    '_channeldurationasm1_mute_skip',
+    '       dec ' + channel1,
+    '_channeldurationasm1_skip',
+    'end',
+  ].join('\n');
+};
+
 // ROM sizes the standard kernel actually bankswitches (see
 // BANK_COUNT_BY_ROMSIZE in hooks/rom.js - duplicated here in miniature
 // rather than imported, since rom.js already imports from this file and
 // importing back would be circular).
-const BANKSWITCHED_ROM_SIZES = ['8k', '16k', '32k'];
+const BANKSWITCHED_ROM_SIZES = ['8k', '16k', '32k', '64k'];
 
 // Same duplication reasoning as BANKSWITCHED_ROM_SIZES above, with the
 // actual bank counts this time (see BANK_COUNT_BY_ROMSIZE in hooks/rom.js) -
 // generateRelocatedSections needs these to always declare every bank the
 // chosen ROM size promises, not just the ones something actually got
 // relocated into (see its own comment for why).
-const BANK_COUNT_BY_ROMSIZE_MINI = {'8k': 2, '16k': 4, '32k': 8};
+const BANK_COUNT_BY_ROMSIZE_MINI = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
 
 // Whether to inline calls to the random number generator ("set optimization
 // inlinerand") instead of calling a shared routine. The docs describe this
@@ -2177,6 +2476,13 @@ Blockly.BBasic.generateConfiguration = function() {
   if (config.enableOptimizationSpeed) optimizationLines.push('set optimization speed');
   if (this.useInlineRand()) optimizationLines.push('set optimization inlinerand');
   const optimizationConfigurationCode = optimizationLines.join('\n ');
+  // "set debug cyclescore" - overlays an estimate of the current frame's
+  // remaining machine cycles onto the score digits (white = still under
+  // budget, red = over) every frame, in place of whatever the project's own
+  // score logic would otherwise display there. Purely a debugging aid - see
+  // the Options tab's own hint for the details (+/- 64 cycle accuracy, only
+  // measures +/- 2000 cycles).
+  const debugConfigurationCode = config.enableCycleScore ? 'set debug cyclescore' : '';
   return [
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
@@ -2186,10 +2492,11 @@ Blockly.BBasic.generateConfiguration = function() {
     textBkColorConfigurationCode,
     pfresConfigurationCode,
     optimizationConfigurationCode,
+    debugConfigurationCode,
   ].join('\n ');
 };
 
-const SUPPORTED_ROM_SIZES = ['2k', '4k', '8k', '16k', '32k'];
+const SUPPORTED_ROM_SIZES = ['2k', '4k', '8k', '16k', '32k', '64k'];
 
 Blockly.BBasic.generateRomSize = function() {
   const configurationStorage = useConfigurationStorage();
@@ -2209,10 +2516,13 @@ Blockly.BBasic.generateRomSize = function() {
 Blockly.BBasic.generateSystemDims = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
+  const showVariableComments = config.showVariableComments ?? true;
   const systemDims = SYSTEM_VARIABLES
-      .map(([name, letter], i) => ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}`)
+      .map(([name, letter, description], i) =>
+        ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}` +
+          (showVariableComments ? `  ; ${description}` : ''))
       .join('\n');
-  return systemDims + this.generateTextMinikernelDims() + this.generateSoundFadeDims() +
+  return systemDims + this.generateTextMinikernelDims() + this.generateEnvelopeDims() +
     this.generateScoreBkColorRuntimeDims() + this.generateSuperchipVarDims();
 };
 
@@ -2227,8 +2537,15 @@ Blockly.BBasic.generateSystemDims = function() {
 // actually reads/writes these names, same as SYSTEM_VARIABLES' own dims do.
 Blockly.BBasic.generateSuperchipVarDims = function() {
   if (!this.superchipVars || !this.superchipVars.length) return '';
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  const showVariableComments = config.showVariableComments ?? true;
   return '\n' + this.superchipVars
-      .map((name, i) => ` dim ${name} = var${SUPERCHIP_VAR_START + i}`)
+      .map((name, i) => {
+        const description = showVariableComments && this.devVarDescriptions[name];
+        const commentSuffix = description ? `  ; ${description}` : '';
+        return ` dim ${name} = var${SUPERCHIP_VAR_START + i}${commentSuffix}`;
+      })
       .join('\n');
 };
 
@@ -2613,13 +2930,13 @@ import event from './bbasic/event';
 import functionGenerators from './bbasic/function';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
-import loops, {REPEAT_BOUND_VAR_NAME, WAIT_FRAMES_COUNTER_VAR_NAME} from './bbasic/loops';
+import loops, {REPEAT_BOUND_VAR_NAME, REPEAT_COUNTER_VAR_NAME, WAIT_FRAMES_COUNTER_VAR_NAME} from './bbasic/loops';
 import math from './bbasic/math';
 import music from './bbasic/music';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
-import soundfx from './bbasic/soundfx';
+import soundfx, {anySoundEffectHasEnvelope, resetEnvelopeConfigs} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';

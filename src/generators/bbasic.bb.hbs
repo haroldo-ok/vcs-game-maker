@@ -93,25 +93,31 @@ commongamelogic
 
 {{{ generatedKeypadPollCall }}}
 
+{{#if hasSoundHandling}}
  rem **************************************************************************
  rem Sound handling.
  rem **************************************************************************
 
- if channnel0duration = 1 then AUDV0 = 0
- if channnel0duration <> 0 then channnel0duration = channnel0duration - 1
+{{{ generatedChannelDurationChecks }}}
 
- if channnel1duration = 1 then AUDV1 = 0
- if channnel1duration <> 0 then channnel1duration = channnel1duration - 1
+{{{ generatedEnvelopeChecks }}}
+{{/if}}
 
-{{{ generatedSoundFadeChecks }}}
+{{#if hasFadeRoutines}}
+ rem **************************************************************************
+ rem Fade routines.
+ rem **************************************************************************
 
 {{{ generatedBackgroundFadeChecks }}}
+{{/if}}
 
 {{{ generatedMusicChecks }}}
 
 {{{ generatedDistanceChecks }}}
 
 {{{ generatedDistancePointChecks }}}
+
+{{{ generatedJoystickDirection8Checks }}}
 
 {{{ generatedTextScrollAdvance }}}
 
@@ -147,6 +153,7 @@ backgroundchangeend
 {{{ generatedRainbowColorGraphics }}}
 {{{ generatedRomNoiseChecks }}}
 {{{ generatedRainbowColorChecks }}}
+{{{ generatedMissileFireChecks }}}
  return
 
  rem **************************************************************************
@@ -172,7 +179,11 @@ backgroundchangeend
 
 {{{ generatedDataTables }}}
 
+{{{ generatedEnvelopeDataTables }}}
+
 {{{ generatedTextOffsetTables }}}
+
+{{{ generatedJoyDir8Table }}}
 
 {{{ generatedRelocatedEvents }}}
 

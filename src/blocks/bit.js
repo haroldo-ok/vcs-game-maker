@@ -18,15 +18,13 @@ export const SYSTEM_VARIABLE_OPTIONS = [
   'player0frame',
   'player1frame',
   'framecounter',
-  // The "repeat X times" block's own real bB loop variable (see
-  // controls_repeat_ext in generators/bbasic/loops.js) - "for loopcounter
-  // = 1 to X : ... : next", so this counts up from 1 to X across the loop
-  // body's own iterations. Also reused (unrelated to any repeat block) by
-  // wait_frames and generateGameLoopEvent's own frame-wait loops - reading
-  // it there would just show wherever THAT loop's own countdown currently
-  // is, not anything to do with a "repeat" block, so its value only means
-  // "current repeat loop iteration" while one is actually running.
-  'loopcounter',
+  // "repeatcounter" (the "Repeat X times" block's own for-loop variable -
+  // see REPEAT_COUNTER_VAR_NAME in generators/bbasic/loops.js) deliberately
+  // isn't listed here - unlike every name above (all unconditionally
+  // dimmed/real hardware registers), it's only ever declared for a project
+  // that actually has a "Repeat" block somewhere, so exposing it in this
+  // generic "read a built-in variable" picker would let a project with none
+  // reference an undeclared symbol and fail to compile.
   'CTRLPF',
   'NUSIZ0',
   'NUSIZ1',

@@ -19,10 +19,10 @@ const PFSCORE_ENABLE_CODE = '  const pfscore = 1';
 // one nibble. "score+1" cannot be assigned to directly, but aliasing it with
 // dim works. These are aliases onto the existing score bytes, so they cost no
 // variable slots.
-const SCORE_DIGIT_ALIASES = [
-  '  dim scorebyte1 = score',
-  '  dim scorebyte2 = score+1',
-  '  dim scorebyte3 = score+2',
+const scoreDigitAliases = (showVariableComments) => [
+  `  dim scorebyte1 = score${showVariableComments ? '  ; first two score digits, byte-addressable' : ''}`,
+  `  dim scorebyte2 = score+1${showVariableComments ? '  ; middle two score digits, byte-addressable' : ''}`,
+  `  dim scorebyte3 = score+2${showVariableComments ? '  ; last two score digits, byte-addressable' : ''}`,
 ].join('\n');
 
 /**
@@ -101,8 +101,24 @@ export default (Blockly) => {
     const hDone = `_score_set_hdone_${blockNumber}`;
     const tLoop = `_score_set_tloop_${blockNumber}`;
     const tDone = `_score_set_tdone_${blockNumber}`;
+    // "(${argument0}) & 255" clamps a RUNTIME expression (variable,
+    // framecounter, ...) to a byte fine at runtime - but a plain literal
+    // (e.g. a Math Number block reading "111110", well over 255) compiles
+    // this same mask into "LDA #111110 : AND #255" instead, and DASM
+    // rejects that outright ("Value in 'lda #111110' must be <$100" - a
+    // real, reproduced build failure): an immediate load's own operand has
+    // to already fit in a byte, this app's own "complex statement" handling
+    // never constant-folds "(bignum) & 255" down to a small number first.
+    // Folding it here in JS instead, whenever argument0 is recognizably a
+    // plain integer literal, sidesteps the invalid immediate entirely - a
+    // runtime expression (anything else) still gets the normal masked
+    // expression, unchanged.
+    const literalMatch = /^-?\d+$/.test(argument0.trim());
+    const maskedValue = literalMatch ?
+      String(((parseInt(argument0, 10) % 256) + 256) % 256) :
+      `(${argument0}) & 255`;
     const lines = [
-      `temp1 = (${argument0}) & 255`,
+      `temp1 = ${maskedValue}`,
       `temp2 = 0`,
       `@${hLoop}`,
       `if temp1 < 100 then goto ${hDone}`,
@@ -163,6 +179,14 @@ export default (Blockly) => {
     const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
     const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
     return Blockly.BBasic.emitColorFadeTrigger('scorecolor', color, frames);
+  };
+
+  Blockly.BBasic[`score_fade_finished`] = function(block) {
+    // Score's own fade-finished watch - same shared mechanism as
+    // Background's own "When ... color has finished fading" (see
+    // emitFadeFinishedWatch in generators/bbasic/background.js), always
+    // targeting scorecolor.
+    return Blockly.BBasic.emitFadeFinishedWatch(block, 'scorecolor');
   };
 
   Blockly.BBasic[`score_bk_color_set`] = function(block) {
@@ -271,7 +295,7 @@ export default (Blockly) => {
   // chaining one dim onto another dim's own NAME (rather than a raw
   // register letter/varN) doesn't reliably resolve here (confirmed: it
   // compiled to a bare, unresolved "lda =" - an empty operand - once
-  // assembled), unlike SCORE_DIGIT_ALIASES's scorebyte1/2/3 below, which
+  // assembled), unlike scoreDigitAliases' own scorebyte1/2/3 below, which
   // alias onto "score"/"score+N" (bB's own built-in multi-byte variable,
   // not another ordinary dim). So both cases below resolve to a raw
   // target instead: "Use background color" reads backgroundRealColorRawTarget()
@@ -289,7 +313,9 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     if (config.scoreBkColor !== 'background') return '';
-    return `\n dim scorebkcolor = ${this.backgroundRealColorRawTarget()}`;
+    const comment = (config.showVariableComments ?? true) ?
+      '  ; score row\'s own background color, aliased onto the live background color' : '';
+    return `\n dim scorebkcolor = ${this.backgroundRealColorRawTarget()}${comment}`;
   };
 
   // Initializes scorebkcolor's own dev var (see
@@ -311,7 +337,9 @@ export default (Blockly) => {
   Blockly.BBasic[`score_digit_get`] = function(block) {
     // Single score digit getter. Reading the score bytes compiles correctly,
     // unlike writing to them.
-    Blockly.BBasic.definitions_['score_digit_aliases'] = SCORE_DIGIT_ALIASES;
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    Blockly.BBasic.definitions_['score_digit_aliases'] = scoreDigitAliases(config.showVariableComments ?? true);
     const {alias, high} = scoreDigitTarget(block.getFieldValue('DIGIT'));
     // Integer division drops the low nibble.
     const code = high ? `(${alias} / 16)` : `(${alias} & $0F)`;
@@ -341,7 +369,9 @@ export default (Blockly) => {
     // into the neighboring digit, just a hex nibble truncation, which is
     // why the block's own tooltip tells the user to keep the result inside
     // 0-9 themselves rather than claiming any automatic correction.
-    Blockly.BBasic.definitions_['score_digit_aliases'] = SCORE_DIGIT_ALIASES;
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    Blockly.BBasic.definitions_['score_digit_aliases'] = scoreDigitAliases(config.showVariableComments ?? true);
     const {alias, address, high} = scoreDigitTarget(block.getFieldValue('DIGIT'));
     const currentDigit = high ? `(${alias} / 16)` : `(${alias} & $0F)`;
     const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',

@@ -354,3 +354,21 @@ Blockly.defineBlocksWithJsonArray([
       `"current value" to read a sign from).`,
   },
 ]);
+
+// Works exactly like background_fade_finished (see blocks/background.js's
+// own comment - same shared bit/flag machinery, same "fires once, regardless
+// of fade direction, never late" behavior), just always targeting
+// scorecolor rather than offering a register choice - same reasoning as
+// score_fade_to above: there's only one possible score color register.
+Blockly.Blocks['score_fade_finished'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${SCORE_ICON} When Score ${COLOR_ICON} color has finished fading`);
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(SCORE_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment a matching "Fade Score color" block ' +
+      'reaches its own target color. Does nothing if no matching fade ever runs anywhere in the project.');
+  },
+};

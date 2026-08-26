@@ -57,16 +57,27 @@ export const ARPEGGIO_RANGE_OPTIONS = [
   ['UP-DOWN 2 OCT', ARPEGGIO_RANGE_UP_DOWN_2_OCT],
 ];
 
-// How many frames the fade tail lasts (see FADE_TAIL_FRAMES in
-// generators/bbasic/soundfx.js, which this replaces with a per-instrument
-// value) - a real TIA note's fade can be too quiet/short to notice at the
-// old fixed 4-frame tail, especially over real hardware audio rather than
-// this app's own Web Audio approximation.
-// Capped at 8 entries (see generators/bbasic/music.js's fadeVar comment -
-// this is packed into a 3-bit field alongside a 4-bit volume and a 1-bit
-// flag, with no spare bits to widen it without changing that byte layout).
-export const FADE_LENGTH_OPTIONS = [5, 10, 20, 30, 40, 50, 60];
-export const DEFAULT_FADE_LENGTH = 5;
+// ADSR volume envelope, shared by both this preset's one-shot Sound Effect
+// use (soundfx_play - see generators/bbasic/soundfx.js) and its Music-tab
+// instrument use (see generators/bbasic/music.js) - replaces the old
+// single-stage "Fade" toggle entirely (Fade was just a degenerate envelope:
+// instant attack, no decay, hold, then release - see utils/envelope.js's
+// buildEnvelopeCurve, which now covers both shapes).
+//
+// Attack/Decay/Release are frame counts; Sustain is a LEVEL (percent of
+// this sound's own peak volume), not a duration - see utils/envelope.js's
+// own comment for why. Small, fixed dropdown option sets (not free-typed
+// numbers) are deliberate, same reasoning the old fade-length dropdowns
+// already established: keeps the total number of DISTINCT envelope shapes
+// a project can generate small, which keeps the compiled ROM's own
+// per-config data tables small too (see generateEnvelopeChecks in
+// generators/bbasic/soundfx.js).
+export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16];
+export const DEFAULT_ENVELOPE_ATTACK = 0;
+export const DEFAULT_ENVELOPE_DECAY = 0;
+export const DEFAULT_ENVELOPE_RELEASE = 4;
+export const ENVELOPE_SUSTAIN_PERCENT_OPTIONS = [0, 25, 50, 75, 100];
+export const DEFAULT_ENVELOPE_SUSTAIN_PERCENT = 100;
 
 export const DEFAULT_SOUND_EFFECTS = {
   soundEffects: [
@@ -77,8 +88,11 @@ export const DEFAULT_SOUND_EFFECTS = {
       audf: 16,
       audv: 15,
       duration: 5,
-      fade: false,
-      fadeLength: DEFAULT_FADE_LENGTH,
+      envelope: false,
+      envelopeAttack: DEFAULT_ENVELOPE_ATTACK,
+      envelopeDecay: DEFAULT_ENVELOPE_DECAY,
+      envelopeSustain: DEFAULT_ENVELOPE_SUSTAIN_PERCENT,
+      envelopeRelease: DEFAULT_ENVELOPE_RELEASE,
       // Only used for this preset's notes on the Music tab (see
       // generators/bbasic/music.js) - always on for every note played with
       // this instrument, not something set per-note. arpeggioDivision is how
@@ -111,22 +125,32 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
   }
   // Presets saved before Arpeggio existed won't have these fields yet.
   soundEffects.soundEffects.forEach((soundEffect) => {
-    // Arpeggio is temporarily hidden from the UI (its generated per-channel
-    // code could grow large enough to blow ROM capacity on some projects -
-    // see the segment-overflow investigation this came out of) but not
-    // removed: forcing it off here, in the one place every consumer reads
-    // sound effect data through, means even a project that already has
-    // arpeggio: true stored (from before it was hidden) behaves as if it
-    // were off, without touching the stored value or any of the other
-    // arpeggio fields - they're preserved as-is, ready to resume working
-    // the moment this is turned back on.
-    soundEffect.arpeggio = false;
-    // Same reasoning and same "hide, don't delete" treatment as Arpeggio
-    // above - Fade's own dispatch code (see fadeApply in
-    // generators/bbasic/music.js) also grows per-channel and contributed to
-    // the same capacity problem, so it's forced off here too rather than
-    // just hidden from the Sound tab's own checkbox.
-    soundEffect.fade = false;
+    soundEffect.arpeggio = !!soundEffect.arpeggio;
+    soundEffect.envelope = !!soundEffect.envelope;
+    // Presets saved before this existed (or before it replaced the old
+    // single-stage Fade) won't have these yet - same Number() coercion as
+    // arpeggioDivision/arpeggioRange below, for the same Vuetify v-select
+    // quirk.
+    if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeAttack))) {
+      soundEffect.envelopeAttack = DEFAULT_ENVELOPE_ATTACK;
+    } else {
+      soundEffect.envelopeAttack = Number(soundEffect.envelopeAttack);
+    }
+    if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeDecay))) {
+      soundEffect.envelopeDecay = DEFAULT_ENVELOPE_DECAY;
+    } else {
+      soundEffect.envelopeDecay = Number(soundEffect.envelopeDecay);
+    }
+    if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeRelease))) {
+      soundEffect.envelopeRelease = DEFAULT_ENVELOPE_RELEASE;
+    } else {
+      soundEffect.envelopeRelease = Number(soundEffect.envelopeRelease);
+    }
+    if (!ENVELOPE_SUSTAIN_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeSustain))) {
+      soundEffect.envelopeSustain = DEFAULT_ENVELOPE_SUSTAIN_PERCENT;
+    } else {
+      soundEffect.envelopeSustain = Number(soundEffect.envelopeSustain);
+    }
     if (!ARPEGGIO_DIVISION_OPTIONS.includes(Number(soundEffect.arpeggioDivision))) {
       soundEffect.arpeggioDivision = DEFAULT_ARPEGGIO_DIVISION;
     } else {
@@ -144,14 +168,6 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     const range = Number(soundEffect.arpeggioRange);
     soundEffect.arpeggioRange = ARPEGGIO_RANGE_OPTIONS.some(([, value]) => value === range) ?
       range : DEFAULT_ARPEGGIO_RANGE;
-    // Presets saved before per-instrument fade length existed won't have
-    // this yet either - same Number() coercion as arpeggioRange above, for
-    // the same Vuetify v-select quirk.
-    if (!FADE_LENGTH_OPTIONS.includes(Number(soundEffect.fadeLength))) {
-      soundEffect.fadeLength = DEFAULT_FADE_LENGTH;
-    } else {
-      soundEffect.fadeLength = Number(soundEffect.fadeLength);
-    }
     // Presets saved before this existed won't have it yet - defaults false
     // (a plain "sound effect"), matching every preset's own behavior before
     // this tag existed.

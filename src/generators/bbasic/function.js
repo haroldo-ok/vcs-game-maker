@@ -1,8 +1,11 @@
 'use strict';
 
-import {MAX_FUNCTION_ARGS} from '../../blocks/function';
+import {MAX_FUNCTION_ARGS, functionCallDiscardVarName} from '../../blocks/function';
 
 export default (Blockly) => {
+  const resolveVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+
   // Doesn't emit inline where it's dropped on the canvas - like
   // subroutine_define, its body is collected here and spliced into its own
   // never-fallen-into spot (see generateFunctions in bbasic.js), with a real
@@ -87,13 +90,17 @@ export default (Blockly) => {
   // Same call as function_call above, but as a standalone statement (see
   // blocks/function.js's own comment on function_call_statement) - the
   // language itself only exposes function calls as value expressions, so
-  // this still has to assign the result SOMEWHERE; temp1 is always safe to
-  // clobber here (see the language reference's own note that the temp
-  // variables are "always obliterated by the kernel" and that "user
-  // functions also pass values by way of these variables" - nothing
-  // upstream of this statement could have been relying on temp1 surviving
-  // across a function call anyway).
+  // this still has to assign the result SOMEWHERE. temp1 looks like the
+  // obvious throwaway spot, but is NOT safe here: temp1 is ALSO argument 1's
+  // own storage for whichever function this statement sits inside (see
+  // function_param_get's own comment above) - "temp1 = someFunction(...)"
+  // used INSIDE another function's own body would clobber that function's
+  // own argument 1 out from under it the moment this statement ran. Uses a
+  // dedicated dev var instead (see functionCallDiscardVarName's own comment
+  // in blocks/function.js), reserved only for a project that actually calls
+  // a function as a bare statement at all (see reserveFunctionCallDiscardVar's
+  // sibling in bbasic.js).
   Blockly.BBasic['function_call_statement'] = function(block) {
-    return `temp1 = ${buildFunctionCallExpression(block)}\n`;
+    return `${resolveVar(functionCallDiscardVarName())} = ${buildFunctionCallExpression(block)}\n`;
   };
 };

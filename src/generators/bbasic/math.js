@@ -56,6 +56,10 @@ export default (Blockly) => {
       'BITAND': [' & ', Blockly.BBasic.ORDER_BITWISE_AND],
       'BITOR': [' | ', Blockly.BBasic.ORDER_BITWISE_OR],
       'BITXOR': [' ^ ', Blockly.BBasic.ORDER_BITWISE_XOR],
+      // Same "% " infix operator the separate (never toolboxed - see
+      // blocks/math.js) stock math_modulo block's own generator already
+      // uses below.
+      'MODULO': [' % ', Blockly.BBasic.ORDER_MODULUS],
     };
     const op = block.getFieldValue('OP');
     // "*"/"/" by a compile-time constant power of 2 gets optimized into a

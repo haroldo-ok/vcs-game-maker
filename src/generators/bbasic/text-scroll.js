@@ -19,47 +19,88 @@ import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDispl
 // text" call always writes all of these, even for a message that fits
 // without scrolling.
 export const textScrollBaseVarName = () => '_textScrollBase';
-export const textScrollOffsetVarName = () => '_textScrollOffset';
-export const textScrollMaxVarName = () => '_textScrollMax';
-export const textScrollDirVarName = () => '_textScrollDir';
+// The message's own far-end TextIndex bound (base + its own max scroll
+// offset), NOT a relative distance - deliberately absolute so
+// generateTextScrollAdvance below can compare it directly against
+// TextIndex itself. TextIndex (a real bB system variable the standard
+// kernel already reads every frame regardless) IS this scroll feature's own
+// current-position tracker now - there used to be a separate "offset" dev
+// var for that (added to base every step to recompute TextIndex), but nothing
+// ever needed the offset ON ITS OWN, only ever "base + offset" (to set
+// TextIndex) or "offset compared against 0/max" (to detect either end) -
+// both of those read just as correctly straight off TextIndex once base and
+// this far-end bound are both stored as absolute values instead: advance/
+// retreat become a plain "TextIndex = TextIndex +/- 1" (actually ONE
+// operation cheaper per step than the old "offset +/- 1, then TextIndex =
+// base + offset" pair), and the two turnaround checks become "TextIndex <>
+// this var" / "TextIndex <> base" - the same single comparison as before,
+// just against a variable instead of a literal 0. Net: one whole dev var
+// gone, no per-frame cost added (if anything, slightly less).
+export const textScrollFarEndVarName = () => '_textScrollFarEnd';
 export const textScrollTimerVarName = () => '_textScrollTimer';
 export const textScrollSpeedVarName = () => '_textScrollSpeed';
-export const textScrollPauseVarName = () => '_textScrollPauseVar';
-// Which base offset the scroll state was last configured for - lets
-// buildTextScrollSetupLines below tell "the same message is being shown
-// again" apart from "a genuinely different message just started", since a
-// "Show text (scrolling)" block placed in a per-frame event (a real,
-// reported case - "the scroll text blocks aren't scrolling the text") calls
-// this every single frame, not just once.
-export const textScrollLastBaseVarName = () => '_textScrollLastBase';
+// The "pause at limits" DURATION, in frames - how long to hold at each end
+// of the scroll before reversing. An arbitrary user-configurable frame
+// count (the "Show text (scrolling)" block's own "pause" field), not a
+// flag - kept as its own full-byte var, distinct from
+// textScrollStateVarName below despite the similar name (that one's a
+// flag/state byte, this one's a plain duration).
+export const textScrollPauseDurationVarName = () => '_textScrollPauseDuration';
 // Set/cleared by the "Text scroll: Pause"/"Unpause" actions (see
 // text_minikernel_scroll_control's own generator in text-minikernel.js) -
 // checked first thing in generateTextScrollAdvance below, so a paused
 // message holds at exactly whatever offset it was showing, with none of
 // off/dir/timer disturbed, ready to pick back up exactly where it left off
 // once unpaused.
-// Tri-state, not boolean: 0 = playing, 1 = genuinely paused (via "Text
-// scroll: Pause"/"Stop"), 2 = cleared (via "Clear text"). Reusing this one
-// var for both rather than adding a second "cleared" flag keeps the Text
-// Minikernel's own reserved-dev-var count from growing - a real concern
-// (confirmed directly: a project already near the 11/12-letter variable
-// budget hit "Too many variables" the moment a 10th text-scroll var was
-// added). generateTextScrollAdvance's own "if paused then goto done" check
-// already treats any nonzero value as "don't advance", which is exactly the
-// behavior a cleared message needs too - only buildTextScrollSetupLines'
-// setup guard below needs to tell the two apart (2 forces a full reset even
-// when the message being shown again is the same one as last time; 1 does
-// not, so a per-frame "Show text (scrolling)" call doesn't fight a genuine
-// user Pause).
-export const textScrollPausedVarName = () => '_textScrollPaused';
+// Tri-state, not boolean, in its own low 2 bits (mask $03): 0 = playing, 1 =
+// genuinely paused (via "Text scroll: Pause"/"Stop"), 2 = cleared (via
+// "Clear text"). generateTextScrollAdvance's own "if state then goto done"
+// check already treats any nonzero value as "don't advance" regardless of
+// bit 2 (see below) - exactly the behavior a cleared message needs too -
+// only buildTextScrollSetupLines' setup guard needs to tell 1 and 2 apart,
+// via "(state & $03) = 2" rather than a bare "state = 2" (see its own
+// comment on why a bare comparison would misfire once bit 2 is in play).
+//
+// Bit 2 ($04) doubles up as the scroll direction flag that otherwise would
+// have needed its own separate dev var (see TEXT_SCROLL_DIR_BIT below) - a
+// real, previously hit constraint (confirmed directly: a project already
+// near the 11/12-letter variable budget hit "Too many variables" the moment
+// a 10th text-scroll var was added), so every bit of headroom in an
+// already-reserved byte is worth reusing before reaching for an 11th/12th
+// var. Safe to share because every site that needs the LOW bits to hold an
+// exact 0/1/2 value either already masks with "& $03" first (see above), or
+// is one of the two places (buildTextScrollSetupLines' own reset block, and
+// the "Clear text"/"stop"/"restart" actions in text-minikernel.js) that are
+// ALSO resetting direction back to 0 at the very same moment, so a bare
+// "state = 0"/"state = 1" there is correct, not just lucky. The two
+// actions that must NOT disturb direction - "Text scroll: Pause"/
+// "Unpause"/"Start" - use "(state & $04) | n"/"state & $04" instead of a
+// bare overwrite specifically because of this (see
+// text_minikernel_scroll_control's own comment). Named "State", not
+// "Paused" (its old name), now that it holds more than just a pause flag.
+export const textScrollStateVarName = () => '_textScrollState';
+
+// Bit index (for the "{n}" single-bit read/write syntax) AND the matching
+// mask value (for "& "/"| " arithmetic that has to touch this bit while
+// leaving textScrollStateVarName's own tri-state bits alone) that direction
+// shares with state - see that var's own comment above for why the two are
+// packed into one byte instead of getting a dev var each.
+export const TEXT_SCROLL_DIR_BIT = 2;
+export const TEXT_SCROLL_DIR_MASK = '$04';
+// Mask isolating state's own tri-state value (bits 0-1) from the direction
+// bit packed in above it - see textScrollStateVarName's own comment.
+export const TEXT_SCROLL_STATE_MASK = '$03';
 
 export const reserveTextScrollDevVars = (reserveDevVar, textMinikernelUsed) => {
   if (!textMinikernelUsed) return;
   [
-    textScrollBaseVarName(), textScrollOffsetVarName(), textScrollMaxVarName(),
-    textScrollDirVarName(), textScrollTimerVarName(), textScrollSpeedVarName(),
-    textScrollPauseVarName(), textScrollLastBaseVarName(), textScrollPausedVarName(),
-  ].forEach((name) => reserveDevVar(name));
+    [textScrollBaseVarName(), 'scrolling text: TextIndex at the message\'s own start'],
+    [textScrollFarEndVarName(), 'scrolling text: TextIndex at the message\'s own end'],
+    [textScrollTimerVarName(), 'scrolling text: frames left before the next step'],
+    [textScrollSpeedVarName(), 'scrolling text: frames per step'],
+    [textScrollPauseDurationVarName(), 'scrolling text: frames to hold at each end'],
+    [textScrollStateVarName(), 'scrolling text: playing/paused/cleared + direction bit'],
+  ].forEach(([name, description]) => reserveDevVar(name, undefined, description));
 };
 
 // Whether a message needs the scrolling append-region path at all, rather
@@ -192,8 +233,12 @@ export const registerFreeTypedScrollMessage = (Blockly, text) => {
 //
 // The actual RESET (offset/direction/timer/TextIndex all snapping back to
 // the start) only happens when offsetExpr differs from the base the scroll
-// state was last configured for (textScrollLastBaseVarName) - guarded by a
-// real "if lastBase = offsetExpr then goto <skip>" rather than
+// state was last configured for (textScrollBaseVarName - reused directly as
+// its own "last configured for" marker, rather than a second, always-
+// identical copy: base is ONLY ever written here, in this same reset block,
+// so comparing against its current value already means exactly "did the
+// offset change since the last reset" - no separate var needed) - guarded by
+// a real "if base = offsetExpr then goto <skip>" rather than
 // unconditional, because a "Show text (scrolling)" block placed in a
 // per-frame event (title_update, say) calls this every single frame for
 // the SAME message: unconditionally resetting offset/timer/TextIndex back
@@ -214,57 +259,67 @@ export const registerFreeTypedScrollMessage = (Blockly, text) => {
 // across more than one call site would collide.
 export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr, speedCode, pauseCode, uniqueId) => {
   const base = resolveVar(textScrollBaseVarName());
-  const off = resolveVar(textScrollOffsetVarName());
-  const max = resolveVar(textScrollMaxVarName());
-  const dir = resolveVar(textScrollDirVarName());
+  const farEnd = resolveVar(textScrollFarEndVarName());
   const timer = resolveVar(textScrollTimerVarName());
   const speed = resolveVar(textScrollSpeedVarName());
-  const pause = resolveVar(textScrollPauseVarName());
-  const lastBase = resolveVar(textScrollLastBaseVarName());
-  const paused = resolveVar(textScrollPausedVarName());
+  const pauseDuration = resolveVar(textScrollPauseDurationVarName());
+  const state = resolveVar(textScrollStateVarName());
   const skipLabel = `_textscroll_setup_skip_${uniqueId}`;
   const resetLabel = `_textscroll_setup_reset_${uniqueId}`;
   return [
-    // "Clear text" leaves paused = 2 (see textScrollPausedVarName's own
-    // comment) - that forces the reset below even though lastBase still
-    // matches (the message never actually changed, only got cleared).
-    // Checked before, not instead of, the ordinary lastBase guard, so the
-    // common per-frame "same message, never cleared" case still skips
-    // straight past the reset as before.
-    `if ${paused} = 2 then goto ${resetLabel}`,
-    `if ${lastBase} = ${offsetExpr} then goto ${skipLabel}`,
+    // "Clear text" leaves state's own low bits at 2 (see
+    // textScrollStateVarName's own comment) - that forces the reset below
+    // even though base still matches (the message never actually changed,
+    // only got cleared). Masked against TEXT_SCROLL_STATE_MASK rather than
+    // a bare "state = 2", since state's own bit 2 doubles as the
+    // direction flag now and could be set independently of the tri-state
+    // value this check actually cares about. Checked before, not instead
+    // of, the ordinary base guard, so the common per-frame "same message,
+    // never cleared" case still skips straight past the reset as before.
+    `if (${state} & ${TEXT_SCROLL_STATE_MASK}) = 2 then goto ${resetLabel}`,
+    `if ${base} = ${offsetExpr} then goto ${skipLabel}`,
     `@${resetLabel}`,
-    `${lastBase} = ${offsetExpr}`,
     `TextIndex = ${offsetExpr}`,
     `${base} = ${offsetExpr}`,
-    `${off} = 0`,
-    `${dir} = 0`,
-    // A genuinely new message always starts unpaused, even if the PREVIOUS
-    // message was left paused (see text_minikernel_scroll_control's own
-    // "Pause" action) - pausing is a per-message runtime state, not
-    // something that should silently carry over onto whatever gets shown
-    // next.
-    `${paused} = 0`,
-    // Starts the message at offset 0, which is itself the SAME "limit" the
-    // per-frame advance (generateTextScrollAdvance below) already pauses
-    // at for "pause" frames every time it's reached mid-scroll (off = 0 or
-    // off = max, both wait "pause" before reversing) - a brand new message
-    // waits that same "pause at limits" duration before its first scroll
-    // step too, instead of the shorter per-character "speed" duration,
-    // which used to make it start scrolling away almost immediately.
+    // A genuinely new message always starts unpaused AND scrolling forward,
+    // even if the PREVIOUS message was left paused/reversed (see
+    // text_minikernel_scroll_control's own "Pause" action) - neither is a
+    // property that should silently carry over onto whatever gets shown
+    // next. A bare overwrite (rather than the bit-preserving form the
+    // "Pause"/"Unpause" actions themselves need - see that generator's own
+    // comment) is correct here specifically BECAUSE this is the one place
+    // direction is meant to reset too - see TEXT_SCROLL_DIR_BIT's own
+    // comment.
+    `${state} = 0`,
+    // Starts the message at its own near end (TextIndex = base), which is
+    // itself the SAME "limit" the per-frame advance (generateTextScrollAdvance
+    // below) already pauses at for "pause" frames every time it's reached
+    // mid-scroll (TextIndex = base or TextIndex = farEnd, both wait "pause"
+    // before reversing) - a brand new message waits that same "pause at
+    // limits" duration before its first scroll step too, instead of the
+    // shorter per-character "speed" duration, which used to make it start
+    // scrolling away almost immediately.
     `${timer} = ${pauseCode}`,
     `@${skipLabel}`,
-    `${max} = ${maxOffsetExpr}`,
+    // Absolute, not relative (see textScrollFarEndVarName's own comment) -
+    // "base" here (not offsetExpr again) deliberately reuses whatever
+    // TextIndex/base were JUST set to above (on the reset path) or already
+    // held (on the skip path), rather than re-evaluating offsetExpr a
+    // second time - harmless if offsetExpr is a plain literal/variable, but
+    // offsetExpr can also be a table lookup (e.g. "text_offsets[id]" for
+    // "Show text with ID"), which a second, redundant read would only cost
+    // cycles on for no benefit.
+    `${farEnd} = ${base} + ${maxOffsetExpr}`,
     `${speed} = ${speedCode}`,
-    `${pause} = ${pauseCode}`,
+    `${pauseDuration} = ${pauseCode}`,
   ];
 };
 
 // Spliced into commongamelogic (see bbasic.bb.hbs) right after the distance
 // checks - once per frame, advances (or, having reached an end, pauses)
 // whichever message is currently scrolling, one byte (one character) at a
-// time. A message with nothing to scroll (max = 0, true for every static
-// message and every message no longer than TEXT_MESSAGE_LENGTH - see
+// time. A message with nothing to scroll (farEnd = base, true for every
+// static message and every message no longer than TEXT_MESSAGE_LENGTH - see
 // buildTextScrollSetupLines above) exits on the very first line, so this
 // costs almost nothing for a project that never uses scrolling text at all,
 // and only a few cycles per frame even for one that does.
@@ -272,52 +327,76 @@ export const generateTextScrollAdvance = (Blockly) => {
   if (!Blockly.BBasic.isTextMinikernelActive()) return '';
   const resolveVar = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const base = resolveVar(textScrollBaseVarName());
-  const off = resolveVar(textScrollOffsetVarName());
-  const max = resolveVar(textScrollMaxVarName());
-  const dir = resolveVar(textScrollDirVarName());
+  const farEnd = resolveVar(textScrollFarEndVarName());
   const timer = resolveVar(textScrollTimerVarName());
   const speed = resolveVar(textScrollSpeedVarName());
-  const pause = resolveVar(textScrollPauseVarName());
-  const paused = resolveVar(textScrollPausedVarName());
+  const pauseDuration = resolveVar(textScrollPauseDurationVarName());
+  const state = resolveVar(textScrollStateVarName());
   // Spliced directly into bbasic.bb.hbs's commongamelogic, bypassing
   // Blockly.BBasic.normalizeIndents() the same way generateBackgroundFadeChecks/
-  // generateSoundFadeChecks/generateMusicChecks do (see
+  // generateEnvelopeChecks/generateMusicChecks do (see
   // generateBackgroundFadeChecks' own comment in background.js) - every
   // statement line below needs EXACTLY one leading space and every label
   // line needs NONE, or the compiler misparses the line as a "complex
   // statement" expression instead of an if/goto (confirmed directly: an
   // earlier version of this left the very first "if" line without its
   // leading space and got "Unknown Mnemonic 'lda then'" from a real build).
+  // Hand-written 6502 instead of the bB if/goto version this used to be -
+  // same commongamelogic-splice context (not a subroutine) as
+  // generateBackgroundFadeChecks/generateEnvelopeChecks, so plain column-0
+  // labels/indented mnemonics, no "@" trick needed. Direction lives directly
+  // in state's bit 2 ($04), so it's read/set/cleared with a plain AND/ORA/AND
+  // instead of the "{n}" bit-accessor syntax bB itself needs; the pause mask
+  // check reuses the same TEXT_SCROLL_STATE_MASK bits. Both timer decrements
+  // are a single DEC on the zero-page dim var instead of bB's load/subtract/
+  // store, and TextIndex's own advance/retreat are a single INC/DEC the same
+  // way. Every branch target here sits well within +-127 bytes of its own
+  // branch (this whole block is under 40 bytes), so plain beq/bne reach every
+  // conditional target directly - only the three "always fall through to
+  // done after writing pauseDuration/speed" cases need an actual JMP.
   return [
-    ` if ${max} = 0 then goto _textscroll_done`,
-    // "Text scroll: Pause" (text_minikernel_scroll_control) sets this -
-    // checked right after the "nothing to scroll" bail above, before the
-    // timer is touched at all, so a paused message holds at exactly
-    // whatever offset/timer it had, ready to resume exactly where it left
-    // off once "Unpause"/"Start" clears this flag again.
-    ` if ${paused} then goto _textscroll_done`,
-    ` ${timer} = ${timer} - 1`,
-    ` if ${timer} <> 0 then goto _textscroll_done`,
-    ` if ${dir} = 1 then goto _textscroll_back`,
-    ` if ${off} <> ${max} then goto _textscroll_advance`,
-    ` ${dir} = 1`,
-    ` ${timer} = ${pause}`,
-    ` goto _textscroll_done`,
-    '_textscroll_advance',
-    ` ${off} = ${off} + 1`,
-    ` TextIndex = ${base} + ${off}`,
-    ` ${timer} = ${speed}`,
-    ` goto _textscroll_done`,
-    '_textscroll_back',
-    ` if ${off} <> 0 then goto _textscroll_retreat`,
-    ` ${dir} = 0`,
-    ` ${timer} = ${pause}`,
-    ` goto _textscroll_done`,
-    '_textscroll_retreat',
-    ` ${off} = ${off} - 1`,
-    ` TextIndex = ${base} + ${off}`,
-    ` ${timer} = ${speed}`,
-    '_textscroll_done',
+    ' asm',
+    '       lda ' + farEnd,
+    '       cmp ' + base,
+    '       beq _textscrolladvanceasm_done',
+    '       lda ' + state,
+    '       and #' + TEXT_SCROLL_STATE_MASK,
+    '       bne _textscrolladvanceasm_done',
+    '       dec ' + timer,
+    '       bne _textscrolladvanceasm_done',
+    '       lda ' + state,
+    '       and #$04',
+    '       bne _textscrolladvanceasm_back',
+    '       lda TextIndex',
+    '       cmp ' + farEnd,
+    '       bne _textscrolladvanceasm_advance',
+    '       lda ' + state,
+    '       ora #$04',
+    '       sta ' + state,
+    '       lda ' + pauseDuration,
+    '       sta ' + timer,
+    '       jmp _textscrolladvanceasm_done',
+    '_textscrolladvanceasm_advance',
+    '       inc TextIndex',
+    '       lda ' + speed,
+    '       sta ' + timer,
+    '       jmp _textscrolladvanceasm_done',
+    '_textscrolladvanceasm_back',
+    '       lda TextIndex',
+    '       cmp ' + base,
+    '       bne _textscrolladvanceasm_retreat',
+    '       lda ' + state,
+    '       and #$FB',
+    '       sta ' + state,
+    '       lda ' + pauseDuration,
+    '       sta ' + timer,
+    '       jmp _textscrolladvanceasm_done',
+    '_textscrolladvanceasm_retreat',
+    '       dec TextIndex',
+    '       lda ' + speed,
+    '       sta ' + timer,
+    '_textscrolladvanceasm_done',
+    'end',
   ].join('\n') + '\n';
 };
 

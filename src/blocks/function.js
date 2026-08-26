@@ -9,6 +9,24 @@ const FUNCTION_COLOR = 'rgb(0, 151, 167)';
 
 const MAX_FUNCTION_ARGS = 6;
 
+// Scratch storage for function_call_statement's own discarded return value
+// (see generators/bbasic/function.js) - calling a function purely for its
+// side effects still has to assign its result SOMEWHERE, batari Basic's own
+// function-call syntax has no way to just drop it. temp1 looks like the
+// obvious spot (used exactly that way throughout this codebase, and
+// genuinely fine for a call made OUTSIDE any function), but is NOT
+// obviously safe for a call made FROM INSIDE another function's own body:
+// temp1 is ALSO argument 1's own storage there (see function_param_get's
+// own comment), so "temp1 = someFunction(...)" risked colliding with
+// whichever argument happens to occupy that exact same register -
+// consistent with a real reported bug (argument 1 reading back a stuck
+// wrong value after calling a function as a bare statement inside another
+// function's own body, while argument 2 read back correctly). A dedicated
+// dev var sidesteps that possibility entirely, at the cost of reserving it
+// only for a project that actually calls a function as a bare statement at
+// all.
+export const functionCallDiscardVarName = () => '_functionCallResult';
+
 // Block for defining a native batari Basic "function" - a real,
 // value-returning callable (see generators/bbasic/function.js for the exact
 // "function <name> ... return <expr>" syntax this compiles to), distinct

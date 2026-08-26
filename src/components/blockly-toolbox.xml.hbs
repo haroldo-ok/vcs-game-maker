@@ -180,6 +180,23 @@
             </value>
         </block>
         <block type="sprite_missile0_size" />
+        <block type="sprite_missile0_fire">
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="ANGLE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="sprite_missile1_get"></block>
         <block type="sprite_missile1_set">
@@ -197,6 +214,23 @@
             </value>
         </block>
         <block type="sprite_missile1_size" />
+        <block type="sprite_missile1_fire">
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="ANGLE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="sprite_ball_get"></block>
         <block type="sprite_ball_set">
@@ -220,6 +254,8 @@
     <category name="Input" colour="green">
         <block type="input_joy0_get"></block>
         <block type="input_joy1_get"></block>
+        <block type="input_joy0_direction8"></block>
+        <block type="input_joy1_direction8"></block>
         <block type="input_keypad0_get"></block>
         <block type="input_keypad1_get"></block>
 
@@ -245,8 +281,6 @@
             </value>
         </block>
 
-        <block type="random_get"></block>
-        <block type="random_range_get"></block>
         <block type="random_seed_set">
             <value name="SEED">
                 <shadow type="math_number">
@@ -254,6 +288,8 @@
                 </shadow>
             </value>
         </block>
+        <block type="random_get"></block>
+        <block type="random_range_get"></block>
 
         <block type="bit_get"></block>
         <block type="bit_set">
@@ -428,6 +464,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="score_fade_finished"></block>
 
         <block type="score_digit_get"></block>
         <block type="score_digit_set">
@@ -589,6 +626,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="text_minikernel_fade_finished"></block>
         <block type="text_minikernel_scroll_control"></block>
         <block type="text_minikernel_scroll_at"></block>
         <block type="text_minikernel_clear"></block>

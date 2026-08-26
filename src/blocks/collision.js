@@ -69,7 +69,7 @@ const playerOptions = [
 // known-correct: it stops dead at a wall instead of sliding along it.
 const buildCollisionCheckBlock = () => ({
   'type': 'collision_check_position',
-  'message0': `${PLAYER_ICON} Undo%1's last move if it collided with Playfield`,
+  'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield`,
   'args0': [
     {'type': 'field_dropdown', 'name': 'PLAYER', 'options': playerOptions},
   ],

@@ -10,13 +10,13 @@
 // sounds buzzy here too, not like a clean tone.
 import {
   AUDC_APPROXIMATIONS, buildBuzzBuffer, buildDiv31Buffer, buildGatedBuzzBuffer, shiftClockFor,
-  fadeTargetGain,
 } from './sound-preview';
 import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
-import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_FADE_LENGTH} from '../blocks/soundfx';
+import {DEFAULT_ARPEGGIO_DIVISION} from '../blocks/soundfx';
 import {useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
 import {audcHasTunableNotes, noteAudv} from './music-notes';
+import {buildEnvelopeCurve} from './envelope';
 
 let audioContext = null;
 const getAudioContext = () => {
@@ -104,31 +104,37 @@ const scheduleArpeggioFrequency = (oscillator, {
   }
 };
 
-// Matches the compiled ROM's own fade (see fadeVar in
-// generators/bbasic/music.js): the last fadeLengthFrames of the note step
-// down to fadeTargetGain(peakGain) instead of a smooth ramp, same as
-// utils/sound-preview.js's own one-shot fade - only THEN does the short
-// releaseSeconds ramp to silence happen (from that lower target, not from
-// peakGain), matching how the ROM's own hardware note-off works.
-// fadeLengthFrames is this instrument's own per-preset Fade length (see
-// FADE_LENGTH_OPTIONS in blocks/soundfx.js) - 0/falsy means no fade at all.
-const buildGain = (context, {peakGain, startTime, seconds, releaseSeconds, fadeLengthFrames,
-  destination = context.destination}) => {
+// Matches the compiled ROM's own note envelope (see generators/bbasic/
+// music.js's own per-note envelope-config index) - steps through the exact
+// same per-frame AUDV curve (see utils/envelope.js's buildEnvelopeCurve),
+// scaled from AUDV's 0-15 range down into this preview's own 0-0.3 gain
+// range, rather than a continuous fade - a stepped preview actually sounds
+// like what plays in game instead of smoothing over the same discrete
+// jumps. releaseSeconds is a SEPARATE, always-applied short click-
+// prevention taper (not the user's own configurable Release stage) - see
+// its own call sites' comments; the trailing linearRampToValueAtTime below
+// still applies it in both branches, same as before this only had one
+// (Fade) shape to draw.
+const buildGain = (context, {peakGain, peakVolume, startTime, seconds, releaseSeconds, envelope, envelopeAttack,
+  envelopeDecay, envelopeSustain, envelopeRelease, destination = context.destination}) => {
   const gainNode = context.createGain();
-  const releaseStart = startTime + Math.max(0, seconds - releaseSeconds);
-  const fadeSeconds = (Number(fadeLengthFrames) || 0) / FRAMES_PER_SECOND;
-  if (fadeSeconds > 0) {
-    // Clamped to startTime (not just startTime+seconds-fadeSeconds) - a
-    // note shorter than its own instrument's configured fade length fades
-    // for its whole duration instead of not fading at all, matching the
-    // same ">" (not exact-length) fix in the ROM's own fadeApply.
-    const fadeStart = Math.max(startTime, startTime + seconds - fadeSeconds);
-    const target = fadeTargetGain(peakGain);
-    gainNode.gain.setValueAtTime(peakGain, startTime);
-    gainNode.gain.setValueAtTime(peakGain, fadeStart);
-    gainNode.gain.setValueAtTime(target, fadeStart);
-    gainNode.gain.setValueAtTime(target, releaseStart);
+  if (envelope) {
+    const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
+    const curve = buildEnvelopeCurve({
+      attack: envelopeAttack, decay: envelopeDecay, sustainPercent: envelopeSustain, release: envelopeRelease,
+      peakVolume, totalFrames,
+    });
+    curve.forEach((step, i) => {
+      gainNode.gain.setValueAtTime(step / 15 * 0.3, startTime + i / FRAMES_PER_SECOND);
+    });
   } else {
+    // Holds at peakGain until releaseSeconds before the note's own end, so
+    // the trailing linearRampToValueAtTime below has real time to ramp
+    // through instead of colliding with this same setValueAtTime at the
+    // exact same instant (which Web Audio resolves by keeping whichever was
+    // scheduled last, producing an audible click instead of a ramp - the
+    // exact bug class this releaseSeconds taper exists to avoid).
+    const releaseStart = startTime + Math.max(0, seconds - releaseSeconds);
     gainNode.gain.setValueAtTime(peakGain, startTime);
     gainNode.gain.setValueAtTime(peakGain, releaseStart);
   }
@@ -143,9 +149,9 @@ const buildGain = (context, {peakGain, startTime, seconds, releaseSeconds, fadeL
 // approximation.
 const playTone = (context, {
   audf, slowClock, arpeggioSpeed, arpeggioInterval, arpeggioRange, peakGain, startTime, seconds, releaseSeconds,
-  fadeLengthFrames, destination,
+  destination,
 }) => {
-  const gainNode = buildGain(context, {peakGain, startTime, seconds, releaseSeconds, fadeLengthFrames, destination});
+  const gainNode = buildGain(context, {peakGain, startTime, seconds, releaseSeconds, destination});
   const oscillator = context.createOscillator();
   oscillator.type = 'square';
   scheduleArpeggioFrequency(oscillator, {
@@ -167,12 +173,14 @@ const playTone = (context, {
 //     arpeggiating buffer-based hit schedules several short back-to-back
 //     segments instead - see below).
 const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime,
-  seconds, releaseSeconds, fadeLengthFrames, destination}) => {
+  seconds, releaseSeconds, envelope, envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease,
+  destination}) => {
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   if (!approximation) return [];
 
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
-  const gainNode = buildGain(context, {peakGain, startTime, seconds, releaseSeconds, fadeLengthFrames, destination});
+  const gainNode = buildGain(context, {peakGain, peakVolume: audv, startTime, seconds, releaseSeconds, envelope,
+    envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease, destination});
 
   if (approximation.type === 'square') {
     const source = context.createOscillator();
@@ -506,7 +514,11 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
         startTime: noteStart,
         seconds: heldSeconds,
         releaseSeconds,
-        fadeLengthFrames: soundEffect.fade ? (Number(soundEffect.fadeLength) || DEFAULT_FADE_LENGTH) : 0,
+        envelope: !!soundEffect.envelope,
+        envelopeAttack: soundEffect.envelopeAttack,
+        envelopeDecay: soundEffect.envelopeDecay,
+        envelopeSustain: soundEffect.envelopeSustain,
+        envelopeRelease: soundEffect.envelopeRelease,
         destination: trackGain,
       }));
       maxEndUnits = Math.max(maxEndUnits, note.step + note.length);

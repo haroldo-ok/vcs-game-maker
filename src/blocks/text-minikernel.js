@@ -287,3 +287,22 @@ Blockly.Blocks['text_minikernel_show_by_id_scroll'] = {
       'Text tab\'s own max display width - ignored otherwise.');
   },
 };
+
+// Works exactly like background_fade_finished (see blocks/background.js's
+// own comment - same shared bit/flag machinery, same "fires once, regardless
+// of fade direction, never late" behavior), just always targeting TextColor
+// rather than offering a register choice - same reasoning as
+// text_minikernel_fade_to above: there's only one possible text color
+// register.
+Blockly.Blocks['text_minikernel_fade_finished'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${TEXT_ICON} When Text ${COLOR_ICON} color has finished fading`);
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(TEXT_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment a matching "Fade Text color" block ' +
+      'reaches its own target color. Does nothing if no matching fade ever runs anywhere in the project.');
+  },
+};

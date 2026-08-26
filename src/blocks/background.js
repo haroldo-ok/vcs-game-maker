@@ -12,7 +12,7 @@ const BACKGROUND_COLOR = '#ffa500';
 // forget TRIGGER, not a "call every frame yourself" block - it writes its
 // target/pace once, and a per-frame check spliced into commongamelogic (see
 // generateBackgroundFadeChecks) does the actual stepping from then on,
-// exactly like sound effect fades (generateSoundFadeChecks in generators/
+// exactly like sound effect fades (generateEnvelopeChecks in generators/
 // bbasic/soundfx.js) and music event watches (generateMusicChecks) already
 // do. This matters because a fade triggered from inside an "if" block (e.g.
 // "if joystick fire") only has its OWN trigger code re-run while that
@@ -82,56 +82,87 @@ export const backgroundFadeTargetVarName = (rawVar) => `_${fadeTag(rawVar)}FadeT
 // the exact same result as 4 anyway, so fixing it there costs nothing.
 export const FADE_STEPS = 4;
 
-// One shared byte covers both the "fade finished" watch flags (COLUBK/COLUPF
-// only - see background_fade_finished's own comment; scorecolor/TextColor
-// have no equivalent finished-watch block) AND the "fade currently active"
-// flags for all four fadeable registers - exactly 8 possible bits total (2
-// registers x 2 directions for "finished", plus 4 registers x 1 for
+// One shared byte covers both the "fade finished" watch flags AND the "fade
+// currently active" flags for all four fadeable registers - exactly 8 bits
+// total (4 registers x 1 for "finished", plus 4 registers x 1 for
 // "active"), filling the byte exactly, so fixed bits are simpler than the
 // Music tab's own pooled/overflow allocation (built for open-ended,
 // user-defined watch counts) and never need more than this one byte.
-// "Finished" is split by
-// direction (fading in/brightening vs fading out/dimming), not just by
-// register, since a background_fade_finished watch needs to tell those
-// apart - e.g. a "flash brighter then settle back down" sequence (two
-// separate background_fade_to triggers on the same register, one right
-// after the other) has two distinct completion moments a project may want
-// to react to differently. The "active" bits are what the per-frame check
+// "Finished" fires regardless of which way the fade was moving (brightening
+// or dimming) - background_fade_finished used to have its own DIRECTION
+// dropdown splitting this by direction, but that meant a project reacting
+// to "this fade is done" regardless of which way it happened to go needed
+// two near-identical watch blocks wired to the same DO stack; removed in
+// favor of one flag per register that fires on either direction's own
+// completion. The "active" bits are what the per-frame check
 // (generateBackgroundFadeChecks) reads to know whether a register has an
-// in-progress fade to keep stepping at all - set once by background_fade_
-// to's own trigger code, cleared once the check steps the color onto its
-// exact target; unlike "finished", "active" never needs to be direction-
-// specific, since only one fade can be in progress on a given register at
-// a time regardless of which way it's headed.
-export const backgroundFadeFlagsVarName = () => '_bgFadeFlags';
-export const backgroundFadeFinishedBit = (rawVar, direction) =>
-  (rawVar === 'COLUPF' ? 2 : 0) + (direction === 'down' ? 1 : 0);
-// Bits 0-3 are the COLUBK/COLUPF "finished" bits above (2 registers x 2
-// directions) - active bits for all four fadeable registers pack into the
-// remaining 4-7, filling the byte exactly.
+// in-progress fade to keep stepping at all - set once by the matching
+// trigger block's own code (background_fade_to/score_fade_to/
+// text_minikernel_fade_to), cleared once the check steps the color onto its
+// exact target.
+export const fadeFlagsVarName = () => '_fadeFlags';
+// Scratch storage for background_get_pixel's own X/Y, ONLY when a non-bare
+// expression (e.g. "xCycle - 1") is plugged into one of its sockets (see
+// generators/bbasic/background.js) - pfread()'s own arguments can't contain
+// an operator, so an expression has to be computed somewhere before it's
+// passed in. temp1/temp2 look like the obvious scratch spot (used exactly
+// that way everywhere else in this codebase), but are NOT safe here: bB's
+// own "function" feature passes its arguments through temp1-temp6 directly
+// (see generators/bbasic/function.js's own comment) with no other stack or
+// register file, so a background_get_pixel block used inside a function
+// body could be silently overwriting that function's own live parameter(s)
+// out from under it the moment this runs - confirmed directly as a real
+// bug (a project's own custom function calling this went from "won't
+// compile" to "resets the console the moment it runs" once temp1/temp2
+// were reused this way). Two dedicated dev vars sidestep that entirely,
+// at the cost of reserving them (see reserveMusicDevVars's own sibling in
+// bbasic.js) only for a project that actually uses this block at all.
+export const backgroundGetPixelXVarName = () => '_bgGetPixelX';
+export const backgroundGetPixelYVarName = () => '_bgGetPixelY';
+// Bits 0-3: one "finished" bit per fadeable register (fires on either fade
+// direction's own completion - see fadeFlagsVarName's own
+// comment). Bits 4-7: the matching "active" bit for that same register
+// (FADE_ACTIVE_BIT_BY_VAR below) - always exactly 4 apart from its own
+// "finished" bit, which is what backgroundFadeFinishedBit derives from
+// rather than keeping a second, parallel map in sync by hand.
 const FADE_ACTIVE_BIT_BY_VAR = {COLUBK: 4, COLUPF: 5, scorecolor: 6, TextColor: 7};
 export const fadeActiveBit = (rawVar) => FADE_ACTIVE_BIT_BY_VAR[rawVar];
+export const backgroundFadeFinishedBit = (rawVar) => FADE_ACTIVE_BIT_BY_VAR[rawVar] - 4;
 
-// Every (register, direction) pair a background_fade_finished block in the
-// project actually watches, keyed as "VAR:DIRECTION" - a plain Set, since
-// there are only 4 possible combinations total and each is either watched
-// or not (no dedup/index-assignment step needed the way the Music tab's own
-// open-ended watches require). Read by both background_fade_to's own
-// per-frame check (to decide whether to bother setting a bit nothing is
-// watching) and the event block itself (to know which bit to check-and-
-// clear) - see resolveVar's own callers in generators/bbasic/background.js.
-export const backgroundFadeWatchKey = (rawVar, direction) => `${rawVar}:${direction}`;
+// Every register some "finished fading" watch block in the project actually
+// watches - background_fade_finished (Background/Playfield), score_fade_
+// finished (Score), or text_minikernel_fade_finished (Text) - all three
+// work identically, just targeting a different register, and all three
+// share this exact same resolution/bit/flag machinery. A plain Set, since
+// there are only 4 possible registers and each is either watched or not (no
+// dedup/index-assignment step needed the way the Music tab's own open-ended
+// watches require). Read by both the matching trigger block's own per-frame
+// check (to decide whether to bother setting a bit nothing is watching) and
+// the watch block itself (to know which bit to check-and-clear) - see
+// resolveVar's own callers in generators/bbasic/background.js.
+export const backgroundFadeWatchKey = (rawVar) => rawVar;
+// score_fade_finished/text_minikernel_fade_finished have no VAR dropdown of
+// their own (same reasoning as score_fade_to/text_minikernel_fade_to - see
+// their own comments: there's only one possible score/text color register,
+// so offering a choice would be pointless) - only background_fade_finished
+// actually reads one.
+const FADE_FINISHED_RAW_VAR_BY_TYPE = {
+  background_fade_finished: (block) => block.getFieldValue('VAR'),
+  score_fade_finished: () => 'scorecolor',
+  text_minikernel_fade_finished: () => 'TextColor',
+};
 export const resolveBackgroundFadeFinishedWatches = (workspace) => {
   const watched = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
-    if (block.type !== 'background_fade_finished') return;
-    watched.add(backgroundFadeWatchKey(block.getFieldValue('VAR'), block.getFieldValue('DIRECTION')));
+    const rawVarFor = FADE_FINISHED_RAW_VAR_BY_TYPE[block.type];
+    if (!rawVarFor) return;
+    watched.add(backgroundFadeWatchKey(rawVarFor(block)));
   });
   return watched;
 };
 
 // Whether any background_fade_active block exists anywhere in the project -
-// that block reads backgroundFadeFlagsVarName's own active bit directly (see
+// that block reads fadeFlagsVarName's own active bit directly (see
 // its generator in generators/bbasic/background.js), so the shared byte it
 // lives in needs to be reserved even in the (unusual, but valid) case of a
 // project checking "is this fade active" on a register that has no
@@ -521,22 +552,23 @@ Blockly.defineBlocksWithJsonArray([
 ]);
 
 // Fires once, the moment a matching background_fade_to block (same
-// register AND direction) actually reaches its own target color - see
+// register) actually reaches its own target color, regardless of which way
+// brightness was moving to get there - see
 // resolveBackgroundFadeFinishedWatches/backgroundFadeFinishedBit above for
-// how this is resolved to one of backgroundFadeFlagsVarName's own fixed
+// how this is resolved to one of fadeFlagsVarName's own fixed
 // bits, and generators/bbasic/background.js for where that bit actually
 // gets set (inside the per-frame check's own step branch, only the exact
-// frame a step causes it to reach the target) and checked-and-cleared
-// (this block's own generator). Direction is which way brightness was
-// actually moving on the completing step (up = fading in/brightening,
-// down = fading out/dimming) - background_fade_to itself never states a
-// direction (it auto-detects which way to go from the current color), so
-// this is the only place a project chooses to care about one specific
-// direction's own completion, e.g. reacting only once a "flash brighter"
-// has finished, not the "settle back down" that follows it. A fade that
-// starts already AT its target (nothing to actually step, so no direction
-// was ever taken) never fires this - there's no real completion event to
-// report if it was already done before the first check.
+// frame a step causes it to reach the target, either direction) and
+// checked-and-cleared (this block's own generator). Used to have its own
+// DIRECTION dropdown (fading in/brightening vs fading out/dimming), removed
+// since a project reacting to "this fade is done" regardless of direction
+// needed two near-identical copies of this block wired to the same DO stack
+// - background_fade_to itself never states a direction either (it
+// auto-detects which way to go from the current color), so there was no
+// direction-aware trigger to actually pair a direction-specific watch
+// against in the first place. A fade that starts already AT its target
+// (nothing to actually step) never fires this - there's no real completion
+// event to report if it was already done before the first check.
 Blockly.Blocks['background_fade_finished'] = {
   init: function() {
     this.appendDummyInput()
@@ -545,18 +577,14 @@ Blockly.Blocks['background_fade_finished'] = {
           ['Background', 'COLUBK'],
           ['Playfield', 'COLUPF'],
         ]), 'VAR')
-        .appendField(`${COLOR_ICON} color has finished`)
-        .appendField(new Blockly.FieldDropdown([
-          ['fading in', 'up'],
-          ['fading out', 'down'],
-        ]), 'DIRECTION');
+        .appendField(`${COLOR_ICON} color has finished fading`);
     this.appendStatementInput('DO');
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(BACKGROUND_COLOR);
     this.setTooltip('Runs the connected blocks once, the moment a matching "Fade" block (same Background/' +
-      'Playfield choice) reaches its own target color while moving in this direction. Does nothing if no ' +
-      'matching fade ever moves that way anywhere in the project.');
+      'Playfield choice) reaches its own target color. Does nothing if no matching fade ever runs anywhere ' +
+      'in the project.');
   },
 };
 

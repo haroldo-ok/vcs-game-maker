@@ -63,6 +63,7 @@
                        pose), so a single shared setting wouldn't preview
                        either one accurately once the other diverged. -->
                   <v-btn-toggle
+                    v-if="!isCollapsed(animation)"
                     :value="animation.previewWidthScale || 1"
                     class="animation-preview-scale-toggle"
                     dense

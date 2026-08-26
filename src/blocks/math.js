@@ -64,10 +64,11 @@ Blockly.Blocks['math_arithmetic'] = {
             ['-', 'MINUS'],
             ['×', 'MULTIPLY'],
             ['÷', 'DIVIDE'],
-            ['^ (power)', 'POWER'],
-            ['& (bitwise AND)', 'BITAND'],
-            ['| (bitwise OR)', 'BITOR'],
-            ['^ (bitwise XOR)', 'BITXOR'],
+            ['^', 'POWER'],
+            ['&', 'BITAND'],
+            ['|', 'BITOR'],
+            ['⊕', 'BITXOR'],
+            ['%', 'MODULO'],
           ],
         },
         {
@@ -100,9 +101,12 @@ Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_BITOR'] =
   'Bitwise OR: each bit of the result is 1 where EITHER number has a 1 bit.';
 Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_BITXOR'] =
   'Bitwise XOR: each bit of the result is 1 where the two numbers\' bits DIFFER.';
+Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_MODULO'] =
+  'Modulo: the remainder left over after dividing the first number by the second.';
 Blockly.Constants.Math.TOOLTIPS_BY_OP['BITAND'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITAND}';
 Blockly.Constants.Math.TOOLTIPS_BY_OP['BITOR'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITOR}';
 Blockly.Constants.Math.TOOLTIPS_BY_OP['BITXOR'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITXOR}';
+Blockly.Constants.Math.TOOLTIPS_BY_OP['MODULO'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_MODULO}';
 
 // Real, working absolute value: a statement (not a nested expression) since
 // making a negative unsigned byte (its top bit set, i.e. 128-255 in two's

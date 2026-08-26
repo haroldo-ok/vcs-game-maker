@@ -103,16 +103,19 @@ export const processPlayerStorageDefaults = (playerStorage) => {
 //    the animation logic but still before that frame's drawscreen.
 // Bank 1's own fixed base address per ROM size - confirmed against public/
 // bb19/includes/2600basicheader.asm's own "RORG" directive: $F000 with no
-// bankswitching, $D000/$9000/$1000 for 8k/16k/32k+. Every one of these is
-// already page-aligned (low byte $00) - deliberately not arbitrary: that's
-// what makes the split-byte assignment below safe with no carry/overflow
-// handling needed (see its own comment).
+// bankswitching, $D000/$9000/$1000 for 8k/16k/32k+ (64k shares 32k's own
+// $1000 - both hit the "if bankswitch == 32"/"if bankswitch == 64" branches,
+// which RORG to the identical address). Every one of these is already
+// page-aligned (low byte $00) - deliberately not arbitrary: that's what
+// makes the split-byte assignment below safe with no carry/overflow handling
+// needed (see its own comment).
 const ROM_NOISE_BASE_HIGH_BYTE_BY_ROMSIZE = {
   '2k': 0xF0,
   '4k': 0xF0,
   '8k': 0xD0,
   '16k': 0x90,
   '32k': 0x10,
+  '64k': 0x10,
 };
 
 // superchipheader.asm (used instead of 2600basicheader.asm whenever
@@ -134,7 +137,7 @@ const romNoiseBaseHighByteHex = (config) => {
 
 // One shared flags byte covers both features' "active" bits for both
 // players - only ever 4 possible bits total (2 features x 2 players), same
-// reasoning backgroundFadeFlagsVarName's own shared byte uses in
+// reasoning fadeFlagsVarName's own shared byte uses in
 // blocks/background.js.
 export const romNoiseFlagsVarName = () => '_romNoiseFlags';
 export const romNoiseActiveBit = (name) => name === 'player1' ? 1 : 0;
@@ -142,6 +145,18 @@ export const romNoiseOffsetVarName = (name) => `_${name}RomNoiseOffset`;
 export const romNoiseHeightVarName = (name) => `_${name}RomNoiseHeight`;
 export const rainbowColorActiveBit = (name) => name === 'player1' ? 3 : 2;
 export const rainbowColorOffsetVarName = (name) => `_${name}RainbowColorOffset`;
+
+// sprite_*_fire's own dev vars (see its own trigger generator and
+// generateMissileFireChecks below) - one shared flags byte (same "one byte
+// covers every player/missile's own active bit" convention as
+// romNoiseFlagsVarName above) plus, per missile, a direction (0-7, or
+// 255/anything else for "no direction") and a speed (1-7), both captured
+// once at fire time so the per-frame check never has to re-evaluate the
+// original ANGLE/SPEED block inputs.
+export const missileFireFlagsVarName = () => '_missileFireFlags';
+export const missileFireActiveBit = (name) => name === 'missile1' ? 1 : 0;
+export const missileFireDirVarName = (name) => `_${name}FireDir`;
+export const missileFireSpeedVarName = (name) => `_${name}FireSpeed`;
 
 // "Rainbow colors" (its own block, sprite_*_rainbow_colors) is a REAL,
 // existing batari Basic kernel feature (see std_kernel.asm's own "ifnconst
@@ -185,10 +200,10 @@ export const ROM_NOISE_COLOR_REGISTERS = {
 // generator would otherwise run).
 export const reserveRomNoiseDevVars = (reserveDevVar, usedFor) => {
   if (!usedFor || !usedFor.size) return;
-  reserveDevVar(romNoiseFlagsVarName());
+  reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
   usedFor.forEach((name) => {
-    reserveDevVar(romNoiseOffsetVarName(name));
-    reserveDevVar(romNoiseHeightVarName(name));
+    reserveDevVar(romNoiseOffsetVarName(name), undefined, 'this player\'s ROM noise: pointer offset');
+    reserveDevVar(romNoiseHeightVarName(name), undefined, 'this player\'s ROM noise: sprite height');
   });
 };
 
@@ -199,8 +214,23 @@ export const reserveRomNoiseDevVars = (reserveDevVar, usedFor) => {
 // function's own "one shared flags byte" comment.
 export const reserveRainbowColorDevVars = (reserveDevVar, usedFor) => {
   if (!usedFor || !usedFor.size) return;
-  reserveDevVar(romNoiseFlagsVarName());
-  usedFor.forEach((name) => reserveDevVar(rainbowColorOffsetVarName(name)));
+  reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
+  usedFor.forEach((name) =>
+    reserveDevVar(rainbowColorOffsetVarName(name), undefined, 'this player\'s rainbow-color cycle offset'));
+};
+
+// Same reasoning as reserveRomNoiseDevVars above, for sprite_*_fire - called
+// with a pre-scanned Set of which missile names actually have a Fire block
+// used anywhere in the project (bbasic.js's own init() has to know this
+// before user variable letters are handed out, well before this feature's
+// own generator would otherwise run).
+export const reserveMissileFireDevVars = (reserveDevVar, usedFor) => {
+  if (!usedFor || !usedFor.size) return;
+  reserveDevVar(missileFireFlagsVarName(), undefined, 'shared active-bit byte for fired missiles');
+  usedFor.forEach((name) => {
+    reserveDevVar(missileFireDirVarName(name), undefined, 'this missile\'s fired direction (0-7, or 255 for none)');
+    reserveDevVar(missileFireSpeedVarName(name), undefined, 'this missile\'s fired speed (pixels/frame)');
+  });
 };
 
 // Spliced into commongamelogic right after generatedAnimations (see this
@@ -325,6 +355,66 @@ export const generateRainbowColorChecks = (Blockly) => {
         ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
         ` ${registers.low} = ${offsetVar}`,
         ` ${registers.high} = ${baseHigh}`,
+        `${doneLabel}`,
+    );
+  });
+  return lines.join('\n') + '\n';
+};
+
+// Spliced into commongamelogic right after generateRomNoiseChecks/
+// generateRainbowColorChecks (same region, same reasoning: nothing else
+// there touches missile position) - one check per missile that actually has
+// a Fire block used anywhere in the project. Two independent 8-way dispatch
+// chains (X, then Y) rather than one combined per-direction chain, because
+// bB's "if X then A" only conditions the single statement immediately after
+// "then" (a real, previously-confirmed bug class in this codebase - see
+// controls_repeat_ext's own label comment above) - a single "if dir=1 then
+// x=x-speed : y=y-speed"-style line would silently only ever run the first
+// statement. No multiplication anywhere: every direction's own step is
+// always exactly -speed/0/+speed, so applying speed is a plain add/subtract.
+export const generateMissileFireChecks = (Blockly) => {
+  const used = Blockly.BBasic.missileFireUsedFor;
+  if (!used || !used.size) return '';
+  const resolveVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const flagsVar = resolveVar(missileFireFlagsVarName());
+  const lines = [];
+  ['missile0', 'missile1'].forEach((name) => {
+    if (!used.has(name)) return;
+    const doneLabel = `_missilefire_${name}_done`;
+    const dirVar = resolveVar(missileFireDirVarName(name));
+    const speedVar = resolveVar(missileFireSpeedVarName(name));
+    const activeBit = missileFireActiveBit(name);
+    lines.push(
+        ` if !${flagsVar}{${activeBit}} then goto ${doneLabel}`,
+        // X dispatch: Up-Right/Right/Down-Right (1,2,3) step +speed,
+        // Down-Left/Left/Up-Left (5,6,7) step -speed, Up/Down (0,4) untouched.
+        ` if ${dirVar} = 1 then ${name}x = ${name}x + ${speedVar}`,
+        ` if ${dirVar} = 2 then ${name}x = ${name}x + ${speedVar}`,
+        ` if ${dirVar} = 3 then ${name}x = ${name}x + ${speedVar}`,
+        ` if ${dirVar} = 5 then ${name}x = ${name}x - ${speedVar}`,
+        ` if ${dirVar} = 6 then ${name}x = ${name}x - ${speedVar}`,
+        ` if ${dirVar} = 7 then ${name}x = ${name}x - ${speedVar}`,
+        // Y dispatch: Down-Right/Down/Down-Left (3,4,5) step +speed,
+        // Up-Left/Up/Up-Right (7,0,1) step -speed, Left/Right (6,2) untouched.
+        ` if ${dirVar} = 3 then ${name}y = ${name}y + ${speedVar}`,
+        ` if ${dirVar} = 4 then ${name}y = ${name}y + ${speedVar}`,
+        ` if ${dirVar} = 5 then ${name}y = ${name}y + ${speedVar}`,
+        ` if ${dirVar} = 7 then ${name}y = ${name}y - ${speedVar}`,
+        ` if ${dirVar} = 0 then ${name}y = ${name}y - ${speedVar}`,
+        ` if ${dirVar} = 1 then ${name}y = ${name}y - ${speedVar}`,
+        // Off-screen (standard NTSC playfield bounds) stops the movement -
+        // clears the active bit so this missile's own dispatch above is
+        // skipped every frame from here on - WITHOUT touching its own
+        // Height (confirmed with the user: it should stop, not change
+        // size/visibility on its own - that stays entirely up to whatever
+        // "Missile: set Height" blocks the user has elsewhere). x/y are
+        // unsigned bytes (see math.js's own "Player coordinates ... are
+        // unsigned bytes" comment) - stepping past 0 wraps around to a large
+        // positive value rather than going negative, so there's no separate
+        // "< 0" case to check: an out-of-range value from EITHER direction
+        // always lands as "> 159"/"> 191" here.
+        ` if ${name}x > 159 || ${name}y > 191 then ${flagsVar}{${activeBit}} = 0`,
         `${doneLabel}`,
     );
   });
@@ -506,6 +596,52 @@ export default (Blockly) => {
       const varName = name.replace('missile', 'player') + 'size';
       return `${varName} = ${varName} & $0F\n` +
         `${varName} = ${varName} | ${size}\n`;
+    };
+
+    // TRIGGER only - see sprite_${name}_rom_noise's own top-of-block comment
+    // for why a one-shot assignment here can't be the whole story:
+    // generateMissileFireChecks (spliced into commongamelogic) does the
+    // actual per-frame movement, reading these dev vars back every frame
+    // until the missile goes off-screen. <angleExpr> is evaluated into
+    // ${name}dir EXACTLY ONCE (not re-inlined below) since it can itself be
+    // a real expression (e.g. the joystick 8-way direction getter's own
+    // table lookup), not just a bare variable - see this block's own
+    // tooltip. Always re-launches, even if a previous shot from this same
+    // missile is still in flight (no "already active" guard) - confirmed
+    // with the user: this block is meant to be placed behind its own rate
+    // limiter (e.g. an "every X frames" block) rather than fire every
+    // single frame it's reached, so every time it DOES run, it should
+    // actually fire, resetting position to whatever X/Y it's given right
+    // then (a moving X/Y, like a player's own position, naturally "resets
+    // to current" this way with no special-casing needed). If the evaluated
+    // angle is 255 ("no clear direction" - the joystick 8-way direction
+    // getter's own value when the joystick is centered), falls back to the
+    // block's own "default" dropdown (any of the 8 directions, user-picked -
+    // see MISSILE_FIRE_DEFAULT_ANGLE_OPTIONS in blocks/sprites.js) rather
+    // than skipping the launch - an idle joystick should still fire the
+    // missile, not silently do nothing, and the direction that happens in
+    // should be up to the user, not a single hardcoded choice.
+    // missileFireUsedFor's own pre-scan in bbasic.js's init() treats this
+    // block type as "in use" (same reasoning as romNoiseUsedFor), so every
+    // dev var referenced here is always guaranteed to already exist.
+    Blockly.BBasic[`sprite_${name}_fire`] = function(block) {
+      const resolveVar = (canonicalName) =>
+        Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const dirVar = resolveVar(missileFireDirVarName(name));
+      const speedVar = resolveVar(missileFireSpeedVarName(name));
+      const flagsVar = resolveVar(missileFireFlagsVarName());
+      const x = Blockly.BBasic.valueToCode(block, 'X', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+      const y = Blockly.BBasic.valueToCode(block, 'Y', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+      const angle = Blockly.BBasic.valueToCode(block, 'ANGLE', Blockly.BBasic.ORDER_ASSIGNMENT) || '255';
+      const defaultAngle = block.getFieldValue('DEFAULT_ANGLE') || '0';
+      const speed = block.getFieldValue('SPEED') || '1';
+      const activeBit = missileFireActiveBit(name);
+      return `${dirVar} = ${angle}\n` +
+        `if ${dirVar} = 255 then ${dirVar} = ${defaultAngle}\n` +
+        `${name}x = ${x}\n` +
+        `${name}y = ${y}\n` +
+        `${speedVar} = ${speed}\n` +
+        `${flagsVar}{${activeBit}} = 1\n`;
     };
   };
 

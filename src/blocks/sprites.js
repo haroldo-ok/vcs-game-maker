@@ -71,6 +71,32 @@ const MISSILE_SIZE_OPTIONS = [
   ['8', '$30'],
 ];
 
+// Pixels moved per frame, each direction's own X and Y step (see
+// generators/bbasic/sprites.js's own generateMissileFireChecks) - a
+// bounded dropdown rather than a free-typed field, same "small fixed
+// choice" reasoning MISSILE_SIZE_OPTIONS above already uses.
+const MISSILE_FIRE_SPEED_OPTIONS = [
+  ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6'], ['7', '7'],
+];
+
+// Same 0-7 clockwise-from-Up encoding as input_joyN_direction8 (see
+// blocks/input.js's own buildJoystickDirection8Block) - used for the Fire
+// block's own "Default direction" dropdown (see generateMissileFireChecks'
+// own trigger comment): whatever the user picks here is what actually fires
+// when the Angle input evaluates to 255 ("no clear direction" - e.g. the
+// joystick is centered), rather than a single hardcoded fallback, so any of
+// the 8 directions can be the default, not just Up.
+const MISSILE_FIRE_DEFAULT_ANGLE_OPTIONS = [
+  ['⬆ Up', '0'],
+  ['↗ Up-Right', '1'],
+  ['➡ Right', '2'],
+  ['↘ Down-Right', '3'],
+  ['⬇ Down', '4'],
+  ['↙ Down-Left', '5'],
+  ['⬅ Left', '6'],
+  ['↖ Up-Left', '7'],
+];
+
 const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOptions=[], readOnlyOptions=[], colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for the getter.
@@ -323,6 +349,64 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
       'nextStatement': null,
       colour,
       'extensions': ['math_change_tooltip'],
+    },
+    // Fires this missile from the given starting X/Y, moving at the given
+    // angle/speed until it goes off-screen, where it just stops (see
+    // generateMissileFireChecks) - its own Height/visibility is left
+    // entirely to the existing "sprite_<name>_set" block, never touched
+    // here, so it doesn't change size or disappear on its own.
+    {
+      'type': `sprite_${name}_fire`,
+      'message0': `${icon} Fire ${description} from X %1 Y %2 at angle %3 default %4 speed %5`,
+      'args0': [
+        {
+          'type': 'input_value',
+          'name': 'X',
+          'check': 'Number',
+        },
+        {
+          'type': 'input_value',
+          'name': 'Y',
+          'check': 'Number',
+        },
+        {
+          'type': 'input_value',
+          'name': 'ANGLE',
+          'check': 'Number',
+        },
+        {
+          'type': 'field_dropdown',
+          'name': 'DEFAULT_ANGLE',
+          'options': MISSILE_FIRE_DEFAULT_ANGLE_OPTIONS,
+        },
+        {
+          'type': 'field_dropdown',
+          'name': 'SPEED',
+          'options': MISSILE_FIRE_SPEED_OPTIONS,
+        },
+      ],
+      'inputsInline': true,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Launches ${description} from the given starting X/Y position (e.g. a paired ` +
+        'player\'s own X/Y position blocks, for a traditional "fire from the player" missile), ' +
+        'moving it automatically (a few pixels every frame) until it goes off-screen, where it ' +
+        `simply stops moving - ${description}'s own Height/visibility is never touched by this ` +
+        'block, so it never changes size or disappears on its own; use "Missile: set Height" ' +
+        'yourself if you want it hidden once it stops. Angle is 0-7 ' +
+        '(0=Up, 1=Up-Right, 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left, clockwise ' +
+        'from Up) - plug in a "Joystick direction (8-way)" block to fire toward wherever the ' +
+        'joystick is pushed, a plain number for a fixed direction, or a variable holding an angle ' +
+        'computed elsewhere. 255 (or any other value outside 0-7) means "no clear direction" (e.g. ' +
+        'a centered joystick) - "default" is used instead whenever that happens, so ' +
+        `${description} still fires (in whichever direction "default" picks) rather than doing ` +
+        `nothing. Every time this block actually runs, it (re)launches ${description} right away, ` +
+        'even if a previous shot is still in flight - resetting its position to whatever X/Y it\'s ' +
+        'given at that moment. Because of that, this should be placed behind its own rate limiter ' +
+        '(e.g. an "every X frames" block) rather than something that stays true every single frame ' +
+        '(like "if Fire then ..." on its own), or it\'ll keep resetting the shot every frame instead ' +
+        'of letting it fly.',
     },
   ]);
 };

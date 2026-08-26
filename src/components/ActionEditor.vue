@@ -71,6 +71,14 @@ import {markRomOutdated} from '../hooks/rom';
 // theme's fontStyle too.
 const APP_BLOCKLY_THEME = Blockly.Theme.defineTheme('app', {
   name: 'app',
+  // Colours stay on Classic (the app's own original palette, per-category
+  // block colours this app has always used) - only the block SHAPE switches
+  // to modern via options.renderer: 'zelos' below. Using Blockly.Themes.Zelos
+  // as the base here instead made every stock block that relies on its own
+  // 3-tone colourPrimary/Secondary/Tertiary style (e.g. controls_if's own
+  // "logic_blocks" style) render solid black - Zelos's own blockStyles
+  // weren't resolving correctly layered under this app's custom theme.
+  // Classic's simpler single-colour block styles don't hit that.
   base: Blockly.Themes.Classic,
   fontStyle: {
     family: 'Inter, sans-serif',
@@ -114,6 +122,12 @@ export default {
         media: 'media/',
         sounds: !muteBlocklySoundsStorage.value,
         theme: APP_BLOCKLY_THEME,
+        // Zelos is Blockly's own "modern" look (rounded blocks, inline
+        // toolbox icons, etc.) - purely a block SHAPE change here, kept
+        // independent of APP_BLOCKLY_THEME's own colours (still Classic's -
+        // see that theme's own comment), which is a valid/supported
+        // combination on Blockly's end.
+        renderer: 'zelos',
         grid: {
           spacing: 25,
           length: 3,

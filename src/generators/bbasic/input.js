@@ -174,23 +174,150 @@ export const registerKeypadPollSubroutine = (Blockly, {useLeft, useRight, leftVa
 // and _music_play_reset as ordinary subroutines already got: a genuine
 // relocatable unit too (see getSubroutineBank), not just fixed in bank 1
 // forever the way this was before.
+// Hand-written 6502 replacement for the bB if/goto version this used to be
+// ("if temp1 < temp2 then goto ... / temp1 = temp1 - temp2 / return / ... /
+// temp1 = temp2 - temp1") - same "@label for a definition, bare name for a
+// reference" convention buildKeypadPollAsm
+// above already established for a subroutine body (which, unlike
+// generators/bbasic/background.js's own commongamelogic-spliced asm blocks,
+// DOES go through generateSubroutineBody's own normalizeIndents() pass -
+// see that function's own comment for exactly why the "@" trick matters
+// here specifically). SEC+SBC's own carry flag afterward already says which
+// operand was bigger (clear = borrowed = temp1 was smaller) - no separate
+// bB-style "if temp1 < temp2" comparison needed first, unlike the bB
+// version, which computes that same answer twice (once as its own explicit
+// "if", a second time implicitly inside whichever subtraction it picked).
 const DISTANCE_ABS_DIFF_NAME = '_distance_abs_diff';
 const registerDistanceAbsDiffSubroutine = (Blockly) => {
   Blockly.BBasic.subroutines[DISTANCE_ABS_DIFF_NAME] = [
-    ' if temp1 < temp2 then goto _distance_abs_diff_neg',
-    ' temp1 = temp1 - temp2',
-    ' return',
-    '_distance_abs_diff_neg',
-    ' temp1 = temp2 - temp1',
+    'asm',
+    'LDA temp1',
+    'SEC',
+    'SBC temp2',
+    'BCS _distance_abs_diff_ok',
+    'LDA temp2',
+    'SEC',
+    'SBC temp1',
+    '@_distance_abs_diff_ok',
+    'STA temp1',
+    'RTS',
+    '@end',
   ].join('\n');
 };
-// "return" is added by generateSubroutines/generateRelocatedSections
-// themselves (see subroutine.js's own comment on why - it's spliced onto
-// every subroutine body automatically, the same way "gosub"'s own bank
-// suffix never appears on the definition side), so the body registered
-// above deliberately doesn't end with one of its own - only the interior
-// early "return" (right after the non-negative branch) is this function's
-// own to add.
+// generateSubroutines/generateRelocatedSections still auto-append a bB
+// "return" right after whatever body they're given (see subroutine.js's own
+// comment on why), same as for every other subroutine - but the RTS above
+// already exits before that point is ever reached, so it's dead code, same
+// as buildKeypadPollAsm's own explicit RTS-before-"@end" above.
+
+// "Joystick N direction (8-way)" (see blocks/input.js) reads this one
+// shared 16-entry table, indexed by up+down*2+left*4+right*8 (every
+// possible up/down/left/right combination), mapping to a 0-7 clockwise-
+// from-Up direction or 255 ("no clear direction" - centered, or a
+// contradictory combination like Up+Down together). Built once, as plain
+// data, rather than an if/elseif chain - a single indexed read is both
+// less generated code AND cheaper at runtime than a 16-way branch chain
+// would be.
+//   index 0  (none)        -> 255   index 8  (right)        -> 2
+//   index 1  (up)          -> 0     index 9  (up+right)     -> 1
+//   index 2  (down)        -> 4     index 10 (down+right)   -> 3
+//   index 3  (up+down)     -> 255   index 11 (invalid)      -> 255
+//   index 4  (left)        -> 6     index 12 (left+right)   -> 255
+//   index 5  (up+left)     -> 7     index 13 (invalid)      -> 255
+//   index 6  (down+left)   -> 5     index 14 (invalid)      -> 255
+//   index 7  (invalid)     -> 255   index 15 (invalid)      -> 255
+const JOY_DIR8_TABLE_VALUES = [255, 0, 4, 255, 6, 7, 5, 255, 2, 1, 3, 255, 255, 255, 255, 255];
+const JOY_DIR8_TABLE_NAME = '_joyDir8Table';
+
+// The getter's own result, recomputed once per frame by
+// generateJoystickDirection8Checks below (same "precompute once into a
+// hidden var, the getter just reads it back" idiom as canonicalDistanceVarName/
+// generateDistanceChecks) rather than indexed inline at the getter's own call
+// site - a real, confirmed build failure ("Unknown Mnemonic 'ldx joy0u'",
+// reproduced from an actual compile) showed this compiler's own "complex
+// statement" handling corrupts a data-table read whose INDEX is itself a
+// compound expression (up + down*2 + left*4 + right*8) - only a single plain
+// variable index compiles correctly (confirmed working precedent:
+// text-scroll.js's own "text_offsets[id]"). So the compound index math is
+// computed into bB's own free scratch register (temp1 - same one
+// generateDistanceChecks already reuses freely, safe here for the same
+// reason: assigned and consumed with nothing else, not even a drawscreen, in
+// between) as its own separate statement first, and the table is indexed by
+// that single variable.
+export const joyDir8ResultVarName = (name) => `_${name}Dir8`;
+
+// Reserves each used joystick's own result dev var - called from bbasic.js's
+// init() with a pre-scanned Set of which joysticks actually have a
+// "direction (8-way)" getter block used anywhere in the project (has to be
+// known before reserveDevVar hands out user variable letters, well before
+// this feature's own generator would otherwise run).
+export const reserveJoystickDirection8DevVars = (reserveDevVar, usedFor) => {
+  if (!usedFor || !usedFor.size) return;
+  usedFor.forEach((name) =>
+    reserveDevVar(joyDir8ResultVarName(name), undefined, 'this joystick\'s own 8-way direction (0-7, or 255)'));
+};
+
+// Spliced into bbasic.bb.hbs right alongside generatedDataTables - a single,
+// fixed bank-1 copy is enough (unlike generateTextOffsetTables' own
+// per-relocated-bank copies): generateJoystickDirection8Checks below (which
+// is the only thing that ever reads this table) is itself always spliced
+// into commongamelogic, which is always bank 1, regardless of which bank any
+// particular "direction (8-way)" getter block's own USE ends up in.
+export const generateJoystickDirection8Table = (Blockly) => {
+  const used = Blockly.BBasic.joyDirection8UsedFor;
+  if (!used || !used.size) return '';
+  return ` data ${JOY_DIR8_TABLE_NAME}\n  ${JOY_DIR8_TABLE_VALUES.join(', ')}\nend`;
+};
+
+// Spliced into commongamelogic right alongside generateDistanceChecks (same
+// region, same "precompute once per frame into a hidden var" reasoning) -
+// one check per joystick that actually has a "direction (8-way)" getter used
+// anywhere in the project.
+//
+// joy0up/joy0down/joy0left/joy0right (and the joy1 equivalents) are only
+// valid in a BOOLEAN/branch context ("if joy0up then ...") - confirmed by a
+// real, reproduced build failure ("Unknown Mnemonic 'lda joy0up'"): they
+// aren't plain readable RAM bytes at all (bB backs them with a BIT test
+// against SWCHA, not a loadable byte), so using one as a numeric operand in
+// an arithmetic expression (this file's own earlier "up + down*2 + left*4 +
+// right*8" attempt) fails outright, regardless of whether that expression
+// sits inline at a table index (the very first version of this) or in its
+// own separate assignment statement (the version right before this one) -
+// neither placement matters, since the operand itself was never valid to
+// begin with. Fixed by building the same 0-15 index with four independent
+// "if joyNxxx then temp1 = temp1 + <bit>" conditionals instead - each one a
+// plain boolean-context read (exactly how every other joystick block in this
+// codebase already reads these) added into temp1 (the same free scratch
+// register generateDistanceChecks already reuses) only when true, with no
+// arithmetic operand ever needing to read one of these directly. No
+// multiplication anywhere either, so this needs no usesDivMul flag, unlike
+// the compound-expression version this replaced.
+export const generateJoystickDirection8Checks = (Blockly) => {
+  const used = Blockly.BBasic.joyDirection8UsedFor;
+  if (!used || !used.size) return '';
+  const resolveSystemVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.VARIABLE_CATEGORY_NAME);
+  const resolveDevVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const lines = [];
+  ['joy0', 'joy1'].forEach((name) => {
+    if (!used.has(name)) return;
+    const up = resolveSystemVar(`${name}up`);
+    const down = resolveSystemVar(`${name}down`);
+    const left = resolveSystemVar(`${name}left`);
+    const right = resolveSystemVar(`${name}right`);
+    const resultVar = resolveDevVar(joyDir8ResultVarName(name));
+    lines.push(
+        ` temp1 = 0`,
+        ` if ${up} then temp1 = temp1 + 1`,
+        ` if ${down} then temp1 = temp1 + 2`,
+        ` if ${left} then temp1 = temp1 + 4`,
+        ` if ${right} then temp1 = temp1 + 8`,
+        ` ${resultVar} = ${JOY_DIR8_TABLE_NAME}[temp1]`,
+    );
+  });
+  return lines.join('\n');
+};
 
 export default (Blockly) => {
   const createGeneratorForJoystick = (name) => {
@@ -203,6 +330,20 @@ export default (Blockly) => {
   };
 
   ['joy0', 'joy1'].forEach(createGeneratorForJoystick);
+
+  // "Joystick N direction (8-way)" - just reads back whatever
+  // generateJoystickDirection8Checks already precomputed into this
+  // joystick's own result dev var this frame (see that function's own
+  // comment for why the actual table lookup can't happen inline here).
+  const createGeneratorForJoystickDirection8 = (name) => {
+    Blockly.BBasic[`input_${name}_direction8`] = function() {
+      const resultVar = Blockly.BBasic.nameDB_.getName(
+          joyDir8ResultVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [resultVar, Blockly.BBasic.ORDER_ATOMIC];
+    };
+  };
+
+  ['joy0', 'joy1'].forEach(createGeneratorForJoystickDirection8);
 
   // "Keypad N: key X is pressed" - a plain equality check against the
   // hidden byte generateKeypadPollAsm's own poll routine writes each frame
@@ -262,7 +403,7 @@ export default (Blockly) => {
   // which object is further along the axis and subtract the smaller from
   // the larger. "if X then A : B" only conditions A, not B, so this can't be
   // collapsed onto fewer lines with a trailing goto - every branch needs its
-  // own line, same as generateSoundFadeChecks.
+  // own line, same as generateEnvelopeChecks.
   //
   // An "asm ... end" block (SEC+SBC's carry flag already says which operand
   // was smaller, so a BCS-guarded EOR/CLC/ADC two's-complement negate can

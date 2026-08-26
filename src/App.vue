@@ -1,12 +1,10 @@
 <template>
   <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText}">
-    <div
-      class="app-logo"
-      :class="{'app-logo-hidden': !drawer, 'app-logo-no-transition': !logoTransitionsEnabled}"
-    >
+    <div class="app-logo">
       <img src="./assets/logo.svg" alt="VCS Game Maker" class="app-logo-img" />
       <div class="app-logo-version">{{ version }}</div>
     </div>
+    <div class="app-logo-divider" />
 
     <v-app-bar
       app
@@ -15,6 +13,7 @@
       height="72"
       color="white"
       class="navigation-list top-toolbar"
+      :class="{'top-toolbar-no-drawer': hideSidebar || !drawer}"
     >
         <v-btn to="/" link text class="actions-item" title="Actions" elevation="0">
           <v-icon>mdi-chart-scatter-plot</v-icon>
@@ -66,6 +65,7 @@
     </v-app-bar>
 
     <v-navigation-drawer
+      v-if="!hideSidebar"
       v-model="drawer"
       app
       clipped
@@ -257,18 +257,18 @@
           Refresh emulator
         </v-btn>
         <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
-        <v-btn
-          block
-          class="mt-2"
-          :color="romOutdated ? 'warning' : 'primary'"
-          :loading="building"
-          @click="handleRomUpdate"
-        >
-          {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
-        </v-btn>
-        <v-btn block color="primary" class="mt-2" @click="handleRomDownload">
-          Get generated ROM
-        </v-btn>
+        <div class="rom-buttons-row mt-2">
+          <v-btn
+            :color="romOutdated ? 'warning' : 'primary'"
+            :loading="building"
+            @click="handleRomUpdate"
+          >
+            {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
+          </v-btn>
+          <v-btn color="primary" :disabled="!hasCompiledRom" @click="handleRomDownload">
+            Save ROM
+          </v-btn>
+        </div>
         <div
           v-if="romCapacityText"
           class="rom-capacity"
@@ -365,8 +365,8 @@
 </template>
 
 <script>
-import {useCompileLog, useErrorStorage, useHideDescriptionTextStorage} from './hooks/project';
-import {buildRom, useRomCapacity, useRomOutdated} from './hooks/rom';
+import {useCompileLog, useErrorStorage, useHideDescriptionTextStorage, useHideSidebarStorage} from './hooks/project';
+import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom} from './hooks/rom';
 import {productName, version} from '../package.json';
 
 // Below this fraction of the bank's usable space remaining, the capacity
@@ -421,16 +421,6 @@ const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KE
 export default {
   data: () => ({
     drawer: null,
-    // Starts false so the logo's own opacity/transform transition (see
-    // .app-logo's own CSS) is suppressed for whatever the FIRST real class
-    // change turns out to be - "drawer" itself starts null, only settling
-    // to its real true/false value once Vuetify's own v-navigation-drawer
-    // resolves its responsive default on mount, which was animating the
-    // logo in on every single page load/refresh, not just on a real
-    // sidebar toggle the user actually triggered. Flipped true shortly
-    // after mount (see mounted() below), once that initial settling has
-    // had a chance to happen.
-    logoTransitionsEnabled: false,
     emulatorWidth: readStoredWidth(),
     emulatorVisible: readStoredEmulatorVisible(),
     emulatorScale: 1,
@@ -445,23 +435,14 @@ export default {
     console.info('Text', version);
     return {
       errorStorage, compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
+      hasCompiledRom: useHasCompiledRom(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
+      hideSidebarStorage: useHideSidebarStorage(),
     };
   },
   mounted() {
     this.attachEmulator();
     window.addEventListener('resize', this.handleWindowResize);
-    // Waits for the DOM to actually paint the drawer's own initial settled
-    // state (Vue's own $nextTick alone only guarantees the DOM has been
-    // patched, not that the browser has painted it yet - a raf after that
-    // is the usual way to wait for the actual paint) before turning the
-    // logo's transition back on, so that initial settling can't itself be
-    // animated - only a real, later toggle the user triggers.
-    this.$nextTick(() => {
-      requestAnimationFrame(() => {
-        this.logoTransitionsEnabled = true;
-      });
-    });
   },
   beforeDestroy() {
     this.stopResize();
@@ -492,6 +473,12 @@ export default {
       // it's already the plain boolean here, not a ref needing its own
       // ".value".
       return !!this.hideDescriptionTextStorage;
+    },
+    // Same auto-unwrapping reasoning as hideDescriptionText just above - see
+    // Configuration.vue's "Never show the left sidebar" switch/
+    // useHideSidebarStorage's own comment in hooks/project.js.
+    hideSidebar() {
+      return !!this.hideSidebarStorage;
     },
     emulatorScaleStyle() {
       return {
@@ -990,16 +977,69 @@ export default {
    track." Firefox has no equivalent for a specific pixel gutter/thumb size
    (only the generic "scrollbar-width: thin/auto/none" keywords), so it only
    gets the color change here, not the exact sizing. */
-/* Vuetify's default v-card corner radius (4px) is only actually visible on
-   an OUTLINED card - a flat card (Options, Score, Generated, Project) has
-   no border tracing that curve, so it reads as square even though the same
-   4px radius is technically still there underneath. Data, Player 0/1, and
-   Background all use outlined cards for each entry, where the rounding IS
-   visible - overridden globally here (rather than adding "tile" to every
-   individual <v-card outlined> across the app) so every outlined card reads
-   consistently square everywhere, present and future, in one place. */
-.v-sheet--outlined {
+/* Vuetify's default outlined-card border (rgba(0, 0, 0, 0.12)) reads as
+   quite faint - darkened a bit here so card edges are easier to pick out
+   from the page background. Targets each tab's own MAIN per-entry card
+   class by name (not a blanket .v-sheet--outlined rule, which is what
+   v-card's own "outlined" prop applies) specifically so this does NOT also
+   darken a sub-frame nested inside one of these - PixelEditor.vue's own
+   outlined card (the sprite/background pixel art canvas, nested inside
+   .animation-card/.background-card) and MusicEditor.vue's own .pattern-card
+   (nested inside .song-card) both stay at Vuetify's default lighter
+   border, since each is a sub-frame within its own main card rather than
+   that main card's own edge. */
+.animation-card,
+.background-card,
+.data-card,
+.soundfx-card,
+.text-card,
+.song-card {
+  border-color: rgba(0, 0, 0, 0.24) !important;
+}
+
+/* Every tab's own main window card shares this exact class name
+   (PlayerEditor/BackgroundEditor/SoundFXEditor/TextEditor/DataEditor.vue,
+   among others) - squared off globally here rather than per-file, so it
+   reads consistently with Options/Music (which use v-card's own "flat"
+   prop, no shadow, so their rounding was never visible either way) and
+   Generated Code (which already squares this exact class off itself, for
+   an unrelated clipping reason - see its own comment - and would otherwise
+   have been the only tab actually SHOWING Vuetify's default rounding,
+   simply because nothing else here had squared it off yet). */
+.editor-container {
   border-radius: 0 !important;
+}
+
+/* Vuetify's own default drawer border (an internal 1px div it renders, not
+   a CSS border property) for both the tool sidebar (.nav-drawer) and the
+   emulator pane (.emulator-drawer) - darkened here to match the same
+   .v-sheet--outlined border color above rather than Vuetify's default
+   rgba(0, 0, 0, 0.12). Both drawers share this exact class, so one rule
+   covers both dividers. Has to live in this unscoped <style> block, not
+   the <style scoped> block below (where every other App.vue rule targeting
+   Vuetify's own drawer classes lives) - this particular div is rendered by
+   Vuetify's own internal render function rather than this component's
+   template, so it never receives this component's scope attribute, and a
+   scoped version of this exact rule silently never matched it at all. */
+.v-navigation-drawer__border {
+  background-color: rgba(0, 0, 0, 0.24) !important;
+}
+
+/* Vuetify assigns v-menu/v-dialog overlay content its own z-index
+   dynamically at open time (computed from whatever's already on the page,
+   not a fixed CSS value - there's nothing to override in its own
+   stylesheet), and that computed value routinely lands below this app's
+   own chrome-level z-index: 20 rules (.emulator-resize-handle,
+   .error-resize-handle's own z-index: 2 sits inside .error-message's
+   z-index: 10 stacking context, .emulator-hide-button, etc - see their own
+   comments). Confirmed as a real bug: the sidebar/console drag handles
+   rendered on top of popup menus (e.g. a sound effect's delete
+   confirmation) instead of under them. Pushed well above every one of
+   those instead of tuning each one down, so no future chrome-level z-index
+   added here needs to keep this in mind too. */
+.v-menu__content,
+.v-dialog__content {
+  z-index: 30 !important;
 }
 
 * {
@@ -1188,6 +1228,17 @@ html {
   display: none;
 }
 
+/* Vuetify gives every ".v-messages" wrapper its own 14px min-height
+   regardless of whether a message is actually rendered inside it (reserved
+   so a validation error popping in/out doesn't shift surrounding layout) -
+   hiding just the text above still left that empty 14px box behind, so
+   fields/switches whose own spacing (e.g. Configuration.vue's
+   ".option-switch + .option-switch"/".pfres-field" rules) assumes the hint
+   text is fully gone still sat farther apart than intended. */
+.hide-description-text .v-messages {
+  min-height: 0;
+}
+
 #javatari-target-container {
   overflow: hidden;
   /* This sits inside .emulator-drawer-inner's flex column, at a fixed
@@ -1301,7 +1352,80 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    directly (computed style showed this border rendering solid white,
    invisible against the toolbar's own white background) rather than assumed. */
 .top-toolbar {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12) !important;
+  /* Matches the darkened .v-sheet--outlined card border color (see its own
+     comment) rather than Vuetify's default rgba(0, 0, 0, 0.12). */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.24) !important;
+  /* Vuetify's own .v-app-bar base styles already transition left/right/
+     width/max-width/transform (its own built-in slide when $vuetify.
+     application.left changes, e.g. when a drawer opens/closes) - removing
+     the drawer element entirely via v-if (see "Never show the left
+     sidebar") changes that same tracked value, so the toolbar visibly
+     animated into place even after removing this rule's OWN
+     padding-left transition (confirmed directly - the animation was
+     Vuetify's own, not this file's). !important overrides Vuetify's own
+     class-level transition declaration. */
+  transition: none !important;
+}
+
+/* Vuetify's own default v-btn sizing (min-width: 64px, 0 16px padding) is
+   meant for a TEXT button - applied here to plain icon-only buttons (no
+   "icon" prop, since these need to stay clickable/keyboard-focusable
+   v-btn-with-text, not the smaller round "icon" button variant elsewhere
+   in this app), it leaves each one a 64x36 rectangle around a ~24px icon,
+   which reads as an odd wide rectangle on hover/focus instead of a square
+   matching the icon's own proportions. min-width dropped to the same 36px
+   as the button's own (unchanged) 36px height, padding dropped to just
+   enough to keep the icon centered, so the hover/focus overlay itself
+   comes out square. margin adds explicit breathing room back between
+   buttons now that min-width no longer does that as a side effect - kept
+   separate from the sizing above so the hover/focus square itself
+   (36x36) stays exactly that size regardless of how far apart the
+   buttons themselves sit. */
+.top-toolbar .v-btn {
+  min-width: 36px !important;
+  padding: 0 6px !important;
+  margin: 0 4px !important;
+}
+
+/* v-app-bar's own "app" positioning normally sets its own inline "left"
+   style past the drawer's own width automatically, via Vuetify's shared
+   $vuetify.application.left tracking - which only accounts for space an
+   ACTUALLY PRESENT drawer reserves. Whenever the drawer isn't there to
+   reserve it (removed entirely via v-if - see "Never show the left
+   sidebar" in Configuration.vue - or just transiently closed, e.g. on a
+   narrow viewport), Vuetify sets that inline style to "left: 0px" instead,
+   which would otherwise slide the toolbar all the way to x: 0 and sit
+   directly underneath .app-logo, which is always shown (fixed position,
+   not part of this same "app" system) regardless of whether the drawer
+   itself is currently there - confirmed directly as a real visual overlap
+   once "Never show the left sidebar" first shipped.
+   200px (not padding, and not a smaller value like .app-logo's own
+   184+8=192px reserved area) specifically to exactly match Vuetify's own
+   inline "left: 200px" from the normal (drawer present) case - confirmed
+   directly via computed style in both states. An earlier version of this
+   used "padding-left: 192px" instead, which looked superficially similar
+   but actually left two real, confirmed mismatches against the normal
+   case: the toolbar's own box (so its white background/bottom border)
+   still started at x: 0 instead of x: 200 like normal, and its first
+   icon landed 8px further left (208px vs the normal case's 216px) since
+   192 + Vuetify's own 16px internal toolbar padding undershoots the
+   normal case's real 200 + 16. Overriding "left" directly instead makes
+   both the box geometry and the icon position match the normal case
+   exactly, not just approximately.
+   !important is required to win over Vuetify's own inline "left: 0px" -
+   inline styles normally beat stylesheet rules, but never one marked
+   !important.
+   The template's own condition is "hideSidebar || !drawer", not just
+   "!drawer" alone - confirmed directly as a second real overlap bug:
+   toggling "Never show the left sidebar" on while the drawer happened to
+   be open removes the drawer element via v-if without ever flipping its
+   own v-model (drawer) back to false first (nothing in Vue does this
+   automatically for an element that unmounts out from under a v-model
+   binding), so "drawer" itself stays stuck at its last real value. Checking
+   hideSidebar explicitly covers exactly that case, regardless of whatever
+   stale value "drawer" is left holding. */
+.top-toolbar-no-drawer {
+  left: 200px !important;
 }
 
 /* Sits in the empty top-left corner: to the left of .top-toolbar (which
@@ -1321,20 +1445,6 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   justify-content: center;
   z-index: 20;
   pointer-events: none;
-  opacity: 1;
-  transform: translateX(0);
-  /* Matches the drawer's own 200ms slide transition (see .nav-drawer's
-     comment below) so the logo fades/slides out in step with the sidebar
-     collapsing, instead of just popping in/out with it. */
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-/* Suppresses the transition above for the drawer's own initial settling on
-   page load (see logoTransitionsEnabled's own comment in data()) - the
-   logo should just appear (or not) in its correct starting state
-   instantly, not animate in every time the page refreshes. */
-.app-logo-no-transition {
-  transition: none;
 }
 
 .app-logo-img {
@@ -1352,9 +1462,28 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   line-height: 1;
 }
 
-.app-logo-hidden {
-  opacity: 0;
-  transform: translateX(-16px);
+/* .app-logo's own divider, independent of the drawer's own border-top
+   below (which only actually renders on-screen while the drawer itself is
+   both present AND open) - confirmed directly as a real gap: the drawer is
+   translated off-screen (not just closed) below Vuetify's own responsive
+   mobile-breakpoint regardless of "Never show the left sidebar", and
+   removed from the DOM entirely when that setting IS on, so relying on
+   the drawer's own border for this was never reliably visible under the
+   logo to begin with. Same width/x-position .top-toolbar-no-drawer's own
+   "left: 200px" override reserves, same color/thickness as every other
+   divider in this file, positioned to align with .top-toolbar's own
+   border-bottom (72px tall app-bar) regardless of whether that specific
+   border is currently sitting at x: 200 (drawer present) or x: 0 (not) -
+   this one never moves either way. */
+.app-logo-divider {
+  position: fixed;
+  top: 71px;
+  left: 0;
+  width: 200px;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.24);
+  z-index: 21;
+  pointer-events: none;
 }
 
 /* Same divider, same color, on the sidebar's own top edge - now that the
@@ -1371,7 +1500,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    in CSS px, not real device px. */
 .nav-drawer {
   margin-top: -1px;
-  border-top: 1px solid rgba(0, 0, 0, 0.12) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.24) !important;
 }
 
 /* Vuetify offsets the main content with an animated padding matching the
@@ -1584,6 +1713,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
      and a negative margin there risks that measurement disagreeing with
      what's actually laid out, for a fix this small. */
   padding: 0 8px;
+}
+
+/* "Update ROM"/"Get generated ROM" side by side in one row (used to each be
+   a separate "block" full-width v-btn, stacked) - each sized to its own
+   label's natural width (not stretched to fill/split the row) and the pair
+   centered as a group. */
+.rom-buttons-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 
 /* Same reasoning as .emulator-drawer-inner above: the error console footer
@@ -1824,7 +1963,9 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   right: 0;
   bottom: 0;
   z-index: 10;
-  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  /* Matches the darkened .v-sheet--outlined card border color (see its own
+     comment) rather than Vuetify's default rgba(0, 0, 0, 0.12). */
+  border-top: 1px solid rgba(0, 0, 0, 0.24);
 }
 
 .theme--light.v-footer.error-message {

@@ -150,48 +150,169 @@
                       @change="() => handleAudcChange(soundEffect)"
                       class="soundfx-audc"
                     />
-                    <v-select
-                      v-if="audcHasTunableNotes(soundEffect.audc)"
-                      label="Frequency"
-                      title="Limited to the AUDF values that play a clean, in-tune note on this sound type - same set the piano roll allows on the Music tab."
-                      v-model.number="soundEffect.audf"
-                      :items="frequencyItems(soundEffect.audc)"
-                      @change="handleChildChange"
-                      class="soundfx-number"
-                    />
-                    <v-text-field
-                      v-else
-                      label="Frequency"
-                      v-model.number="soundEffect.audf"
-                      type="number"
-                      min="0"
-                      max="31"
-                      @change="handleChildChange"
-                      class="soundfx-number"
-                    />
-                    <v-text-field
-                      label="Volume"
-                      v-model.number="soundEffect.audv"
-                      type="number"
-                      min="0"
-                      max="15"
-                      @change="handleChildChange"
-                      class="soundfx-number"
-                    />
-                    <v-text-field
-                      label="Duration"
-                      v-model.number="soundEffect.duration"
-                      type="number"
-                      min="0"
-                      @change="handleChildChange"
-                      class="soundfx-number"
-                    />
-                    <!-- Fade and Arpeggio are both temporarily hidden here
-                    (not removed - see processSoundEffectsStorageDefaults'
-                    own comment in blocks/soundfx.js, which forces both off
-                    everywhere regardless of this UI): each one's generated
-                    per-channel dispatch code could grow large enough to blow
-                    ROM capacity on some projects. -->
+                    <div class="soundfx-basic-fields-row">
+                      <v-select
+                        v-if="audcHasTunableNotes(soundEffect.audc)"
+                        label="Frequency"
+                        title="Limited to the AUDF values that play a clean, in-tune note on this sound type - same set the piano roll allows on the Music tab."
+                        v-model.number="soundEffect.audf"
+                        :items="frequencyItems(soundEffect.audc)"
+                        @change="handleChildChange"
+                        class="soundfx-frequency"
+                      />
+                      <v-text-field
+                        v-else
+                        label="Frequency"
+                        v-model.number="soundEffect.audf"
+                        type="number"
+                        min="0"
+                        max="31"
+                        @change="handleChildChange"
+                        class="soundfx-frequency"
+                      />
+                      <v-text-field
+                        label="Volume"
+                        v-model.number="soundEffect.audv"
+                        type="number"
+                        min="0"
+                        max="15"
+                        @change="handleChildChange"
+                        class="soundfx-number"
+                      />
+                      <v-text-field
+                        label="Duration"
+                        v-model.number="soundEffect.duration"
+                        type="number"
+                        min="0"
+                        @change="handleChildChange"
+                        class="soundfx-number"
+                      />
+                    </div>
+                    <div class="soundfx-arpeggio-block"
+                      :class="{'soundfx-arpeggio-block--expanded': soundEffect.arpeggio}"
+                    >
+                      <v-switch
+                        v-model="soundEffect.arpeggio"
+                        label="Arpeggio"
+                        title="Always on for every note played with this instrument on the Music tab - rapidly flips between the note's own pitch and a second nearby pitch (set below) to fake a chord."
+                        hide-details
+                        class="soundfx-arpeggio-switch"
+                        @change="handleChildChange"
+                      />
+                      <template v-if="soundEffect.arpeggio">
+                        <v-select
+                          label="Speed"
+                          title="How often it flips pitch, relative to the song/pattern's own tempo - speeds up and slows down with the song."
+                          v-model="soundEffect.arpeggioDivision"
+                          :items="arpeggioDivisionOptionItems"
+                          @change="handleChildChange"
+                          class="soundfx-number"
+                        />
+                        <v-text-field
+                          label="Interval"
+                          title="Fixed pitch jump between the note's own pitch and the second alternating pitch."
+                          v-model.number="soundEffect.arpeggioInterval"
+                          type="number"
+                          :min="MIN_ARPEGGIO_INTERVAL"
+                          :max="MAX_ARPEGGIO_INTERVAL"
+                          @change="handleChildChange"
+                          class="soundfx-number"
+                        />
+                        <v-select
+                          label="Range"
+                          title="1 OCT: cycles only between the note's own pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
+                          v-model="soundEffect.arpeggioRange"
+                          :items="arpeggioRangeOptionItems"
+                          @change="handleChildChange"
+                          class="soundfx-frequency"
+                        />
+                      </template>
+                    </div>
+                    <div class="soundfx-envelope-block">
+                      <v-switch
+                        v-model="soundEffect.envelope"
+                        label="Envelope"
+                        title="Shapes this sound's own volume over time (Attack/Decay/Sustain/Release), instead of playing at a fixed volume until it ends. Applies both here and when this preset is used as a Music tab instrument."
+                        hide-details
+                        class="soundfx-envelope-switch"
+                        @change="handleChildChange"
+                      />
+                      <template v-if="soundEffect.envelope">
+                        <v-select
+                          label="Attack"
+                          title="Frames to ramp up from silence to full volume."
+                          v-model="soundEffect.envelopeAttack"
+                          :items="envelopeStageFrameOptionItems"
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Decay"
+                          title="Frames to ramp down from full volume to the Sustain level."
+                          v-model="soundEffect.envelopeDecay"
+                          :items="envelopeStageFrameOptionItems"
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Sustain"
+                          title="The volume level (percent of full volume) held after Attack/Decay, until Release begins."
+                          v-model="soundEffect.envelopeSustain"
+                          :items="envelopeSustainPercentOptionItems"
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Release"
+                          title="Frames to ramp down from the Sustain level to silence, ending exactly when the sound ends."
+                          v-model="soundEffect.envelopeRelease"
+                          :items="envelopeStageFrameOptionItems"
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <div class="soundfx-envelope-graph-toolbar">
+                          <v-btn
+                            icon
+                            small
+                            title="Reset envelope to default"
+                            class="soundfx-stop-btn soundfx-icon-btn-size"
+                            @click="() => handleResetEnvelope(soundEffect)"
+                          >
+                            <v-icon small>mdi-restore</v-icon>
+                          </v-btn>
+                          <v-btn
+                            icon
+                            small
+                            title="Undo"
+                            class="soundfx-stop-btn soundfx-icon-btn-size"
+                            :disabled="!canUndoEnvelope(soundEffect)"
+                            @click="() => handleUndoEnvelope(soundEffect)"
+                          >
+                            <v-icon small>mdi-undo</v-icon>
+                          </v-btn>
+                          <v-btn
+                            icon
+                            small
+                            title="Redo"
+                            class="soundfx-stop-btn soundfx-icon-btn-size"
+                            :disabled="!canRedoEnvelope(soundEffect)"
+                            @click="() => handleRedoEnvelope(soundEffect)"
+                          >
+                            <v-icon small>mdi-redo</v-icon>
+                          </v-btn>
+                        </div>
+                        <EnvelopeGraph
+                          :attack="soundEffect.envelopeAttack"
+                          :decay="soundEffect.envelopeDecay"
+                          :sustain-percent="soundEffect.envelopeSustain"
+                          :release="soundEffect.envelopeRelease"
+                          @update:attack="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeAttack', value)"
+                          @update:decay="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeDecay', value)"
+                          @update:sustainPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeSustain', value)"
+                          @update:release="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeRelease', value)"
+                        />
+                      </template>
+                    </div>
                   </div>
                 </v-card-text>
 
@@ -270,7 +391,8 @@ import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
   DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
   MAX_ARPEGGIO_INTERVAL, DEFAULT_ARPEGGIO_RANGE, ARPEGGIO_RANGE_OPTIONS,
-  FADE_LENGTH_OPTIONS} from '../blocks/soundfx';
+  ENVELOPE_STAGE_FRAME_OPTIONS, ENVELOPE_SUSTAIN_PERCENT_OPTIONS, DEFAULT_ENVELOPE_ATTACK,
+  DEFAULT_ENVELOPE_DECAY, DEFAULT_ENVELOPE_SUSTAIN_PERCENT, DEFAULT_ENVELOPE_RELEASE} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
@@ -278,9 +400,10 @@ import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview
 import {autoInstrumentColor} from '../utils/instrument-colors';
 import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
+import EnvelopeGraph from '../components/EnvelopeGraph.vue';
 
 export default defineComponent({
-  components: {ColorSwatchPicker},
+  components: {ColorSwatchPicker, EnvelopeGraph},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     // App-wide preference, not part of this project's own saved
@@ -319,6 +442,91 @@ export default defineComponent({
 
     const handleChildChange = () => {
       state.value = state.value;
+    };
+
+    // EnvelopeGraph.vue emits "update:<field>" events (dragging a handle,
+    // snapped to the same option set the dropdowns use - see its own
+    // snapTo) rather than v-modeling the whole envelope shape as one
+    // object, so dragging and picking from a dropdown both just set one
+    // field on soundEffect and go through this exact same save path.
+    const handleEnvelopeGraphChange = (soundEffect, field, value) => {
+      soundEffect[field] = value;
+      handleChildChange();
+    };
+
+    // Undo/redo for just the envelope shape (Attack/Decay/Sustain/Release),
+    // one stack pair per sound effect id - same shape as MusicEditor.vue's
+    // own pattern undo/redo (patternUndoStacks/patternRedoStacks/
+    // patternLastSnapshot), scoped down to just these 4 fields rather than
+    // a whole sound effect's every field, since dragging the envelope graph
+    // is the one interaction here fiddly enough to want stepping back
+    // through.
+    const ENVELOPE_HISTORY_KEYS = ['envelopeAttack', 'envelopeDecay', 'envelopeSustain', 'envelopeRelease'];
+    const snapshotEnvelope = (soundEffect) => JSON.stringify(
+        ENVELOPE_HISTORY_KEYS.reduce((acc, key) => {
+          acc[key] = soundEffect[key]; return acc;
+        }, {}));
+    const envelopeUndoStacks = ref({});
+    const envelopeRedoStacks = ref({});
+    const envelopeLastSnapshot = {};
+    state.value.soundEffects.forEach((soundEffect) => {
+      envelopeLastSnapshot[soundEffect.id] = snapshotEnvelope(soundEffect);
+    });
+    let envelopeHistoryDebounce = null;
+    watch(() => state.value.soundEffects, () => {
+      clearTimeout(envelopeHistoryDebounce);
+      envelopeHistoryDebounce = setTimeout(() => {
+        state.value.soundEffects.forEach((soundEffect) => {
+          const snapshot = snapshotEnvelope(soundEffect);
+          const last = envelopeLastSnapshot[soundEffect.id];
+          if (last !== undefined && last !== snapshot) {
+            const stack = envelopeUndoStacks.value[soundEffect.id] || [];
+            envelopeUndoStacks.value = {...envelopeUndoStacks.value, [soundEffect.id]: [...stack, last]};
+            if ((envelopeRedoStacks.value[soundEffect.id] || []).length) {
+              envelopeRedoStacks.value = {...envelopeRedoStacks.value, [soundEffect.id]: []};
+            }
+          }
+          envelopeLastSnapshot[soundEffect.id] = snapshot;
+        });
+      }, 500);
+    }, {deep: true});
+
+    const applyEnvelopeSnapshot = (soundEffect, snapshotJson) => {
+      const data = JSON.parse(snapshotJson);
+      ENVELOPE_HISTORY_KEYS.forEach((key) => {
+        soundEffect[key] = data[key];
+      });
+      // Written directly (not through the watcher above) so restoring a
+      // snapshot is never itself mistaken for a new edit worth recording.
+      envelopeLastSnapshot[soundEffect.id] = snapshotJson;
+      handleChildChange();
+    };
+    const canUndoEnvelope = (soundEffect) => (envelopeUndoStacks.value[soundEffect.id] || []).length > 0;
+    const canRedoEnvelope = (soundEffect) => (envelopeRedoStacks.value[soundEffect.id] || []).length > 0;
+    const handleUndoEnvelope = (soundEffect) => {
+      const stack = envelopeUndoStacks.value[soundEffect.id] || [];
+      if (!stack.length) return;
+      const redoStack = envelopeRedoStacks.value[soundEffect.id] || [];
+      envelopeRedoStacks.value = {...envelopeRedoStacks.value,
+        [soundEffect.id]: [...redoStack, snapshotEnvelope(soundEffect)]};
+      envelopeUndoStacks.value = {...envelopeUndoStacks.value, [soundEffect.id]: stack.slice(0, -1)};
+      applyEnvelopeSnapshot(soundEffect, stack[stack.length - 1]);
+    };
+    const handleRedoEnvelope = (soundEffect) => {
+      const stack = envelopeRedoStacks.value[soundEffect.id] || [];
+      if (!stack.length) return;
+      const undoStack = envelopeUndoStacks.value[soundEffect.id] || [];
+      envelopeUndoStacks.value = {...envelopeUndoStacks.value,
+        [soundEffect.id]: [...undoStack, snapshotEnvelope(soundEffect)]};
+      envelopeRedoStacks.value = {...envelopeRedoStacks.value, [soundEffect.id]: stack.slice(0, -1)};
+      applyEnvelopeSnapshot(soundEffect, stack[stack.length - 1]);
+    };
+    const handleResetEnvelope = (soundEffect) => {
+      soundEffect.envelopeAttack = DEFAULT_ENVELOPE_ATTACK;
+      soundEffect.envelopeDecay = DEFAULT_ENVELOPE_DECAY;
+      soundEffect.envelopeSustain = DEFAULT_ENVELOPE_SUSTAIN_PERCENT;
+      soundEffect.envelopeRelease = DEFAULT_ENVELOPE_RELEASE;
+      handleChildChange();
     };
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('soundfx');
@@ -371,7 +579,11 @@ export default defineComponent({
         audf: 16,
         audv: 15,
         duration: 5,
-        fade: false,
+        envelope: false,
+        envelopeAttack: DEFAULT_ENVELOPE_ATTACK,
+        envelopeDecay: DEFAULT_ENVELOPE_DECAY,
+        envelopeSustain: DEFAULT_ENVELOPE_SUSTAIN_PERCENT,
+        envelopeRelease: DEFAULT_ENVELOPE_RELEASE,
         arpeggio: false,
         arpeggioDivision: DEFAULT_ARPEGGIO_DIVISION,
         arpeggioInterval: DEFAULT_ARPEGGIO_INTERVAL,
@@ -494,6 +706,7 @@ export default defineComponent({
     return {
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
       handleExportSoundEffect, handleImportSoundEffect,
+      canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, handleResetEnvelope,
       handleStopPreview, handleSetSoundEffectColor, handleToggleInstrument, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, handleAudcChange,
@@ -502,7 +715,9 @@ export default defineComponent({
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
-      fadeLengthOptionItems: FADE_LENGTH_OPTIONS.map((value) => ({text: `${value} frames`, value})),
+      envelopeStageFrameOptionItems: ENVELOPE_STAGE_FRAME_OPTIONS.map((value) => ({text: `${value} frames`, value})),
+      envelopeSustainPercentOptionItems: ENVELOPE_SUSTAIN_PERCENT_OPTIONS.map((value) => ({text: `${value}%`, value})),
+      handleEnvelopeGraphChange,
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
@@ -518,38 +733,32 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default left padding stacks on top of v-card-text's,
-   pushing the sound effect card in further than the Score tab's, which sits
-   directly in a v-card-text with no list-item wrapper. */
+/* v-list-item's own default left/right padding (16px each side) stacks on
+   top of v-card-text's, pushing the sound effect card in from both edges
+   instead of it actually filling the full available width - confirmed as
+   the source of a visible gap past the card's own right edge, same fix as
+   PlayerEditor.vue's own identical .entry-list-item rule. */
 .entry-list-item {
   padding-left: 0;
+  padding-right: 0;
 }
 
-/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
-   .background-list/.entry-list-item rules - v-list-item__content's default
-   12px top/bottom padding was adding extra space between cards beyond
-   anything explicitly set (there was no explicit gap here at all before),
-   so this tab's own card spacing didn't match the Background tab's.
-   flex+gap plays the role .background-list's own CSS grid gap does (this
-   tab stays single-column); margin-top puts back the space above the FIRST
-   card that zeroing v-list-item__content's own padding would otherwise
-   have also removed. */
-/* Same reasoning as TextEditor.vue's own .text-list - grid instead of the
-   v-list's default single-column stacking, so multiple cards fit side by
-   side on a wide enough window instead of every one wasting most of a full
-   row's own width. 360px (wider than .text-list's 280px) accounts for
-   .soundfx-card's own Sound type/Frequency/Volume/Duration row, which needs
-   more horizontal room than a text card's single message field. */
+/* Single column, full width - matches PlayerEditor.vue's own .animation-list
+   (flex column) rather than a multi-column grid, so every card spans the
+   full available width instead of 2+ narrower cards sitting side by side.
+   gap: 0 matches PlayerEditor.vue's own .pixel-editor-parent-container
+   spacing (plain adjacent inline-block frames, no gap of their own). */
 .soundfx-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  display: flex;
+  flex-direction: column;
+  /* Matches PlayerEditor.vue's own .animation-list gap (its top-level entry
+     list - the more apt comparison now that .soundfx-list is single-column
+     top-level entries too, not a grid of cards sitting side by side like a
+     single entry's own frame sub-cards do) - 0 read as too cramped between
+     entire cards, even though it matched .pixel-editor-parent-container's
+     own frame-to-frame spacing fine. */
   gap: 8px;
   margin-top: 12px;
-  /* Grid items stretch to fill their row's height by default - a collapsed
-     card next to an expanded one in the same row would otherwise stretch
-     tall to match it, instead of sitting flush at the top like its card
-     content actually sizes to. */
-  align-items: start;
 }
 
 .entry-list-item >>> .v-list-item__content {
@@ -602,10 +811,18 @@ export default defineComponent({
   margin-top: 8px;
 }
 
+/* No max-width (used to cap at 640px, back when .soundfx-list was a
+   multi-column grid and a capped width kept a card from stretching to fill
+   an entire wide grid column on its own) - .soundfx-list is a single,
+   full-width column now (matching PlayerEditor.vue's own .animation-list),
+   so this can just fill 100% of it like every other tab's own main card. */
+/* No max-width (used to cap at 640px) - that was capping each card well
+   short of its own 1fr share of .soundfx-list's grid row on a wide window,
+   leaving unused space to its right instead of the card actually filling
+   the full width its own grid column allotted it. */
 .soundfx-card {
   position: relative;
   width: 100%;
-  max-width: 640px;
 }
 
 /* Same reasoning/placement as TextEditor.vue's identical .text-drag-handle
@@ -810,16 +1027,35 @@ export default defineComponent({
   display: flex;
   justify-content: flex-end;
   padding-top: 0;
+  /* Vuetify's v-card-text default padding-bottom (16px) left too much empty
+     space below the last field row, especially once Arpeggio's own stacked
+     controls made that row taller - shrunk to a small amount instead of
+     zeroed, so the Delete button itself (rendered here whenever there's
+     more than one sound effect) still has a little clearance from the
+     card's own bottom edge rather than sitting flush against it. */
+  padding-bottom: 8px;
+  /* Matches .soundfx-toolbar-top-right's own "right: 8px" (the Play
+     button's own horizontal position) - v-card-text's default 16px right
+     padding put this 8px further left than that, so Delete and Play didn't
+     line up vertically despite both being right-aligned. */
+  padding-right: 8px;
 }
 
 .soundfx-delete-btn {
   box-shadow: none !important;
 }
 
+/* row-gap 4px (not the same 8px as column-gap) to match the gap above this
+   section, between the Sound name row and this one (soundfx-name-section's
+   own padding-bottom: 0 / soundfx-fields-section's own padding-top: 0) -
+   without splitting it out, the plain 8px shorthand made a wrapped row
+   within this section sit visibly farther from its neighbor above/below
+   than the Sound name row sits from Sound type. */
 .soundfx-fields {
   display: flex;
   align-items: center;
-  gap: 8px;
+  row-gap: 0;
+  column-gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -828,24 +1064,123 @@ export default defineComponent({
   min-width: 220px;
 }
 
+/* Own row, own nested flex container (rather than Frequency/Volume/Duration
+   being flat siblings of Sound type in the shared .soundfx-fields wrap) -
+   forces Sound type onto its own line and keeps these 3 always together as
+   one row, instead of the exact wrapping being at the mercy of whatever
+   width happens to be left over after Sound type on a given card width
+   (confirmed as a real problem: at some widths Frequency wrapped next to
+   Sound type while Volume/Duration split onto their own row instead). */
+.soundfx-basic-fields-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
 .soundfx-number {
   flex: 0 0 90px;
 }
 
-/* Same margin-top override as SoundFXEditor's own .dim-switch - Vuetify's
-   selection-control margin-top (meant for stacking below other fields)
-   otherwise pushes this out of line with the text fields next to it. */
-.soundfx-fade,
-.soundfx-arpeggio {
-  flex: 0 0 auto;
-  margin-top: 0 !important;
+/* Unlike Arpeggio's own row (2 fixed-width fields plus one growing Range
+   field to soak up the rest), Envelope's 4 fields are all the same kind of
+   control (a small option dropdown) with no natural single field to grow -
+   so all 4 grow evenly together instead, filling the same full row width
+   Arpeggio's row already does rather than leaving empty space after
+   Release. */
+.soundfx-envelope-field {
+  flex: 1 1 90px;
 }
 
-/* These sit right after the Arpeggio checkbox, which has its own margin-top
-   zeroed out above - without a matching nudge here, the fields read as
-   sitting a little higher than the checkbox's own label/input baseline. */
-.soundfx-arpeggio-field {
+/* Wider than .soundfx-number's fixed 90px (Frequency's own options - a
+   v-select of note names, or a plain 0-31 number field - read better with
+   more room than Volume/Duration's plain 2-digit numbers need), but still
+   sized to fit alongside both of them on the same row within the card's own
+   ~350px width, rather than growing enough to wrap them onto their own
+   separate row. */
+.soundfx-frequency {
+  flex: 1 1 140px;
+  min-width: 110px;
+}
+
+/* Each switch and its own conditional field(s) sit in one row (wrapping onto
+   a second line if the card isn't wide enough), rather than the fields
+   stacking in their own row underneath the switch. */
+.soundfx-arpeggio-block, .soundfx-envelope-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+/* .soundfx-fields' own row-gap is 0 (see its own comment), so with
+   Arpeggio's controls collapsed (just its own switch row) there'd otherwise
+   be no visible separation at all between the Arpeggio and Envelope
+   switches - they'd read as one run-on row. Only needed when Arpeggio's
+   own extra controls AREN'T also adding their own visual separation
+   underneath it. */
+.soundfx-envelope-block {
+  margin-top: 8px;
+}
+
+.hide-description-text .soundfx-envelope-block {
+  margin-top: 12px;
+}
+
+/* Arpeggio's own expanded fields already add their own visual separation
+   above Envelope (see the un-scoped rule above's own comment, written for
+   the collapsed case) - the same margin-top on top of THAT read as too
+   much. */
+.soundfx-arpeggio-block--expanded + .soundfx-envelope-block {
   margin-top: 4px;
+}
+
+.hide-description-text .soundfx-arpeggio-block--expanded + .soundfx-envelope-block {
+  margin-top: 4px;
+}
+
+/* Full width so it forces its own line above the graph, same "100%-width
+   flex child forces a line break" mechanism .envelope-graph itself relies
+   on within this same wrapping row. */
+.soundfx-envelope-graph-toolbar {
+  display: flex;
+  width: 100%;
+  gap: 4px;
+}
+
+/* Same margin-top override as SoundFXEditor's own .dim-switch - Vuetify's
+   selection-control margin-top (meant for stacking below other fields)
+   otherwise pushes this out of line with the dropdowns next to it. Also
+   zeroes its own 4px padding-top (a v-switch default, unlike the plain
+   text fields/selects elsewhere in this card) so this row sits a few
+   pixels closer to the row above it, matching their spacing more closely. */
+.soundfx-arpeggio-switch, .soundfx-envelope-switch {
+  flex: 0 0 auto;
+  margin-top: -4px !important;
+  padding-top: 0 !important;
+}
+
+/* Extra breathing room between each switch's own label text and the field(s)
+   right next to it - the shared 8px row gap (also used between Speed/
+   Interval/Range themselves) read as too tight specifically here, where a
+   switch's label text sits right up against its own edge. */
+.soundfx-arpeggio-switch, .soundfx-envelope-switch {
+  margin-right: 12px !important;
+}
+
+.soundfx-arpeggio-btn.soundfx-arpeggio-btn-active >>> .v-icon {
+  color: #1976d2 !important;
+}
+
+/* Grows (unlike .soundfx-number's fixed 90px, used for Volume/Duration
+   above) to fill the full width of .soundfx-arpeggio-controls' own row -
+   these 3 fields have nothing else sharing that row with them, so there's
+   no reason to leave the rest of the card's width empty next to them. */
+.soundfx-arpeggio-field {
+  flex: 1 1 0;
+  min-width: 90px;
 }
 
 .add-soundfx-buttom {

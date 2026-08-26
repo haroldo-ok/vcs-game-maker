@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat class="editor-container">
-      <v-card-title>Music (alpha 0.3)</v-card-title>
+      <v-card-title>Music (alpha 0.35)</v-card-title>
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
         This feature is in early alpha. Things may change or break. In fact, it's guaranteed. You've been warned!
       </v-alert>
@@ -779,7 +779,8 @@ import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {useMusicEditorActiveState} from '../hooks/music-editor-state';
 import {useDimSoundFxPercentStorage, useDimSoundFxStorage, useSongsStorage,
-  useSoundEffectsStorage} from '../hooks/project';
+  useSoundEffectsStorage, loadMutedMusicTrackIds, loadSoloedMusicTrackIds, MUTED_MUSIC_TRACKS_KEY,
+  SOLOED_MUSIC_TRACKS_KEY, isMusicTrackMuted} from '../hooks/project';
 import {
   clampTempo, DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
   LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_TEMPO, normalizeSequenceGroups, PATTERN_STEP_OPTIONS,
@@ -803,37 +804,13 @@ import {autoInstrumentColor, instrumentColorFor, isLightColor,
 const PIANO_ROLL_ZOOM_KEY = 'vcs-game-maker.zoom.music-piano-roll';
 const clampPianoRollZoom = (value) => (Number.isFinite(value) ? Math.min(16, Math.max(0.25, value)) : 1);
 
-// Which instrument rows are muted for pattern/song preview playback - a view
-// preference (see mutedTrackIds below), but one that should survive
-// navigating away to another tab and back, not just reset silently. Same
-// localStorage-backed shape as PIANO_ROLL_ZOOM_KEY above.
-const MUTED_TRACKS_KEY = 'vcs-game-maker.muted.music-tracks';
-const loadMutedTrackIds = () => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(MUTED_TRACKS_KEY));
-    return (stored && typeof stored === 'object') ? stored : {};
-  } catch (e) {
-    return {};
-  }
-};
-
-// Which instrument rows are soloed - same "view preference, survives
-// navigating away and back" shape as mutedTrackIds/MUTED_TRACKS_KEY above,
-// just for solo instead of mute. Kept as its own separate set (not folded
-// into mutedTrackIds) since the two are independent per-track flags that
-// combine into one EFFECTIVE muted state (see isTrackMuted) rather than one
-// overwriting the other - un-soloing every track should restore whatever
-// each one's own individual mute button was already set to, not silently
-// unmute everything.
-const SOLOED_TRACKS_KEY = 'vcs-game-maker.soloed.music-tracks';
-const loadSoloedTrackIds = () => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(SOLOED_TRACKS_KEY));
-    return (stored && typeof stored === 'object') ? stored : {};
-  } catch (e) {
-    return {};
-  }
-};
+// Which instrument rows are muted/soloed for pattern/song preview playback -
+// a view preference (see mutedTrackIds/soloedTrackIds below), but one that
+// should survive navigating away to another tab and back, not just reset
+// silently. Loading/keys/the effective-mute formula (isTrackMuted below)
+// now live in hooks/project.js, shared with generators/bbasic/music.js so
+// the compiled ROM honors the exact same mute/solo state as this tab's own
+// preview - see isMusicTrackMuted's own comment there.
 
 // The only "row" an untunable instrument (see utils/music-notes.js) ever
 // gets - it has no clean pitch to offer a real piano roll for, just an
@@ -1694,34 +1671,27 @@ export default defineComponent({
     // the order they were added), the same assumption the rest of the app
     // already leans on for a song's patterns to read as "the same
     // instruments, different notes."
-    const mutedTrackIds = ref(loadMutedTrackIds());
+    const mutedTrackIds = ref(loadMutedMusicTrackIds());
     const mutedTrackKey = (song, track) => `${song.id}:${track.id}`;
     const explicitlyMutedTrack = (song, track) => !!mutedTrackIds.value[mutedTrackKey(song, track)];
 
-    // Which instrument rows are soloed - see SOLOED_TRACKS_KEY's own
-    // comment for why this is a separate set from mutedTrackIds rather than
-    // folded into it. Song-scoped for the same reason as mutedTrackIds
-    // above.
-    const soloedTrackIds = ref(loadSoloedTrackIds());
+    // Which instrument rows are soloed - see isMusicTrackMuted's own
+    // comment (hooks/project.js) for why this is a separate set from
+    // mutedTrackIds rather than folded into it. Song-scoped for the same
+    // reason as mutedTrackIds above.
+    const soloedTrackIds = ref(loadSoloedMusicTrackIds());
     const soloedTrackKey = (song, track) => `${song.id}:${track.id}`;
     const isTrackSoloed = (song, track) => !!soloedTrackIds.value[soloedTrackKey(song, track)];
-    const patternHasSoloedTrack = (song, pattern) =>
-      (pattern.tracks || []).some((track) => isTrackSoloed(song, track));
 
     // A track's REAL, effective muted state, used everywhere actual
     // playback/note-color decisions are made (schedulePattern's own
     // isTrackMuted callback in utils/music-playback.js, patternCellStyle's
-    // note-dimming) - as soon as ANY track in the pattern is soloed, every
-    // OTHER track is effectively muted regardless of its own individual
-    // mute button, and the soloed one(s) play regardless of their own mute
-    // button too (soling a muted track still plays it - same convention
-    // most DAWs use, "solo" overrides "mute" rather than the two fighting).
-    // With nothing soloed, this just falls through to each track's own
-    // explicit mute flag, unchanged from before solo existed.
-    const isTrackMuted = (song, pattern, track) => {
-      if (patternHasSoloedTrack(song, pattern)) return !isTrackSoloed(song, track);
-      return explicitlyMutedTrack(song, track);
-    };
+    // note-dimming) - see isMusicTrackMuted in hooks/project.js (shared with
+    // the ROM generator, so the compiled output honors the exact same
+    // mute/solo state as this tab's own preview) for the actual solo-
+    // overrides-mute formula.
+    const isTrackMuted = (song, pattern, track) =>
+      isMusicTrackMuted(mutedTrackIds.value, soloedTrackIds.value, song, pattern, track);
 
     // Re-applies every track's own EFFECTIVE muted state (see isTrackMuted)
     // to whatever's currently playing, not just the next pattern/song play
@@ -1741,14 +1711,14 @@ export default defineComponent({
     const handleToggleTrackMute = (song, pattern, track) => {
       const key = mutedTrackKey(song, track);
       mutedTrackIds.value = {...mutedTrackIds.value, [key]: !mutedTrackIds.value[key]};
-      localStorage.setItem(MUTED_TRACKS_KEY, JSON.stringify(mutedTrackIds.value));
+      localStorage.setItem(MUTED_MUSIC_TRACKS_KEY, JSON.stringify(mutedTrackIds.value));
       applyLiveTrackMuteState(song, pattern);
     };
 
     const handleToggleTrackSolo = (song, pattern, track) => {
       const key = soloedTrackKey(song, track);
       soloedTrackIds.value = {...soloedTrackIds.value, [key]: !soloedTrackIds.value[key]};
-      localStorage.setItem(SOLOED_TRACKS_KEY, JSON.stringify(soloedTrackIds.value));
+      localStorage.setItem(SOLOED_MUSIC_TRACKS_KEY, JSON.stringify(soloedTrackIds.value));
       applyLiveTrackMuteState(song, pattern);
     };
 
@@ -3522,7 +3492,7 @@ export default defineComponent({
   margin-top: 12px;
 }
 
-/* Same margin-top override as SoundFXEditor's own .dim-switch/.soundfx-fade -
+/* Same margin-top override as SoundFXEditor's own .dim-switch -
    Vuetify's selection-control margin-top (meant for stacking below other
    fields) otherwise pushes this out of line with the text field next to it. */
 .use-song-tempo-checkbox {
@@ -4027,7 +3997,12 @@ export default defineComponent({
 .piano-roll-scroll {
   max-height: 340px;
   overflow: auto;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  /* Matches App.vue's darkened .v-sheet--outlined-equivalent card border
+     color (see its own comment) rather than Vuetify's default
+     rgba(0, 0, 0, 0.12) - .pattern-card itself deliberately stays at the
+     lighter default (it's a sub-frame nested inside .song-card), but the
+     piano roll's own frame reads better a bit darker regardless. */
+  border: 1px solid rgba(0, 0, 0, 0.24);
   border-radius: 2px;
 }
 
@@ -4046,7 +4021,9 @@ export default defineComponent({
    .piano-roll-scroll's own scrollLeft on every scroll event. */
 .piano-roll-volume-scroll {
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  /* Matches .piano-roll-scroll's own darkened border above - these two
+     read as one continuous frame, so their shared edges have to match. */
+  border: 1px solid rgba(0, 0, 0, 0.24);
   border-top: none;
   border-radius: 0 0 2px 2px;
 }

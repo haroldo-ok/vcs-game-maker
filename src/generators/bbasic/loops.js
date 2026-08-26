@@ -31,17 +31,29 @@ goog.require('Blockly.BBasic');
 // comment on why temp1-6 had to be reserved against user variable name
 // collisions) never actually gets a matching "dim" declared anywhere; a
 // symbol nothing declares. One shared var project-wide - same reasoning
-// "loopcounter" itself already gets away with sharing across every repeat
-// loop: nested repeat blocks (a repeat whose own body contains ANOTHER
-// repeat block with a complex count) aren't safe with a single shared var
-// either way, an existing limitation this doesn't make any worse.
+// REPEAT_COUNTER_VAR_NAME itself already gets away with sharing across every
+// repeat loop: nested repeat blocks (a repeat whose own body contains
+// ANOTHER repeat block with a complex count) aren't safe with a single
+// shared var either way, an existing limitation this doesn't make any worse.
 export const REPEAT_BOUND_VAR_NAME = '_repeatBound';
 
+// The "repeat X times" block's own "for X = 1 to <bound> : ... : next" loop
+// variable itself - used to be the literal, hardcoded bB identifier
+// "loopcounter", unconditionally reserved a whole letter (or Superchip var0-
+// 14 slot) in generators/bbasic.js's own SYSTEM_VARIABLES regardless of
+// whether the project has any "Repeat" block at all. Resolved through
+// nameDB_/reserveDevVar instead now, the same as REPEAT_BOUND_VAR_NAME right
+// above (reserved only when generators/bbasic.js's own repeatLoopUsed
+// pre-scan finds a repeat block) - a project with zero "Repeat" blocks no
+// longer pays for this at all. One shared var project-wide, same reasoning
+// as REPEAT_BOUND_VAR_NAME's own comment.
+export const REPEAT_COUNTER_VAR_NAME = 'repeatcounter';
+
 // wait_frames' own "for X = 1 to <frames>" loop counter - deliberately NOT
-// the shared "loopcounter" bB variable controls_repeat_ext's own "for" loop
-// uses, even though that's what this block itself used to share. A "Wait N
-// frames" block placed inside a "Repeat X times" block's body is a real,
-// reported case - both blocks' own "for loopcounter = 1 to ... next"
+// the shared REPEAT_COUNTER_VAR_NAME variable controls_repeat_ext's own
+// "for" loop uses, even though that's what this block itself used to share.
+// A "Wait N frames" block placed inside a "Repeat X times" block's body is a
+// real, reported case - both blocks' own "for <counter> = 1 to ... next"
 // constructs would fight over the exact same variable, with the INNER
 // (wait_frames) loop's own final value clobbering the OUTER (repeat) loop's
 // still-in-progress count the moment the wait finishes, corrupting however
@@ -99,7 +111,8 @@ export default (Blockly) => {
     // OTHER block's own multi-line, label-bearing output), so there was
     // never a real need to flatten this to one line in the first place.
     if (!branch.endsWith('\n')) branch += '\n';
-    code += 'for loopcounter = 1 to ' + endVar + '\n' +
+    const counter = Blockly.BBasic.nameDB_.getName(REPEAT_COUNTER_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    code += 'for ' + counter + ' = 1 to ' + endVar + '\n' +
       branch +
       'next\n';
 
@@ -132,9 +145,10 @@ export default (Blockly) => {
     // bound sidesteps the whitespace-splitting entirely.
     //
     // Uses its own dedicated counter (see WAIT_FRAMES_COUNTER_VAR_NAME's own
-    // comment), not the shared "loopcounter" a "Repeat X times" block's own
-    // "for" loop uses - so a "Wait N frames" block placed inside a repeat
-    // loop's body no longer clobbers the repeat's own in-progress count.
+    // comment), not the shared "repeatcounter" a "Repeat X times" block's
+    // own "for" loop uses - so a "Wait N frames" block placed inside a
+    // repeat loop's body no longer clobbers the repeat's own in-progress
+    // count.
     return `temp1 = ${argument0}\n` +
       `for ${counter} = 1 to temp1 : gosub commongamelogic${suffix} : drawscreen : next\n`;
   };
