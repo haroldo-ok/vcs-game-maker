@@ -8,34 +8,40 @@
         <v-btn
           icon
           class="generated-code-flat-icon-btn"
-          :title="copyButtonTitle"
-          @click="handleCopyGeneratedCode"
-        >
-          <v-icon>mdi-content-copy</v-icon>
-        </v-btn>
-        <v-btn
-          icon
-          class="generated-code-flat-icon-btn"
           title="Save Generated Code"
           @click="handleSaveGeneratedCode"
         >
           <v-icon>mdi-content-save</v-icon>
         </v-btn>
+        <v-btn
+          icon
+          class="generated-code-flat-icon-btn"
+          :title="copyButtonTitle"
+          @click="handleCopyGeneratedCode"
+        >
+          <v-icon>mdi-content-copy</v-icon>
+        </v-btn>
       </div>
-      <div class="code-scroll">
-        <pre class="line-numbers-gutter">{{ lineNumbersText }}</pre>
-        <vue-code-highlight language="basic" class="code-container">
-          <pre v-html="generatedBasic"></pre>
-        </vue-code-highlight>
+      <div class="code-scroll-wrapper">
+        <div class="code-scroll">
+          <pre class="line-numbers-gutter">{{ lineNumbersText }}</pre>
+          <vue-code-highlight language="basic" class="code-container">
+            <pre v-html="generatedBasic"></pre>
+          </vue-code-highlight>
+        </div>
       </div>
-      <!-- A normal-flow sibling of .code-scroll, placed AFTER it (not
-           layered on top with position: absolute) so it never covers the
-           code text it's searching, and so "position: sticky; bottom: 0"
-           below pins it to the BOTTOM of .editor-container (the actual
-           scrolling element - see that class's own comment) as the code
-           scrolls underneath, rather than the top - sticky-to-bottom needs
-           the element to be the LAST thing in scroll order, not the
-           first. -->
+      <!-- A genuine flex footer of .editor-container now (see that class's
+           own comment), not "position: sticky" layered over the scrollable
+           area anymore - an earlier version used sticky, which visually
+           overlaid the bottom slice of .code-scroll-wrapper rather than
+           actually reserving its own space, so a match on one of the last
+           few lines could render right underneath it with no way to scroll
+           it clear (confirmed as a real, reproducible bug - the container
+           has no room to scroll past its own max scrollHeight, so no amount
+           of centering math could fix it). Being a real flex item instead
+           means .code-scroll-wrapper's own height is simply reduced to fit
+           above it, so every line - including the last one - has real
+           scrollable room to reach the middle of the actually-visible area. -->
       <div class="generated-code-search-dock">
         <v-text-field
           v-model="searchQuery"
@@ -241,7 +247,14 @@ export default defineComponent({
       // proportional estimate, not a pixel-exact one, but built entirely
       // from numbers that stay valid regardless of what vue-code-highlight
       // is doing to the DOM at any given moment.
-      const container = document.querySelector('.editor-container');
+      // .code-scroll-wrapper (not .editor-container) is the actual
+      // scrolling element now - the search dock moved out to be a real flex
+      // footer of .editor-container instead of a "position: sticky" overlay
+      // on top of the scrollable area (see the dock's own template comment
+      // for the real, reproducible bug that caused), so clientHeight here
+      // is already just the genuinely-visible code area with no need to
+      // subtract the dock's own height from it anymore.
+      const container = document.querySelector('.code-scroll-wrapper');
       if (container && typeof line === 'number') {
         const totalLines = ((generatedBasic.value || '').match(/\n/g) || []).length + 1;
         const scrollRange = container.scrollHeight - container.clientHeight;
@@ -360,52 +373,79 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* A flex column filling the whole tab now (title/toolbar, then the
+   scrollable code area, then the search dock as a real footer) - it no
+   longer scrolls itself (see .code-scroll-wrapper, which does) now that the
+   dock needs to be a genuine flex item pinned below the scrollable area
+   instead of a "position: sticky" overlay on top of it. */
 .editor-container {
   position: absolute;
-  overflow: auto;
   top: 0;
   bottom: 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* App.vue's own global ".editor-container { border-radius: 0 !important }"
+     already squares this off, same as every other tab's main card - kept
+     here too (redundant with that !important rule, but harmless) since the
+     search dock's own matching "border-radius: 0" below is written as if
+     this were 0, and the two are meant to be read together. */
+  border-radius: 0;
 }
 
-/* Flush left, own row below the title, above the code itself - same as
-   before the search dock existed, which now lives in its own sticky row
-   (see .generated-code-search-dock) rather than sharing this one. */
+/* Flush left, own row below the title, above the code itself. Same "gap"
+   spacing method as Project.vue's own .project-actions. */
 .generated-code-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   padding: 0 16px 2px 8px;
+  flex: 0 0 auto;
 }
 
-/* Sticks to the BOTTOM of .editor-container (the actual scrolling element,
-   confirmed directly - "position: sticky" here needs ITS OWN scrolling
-   ancestor to have a real overflow, which .code-scroll deliberately
-   doesn't: that inner element is sized to fit its content exactly, with no
-   overflow of its own - only .editor-container, further up, actually
-   scrolls) as the code scrolls underneath it. Placed AFTER .code-scroll in
-   the template (not just given "bottom: 0" here) - sticky-to-bottom only
-   works for the LAST element in scroll order, the same reason sticky-to-
-   top only worked for the FIRST. Left-aligned within its own full-width
-   row (justify-content, not float) so the search field itself sits at the
-   dock's own left edge, with the count/prev/next controls trailing right
-   after it - not pushed to the row's own right edge as a group. Plain
-   white background (the standard v-card background every other field in
-   this app sits on, e.g. Configuration.vue's own fields) rather than
-   matching the dark code area behind it - a dark background needed its
-   own bespoke light-text overrides for the field to stay readable, which
-   fought the standard v-text-field styling instead of just using it. */
+/* The actual scrolling element now (see .editor-container's own comment) -
+   takes up whatever space is left once the title/toolbar above and the
+   search dock below (both flex: 0 0 auto, sized to their own content) claim
+   theirs. min-height: 0 overrides flexbox's own default min-height: auto on
+   a flex item, which would otherwise let this refuse to shrink smaller than
+   its content and break scrolling entirely within a flex column - a real,
+   well-known flexbox gotcha, not a hypothetical one. */
+.code-scroll-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* A genuine flex footer of .editor-container (see its own template comment
+   for why this replaced "position: sticky; bottom: 0" - that overlaid the
+   scrollable area instead of actually reserving its own space, which made
+   a match on one of the last few lines permanently unreachable no matter
+   how the highlight's own scroll target was computed). Left-aligned within
+   its own full-width row (justify-content, not float) so the search field
+   itself sits at the dock's own left edge, with the count/prev/next
+   controls trailing right after it - not pushed to the row's own right
+   edge as a group. Plain white background (the standard v-card background
+   every other field in this app sits on, e.g. Configuration.vue's own
+   fields) rather than matching the dark code area behind it - a dark
+   background needed its own bespoke light-text overrides for the field to
+   stay readable, which fought the standard v-text-field styling instead of
+   just using it. */
 .generated-code-search-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 4px;
+  gap: 0;
   padding: 6px 16px 6px 8px;
   background: #fff;
   border-top: 1px solid rgba(0, 0, 0, 0.12);
+  /* Being the last child now (see .editor-container's own comment), this
+     sits flush against the v-card's own bottom edge - Vuetify's default
+     card corner-rounding otherwise shows through as two rounded notches at
+     this row's bottom corners, clipping its square white background into a
+     rounded shape that doesn't match the rest of the row. */
+  border-radius: 0;
 }
 
 /* No bespoke color/border/background overrides here - deliberately, to
@@ -417,6 +457,13 @@ export default defineComponent({
    next to the small icon buttons beside it. */
 .generated-code-search-field {
   flex: 0 0 260px;
+  /* A dense v-text-field reserves space above its own input line for a
+     floating label even with a plain placeholder (no floating label text
+     ever actually shown here), which reads as sitting a little low against
+     the row's other centered controls (count text, prev/next buttons) -
+     nudges it up to compensate. Estimated, not measured - adjust if it's
+     still off. */
+  margin-top: -4px;
 }
 
 .generated-code-search-count {
@@ -456,7 +503,16 @@ export default defineComponent({
 .code-scroll {
   display: flex;
   align-items: flex-start;
-  overflow: auto;
+  /* NOT overflow: auto - .code-scroll-wrapper (the actual flex item sized
+     to fill the pane down to the search dock) is the one, sole horizontal
+     scroll owner. This element only ever grows as tall as its own content
+     (align-items: flex-start, no explicit height), so if IT were also a
+     scroll container, its own scrollbar would render right after the last
+     line of code - wherever that happens to land - instead of pinned to
+     the bottom of the visible pane just above the search dock, which is
+     where a user actually expects to find it. Confirmed directly as a real
+     bug this way (the scrollbar existed, but only showed up mid-pane,
+     easy to miss entirely on a short file). */
 }
 
 /* Matches duotone-sea.css's own pre[class*="language-"] font/spacing exactly
@@ -483,7 +539,25 @@ export default defineComponent({
 
 .code-container {
   flex: 1 1 auto;
-  min-width: 0;
+  /* min-width: 0 (flexbox's own "allow shrinking below content size"
+     override) was actively WRONG here, not just unhelpful: it's what a flex
+     item needs when its own overflowing content should be clipped/scrolled
+     INTERNALLY, but this pane's own scrolling happens on an ANCESTOR
+     instead (.code-scroll-wrapper, so .line-numbers-gutter's own
+     "position: sticky; left: 0" - a sibling, not a descendant, of this pane -
+     scrolls in lockstep with the code beside it). With min-width: 0, this
+     flex item was letting itself (and the <pre> inside it) shrink down to
+     fit the viewport no matter how long the widest generated line actually
+     was, so .code-scroll-wrapper's own overflow: auto never had any real
+     overflow to scroll - confirmed directly as the reported bug (long lines
+     just never triggered a horizontal scrollbar at all). min-width:
+     max-content is the standard fix for exactly this flexbox gotcha: still
+     grows to fill available width for the common case (an ordinary, narrow
+     line), but refuses to shrink below the widest line's own natural
+     (unwrapped, thanks to the theme's "white-space: pre") width once that
+     exceeds the viewport, which is what actually makes .code-scroll-wrapper
+     overflow and show its own scrollbar. */
+  min-width: max-content;
 }
 
 </style>

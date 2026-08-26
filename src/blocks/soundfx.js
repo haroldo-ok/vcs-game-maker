@@ -1,5 +1,6 @@
 'use strict';
 
+import Vue from 'vue';
 import * as Blockly from 'blockly/core';
 
 import {useSoundEffectsStorage} from '../hooks/project';
@@ -57,16 +58,35 @@ export const ARPEGGIO_RANGE_OPTIONS = [
   ['UP-DOWN 2 OCT', ARPEGGIO_RANGE_UP_DOWN_2_OCT],
 ];
 
-// How many frames the fade tail lasts (see FADE_TAIL_FRAMES in
-// generators/bbasic/soundfx.js, which this replaces with a per-instrument
-// value) - a real TIA note's fade can be too quiet/short to notice at the
-// old fixed 4-frame tail, especially over real hardware audio rather than
-// this app's own Web Audio approximation.
-// Capped at 8 entries (see generators/bbasic/music.js's fadeVar comment -
-// this is packed into a 3-bit field alongside a 4-bit volume and a 1-bit
-// flag, with no spare bits to widen it without changing that byte layout).
-export const FADE_LENGTH_OPTIONS = [5, 10, 20, 30, 40, 50, 60];
-export const DEFAULT_FADE_LENGTH = 5;
+// ADSR volume envelope, shared by both this preset's one-shot Sound Effect
+// use (soundfx_play - see generators/bbasic/soundfx.js) and its Music-tab
+// instrument use (see generators/bbasic/music.js) - replaces the old
+// single-stage "Fade" toggle entirely (Fade was just a degenerate envelope:
+// instant attack, no decay, hold, then release - see utils/envelope.js's
+// buildEnvelopeCurve, which now covers both shapes).
+//
+// Attack/Decay/Release are frame counts; Sustain is a LEVEL (percent of
+// this sound's own peak volume), not a duration - see utils/envelope.js's
+// own comment for why. Small, fixed dropdown option sets (not free-typed
+// numbers) are deliberate, same reasoning the old fade-length dropdowns
+// already established: keeps the total number of DISTINCT envelope shapes
+// a project can generate small, which keeps the compiled ROM's own
+// per-config data tables small too (see generateEnvelopeChecks in
+// generators/bbasic/soundfx.js).
+export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16];
+// Attack/Release specifically (not Decay, which stays on the smaller set
+// above) get a wider range up to 32 frames - confirmed with the user: only
+// those two needed expanding, not Decay. Each stage's own table cost (see
+// buildEnvelopeConfigTables in generators/bbasic/soundfx.js) is still just
+// one ROM byte per frame of that specific stage, so this only makes an
+// envelope that actually USES a longer attack/release slightly bigger, not
+// every envelope in the project.
+export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32];
+export const DEFAULT_ENVELOPE_ATTACK = 0;
+export const DEFAULT_ENVELOPE_DECAY = 0;
+export const DEFAULT_ENVELOPE_RELEASE = 4;
+export const ENVELOPE_SUSTAIN_PERCENT_OPTIONS = [0, 25, 50, 75, 100];
+export const DEFAULT_ENVELOPE_SUSTAIN_PERCENT = 100;
 
 export const DEFAULT_SOUND_EFFECTS = {
   soundEffects: [
@@ -77,8 +97,11 @@ export const DEFAULT_SOUND_EFFECTS = {
       audf: 16,
       audv: 15,
       duration: 5,
-      fade: false,
-      fadeLength: DEFAULT_FADE_LENGTH,
+      envelope: false,
+      envelopeAttack: DEFAULT_ENVELOPE_ATTACK,
+      envelopeDecay: DEFAULT_ENVELOPE_DECAY,
+      envelopeSustain: DEFAULT_ENVELOPE_SUSTAIN_PERCENT,
+      envelopeRelease: DEFAULT_ENVELOPE_RELEASE,
       // Only used for this preset's notes on the Music tab (see
       // generators/bbasic/music.js) - always on for every note played with
       // this instrument, not something set per-note. arpeggioDivision is how
@@ -111,22 +134,48 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
   }
   // Presets saved before Arpeggio existed won't have these fields yet.
   soundEffects.soundEffects.forEach((soundEffect) => {
-    // Arpeggio is temporarily hidden from the UI (its generated per-channel
-    // code could grow large enough to blow ROM capacity on some projects -
-    // see the segment-overflow investigation this came out of) but not
-    // removed: forcing it off here, in the one place every consumer reads
-    // sound effect data through, means even a project that already has
-    // arpeggio: true stored (from before it was hidden) behaves as if it
-    // were off, without touching the stored value or any of the other
-    // arpeggio fields - they're preserved as-is, ready to resume working
-    // the moment this is turned back on.
-    soundEffect.arpeggio = false;
-    // Same reasoning and same "hide, don't delete" treatment as Arpeggio
-    // above - Fade's own dispatch code (see fadeApply in
-    // generators/bbasic/music.js) also grows per-channel and contributed to
-    // the same capacity problem, so it's forced off here too rather than
-    // just hidden from the Sound tab's own checkbox.
-    soundEffect.fade = false;
+    soundEffect.arpeggio = !!soundEffect.arpeggio;
+    // Vue.set (not a plain assignment) for every envelope* field below -
+    // soundEffectsStorage is a Vue ref whose reactivity was already set up
+    // (once, at load time - see hooks/storage.js's own ref(readInitial())
+    // comment) from whatever plain JSON was in localStorage. A preset saved
+    // before this feature existed simply never HAD an "envelope" key at
+    // that point, so a plain "soundEffect.envelope = ..." assignment here
+    // creates an ordinary, non-reactive property - Vue never defined a
+    // getter/setter for a key that didn't exist during its own initial
+    // walk. Confirmed as a real reported bug this way: the Envelope switch/
+    // dropdowns/graph all silently stopped updating the view (toggling
+    // Arpeggio - an OLD, already-reactive field - incidentally forced a
+    // re-render that revealed the envelope fields' already-correct-but-
+    // untracked values, and closing/reopening the card did the same via a
+    // full remount). Vue.set defines the missing property properly instead,
+    // exactly like $set is already used for the same reason elsewhere in
+    // this app (see DataEditor.vue's own instance.proxy.$set calls).
+    Vue.set(soundEffect, 'envelope', !!soundEffect.envelope);
+    // Presets saved before this existed (or before it replaced the old
+    // single-stage Fade) won't have these yet - same Number() coercion as
+    // arpeggioDivision/arpeggioRange below, for the same Vuetify v-select
+    // quirk.
+    if (!ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeAttack))) {
+      Vue.set(soundEffect, 'envelopeAttack', DEFAULT_ENVELOPE_ATTACK);
+    } else {
+      Vue.set(soundEffect, 'envelopeAttack', Number(soundEffect.envelopeAttack));
+    }
+    if (!ENVELOPE_STAGE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeDecay))) {
+      Vue.set(soundEffect, 'envelopeDecay', DEFAULT_ENVELOPE_DECAY);
+    } else {
+      Vue.set(soundEffect, 'envelopeDecay', Number(soundEffect.envelopeDecay));
+    }
+    if (!ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS.includes(Number(soundEffect.envelopeRelease))) {
+      Vue.set(soundEffect, 'envelopeRelease', DEFAULT_ENVELOPE_RELEASE);
+    } else {
+      Vue.set(soundEffect, 'envelopeRelease', Number(soundEffect.envelopeRelease));
+    }
+    if (!ENVELOPE_SUSTAIN_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeSustain))) {
+      Vue.set(soundEffect, 'envelopeSustain', DEFAULT_ENVELOPE_SUSTAIN_PERCENT);
+    } else {
+      Vue.set(soundEffect, 'envelopeSustain', Number(soundEffect.envelopeSustain));
+    }
     if (!ARPEGGIO_DIVISION_OPTIONS.includes(Number(soundEffect.arpeggioDivision))) {
       soundEffect.arpeggioDivision = DEFAULT_ARPEGGIO_DIVISION;
     } else {
@@ -144,14 +193,6 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     const range = Number(soundEffect.arpeggioRange);
     soundEffect.arpeggioRange = ARPEGGIO_RANGE_OPTIONS.some(([, value]) => value === range) ?
       range : DEFAULT_ARPEGGIO_RANGE;
-    // Presets saved before per-instrument fade length existed won't have
-    // this yet either - same Number() coercion as arpeggioRange above, for
-    // the same Vuetify v-select quirk.
-    if (!FADE_LENGTH_OPTIONS.includes(Number(soundEffect.fadeLength))) {
-      soundEffect.fadeLength = DEFAULT_FADE_LENGTH;
-    } else {
-      soundEffect.fadeLength = Number(soundEffect.fadeLength);
-    }
     // Presets saved before this existed won't have it yet - defaults false
     // (a plain "sound effect"), matching every preset's own behavior before
     // this tag existed.
@@ -192,7 +233,7 @@ export const findSoundEffectById = (id) => {
 Blockly.Blocks['soundfx_play'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${SOUND_ICON} Play sound effect:`)
+        .appendField(`${SOUND_ICON} Play sound effect`)
         .appendField(new Blockly.FieldDropdown(buildSoundEffectOptions), 'SOUNDFX')
         .appendField('on')
         .appendField(new Blockly.FieldDropdown(CHANNEL_OPTIONS), 'CHANNEL');

@@ -2,6 +2,7 @@
 
 import {DEFAULT_TEMPO} from '../blocks/music';
 import {DEFAULT_ARPEGGIO_DIVISION} from '../blocks/soundfx';
+import {buildEnvelopeCurve} from './envelope';
 
 // Approximates what a TIA (Atari 2600 sound chip) AUDC/AUDF/AUDV combination
 // would sound like, for previewing sound effect presets in the browser.
@@ -185,13 +186,6 @@ export const AUDC_APPROXIMATIONS = {
   '15': {type: 'buzz', bits: 5, slowClock: true},
 };
 
-// Matches generators/bbasic/soundfx.js's own FADE_TAIL_FRAMES/fadeTargetVolume
-// - the compiled ROM drops to about a quarter volume for the last 4 frames
-// (60fps) rather than a smooth ramp, so the preview steps down the same way
-// instead of a continuous fade, to actually sound like what plays in game.
-export const FADE_TAIL_SECONDS = 4 / 60;
-export const fadeTargetGain = (peakGain) => peakGain * (Math.round(15 / 4) / 15);
-
 // Tracks whatever preview is currently playing, so the Stop button (and a
 // fresh Play press, which would otherwise overlap the old preview instead
 // of replacing it) can cut it off early. An array (not a single source)
@@ -281,7 +275,8 @@ export const stopSoundEffectPreview = () => {
  * utils/music-playback.js uses for the same reason.
  */
 export const previewSoundEffect = ({
-  audc, audf, audv, duration, fade, arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
+  audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease,
+  arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
 }) => {
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   const seconds = Math.max(0, Number(duration) || 0) / 60;
@@ -297,12 +292,20 @@ export const previewSoundEffect = ({
   const now = context.currentTime;
   const gainNode = context.createGain();
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
-  if (fade && seconds > FADE_TAIL_SECONDS) {
-    const fadeStart = now + seconds - FADE_TAIL_SECONDS;
-    gainNode.gain.setValueAtTime(peakGain, now);
-    gainNode.gain.setValueAtTime(peakGain, fadeStart);
-    gainNode.gain.setValueAtTime(fadeTargetGain(peakGain), fadeStart);
-    gainNode.gain.setValueAtTime(fadeTargetGain(peakGain), now + seconds);
+  // Matches generators/bbasic/soundfx.js's own generateEnvelopeChecks -
+  // steps through the exact same per-frame AUDV curve (see
+  // utils/envelope.js's buildEnvelopeCurve) the compiled ROM writes, scaled
+  // from AUDV's 0-15 range down into this preview's own 0-0.3 gain range,
+  // rather than a continuous fade - a stepped preview actually sounds like
+  // what plays in game instead of smoothing over the same discrete jumps.
+  if (envelope) {
+    const curve = buildEnvelopeCurve({
+      attack: envelopeAttack, decay: envelopeDecay, sustainPercent: envelopeSustain, release: envelopeRelease,
+      peakVolume: audv, totalFrames: duration,
+    });
+    curve.forEach((step, i) => {
+      gainNode.gain.setValueAtTime(step / 15 * 0.3, now + i / 60);
+    });
   } else {
     gainNode.gain.setValueAtTime(peakGain, now);
     gainNode.gain.setValueAtTime(peakGain, now + seconds * 0.8);

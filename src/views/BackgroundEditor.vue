@@ -3,7 +3,18 @@
     <v-card class="editor-container">
       <v-card-title>Backgrounds</v-card-title>
       <v-card-text>
-        <editor-zoom v-model="zoom" />
+        <div class="editor-toolbar-row">
+          <editor-zoom v-model="zoom" />
+          <pixel-grid-toggle v-model="showPixelGrid" />
+          <pixel-grid-toggle
+            v-model="showPixelGridLabels"
+            :icon="null"
+            label="XY"
+            title-on="Hide pixel coordinates"
+            title-off="Show pixel coordinates"
+          />
+        </div>
+        <quick-color-palette v-if="pfColorsEnabled" v-model="selectedQuickColor" />
         <v-list
           class="background-list"
           :style="{gridTemplateColumns: `repeat(auto-fill, calc(${editorWidth} + 24px))`}"
@@ -47,44 +58,85 @@
                     @change="handleChildChange"
                   />
 
-                  <v-menu
-                        top
-                        v-if="state.backgrounds.length > 1"
-                      >
-                    <template v-slot:activator="{ on, attrs }">
-                      <v-btn
-                        title="Delete this background"
-                        icon
-                        small
-                        absolute
-                        top
-                        right
-                        class="delete-btn-inset delete-icon-btn player-icon-btn-size"
-                        v-bind="attrs"
-                        v-on="on"
-                      >
-                        <v-icon>mdi-delete</v-icon>
-                      </v-btn>
-                    </template>
+                  <div class="background-corner-toolbar">
+                    <v-btn
+                      icon
+                      small
+                      title="Copy this background's image (and row colors, if any)"
+                      class="player-icon-btn-size"
+                      @click="() => handleCopyBackground(background)"
+                    >
+                      <v-icon>mdi-content-copy</v-icon>
+                    </v-btn>
+                    <v-btn
+                      icon
+                      small
+                      :disabled="!copiedBackgroundData"
+                      title="Paste copied image (and row colors, if any) onto this background"
+                      class="player-icon-btn-size"
+                      @click="() => handlePasteBackground(background)"
+                    >
+                      <v-icon>mdi-content-paste</v-icon>
+                    </v-btn>
+                    <v-btn
+                      v-if="pfColorsEnabled"
+                      icon
+                      small
+                      title="Copy this background's row colors only"
+                      class="player-icon-btn-size copy-paste-color-btn"
+                      @click="() => handleCopyBackgroundRowColors(background)"
+                    >
+                      <v-icon>mdi-content-copy</v-icon>
+                      <span class="copy-paste-color-badge">C</span>
+                    </v-btn>
+                    <v-btn
+                      v-if="pfColorsEnabled"
+                      icon
+                      small
+                      :disabled="!copiedBackgroundRowColors"
+                      title="Paste copied row colors only onto this background"
+                      class="player-icon-btn-size copy-paste-color-btn"
+                      @click="() => handlePasteBackgroundRowColors(background)"
+                    >
+                      <v-icon>mdi-content-paste</v-icon>
+                      <span class="copy-paste-color-badge">C</span>
+                    </v-btn>
+                    <v-menu
+                          top
+                          v-if="state.backgrounds.length > 1"
+                        >
+                      <template v-slot:activator="{ on, attrs }">
+                        <v-btn
+                          title="Delete this background"
+                          icon
+                          small
+                          class="delete-icon-btn player-icon-btn-size"
+                          v-bind="attrs"
+                          v-on="on"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </template>
 
-                    <v-card>
-                      <v-card-title>Delete this background?</v-card-title>
-                      <v-list>
-                        <v-list-item @click="handleDeleteBackground(background)">
-                          <v-list-item-icon>
-                            <v-icon>mdi-check</v-icon>
-                          </v-list-item-icon>
-                          <v-list-item-title>Yes, delete</v-list-item-title>
-                        </v-list-item>
-                        <v-list-item>
-                          <v-list-item-icon>
-                            <v-icon>mdi-cancel</v-icon>
-                          </v-list-item-icon>
-                          <v-list-item-title>No, don't delete</v-list-item-title>
-                        </v-list-item>
-                      </v-list>
-                    </v-card>
-                  </v-menu>
+                      <v-card>
+                        <v-card-title>Delete this background?</v-card-title>
+                        <v-list>
+                          <v-list-item @click="handleDeleteBackground(background)">
+                            <v-list-item-icon>
+                              <v-icon>mdi-check</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>Yes, delete</v-list-item-title>
+                          </v-list-item>
+                          <v-list-item>
+                            <v-list-item-icon>
+                              <v-icon>mdi-cancel</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>No, don't delete</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-card>
+                    </v-menu>
+                  </div>
                 </v-list-item-title>
                 <v-list-item-subtitle v-if="!isCollapsed(background)">
                   <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
@@ -97,11 +149,15 @@
                       :rowColors="editorRowColors(background)"
                       :allowChangingHeight="false"
                       :showClearButton="true"
+                      :showGrid="showPixelGrid"
+                      :showCellIds="showPixelGridLabels"
                       @input="handleChildChange"
                     >
                       <template v-if="pfColorsEnabled" v-slot:sidebar>
                         <playfield-color-strip
                           :value="background.rowColors"
+                          :quickColors="quickColorPalette"
+                          :activeQuickColor="selectedQuickColor"
                           @input="(colors) => handleRowColorsInput(background, colors)"
                         />
                       </template>
@@ -137,8 +193,11 @@ import {useCollapsedIds} from '../hooks/collapse';
 import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
+import PixelGridToggle from '../components/PixelGridToggle.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
-import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
+import QuickColorPalette from '../components/QuickColorPalette.vue';
+import {useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage,
+  usePixelGridOverlayStorage, usePixelGridLabelsStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, effectiveBackgroundRows,
@@ -158,13 +217,38 @@ const EDITOR_BASE_WIDTH = 480;
 const buildDefaultBackgroundPixels = (rows, cols = 32) =>
   new Array(rows).fill(0).map(() => new Array(cols).fill(0));
 
+// Same "module-scope, not a ref inside setup()" reasoning as
+// PlayerEditor.vue's own copiedFrameRowColors/copiedFrameData - keeps the
+// clipboard alive across navigating away from and back to this tab (Vue
+// Router destroys and recreates this component each time).
+const copiedBackgroundRowColors = ref(null);
+const copiedBackgroundData = ref(null);
+
 export default defineComponent({
-  components: {EditorZoom, PixelEditor, PlayfieldColorStrip},
+  components: {EditorZoom, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
   setup() {
     const backgroundsStorage = useBackgroundsStorage();
     const configurationStorage = useConfigurationStorage();
     const zoom = useEditorZoom('background');
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
+    // Shared with PlayerEditor.vue's own Player 0/1 tabs (see
+    // PixelGridToggle.vue's own comment).
+    const showPixelGrid = usePixelGridOverlayStorage();
+    // Background-tab-only (see usePixelGridLabelsStorage's own comment) -
+    // controls the grid overlay's "X,Y" cell labels independently of the
+    // grid lines themselves (showPixelGrid above).
+    const showPixelGridLabels = usePixelGridLabelsStorage();
+
+    // Same "armed color for direct-painting" reasoning as PlayerEditor.vue's
+    // own selectedQuickColor - v-model'd to the QuickColorPalette instance
+    // above, passed into PlayfieldColorStrip's own activeQuickColor prop
+    // below. Read-only access to the palette DATA itself
+    // (quickColorPalette) - QuickColorPalette owns writing to that shared
+    // storage; this just needs the list to pass into PlayfieldColorStrip's
+    // own quickColors prop.
+    const selectedQuickColor = ref(null);
+    const colorPaletteStorage = useColorPaletteStorage();
+    const quickColorPalette = computed(() => colorPaletteStorage.value || []);
 
     // The playfield's row count is a single setting for the whole ROM (see
     // the Options tab's Superchip/pfres controls), not something each
@@ -308,6 +392,36 @@ export default defineComponent({
       });
     };
 
+    // Same "colors-only" pair as PlayerEditor.vue's own
+    // handleCopyRowColors/handlePasteRowColors, applied to a background's
+    // rowColors instead of a frame's.
+    const handleCopyBackgroundRowColors = (background) => {
+      copiedBackgroundRowColors.value = structuredClone(background.rowColors || []);
+    };
+    const handlePasteBackgroundRowColors = (background) => {
+      if (!copiedBackgroundRowColors.value) return;
+      handleRowColorsInput(background, structuredClone(copiedBackgroundRowColors.value));
+    };
+
+    // Same "whole image, pixels + row colors together" pair as
+    // PlayerEditor.vue's own handleCopyFrame/handlePasteFrame.
+    const handleCopyBackground = (background) => {
+      copiedBackgroundData.value = {
+        pixels: structuredClone(background.pixels),
+        ...(pfColorsEnabled.value && background.rowColors ?
+          {rowColors: structuredClone(background.rowColors)} : {}),
+      };
+    };
+    const handlePasteBackground = (background) => {
+      if (!copiedBackgroundData.value) return;
+      background.pixels = structuredClone(copiedBackgroundData.value.pixels);
+      if (pfColorsEnabled.value && copiedBackgroundData.value.rowColors) {
+        background.rowColors = structuredClone(copiedBackgroundData.value.rowColors);
+      }
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
     const instance = getCurrentInstance();
     const handleAddBackground = () => {
       const backgrounds = state.value.backgrounds;
@@ -332,9 +446,12 @@ export default defineComponent({
     };
 
     return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
+      selectedQuickColor, quickColorPalette,
       handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
-      zoom, editorWidth, backgroundRows, pfColorsEnabled,
-      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners};
+      zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
+      copiedBackgroundData, handleCopyBackground, handlePasteBackground};
   },
 });
 </script>
@@ -500,25 +617,66 @@ export default defineComponent({
 }
 
 /* Sits in v-list-item-title, which (unlike the pixel editor's own toolbar)
-   is always rendered regardless of collapse state, so the button stays
+   is always rendered regardless of collapse state, so the toolbar stays
    visible on a collapsed card instead of disappearing along with the pixel
-   editor. top/right match every other tab's own delete corner button
-   (see MusicEditor.vue's .music-toolbar-top-right) exactly, for a
-   consistent corner position across every card type. */
-.delete-btn-inset {
-  top: 8px !important;
-  right: 8px !important;
+   editor. Same "one flex row of whichever buttons are actually present"
+   reasoning as PlayerEditor.vue's own .frame-corner-toolbar - the color
+   copy/paste pair is only shown while per-row playfield colors is on. */
+.background-corner-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
 }
 
+/* Same reasoning as PlayerEditor.vue's own identical rule - lets the
+   color-only badge (position: absolute) anchor to the button itself. */
+.copy-paste-color-btn {
+  position: relative;
+}
+
+.copy-paste-color-badge {
+  position: absolute;
+  bottom: 3px;
+  right: -2px;
+  font-size: 8px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 0 1px;
+  border-radius: 2px;
+  background: white;
+  color: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+/* margin: 0 (not "0 1px") to match PixelEditor.vue's own base toolbar
+   button trim - see its own comment on why every bit of width matters for
+   this row to fit without wrapping at higher zoom. */
 .player-icon-btn-size {
   min-width: 0;
   height: 26px !important;
   width: 26px !important;
-  margin: 0 1px;
+  margin: 0;
 }
 
 .player-icon-btn-size >>> .v-icon {
   font-size: 19px !important;
+}
+
+/* Same reasoning/values as PlayerEditor.vue's own identical rule -
+   mdi-delete reads visually smaller than mdi-content-copy/mdi-content-paste
+   at the same font-size, so it needs a couple extra pixels to look the same
+   size as its neighbors at a glance. */
+.delete-icon-btn.player-icon-btn-size >>> .v-icon {
+  font-size: 21px !important;
+}
+
+/* Same reasoning as PlayerEditor.vue's own .editor-toolbar-row - keeps
+   editor-zoom and pixel-grid-toggle on one visually-centered line. */
+.editor-toolbar-row {
+  display: flex;
+  align-items: center;
 }
 
 /* Absolutely positioned (matching Text/SoundFX/Data/Music's own collapse

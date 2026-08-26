@@ -9,6 +9,9 @@
         <block type="logic_operation"></block>
         <block type="logic_negate"></block>
         <block type="logic_boolean"></block>
+        <block type="logic_boolean">
+            <field name="BOOL">FALSE</field>
+        </block>
     </category>
     <category name="Loops" colour="%{BKY_LOOPS_HUE}">
         <block type="controls_repeat_ext">
@@ -79,7 +82,29 @@
         <block type="sprite_player0_size" />
         <block type="sprite_player0_animation_select"></block>
         <block type="sprite_player0_animation_playback"></block>
-        <block type="sprite_player0_rom_noise"></block>
+        <block type="sprite_player0_rom_noise">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="HEIGHT">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player0_rom_noise_stop"></block>
+        {{#if enableSpriteColors}}
+        <block type="sprite_player0_rainbow_colors">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player0_rainbow_colors_stop"></block>
+        {{/if}}
         <block type="sprite_player0_set">
             <field name="VAR">player0realcolor</field>
             <value name="VALUE">
@@ -107,7 +132,29 @@
         <block type="sprite_player1_size" />
         <block type="sprite_player1_animation_select"></block>
         <block type="sprite_player1_animation_playback"></block>
-        <block type="sprite_player1_rom_noise"></block>
+        <block type="sprite_player1_rom_noise">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="HEIGHT">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player1_rom_noise_stop"></block>
+        {{#if enableSpriteColors}}
+        <block type="sprite_player1_rainbow_colors">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player1_rainbow_colors_stop"></block>
+        {{/if}}
         <block type="sprite_player1_set">
             <field name="VAR">player1realcolor</field>
             <value name="VALUE">
@@ -133,6 +180,23 @@
             </value>
         </block>
         <block type="sprite_missile0_size" />
+        <block type="sprite_missile0_fire">
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="ANGLE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="sprite_missile1_get"></block>
         <block type="sprite_missile1_set">
@@ -150,6 +214,23 @@
             </value>
         </block>
         <block type="sprite_missile1_size" />
+        <block type="sprite_missile1_fire">
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="ANGLE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="sprite_ball_get"></block>
         <block type="sprite_ball_set">
@@ -173,6 +254,10 @@
     <category name="Input" colour="green">
         <block type="input_joy0_get"></block>
         <block type="input_joy1_get"></block>
+        <block type="input_joy0_direction8"></block>
+        <block type="input_joy1_direction8"></block>
+        <block type="input_keypad0_get"></block>
+        <block type="input_keypad1_get"></block>
 
         <block type="collision_get"></block>
         <block type="collision_check_position"></block>
@@ -196,6 +281,13 @@
             </value>
         </block>
 
+        <block type="random_seed_set">
+            <value name="SEED">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
         <block type="random_get"></block>
         <block type="random_range_get"></block>
 
@@ -207,6 +299,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="system_variable_get"></block>
 
         <block type="sprite_player0_set">
             <field name="VAR">player0x</field>
@@ -257,6 +350,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_get_color"></block>
         <block type="background_fade_to">
             <field name="VAR">COLUBK</field>
             <value name="VALUE">
@@ -315,8 +409,8 @@
         </block>
         <block type="background_scroll">
         </block>
-        <block type="background_clear"></block>
         <block type="background_get_resolution"></block>
+        <block type="background_clear"></block>
         <block type="draw_screen"></block>
     </category>
     <category name="Score" colour="#f2691e">
@@ -351,12 +445,39 @@
                 </shadow>
             </value>
         </block>
+        <block type="score_bk_color_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">146</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_fade_to">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">146</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_fade_finished"></block>
 
         <block type="score_digit_get"></block>
         <block type="score_digit_set">
             <value name="VALUE">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_digit_change">
+            <value name="DELTA">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
@@ -445,7 +566,47 @@
                 </shadow>
             </value>
         </block>
-        <block type="text_minikernel_clear"></block>
+        <block type="text_minikernel_show_scroll">
+            <value name="SCROLL_SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">20</field>
+                </shadow>
+            </value>
+            <value name="SCROLL_PAUSE">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="text_minikernel_show_named_scroll">
+            <value name="SCROLL_SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">20</field>
+                </shadow>
+            </value>
+            <value name="SCROLL_PAUSE">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="text_minikernel_show_by_id_scroll">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+            <value name="SCROLL_SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">20</field>
+                </shadow>
+            </value>
+            <value name="SCROLL_PAUSE">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
         <block type="text_minikernel_set_color">
             <value name="VALUE">
                 <shadow type="color_get">
@@ -453,6 +614,22 @@
                 </shadow>
             </value>
         </block>
+        <block type="text_minikernel_fade_to">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">15</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="text_minikernel_fade_finished"></block>
+        <block type="text_minikernel_scroll_control"></block>
+        <block type="text_minikernel_scroll_at"></block>
+        <block type="text_minikernel_clear"></block>
     </category>
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
@@ -516,6 +693,30 @@
 
         <block type="subroutine_define"></block>
         <block type="subroutine_call"></block>
+
+        <block type="function_define"></block>
+        <block type="function_param_get"></block>
+        <block type="function_return">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="function_call_statement">
+            <value name="ARG1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="function_call">
+            <value name="ARG1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="event_comment"></block>
         <block type="event_comment_wrapper"></block>

@@ -16,9 +16,14 @@
             class="editor-canvas"
             @mousedown="handleMouse"
             @mouseenter="handleMouse"
-            @mouseleave="handleMouse"
+            @mouseleave="handleMouseLeave"
             @mouseup="handleMouse"
             @mousemove="handleMouse"
+          />
+          <canvas
+            v-if="showGrid"
+            ref="gridOverlay"
+            class="grid-overlay-canvas"
           />
         </div>
       </div>
@@ -36,6 +41,15 @@
               <v-icon>mdi-eraser</v-icon>
             </v-btn>
             <v-btn
+              icon
+              small
+              title="Pencil"
+              value="pencil"
+              @click="editor.tool = pencil"
+            >
+              <v-icon>mdi-pencil</v-icon>
+            </v-btn>
+            <v-btn
               v-if="showClearButton"
               icon
               small
@@ -45,17 +59,8 @@
             >
               <v-icon>mdi-delete-sweep</v-icon>
             </v-btn>
-            <v-btn
-              icon
-              small
-              title="Pencil"
-              value="pencil"
-              @click="editor.tool = pencil"
-            >
-              <v-icon>mdi-pencil</v-icon>
-            </v-btn>
           </v-btn-toggle>
-          <v-divider class="mx-1" vertical />
+          <v-divider class="pixel-editor-toolbar-divider" vertical />
           <v-btn
             icon
             small
@@ -73,7 +78,7 @@
             <v-icon>mdi-redo</v-icon>
           </v-btn>
 
-          <v-divider class="mx-1" vertical />
+          <v-divider class="pixel-editor-toolbar-divider" vertical />
 
           <v-btn
             icon
@@ -93,7 +98,7 @@
           </v-btn>
 
           <template v-if="allowChangingHeight">
-            <v-divider class="mx-1" vertical />
+            <v-divider class="pixel-editor-toolbar-divider" vertical />
 
             <div class="text-center">
               <v-menu
@@ -243,6 +248,18 @@ export default {
     // score font (allowChangingHeight itself is already false for both)
     // never shows this regardless.
     allowApplyToAllFrames: {type: Boolean, default: false},
+    // Draws a thin grid line around every cell, on a separate overlay
+    // canvas layered on top of the real drawing canvas (see mounted()'s own
+    // ResizeObserver) - a pure visual aid, never part of the pixel data
+    // itself.
+    showGrid: {type: Boolean, default: false},
+    // Labels each cell with its own column index (0-based, matching the X
+    // argument every "Background: pixel at X/Y" block already uses) at the
+    // cell's center - opt-in separately from showGrid since it's only
+    // useful on the wide, many-columned Background canvas; a narrow sprite
+    // frame has no room to render it legibly and no matching "X" concept
+    // worth calling out cell by cell.
+    showCellIds: {type: Boolean, default: false},
   },
   data() {
     return {
@@ -265,11 +282,11 @@ export default {
       heightMenuApplyToAllFrames: false,
 
       // String values (see the Eraser/Pencil/Clear v-btn "value" props),
-      // not index-based - Clear sits between them in the group so it can
-      // be positioned to the right of Eraser without touching Eraser's own
-      // index, but it isn't a real drawing tool, so it's excluded here and
-      // reset back to whichever tool was actually active after every click
-      // (see handleClear) rather than staying lit up as if selected.
+      // not index-based - Clear sits last in the group (after Pencil) so it
+      // can be repositioned without touching Eraser's/Pencil's own values,
+      // but it isn't a real drawing tool, so it's excluded here and reset
+      // back to whichever tool was actually active after every click (see
+      // handleClear) rather than staying lit up as if selected.
       toggledTool: 'pencil',
     };
   },
@@ -278,6 +295,11 @@ export default {
 
     // TODO: Just for testing
     window.isMatrixEqual = isMatrixEqual;
+
+    if (this.showGrid) this.setupGridOverlay();
+  },
+  beforeDestroy() {
+    this.teardownGridOverlay();
   },
   watch: {
     // Recolor the existing pixels when the row colors change (e.g. the user
@@ -286,6 +308,30 @@ export default {
       if (this.editor) {
         this.setPixels(this.getPixels());
       }
+    },
+    // The overlay canvas only exists in the DOM while showGrid is true (see
+    // the template's own v-if) - the ResizeObserver has to be (re)attached
+    // to whichever real element currently exists, not created once up
+    // front.
+    showGrid(value) {
+      if (value) {
+        this.$nextTick(() => this.setupGridOverlay());
+      } else {
+        this.teardownGridOverlay();
+      }
+    },
+    // Extra coverage alongside initEditor's own redraw call (see its
+    // comment) for the one case that changes row count WITHOUT going
+    // through initEditor synchronously in the same tick: the Background
+    // tab's own resolution setting (Superchip pfres), which passes a new
+    // "height" prop value the moment it changes, slightly ahead of
+    // reflowBackgroundsToHeight's own pixel-matrix update reaching this
+    // component's "value" prop and triggering initEditor from there.
+    height() {
+      this.$nextTick(() => this.drawGridOverlay());
+    },
+    showCellIds() {
+      this.drawGridOverlay();
     },
     // Picks up a row-count change this component DIDN'T itself just emit -
     // needed for "Apply to every frame in this animation" (see
@@ -309,6 +355,116 @@ export default {
     },
   },
   methods: {
+    // The overlay canvas is sized to its own CSS-rendered pixel dimensions
+    // (not the drawing canvas's own tiny intrinsic width/height, one unit
+    // per cell - see PixelEditor's own constructor) so grid lines and cell
+    // labels stay crisp and legible at any zoom level, rather than being
+    // stretched/blurred the same "pixelated" way the actual artwork is.
+    // That means it has to be redrawn whenever its own rendered SIZE
+    // changes - zooming, resizing the window, or the sidebar/toolbar
+    // reflowing - which a plain mounted()-once draw can't catch on its own.
+    setupGridOverlay() {
+      this.teardownGridOverlay();
+      const canvas = this.$refs.gridOverlay;
+      if (!canvas) return;
+      this.gridResizeObserver = new ResizeObserver(() => this.drawGridOverlay());
+      this.gridResizeObserver.observe(canvas);
+      this.drawGridOverlay();
+    },
+
+    teardownGridOverlay() {
+      if (this.gridResizeObserver) {
+        this.gridResizeObserver.disconnect();
+        this.gridResizeObserver = null;
+      }
+    },
+
+    drawGridOverlay() {
+      const canvas = this.$refs.gridOverlay;
+      if (!canvas) return;
+      // devicePixelRatio-aware, same reasoning as any crisp-canvas-text
+      // setup - drawing at the CSS size alone leaves grid lines/text soft
+      // on a high-DPI display.
+      const dpr = window.devicePixelRatio || 1;
+      const cssWidth = canvas.clientWidth;
+      const cssHeight = canvas.clientHeight;
+      if (!cssWidth || !cssHeight) return;
+      canvas.width = Math.round(cssWidth * dpr);
+      canvas.height = Math.round(cssHeight * dpr);
+
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+      const cols = this.width;
+      const rows = this.editor ? this.editor.height : this.height;
+      const cellWidth = cssWidth / cols;
+      const cellHeight = cssHeight / rows;
+
+      ctx.strokeStyle = 'rgba(170, 170, 170, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let col = 0; col <= cols; col++) {
+        // +0.5 lands the 1px line exactly on a device pixel instead of
+        // straddling two (and rendering as a blurry 2px band) - the
+        // standard canvas crisp-line trick.
+        const x = Math.round(col * cellWidth) + 0.5;
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, cssHeight);
+      }
+      for (let row = 0; row <= rows; row++) {
+        const y = Math.round(row * cellHeight) + 0.5;
+        ctx.moveTo(0, y);
+        ctx.lineTo(cssWidth, y);
+      }
+      ctx.stroke();
+
+      if (!this.showCellIds) return;
+      // "X,Y" - matches the two arguments every "Background: pixel at X/Y"
+      // block already uses, so a cell's own coordinates can be read
+      // straight off the grid while wiring one up. Skipped entirely once
+      // cells are too small to hold a legible label, rather than drawing
+      // illegible overlapping text - a wider budget than a single number
+      // would need, since "X,Y" is always at least 3 characters.
+      const fontSize = Math.min(cellHeight * 0.6, cellWidth * 0.35, 12);
+      if (fontSize < 5) return;
+      ctx.font = `${fontSize}px sans-serif`;
+      ctx.fillStyle = 'rgba(140, 140, 140, 0.85)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          ctx.fillText(`${col},${row}`, (col + 0.5) * cellWidth, (row + 0.5) * cellHeight);
+        }
+      }
+    },
+
+    // The underlying @curtishughes/pixel-editor library only listens for
+    // "mouseup" on the canvas ITSELF (see its own constructor) - it has no
+    // "mouseleave" handling at all. Dragging the pointer off the canvas
+    // while a button is still held (a real, easy-to-do gesture, e.g.
+    // drawing right up to an edge) and releasing OUTSIDE it means the
+    // canvas's own "mouseup" never fires, so the library's own tool (see
+    // its handlePointerDown/handlePointerUp) is left thinking the button
+    // is still down - re-entering the canvas afterward, with the button
+    // genuinely up, then immediately resumes drawing on the very next
+    // "mousemove", with no mousedown of its own. Confirmed as a real,
+    // reproducible bug across every card that uses this component (Player
+    // Sprite, Background, Score digits - anywhere PixelEditor.vue is used).
+    // Forcing a synthetic "mouseup" the instant the pointer leaves the
+    // canvas - passing the real mouseleave event through, since
+    // PixelEditor's own mouseup(e) reads e.clientX/clientY the exact same
+    // way a real mouseup event would - releases the tool's own state
+    // immediately, regardless of whether the button is later released
+    // inside or outside the canvas. Not debounced (unlike handleMouse
+    // below, which still runs right after to resync Vue's own reactive
+    // pixel state) - the release itself needs to happen synchronously, or
+    // a mousemove landing before the debounce fires would still draw.
+    handleMouseLeave(event) {
+      if (this.editor) this.editor.mouseup(event);
+      this.handleMouse();
+    },
+
     handleMouse: debounce(function() {
       // eslint-disable-next-line no-invalid-this
       const pixels = this.getPixels();
@@ -399,6 +555,12 @@ export default {
       this.editor = new PixelEditor(canvas, this.width, rowCount, this.pencil);
       this.setPixels(pixelMatrix);
       this.handleMouse();
+      // Row count (this.editor.height) is what the grid overlay actually
+      // draws against, not the "height" PROP (only ever a construction-time
+      // default - see this method's own callers) - a height change from
+      // here (Set Height, cross-frame resize, importing a differently-sized
+      // image) wouldn't otherwise be caught by that prop's own watcher.
+      if (this.showGrid) this.$nextTick(() => this.drawGridOverlay());
     },
 
     handleSetHeight() {
@@ -497,6 +659,23 @@ export default {
   border: 1px solid;
 }
 
+/* Layered directly on top of .editor-canvas (same inset/height) - drawn at
+   its own CSS-rendered resolution rather than the tiny one-unit-per-cell
+   intrinsic size .editor-canvas uses (see drawGridOverlay's own comment),
+   so no border of its own (would double up with .editor-canvas's) and no
+   pointer-events (drawing/erasing has to keep reaching the real canvas
+   underneath, not get intercepted by this purely visual layer). */
+.grid-overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  height: 100%;
+  width: 100%;
+  pointer-events: none;
+}
+
 /* Vuetify's default v-card-text padding leaves a wide gap between the canvas
    and the toolbar below it; tighten it to a consistent 8px. */
 .v-card >>> .v-card__text {
@@ -529,7 +708,13 @@ export default {
 }
 
 /* Flat icon buttons: no grey box, no elevation, and a hit area only a little
-   larger than the icon itself. */
+   larger than the icon itself. No horizontal margin (an earlier version had
+   "0 1px") - at 200% zoom, the Score tab's own digit cards (narrower than
+   Player/Background's, since they're sized off DIGIT_BASE_WIDTH rather than
+   a full sprite frame) were just barely too narrow for the full button row
+   (eraser/clear/pencil, undo/redo, export/import) to fit without wrapping -
+   reclaiming the 2px/button this margin cost (see .pixel-editor-toolbar-
+   divider's own matching trim below) was enough to close that gap. */
 .pixel-editor-tools >>> .v-btn {
   background-color: transparent !important;
   box-shadow: none !important;
@@ -537,7 +722,13 @@ export default {
   min-width: 0;
   height: 26px;
   width: 26px;
-  margin: 0 1px;
+  margin: 0;
+}
+
+/* Tighter than Vuetify's own "mx-1" (4px each side) - see .pixel-editor-
+   tools >>> .v-btn's own comment on why every bit of width matters here. */
+.pixel-editor-tools >>> .pixel-editor-toolbar-divider {
+  margin: 0 2px;
 }
 
 /* Vuetify paints its own grey hover/focus overlay here, which is the box we

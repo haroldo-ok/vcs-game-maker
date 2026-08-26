@@ -3,12 +3,13 @@
     <v-card class="editor-container">
       <v-card-title>Text</v-card-title>
       <v-card-text>
-        <p class="text-hint">
+        <p class="v-messages theme--light v-messages__message">
           Define named messages here, then display one at runtime with either the "Show text"
-          block (pick from a list) or "Show text with ID" (pick by the number shown below - useful
-          for choosing a message from a variable). Up to 12 characters (A-Z, 0-9, and basic
-          punctuation) - longer text is cut off, unsupported characters and shorter text are padded
-          with spaces.
+          block (pick from a list) or "Show text ID" (pick by the number shown below - useful
+          for choosing a message from a variable). A-Z, 0-9, and basic punctuation only -
+          unsupported characters and shorter text are padded with spaces. Use the "(scrolling)"
+          versions of the "Show text" blocks to reveal a message longer than 12 characters by
+          scrolling through it - the max display width below does not apply to those.
         </p>
 
         <div class="text-bkcolor-row">
@@ -20,6 +21,19 @@
           />
           <span class="text-bkcolor-label">Text background color</span>
         </div>
+
+        <v-select
+          v-model="textMaxDisplayWidth"
+          :items="TEXT_MAX_DISPLAY_WIDTH_OPTIONS"
+          label="Max characters to display at once"
+          class="text-max-width-field"
+        />
+        <p class="v-messages theme--light v-messages__message">
+          For static (non-scrolling) text only. Only the first this-many of the 12 available character
+          slots are ever used - the rest always stay blank, regardless of message length or justify. The
+          "Scroll text" blocks ignore this and always scroll through the full message using
+          all 12 character slots.
+        </p>
 
         <v-list class="text-list">
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
@@ -48,7 +62,7 @@
                 >
                   <v-icon>{{ isCollapsed(entry) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                 </v-btn>
-                <div class="text-id-badge" title="The number to use with &quot;Show text with ID&quot; - stays the same no matter how cards are rearranged below.">
+                <div class="text-id-badge" title="The number to use with &quot;Show text ID&quot; - stays the same no matter how cards are rearranged below.">
                   ID:{{ entry.id }}
                 </div>
                 <v-menu
@@ -103,7 +117,6 @@
                   <v-text-field
                     label="Text"
                     v-model="entry.text"
-                    maxlength="12"
                     counter="12"
                     @change="() => handleTextChange(entry)"
                   />
@@ -154,8 +167,8 @@ import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
-import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, TEXT_MESSAGE_LENGTH,
-  processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WIDTH,
+  TEXT_MAX_DISPLAY_WIDTH_OPTIONS, processTextStringsStorageDefaults} from '../blocks/text-strings';
 
 export default defineComponent({
   components: {ColorSwatchPicker},
@@ -189,6 +202,32 @@ export default defineComponent({
       },
     });
 
+    // How many of the Text Minikernel's own 12 physical character positions
+    // this project actually uses - see TEXT_MAX_DISPLAY_WIDTH_OPTIONS' own
+    // comment in blocks/text-strings.js for why this is compile-time only
+    // (never a runtime-settable block) and why a narrower setting only
+    // blanks the unused tail rather than shrinking storage. Same
+    // project-wide, Configuration-storage-backed pattern as textBkColor
+    // just above.
+    const textMaxDisplayWidth = computed({
+      get() {
+        try {
+          const value = (configurationStorage.value || {}).textMaxDisplayWidth;
+          return value == null ? DEFAULT_TEXT_MAX_DISPLAY_WIDTH : value;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return DEFAULT_TEXT_MAX_DISPLAY_WIDTH;
+        }
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          textMaxDisplayWidth: value,
+        };
+      },
+    });
+
     const state = computed({
       get() {
         try {
@@ -208,7 +247,7 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds('text');
+    const {isCollapsed, toggleCollapsed, ensureExpanded} = useCollapsedIds('text');
 
     // Card reordering - NOT built on hooks/drag-reorder.js's own
     // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
@@ -302,6 +341,7 @@ export default defineComponent({
       };
 
       state.value.textStrings.push(newEntry);
+      ensureExpanded(newEntry);
 
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -314,14 +354,20 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // No longer clamped to TEXT_MESSAGE_LENGTH (12) characters here - a
+    // message longer than the project's own configured max display width
+    // (see textMaxDisplayWidth below) now scrolls to show the rest instead
+    // of being cut off (see encodeTextMessage in generators/bbasic/
+    // text-minikernel.js), so there's no reason to stop the user from
+    // typing more than that.
     const handleTextChange = (entry) => {
-      entry.text = String(entry.text || '').slice(0, TEXT_MESSAGE_LENGTH);
+      entry.text = String(entry.text || '');
       handleChildChange();
     };
 
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
-      isCollapsed, toggleCollapsed, textBkColor,
+      isCollapsed, toggleCollapsed, textBkColor, textMaxDisplayWidth, TEXT_MAX_DISPLAY_WIDTH_OPTIONS,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
@@ -348,16 +394,15 @@ export default defineComponent({
   padding-right: 0;
 }
 
-.text-hint {
-  opacity: 0.7;
-  max-width: 640px;
-}
-
 .text-bkcolor-row {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.text-max-width-field {
+  max-width: 320px;
 }
 
 /* A 12-character message doesn't need anywhere near .text-list's own full

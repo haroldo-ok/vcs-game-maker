@@ -2,8 +2,9 @@
 
 import {useConfigurationStorage} from '../../hooks/project';
 import {effectiveBackgroundRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
-  backgroundFadeTargetVarName, backgroundFadeFlagsVarName, FADE_STEPS,
-  backgroundFadeFinishedBit, backgroundFadeActiveBit, backgroundFadeWatchKey} from '../../blocks/background';
+  backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS,
+  backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey,
+  backgroundGetPixelXVarName, backgroundGetPixelYVarName} from '../../blocks/background';
 
 // FADE_STEPS (4) is fixed rather than user-choosable - see its own comment
 // in blocks/background.js. floor(14 / 4) = 3, rounded down to the nearest
@@ -12,6 +13,13 @@ import {effectiveBackgroundRows, backgroundFadeTimerVarName, backgroundFadePaceV
 // finest brightness step this hardware can do, so it's just a literal here
 // rather than restating the general formula for a single fixed input.
 const FADE_INCREMENT = 2;
+
+// Per-register label tag for generateBackgroundFadeChecks below - has to be
+// distinct per register (unlike a shared "bg" for everything) now that
+// scorecolor/TextColor share this same check-generating function alongside
+// COLUBK/COLUPF, or two registers' own labels would collide into the exact
+// same names and only the first would ever compile correctly.
+const FADE_LABEL_TAG_BY_VAR = {COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text'};
 
 export default (Blockly) => {
   // A compile-time constant, not runtime state - the playfield's vertical
@@ -63,29 +71,45 @@ export default (Blockly) => {
     return varName + ' = ' + argument0 + '\n';
   };
 
+  Blockly.BBasic[`background_get_color`] = function(block) {
+    // Same COLUPF/COLUBK -> playfieldrealcolor/backgroundrealcolor mapping
+    // as background_set_color's own setter above - reads the live shadow
+    // variable both blocks share, not the hardware register directly
+    // (which the score/text drawing routines overwrite every frame - see
+    // that setter's own comment).
+    const rawVar = block.getFieldValue('VAR');
+    const targetVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' :
+      rawVar === 'COLUBK' ? 'backgroundrealcolor' : rawVar;
+    const varName = Blockly.BBasic.nameDB_.getName(
+        targetVar, Blockly.VARIABLE_CATEGORY_NAME);
+    return [varName, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
 
-  // Fires background_fade_to's trigger once - stores the target color and
-  // this fade's own pace (this fade's total requested duration, divided
-  // across FADE_STEPS installments - "over roughly this many frames" is
-  // the OVERALL fade time, not a per-step delay), then sets the "active"
-  // bit (generateBackgroundFadeChecks below reads that bit every frame
-  // from then on and does the actual stepping; see backgroundFadeTimerVarName's
-  // own comment in blocks/background.js for why this is a one-shot
-  // trigger rather than a "call every frame yourself" block). Retriggering
-  // an already-active fade (e.g. the user's own code calls this again
-  // before the previous one finished) simply overwrites the target/pace
-  // and re-primes the timer - the new fade just continues from wherever
-  // the color currently is, same as a fresh trigger would.
-  Blockly.BBasic[`background_fade_to`] = function(block) {
-    const rawVar = block.getFieldValue('VAR');
+  // Fires a fade trigger once - stores the target color and this fade's own
+  // pace (this fade's total requested duration, divided across FADE_STEPS
+  // installments - "over roughly this many frames" is the OVERALL fade
+  // time, not a per-step delay), then sets the "active" bit
+  // (generateBackgroundFadeChecks below reads that bit every frame from
+  // then on and does the actual stepping; see backgroundFadeTimerVarName's
+  // own comment in blocks/background.js for why this is a one-shot trigger
+  // rather than a "call every frame yourself" block). Retriggering an
+  // already-active fade (e.g. the user's own code calls this again before
+  // the previous one finished) simply overwrites the target/pace and
+  // re-primes the timer - the new fade just continues from wherever the
+  // color currently is, same as a fresh trigger would.
+  //
+  // Shared by background_fade_to below and score.js's own score_fade_to /
+  // text-minikernel.js's own text_minikernel_fade_to - the trigger body is
+  // identical regardless of which register it targets, only rawVar (and so
+  // which dev vars/bit it resolves to) differs.
+  Blockly.BBasic.emitColorFadeTrigger = function(rawVar, color, frames) {
     const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
     const paceVar = resolveVar(backgroundFadePaceVarName(rawVar));
     const targetVar = resolveVar(backgroundFadeTargetVarName(rawVar));
-    const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeActiveBit(rawVar)}}`;
-    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
-    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    const activeBit = `${resolveVar(fadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
     // frames/FADE_STEPS is still a genuine runtime division (frames isn't
     // known at compile time) - needs the shared div8 routine UNLESS the
     // divisor is a compile-time constant power of 2, in which case the
@@ -117,9 +141,16 @@ export default (Blockly) => {
     ].join('\n') + '\n';
   };
 
+  Blockly.BBasic[`background_fade_to`] = function(block) {
+    const rawVar = block.getFieldValue('VAR');
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    return Blockly.BBasic.emitColorFadeTrigger(rawVar, color, frames);
+  };
+
   // Spliced into commongamelogic (see bbasic.bb.hbs), right after the
   // Sound FX fade checks and before the Music tab's own per-frame checks -
-  // same reasoning as generateSoundFadeChecks in generators/bbasic/
+  // same reasoning as generateEnvelopeChecks in generators/bbasic/
   // soundfx.js: this runs unconditionally every single frame regardless of
   // where the user's own background_fade_to trigger sits in their code, so
   // a fade keeps advancing even after a triggering "if" condition (e.g.
@@ -155,172 +186,238 @@ export default (Blockly) => {
   // fade naturally reverses if retriggered toward a new target on the
   // other side of the current brightness - no separate "fade up"/"fade
   // down" state to keep in sync with reality.
+  // Hand-written 6502 replacement for the bB if/goto chain checksForVar
+  // below used to build for every fadeable register - COLUBK/COLUPF
+  // (background/playfield) AND scorecolor/TextColor (score/text) all route
+  // through this now. Not a mechanical translation: every
+  // "(x & $0E)" the bB version recomputes from memory on each of its many
+  // uses is instead loaded/masked ONCE into the accumulator and kept there
+  // (or cached into temp2/temp3) across the branches that need it, and
+  // 6502's own carry flag from CMP directly answers ">="/"<" without a
+  // separate bB-style comparison-then-branch pair for each - real cycle
+  // savings, not just fewer bB statements. temp2/temp3 are safe scratch
+  // here for the same reason the bB version already relies on temp2 being
+  // safe (see this whole function's own top comment): this runs directly in
+  // commongamelogic, never inside a user Function body, so there's no
+  // argument-passing collision risk (see function_param_get's own comment
+  // in generators/bbasic/function.js for where THAT risk actually applies).
+  //
+  // Register discipline other branches below can rely on (confirmed
+  // directly against 6502 semantics, not a guess): CMP/BCC/BCS/BEQ/BNE never
+  // modify the accumulator, so falling through a branch that wasn't taken
+  // leaves A holding whatever the immediately preceding CMP compared -
+  // exploited below to skip a handful of redundant reloads.
+  //
+  // Every label is a plain global DASM symbol (no leading dot, matching
+  // this file's own existing "_bgfadechk_<tag>_*" convention) - safe here
+  // specifically BECAUSE this whole check is spliced into commongamelogic,
+  // which is fixed, always-bank-1 content, never relocated the way
+  // generators/bbasic/music.js's own relocatable musicEngine unit can be
+  // (see that file's own comment on the real, confirmed "DASM Origin
+  // Reverse-indexed" build failure a raw asm block hit ONLY once relocated
+  // to a non-bank-1 position - this check's own fixed position sidesteps
+  // that class of bug entirely, not just avoids repeating the mistake).
+  const buildFadeCheckAsm = ({colorVar, targetVar, timerVar, paceVar, flagsVar, activeBit, finishedBit, tag, isWatched}) => {
+    const activeMask = 1 << activeBit;
+    const finishedMask = isWatched ? (1 << finishedBit) : 0;
+    const done = `_bgfadeasm_${tag}_done`;
+    const skip = `_bgfadeasm_${tag}_skip`;
+    const checkDir = `_bgfadeasm_${tag}_checkdir`;
+    const up = `_bgfadeasm_${tag}_up`;
+    const upAfter = `_bgfadeasm_${tag}_upafter`;
+    const downSub = `_bgfadeasm_${tag}_downsub`;
+    const downClamp = `_bgfadeasm_${tag}_downclamp`;
+    const downAfter = `_bgfadeasm_${tag}_downafter`;
+    const reprime = `_bgfadeasm_${tag}_reprime`;
+    const already = `_bgfadeasm_${tag}_already`;
+    // 6502 relative branches (BEQ/BNE/BCC/BCS/...) only reach +/-127 bytes -
+    // this whole state machine is bigger than that, so a plain "beq skip"/
+    // "beq already" etc. can land "Branch out of range" once assembled,
+    // confirmed directly as a real build failure (both bg and pf's own
+    // "beq skip" - the one spanning the ENTIRE block - measured 147 bytes,
+    // 20 over the limit). JMP has no such range limit, so any branch whose
+    // target ISN'T a handful of instructions away goes through here instead:
+    // the ordinary short-range branch on the INVERTED condition jumps past a
+    // single "jmp target" when NOT taken, so the net effect is identical to
+    // a plain branch, just 1-2 cycles costlier on each path - a small,
+    // fixed price for not having to hand-verify every branch's own distance
+    // stays under 128 bytes as this function's own body inevitably grows or
+    // shrinks with future changes.
+    let farBranchCounter = 0;
+    const farBeq = (target) => {
+      const near = `_bgfadeasm_${tag}_n${farBranchCounter++}`;
+      return [`       bne ${near}`, `       jmp ${target}`, near];
+    };
+    const farBne = (target) => {
+      const near = `_bgfadeasm_${tag}_n${farBranchCounter++}`;
+      return [`       beq ${near}`, `       jmp ${target}`, near];
+    };
+    const farBcc = (target) => {
+      const near = `_bgfadeasm_${tag}_n${farBranchCounter++}`;
+      return [`       bcs ${near}`, `       jmp ${target}`, near];
+    };
+
+    // "Landed exactly on target" is reached from both the up and down
+    // branches, and does the exact same thing either way (see the bB
+    // version's own comment on why hue switches to the TARGET's here,
+    // unlike reprime, which keeps the CURRENT hue) - one shared copy of it,
+    // not duplicated per direction.
+    const landedLines = [
+      '       lda ' + targetVar,
+      '       and #$F0',
+      '       ora temp2',
+      '       sta ' + colorVar,
+      '       lda ' + flagsVar,
+      '       and #' + (255 - activeMask),
+      '       sta ' + flagsVar,
+      ...(isWatched ? [
+        '       lda ' + flagsVar,
+        '       ora #' + finishedMask,
+        '       sta ' + flagsVar,
+      ] : []),
+      '       jmp ' + done,
+    ];
+
+    return [
+      ' asm',
+      ...(isWatched ? [
+        '       lda ' + flagsVar,
+        '       and #' + (255 - finishedMask),
+        '       sta ' + flagsVar,
+      ] : []),
+      '       lda ' + flagsVar,
+      '       and #' + activeMask,
+      ...farBeq(skip),
+      '       lda ' + targetVar,
+      '       and #$0E',
+      '       sta temp3',
+      '       lda ' + colorVar,
+      '       and #$0E',
+      '       sta temp2',
+      '       cmp temp3',
+      ...farBeq(already),
+      '       lda ' + timerVar,
+      '       beq ' + checkDir,
+      '       dec ' + timerVar,
+      '       jmp ' + done,
+      checkDir,
+      '       lda temp2',
+      '       cmp temp3',
+      ...farBcc(up),
+      // DOWN - A already holds temp2 (current brightness) here, straight
+      // from the "cmp temp3" just above (CMP never touches A) - see this
+      // function's own "Register discipline" comment.
+      '       cmp #' + FADE_INCREMENT,
+      '       bcs ' + downSub,
+      '       lda #0',
+      '       jmp ' + downClamp,
+      downSub,
+      '       sec',
+      '       sbc #' + FADE_INCREMENT,
+      downClamp,
+      '       cmp temp3',
+      '       bcs ' + downAfter,
+      '       lda temp3',
+      downAfter,
+      '       sta temp2',
+      '       cmp temp3',
+      ...farBne(reprime),
+      ...landedLines,
+      up,
+      // A already holds temp2 (current brightness) here too, straight from
+      // the "cmp temp3"/"bcc up" branch above.
+      '       clc',
+      '       adc #' + FADE_INCREMENT,
+      '       cmp temp3',
+      '       beq ' + upAfter,
+      '       bcc ' + upAfter,
+      '       lda temp3',
+      upAfter,
+      '       sta temp2',
+      '       cmp temp3',
+      ...farBne(reprime),
+      ...landedLines,
+      reprime,
+      // Keeps the CURRENT hue (colorVar's own high nibble), only the
+      // brightness nibble changes this step - see the bB version's own
+      // comment on why this differs from the "landed" case above.
+      '       lda ' + colorVar,
+      '       and #$F0',
+      '       ora temp2',
+      '       sta ' + colorVar,
+      '       lda ' + paceVar,
+      '       sta ' + timerVar,
+      '       jmp ' + done,
+      already,
+      '       lda ' + targetVar,
+      '       and #$F0',
+      '       ora temp2',
+      '       sta ' + colorVar,
+      '       lda ' + flagsVar,
+      '       and #' + (255 - activeMask),
+      '       sta ' + flagsVar,
+      done,
+      skip,
+      'end',
+    ].join('\n');
+  };
+
   Blockly.BBasic.generateBackgroundFadeChecks = function() {
     const fadeVarsUsed = this.backgroundFadeVarsUsed || new Set();
     if (!fadeVarsUsed.size) return '';
     const watches = this.backgroundFadeFinishedWatches || new Set();
 
     const checksForVar = (rawVar) => {
-      const targetShadowVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' : 'backgroundrealcolor';
-      const colorVarName = Blockly.BBasic.nameDB_.getName(targetShadowVar, Blockly.VARIABLE_CATEGORY_NAME);
+      // COLUBK/COLUPF need a separate shadow variable (see background_set_
+      // color's own comment above) since the score/text drawing routines
+      // overwrite the real register every frame - scorecolor/TextColor have
+      // no such override, so the real variable doubles as its own shadow.
+      const isShadowedRegister = rawVar === 'COLUPF' || rawVar === 'COLUBK';
+      const targetShadowVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' :
+        rawVar === 'COLUBK' ? 'backgroundrealcolor' : rawVar;
+      // scorecolor/TextColor are real batari Basic identifiers already
+      // (score.js's own score_color_get/set and text-minikernel.js's own
+      // TextColor blocks both reference them as plain literals, never
+      // through nameDB_) - only COLUBK/COLUPF's own shadow vars are
+      // app-internal dev vars that actually need letter resolution.
+      const colorVarName = isShadowedRegister ?
+        Blockly.BBasic.nameDB_.getName(targetShadowVar, Blockly.VARIABLE_CATEGORY_NAME) : targetShadowVar;
       const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
       const paceVar = resolveVar(backgroundFadePaceVarName(rawVar));
       const targetVar = resolveVar(backgroundFadeTargetVarName(rawVar));
-      const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeActiveBit(rawVar)}}`;
+      const tag = FADE_LABEL_TAG_BY_VAR[rawVar] || rawVar;
 
-      const tag = rawVar === 'COLUPF' ? 'pf' : 'bg';
-      const skipLabel = `_bgfadechk_${tag}_skip`;
-      const upLabel = `_bgfadechk_${tag}_up`;
-      const downClampedLabel = `_bgfadechk_${tag}_downclamped`;
-      const upClampedLabel = `_bgfadechk_${tag}_upclamped`;
-      // Shared by both directions (see the "reprime" block's own comment
-      // below for why the two used to be separate, byte-for-byte identical
-      // copies of the same 3 lines, and no longer are).
-      const reprimeLabel = `_bgfadechk_${tag}_reprime`;
-      const alreadyLabel = `_bgfadechk_${tag}_already`;
-      const doneLabel = `_bgfadechk_${tag}_done`;
-      const decrementLabel = `_bgfadechk_${tag}_decrement`;
-
-      // Only emitted for a direction (up/brightening or down/dimming) a
-      // background_fade_finished block actually watches on this register
-      // (see resolveBackgroundFadeFinishedWatches) - a project with no
-      // such watch never pays for the extra bit-set at all. Spliced in
-      // only where a step just landed EXACTLY on the target while moving
-      // that direction (see below) - not the separate "already there"
-      // branch, matching background_fade_finished's own tooltip: a fade
-      // that starts already at its target never fires this, since there's
-      // no real completion event to report, and no direction was ever
-      // actually taken.
-      const finishedLinesFor = (direction) => watches.has(backgroundFadeWatchKey(rawVar, direction)) ?
-        [` ${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeFinishedBit(rawVar, direction)}} = 1`] :
-        [];
-
-      // Every conditional below is a plain "if X then goto label" (or a
-      // full if/then/else) - NEVER a bare "if X then Y = Z" with no else -
-      // this whole function is itself spliced unconditionally into
-      // commongamelogic, so the "bare conditional assignment breaks once
-      // nested inside another if" bug the old inline version hit can't
-      // recur here, but the goto/label form is kept anyway for consistency
-      // with the rest of this generator's own established, proven-safe
-      // shape.
-      //
-      // Labels here are BARE (no "@" prefix) and start at column 0 with NO
-      // leading whitespace; every other line below keeps exactly one
-      // leading space - matching generateSoundFadeChecks in generators/
-      // bbasic/soundfx.js and generateMusicChecks in this folder's music.js
-      // line for line, since all three are in the same boat: this
-      // function's own output is spliced directly into bbasic.bb.hbs's
-      // commongamelogic rather than going through the normal per-block
-      // generator pipeline, so nothing downstream reformats it the way
-      // Blockly.BBasic.normalizeIndents() does for every ordinary block's
-      // own output (see its own comment in generators/bbasic.js) - whatever
-      // whitespace is written here is exactly what the compiler sees.
-      // Deviating from that proven shape - first by using "@ label" here at
-      // all (a real, separate compile error: "unrecognized character @"),
-      // then by flattening every line, labels and statements alike, to
-      // column 0 - was directly implicated in a real "Unknown keyword:
-      // !flagByte{bit}" compile error from an earlier version of this;
-      // restored to mirror the two proven-working functions exactly rather
-      // than guess further at which part of the deviation actually mattered.
-      //
-      // The up and down branches below don't reconverge onto one shared
-      // "apply" point the way an earlier version of this did - each ends
-      // its own step, clamp, color-write, and finished/reprime check
-      // separately, so each can fire its OWN direction's finished bit
-      // rather than needing some extra piece of state to remember which
-      // direction was actually taken by the time a shared point is reached.
-      return [
-        ` if !${activeBit} then goto ${skipLabel}`,
-        ` if (${colorVarName} & $0E) = (${targetVar} & $0E) then goto ${alreadyLabel}`,
-        ` if ${timerVar} <> 0 then goto ${decrementLabel}`,
-        ` if (${colorVarName} & $0E) < (${targetVar} & $0E) then goto ${upLabel}`,
-        // Currently brighter than the target - step DOWN (fading out). A
-        // plain "current - increment" can underflow an 8-bit byte
-        // (wrapping to a huge value instead of going negative) if the
-        // current brightness is smaller than the increment itself -
-        // guarded with its own if/else so the subtraction only ever runs
-        // once confirmed safe; otherwise this step lands on 0 directly, no
-        // wraparound possible.
-        ` if (${colorVarName} & $0E) < ${FADE_INCREMENT} then temp2 = 0 else ` +
-          `temp2 = (${colorVarName} & $0E) - ${FADE_INCREMENT}`,
-        // "if X then goto Y" only SKIPS the very next line when X is true -
-        // it doesn't "run" label Y's own action. So this reads as: while
-        // still above the target (temp2 >= target, not yet overshot), jump
-        // OVER the clamp line, leaving the gradual step as computed; only
-        // once a step has dropped AT OR BELOW the target (an actual
-        // overshoot) does execution fall through into the clamp.
-        ` if temp2 >= (${targetVar} & $0E) then goto ${downClampedLabel}`,
-        ` temp2 = (${targetVar} & $0E)`,
-        `${downClampedLabel}`,
-        // A step size that doesn't evenly divide the remaining distance
-        // can overshoot past the target on its last jump - already clamped
-        // back to the target's own exact brightness above (rather than
-        // left overshot), both because that's the visually correct
-        // "arrived" value, and because an overshot temp2 could otherwise
-        // exceed 14 (or wrap below 0) and bleed into the hue nibble once
-        // merged here.
-        ` if temp2 <> (${targetVar} & $0E) then goto ${reprimeLabel}`,
-        // Landed exactly on the target this step - this fade is done, so
-        // THIS is the one moment hue switches over to the target's own
-        // (see this function's own comment above for why).
-        ` ${colorVarName} = (${targetVar} & $F0) | temp2`,
-        ` ${activeBit} = 0`,
-        ...finishedLinesFor('down'),
-        ` goto ${doneLabel}`,
-        `${upLabel}`,
-        // Currently dimmer than the target - step UP (fading in). No
-        // underflow/overflow risk here: brightness tops out at 14 and
-        // increment at 14, so the sum can never exceed 28, well inside an
-        // 8-bit byte.
-        ` temp2 = (${colorVarName} & $0E) + ${FADE_INCREMENT}`,
-        // Mirror of the DOWN branch's own comment above, opposite
-        // direction: while still below the target (temp2 <= target, not
-        // yet overshot), skip the clamp; only an actual overshoot (stepped
-        // AT OR PAST the target) falls through into it.
-        ` if temp2 <= (${targetVar} & $0E) then goto ${upClampedLabel}`,
-        ` temp2 = (${targetVar} & $0E)`,
-        `${upClampedLabel}`,
-        ` if temp2 <> (${targetVar} & $0E) then goto ${reprimeLabel}`,
-        ` ${colorVarName} = (${targetVar} & $F0) | temp2`,
-        ` ${activeBit} = 0`,
-        ...finishedLinesFor('up'),
-        ` goto ${doneLabel}`,
-        // Still approaching (either direction - both branches above jump
-        // here the same way once they're not yet done) - keep the CURRENT
-        // hue (not the target's), only the brightness nibble actually
-        // changes this step. One shared copy instead of one per direction:
-        // the two used to be separate, byte-for-byte identical blocks (down
-        // and up only ever diverge in their own clamp/landed logic above,
-        // never in what "still approaching" does), so this is pure
-        // duplication removed, not a behavior change.
-        `${reprimeLabel}`,
-        ` ${colorVarName} = (${colorVarName} & $F0) | temp2`,
-        ` ${timerVar} = ${paceVar}`,
-        ` goto ${doneLabel}`,
-        `${decrementLabel}`,
-        ` ${timerVar} = ${timerVar} - 1`,
-        ` goto ${doneLabel}`,
-        // Reached when this fade's brightness already matched the target
-        // the moment it was (re)checked - nothing left to ramp, so (same
-        // reasoning as the two "landed exactly on target" branches above)
-        // hue switches to the target's own right away. No "finished" event
-        // fires here (see finishedLinesFor's own comment) - there's no
-        // real completion to report for a fade that never had to move.
-        `${alreadyLabel}`,
-        ` ${colorVarName} = (${targetVar} & $F0) | (${colorVarName} & $0E)`,
-        ` ${activeBit} = 0`,
-        `${doneLabel}`,
-        `${skipLabel}`,
-      ];
+      // Every register (background/playfield AND score/text) routes through
+      // a hand-written asm version instead (see buildFadeCheckAsm's own
+      // comment) - real cycle savings over the bB if/goto chain this used to
+      // be. buildFadeCheckAsm itself doesn't care whether colorVarName came
+      // from a resolved dev var (COLUBK/COLUPF's own shadow vars) or a bare
+      // literal identifier (scorecolor/TextColor) - either way it's already
+      // just a plain string by the time it gets here.
+      return buildFadeCheckAsm({
+        colorVar: colorVarName,
+        targetVar,
+        timerVar,
+        paceVar,
+        flagsVar: resolveVar(fadeFlagsVarName()),
+        activeBit: fadeActiveBit(rawVar),
+        finishedBit: backgroundFadeFinishedBit(rawVar),
+        tag,
+        isWatched: watches.has(backgroundFadeWatchKey(rawVar)),
+      });
     };
 
     return [...fadeVarsUsed].map(checksForVar).flat().join('\n');
   };
 
-  Blockly.BBasic[`background_fade_finished`] = function(block) {
+  // Shared by background_fade_finished below and score.js's own
+  // score_fade_finished / text-minikernel.js's own
+  // text_minikernel_fade_finished - the check-and-clear body is identical
+  // regardless of which register it targets, only rawVar (and so which dev
+  // vars/bit it resolves to) differs. Mirrors emitColorFadeTrigger's own
+  // "shared trigger body, per-register rawVar" split above.
+  Blockly.BBasic.emitFadeFinishedWatch = function(block, rawVar) {
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
-    const rawVar = block.getFieldValue('VAR');
-    const direction = block.getFieldValue('DIRECTION');
     const watches = Blockly.BBasic.backgroundFadeFinishedWatches || new Set();
     // No matching fade block was ever found to have set this watch's own
     // flag in the first place (see resolveBackgroundFadeFinishedWatches -
@@ -329,8 +426,8 @@ export default (Blockly) => {
     // this codebase's own "silently no-op on a dangling reference" -
     // resolveMusicEventFlags is the shipped instance of the exact same
     // handling).
-    if (!watches.has(backgroundFadeWatchKey(rawVar, direction))) return '';
-    const flagBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeFinishedBit(rawVar, direction)}}`;
+    if (!watches.has(backgroundFadeWatchKey(rawVar))) return '';
+    const flagBit = `${resolveVar(fadeFlagsVarName())}{${backgroundFadeFinishedBit(rawVar)}}`;
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const labelEnd = `_bgfadefin_${blockNumber}_end`;
     return '\n' +
@@ -343,6 +440,10 @@ export default (Blockly) => {
     '\n';
   };
 
+  Blockly.BBasic[`background_fade_finished`] = function(block) {
+    return Blockly.BBasic.emitFadeFinishedWatch(block, block.getFieldValue('VAR'));
+  };
+
   // Plain boolean read of the active bit - unlike background_fade_finished
   // above, this doesn't check watches.has(...) first: hasBackgroundFadeActiveChecks
   // (see blocks/background.js) already guarantees the shared flags byte is
@@ -351,8 +452,22 @@ export default (Blockly) => {
   // the bit is always safe to read here even if it will only ever hold 0.
   Blockly.BBasic[`background_fade_active`] = function(block) {
     const rawVar = block.getFieldValue('VAR');
-    const activeBit = `${resolveVar(backgroundFadeFlagsVarName())}{${backgroundFadeActiveBit(rawVar)}}`;
+    const activeBit = `${resolveVar(fadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
     return [activeBit, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
+  // True if this block is nested (through any number of statement/value
+  // connections) inside a function_define block's own body - walking
+  // getParent() repeatedly rather than getSurroundParent() specifically
+  // because this needs to follow value-input connections too (this block
+  // sits in an "if" condition socket), not just statement nesting.
+  const isInsideFunctionDefine = (block) => {
+    let ancestor = block.getParent();
+    while (ancestor) {
+      if (ancestor.type === 'function_define') return true;
+      ancestor = ancestor.getParent();
+    }
+    return false;
   };
 
   Blockly.BBasic[`background_get_pixel`] = function(block) {
@@ -362,8 +477,55 @@ export default (Blockly) => {
     const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
 
-    const code = `pfread(${argumentX}, ${argumentY})`;
-    return [code, Blockly.BBasic.ORDER_ATOMIC];
+    // pfread()'s own arguments can't contain an operator - bB's parser
+    // expects a bare variable or literal there, not an expression.
+    // Confirmed directly: plugging a Math block (e.g. "xCycle - 1") into X
+    // or Y generated "pfread(xCycle - 1, ...)" and failed to compile with
+    // "Unknown keyword: -". A non-trivial expression is computed into a
+    // scratch var first instead, on its own line ahead of wherever this
+    // value actually gets used. There's no way for a plain value-block
+    // generator to inject setup statements before the line that consumes
+    // its return value, so those lines are encoded as a newline-joined
+    // preamble in front of the real "pfread(...)" expression here - this
+    // block's own tooltip already documents it as if-only, and controls_if
+    // (see its own comment) is what actually splits this back out and
+    // hoists the preamble onto its own line(s) before the "if". A bare
+    // identifier or number literal never contains whitespace in this
+    // codebase's own generated code, so testing for it is a safe, cheap
+    // way to tell a simple value apart from a compound expression without
+    // needing to parse it.
+    //
+    // temp1/temp2 (bB's own free scratch registers, obliterated by the
+    // kernel and reused this way throughout this codebase) are the
+    // ordinary, zero-cost choice here - EXCEPT when this block sits inside
+    // a function_define's own body, where temp1-temp6 are ALSO bB's fixed
+    // argument-passing convention (see generators/bbasic/function.js's own
+    // comment): overwriting temp1/temp2 there could silently clobber that
+    // function's own live parameter(s) out from under it. Confirmed
+    // directly as a real bug (a project's own custom function calling this
+    // went from "won't compile" to "resets the console the moment it
+    // runs" from exactly that). Only THAT case falls back to
+    // backgroundGetPixelXVarName/backgroundGetPixelYVarName's own
+    // dedicated dev vars instead - reserved (see reserveMusicDevVars's own
+    // sibling in bbasic.js) only for a project that actually has this
+    // block nested inside a function at all, so the common case (used
+    // directly in a plain "if", not inside a function) costs nothing extra.
+    const useDevVars = isInsideFunctionDefine(block);
+    const isSimple = (code) => !/\s/.test(code);
+    const preamble = [];
+    let readX = argumentX;
+    let readY = argumentY;
+    if (!isSimple(argumentX)) {
+      readX = useDevVars ? resolveVar(backgroundGetPixelXVarName()) : 'temp1';
+      preamble.push(`${readX} = ${argumentX}`);
+    }
+    if (!isSimple(argumentY)) {
+      readY = useDevVars ? resolveVar(backgroundGetPixelYVarName()) : 'temp2';
+      preamble.push(`${readY} = ${argumentY}`);
+    }
+
+    const code = `pfread(${readX}, ${readY})`;
+    return [preamble.length ? `${preamble.join('\n')}\n${code}` : code, Blockly.BBasic.ORDER_ATOMIC];
   };
 
   Blockly.BBasic[`background_change_pixel`] = function(block) {
@@ -374,7 +536,18 @@ export default (Blockly) => {
     const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
 
-    return `pfpixel ${argumentX} ${argumentY} ${operation}\n`;
+    // "pfpixel X Y OPERATION" is a whitespace-separated positional macro,
+    // not a real function call - a multi-token argument (e.g. a Random
+    // block's own "(rand / 8) + 1", which has spaces in it) gets split into
+    // several garbage tokens instead of read as one expression, confirmed
+    // directly as a real build failure ("Syntax Error ''" from a
+    // malformed "LDA #(" with nothing after it). Assigning to temp1/temp2
+    // first and passing THOSE (always a single plain token) sidesteps the
+    // whitespace-splitting entirely, regardless of how complex the
+    // plugged-in X/Y expression is.
+    return `temp1 = ${argumentX}\n` +
+      `temp2 = ${argumentY}\n` +
+      `pfpixel temp1 temp2 ${operation}\n`;
   };
 
   Blockly.BBasic[`background_change_hv_line`] = function(block) {
@@ -388,8 +561,14 @@ export default (Blockly) => {
     const argumentY = Blockly.BBasic.valueToCode(block, 'Y',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
 
-    return `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? argumentX : argumentY} - 1\n` +
-      `${direction} ${argumentX} ${argumentY} temp1 ${operation}\n`;
+    // Same "pfhline/pfvline X Y LENGTH OPERATION" whitespace-splitting risk
+    // as background_change_pixel above, for both X and Y (temp2/temp3 -
+    // temp1 is already used for the length calculation just below, so X/Y
+    // need their own separate scratch vars rather than reusing it).
+    return `temp2 = ${argumentX}\n` +
+      `temp3 = ${argumentY}\n` +
+      `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? 'temp2' : 'temp3'} - 1\n` +
+      `${direction} temp2 temp3 temp1 ${operation}\n`;
   };
 
   Blockly.BBasic[`background_clear`] = function(block) {

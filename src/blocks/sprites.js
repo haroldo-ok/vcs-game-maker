@@ -29,7 +29,7 @@ const buildAnimationSelectBlock = ({name, description, icon, colour, storageFact
   Blockly.Blocks[`sprite_${name}_animation_select`] = {
     init: function() {
       this.appendDummyInput()
-          .appendField(`${icon} ${description} ${ANIMATION_ICON} Animation:`)
+          .appendField(`${icon} ${description} ${ANIMATION_ICON} animation`)
           .appendField(
               new Blockly.FieldDropdown(buildAnimationOptions(storageFactory)), 'VAR');
       this.setOutput(true, 'Number');
@@ -71,6 +71,32 @@ const MISSILE_SIZE_OPTIONS = [
   ['8', '$30'],
 ];
 
+// Pixels moved per frame, each direction's own X and Y step (see
+// generators/bbasic/sprites.js's own generateMissileFireChecks) - a
+// bounded dropdown rather than a free-typed field, same "small fixed
+// choice" reasoning MISSILE_SIZE_OPTIONS above already uses.
+const MISSILE_FIRE_SPEED_OPTIONS = [
+  ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6'], ['7', '7'],
+];
+
+// Same 0-7 clockwise-from-Up encoding as input_joyN_direction8 (see
+// blocks/input.js's own buildJoystickDirection8Block) - used for the Fire
+// block's own "Default direction" dropdown (see generateMissileFireChecks'
+// own trigger comment): whatever the user picks here is what actually fires
+// when the Angle input evaluates to 255 ("no clear direction" - e.g. the
+// joystick is centered), rather than a single hardcoded fallback, so any of
+// the 8 directions can be the default, not just Up.
+const MISSILE_FIRE_DEFAULT_ANGLE_OPTIONS = [
+  ['⬆ Up', '0'],
+  ['↗ Up-Right', '1'],
+  ['➡ Right', '2'],
+  ['↘ Down-Right', '3'],
+  ['⬇ Down', '4'],
+  ['↙ Down-Left', '5'],
+  ['⬅ Left', '6'],
+  ['↖ Up-Left', '7'],
+];
+
 const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOptions=[], readOnlyOptions=[], colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for the getter.
@@ -91,7 +117,7 @@ const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOption
     // Block for the setter.
     {
       'type': `sprite_${name}_set`,
-      'message0': `${icon} ${description}: %{BKY_VARIABLES_SET}`,
+      'message0': `${icon} ${description} %{BKY_VARIABLES_SET}`,
       'args0': [
         {
           'type': 'field_dropdown',
@@ -111,7 +137,7 @@ const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOption
     // Block for adding to a variable in place.
     {
       'type': `sprite_${name}_change`,
-      'message0': `${icon} ${description}: %{BKY_MATH_CHANGE_TITLE}`,
+      'message0': `${icon} ${description} %{BKY_MATH_CHANGE_TITLE}`,
       'args0': [
         {
           'type': 'field_dropdown',
@@ -189,7 +215,7 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
     // input if a specific offset expression is ever wanted instead.
     {
       'type': `sprite_${name}_rom_noise`,
-      'message0': `${icon} ${description}: display ${DATA_ICON} ROM noise, offset %1 height %2 rows`,
+      'message0': `${icon} ${description} display ${DATA_ICON} ROM noise, offset %1 height %2 rows`,
       'args0': [
         {
           'type': 'input_value',
@@ -197,12 +223,9 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
           'check': 'Number',
         },
         {
-          'type': 'field_number',
+          'type': 'input_value',
           'name': 'HEIGHT',
-          'value': 8,
-          'min': 1,
-          'max': 32,
-          'precision': 1,
+          'check': 'Number',
         },
       ],
       'inputsInline': true,
@@ -214,10 +237,97 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
         'zone" static effect. Always reads from bank 1 (regardless of which bank this block ' +
         'itself ends up in). Leave "offset" unplugged for an automatically shimmering pattern ' +
         '(it defaults to the frame counter) - or plug in your own expression to control exactly ' +
-        'which bytes show. This replaces whatever animation frame the player was showing until ' +
-        'something else (a normal animation frame, or another use of this block) points it ' +
-        'elsewhere again; it does NOT affect player width/quantity (NUSIZ) - a size set with the ' +
-        '"set width/quantity" block above still applies normally on top of this.',
+        'which bytes show. This keeps overriding the player\'s graphic every frame, even over a ' +
+        'normal animation frame set afterward, until the separate "stop ROM noise" block is used ' +
+        '- it does NOT affect player width/quantity (NUSIZ) - a size set with the "set width/' +
+        'quantity" block above still applies normally on top of this. See the separate ' +
+        `"rainbow colors" block for a different color on every row of ${description} too.`,
+    },
+    // ROM noise (above) sets a runtime "active" flag that keeps overriding
+    // this player's graphic pointer every single frame, forever, once
+    // triggered - a normal "Set animation" block alone can't undo that,
+    // since generateRomNoiseChecks' own per-frame override runs AFTER the
+    // animation logic every frame and only ever gets set, never cleared
+    // (confirmed as a real reported gap: "I want to be able to switch back
+    // to using sprite graphics after using the noise block"). This just
+    // clears that flag, letting the animation pointer generateAnimations
+    // already reasserts every frame regardless take back over immediately -
+    // no pixel/graphic changes of its own.
+    {
+      'type': `sprite_${name}_rom_noise_stop`,
+      'message0': `${icon} ${description} stop ${DATA_ICON} ROM noise`,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Switches ${description} back to showing its normal animation frames again, ` +
+        'undoing the "display ROM noise" block above - that block keeps overriding the graphic ' +
+        'every frame until this one is used, even if a normal animation frame is set in the ' +
+        'meantime.',
+    },
+    // A different color on every scanline of this player - a REAL, existing
+    // batari Basic kernel feature ("playercolors"/"player1colors" kernel
+    // options - see std_kernel.asm's own "ifnconst playercolors" checks),
+    // not built from scratch here. Deliberately its own separate block, not
+    // a checkbox on sprite_*_rom_noise: this reads ROM bytes into
+    // player0color/player1color the exact same "no data table, no ROM cost"
+    // way the noise block reads them into player0pointer/player1pointer
+    // (see generators/bbasic/sprites.js's own ROM_NOISE_COLOR_REGISTERS
+    // comment for the confirmed real register aliasing this relies on), but
+    // that mechanism is entirely independent of what the player's own
+    // GRAPHIC pointer is doing - it works identically whether this player
+    // is showing a normal drawn animation frame OR ROM noise, so keeping it
+    // separate lets either be used without the other.
+    {
+      'type': `sprite_${name}_rainbow_colors`,
+      'message0': `${icon} ${description} rainbow colors, offset %1`,
+      'args0': [
+        {
+          'type': 'input_value',
+          'name': 'OFFSET',
+          'check': 'Number',
+        },
+      ],
+      'inputsInline': true,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Gives ${description} a different color on every one of its rows, reading real ` +
+        'ROM bytes the same way the "display ROM noise" block does - works with any graphic, a ' +
+        'normal animation frame or ROM noise. Leave "offset" unplugged for an automatically ' +
+        'shimmering pattern (it defaults to the frame counter). Turns on a real batari Basic ' +
+        `kernel feature that repurposes ${name === 'player0' ? 'missile0' : 'missile1'}'s own ` +
+        `hardware circuitry to do this, so ${name === 'player0' ? 'missile0' : 'missile1'} can no ` +
+        'longer be used as a sprite anywhere in the project while this block is used (same ' +
+        'tradeoff as the "blank lines between background rows" option)' +
+        (name === 'player0' ? ', and paddle input becomes unavailable too' : '') + '.',
+    },
+    // Same "active flag only ever gets set, never cleared" gap as
+    // sprite_${name}_rom_noise_stop above, for the rainbow-colors trigger
+    // instead - see that block's own comment. One real difference: once
+    // "playercolors"/"player1colors" is in kernel_options at all, the
+    // KERNEL itself always reads (player0color),y every scanline - there's
+    // no way to turn that back into a plain flat COLUP0/COLUP1 color at
+    // runtime, so this can't fully "undo" rainbow colors the way the ROM
+    // noise stop block can fully undo noise. What it DOES do: with the
+    // Options tab's "Enable per-row sprite colors" toggle on, each
+    // animation frame already declares its own real per-row color table
+    // (see generateAnimations in generators/bbasic.js) every time that
+    // frame is (re)shown - clearing this flag lets THAT take back over,
+    // the same "something else already reasserts every frame" mechanism
+    // the ROM noise stop block relies on. Without that toggle, this just
+    // freezes the color pointer wherever it currently is.
+    {
+      'type': `sprite_${name}_rainbow_colors_stop`,
+      'message0': `${icon} ${description} stop rainbow colors`,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Stops ${description}'s "rainbow colors" block from continuing to override its ` +
+        'row colors every frame. With the Options tab\'s "Enable per-row sprite colors" toggle ' +
+        `on, ${description} goes back to each animation frame's own declared colors (or the ` +
+        'default color if none were set); without that toggle, the color pointer just stays ' +
+        'wherever rainbow colors last left it, since batari Basic has no way to fully return to ' +
+        'a single flat color once this kernel feature is active.',
     },
   ]);
 };
@@ -239,6 +349,64 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
       'nextStatement': null,
       colour,
       'extensions': ['math_change_tooltip'],
+    },
+    // Fires this missile from the given starting X/Y, moving at the given
+    // angle/speed until it goes off-screen, where it just stops (see
+    // generateMissileFireChecks) - its own Height/visibility is left
+    // entirely to the existing "sprite_<name>_set" block, never touched
+    // here, so it doesn't change size or disappear on its own.
+    {
+      'type': `sprite_${name}_fire`,
+      'message0': `${icon} Fire ${description} from X %1 Y %2 at angle %3 default %4 speed %5`,
+      'args0': [
+        {
+          'type': 'input_value',
+          'name': 'X',
+          'check': 'Number',
+        },
+        {
+          'type': 'input_value',
+          'name': 'Y',
+          'check': 'Number',
+        },
+        {
+          'type': 'input_value',
+          'name': 'ANGLE',
+          'check': 'Number',
+        },
+        {
+          'type': 'field_dropdown',
+          'name': 'DEFAULT_ANGLE',
+          'options': MISSILE_FIRE_DEFAULT_ANGLE_OPTIONS,
+        },
+        {
+          'type': 'field_dropdown',
+          'name': 'SPEED',
+          'options': MISSILE_FIRE_SPEED_OPTIONS,
+        },
+      ],
+      'inputsInline': true,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Launches ${description} from the given starting X/Y position (e.g. a paired ` +
+        'player\'s own X/Y position blocks, for a traditional "fire from the player" missile), ' +
+        'moving it automatically (a few pixels every frame) until it goes off-screen, where it ' +
+        `simply stops moving - ${description}'s own Height/visibility is never touched by this ` +
+        'block, so it never changes size or disappears on its own; use "Missile: set Height" ' +
+        'yourself if you want it hidden once it stops. Angle is 0-7 ' +
+        '(0=Up, 1=Up-Right, 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left, clockwise ' +
+        'from Up) - plug in a "Joystick direction (8-way)" block to fire toward wherever the ' +
+        'joystick is pushed, a plain number for a fixed direction, or a variable holding an angle ' +
+        'computed elsewhere. 255 (or any other value outside 0-7) means "no clear direction" (e.g. ' +
+        'a centered joystick) - "default" is used instead whenever that happens, so ' +
+        `${description} still fires (in whichever direction "default" picks) rather than doing ` +
+        `nothing. Every time this block actually runs, it (re)launches ${description} right away, ` +
+        'even if a previous shot is still in flight - resetting its position to whatever X/Y it\'s ' +
+        'given at that moment. Because of that, this should be placed behind its own rate limiter ' +
+        '(e.g. an "every X frames" block) rather than something that stays true every single frame ' +
+        '(like "if Fire then ..." on its own), or it\'ll keep resetting the shot every frame instead ' +
+        'of letting it fly.',
     },
   ]);
 };
@@ -348,7 +516,7 @@ buildSpriteBlocks({
 Blockly.defineBlocksWithJsonArray([
   {
     'type': 'sprite_priority_set',
-    'message0': `${PRIORITY_ICON} Sprite priority: %1`,
+    'message0': `${PRIORITY_ICON} Sprite priority %1`,
     'args0': [
       {
         'type': 'field_dropdown',

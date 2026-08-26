@@ -125,7 +125,7 @@
                   </div>
 
                   <div class="data-values" :style="{gridTemplateColumns:
-                    `repeat(auto-fit, minmax(max(calc((100% - ${tableColumns(table) - 1}px) / ${tableColumns(table)}), ${DATA_VALUE_CELL_MIN_PX}px), 1fr))`}">
+                    `repeat(auto-fit, minmax(max(calc((100% - ${tableColumns(table) - 1 + DATA_VALUES_EXTRA_SLACK_PX}px) / ${tableColumns(table)}), ${DATA_VALUE_CELL_MIN_PX}px), 1fr))`}">
                     <div
                       v-for="(value, index) in table.values"
                       v-bind:key="index"
@@ -139,7 +139,28 @@
                         title="Drag to reorder"
                         v-on="valueHandleListeners(table, index)"
                       >{{ index }}</span>
+                      <color-swatch-picker
+                        v-if="valueFormat(table, index) === 'color'"
+                        class="data-value-color-picker"
+                        :value="table.values[index]"
+                        :allow-clear="false"
+                        title="Click to change this value's color"
+                        @input="(byte) => handleColorValueInput(table, index, byte)"
+                      />
+                      <v-select
+                        v-else-if="dropdownOptionsFor(valueFormat(table, index))"
+                        :value="table.values[index]"
+                        :items="dropdownOptionsFor(valueFormat(table, index)).value"
+                        item-text="text"
+                        item-value="value"
+                        dense
+                        hide-details
+                        class="data-value-field data-value-dropdown-select"
+                        @change="(value) => handleDropdownValueInput(table, index, value)"
+                        @focus="() => handleSelectValue(table, index)"
+                      />
                       <v-text-field
+                        v-else
                         :value="displayValue(table, index)"
                         @input="(v) => handleValueInput(table, index, v)"
                         :type="valueFormat(table, index) === 'dec' ? 'number' : 'text'"
@@ -155,12 +176,20 @@
                       />
                       <v-btn
                         icon
-                        small
                         :title="FORMAT_TOGGLE_TITLES[valueFormat(table, index)]"
-                        class="data-format-toggle-btn"
+                        class="data-format-toggle-btn data-flat-icon-btn"
                         @click="() => toggleValueFormat(table, index)"
                       >
-                        <v-icon small>{{ FORMAT_ICONS[valueFormat(table, index)] }}</v-icon>
+                        <v-icon
+                          size="22"
+                          :class="{
+                            'data-format-icon-background': valueFormat(table, index) === 'background',
+                            'data-format-icon-player0': valueFormat(table, index) === 'player0',
+                            'data-format-icon-player1': valueFormat(table, index) === 'player1',
+                            'data-format-icon-sound': valueFormat(table, index) === 'sound',
+                            'data-format-icon-text': valueFormat(table, index) === 'text',
+                          }"
+                        >{{ FORMAT_ICONS[valueFormat(table, index)] }}</v-icon>
                       </v-btn>
                       <v-btn
                         icon
@@ -222,11 +251,18 @@ import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder, CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
-import {useDataTablesStorage} from '../hooks/project';
+import {useBackgroundsStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage,
+  useSoundEffectsStorage, useSongsStorage, useTextStringsStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, DEFAULT_DATA_TABLE_COLUMNS, MAX_DATA_TABLE_VALUES,
   processDataTablesStorageDefaults} from '../blocks/data';
+import {processBackgroundStorageDefaults} from '../blocks/background';
+import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
+import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
+import {processSongsStorageDefaults} from '../blocks/music';
+import {processTextStringsStorageDefaults} from '../blocks/text-strings';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
+import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 
 // A data table is just a flat array of 0-255 bytes (see blocks/data.js), so
 // its CSV form is a single row of comma-separated integers - no header, no
@@ -267,11 +303,64 @@ const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
 // Columns-1 tracks instead. Confirmed directly: Columns set to 2/3/8
 // rendered as 1/2/7 actual columns, always exactly one short, until this
 // calc() started subtracting the gap total before dividing.
+// DATA_VALUES_EXTRA_SLACK_PX below folds in the SAME reasoning for two more
+// things this original fix didn't yet account for: .data-values' own 1px
+// border on each side (2px total, inside the same 100% this percentage is
+// measured against), and ordinary floating-point rounding in the percentage
+// division itself (100%/3, .../7, etc. don't divide evenly) - either one on
+// its own can still tip an exact-fit row back into the same "one column
+// short" symptom this comment already fixed once, just by a sub-pixel
+// margin this time rather than a whole gap's worth. Reproduced directly:
+// Columns tracks still rendering as Columns-1 at specific window widths
+// even with the gap subtraction above already in place.
+const DATA_VALUES_EXTRA_SLACK_PX = 3;
 const DATA_VALUE_CELL_MIN_PX = 120;
 
 export default defineComponent({
+  components: {ColorSwatchPicker},
   setup() {
     const dataTablesStorage = useDataTablesStorage();
+    const backgroundsStorage = useBackgroundsStorage();
+    // {text, value} pairs for the 'background' format's dropdown (see
+    // valueFormat/FORMAT_CYCLE below) - same {id, name} source
+    // blocks/background.js's own buildBackgroundOptions reads for the
+    // Blockly "Background:" field dropdown, just as a plain reactive
+    // computed instead of a FieldDropdown options-generator function.
+    const backgroundOptions = computed(() =>
+      processBackgroundStorageDefaults(backgroundsStorage).backgrounds
+          .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
+    const player0Storage = usePlayer0Storage();
+    const player1Storage = usePlayer1Storage();
+    // Same {text, value} shape as backgroundOptions above, but the VALUE is
+    // each animation's own INDEX in the list, not an id - matching
+    // blocks/sprites.js's own buildAnimationOptions exactly (see its
+    // comment: the generated code dispatches on "player0animation = N"
+    // against the animation's position in the list, not any stored id, so
+    // that's what a data table value needs to hold too for this to mean
+    // anything once read back by a Data block).
+    const playerAnimationOptions = (playerStorage) => computed(() =>
+      processPlayerStorageDefaults(playerStorage).animations
+          .map((animation, index) => ({text: animation.name || `Unnamed ${index + 1}`, value: index})));
+    const player0Options = playerAnimationOptions(player0Storage);
+    const player1Options = playerAnimationOptions(player1Storage);
+    // Same {id, name} -> {text, value} shape as backgroundOptions - sound
+    // effects/songs/text strings are all referenced by their own stored id
+    // (not a list position, unlike player animations above), matching
+    // buildSoundEffectOptions/buildSongOptions/buildTextStringOptions'
+    // own dropdowns in blocks/soundfx.js, blocks/music.js, and
+    // blocks/text-strings.js respectively.
+    const soundEffectsStorage = useSoundEffectsStorage();
+    const soundOptions = computed(() =>
+      processSoundEffectsStorageDefaults(soundEffectsStorage).soundEffects
+          .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
+    const songsStorage = useSongsStorage();
+    const musicOptions = computed(() =>
+      processSongsStorageDefaults(songsStorage).songs
+          .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
+    const textStringsStorage = useTextStringsStorage();
+    const textOptions = computed(() =>
+      processTextStringsStorageDefaults(textStringsStorage).textStrings
+          .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
     const state = computed({
       get() {
         try {
@@ -447,22 +536,73 @@ export default defineComponent({
     // (confirmed directly - it rendered as a blank glyph) - these three use
     // the same "boxed letter" icon language as the Music tab's Mute/Solo
     // toggles instead (mdi-alpha-*-box), which does exist.
-    const FORMAT_CYCLE = ['dec', 'bin', 'hex'];
-    const FORMAT_ICONS = {dec: 'mdi-alpha-d-box', bin: 'mdi-alpha-b-box', hex: 'mdi-alpha-h-box'};
+    // 'color' reuses the same TIA color BYTE convention as every other color
+    // picker in this app (see utils/palette.js's own comment) - the stored
+    // value is still a plain 0-255 number, this only swaps the text field
+    // for a ColorSwatchPicker (see the template) and skips straight to a
+    // valid byte on click rather than typing digits.
+    // 'background' is the same idea applied to a background's own numeric id
+    // (see backgroundOptions above and blocks/background.js's own
+    // buildBackgroundOptions, which this reads the exact same {id, name}
+    // list from) - a dropdown of every background in the project instead of
+    // a color swatch, storing whichever id is picked.
+    // 'player0'/'player1' are the same idea as 'background', applied to
+    // each player's own animation list (see player0Options/player1Options
+    // above) - stores whichever animation INDEX is picked.
+    const FORMAT_CYCLE = ['dec', 'bin', 'hex', 'color', 'background', 'player0', 'player1',
+      'sound', 'music', 'text'];
+    const FORMAT_ICONS = {
+      dec: 'mdi-alpha-d-box', bin: 'mdi-alpha-b-box', hex: 'mdi-alpha-h-box', color: 'mdi-palette',
+      background: 'mdi-map', player0: 'mdi-human-handsup', player1: 'mdi-human-handsup',
+      sound: 'mdi-waveform', music: 'mdi-music-note', text: 'mdi-card-text-outline',
+    };
     const FORMAT_TOGGLE_TITLES = {
       dec: 'Decimal entry (click to switch to 8-bit binary)',
       bin: 'Binary entry (click to switch to hex)',
-      hex: 'Hex entry (click to switch to decimal)',
+      hex: 'Hex entry (click to switch to a color swatch)',
+      color: 'Color swatch entry (click to switch to a background)',
+      background: 'Background entry (click to switch to a Player 0 animation)',
+      player0: 'Player 0 animation entry (click to switch to a Player 1 animation)',
+      player1: 'Player 1 animation entry (click to switch to a sound effect)',
+      sound: 'Sound effect entry (click to switch to a song)',
+      music: 'Song entry (click to switch to a text string)',
+      text: 'Text string entry (click to switch to decimal)',
     };
     const valueFormat = (table, index) => (table.valueFormats && table.valueFormats[index]) || 'dec';
     // $set (not plain assignment) for the same reason handleColumnsInput's
     // own comment gives - valueFormats doesn't exist at all on a table saved
     // before this feature existed, and Vue 2 can't detect a brand new
     // property being added to an already-reactive object any other way.
+    // Which dropdown-backed format each of these three shares - keyed here
+    // once so toggleValueFormat's own defaulting below (and
+    // dropdownOptionsFor, used by the template) don't have to repeat the
+    // same three-way branch.
+    const DROPDOWN_OPTIONS_BY_FORMAT = {
+      background: backgroundOptions,
+      player0: player0Options,
+      player1: player1Options,
+      sound: soundOptions,
+      music: musicOptions,
+      text: textOptions,
+    };
+    const dropdownOptionsFor = (format) => DROPDOWN_OPTIONS_BY_FORMAT[format];
     const toggleValueFormat = (table, index) => {
       if (!table.valueFormats) instance.proxy.$set(table, 'valueFormats', []);
       const next = FORMAT_CYCLE[(FORMAT_CYCLE.indexOf(valueFormat(table, index)) + 1) % FORMAT_CYCLE.length];
       instance.proxy.$set(table.valueFormats, index, next);
+      // Whatever this cell's value happened to be before (a decimal digit,
+      // a color byte, ...) is unlikely to also be a valid option in
+      // whichever dropdown it's about to switch to - defaults to that
+      // dropdown's first entry instead of leaving it on a value nothing in
+      // its own options actually matches (which Vuetify's own v-select just
+      // renders blank). Left alone if the value already IS a real option
+      // (e.g. toggling away from 'background' and back), so a deliberate
+      // choice isn't clobbered.
+      const options = dropdownOptionsFor(next);
+      if (options && options.value.length &&
+          !options.value.some((option) => option.value === table.values[index])) {
+        instance.proxy.$set(table.values, index, options.value[0].value);
+      }
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -504,6 +644,25 @@ export default defineComponent({
         const value = Number(rawInput);
         instance.proxy.$set(table.values, index, Number.isFinite(value) ? value : 0);
       }
+    };
+
+    // ColorSwatchPicker's own @input already hands back a valid TIA color
+    // byte (an even 0-254 number, see utils/palette.js) picked straight from
+    // the palette grid - no parsing/clamping needed the way the typed
+    // formats above need, this can go straight into the table.
+    const handleColorValueInput = (table, index, byte) => {
+      instance.proxy.$set(table.values, index, byte);
+      handleValueChange(table, index);
+    };
+
+    // Same shape as handleColorValueInput above - shared by all three
+    // dropdown-backed formats (background/player0/player1, see the
+    // template), whose own v-select already hands back a valid id/index
+    // straight from its own options list, so no parsing is needed here
+    // either.
+    const handleDropdownValueInput = (table, index, value) => {
+      instance.proxy.$set(table.values, index, value);
+      handleValueChange(table, index);
     };
 
     // Drag-and-drop reordering for one table's own value fields - not built
@@ -681,12 +840,15 @@ export default defineComponent({
     return {
       state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
       handleAddValue, handleDeleteValue, handleValueChange, handleSelectValue, handleSubtractValue,
-      valueFormat, toggleValueFormat, displayValue, handleValueInput, FORMAT_ICONS, FORMAT_TOGGLE_TITLES,
+      valueFormat, toggleValueFormat, displayValue, handleValueInput, handleColorValueInput,
+      handleDropdownValueInput, dropdownOptionsFor,
+      FORMAT_ICONS, FORMAT_TOGGLE_TITLES,
       handleExportCsv, handleImportCsv,
       tableColumns, handleColumnsInput, handleColumnsChange,
       isCollapsed, toggleCollapsed,
       maxValues: MAX_DATA_TABLE_VALUES,
       DATA_VALUE_CELL_MIN_PX,
+      DATA_VALUES_EXTRA_SLACK_PX,
       maxColumns: MAX_DATA_TABLE_COLUMNS_DISPLAY,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       valueDragClass, valueHandleListeners, valueRowListeners,
@@ -871,6 +1033,72 @@ export default defineComponent({
   color: rgba(0, 0, 0, 0.87) !important;
 }
 
+/* Same red/blue/orange App.vue's own .player0-item/.player1-item/
+   .background-item sidebar tabs use for their identical icons - overrides
+   .data-flat-icon-btn's own dim grey above (both rest and hover) so this
+   toggle button's icon reads as "Player 0"/"Player 1"/"Background" by color
+   the same way the sidebar already does, not just by title text on hover.
+   Dimmed via opacity at rest, same as every other format icon here dims via
+   a lower rgba alpha (.data-flat-icon-btn's own 0.38 rest / 0.87 hover,
+   above) - opacity is used instead of another rgba tint (which would just
+   fade toward white/grey, not this icon's own color) so it fades toward
+   transparent instead, dimming without ever losing that color identity.
+   Selectors deliberately repeat .data-flat-icon-btn's own full prefix
+   (rather than a shorter, more "obvious" selector) so each stays a strict
+   superset of - and so always wins specificity over - the plain .v-icon
+   rules above, regardless of source order. A shorter selector here was
+   tried first and confirmed to lose that fight, leaving these stuck on
+   .data-flat-icon-btn's own dim grey no matter what color was set. */
+.data-flat-icon-btn >>> .v-icon.data-format-icon-background,
+.data-flat-icon-btn >>> .v-icon.data-format-icon-player0,
+.data-flat-icon-btn >>> .v-icon.data-format-icon-player1,
+.data-flat-icon-btn >>> .v-icon.data-format-icon-sound,
+.data-flat-icon-btn >>> .v-icon.data-format-icon-text {
+  opacity: 0.4;
+  color: rgb(244, 67, 54) !important;
+}
+
+.data-flat-icon-btn >>> .v-icon.data-format-icon-background {
+  color: rgb(255, 152, 0) !important;
+}
+
+.data-flat-icon-btn >>> .v-icon.data-format-icon-player1 {
+  color: rgb(33, 150, 243) !important;
+}
+
+.data-flat-icon-btn >>> .v-icon.data-format-icon-sound {
+  color: rgb(156, 39, 176) !important;
+}
+
+.data-flat-icon-btn >>> .v-icon.data-format-icon-text {
+  color: rgb(233, 30, 99) !important;
+}
+
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-background,
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-player0,
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-player1,
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-sound,
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-text {
+  opacity: 1;
+  color: rgb(244, 67, 54) !important;
+}
+
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-background {
+  color: rgb(255, 152, 0) !important;
+}
+
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-player1 {
+  color: rgb(33, 150, 243) !important;
+}
+
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-sound {
+  color: rgb(156, 39, 176) !important;
+}
+
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-text {
+  color: rgb(233, 30, 99) !important;
+}
+
 .data-caption-row {
   display: flex;
   align-items: flex-end;
@@ -964,7 +1192,10 @@ export default defineComponent({
 .data-value-index {
   flex: 0 0 auto;
   font-family: monospace;
-  font-size: 0.7em;
+  /* Matches .data-id-badge's own font-size (the "ID: N" badge on each data
+     table card) rather than this row's own relative 0.7em, which came out
+     visibly smaller. */
+  font-size: 0.75rem;
   opacity: 0.7;
   text-align: right;
   cursor: grab;
@@ -1005,6 +1236,105 @@ export default defineComponent({
   margin-left: 4px;
 }
 
+/* Vuetify's v-menu renders its activator slot content as a SIBLING of its
+   own (empty, zero-size) root element, not nested inside it (same gotcha
+   SoundFXEditor.vue's own .soundfx-name-row >>> .color-swatch-picker-dot
+   documents) - a class on <color-swatch-picker> itself lands on that
+   invisible marker, so the actual visible swatch (.color-swatch-picker-dot)
+   is its own separate flex item in this row, styled directly here instead.
+   Same flex-basis/min-width/margin as .data-value-field so the toggle/
+   delete buttons next to it don't shift position switching in/out of color
+   mode, stretched wider (overriding its own default 14x14 dot size) to
+   actually fill that space rather than sitting small inside it. */
+.data-value-row >>> .color-swatch-picker-dot {
+  flex: 1 1 84px;
+  min-width: 46px;
+  margin-left: 4px;
+  width: auto;
+  /* Matches the toggle/delete buttons' own 26px height (see
+     .data-value-row .v-btn.v-btn--icon below) - this was 24px, a leftover
+     mismatch from before those two were unified, which could still grow a
+     row when a color-format cell shared a grid row with one of the other
+     dropdown formats. */
+  height: 26px;
+  border-radius: 4px;
+}
+
+/* A plain (not solo/filled/outlined) v-select still shares .data-value-
+   field's own >>> .v-input__slot rule above (underline/box-shadow removal),
+   since this reuses that same class - only the extra bits specific to a
+   select (rather than a bare <input>, which that rule's own padding/margin
+   tuning targets) need overriding here: the selection text's own vertical
+   offset and the dropdown arrow icon, both trimmed down so this row isn't
+   any taller than a plain number cell next to it. */
+.data-value-dropdown-select >>> .v-select__selection {
+  /* No explicit font-size - matches .data-value-field's own decimal input,
+     which also leaves this at Vuetify's default rather than overriding it,
+     so the two read as the same size next to each other. */
+  margin: 0;
+  /* .v-select__selections is already centered via flex align-items (below),
+     but the text itself still reads slightly low next to it - the dropdown
+     arrow (.v-input__append-inner), not affected by this rule, is already
+     correctly placed. */
+  position: relative;
+  top: -2px;
+  /* A background/sound effect/song/text string with a long enough name
+     otherwise wraps onto a second line inside this narrow a cell, growing
+     ITS OWN row - and since every row in .data-values' grid stretches to
+     match its own tallest cell, that one long name was enough to grow the
+     WHOLE grid, not just the row it's actually in (same class of bug the
+     dropdown arrow icon's own height caused above, confirmed directly the
+     same way: reproduced only with a long enough name, hence "sometimes").
+     Truncated with an ellipsis instead of ever wrapping. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  /* A flex item's default min-width is "auto" (its own natural content
+     width), which overrides max-width/overflow above and lets it keep
+     forcing its flex container wider instead of ever actually truncating -
+     same fix .data-value-row itself already needed for the same reason
+     (see that rule's own min-width: 0). */
+  min-width: 0;
+}
+
+/* The dropdown arrow icon's own default size (24px) is taller than this
+   row's own 28px height minus .data-value-row's vertical padding leaves
+   room for - since .data-value-row sizes itself to fit its own tallest
+   child (a plain flex row, height: auto), that alone was enough to grow
+   EVERY row in the whole grid by 4px the moment any ONE cell anywhere used
+   this format, not just the row the select itself sits in (confirmed
+   directly: all 8 rows read 28px with no select present anywhere, 32px the
+   moment even one cell switched to 'background'). Capped to font-size (the
+   same 16px .v-select__selection is already left at) so the icon can never
+   be the tallest thing in the row again. */
+.data-value-dropdown-select >>> .v-input__append-inner {
+  margin-top: 0 !important;
+  padding-left: 0 !important;
+  height: 16px;
+  min-width: 16px;
+}
+
+.data-value-dropdown-select >>> .v-input__append-inner .v-icon {
+  font-size: 16px !important;
+}
+
+.data-value-dropdown-select >>> .v-input__control,
+.data-value-dropdown-select >>> .v-input__slot {
+  min-height: 0 !important;
+}
+
+/* Vuetify's own v-select__selections (a plain block-level div, unlike a
+   bare <input>) doesn't otherwise center its own text against this row's
+   other compact content - collapsing to min-height above left it sitting
+   noticeably low, so it's made its own flex row here to center vertically
+   the same way .data-value-row centers everything else in it. */
+.data-value-dropdown-select >>> .v-select__selections {
+  display: flex;
+  align-items: center;
+  min-height: 0 !important;
+}
+
 /* Monospace keeps every digit a consistent width instead of drifting as
    0s/1s (or hex digits) are typed/deleted - sizing itself is shared with
    plain decimal now (see .data-value-field's own comment on why). */
@@ -1026,7 +1356,7 @@ export default defineComponent({
      the digits sitting a little low relative to the row's own other
      content ([index] label, delete button), once the underline below is
      gone and there's no floating label pushing it down to make room for. */
-  margin-top: -6px;
+  margin-top: -5px;
 }
 
 .data-value-field >>> .v-input__slot {
@@ -1036,6 +1366,13 @@ export default defineComponent({
      bare number boxes, where a full-width line under every single cell
      reads as visual noise rather than a real field boundary indicator. */
   box-shadow: none !important;
+  /* Matches every other format's own 26px height (the toggle/delete
+     buttons, the color swatch, the dropdown select below) - left
+     unspecified before, this plain text field's natural height (21px) was
+     the one holdout still shorter than the rest, so a row could still grow
+     switching between a typed format and a dropdown/color one even after
+     every OTHER element in this row was unified to 26px. */
+  height: 26px;
 }
 
 .data-value-field >>> .v-input__slot::before,
@@ -1050,16 +1387,36 @@ export default defineComponent({
    label and value field stay left-aligned together as one group, with
    the delete button visually separated at the opposite end rather than
    sitting right up against the value field. */
+/* 26x26 (not the smaller 20x20 this row's icon buttons started at) -
+   matches .data-format-toggle-btn's own explicit override below, which
+   needs the extra room for its "D"/"B"/"H"/etc glyphs (see FORMAT_ICONS) to
+   stay legible. Sized the SAME here, rather than leaving the delete button
+   smaller, so every row's own natural height is identical regardless of
+   which format is active anywhere in it - a mismatched delete button was
+   confirmed directly as the real cause of rows growing specifically when a
+   dropdown/color format was in play: CSS Grid stretches every row in a
+   shared physical grid row to match its tallest cell, and the (bigger)
+   toggle button was that tallest cell the whole time, not anything actually
+   format-specific. */
 .data-value-row .v-btn.v-btn--icon {
   min-width: 0;
-  height: 20px;
-  width: 20px;
+  height: 26px;
+  width: 26px;
   flex: 0 0 auto;
   margin-left: auto;
 }
 
 .data-value-row .v-btn.v-btn--icon >>> .v-icon {
   font-size: 16px !important;
+}
+
+/* The button itself is now sized the same 26x26 as every other icon button
+   in this row (see .data-value-row .v-btn.v-btn--icon above) - only the
+   icon GLYPH inside needs its own bigger override, since the blanket
+   16px font-size above still reads too small for this one's "D"/"B"/"H"/
+   etc letters (see FORMAT_ICONS). */
+.data-value-row .v-btn.v-btn--icon.data-format-toggle-btn >>> .v-icon {
+  font-size: 22px !important;
 }
 
 .add-data-button {

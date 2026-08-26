@@ -6,7 +6,7 @@ import {
   CONSOLE_SWITCH_ICON, CONSOLE_SWITCH_RESET_ICON, CONSOLE_SWITCH_SELECT_ICON,
   CONSOLE_SWITCH_COLOR_ICON, CONSOLE_SWITCH_BW_ICON,
   PLAYER_ICON, MISSILE_ICON, BALL_ICON,
-  HORIZONTAL_ICON, VERTICAL_ICON,
+  HORIZONTAL_ICON, VERTICAL_ICON, KEYPAD_ICON,
 } from './icon';
 
 // Every object that has an X/Y position to measure a distance between -
@@ -94,6 +94,64 @@ buildInputBlocks({
   options: buildInputOptions('joy1', 'switchrightb'),
   colour: 'blue',
 });
+
+// One 0-7 direction per joystick, clockwise from Up (0=Up, 1=Up-Right,
+// 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left), or 255
+// if the joystick isn't currently pushed in any single clear direction
+// (centered, or a contradictory combination like Up+Down together) - see
+// generators/bbasic/input.js's own comment for the full up/down/left/right
+// -> direction table. Meant to plug straight into "Fire missile"'s own
+// Angle input (see blocks/sprites.js) - a literal Math Number (matching
+// this same 0-7/255 encoding) or a variable holding a previously-computed
+// angle work there too, this block is just the common "read it from
+// whichever way the joystick is pushed right now" case.
+const buildJoystickDirection8Block = (name, description, colour) => ({
+  'type': `input_${name}_direction8`,
+  'message0': `${JOYSTICK_ICON} ${description} direction (8-way)`,
+  'output': 'Number',
+  colour,
+  'tooltip': `The 8-way direction ${description} is currently pushed (0=Up, 1=Up-Right, 2=Right, ` +
+    '3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left, clockwise from Up), or 255 if it\'s ' +
+    'centered or pushed in a contradictory combination. Recomputed every time this is read.',
+});
+
+Blockly.defineBlocksWithJsonArray([
+  buildJoystickDirection8Block('joy0', 'Joystick 0', 'red'),
+  buildJoystickDirection8Block('joy1', 'Joystick 1', 'blue'),
+]);
+
+// Key values 1-12 read in the same reading order the physical Atari
+// keypad's 3x4 grid is wired in - 1,2,3 / 4,5,6 / 7,8,9 / *,0,#. 0 itself is
+// reserved for "no key pressed", not a selectable option here (a getter
+// checks one specific key, not "any key"/"no key" - a project that needs
+// that can just compare every key block to false).
+const KEYPAD_KEY_OPTIONS = [
+  ['1', '1'], ['2', '2'], ['3', '3'],
+  ['4', '4'], ['5', '5'], ['6', '6'],
+  ['7', '7'], ['8', '8'], ['9', '9'],
+  ['*', '10'], ['0', '11'], ['#', '12'],
+];
+
+const buildKeypadBlock = (name, description, colour) => ({
+  'type': `input_${name}_get`,
+  'message0': `${KEYPAD_ICON} ${description} key %1 is pressed`,
+  'args0': [
+    {
+      'type': 'field_dropdown',
+      'name': 'KEY',
+      'options': KEYPAD_KEY_OPTIONS,
+    },
+  ],
+  'output': 'Boolean',
+  colour,
+  'tooltip': `Reads whether the given key is currently pressed on ${description} ` +
+    '(the Atari Keypad/Kids Controller peripheral) - recomputed automatically once per frame.',
+});
+
+Blockly.defineBlocksWithJsonArray([
+  buildKeypadBlock('keypad0', 'Keypad 0', 'red'),
+  buildKeypadBlock('keypad1', 'Keypad 1', 'blue'),
+]);
 
 // The two objects being compared are picked at design time (dropdowns, not
 // runtime state), so each distinct (axis, object pair) one of these blocks

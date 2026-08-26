@@ -24,7 +24,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the score setter.
   {
     'type': `score_set`,
-    'message0': `${SCORE_ICON} Score: set to: %1`,
+    'message0': `${SCORE_ICON} Score set to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -39,7 +39,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for adding to the score in place.
   {
     'type': `score_change`,
-    'message0': `${SCORE_ICON} Score: change by: %1`,
+    'message0': `${SCORE_ICON} Score change by %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -63,7 +63,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the color setter.
   {
     'type': `score_color_set`,
-    'message0': `${SCORE_ICON} Score: set ${COLOR_ICON} color to: %1`,
+    'message0': `${SCORE_ICON} Score set ${COLOR_ICON} color to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -75,10 +75,62 @@ Blockly.defineBlocksWithJsonArray([
     'colour': SCORE_COLOR,
     'tooltip': `Updates the score's color`,
   },
+  // Block for fading the score's color - same mechanism as Background's own
+  // "Fade color to" (see blocks/background.js's own fade var-name helpers
+  // and generateBackgroundFadeChecks in generators/bbasic/background.js,
+  // both now generalized past just COLUBK/COLUPF), just always targeting
+  // scorecolor rather than offering a register choice - there's only one
+  // possible score color register. Fire-and-forget, same as Background's
+  // own version: triggering this once keeps the color stepping toward the
+  // target every frame afterward on its own.
+  {
+    'type': `score_fade_to`,
+    'message0': `${SCORE_ICON} Fade Score ${COLOR_ICON} color to %1 over %2 frames`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+      {
+        'type': 'input_value',
+        'name': 'FRAMES',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': 'Starts fading the score\'s color toward the given color over roughly this many frames - ' +
+      'same hue as the target, brightness automatically climbing or dropping from wherever it currently ' +
+      'is. Only needs to be triggered once - the fade keeps running by itself every frame afterward, ' +
+      'even from inside an "if" block that only briefly becomes true, until it reaches the target and stops.',
+  },
+  // Block for the background color setter - only takes effect when the
+  // project also uses the Text Minikernel (see generators/bbasic/score.js's
+  // own generator): the standard score bar has no runtime-settable
+  // background color at all, only the Text Minikernel's own "minikernel"
+  // subroutine reads scorebkcolor.
+  {
+    'type': `score_bk_color_set`,
+    'message0': `${SCORE_ICON} Score set background ${COLOR_ICON} color to %1`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Updates the score row's background color. Only takes effect when the ` +
+      `Text Minikernel is in use elsewhere in the project (e.g. a "Show text" block) - ` +
+      `the standard score bar's background color is fixed at compile time (Score tab).`,
+  },
   // Block for adding to the score's color in place.
   {
     'type': `score_color_change`,
-    'message0': `${SCORE_ICON} Score: change ${COLOR_ICON} color by: %1`,
+    'message0': `${SCORE_ICON} Score change ${COLOR_ICON} color by %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -110,7 +162,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for a single score digit setter.
   {
     'type': `score_digit_set`,
-    'message0': `${SCORE_ICON} Score digit %1: set to: %2`,
+    'message0': `${SCORE_ICON} Score digit %1 set to %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -128,6 +180,29 @@ Blockly.defineBlocksWithJsonArray([
     'colour': SCORE_COLOR,
     'tooltip': `Sets a single score digit, counting from the left, without ` +
       `changing the other digits. Use a value from 0 to 9.`,
+  },
+  // Block for changing a single score digit in place.
+  {
+    'type': `score_digit_change`,
+    'message0': `${SCORE_ICON} Score digit %1 change by %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'DIGIT',
+        'options': SCORE_DIGIT_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'DELTA',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Adds to a single score digit, counting from the left, without changing the other digits. ` +
+      `Use a negative value to subtract. Doesn't wrap or carry into the neighboring digit - keep the ` +
+      `result between 0 and 9 yourself, same as the plain "set" block already requires.`,
   },
   // Block for the score bar getter.
   {
@@ -147,7 +222,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the score bar setter.
   {
     'type': `score_bar_set`,
-    'message0': `${SCORE_ICON} Score Bar %1: set to: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 set to %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -168,7 +243,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for adding to a score bar in place.
   {
     'type': `score_bar_change`,
-    'message0': `${SCORE_ICON} Score Bar %1: change by: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 change by %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -190,7 +265,7 @@ Blockly.defineBlocksWithJsonArray([
   // instead of a raw binary pattern.
   {
     'type': `score_bar_set_health`,
-    'message0': `${SCORE_ICON} Score Bar %1: set health to: %2 (0-8)`,
+    'message0': `${SCORE_ICON} Score Bar %1 set health to %2 (0-8)`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -213,7 +288,7 @@ Blockly.defineBlocksWithJsonArray([
   // instead of a raw binary pattern.
   {
     'type': `score_bar_set_lives`,
-    'message0': `${SCORE_ICON} Score Bar %1: set lives to: %2 (0-4)`,
+    'message0': `${SCORE_ICON} Score Bar %1 set lives to %2 (0-4)`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -235,7 +310,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for changing a health-style score bar by a number of units.
   {
     'type': `score_bar_change_health`,
-    'message0': `${SCORE_ICON} Score Bar %1: change health by: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 change health by %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -258,7 +333,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for changing a lives-style score bar by a number of dots.
   {
     'type': `score_bar_change_lives`,
-    'message0': `${SCORE_ICON} Score Bar %1: change lives by: %2`,
+    'message0': `${SCORE_ICON} Score Bar %1 change lives by %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -279,3 +354,21 @@ Blockly.defineBlocksWithJsonArray([
       `"current value" to read a sign from).`,
   },
 ]);
+
+// Works exactly like background_fade_finished (see blocks/background.js's
+// own comment - same shared bit/flag machinery, same "fires once, regardless
+// of fade direction, never late" behavior), just always targeting
+// scorecolor rather than offering a register choice - same reasoning as
+// score_fade_to above: there's only one possible score color register.
+Blockly.Blocks['score_fade_finished'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${SCORE_ICON} When Score ${COLOR_ICON} color has finished fading`);
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(SCORE_COLOR);
+    this.setTooltip('Runs the connected blocks once, the moment a matching "Fade Score color" block ' +
+      'reaches its own target color. Does nothing if no matching fade ever runs anywhere in the project.');
+  },
+};

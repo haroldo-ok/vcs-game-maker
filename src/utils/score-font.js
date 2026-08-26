@@ -1,6 +1,6 @@
 import {SCORE_FONTS} from '../generators/score-fonts';
 import {getExtendedScoreGraphics} from '../generators/bbasic/text-minikernel-files';
-import {useScoreFontStorage, useSquishCustomScoreFontStorage} from '../hooks/project';
+import {useConfigurationStorage, useScoreFontStorage, useSquishCustomScoreFontStorage} from '../hooks/project';
 
 export const CUSTOM_SCORE_FONT = 'custom';
 // A special option, not one of SCORE_FONTS' byte-swappable presets: SQUISH
@@ -17,7 +17,25 @@ export const SQUISH_SCORE_FONT = 'SQUISH';
 // the Text Minikernel is in use, same as plain Squish (see
 // ScoreFontEditor.vue).
 export const SQUISH_CUSTOM_SCORE_FONT = 'SQUISH_CUSTOM';
-export const DIGIT_COUNT = 10;
+// 16, not 10 - a score digit is a plain 4-bit nibble (0-15), and the
+// standard kernel's own drawing routine indexes straight into the glyph
+// table with no bounds check (confirmed directly: the bundled "hex" preset
+// ships all 16 defined, no special flag needed for the plain, non-Squish
+// path - see buildScoreFontOverride's own comment). Only the CUSTOM and
+// SQUISH_CUSTOM fonts actually offer editing all 16 slots (see
+// ScoreFontEditor.vue) - every other font (a preset, or plain Squish) only
+// ever has its own fixed 10 real digits, so this being 16 project-wide just
+// means "the biggest a font CAN be," not that every font uses all of it.
+export const DIGIT_COUNT = 16;
+// How many of DIGIT_COUNT's own slots are the "real," always-relevant
+// decimal digits (0-9) - the other 6 (10-15) are optional extra glyphs
+// (hex-digit-style, but usable for anything - arrows, icons, whatever an
+// 8x8 shape can represent) only actually spliced into the compiled ROM for
+// CUSTOM/SQUISH_CUSTOM (see buildScoreFontOverride/
+// buildSquishScoreFontOverride), and only reachable in-game via
+// score_digit_set/score_digit_change writing a raw nibble 10-15 - ordinary
+// BCD score arithmetic (score = score + N) can never produce one.
+export const DECIMAL_DIGIT_COUNT = 10;
 export const DIGIT_WIDTH = 8;
 export const DIGIT_HEIGHT = 8;
 const DIGIT_BYTES = DIGIT_COUNT * DIGIT_HEIGHT;
@@ -50,6 +68,19 @@ export const DEFAULT_SCORE_FONT = [
   '%00110000', '%00110000', '%00110000', '%00011000', '%00001100', '%00000110', '%01000010', '%00111110',
   '%00111100', '%01100110', '%01100110', '%01100110', '%00111100', '%01100110', '%01100110', '%00111100',
   '%00111100', '%01000110', '%00000110', '%00111110', '%01100110', '%01100110', '%01100110', '%00111100',
+  // Slots 10-15: the extra, optional glyphs beyond the normal 0-9 digits
+  // (see DECIMAL_DIGIT_COUNT's own comment) - blank/empty by default
+  // (every pixel off), matching how a freshly-added frame/graphic starts
+  // everywhere else in this app (Player/Background). Not seeded with the
+  // bundled "hex" preset's own A-F shapes either, since there's no
+  // guarantee a project using these wants hex digits specifically rather
+  // than some other custom glyph.
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
 ];
 
 // Squish's own digit bitmaps (score_graphics_extended.asm's "if fontstyle ==
@@ -70,6 +101,14 @@ export const SQUISH_DEFAULT_SCORE_FONT = [
   '%00110000', '%00011000', '%00001100', '%00000110', '%01111110',
   '%00111100', '%01100110', '%00111100', '%01100110', '%00111100',
   '%00111100', '%00000110', '%00111110', '%01100110', '%00111100',
+  // Slots 10-15: same "blank/empty by default" reasoning as
+  // DEFAULT_SCORE_FONT's own extra slots.
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
+  '%00000000', '%00000000', '%00000000', '%00000000', '%00000000',
 ];
 
 /**
@@ -121,9 +160,43 @@ export const processScoreFontDefaults = (storage, fallbackFont = DEFAULT_SCORE_F
   return {digits};
 };
 
+// Every Custom/Squish Custom font is stored with all DIGIT_COUNT (16) slots
+// (see processScoreFontDefaults), so digitsToFont always returns the full
+// 128-byte shape regardless of whether glyphs 10-15 are actually wanted -
+// this is a plain, explicit, user-facing toggle (see ScoreFontEditor.vue's
+// own "Use extra glyphs (10-15)" checkbox) rather than an implicit "scan
+// the pixels for anything non-blank" guess: the earlier pixel-scanning
+// version silently kept including a project's already-drawn extra glyphs
+// forever with no way to opt back OUT of paying for them short of erasing
+// the artwork, and silently started including them the moment a user drew
+// even a single pixel with no visibility into the ROM-size tradeoff they'd
+// just made. An explicit stored flag makes that a deliberate choice
+// instead, and the editor hides the extra glyph cards entirely whenever
+// it's off, matching "not shown" with "not compiled in" exactly. Defaults
+// to false (the same cost every Custom/Squish Custom font always had
+// before glyphs 10-15 existed) rather than true, so a project that's never
+// visited this toggle keeps paying nothing extra - confirmed as necessary
+// after this exact unconditional cost (this toggle's own predecessor: an
+// earlier version of buildScoreFontOverride that always spliced all 128
+// bytes, no toggle or detection at all) tipped an already-tight, previously
+// -working project into a real overflow/relocator-thrashing build failure.
+export const customScoreFontExtraGlyphsEnabled = () => {
+  try {
+    return !!(useConfigurationStorage().value || {}).scoreFontExtraGlyphsEnabled;
+  } catch (e) {
+    console.error('Error loading configuration from local storage', e);
+    return false;
+  }
+};
+
+const trimUnusedExtraGlyphs = (bytes) => {
+  const decimalByteCount = DECIMAL_DIGIT_COUNT * DIGIT_HEIGHT;
+  return customScoreFontExtraGlyphsEnabled() ? bytes : bytes.slice(0, decimalByteCount);
+};
+
 const customFontBytes = () => {
   try {
-    return digitsToFont(processScoreFontDefaults(useScoreFontStorage()).digits);
+    return trimUnusedExtraGlyphs(digitsToFont(processScoreFontDefaults(useScoreFontStorage()).digits));
   } catch (e) {
     console.error('Error loading the custom score font', e);
     return null;
@@ -146,11 +219,25 @@ const customSquishFontBytes = () => {
   try {
     const digits = processScoreFontDefaults(
         useSquishCustomScoreFontStorage(), SQUISH_DEFAULT_SCORE_FONT, SQUISH_DIGIT_HEIGHT).digits;
-    return padSquishDigitBytes(digitsToFont(digits));
+    return trimUnusedExtraGlyphs(padSquishDigitBytes(digitsToFont(digits)));
   } catch (e) {
     console.error('Error loading the custom Squish score font', e);
     return null;
   }
+};
+
+// Used by generators/bbasic.js to decide whether to emit "const font = hex"
+// (plain Custom) or "const fontcharsHEX = 1" (Squish Custom) - both only
+// actually needed once customScoreFontExtraGlyphsEnabled's own toggle is on,
+// not just because Custom/Squish Custom is the SELECTED font. Reuses the
+// exact same trimmed byte arrays buildScoreFontOverride/
+// buildSquishScoreFontOverride themselves splice from, rather than
+// re-deriving the answer a second way, so the two can never disagree about
+// whether this build is paying the extra-glyph cost.
+export const customScoreFontUsesExtraGlyphs = (font) => {
+  const decimalByteCount = DECIMAL_DIGIT_COUNT * DIGIT_HEIGHT;
+  const bytes = font === SQUISH_CUSTOM_SCORE_FONT ? customSquishFontBytes() : customFontBytes();
+  return !!bytes && bytes.length > decimalByteCount;
 };
 
 let pristineScoreGraphicsPromise = null;
@@ -168,24 +255,68 @@ const getPristineScoreGraphics = () => {
 // "ifconst fontstyle: ifconst SQUISH: if fontstyle == SQUISH: scorecount=4"
 // check to still shrink the row height. The decimal digit bytes run from
 // right after that block's own "LENDEC = 80" line to its "ifconst
-// fontcharsHEX" (the start of the optional A-F hex digits, left untouched).
+// fontcharsHEX" gate - and, now that DIGIT_COUNT includes the 6 extra
+// slots (10-15, see DECIMAL_DIGIT_COUNT's own comment), THOSE get spliced
+// into that same gated block's own byte region too (right after its
+// "LENHEX = 48" line, up to its "else"), replacing the stock hex digits
+// there with whatever the user drew instead. Left INERT unless
+// "fontcharsHEX" is actually const-defined elsewhere in the compiled
+// source (see generators/bbasic.js's own scoreFontExtraGlyphsConfigurationCode) -
+// splicing the bytes in here alone doesn't activate that gate by itself.
 const buildSquishScoreFontOverride = async (digits) => {
-  if (!digits || digits.length !== DIGIT_BYTES) return null;
+  const decimalByteCount = DECIMAL_DIGIT_COUNT * DIGIT_HEIGHT;
+  // Same "either the plain 80-byte shape, or the full 128 with extra glyphs
+  // actually in use" acceptance as buildScoreFontOverride below - digits is
+  // already trimmed back to 80 by customScoreFontUsesExtraGlyphs' shared
+  // trimUnusedExtraGlyphs whenever glyphs 10-15 are still all blank, so this
+  // has to accept that shorter shape too, not just DIGIT_BYTES.
+  if (!digits || (digits.length !== decimalByteCount && digits.length !== DIGIT_BYTES)) return null;
 
   const extended = await getExtendedScoreGraphics();
   const squishBlockStart = extended.indexOf('if fontstyle == SQUISH');
   const lendecAt = squishBlockStart >= 0 ? extended.indexOf('LENDEC = 80', squishBlockStart) : -1;
   const bytesStart = lendecAt >= 0 ? lendecAt + 'LENDEC = 80'.length : -1;
-  const bytesEnd = bytesStart >= 0 ? extended.indexOf('ifconst fontcharsHEX', bytesStart) : -1;
-  if (bytesStart < 0 || bytesEnd < 0) {
+  const hexGateAt = bytesStart >= 0 ? extended.indexOf('ifconst fontcharsHEX', bytesStart) : -1;
+  if (bytesStart < 0 || hexGateAt < 0) {
     // The bundled file is not shaped as expected; leave it alone rather than
     // risk corrupting the ROM layout.
     return null;
   }
 
+  // digits here is already padded to 8 bytes/digit (see padSquishDigitBytes
+  // - the file's own LENDEC = 80 confirms 10 digits * 8 bytes each), not
+  // SQUISH_DIGIT_HEIGHT (5) - that's only the count of MEANINGFULLY-read
+  // rows, the padding still needs the full 8 to match the file's own shape.
+  const decimalBytes = digits.slice(0, decimalByteCount);
+
+  // Only 80 bytes (the normal case - see customScoreFontUsesExtraGlyphs):
+  // splice the decimal digits and leave the rest of the file, including its
+  // own "ifconst fontcharsHEX" block, completely untouched - that block
+  // only ever activates via generators/bbasic.js's own "const fontcharsHEX"
+  // emission, which is gated on this exact same "extra glyphs actually in
+  // use" check, so leaving its stock hex glyphs in place here is harmless:
+  // nothing will ever read them.
+  if (digits.length === decimalByteCount) {
+    return extended.slice(0, bytesStart) + '\n\n' +
+      decimalBytes.map((byte) => '       .byte ' + byte).join('\n') + '\n\n ' +
+      extended.slice(hexGateAt);
+  }
+
+  const lenhexAt = extended.indexOf('LENHEX = 48', hexGateAt);
+  const hexBytesStart = lenhexAt >= 0 ? lenhexAt + 'LENHEX = 48'.length : -1;
+  const hexBytesEnd = hexBytesStart >= 0 ? extended.indexOf('else', hexBytesStart) : -1;
+  if (hexBytesStart < 0 || hexBytesEnd < 0) {
+    // The bundled file is not shaped as expected; leave it alone rather than
+    // risk corrupting the ROM layout.
+    return null;
+  }
+  const extraBytes = digits.slice(decimalByteCount);
+
   return extended.slice(0, bytesStart) + '\n\n' +
-    digits.map((byte) => '       .byte ' + byte).join('\n') + '\n\n ' +
-    extended.slice(bytesEnd);
+    decimalBytes.map((byte) => '       .byte ' + byte).join('\n') + '\n\n ' +
+    extended.slice(hexGateAt, hexBytesStart) + '\n\n' +
+    extraBytes.map((byte) => '       .byte ' + byte).join('\n') + '\n\n ' +
+    extended.slice(hexBytesEnd);
 };
 
 /**
@@ -206,7 +337,23 @@ export const buildScoreFontOverride = async (font) => {
 
   const digits = font === CUSTOM_SCORE_FONT ?
     customFontBytes() : (font && SCORE_FONTS[font]);
-  if (!digits || digits.length !== DIGIT_BYTES) return null;
+  // Presets (SCORE_FONTS) are still exactly DECIMAL_DIGIT_COUNT*DIGIT_HEIGHT
+  // bytes (80) - only 10 real digits, same as they've always been (see
+  // generators/score-fonts.js's own comment) - only CUSTOM can actually be
+  // the full DIGIT_BYTES (128, all 16 slots). Accepting either length here
+  // (rather than requiring DIGIT_BYTES now that it covers 16 slots) matters:
+  // rejecting the 80-byte preset case would silently stop overriding every
+  // preset font at once, falling back to the stock score_graphics.asm's own
+  // "ifconst font" dispatch - which this toolchain's own bundled compiler
+  // doesn't actually support (see this function's own doc comment on why
+  // "const font" alone is inert here), so that fallback isn't a safe no-op,
+  // it's a real regression. The plain (non-Squish) drawing routine needs no
+  // extra activation for a 128-byte table either way (unlike Squish's own
+  // "ifconst fontcharsHEX" gate) - it just reads however many bytes are
+  // actually here by raw nibble index, so an 80-byte preset naturally still
+  // only ever shows its own original 10 digits, nothing missing.
+  const decimalByteCount = DECIMAL_DIGIT_COUNT * DIGIT_HEIGHT;
+  if (!digits || (digits.length !== decimalByteCount && digits.length !== DIGIT_BYTES)) return null;
 
   const pristine = await getPristineScoreGraphics();
   const headerEnd = pristine.indexOf(DIGITS_START) + DIGITS_START.length;
@@ -218,7 +365,49 @@ export const buildScoreFontOverride = async (font) => {
   }
   const footerStart = pristine.lastIndexOf('\n', footerAt);
 
-  return pristine.slice(0, headerEnd) + '\n\n' +
+  // The stock file's own preamble (right before "scoretable") sets the
+  // table's own starting address several different ways depending on ROM
+  // size - a plain "ORG $F7AC-8"/"ORG $FF9C" for a non-bankswitched ROM, or
+  // an "ORG X-bscode_length" PAIRED WITH an independently-tracked
+  // "RORG Y-bscode_length" (the runtime/relocated address DASM uses for
+  // every branch/jump target from here on, distinct from ORG's own
+  // physical file-offset tracking) for each bankswitched size. Extending
+  // Custom past the normal 80-byte budget needs this whole start point
+  // shifted EARLIER by exactly the extra byte count, so the table's END
+  // still lands on the same fixed address the footer below (the reset
+  // vectors, or the next bank's own trampoline) is hardcoded to expect.
+  //
+  // A relative "ORG . - N" (matching the stock "if font == hex" shift this
+  // file, and an earlier version of this function, both used) was tried
+  // and reverted here after being confirmed to still fail - isolated,
+  // minimal testing (a brand-new default project, nothing else in it)
+  // showed Custom + extra glyphs compiling fine on a non-bankswitched ROM
+  // (4k) but failing on every bankswitched size (8k/16k/32k) with this
+  // exact "Origin Reverse-indexed" error, a pattern that only makes sense
+  // if the relative shift's interaction with RORG specifically is what's
+  // wrong (not a genuine capacity shortfall - the failing case still had
+  // thousands of bytes free elsewhere). Both "shift ORG only" (the stock
+  // file's own approach) and "shift ORG and RORG both, via their own
+  // relative '.'" were tried and also confirmed NOT to fix it - RORG's own
+  // relationship to "." evidently doesn't compose with a later relative
+  // "ORG . - N"/"RORG . - N" the way it would for a plain, non-relocated
+  // ORG.
+  //
+  // This instead rewrites the header's OWN address expressions directly -
+  // appending "-N" onto each literal "ORG expr"/"RORG expr" line here, so
+  // every branch (bankswitched or not) computes its already-correct
+  // ABSOLUTE target with the extra bytes baked directly in, rather than
+  // adjusting it after the fact through RORG's own ambiguous relative
+  // tracking. Confirmed directly this way: the exact same isolated,
+  // minimal 8k project this shift's earlier "ORG . - N"/"RORG . - N"
+  // attempts both failed on now compiles cleanly.
+  const extraBytes = digits.length - decimalByteCount;
+  const header = pristine.slice(0, headerEnd - DIGITS_START.length);
+  const shiftedHeader = extraBytes > 0 ?
+    header.replace(/^(\s*R?ORG\s+.+)$/gm, `$1-${extraBytes}`) : header;
+
+  return shiftedHeader +
+    pristine.slice(headerEnd - DIGITS_START.length, headerEnd) + '\n\n' +
     digits.map((byte) => '       .byte ' + byte).join('\n') + '\n' +
     pristine.slice(footerStart);
 };

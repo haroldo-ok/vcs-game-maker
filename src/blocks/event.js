@@ -15,6 +15,13 @@ const EVENT_OPTIONS = [
   [`${TITLE_ICON} ${START_ICON} Title screen start`, `title_start`],
   [`${TITLE_ICON} ${UPDATE_ICON} Title screen update`, `title_update`],
   [`${GAME_ICON} ${START_ICON} Gameplay start`, `gameplay_start`],
+  // Deliberately NOT a real, separately-relocatable event the way the other
+  // five are - see Blockly.BBasic.finish's own comment in bbasic.js. Plain
+  // top-level blocks (no event wrapper at all) already run every frame
+  // during gameplay; this is purely an explicit, organized way to write
+  // that same code, for symmetry with Title/Gameover's own Start+Update
+  // pairs.
+  [`${GAME_ICON} ${UPDATE_ICON} Gameplay update`, `gameplay_update`],
   [`${GAMEOVER_ICON} ${START_ICON} Gameover start`, `gameover_start`],
   [`${GAMEOVER_ICON} ${UPDATE_ICON} Gameover update`, `gameover_update`],
 ];
