@@ -243,6 +243,7 @@
       right
       class="emulator-drawer"
       :width="emulatorWidth"
+      :mobile-breakpoint="0"
     >
       <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
         <v-btn
@@ -1046,9 +1047,27 @@ export default {
    confirmation) instead of under them. Pushed well above every one of
    those instead of tuning each one down, so no future chrome-level z-index
    added here needs to keep this in mind too. */
+/* Was pinned to a fixed 30 - too low. .v-overlay (Vuetify's own generic
+   modal-backdrop wrapper - shared by v-dialog, v-menu, AND a temporary
+   v-navigation-drawer's own scrim, e.g. the emulator sidebar) gets its own
+   z-index assigned dynamically by Vuetify, unrelated to this stylesheet,
+   and it climbs over a long session as more menus/dialogs open - confirmed
+   directly, it drifted to 201, well above this fixed 30, putting a
+   dialog's own scrim on top of its content and making the dialog's buttons
+   unclickable (document.elementFromPoint() at their center returned the
+   scrim, not the button - reported as "Create New Project" doing nothing
+   when clicked).
+   An earlier fix for this pinned .v-overlay itself below 30 instead of
+   raising this - wrong, since .v-overlay isn't dialog-specific: capping it
+   also capped the emulator sidebar's own drawer scrim, breaking ITS
+   stacking (reported directly: "the emulator sidebar is now behind the
+   overlay"). Raised high enough here instead that it stays above .v-overlay
+   regardless of how far that drifts, without touching .v-overlay at all -
+   the fix stays scoped to dialogs/menus, the only things that were ever
+   actually broken. */
 .v-menu__content,
 .v-dialog__content {
-  z-index: 30 !important;
+  z-index: 300 !important;
 }
 
 * {
@@ -1215,6 +1234,68 @@ html {
 [class*="-renderer"][class*="-theme"] .blocklyText,
 [class*="-renderer"][class*="-theme"] .blocklyFlyoutLabelText {
   font-family: var(--blockly-font-family) !important;
+}
+
+/* The color picker (field_grid_dropdown, see blocks/color.js's own
+   color_get) - white background + rounded corners instead of Blockly's own
+   default (the block's own colour, purple here, tinting the whole flyout -
+   set directly as an inline style by DropDownDiv.setColour(), hence
+   !important to win over it). :has(.fieldGridDropDownContainer) scopes this
+   to only the grid-dropdown color picker specifically - .blocklyDropDownDiv
+   is a single shared singleton every ordinary (non-grid) dropdown field
+   also reuses, so a blanket override here would have re-colored every
+   plain dropdown's own flyout too. */
+.blocklyDropDownDiv:has(.fieldGridDropDownContainer) {
+  background-color: #fff !important;
+  border-radius: 8px !important;
+}
+
+/* @blockly/field-grid-dropdown's own default 7px grid-gap between cells -
+   with the border/padding shrink below already making each cell mostly
+   just its own swatch, that gap read as a wide, oddly deliberate-looking
+   gutter between adjacent colors rather than the label-affording spacing
+   it was originally sized for. */
+.fieldGridDropDownContainer.blocklyMenu {
+  grid-gap: 0 !important;
+}
+
+/* Each swatch cell's own bordered frame, shrunk to match blocks/color.js's
+   own 28x28 swatch images (up from an original 16x16) - @blockly/field-
+   grid-dropdown's own default padding-left:15px is leftover checkmark
+   space (this app already hides the checkmark itself, see that package's
+   own CSS), which otherwise left every swatch floating off-center in a
+   much bigger, mostly-empty cell instead of filling it. That same package's
+   own default 1px dark border around every cell is dropped too (border:
+   none) - once the swatch itself fills the whole cell (padding above), that
+   border just drew a visible dark line on top of/around the color square
+   rather than framing empty space the way it did before. */
+.fieldGridDropDownContainer.blocklyMenu .blocklyMenuItem {
+  padding: 4px !important;
+  border: none !important;
+}
+
+/* The swatch <img> itself is a default INLINE element, which (like any
+   inline element) reserves descender space below its own baseline within
+   its containing block - confirmed directly by measuring the two rects:
+   the image sat flush against its own cell's top with the entire gap
+   sitting underneath it, exactly the classic "inline image leaves a sliver
+   of empty space below it" quirk, not a padding/centering issue. display:
+   block removes it from the inline flow entirely, closing that gap. */
+.fieldGridDropDownContainer.blocklyMenu .blocklyMenuItem img {
+  display: block !important;
+}
+
+/* The currently-selected swatch (whichever color this field is already set
+   to) - @blockly/field-grid-dropdown's own default is a translucent dark
+   overlay wash across the whole cell (background-color: rgba(1,1,1,.25)),
+   muddying the actual color underneath rather than clearly marking it as
+   selected. A 2px solid black INSET box-shadow instead - inset (not a
+   plain border) so it draws inside the cell's existing bounds rather than
+   adding to them, which would otherwise shift/shrink the swatch image
+   relative to every other (unselected) cell's own size. */
+.fieldGridDropDownContainer.blocklyMenu .blocklyMenuItemSelected {
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 2px #000 !important;
 }
 
 /* Vuetify's own hint/error text under a field (e.g. the description under

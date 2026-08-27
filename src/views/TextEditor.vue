@@ -22,12 +22,22 @@
           <span class="text-bkcolor-label">Text background color</span>
         </div>
 
-        <v-select
-          v-model="textMaxDisplayWidth"
-          :items="TEXT_MAX_DISPLAY_WIDTH_OPTIONS"
-          label="Max characters to display at once"
-          class="text-max-width-field"
-        />
+        <div class="text-max-width-row">
+          <v-select
+            v-model="textMaxDisplayWidth"
+            :items="TEXT_MAX_DISPLAY_WIDTH_OPTIONS"
+            label="Max characters to display at once"
+            hide-details
+            class="text-max-width-field"
+          />
+          <v-switch
+            v-model="textColumns"
+            label="Columns"
+            title="Lay text cards out in multiple columns when there's room, instead of one full-width column."
+            hide-details
+            class="text-columns-switch"
+          />
+        </div>
         <p class="v-messages theme--light v-messages__message">
           For static (non-scrolling) text only. Only the first this-many of the 12 available character
           slots are ever used - the rest always stay blank, regardless of message length or justify. The
@@ -35,7 +45,7 @@
           all 12 character slots.
         </p>
 
-        <v-list class="text-list">
+        <v-list class="text-list" :class="{'text-list--single-column': !textColumns}">
           <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
             <v-list-item-content>
               <v-card
@@ -166,7 +176,7 @@ import {max} from 'lodash';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
-import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
+import {useConfigurationStorage, useTextStringsStorage, useTextColumnsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WIDTH,
   TEXT_MAX_DISPLAY_WIDTH_OPTIONS, processTextStringsStorageDefaults} from '../blocks/text-strings';
 
@@ -209,6 +219,7 @@ export default defineComponent({
     // blanks the unused tail rather than shrinking storage. Same
     // project-wide, Configuration-storage-backed pattern as textBkColor
     // just above.
+    const textColumns = useTextColumnsStorage();
     const textMaxDisplayWidth = computed({
       get() {
         try {
@@ -368,6 +379,7 @@ export default defineComponent({
     return {
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
       isCollapsed, toggleCollapsed, textBkColor, textMaxDisplayWidth, TEXT_MAX_DISPLAY_WIDTH_OPTIONS,
+      textColumns,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
@@ -401,8 +413,29 @@ export default defineComponent({
   margin-bottom: 16px;
 }
 
+.text-max-width-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .text-max-width-field {
   max-width: 320px;
+  /* Matches SoundFXEditor.vue's own .soundfx-filter margin-top - without
+     it, this field and .soundfx-filter sit on different baselines, and
+     .text-columns-switch's own offset (tuned to match .soundfx-filter's
+     row) ends up too low relative to this field specifically. */
+  margin-top: 8px;
+}
+
+/* Same margin-top/padding-top override as SoundFXEditor.vue's own
+   .soundfx-columns-switch - Vuetify's own selection-control margin-top
+   (meant for stacking below other fields) otherwise pushes this out of
+   line with the select next to it. */
+.text-columns-switch {
+  flex: 0 0 auto;
+  margin-top: 8px !important;
+  padding-top: 0 !important;
 }
 
 /* A 12-character message doesn't need anywhere near .text-list's own full
@@ -423,6 +456,23 @@ export default defineComponent({
      space above the FIRST row that zeroing v-list-item__content's own
      top padding below removes. */
   margin-top: 12px;
+}
+
+/* Single full-width column instead of the grid .text-list defaults to
+   above - toggled via the "Columns" switch next to the max-width field.
+   Same shape as SoundFXEditor.vue's own .soundfx-list--single-column. */
+.text-list--single-column {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Grid stretches each item to fill its own column width automatically -
+   flex doesn't do that for .entry-list-item (Vuetify's own v-list-item, the
+   actual flex child) on its own, leaving .text-card's own width: 100% only
+   filling 100% of that un-stretched item instead of the whole row. Same
+   fix as SoundFXEditor.vue's own equivalent rule. */
+.text-list--single-column .entry-list-item {
+  width: 100%;
 }
 
 /* v-list-item__content's default 12px top/bottom padding was adding extra

@@ -40,6 +40,25 @@
                   <v-btn
                     icon
                     small
+                    title="Copy this table's contents (values, columns, and value formats)"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    @click="() => handleCopyTable(table)"
+                  >
+                    <v-icon>mdi-content-copy</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    :disabled="!copiedTableData"
+                    title="Paste copied contents onto this table"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    @click="() => handlePasteTable(table)"
+                  >
+                    <v-icon>mdi-content-paste</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
                     title="Export to .CSV"
                     class="data-flat-icon-btn data-icon-btn-size"
                     @click="() => handleExportCsv(table)"
@@ -316,6 +335,12 @@ const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
 const DATA_VALUES_EXTRA_SLACK_PX = 3;
 const DATA_VALUE_CELL_MIN_PX = 120;
 
+// Module-scope (not a ref inside setup()) - same reasoning as
+// BackgroundEditor.vue's own copiedBackgroundData/copiedBackgroundRowColors:
+// keeps the clipboard alive across navigating away from and back to this
+// tab (Vue Router destroys and recreates this component each time).
+const copiedTableData = ref(null);
+
 export default defineComponent({
   components: {ColorSwatchPicker},
   setup() {
@@ -436,6 +461,36 @@ export default defineComponent({
       };
       const sourceIndex = dataTables.findIndex(({id}) => id === table.id);
       dataTables.splice(sourceIndex + 1, 0, newTable);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    // Copy/paste the full contents (values/columns/valueFormats) of one
+    // table onto a DIFFERENT existing one - unlike handleDuplicateTable
+    // above (which always creates a brand new table), this overwrites
+    // whatever table you paste it onto, id/name left alone, same "copy the
+    // real content, not the identity" split BackgroundEditor.vue's own
+    // handleCopyBackground/handlePasteBackground already establishes for an
+    // identical copy-onto-an-existing-entry use case.
+    const handleCopyTable = (table) => {
+      copiedTableData.value = {
+        columns: structuredClone(table.columns),
+        values: structuredClone(table.values),
+        valueFormats: structuredClone(table.valueFormats || null),
+      };
+    };
+    // $set (not plain assignment) for columns/valueFormats - same reason as
+    // handleColumnsInput's own comment just below: a table saved before
+    // either field existed can't pick up a brand new property through a
+    // plain assignment, Vue 2 never notices it. values is already always a
+    // real property on every table (see DEFAULT_DATA_TABLES/
+    // processDataTablesStorageDefaults in blocks/data.js), so a plain
+    // reassignment of it is fine.
+    const handlePasteTable = (table) => {
+      if (!copiedTableData.value) return;
+      table.values = structuredClone(copiedTableData.value.values);
+      instance.proxy.$set(table, 'columns', structuredClone(copiedTableData.value.columns));
+      instance.proxy.$set(table, 'valueFormats', structuredClone(copiedTableData.value.valueFormats));
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -839,6 +894,7 @@ export default defineComponent({
 
     return {
       state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
+      copiedTableData, handleCopyTable, handlePasteTable,
       handleAddValue, handleDeleteValue, handleValueChange, handleSelectValue, handleSubtractValue,
       valueFormat, toggleValueFormat, displayValue, handleValueInput, handleColorValueInput,
       handleDropdownValueInput, dropdownOptionsFor,

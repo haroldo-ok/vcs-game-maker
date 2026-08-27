@@ -28,14 +28,23 @@
           percentage of its own set volume. Off: sound effects play at their
           own set volume.
         </p>
-        <v-select
-          v-model="soundFilter"
-          label="Show"
-          :items="soundFilterItems"
-          hide-details
-          class="soundfx-filter"
-        />
-        <v-list class="soundfx-list">
+        <div class="soundfx-filter-row">
+          <v-select
+            v-model="soundFilter"
+            label="Show"
+            :items="soundFilterItems"
+            hide-details
+            class="soundfx-filter"
+          />
+          <v-switch
+            v-model="soundFxColumns"
+            label="Columns"
+            title="Lay sound effect cards out in multiple columns when there's room, instead of one full-width column."
+            hide-details
+            class="soundfx-columns-switch"
+          />
+        </div>
+        <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
           <v-list-item
             v-for="(soundEffect, index) in state.soundEffects"
             v-show="matchesSoundFilter(soundEffect)"
@@ -205,6 +214,7 @@
                           title="How often it flips pitch, relative to the song/pattern's own tempo - speeds up and slows down with the song."
                           v-model="soundEffect.arpeggioDivision"
                           :items="arpeggioDivisionOptionItems"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-number"
                         />
@@ -215,6 +225,7 @@
                           type="number"
                           :min="MIN_ARPEGGIO_INTERVAL"
                           :max="MAX_ARPEGGIO_INTERVAL"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-number"
                         />
@@ -223,12 +234,15 @@
                           title="1 OCT: cycles only between the note's own pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
                           v-model="soundEffect.arpeggioRange"
                           :items="arpeggioRangeOptionItems"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-frequency"
                         />
                       </template>
                     </div>
-                    <div class="soundfx-envelope-block">
+                    <div class="soundfx-envelope-block"
+                      :class="{'soundfx-envelope-block--expanded': soundEffect.envelope}"
+                    >
                       <v-switch
                         v-model="soundEffect.envelope"
                         label="Envelope"
@@ -243,6 +257,7 @@
                           title="Frames to ramp up from silence to full volume."
                           v-model="soundEffect.envelopeAttack"
                           :items="envelopeAttackReleaseFrameOptionItems"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
@@ -251,6 +266,7 @@
                           title="Frames to ramp down from full volume to the Sustain level."
                           v-model="soundEffect.envelopeDecay"
                           :items="envelopeStageFrameOptionItems"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
@@ -259,6 +275,7 @@
                           title="The volume level (percent of full volume) held after Attack/Decay, until Release begins."
                           v-model="soundEffect.envelopeSustain"
                           :items="envelopeSustainPercentOptionItems"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
@@ -267,6 +284,7 @@
                           title="Frames to ramp down from the Sustain level to silence, ending exactly when the sound ends."
                           v-model="soundEffect.envelopeRelease"
                           :items="envelopeAttackReleaseFrameOptionItems"
+                          hide-details
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
@@ -386,7 +404,8 @@ import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
-import {useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage} from '../hooks/project';
+import {useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage,
+  useSoundFxColumnsStorage} from '../hooks/project';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
   DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
@@ -543,6 +562,7 @@ export default defineComponent({
     // whatever index it's given) keeps working correctly even mid-filter,
     // rather than reordering against filtered-out indices that don't match
     // the real array at all.
+    const soundFxColumns = useSoundFxColumnsStorage();
     const soundFilter = ref('all');
     const soundFilterItems = [
       {text: 'All', value: 'all'},
@@ -712,7 +732,7 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
-      soundFilter, soundFilterItems, matchesSoundFilter,
+      soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
@@ -748,22 +768,18 @@ export default defineComponent({
   padding-right: 0;
 }
 
-/* Single column, full width - matches PlayerEditor.vue's own .animation-list
-   (flex column) rather than a multi-column grid, so every card spans the
-   full available width instead of 2+ narrower cards sitting side by side.
-   gap: 0 matches PlayerEditor.vue's own .pixel-editor-parent-container
-   spacing (plain adjacent inline-block frames, no gap of their own). */
+/* Multi-column grid - narrower windows naturally fall back to one column
+   per row once there's no room for a 360px-minimum card beside another. */
 .soundfx-list {
-  display: flex;
-  flex-direction: column;
-  /* Matches PlayerEditor.vue's own .animation-list gap (its top-level entry
-     list - the more apt comparison now that .soundfx-list is single-column
-     top-level entries too, not a grid of cards sitting side by side like a
-     single entry's own frame sub-cards do) - 0 read as too cramped between
-     entire cards, even though it matched .pixel-editor-parent-container's
-     own frame-to-frame spacing fine. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 8px;
   margin-top: 12px;
+  /* Grid items stretch to fill their row's height by default - a collapsed
+     card next to an expanded one in the same row would otherwise stretch
+     tall to match it, instead of sitting flush at the top like its card
+     content actually sizes to. */
+  align-items: start;
 }
 
 .entry-list-item >>> .v-list-item__content {
@@ -811,16 +827,44 @@ export default defineComponent({
   margin-top: 8px;
 }
 
+.soundfx-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .soundfx-filter {
   max-width: 220px;
   margin-top: 8px;
 }
 
-/* No max-width (used to cap at 640px, back when .soundfx-list was a
-   multi-column grid and a capped width kept a card from stretching to fill
-   an entire wide grid column on its own) - .soundfx-list is a single,
-   full-width column now (matching PlayerEditor.vue's own .animation-list),
-   so this can just fill 100% of it like every other tab's own main card. */
+/* Same margin-top/padding-top override as .dim-switch elsewhere in this
+   file - Vuetify's own selection-control margin-top (meant for stacking
+   below other fields) otherwise pushes this out of line with the Show
+   select next to it. */
+.soundfx-columns-switch {
+  flex: 0 0 auto;
+  margin-top: 8px !important;
+  padding-top: 0 !important;
+}
+
+/* Single full-width column instead of the grid .soundfx-list defaults to
+   (see that rule's own comment) - toggled via the "Columns" switch above. */
+.soundfx-list--single-column {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Grid's own default stretch (align-items: start on .soundfx-list overrides
+   that for the grid case, but each item still fills its own column width)
+   isn't automatic here - .entry-list-item (Vuetify's own v-list-item, the
+   actual flex child) doesn't stretch to the container's full width on its
+   own, leaving .soundfx-card's own width: 100% only filling 100% of that
+   un-stretched item instead of the whole row. */
+.soundfx-list--single-column .entry-list-item {
+  width: 100%;
+}
+
 /* No max-width (used to cap at 640px) - that was capping each card well
    short of its own 1fr share of .soundfx-list's grid row on a wide window,
    leaving unused space to its right instead of the card actually filling
@@ -1114,8 +1158,19 @@ export default defineComponent({
    stacking in their own row underneath the switch. */
 .soundfx-arpeggio-block, .soundfx-envelope-block {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  /* flex-start, not center - with center, a taller item (e.g. Envelope's
+     own dropdowns) sharing a wrapped line with the switch grows that
+     line's own height, and "center" then pulls the switch down to that
+     line's new midpoint - a real reported bug (the switch visibly shifting
+     position purely from toggling its own fields on, which grow the line
+     it's sharing). flex-start pins every item to the top of its own line
+     regardless of what else joins it there. */
+  align-items: flex-start;
+  /* Separate row/column gap (was a single "gap: 8px") - column spacing
+     between fields on the same row stays 8px, but wrapped rows (narrow
+     window) sit much closer together than that. */
+  row-gap: 8px;
+  column-gap: 8px;
   flex-wrap: wrap;
   width: 100%;
 }
@@ -1127,11 +1182,11 @@ export default defineComponent({
    own extra controls AREN'T also adding their own visual separation
    underneath it. */
 .soundfx-envelope-block {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .hide-description-text .soundfx-envelope-block {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 /* Arpeggio's own expanded fields already add their own visual separation
@@ -1139,11 +1194,11 @@ export default defineComponent({
    the collapsed case) - the same margin-top on top of THAT read as too
    much. */
 .soundfx-arpeggio-block--expanded + .soundfx-envelope-block {
-  margin-top: 4px;
+  margin-top: 14px;
 }
 
 .hide-description-text .soundfx-arpeggio-block--expanded + .soundfx-envelope-block {
-  margin-top: 4px;
+  margin-top: 14px;
 }
 
 /* Full width so it forces its own line above the graph, same "100%-width
@@ -1153,6 +1208,19 @@ export default defineComponent({
   display: flex;
   width: 100%;
   gap: 4px;
+  /* Breathing room from the Attack/Decay/Sustain/Release fields above
+     (.soundfx-envelope-block's own row-gap is 0, so without this the
+     fields' bottom edge and this row's own divider line sit flush). */
+  margin-top: 8px;
+  /* Right-aligned, under the graph's own right edge (where Release ends),
+     rather than the left edge (where Attack starts). */
+  justify-content: flex-end;
+  /* Separates the graph's own reset/undo/redo controls from the Attack/
+     Decay/Sustain/Release dropdowns above them - same border colour
+     EnvelopeGraph.vue's own .envelope-graph frame uses, so this reads as
+     the same "framed panel" visual language rather than an unrelated line. */
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.24);
 }
 
 /* Same margin-top override as SoundFXEditor's own .dim-switch - Vuetify's
@@ -1165,6 +1233,20 @@ export default defineComponent({
   flex: 0 0 auto;
   margin-top: -4px !important;
   padding-top: 0 !important;
+}
+
+/* Extra push-down ONLY while the block is expanded (fields showing beside
+   the switch) - collapsed, the switch is alone on its own line and the
+   base -4px above already looks right. Under align-items: flex-start (see
+   that rule's own comment for why it replaced center), every item pins to
+   the TOP of its line, which for a v-select/v-text-field means the top of
+   its LABEL text, well above where its actual input box sits - this was
+   applied unconditionally before, which correctly aligned the switch with
+   its fields when expanded but left an oversized gap above a COLLAPSED
+   switch that has no taller sibling to align with at all. */
+.soundfx-arpeggio-block--expanded .soundfx-arpeggio-switch,
+.soundfx-envelope-block--expanded .soundfx-envelope-switch {
+  margin-top: 16px !important;
 }
 
 /* Extra breathing room between each switch's own label text and the field(s)

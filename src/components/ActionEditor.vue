@@ -48,7 +48,7 @@ import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-eve
 import BlocklyBB from '../generators/bbasic';
 import {showError} from '../utils/build-error';
 import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage, useMuteBlocklySoundsStorage,
-  useGridSnapStorage} from '../hooks/project';
+  useGridSnapStorage, useDesaturateBlocklyColorsStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
 import {markRomOutdated} from '../hooks/rom';
 
@@ -119,6 +119,21 @@ export default {
     const configurationStorage = useConfigurationStorage();
     const muteBlocklySoundsStorage = useMuteBlocklySoundsStorage();
     const gridSnapStorage = useGridSnapStorage();
+    // A plain one-off .value read (not a reactive binding) - same "only
+    // takes effect on the next remount" reasoning as gridSnapStorage.value
+    // just below (options.grid.snap): Blockly.inject() only ever reads
+    // options.theme once, at injection time, so a live binding here
+    // wouldn't do anything useful anyway - toggling this setting already
+    // requires leaving and revisiting the Actions tab for the renderer/
+    // theme-level effects it has elsewhere (see ActionEditor.vue's own
+    // renderer comment). Mutates APP_BLOCKLY_THEME itself (a module-level
+    // singleton reused by every mount) via setComponentStyle - the theme
+    // object is otherwise defined once, at import time, well before any
+    // component (and so this storage value) could ever be read, so there's
+    // no other point BEFORE injection where this could be set instead.
+    const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage().value;
+    APP_BLOCKLY_THEME.setComponentStyle('workspaceBackgroundColour',
+        desaturateBlocklyColors ? '#e8e8e8' : null);
     return {
       generatedBasic: useGeneratedBasic(),
       muteBlocklySoundsStorage,
@@ -140,7 +155,11 @@ export default {
         grid: {
           spacing: 25,
           length: 3,
-          colour: '#ccc',
+          // A touch darker than the usual '#ccc' once the workspace
+          // background itself is dimmed (see desaturateBlocklyColors
+          // above) - '#ccc' dots read fine against pure white, but lose
+          // enough contrast against '#e8e8e8' to be hard to see.
+          colour: desaturateBlocklyColors ? '#bbb' : '#ccc',
           // Blockly.inject() only ever reads this once, at injection time
           // (see toggleGridSnap's own comment on Grid.prototype.shouldSnap
           // having no supported setter) - seeding it from the persisted

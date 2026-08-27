@@ -4,10 +4,16 @@ import '@blockly/field-grid-dropdown';
 import {COLOR_ICON} from './icon';
 import {NTSC_COLORS} from '../utils/palette';
 
+// 28x28 (up from an original 16x16) - see App.vue's own global .blocklyMenuItem
+// padding override, which shrinks each grid cell's own frame to match: a
+// swatch this size fills its bordered cell edge to edge instead of floating
+// as a small square inside a much bigger padded frame.
+const SWATCH_SIZE = 28;
+
 const colorToDataURL = (color) => {
   const canvas = window.document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 16;
+  canvas.width = SWATCH_SIZE;
+  canvas.height = SWATCH_SIZE;
 
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = color;
@@ -23,8 +29,8 @@ const colorToDataURL = (color) => {
 export const NTSC_COLOR_OPTIONS = NTSC_COLORS.map((color, idx) => ([
   {
     src: colorToDataURL(`#${color}`),
-    width: 16,
-    height: 16,
+    width: SWATCH_SIZE,
+    height: SWATCH_SIZE,
   },
   `${idx << 1}`,
 ]));

@@ -86,3 +86,13 @@ const buildCollisionCheckBlock = () => ({
 Blockly.defineBlocksWithJsonArray([
   buildCollisionCheckBlock(),
 ]);
+
+// Software (pfread-based) playfield collision for players - taken out again
+// for now, on top of the two designs already documented above/in
+// generators/bbasic/collision.js's own top-of-file comment (a reactive
+// axis-aware backtrack: ROM lockup, then a hard crash on contact; a
+// predictive per-direction "move if clear" block, closely modeled on the
+// user's own reference example: moved correctly but caused a screen roll on
+// any joystick input, still unresolved). Revisit later - see git history on
+// this file and on generators/bbasic/collision.js for the full account of
+// every attempt so far before trying again.

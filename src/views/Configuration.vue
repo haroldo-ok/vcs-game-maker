@@ -197,6 +197,13 @@
           class="option-switch"
         />
         <v-switch
+          v-model="desaturateBlocklyColors"
+          label="Soft Blockly colors"
+          hint="Mutes block colors to half their normal saturation for a calmer, less colorful Blockly view."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
@@ -211,7 +218,8 @@
 import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
-import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage, useErrorStorage,
+import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage,
+  useDesaturateBlocklyColorsStorage, useErrorStorage,
   useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage,
   useProjectAutoIncrementVersionStorage} from '../hooks/project';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
@@ -294,6 +302,7 @@ export default defineComponent({
     const muteBlocklySounds = useMuteBlocklySoundsStorage();
     const hideSidebar = useHideSidebarStorage();
     const blocklyControlsHorizontal = useBlocklyControlsHorizontalStorage();
+    const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
 
@@ -481,7 +490,8 @@ export default defineComponent({
       romSizeIsBankswitched,
       player0RainbowColorsActive,
       loadLastProject,
-      muteBlocklySounds, hideSidebar, blocklyControlsHorizontal, hideDescriptionText, projectAutoIncrementVersion,
+      muteBlocklySounds, hideSidebar, blocklyControlsHorizontal, desaturateBlocklyColors,
+      hideDescriptionText, projectAutoIncrementVersion,
       isSectionCollapsed,
       toggleSection,
     };
