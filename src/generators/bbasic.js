@@ -591,18 +591,25 @@ Blockly.BBasic.init = function(workspace) {
   this.projectMusic = resolveProjectMusic(workspace, this.notePlayedInstruments);
 
   // Whether channnel0duration/channnel1duration (see SYSTEM_VARIABLES'
-  // own comment) are needed at all - a "Play sound" block is the only thing
-  // that ever WRITES them (see soundfx.js's own soundfx_play generator), but
-  // music's own generated code READS them unconditionally too, whenever
-  // music exists at all (see generators/bbasic/music.js's own comments on
-  // "soundfx_play/channnel0duration+channnel1duration" - a sound effect
-  // sharing a channel with music needs to keep exclusive hardware control
-  // for its own duration), so either one alone already needs both vars to
-  // exist. A project with neither pays nothing - see
+  // own comment) are needed at all - two block types ever WRITE them:
+  // soundfx_play (see soundfx.js's own generator, a Sound-tab-preset
+  // reference) and simple_sound_set (see generators/bbasic/sound.js's own
+  // generator, the freeform "Play sound" block that sets AUDC/AUDF/AUDV
+  // directly) - confirmed as a real bug: simple_sound_set was missing here,
+  // so a project using ONLY that block (no soundfx_play, no music) never
+  // got channnel0duration/channnel1duration reserved/dim'd at all, and the
+  // generator's own reference to it fell through to DASM as a bare unknown
+  // symbol ("Unknown Mnemonic 'sta channnel0duration'"). Music's own
+  // generated code READS them unconditionally too, whenever music exists at
+  // all (see generators/bbasic/music.js's own comments on "soundfx_play/
+  // channnel0duration+channnel1duration" - a sound effect sharing a channel
+  // with music needs to keep exclusive hardware control for its own
+  // duration), so any one of the three alone already needs both vars to
+  // exist. A project using none of them pays nothing - see
   // generateChannelDurationChecks below, which reuses this same flag to
   // skip the per-frame decrement entirely, not just the dev vars.
   this.channelDurationUsed = !!this.projectMusic || workspace.getAllBlocks(false).some((block) =>
-    block.type === 'soundfx_play' && block.isEnabled());
+    (block.type === 'soundfx_play' || block.type === 'simple_sound_set') && block.isEnabled());
 
   // Every one-shot music event watch - "sequence chip finished"
   // (music_sequence_chip_finished/_by_id) AND "note played by instrument"
