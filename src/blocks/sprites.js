@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
-import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON} from './icon';
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
 
@@ -332,6 +332,120 @@ const buildPlayerBlocks = ({name, description, icon, colour}) => {
   ]);
 };
 
+// Same "trigger block, actual movement happens in a per-frame check" shape
+// as buildMissileBlocks' own "fire" block just below - separate from it
+// (not folded in) since the user wants a distinct, dedicated follow/seek
+// action rather than an extension of the angle-based Fire block. One single
+// block (not one per sprite name, unlike buildSpriteBlocks/buildMissileBlocks
+// above) - an OBJECT dropdown covers all 5 names (both players, both
+// missiles, the ball) instead, per an explicit request to combine what was
+// originally 5 separate blocks into one.
+const SEEK_OBJECT_OPTIONS = [
+  [PLAYER_ICON + ' Player 0', 'player0'],
+  [PLAYER_ICON + ' Player 1', 'player1'],
+  [MISSILE_ICON + ' Missile 0', 'missile0'],
+  [MISSILE_ICON + ' Missile 1', 'missile1'],
+  [BALL_ICON + ' Ball', 'ball'],
+];
+
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'object_seek_to',
+    'message0': `${SEEK_ICON} Seek %1 to X %2 Y %3 at speed %4`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'OBJECT',
+        'options': SEEK_OBJECT_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'X',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'Y',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'SPEED',
+        'check': 'Number',
+      },
+    ],
+    'message1': 'throttle movement %1',
+    'args1': [
+      {
+        'type': 'field_checkbox',
+        'name': 'THROTTLE',
+        'checked': false,
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'purple',
+    'tooltip': 'Moves the chosen player/missile/ball automatically, a few pixels every ' +
+      'frame, toward the given X/Y - each axis moves independently by up to "speed" pixels ' +
+      'a frame, so it arrives diagonally when both axes have similar distances left and ' +
+      'moves in a straight line once one axis catches up, stopping exactly on arrival. Its ' +
+      'own Height/visibility is never touched by this block, same as "Fire missile". Every ' +
+      'time this block actually runs, it immediately updates that object\'s own target/' +
+      'speed, even if it\'s still moving toward a previous target - place this behind its ' +
+      'own rate limiter (e.g. an "every X frames" block) if the target/speed shouldn\'t reset ' +
+      'every single frame. "throttle movement", when checked AND this block is placed ' +
+      'directly inside an "every X frames" block, slows the actual movement itself down to ' +
+      'that same rate (one step every X frames) instead of moving every frame regardless - ' +
+      'unchecked (the default), movement always happens every frame once triggered, no ' +
+      'matter what wraps this block.',
+  },
+  // A plain boolean value (plugs into an "if", same as collision_get/
+  // background_fade_active elsewhere in this codebase - a bare 'output':
+  // 'Boolean' with no outputShape override, the same "classic" connector
+  // every other boolean-pluggable block here already uses), true from the
+  // moment a matching object_seek_to block (same OBJECT choice) actually
+  // reaches its own target X/Y, until the next time that object's own Seek
+  // target is set again (object_seek_to's own generator clears this bit
+  // right when it (re)triggers - see generators/bbasic/sprites.js). A seek
+  // that starts already at its target (nothing to actually step) never sets
+  // this - there's no real arrival to report if it was already there before
+  // the first check.
+  {
+    'type': 'object_seek_arrived',
+    'message0': `${SEEK_ICON} %1 arrived at its seek target`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'OBJECT',
+        'options': SEEK_OBJECT_OPTIONS,
+      },
+    ],
+    'output': 'Boolean',
+    'colour': 'purple',
+    'tooltip': 'True once a matching "Seek" block (same player/missile/ball choice) reaches its ' +
+      'own target X/Y, and stays true until that object is given a new Seek target. Always false ' +
+      'if no matching Seek block ever runs anywhere in the project.',
+  },
+]);
+
+// Every object_seek_arrived block resolved to the OBJECT name(s) it actually
+// watches - needed early (bbasic.js's own init(), before reserveDevVar hands
+// out user variable letters) so seekArrivedFlagsVarName only gets reserved
+// when at least one such watch really exists, same reasoning as
+// resolveBackgroundFadeFinishedWatches in blocks/background.js. Unlike that
+// one, no separate "watch key" function is needed - OBJECT's own value
+// (player0/player1/missile0/missile1/ball) already is the key.
+export const resolveSeekArrivedWatches = (workspace) => {
+  const watched = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type === 'object_seek_arrived' && block.isEnabled()) {
+      watched.add(block.getFieldValue('OBJECT'));
+    }
+  });
+  return watched;
+};
+
 const buildMissileBlocks = ({name, description, icon, colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for changing a player's size and quantity.
@@ -385,6 +499,14 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
           'options': MISSILE_FIRE_SPEED_OPTIONS,
         },
       ],
+      'message1': 'throttle movement %1',
+      'args1': [
+        {
+          'type': 'field_checkbox',
+          'name': 'THROTTLE',
+          'checked': false,
+        },
+      ],
       'inputsInline': true,
       'previousStatement': null,
       'nextStatement': null,
@@ -406,7 +528,10 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
         'given at that moment. Because of that, this should be placed behind its own rate limiter ' +
         '(e.g. an "every X frames" block) rather than something that stays true every single frame ' +
         '(like "if Fire then ..." on its own), or it\'ll keep resetting the shot every frame instead ' +
-        'of letting it fly.',
+        'of letting it fly. "throttle movement", when checked AND this block is placed directly ' +
+        'inside an "every X frames" block, slows the actual in-flight movement down to that same ' +
+        'rate (one step every X frames) instead of moving every frame regardless - unchecked (the ' +
+        'default), it always moves every frame once fired, no matter what wraps this block.',
     },
   ]);
 };

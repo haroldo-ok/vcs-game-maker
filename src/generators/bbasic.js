@@ -37,7 +37,9 @@ import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowCol
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
   reserveRomNoiseDevVars, reserveRainbowColorDevVars,
   generateMissileFireChecks, reserveMissileFireDevVars,
+  generateSeekChecks, reserveSeekDevVars, reserveSeekArrivedDevVars,
   reserveCtrlpfShadowDevVar, generateCtrlpfShadowSetup} from './bbasic/sprites';
+import {resolveSeekArrivedWatches} from '../blocks/sprites';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
@@ -403,6 +405,25 @@ Blockly.BBasic.init = function(workspace) {
       this.missileFireUsedFor.add(name);
     }
   });
+
+  // Same early block-type pre-scan reasoning as missileFireUsedFor above,
+  // for object_seek_to (see reserveSeekDevVars' own comment in
+  // generators/bbasic/sprites.js) - a single block type (an OBJECT dropdown
+  // picks the sprite name, unlike Fire's one-block-per-missile shape), so
+  // this reads that field directly rather than matching one block type per
+  // name.
+  this.seekUsedFor = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type === 'object_seek_to' && block.isEnabled()) {
+      this.seekUsedFor.add(block.getFieldValue('OBJECT'));
+    }
+  });
+
+  // Every object_seek_arrived watch (see resolveSeekArrivedWatches's own
+  // comment in blocks/sprites.js) - needed this early so
+  // seekArrivedFlagsVarName only gets reserved when at least one such watch
+  // really exists, same reasoning as backgroundFadeFinishedWatches above.
+  this.seekArrivedWatches = resolveSeekArrivedWatches(workspace);
 
   // Same early block-type pre-scan reasoning as above, for CTRLPF's own RAM
   // shadow (see reserveCtrlpfShadowDevVar's own comment in generators/
@@ -853,6 +874,17 @@ Blockly.BBasic.init = function(workspace) {
   // bbasic/sprites.js) - a no-op unless missileFireUsedFor's own early
   // pre-scan (above) found it used.
   reserveMissileFireDevVars(reserveDevVar, this.missileFireUsedFor);
+
+  // Same bucket again, for "Seek to"'s own per-sprite target/speed state
+  // (see reserveSeekDevVars' own comment in generators/bbasic/sprites.js) -
+  // a no-op unless seekUsedFor's own early pre-scan (above) found it used.
+  reserveSeekDevVars(reserveDevVar, this.seekUsedFor);
+
+  // Same bucket again, for "When ... arrives"'s own shared finished-bit byte
+  // (see reserveSeekArrivedDevVars' own comment in generators/bbasic/
+  // sprites.js) - a no-op unless seekArrivedWatches' own early pre-scan
+  // (above) found a real watch.
+  reserveSeekArrivedDevVars(reserveDevVar, this.seekArrivedWatches);
 
   // Same bucket again, for CTRLPF's own RAM shadow (see
   // reserveCtrlpfShadowDevVar's own comment in generators/bbasic/sprites.js)
@@ -1653,6 +1685,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
   const generatedMissileFireChecks = generateMissileFireChecks(Blockly);
+  const generatedSeekChecks = generateSeekChecks(Blockly);
   // Bank 1's own copy of the Text Minikernel's "show by id" lookup tables
   // (see generateTextOffsetTables' own comment in bbasic/text-scroll.js) -
   // each relocated bank gets its own copy directly inside
@@ -1740,6 +1773,7 @@ Blockly.BBasic.finish = function(code) {
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
     generatedAnimations, generatedDataTables, generatedEnvelopeDataTables, generatedRomNoiseChecks,
     generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
+    generatedSeekChecks,
     generatedTextOffsetTables, generatedJoyDir8Table,
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,

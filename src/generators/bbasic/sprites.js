@@ -162,6 +162,72 @@ export const missileFireActiveBit = (name) => name === 'missile1' ? 1 : 0;
 export const missileFireDirVarName = (name) => `_${name}FireDir`;
 export const missileFireSpeedVarName = (name) => `_${name}FireSpeed`;
 
+// sprite_*_seek_to's own dev vars (see its own trigger generator and
+// generateSeekChecks below) - same shape as sprite_*_fire's own above: one
+// shared flags byte (one bit per sprite name, since up to all 5 - both
+// players, both missiles, and the ball - can each be seeking independently)
+// plus, per sprite, the target X/Y and speed, captured once when the block
+// runs so the per-frame check never has to re-evaluate the original X/Y/
+// SPEED block inputs.
+export const seekFlagsVarName = () => '_seekFlags';
+export const seekActiveBit = (name) => {
+  const bits = {player0: 0, player1: 1, missile0: 2, missile1: 3, ball: 4};
+  return bits[name];
+};
+export const seekXVarName = (name) => `_${name}SeekX`;
+export const seekYVarName = (name) => `_${name}SeekY`;
+export const seekSpeedVarName = (name) => `_${name}SeekSpeed`;
+
+// object_seek_arrived's own "finished" bits - deliberately a SEPARATE byte
+// from seekFlagsVarName's own active bits above (not packed into the same
+// byte the way background.js's own fadeFlagsVarName does for its 4
+// registers): seek has 5 possible names, so 5 active + 5 finished bits would
+// be 10, over a single byte's 8. Same bit-per-name layout as
+// seekActiveBit, reused via seekArrivedBit rather than a second parallel
+// map. Only reserved at all when resolveSeekArrivedWatches (blocks/
+// sprites.js) finds at least one object_seek_arrived block actually
+// watching - see this file's own reserveSeekArrivedDevVars.
+export const seekArrivedFlagsVarName = () => '_seekArrivedFlags';
+export const seekArrivedBit = (name) => seekActiveBit(name);
+
+// "throttle movement" (see object_seek_to/sprite_*_fire's own checkbox
+// field) - an opt-in countdown that slows the per-frame movement check
+// itself down to whatever "every X frames" block the trigger is placed
+// inside, instead of always stepping every frame. A plain decrement-and-
+// compare-to-zero countdown, not a bitwise-AND against a runtime variable
+// mask (unlike event_frame_every_n's own compile-time-literal mask) - every
+// existing "& mask" in this codebase's generated output is against a
+// literal, never a variable, so this avoids relying on an operator
+// combination with no precedent here. ...ThrottleVarName is the countdown
+// itself; ...ThrottleResetVarName is what it resets to each time it hits
+// zero (the resolved "every X frames" interval, or 1 - "step every frame",
+// the same behavior as if throttling were off - when not actually
+// wrapped/enabled).
+export const seekThrottleVarName = (name) => `_${name}SeekThrottle`;
+export const seekThrottleResetVarName = (name) => `_${name}SeekThrottleReset`;
+export const missileFireThrottleVarName = (name) => `_${name}FireThrottle`;
+export const missileFireThrottleResetVarName = (name) => `_${name}FireThrottleReset`;
+
+// Compile-time lookup, not a runtime one: walks up from the trigger block
+// through its own enclosing STATEMENT blocks (getSurroundParent, not the
+// getParent()-loop background.js's own isInsideFunctionDefine uses - that
+// one also has to follow value-input connections since it's checking a
+// block that sits in an "if" condition socket, this one only ever needs
+// statement nesting, since a trigger block is always a plain statement)
+// looking for an event_frame_every_n ancestor. Its own MASK field's VALUE
+// is interval-1 (see FRAME_OPTIONS in blocks/event.js) - "+ 1" recovers the
+// real interval.
+const resolveEnclosingFrameInterval = (block) => {
+  let ancestor = block.getSurroundParent();
+  while (ancestor) {
+    if (ancestor.type === 'event_frame_every_n') {
+      return Number(ancestor.getFieldValue('MASK')) + 1;
+    }
+    ancestor = ancestor.getSurroundParent();
+  }
+  return null;
+};
+
 // "Rainbow colors" (its own block, sprite_*_rainbow_colors) is a REAL,
 // existing batari Basic kernel feature (see std_kernel.asm's own "ifnconst
 // playercolors"/"ifnconst player1colors" checks - it reads (player0color),y
@@ -234,7 +300,36 @@ export const reserveMissileFireDevVars = (reserveDevVar, usedFor) => {
   usedFor.forEach((name) => {
     reserveDevVar(missileFireDirVarName(name), undefined, 'this missile\'s fired direction (0-7, or 255 for none)');
     reserveDevVar(missileFireSpeedVarName(name), undefined, 'this missile\'s fired speed (pixels/frame)');
+    reserveDevVar(missileFireThrottleVarName(name), undefined, 'this missile\'s "throttle movement" countdown');
+    reserveDevVar(missileFireThrottleResetVarName(name), undefined,
+        'this missile\'s "throttle movement" countdown reset value');
   });
+};
+
+// Same reasoning as reserveMissileFireDevVars above, for sprite_*_seek_to -
+// called with a pre-scanned Set of which sprite names actually have a Seek
+// block used anywhere in the project.
+export const reserveSeekDevVars = (reserveDevVar, usedFor) => {
+  if (!usedFor || !usedFor.size) return;
+  reserveDevVar(seekFlagsVarName(), undefined, 'shared active-bit byte for seeking sprites');
+  usedFor.forEach((name) => {
+    reserveDevVar(seekXVarName(name), undefined, 'this sprite\'s seek target X');
+    reserveDevVar(seekYVarName(name), undefined, 'this sprite\'s seek target Y');
+    reserveDevVar(seekSpeedVarName(name), undefined, 'this sprite\'s seek speed (pixels/frame/axis)');
+    reserveDevVar(seekThrottleVarName(name), undefined, 'this sprite\'s "throttle movement" countdown');
+    reserveDevVar(seekThrottleResetVarName(name), undefined,
+        'this sprite\'s "throttle movement" countdown reset value');
+  });
+};
+
+// One shared byte, reserved only when at least one object_seek_arrived
+// block actually watches something (see resolveSeekArrivedWatches in
+// blocks/sprites.js and seekArrivedFlagsVarName's own comment above) -
+// called with that same pre-scanned Set, same "known before user variable
+// letters are handed out" timing as reserveSeekDevVars above.
+export const reserveSeekArrivedDevVars = (reserveDevVar, watches) => {
+  if (!watches || !watches.size) return;
+  reserveDevVar(seekArrivedFlagsVarName(), undefined, 'shared "seek arrived" finished-bit byte');
 };
 
 // Ball width and playfield priority both need to read-modify-write CTRLPF -
@@ -430,8 +525,13 @@ export const generateMissileFireChecks = (Blockly) => {
     const dirVar = resolveVar(missileFireDirVarName(name));
     const speedVar = resolveVar(missileFireSpeedVarName(name));
     const activeBit = missileFireActiveBit(name);
+    const throttleVar = resolveVar(missileFireThrottleVarName(name));
+    const throttleResetVar = resolveVar(missileFireThrottleResetVarName(name));
     lines.push(
         ` if !${flagsVar}{${activeBit}} then goto ${doneLabel}`,
+        ` ${throttleVar} = ${throttleVar} - 1`,
+        ` if ${throttleVar} then goto ${doneLabel}`,
+        ` ${throttleVar} = ${throttleResetVar}`,
         // X dispatch: Up-Right/Right/Down-Right (1,2,3) step +speed,
         // Down-Left/Left/Up-Left (5,6,7) step -speed, Up/Down (0,4) untouched.
         ` if ${dirVar} = 1 then ${name}x = ${name}x + ${speedVar}`,
@@ -460,6 +560,81 @@ export const generateMissileFireChecks = (Blockly) => {
         // "< 0" case to check: an out-of-range value from EITHER direction
         // always lands as "> 159"/"> 191" here.
         ` if ${name}x > 159 || ${name}y > 191 then ${flagsVar}{${activeBit}} = 0`,
+        `${doneLabel}`,
+    );
+  });
+  return lines.join('\n') + '\n';
+};
+
+// Spliced into commongamelogic right alongside generateMissileFireChecks
+// (same region, same reasoning: nothing else there touches this sprite's
+// position) - one check per sprite name that actually has a Seek block used
+// anywhere in the project. Per axis: step toward the target by up to speed
+// pixels, landing exactly on it rather than overshooting. The remaining
+// distance is always computed via subtraction in whichever direction the
+// branch just taken already guarantees is safe (the larger value minus the
+// smaller), THEN clamped to speed - never the other way around - so this
+// stays correct however large speed or the remaining distance is, with no
+// unsigned-byte-underflow risk (the exact class of bug the playfield-
+// collision work ran into repeatedly - worth being deliberate about here
+// even though this arithmetic is much simpler). temp1 is safe scratch here:
+// only clobbered by drawscreen, which can't run mid-statement (see
+// score.js's own comment on the same convention), and nothing in this block
+// calls pfread() to worry about clobbering it early.
+export const generateSeekChecks = (Blockly) => {
+  const used = Blockly.BBasic.seekUsedFor;
+  if (!used || !used.size) return '';
+  const resolveVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const flagsVar = resolveVar(seekFlagsVarName());
+  const arrivedWatches = Blockly.BBasic.seekArrivedWatches || new Set();
+  const lines = [];
+  ['player0', 'player1', 'missile0', 'missile1', 'ball'].forEach((name) => {
+    if (!used.has(name)) return;
+    const blockNumber = Blockly.BBasic.blockNumbers.next(`seek_${name}`);
+    const doneLabel = `_seek_${name}_${blockNumber}_done`;
+    const arrivedLabel = `_seek_${name}_${blockNumber}_arrived`;
+    const targetXVar = resolveVar(seekXVarName(name));
+    const targetYVar = resolveVar(seekYVarName(name));
+    const speedVar = resolveVar(seekSpeedVarName(name));
+    const activeBit = seekActiveBit(name);
+    const isArrivedWatched = arrivedWatches.has(name);
+    const arrivedFlagBit = isArrivedWatched ?
+      `${resolveVar(seekArrivedFlagsVarName())}{${seekArrivedBit(name)}}` : null;
+    const throttleVar = resolveVar(seekThrottleVarName(name));
+    const throttleResetVar = resolveVar(seekThrottleResetVarName(name));
+
+    const buildAxisSteps = (axis, targetVar) => {
+      const axisDoneLabel = `_seek_${name}_${blockNumber}_${axis}done`;
+      const rightLabel = `_seek_${name}_${blockNumber}_${axis}right`;
+      const coord = `${name}${axis}`;
+      return [
+        ` if ${coord} = ${targetVar} then goto ${axisDoneLabel}`,
+        ` if ${targetVar} > ${coord} then goto ${rightLabel}`,
+        ` temp1 = ${coord} - ${targetVar}`,
+        ` if temp1 > ${speedVar} then temp1 = ${speedVar}`,
+        ` ${coord} = ${coord} - temp1`,
+        ` goto ${axisDoneLabel}`,
+        `${rightLabel}`,
+        ` temp1 = ${targetVar} - ${coord}`,
+        ` if temp1 > ${speedVar} then temp1 = ${speedVar}`,
+        ` ${coord} = ${coord} + temp1`,
+        `${axisDoneLabel}`,
+      ];
+    };
+
+    lines.push(
+        ` if !${flagsVar}{${activeBit}} then goto ${doneLabel}`,
+        ` ${throttleVar} = ${throttleVar} - 1`,
+        ` if ${throttleVar} then goto ${doneLabel}`,
+        ` ${throttleVar} = ${throttleResetVar}`,
+        ...buildAxisSteps('x', targetXVar),
+        ...buildAxisSteps('y', targetYVar),
+        ` if ${name}x = ${targetXVar} && ${name}y = ${targetYVar} then goto ${arrivedLabel}`,
+        ` goto ${doneLabel}`,
+        `${arrivedLabel}`,
+        ` ${flagsVar}{${activeBit}} = 0`,
+        ...(isArrivedWatched ? [` ${arrivedFlagBit} = 1`] : []),
         `${doneLabel}`,
     );
   });
@@ -696,11 +871,19 @@ export default (Blockly) => {
       const defaultAngle = block.getFieldValue('DEFAULT_ANGLE') || '0';
       const speed = block.getFieldValue('SPEED') || '1';
       const activeBit = missileFireActiveBit(name);
+      // "throttle movement" - see this block's own tooltip and
+      // resolveEnclosingFrameInterval's own comment.
+      const throttleVar = resolveVar(missileFireThrottleVarName(name));
+      const throttleResetVar = resolveVar(missileFireThrottleResetVarName(name));
+      const interval = block.getFieldValue('THROTTLE') === 'TRUE' ?
+        (resolveEnclosingFrameInterval(block) || 1) : 1;
       return `${dirVar} = ${angle}\n` +
         `if ${dirVar} = 255 then ${dirVar} = ${defaultAngle}\n` +
         `${name}x = ${x}\n` +
         `${name}y = ${y}\n` +
         `${speedVar} = ${speed}\n` +
+        `${throttleResetVar} = ${interval}\n` +
+        `${throttleVar} = 1\n` +
         `${flagsVar}{${activeBit}} = 1\n`;
     };
   };
@@ -708,6 +891,74 @@ export default (Blockly) => {
   ['player0', 'player1', 'missile0', 'missile1', 'ball'].forEach(createGeneratorForSprite);
   ['player0', 'player1'].forEach(createGeneratorForPlayer);
   ['missile0', 'missile1'].forEach(createGeneratorForMissile);
+
+  // Just captures the target/speed and sets the active bit for whichever
+  // object OBJECT picks - the actual per-frame movement happens in
+  // generateSeekChecks (spliced into commongamelogic), same "trigger block
+  // sets dev vars + flag bit, a separate generate*Checks() does the
+  // per-frame work" pattern sprite_${name}_fire's own trigger generator
+  // already uses above. Unlike Fire (one block type per missile), this is a
+  // single block for all 5 sprite names, with OBJECT as a dropdown - "name"
+  // is read from that field instead of being fixed per block type, but
+  // otherwise every dev var this reads/writes still comes from the exact
+  // same per-name functions (seekXVarName/seekYVarName/seekSpeedVarName/
+  // seekActiveBit) generateSeekChecks itself uses. seekUsedFor's own
+  // pre-scan in bbasic.js's init() reads this same OBJECT field to know
+  // which names are "in use" (same reasoning as missileFireUsedFor), so
+  // every dev var referenced here is always guaranteed to already exist.
+  Blockly.BBasic['object_seek_to'] = function(block) {
+    const name = block.getFieldValue('OBJECT');
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const targetXVar = resolveVar(seekXVarName(name));
+    const targetYVar = resolveVar(seekYVarName(name));
+    const speedVar = resolveVar(seekSpeedVarName(name));
+    const flagsVar = resolveVar(seekFlagsVarName());
+    const x = Blockly.BBasic.valueToCode(block, 'X', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const y = Blockly.BBasic.valueToCode(block, 'Y', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const speed = Blockly.BBasic.valueToCode(block, 'SPEED', Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
+    const activeBit = seekActiveBit(name);
+    // "throttle movement" - see this block's own tooltip and
+    // resolveEnclosingFrameInterval's own comment.
+    const throttleVar = resolveVar(seekThrottleVarName(name));
+    const throttleResetVar = resolveVar(seekThrottleResetVarName(name));
+    const interval = block.getFieldValue('THROTTLE') === 'TRUE' ?
+      (resolveEnclosingFrameInterval(block) || 1) : 1;
+    // Clears this object's own "arrived" bit (object_seek_arrived, if
+    // watched) every time a new target is set - without this, the bit would
+    // stay stuck true from a previous arrival even after re-triggering
+    // toward a brand-new target that hasn't been reached yet.
+    // seekArrivedWatches' own pre-scan (bbasic.js's init()) guarantees the
+    // flags byte only actually exists when at least one object_seek_arrived
+    // block is watching, so this only reads/writes it when that's the case.
+    const arrivedWatches = Blockly.BBasic.seekArrivedWatches || new Set();
+    const clearArrived = arrivedWatches.has(name) ?
+      `${resolveVar(seekArrivedFlagsVarName())}{${seekArrivedBit(name)}} = 0\n` : '';
+    return `${targetXVar} = ${x}\n` +
+      `${targetYVar} = ${y}\n` +
+      `${speedVar} = ${speed}\n` +
+      `${throttleResetVar} = ${interval}\n` +
+      `${throttleVar} = 1\n` +
+      `${flagsVar}{${activeBit}} = 1\n` +
+      clearArrived;
+  };
+
+  // object_seek_arrived's own generator - a plain, always-current boolean
+  // read of the arrived bit (same shape as background_fade_active's own
+  // generator), NOT a watch-and-clear: this plugs into an "if" condition
+  // socket as a value (per explicit request - "if (object) arrives at its
+  // seek target do..."), so it can be read any number of times (or not at
+  // all, if optimized away) without a read itself having a side effect.
+  // generateSeekChecks sets this bit the moment this object's own Seek
+  // reaches its target; object_seek_to's own generator above clears it again
+  // the next time that object is given a new target.
+  Blockly.BBasic['object_seek_arrived'] = function(block) {
+    const name = block.getFieldValue('OBJECT');
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const flagBit = `${resolveVar(seekArrivedFlagsVarName())}{${seekArrivedBit(name)}}`;
+    return [flagBit, Blockly.BBasic.ORDER_ATOMIC];
+  };
 
   // Bit 2 of CTRLPF. Set through the bit-index syntax on the CTRLPF RAM
   // shadow (see reserveCtrlpfShadowDevVar's own comment - real CTRLPF can't
