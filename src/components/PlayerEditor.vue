@@ -40,7 +40,7 @@
                   >
                     <v-icon>{{ isCollapsed(animation) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                   </v-btn>
-                  <div class="animation-id-badge">ID: {{ animation.id }}</div>
+                  <div class="animation-id-badge">ID:{{ animation.id }}</div>
                   <v-text-field
                     class="animation-name-field"
                     label="Animation name"
@@ -156,7 +156,7 @@
                           />
                         </template>
                         <template v-slot:badge>
-                          <div class="frame-number-badge">FRAME: {{ frameIndex + 1 }}</div>
+                          <div class="frame-number-badge">ID:{{ frameIndex + 1 }}</div>
                           <div class="frame-corner-toolbar">
                             <v-btn
                               icon

@@ -300,6 +300,7 @@ const collapsedSections = ref(loadCollapsedSections());
 // default in sync by hand.
 const DEFAULT_CONFIGURATION = {
   showScore: true,
+  enableScoreFade: false,
   showBlankLines: true,
   enablePlayer0SpriteColors: false,
   enablePlayer1SpriteColors: false,
@@ -511,6 +512,7 @@ export default defineComponent({
     const handleResetToDefaults = () => {
       const state = configurationState.value;
       state.showScore = DEFAULT_CONFIGURATION.showScore;
+      state.enableScoreFade = DEFAULT_CONFIGURATION.enableScoreFade;
       state.showBlankLines = DEFAULT_CONFIGURATION.showBlankLines;
       state.enablePlayer0SpriteColors = DEFAULT_CONFIGURATION.enablePlayer0SpriteColors;
       state.enablePlayer1SpriteColors = DEFAULT_CONFIGURATION.enablePlayer1SpriteColors;

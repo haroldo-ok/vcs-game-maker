@@ -2526,6 +2526,16 @@ Blockly.BBasic.generateConfiguration = function() {
   // own status row, regardless of this toggle.
   const scoreConfigurationCode = (showScore ?? true) ? '' :
     `const ${this.isTextMinikernelActive() ? 'noscoretxt' : 'noscore'} = 1`;
+  // "scorefade" - a standard-kernel-only compile-time gate that adds shading
+  // to the score digits based on the live scorecolor value (see the Score
+  // category's own color get/set/change blocks on the Actions tab, which
+  // already exist and need no changes here - this just turns on the kernel
+  // code that actually reads scorecolor for shading purposes). Not paired
+  // with an ifconst check against the Text Minikernel the way "noscore"
+  // above is - text12a.asm/text12b.asm's own score row drawing doesn't read
+  // this const at all, so it has no effect (and no conflict) while the Text
+  // Minikernel is active.
+  const scoreFadeConfigurationCode = config.enableScoreFade ? 'const scorefade = 1' : '';
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that
@@ -2629,6 +2639,7 @@ Blockly.BBasic.generateConfiguration = function() {
   return [
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
+    scoreFadeConfigurationCode,
     scoreFontConfigurationCode,
     textFontConfigurationCode,
     scoreFontExtraGlyphsConfigurationCode,

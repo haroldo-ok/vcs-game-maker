@@ -12,6 +12,8 @@
             label="XY"
             title-on="Hide pixel coordinates"
             title-off="Show pixel coordinates"
+            :disabled="!showPixelGrid"
+            disabled-title="Turn on the pixel grid to show coordinates"
           />
         </div>
         <quick-color-palette v-if="pfColorsEnabled" v-model="selectedQuickColor" />

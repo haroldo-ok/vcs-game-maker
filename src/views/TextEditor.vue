@@ -413,6 +413,11 @@ export default defineComponent({
   margin-bottom: 16px;
 }
 
+/* Matches the Score tab's own .score-bkcolor-label size (ScoreFontEditor.vue). */
+.text-bkcolor-label {
+  font-size: 1rem;
+}
+
 .text-max-width-row {
   display: flex;
   align-items: center;
