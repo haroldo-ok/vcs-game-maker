@@ -24,6 +24,14 @@ export default (Blockly) => {
   // branched on, since a batari Basic condition is not a value.
   const BIT_LITERALS = {'true': '1', '1': '1', 'false': '0', '0': '0'};
 
+  // Just the plain built-in name - it's already a real, directly-readable
+  // batari Basic variable, no lookup/resolution needed the way bit_get's
+  // combined user-variable-or-built-in dropdown does.
+  Blockly.BBasic['system_variable_get'] = function(block) {
+    const code = block.getFieldValue('VAR');
+    return [code, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   Blockly.BBasic['bit_set'] = function(block) {
     const varName = resolveVariable(block);
     const bit = block.getFieldValue('BIT');

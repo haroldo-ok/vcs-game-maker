@@ -86,7 +86,7 @@ Blockly.Blocks['data_get_element'] = {
   init: function() {
     this.appendValueInput('INDEX')
         .setCheck('Number')
-        .appendField(`${DATA_ICON} Data table:`)
+        .appendField(`${DATA_ICON} Data table`)
         .appendField(new Blockly.FieldDropdown(buildDataTableOptions), 'TABLE')
         .appendField('at index');
     this.setOutput(true, 'Number');
@@ -129,7 +129,7 @@ Blockly.Blocks['data_get_bit'] = {
   init: function() {
     this.appendValueInput('INDEX')
         .setCheck('Number')
-        .appendField(`${DATA_ICON} Data table:`)
+        .appendField(`${DATA_ICON} Data table`)
         .appendField(new Blockly.FieldDropdown(buildDataTableOptions), 'TABLE')
         .appendField(`${BIT_ICON} bit`)
         .appendField(new Blockly.FieldDropdown(BIT_OPTIONS), 'BIT')

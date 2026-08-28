@@ -2,6 +2,14 @@
   <v-card flat class="editor-container">
     <v-card-title>Options</v-card-title>
     <v-card-text>
+      <v-btn
+        text
+        class="reset-to-defaults-btn"
+        @click="handleResetToDefaults"
+      >
+        Reset to Defaults
+      </v-btn>
+
       <div class="option-section-header" @click="() => toggleSection('rom')">
         <v-btn icon small :title="isSectionCollapsed('rom') ? 'Expand this section' : 'Collapse this section'">
           <v-icon>{{ isSectionCollapsed('rom') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
@@ -27,19 +35,10 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.showBlankLines"
+          v-model="configurationState.muteAllAudio"
           @change="handleChangeConfiguration"
-          label="Show blank lines between background rows (no_blank_lines)"
-          hint="Turning this off packs playfield rows tighter together, but uses missile0's graphics circuitry, so missile0 can no longer be used as a sprite."
-          persistent-hint
-          class="option-switch"
-        />
-        <v-switch
-          v-model="configurationState.enablePfColors"
-          @change="handleChangeConfiguration"
-          :disabled="configurationState.enableSuperchip"
-          label="Enable per-row playfield colors (pfcolors)"
-          hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Disabled while Superchip RAM is on - see below."
+          label="Mute in-game audio"
+          hint="Silences every sound effect and channel, overriding whatever any Sound block sets - useful for quick testing without needing to remove sound blocks."
           persistent-hint
           class="option-switch"
         />
@@ -65,6 +64,100 @@
       </div>
 
       <v-divider class="my-2" />
+      <div class="option-section-header" @click="() => toggleSection('kernel')">
+        <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
+          <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+        </v-btn>
+        <span class="text-subtitle-1">Kernel Options</span>
+      </div>
+      <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
+        <v-switch
+          v-model="configurationState.enableRand16"
+          @change="handleChangeConfiguration"
+          label="Use 16-bit random number generator (rand16)"
+          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.showBlankLines"
+          @change="handleChangeConfiguration"
+          :disabled="player0RainbowColorsActive"
+          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
+          label="Show blank lines between background rows (no_blank_lines)"
+          :hint="player0RainbowColorsActive ?
+            'Forced on: the player0 rainbow colors block requires this to stay on - batari Basic never allows player-colors and no_blank_lines together.' :
+            'Turning this off packs playfield rows tighter together, but uses missile0\'s graphics circuitry, so missile0 can no longer be used as a sprite.'"
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enablePlayer0SpriteColors"
+          @change="handleChangeConfiguration"
+          label="Enable per-row Player 0 sprite colors (playercolors)"
+          hint="Lets Player 0 show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on. Costs missile0 (can't be used as a sprite anywhere in the project once this is on) and paddle input. batari Basic requires player1colors alongside playercolors, so turning this on also turns on (and locks on) Player 1 sprite colors below, costing missile1 too."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enablePlayer1SpriteColors"
+          @change="handleChangeConfiguration"
+          :disabled="player0RainbowColorsActive"
+          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
+          label="Enable per-row Player 1 sprite colors (player1colors)"
+          :hint="player0RainbowColorsActive ?
+            'Forced on: batari Basic requires player1colors whenever playercolors (Player 0 sprite colors, above) is on.' :
+            'Lets Player 1 show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on. Costs missile1 (can\'t be used as a sprite anywhere in the project once this is on) - unlike Player 0 sprite colors, this works on its own with no other cost.'"
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enablePfColors"
+          @change="handleChangeConfiguration"
+          :disabled="configurationState.enableSuperchip"
+          label="Enable per-row playfield colors (pfcolors)"
+          hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Disabled while Superchip RAM is on - see below."
+          persistent-hint
+          class="option-switch"
+        />
+      </div>
+
+      <v-divider class="my-2" />
+      <div class="option-section-header" @click="() => toggleSection('compiler')">
+        <v-btn icon small :title="isSectionCollapsed('compiler') ? 'Expand this section' : 'Collapse this section'">
+          <v-icon>{{ isSectionCollapsed('compiler') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+        </v-btn>
+        <span class="text-subtitle-1">Compiler Options</span>
+      </div>
+      <div v-if="!isSectionCollapsed('compiler')" class="option-section-content">
+        <v-switch
+          v-model="configurationState.enableInlineRand"
+          @change="handleChangeConfiguration"
+          :disabled="!romSizeIsBankswitched"
+          label="Inline random number calls (inlinerand)"
+          hint="Places calls to the random number generator inline with your code instead of as a shared routine, trading a small increase in code size for speed - most useful in a bankswitched game, where a shared routine call would otherwise have to switch banks. Requires a bankswitched ROM size (8k or larger) - see ROM size above."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enableOptimizationSpeed"
+          @change="handleChangeConfiguration"
+          label="Optimize for speed (speed)"
+          hint="May increase speed - particularly of multiplication and division - at the cost of code size."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enableCycleScore"
+          @change="handleChangeConfiguration"
+          label="Show remaining CPU cycles as the score (cyclescore)"
+          hint="Displays an estimate (accurate to about +/- 64 cycles) of how many machine cycles are left in the current frame, using the score digits - white means positive (cycles to spare), red means negative (over budget). Only measures +/- 2000 cycles; a bigger deficit may show garbage or crash. Meant for debugging - turn it back off before shipping."
+          persistent-hint
+          class="option-switch"
+        />
+      </div>
+
+      <v-divider class="my-2" />
       <div class="option-section-header" @click="() => toggleSection('vcsgm')">
         <v-btn icon small :title="isSectionCollapsed('vcsgm') ? 'Expand this section' : 'Collapse this section'">
           <v-icon>{{ isSectionCollapsed('vcsgm') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
@@ -80,68 +173,95 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.muteAllAudio"
-          @change="handleChangeConfiguration"
-          label="Mute all in-game audio"
-          hint="Silences every sound effect and channel, overriding whatever any Sound block sets - useful for quick testing without needing to remove sound blocks."
+          v-model="projectAutoIncrementVersion"
+          label="Auto-increment version on save"
+          hint="Bumps the last segment of the Project tab's own Version field (e.g. 1.2.3 -> 1.2.4) every time you save the project."
           persistent-hint
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.muteBlocklySounds"
-          @change="handleChangeConfiguration"
+          v-model="muteBlocklySounds"
           label="Mute Blockly sounds"
-          hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute all in-game audio&quot; above for that."
-          persistent-hint
-          class="option-switch"
-        />
-      </div>
-
-      <v-divider class="my-2" />
-      <div class="option-section-header" @click="() => toggleSection('kernel')">
-        <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
-          <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
-        </v-btn>
-        <span class="text-subtitle-1">Kernel Optimization (Advanced)</span>
-      </div>
-      <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
-        <v-switch
-          v-model="configurationState.enableOptimizationSpeed"
-          @change="handleChangeConfiguration"
-          label="Optimize for speed (speed)"
-          hint="May increase speed - particularly of multiplication and division - at the cost of code size."
+          hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute in-game audio&quot; above for that."
           persistent-hint
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.enableRand16"
+          v-model="configurationState.showVariableComments"
           @change="handleChangeConfiguration"
-          label="Use 16-bit random number generator (rand16)"
-          hint="Widens the random number generator's own cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
+          label="Show detailed comments in generated code"
+          hint="Adds a short comment next to each reserved variable's own &quot;dim&quot; line, and each data table, in the Generated tab explaining what it's for."
           persistent-hint
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.enableInlineRand"
-          @change="handleChangeConfiguration"
-          :disabled="!romSizeIsBankswitched"
-          label="Inline random number calls (inlinerand)"
-          hint="Places calls to the random number generator inline with your code instead of as a shared routine, trading a small increase in code size for speed - most useful in a bankswitched game, where a shared routine call would otherwise have to switch banks. Requires a bankswitched ROM size (8k or larger) - see ROM size above."
+          v-model="hideSidebar"
+          label="Never show the left sidebar"
+          hint="Keeps the left navigation sidebar closed at all times, reclaiming its space for the rest of the app instead of leaving it available to open."
           persistent-hint
           class="option-switch"
         />
+        <v-switch
+          v-model="blocklyControlsHorizontal"
+          label="Arrange Blockly controls horizontally"
+          hint="When off (default), the zoom in/out/reset/grid-snap buttons on the Actions tab's Blockly canvas are stacked vertically along the right edge. When on, they're arranged in a row along the bottom edge instead."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="desaturateBlocklyColors"
+          label="Soft Blockly colors"
+          hint="Mutes block colors to half their normal saturation for a calmer, less colorful Blockly view."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="hideDescriptionText"
+          label="Expert mode"
+          hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-text-field
+          v-model="stellaPathStorage"
+          label="Stella installation location"
+          :disabled="!isElectron"
+          :hint="isElectron ?
+            'Path to the Stella executable, used by the emulator preview\'s own \'Test in Stella\' button. You need to install Stella yourself first - this only points the app at it.' :
+            'Only available in the desktop app - the browser version has no way to launch a local program.'"
+          persistent-hint
+          class="stella-path-field"
+        >
+          <template v-slot:append>
+            <v-btn text small :disabled="!isElectron" @click="handleBrowseForStella">
+              Browse...
+            </v-btn>
+          </template>
+        </v-text-field>
       </div>
     </v-card-text>
     </v-card>
 </template>
 <script>
-import {computed, defineComponent, ref} from '@vue/composition-api';
+import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
-import {useBackgroundsStorage, useConfigurationStorage, useErrorStorage, useLoadLastProjectStorage} from '../hooks/project';
-import {BANK_COUNT_BY_ROMSIZE, countUsedVariables} from '../hooks/rom';
+import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage,
+  useDesaturateBlocklyColorsStorage, useErrorStorage,
+  useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage,
+  useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
+import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
+// 64k compiles correctly (see generators/bbasic.js's own SUPPORTED_ROM_SIZES/
+// BANK_COUNT_BY_ROMSIZE_MINI) but isn't offered here yet - the bundled
+// preview emulator (public/js/javatari.js) can't actually run bB's own 64k
+// bankswitch scheme (confirmed directly: still "AUTO: FAILED"/no video even
+// forcing every cartridge format it has that's remotely close - EF included,
+// the one whose own hotspot address genuinely matches bB's), so exposing it
+// here would just let someone build a ROM this app's own preview can't show
+// them running. Re-add once that's sorted out (a newer/different bundled
+// emulator, most likely).
 const ROM_SIZE_OPTIONS = ['2k', '4k', '8k', '16k', '32k'];
 const MIN_PFRES = 1;
 const MAX_PFRES = 32;
@@ -157,13 +277,12 @@ const MIN_SUPERCHIP_ROM_SIZE_INDEX = ROM_SIZE_OPTIONS.indexOf('8k');
 // navigation, which would otherwise reset any state kept inside setup()
 // itself). Not reused straight from that hook: its isCollapsed/
 // toggleCollapsed take an {id} object and always default to "not
-// collapsed," whereas this page wants 'vcsgm'/'kernel' to default to
-// collapsed and 'rom' to default open the FIRST time (before the user has
-// ever toggled anything) - a plain module-scope ref, hydrated from
-// localStorage once here, covers both without changing that shared hook's
-// own contract for its other callers.
+// collapsed," whereas this page wants every section collapsed the FIRST
+// time (before the user has ever toggled anything) - a plain module-scope
+// ref, hydrated from localStorage once here, covers both without changing
+// that shared hook's own contract for its other callers.
 const OPTIONS_COLLAPSED_SECTIONS_KEY = 'vcs-game-maker.collapsed.options-sections';
-const DEFAULT_COLLAPSED_SECTIONS = ['vcsgm', 'kernel'];
+const DEFAULT_COLLAPSED_SECTIONS = ['rom', 'kernel', 'compiler', 'vcsgm'];
 const loadCollapsedSections = () => {
   try {
     const stored = JSON.parse(localStorage.getItem(OPTIONS_COLLAPSED_SECTIONS_KEY));
@@ -175,6 +294,28 @@ const loadCollapsedSections = () => {
 };
 const collapsedSections = ref(loadCollapsedSections());
 
+// Hoisted out of configurationState's own getter (module scope, like
+// collapsedSections above) so handleResetToDefaults can reuse the exact
+// same values rather than keeping a second, easily-drifting copy of every
+// default in sync by hand.
+const DEFAULT_CONFIGURATION = {
+  showScore: true,
+  showBlankLines: true,
+  enablePlayer0SpriteColors: false,
+  enablePlayer1SpriteColors: false,
+  enablePfColors: false,
+  enableSuperchip: false,
+  enableOptimizationSpeed: false,
+  enableInlineRand: true,
+  enableRand16: true,
+  enableCycleScore: false,
+  pfres: 24,
+  romSize: '4k',
+  scoreFont: '',
+  muteAllAudio: false,
+  showVariableComments: true,
+};
+
 export default defineComponent({
   setup(props, context) {
     const configurationStorage = useConfigurationStorage();
@@ -184,6 +325,28 @@ export default defineComponent({
     // below so it survives clearProjectStorage() and can be checked at
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
+    // Same reasoning as loadLastProject above - these three used to round-trip
+    // with the project itself via configurationState, silently resetting
+    // every time you switched or started a new project.
+    const muteBlocklySounds = useMuteBlocklySoundsStorage();
+    const hideSidebar = useHideSidebarStorage();
+    const blocklyControlsHorizontal = useBlocklyControlsHorizontalStorage();
+    const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
+    const hideDescriptionText = useHideDescriptionTextStorage();
+    const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
+    const stellaPathStorage = useStellaPathStorage();
+    // window.electronAPI only exists inside the desktop (Electron) build's
+    // own preload script (see preload.js) - a plain web-served copy of this
+    // same app has no such thing, so this is what tells the two apart at
+    // runtime rather than any build-time flag.
+    const isElectron = computed(() => !!window.electronAPI);
+    const handleBrowseForStella = async () => {
+      const picked = await window.electronAPI.pickStellaPath();
+      // null specifically means the user cancelled the dialog (see
+      // background.js's own "stella:pick-path" handler) - leaves whatever
+      // was already saved untouched rather than clearing it.
+      if (picked) stellaPathStorage.value = picked;
+    };
 
     // Which sections are collapsed - a Set of section keys, matching the
     // collapse pattern already used by the other tabs' own cards (a plain
@@ -199,24 +362,9 @@ export default defineComponent({
     };
 
     const configurationState = computed({
+      // scoreFont is chosen on the Score tab, but is kept here so that
+      // changing any other option round-trips it instead of dropping it.
       get() {
-        // scoreFont is chosen on the Score tab, but is kept here so that
-        // changing any other option round-trips it instead of dropping it.
-        const DEFAULT_CONFIGURATION = {
-          showScore: true,
-          showBlankLines: true,
-          enablePfColors: false,
-          enableSuperchip: false,
-          enableOptimizationSpeed: false,
-          enableInlineRand: false,
-          enableRand16: false,
-          pfres: 24,
-          romSize: '4k',
-          scoreFont: '',
-          muteAllAudio: false,
-          muteBlocklySounds: false,
-        };
-
         try {
           const configuration = configurationStorage.value || structuredClone(DEFAULT_CONFIGURATION);
 
@@ -247,6 +395,35 @@ export default defineComponent({
       },
     });
 
+    // Whether the project uses the player0 rainbow colors block - if so,
+    // "Show blank lines" can't be turned off (see usesPlayer0RainbowColors'
+    // own comment in hooks/rom.js): batari Basic's kernel_options never
+    // allows "playercolors" alongside "no_blank_lines", so the toggle is
+    // forced on and disabled rather than letting the user pick a
+    // combination that's guaranteed to fail to build.
+    const player0RainbowColorsActive = computed(() => usesPlayer0RainbowColors());
+
+    // Catches the block being added (or the workspace loading a project that
+    // already has it) even when the user never touches this switch directly
+    // themselves - not just the handleChangeConfiguration path below, which
+    // only runs when some OTHER switch on this page is what triggered the
+    // change. Also forces Player 1 sprite colors on: batari Basic's own
+    // kernel_options combination table never has a valid row with
+    // "playercolors" alone, it always needs "player1colors" too (see
+    // generateConfiguration's own comment in generators/bbasic.js) - so
+    // whenever playercolors is needed (a player0 rainbow-colors block, OR
+    // the "Enable per-row Player 0 sprite colors" toggle), player1colors has
+    // to come along with it, same reasoning/pattern as showBlankLines just
+    // below.
+    watch(player0RainbowColorsActive, (active) => {
+      if (!active) return;
+      const state = configurationState.value;
+      if (state.showBlankLines && state.enablePlayer1SpriteColors) return;
+      state.showBlankLines = true;
+      state.enablePlayer1SpriteColors = true;
+      configurationState.value = state;
+    }, {immediate: true});
+
     // Whether the selected ROM size actually bankswitches (see
     // BANK_COUNT_BY_ROMSIZE in hooks/rom.js - 2k/4k never do).
     const romSizeIsBankswitched = computed(() =>
@@ -263,7 +440,13 @@ export default defineComponent({
     // pfcolors and Superchip's higher-resolution playfield don't render
     // correctly together (last row black, and with more than one background
     // the colors come out wrong and the black area returns), so the two
-    // options can't both be on. Inlining random-number calls (see
+    // options can't both be on. Per-row SPRITE colors doesn't share this
+    // problem - it reads through player0color/player1color (aliased onto
+    // paddle/missile1y - see ROM_NOISE_COLOR_REGISTERS' own comment in
+    // generators/bbasic/sprites.js), a completely separate pointer from the
+    // playfield's own pfcolortable, and testing confirms it renders
+    // correctly with Superchip on - so it's deliberately NOT excluded here.
+    // Inlining random-number calls (see
     // useInlineRand in bbasic.js) only makes sense on a bankswitched ROM
     // size too, so it's forced off whenever the ROM size changes away from
     // one.
@@ -278,7 +461,9 @@ export default defineComponent({
     };
 
     const handleChangeConfiguration = () => {
-      configurationState.value = enforceSuperchipPfColorsExclusivity(configurationState.value);
+      const state = configurationState.value;
+      if (player0RainbowColorsActive.value) state.showBlankLines = true;
+      configurationState.value = enforceSuperchipPfColorsExclusivity(state);
     };
 
     // The playfield's vertical resolution (pfres) is a single setting for the
@@ -317,14 +502,48 @@ export default defineComponent({
       handleChangeResolution();
     };
 
+    // Only the boolean (v-switch) settings - romSize/pfres/scoreFont are
+    // real project choices, not toggles, so a "reset to defaults" for
+    // toggles specifically leaves them alone. Covers both configurationState
+    // (project-scoped, saved with the .vcsgm file) and the four standing app
+    // preferences kept in their own separate storage (see loadLastProject's
+    // own comment above for why those live apart from configurationState).
+    const handleResetToDefaults = () => {
+      const state = configurationState.value;
+      state.showScore = DEFAULT_CONFIGURATION.showScore;
+      state.showBlankLines = DEFAULT_CONFIGURATION.showBlankLines;
+      state.enablePlayer0SpriteColors = DEFAULT_CONFIGURATION.enablePlayer0SpriteColors;
+      state.enablePlayer1SpriteColors = DEFAULT_CONFIGURATION.enablePlayer1SpriteColors;
+      state.enablePfColors = DEFAULT_CONFIGURATION.enablePfColors;
+      state.enableSuperchip = DEFAULT_CONFIGURATION.enableSuperchip;
+      state.enableOptimizationSpeed = DEFAULT_CONFIGURATION.enableOptimizationSpeed;
+      state.enableInlineRand = DEFAULT_CONFIGURATION.enableInlineRand;
+      state.enableRand16 = DEFAULT_CONFIGURATION.enableRand16;
+      state.enableCycleScore = DEFAULT_CONFIGURATION.enableCycleScore;
+      state.muteAllAudio = DEFAULT_CONFIGURATION.muteAllAudio;
+      state.showVariableComments = DEFAULT_CONFIGURATION.showVariableComments;
+      configurationState.value = state;
+
+      loadLastProject.value = false;
+      muteBlocklySounds.value = false;
+      blocklyControlsHorizontal.value = false;
+      hideDescriptionText.value = false;
+      projectAutoIncrementVersion.value = false;
+    };
+
     return {
       configurationState,
       handleChangeConfiguration,
       handleChangeResolution,
       handleToggleSuperchip,
+      handleResetToDefaults,
       romSizeOptions,
       romSizeIsBankswitched,
+      player0RainbowColorsActive,
       loadLastProject,
+      muteBlocklySounds, hideSidebar, blocklyControlsHorizontal, desaturateBlocklyColors,
+      hideDescriptionText, projectAutoIncrementVersion,
+      stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,
       toggleSection,
     };
@@ -353,6 +572,32 @@ export default defineComponent({
   width: 100%;
 }
 
+/* A solid background (no "text" prop, unlike this app's usual flat-icon
+   buttons) - this is a destructive-ish, whole-page action, so it reads as
+   more deliberate/prominent than the section toggles below it. */
+.reset-to-defaults-btn {
+  margin-bottom: 16px;
+}
+
+/* Same flat-icon, fade-in-on-hover/blue-on-press color pattern as every
+   icon button elsewhere in the app (e.g. Project.vue's own
+   .project-flat-icon-btn, GeneratedCode.vue's own
+   .generated-code-flat-icon-btn) - here applied to the button's TEXT color
+   instead of an icon's, since this button has a label, not an icon.
+   Vuetify's own "text" prop already gives the transparent background/no
+   box-shadow those other buttons get from more manual CSS. */
+.reset-to-defaults-btn.v-btn {
+  color: rgba(0, 0, 0, 0.38) !important;
+}
+
+.reset-to-defaults-btn.v-btn:hover {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.reset-to-defaults-btn.v-btn:active {
+  color: #1976d2 !important;
+}
+
 /* Left-aligned collapse chevron + section title - matches the other tabs'
    own per-card collapse control (e.g. DataEditor's .data-collapse-btn),
    rather than Vuetify's own v-expansion-panel-header, which puts its arrow
@@ -374,10 +619,34 @@ export default defineComponent({
   margin-left: 46px;
 }
 
+/* Vuetify's own ".v-input--selection-controls" gives every switch a fixed
+   16px margin-top regardless of whether its own hint text is even showing
+   (see node_modules/vuetify/dist/vuetify.css) - once "Expert mode" (see
+   App.vue's own hide-description-text support) removes that hint text,
+   that much space between switches reads as too generous with nothing left
+   below to justify it. Only switches that FOLLOW another switch (the "+"
+   combinator, rather than a blanket ".option-switch") - the section's own
+   FIRST switch sits right under its own header instead, and that spacing
+   is unrelated to any hint text, so it shouldn't change with this toggle. */
+.hide-description-text .option-switch + .option-switch {
+  margin-top: 2px;
+}
+
 /* Reads as a sub-option of the Superchip switch above it, so it's indented to
-   line up under that switch's label text rather than its toggle track. */
+   line up under that switch's label text rather than its toggle track.
+   margin-top adds a bit of breathing room from that switch's own hint text
+   directly above - the two otherwise sat flush against each other. */
 .pfres-field {
   margin-left: 46px;
+  margin-top: 12px;
   max-width: calc(100% - 46px);
+}
+
+/* See App.vue's own "Hide small description text" support - with that
+   switch's hint text gone, there's no longer anything for the margin-top
+   above to create breathing room from, so it can sit right under the
+   switch itself again. */
+.hide-description-text .pfres-field {
+  margin-top: 0;
 }
 </style>

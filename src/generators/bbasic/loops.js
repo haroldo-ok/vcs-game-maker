@@ -17,6 +17,51 @@ goog.require('Blockly.BBasic');
 */
 
 
+// A "repeat N times" block's own count, when N is a complex expression (not
+// a plain number or bare variable name) - see controls_repeat_ext's own
+// comment below for why this needs a real, dedicated, properly-declared
+// variable rather than a shared scratch register like temp1 (which the
+// loop's own body can just as easily be using for something else entirely,
+// e.g. background_change_pixel, and "for X = 1 to <bound>" re-reads its own
+// bound from memory every iteration rather than caching it once). Reserved
+// via generators/bbasic.js's own init() pre-scan/reserveDevVar bucket - the
+// same mechanism every other feature's own hidden state uses (see e.g.
+// reserveRomNoiseDevVars in generators/bbasic/sprites.js) - NOT
+// nameDB_.getDistinctName, which (confirmed directly, see bbasic.js's own
+// comment on why temp1-6 had to be reserved against user variable name
+// collisions) never actually gets a matching "dim" declared anywhere; a
+// symbol nothing declares. One shared var project-wide - same reasoning
+// REPEAT_COUNTER_VAR_NAME itself already gets away with sharing across every
+// repeat loop: nested repeat blocks (a repeat whose own body contains
+// ANOTHER repeat block with a complex count) aren't safe with a single
+// shared var either way, an existing limitation this doesn't make any worse.
+export const REPEAT_BOUND_VAR_NAME = '_repeatBound';
+
+// The "repeat X times" block's own "for X = 1 to <bound> : ... : next" loop
+// variable itself - used to be the literal, hardcoded bB identifier
+// "loopcounter", unconditionally reserved a whole letter (or Superchip var0-
+// 14 slot) in generators/bbasic.js's own SYSTEM_VARIABLES regardless of
+// whether the project has any "Repeat" block at all. Resolved through
+// nameDB_/reserveDevVar instead now, the same as REPEAT_BOUND_VAR_NAME right
+// above (reserved only when generators/bbasic.js's own repeatLoopUsed
+// pre-scan finds a repeat block) - a project with zero "Repeat" blocks no
+// longer pays for this at all. One shared var project-wide, same reasoning
+// as REPEAT_BOUND_VAR_NAME's own comment.
+export const REPEAT_COUNTER_VAR_NAME = 'repeatcounter';
+
+// wait_frames' own "for X = 1 to <frames>" loop counter - deliberately NOT
+// the shared REPEAT_COUNTER_VAR_NAME variable controls_repeat_ext's own
+// "for" loop uses, even though that's what this block itself used to share.
+// A "Wait N frames" block placed inside a "Repeat X times" block's body is a
+// real, reported case - both blocks' own "for <counter> = 1 to ... next"
+// constructs would fight over the exact same variable, with the INNER
+// (wait_frames) loop's own final value clobbering the OUTER (repeat) loop's
+// still-in-progress count the moment the wait finishes, corrupting however
+// many iterations the repeat had left. Reserved the same way
+// REPEAT_BOUND_VAR_NAME is (see its own comment just above) - a real,
+// properly-declared dev var, not nameDB_.getDistinctName.
+export const WAIT_FRAMES_COUNTER_VAR_NAME = '_waitFramesCounter';
+
 export default (Blockly) => {
   Blockly.BBasic['controls_repeat_ext'] = function(block) {
   // Repeat n times.
@@ -32,25 +77,44 @@ export default (Blockly) => {
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block);
     let code = '';
-    /*
-    const loopVar = Blockly.BBasic.nameDB_.getDistinctName(
-        'count', Blockly.VARIABLE_CATEGORY_NAME);
-        */
+    // "for X = 1 to <bound>" is a whitespace-sensitive positional
+    // construct, same as "pfpixel X Y OPERATION" (see
+    // background_change_pixel's own comment in generators/bbasic/
+    // background.js) and wait_frames' own identical fix - a multi-token
+    // bound (e.g. a Random block's own "(rand / 4) + 1", which has spaces
+    // in it) breaks it, confirmed directly as a real build failure. A
+    // plain number or bare variable name is already safe to use directly;
+    // anything else needs pre-assigning to REPEAT_BOUND_VAR_NAME first
+    // (see its own comment above for why that, not temp1).
     let endVar = repeats;
     if (!repeats.match(/^\w+$/) && !Blockly.isNumber(repeats)) {
-      endVar = Blockly.BBasic.nameDB_.getDistinctName(
-          'repeat_end', Blockly.VARIABLE_CATEGORY_NAME);
-      code += 'var ' + endVar + ' = ' + repeats + ';\n';
+      endVar = Blockly.BBasic.nameDB_.getName(REPEAT_BOUND_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      code += endVar + ' = ' + repeats + '\n';
     }
 
     if (!branch.trim()) {
-      branch = 'a = a';
+      branch = 'a = a\n';
     }
 
-    branch = branch.replace(/\s*\n\s*/g, ' : ').trim().replace(/\s*:\s*$/g, '');
-    code += 'for loopcounter = 1 to ' + endVar + ': ' +
+    // Kept as real, separate lines (never colon-joined onto one physical
+    // line, as an earlier version of this did) - a loop body containing
+    // ANY block that emits its own label (controls_if's own "@ _if_N_bodyN"
+    // goto targets, chief among them, but also score_set, background fades,
+    // Text Minikernel blocks, etc.) breaks under colon-joining: a label has
+    // to sit at the START of its own line, and squashing it onto the same
+    // line as neighboring statements via " : " produces a stray "@"
+    // mid-statement - a real, reported compile error ("unrecognized
+    // character '@'") from an "if" block nested inside a "repeat" block.
+    // Plain multi-line "for X = 1 to Y" / body / "next" is standard,
+    // already-proven-working batari Basic syntax (same shape
+    // Blockly.BBasic.normalizeIndents() already handles correctly for every
+    // OTHER block's own multi-line, label-bearing output), so there was
+    // never a real need to flatten this to one line in the first place.
+    if (!branch.endsWith('\n')) branch += '\n';
+    const counter = Blockly.BBasic.nameDB_.getName(REPEAT_COUNTER_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    code += 'for ' + counter + ' = 1 to ' + endVar + '\n' +
       branch +
-      ' : next\n';
+      'next\n';
 
     return code;
   };
@@ -69,7 +133,24 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'FRAMES',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), 1);
-    return `for loopcounter = 1 to ${argument0} : gosub commongamelogic${suffix} : drawscreen : next\n`;
+    const counter = Blockly.BBasic.nameDB_.getName(
+        WAIT_FRAMES_COUNTER_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // "for X = 1 to <bound>" is a whitespace-sensitive positional construct,
+    // same as "pfpixel X Y OPERATION" (see background_change_pixel's own
+    // comment in generators/bbasic/background.js) - a multi-token bound
+    // (e.g. a Random block's own "(rand / 4) + 1", which has spaces in it)
+    // breaks it, confirmed directly as a real build failure ("Syntax Error
+    // ''" from a malformed "CMP #(" with nothing after it). Assigning to
+    // temp1 first and using THAT (always a single plain token) as the
+    // bound sidesteps the whitespace-splitting entirely.
+    //
+    // Uses its own dedicated counter (see WAIT_FRAMES_COUNTER_VAR_NAME's own
+    // comment), not the shared "repeatcounter" a "Repeat X times" block's
+    // own "for" loop uses - so a "Wait N frames" block placed inside a
+    // repeat loop's body no longer clobbers the repeat's own in-progress
+    // count.
+    return `temp1 = ${argument0}\n` +
+      `for ${counter} = 1 to temp1 : gosub commongamelogic${suffix} : drawscreen : next\n`;
   };
 
   Blockly.BBasic['controls_whileUntil'] = function(block) {

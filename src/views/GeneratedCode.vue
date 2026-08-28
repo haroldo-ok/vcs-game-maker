@@ -8,18 +8,18 @@
         <v-btn
           icon
           class="generated-code-flat-icon-btn"
-          :title="copyButtonTitle"
-          @click="handleCopyGeneratedCode"
-        >
-          <v-icon>mdi-content-copy</v-icon>
-        </v-btn>
-        <v-btn
-          icon
-          class="generated-code-flat-icon-btn"
           title="Save Generated Code"
           @click="handleSaveGeneratedCode"
         >
           <v-icon>mdi-content-save</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          class="generated-code-flat-icon-btn"
+          :title="copyButtonTitle"
+          @click="handleCopyGeneratedCode"
+        >
+          <v-icon>mdi-content-copy</v-icon>
         </v-btn>
       </div>
       <div class="code-scroll-wrapper">
@@ -386,23 +386,20 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Vuetify's default v-card corner-rounding, combined with the
-     "overflow: hidden" above (needed for the flex column layout itself),
-     clips the search dock's own square white background into the card's
-     rounded shape at the bottom two corners - not fixable from the dock's
-     own side alone (its own border-radius: 0 wasn't enough, since it's the
-     PARENT's rounding doing the clipping) since the dock now sits flush
-     against this card's own edge as a real flex footer, unlike every other
-     tab's own .editor-container, where content never reaches the rounded
-     corners in the first place. */
+  /* App.vue's own global ".editor-container { border-radius: 0 !important }"
+     already squares this off, same as every other tab's main card - kept
+     here too (redundant with that !important rule, but harmless) since the
+     search dock's own matching "border-radius: 0" below is written as if
+     this were 0, and the two are meant to be read together. */
   border-radius: 0;
 }
 
-/* Flush left, own row below the title, above the code itself. */
+/* Flush left, own row below the title, above the code itself. Same "gap"
+   spacing method as Project.vue's own .project-actions. */
 .generated-code-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   padding: 0 16px 2px 8px;
   flex: 0 0 auto;
 }
@@ -439,7 +436,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 4px;
+  gap: 0;
   padding: 6px 16px 6px 8px;
   background: #fff;
   border-top: 1px solid rgba(0, 0, 0, 0.12);
@@ -506,7 +503,16 @@ export default defineComponent({
 .code-scroll {
   display: flex;
   align-items: flex-start;
-  overflow: auto;
+  /* NOT overflow: auto - .code-scroll-wrapper (the actual flex item sized
+     to fill the pane down to the search dock) is the one, sole horizontal
+     scroll owner. This element only ever grows as tall as its own content
+     (align-items: flex-start, no explicit height), so if IT were also a
+     scroll container, its own scrollbar would render right after the last
+     line of code - wherever that happens to land - instead of pinned to
+     the bottom of the visible pane just above the search dock, which is
+     where a user actually expects to find it. Confirmed directly as a real
+     bug this way (the scrollbar existed, but only showed up mid-pane,
+     easy to miss entirely on a short file). */
 }
 
 /* Matches duotone-sea.css's own pre[class*="language-"] font/spacing exactly
@@ -533,7 +539,25 @@ export default defineComponent({
 
 .code-container {
   flex: 1 1 auto;
-  min-width: 0;
+  /* min-width: 0 (flexbox's own "allow shrinking below content size"
+     override) was actively WRONG here, not just unhelpful: it's what a flex
+     item needs when its own overflowing content should be clipped/scrolled
+     INTERNALLY, but this pane's own scrolling happens on an ANCESTOR
+     instead (.code-scroll-wrapper, so .line-numbers-gutter's own
+     "position: sticky; left: 0" - a sibling, not a descendant, of this pane -
+     scrolls in lockstep with the code beside it). With min-width: 0, this
+     flex item was letting itself (and the <pre> inside it) shrink down to
+     fit the viewport no matter how long the widest generated line actually
+     was, so .code-scroll-wrapper's own overflow: auto never had any real
+     overflow to scroll - confirmed directly as the reported bug (long lines
+     just never triggered a horizontal scrollbar at all). min-width:
+     max-content is the standard fix for exactly this flexbox gotcha: still
+     grows to fill available width for the common case (an ordinary, narrow
+     line), but refuses to shrink below the widest line's own natural
+     (unwrapped, thanks to the theme's "white-space: pre") width once that
+     exceeds the viewport, which is what actually makes .code-scroll-wrapper
+     overflow and show its own scrollbar. */
+  min-width: max-content;
 }
 
 </style>

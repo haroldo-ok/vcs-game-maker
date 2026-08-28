@@ -294,7 +294,7 @@ const buildSongOptions = () => {
 Blockly.Blocks['music_play_song'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${MUSIC_ICON} Play song:`)
+        .appendField(`${MUSIC_ICON} Play song`)
         .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG')
         .appendField('Loop')
         .appendField(new Blockly.FieldCheckbox('TRUE'), 'LOOP');
@@ -317,7 +317,7 @@ Blockly.Blocks['music_play_song'] = {
 Blockly.Blocks['music_play_song_by_id'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${MUSIC_ICON} Play song:`);
+        .appendField(`${MUSIC_ICON} Play song`);
     this.appendValueInput('SONG_ID');
     this.appendDummyInput()
         .appendField('Loop')
@@ -415,7 +415,7 @@ Blockly.Blocks['music_song_stopped'] = {
 Blockly.Blocks['music_song_stopped_by_id'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing:`)
+        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing`)
         .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG');
     this.appendStatementInput('DO');
     this.setPreviousStatement(true);
@@ -438,7 +438,7 @@ Blockly.Blocks['music_song_stopped_by_id'] = {
 Blockly.Blocks['music_song_stopped_by_number'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing:`);
+        .appendField(`${MUSIC_ICON} ${STOP_ICON} When song has stopped playing`);
     this.appendValueInput('SONG_ID');
     this.appendStatementInput('DO');
     this.setInputsInline(true);
@@ -550,7 +550,7 @@ Blockly.Blocks['music_sequence_chip_finished_current_song'] = {
 Blockly.Blocks['music_note_played'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${MUSIC_ICON} When a note is played by instrument:`)
+        .appendField(`${MUSIC_ICON} When a note is played by instrument`)
         .appendField(new Blockly.FieldDropdown(buildSoundEffectOptions), 'INSTRUMENT');
     this.appendStatementInput('DO');
     this.setPreviousStatement(true);

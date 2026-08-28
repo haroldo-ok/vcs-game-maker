@@ -57,4 +57,24 @@ export default defineComponent({
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* Matches PixelGridToggle.vue's own icon button - v-btn only shows
+   "cursor: pointer" while enabled, so a zoomed-all-the-way-in/out button
+   (canZoomIn/canZoomOut false) still correctly falls back to the default
+   cursor instead of a misleading hand on a button that can't be clicked.
+   "!important" because Vuetify's own .v-btn rules (loaded after this
+   component's scoped style in the final bundle) set their own "cursor"
+   value with matching or higher specificity otherwise - same reasoning
+   every other Vuetify-button-state override in this app already needs it
+   for (see e.g. Project.vue's own flat-icon-btn color states).
+   Also targets the v-icon glyph explicitly, not just the button itself -
+   the icon fills almost the entire clickable area, so it's what the
+   mouse is actually over for most of the hover; "cursor" is inherited by
+   default, but the MDI icon font's own base rules were still winning
+   there specifically, leaving the arrow cursor showing even with the
+   button's own cursor already fixed above. */
+.editor-zoom >>> .v-btn:not(.v-btn--disabled),
+.editor-zoom >>> .v-btn:not(.v-btn--disabled) .v-icon {
+  cursor: pointer !important;
+}
 </style>

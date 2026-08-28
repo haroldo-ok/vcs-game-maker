@@ -32,6 +32,82 @@ Blockly.Blocks['math_number'] = {
   },
 };
 
+// Override the built-in arithmetic block to add batari Basic's own real
+// bitwise operators (AND/OR/XOR - "&"/"|"/"^", confirmed against the real
+// command reference) alongside the stock +/-/×/÷/^ options. Hand-written
+// JSON (matching Blockly's own stock math_arithmetic definition, just with
+// three extra OPERATOR options and plain ASCII symbols instead of the
+// stock block's %{BKY_...} localized ones - this app has no localization
+// elsewhere either) rather than patching the registered block after the
+// fact, so the extra options show up from the very first time this block
+// is used, not just after some other code path happens to touch it.
+// "math_op_tooltip" is the SAME extension the stock block already uses
+// (see node_modules/blockly/blocks/math.js) - it reads
+// Blockly.Constants.Math.TOOLTIPS_BY_OP for each OP value's own tooltip,
+// so the three new ops get their own entries added to that same shared
+// map below, rather than needing a whole new extension.
+Blockly.Blocks['math_arithmetic'] = {
+  init: function() {
+    this.jsonInit({
+      'message0': '%1 %2 %3',
+      'args0': [
+        {
+          'type': 'input_value',
+          'name': 'A',
+          'check': 'Number',
+        },
+        {
+          'type': 'field_dropdown',
+          'name': 'OP',
+          'options': [
+            ['+', 'ADD'],
+            ['-', 'MINUS'],
+            ['×', 'MULTIPLY'],
+            ['÷', 'DIVIDE'],
+            ['^', 'POWER'],
+            ['&', 'BITAND'],
+            ['|', 'BITOR'],
+            ['⊕', 'BITXOR'],
+            ['%', 'MODULO'],
+          ],
+        },
+        {
+          'type': 'input_value',
+          'name': 'B',
+          'check': 'Number',
+        },
+      ],
+      'inputsInline': true,
+      'output': 'Number',
+      'style': 'math_blocks',
+      'extensions': ['math_op_tooltip'],
+    });
+  },
+};
+
+// Real Blockly.Msg entries (referenced below via the same "%{BKY_...}"
+// syntax every OTHER entry in this shared lookup table already uses) -
+// NOT plain literal strings: Blockly.Extensions.buildTooltipForDropdown
+// (the "math_op_tooltip" extension both this block and the stock one use)
+// runs every value in this table through Blockly.utils.checkMessageReferences,
+// which does "message.match(/%{BKY_...}/ig).length" with no null guard -
+// String.prototype.match() returns null (not an empty array) when nothing
+// matches, so a plain literal tooltip with no "%{BKY_...}" in it crashed
+// the whole app on load ("Cannot read properties of null (reading
+// 'length')"), confirmed as a real, reproducible bug this way.
+Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_BITAND'] =
+  'Bitwise AND: each bit of the result is 1 only where BOTH numbers have a 1 bit.';
+Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_BITOR'] =
+  'Bitwise OR: each bit of the result is 1 where EITHER number has a 1 bit.';
+Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_BITXOR'] =
+  'Bitwise XOR: each bit of the result is 1 where the two numbers\' bits DIFFER.';
+Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_MODULO'] =
+  'Modulo: the remainder left over after dividing the first number by the second.';
+Blockly.Constants.Math.TOOLTIPS_BY_OP['BITAND'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITAND}';
+Blockly.Constants.Math.TOOLTIPS_BY_OP['BITOR'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITOR}';
+Blockly.Constants.Math.TOOLTIPS_BY_OP['BITXOR'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITXOR}';
+Blockly.Constants.Math.TOOLTIPS_BY_OP['MODULO'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_MODULO}';
+
 // Real, working absolute value: a statement (not a nested expression) since
 // making a negative unsigned byte (its top bit set, i.e. 128-255 in two's
 // complement) positive requires a branch - bBasic has no ternary or inline

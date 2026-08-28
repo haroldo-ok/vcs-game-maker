@@ -42,7 +42,13 @@ export default (Blockly) => {
     const seed = Blockly.BBasic.valueToCode(block, 'SEED', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
+    // Computed into temp1 first, rather than "rand = (seed) & 255" directly -
+    // defensive against however complex a plugged-in SEED expression gets,
+    // keeping the actual "rand = ..." (and "rand16 = ...") lines themselves
+    // always trivially simple.
     const clampedSeed = `(${seed}) & 255`;
-    return `rand = ${clampedSeed}\n` + (config.enableRand16 ? `rand16 = ${clampedSeed} ^ 255\n` : '');
+    return `temp1 = ${clampedSeed}\n` +
+      `rand = temp1\n` +
+      (config.enableRand16 ? `rand16 = temp1 ^ 255\n` : '');
   };
 };

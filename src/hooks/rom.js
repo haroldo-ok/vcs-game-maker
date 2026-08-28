@@ -7,7 +7,7 @@ import Blockly from 'blockly';
 import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from './bb-compiler';
 
 import '../blocks';
-import BlocklyBB, {RELOCATABLE_EVENT_NAMES} from '../generators/bbasic';
+import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
 import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../generators/bbasic/text-minikernel-files';
 import {processBackgroundStorageDefaults} from '../blocks/background';
@@ -18,13 +18,14 @@ import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from './project';
-import {getRelocationBanks, resetRelocationBanks, setRelocationBank} from './relocation-banks';
-import {markRomUpToDate, markRomOutdated, useRomOutdated} from './rom-status';
+import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
+  recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
+import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom} from './rom-status';
 import {setRomCapacity, useRomCapacity} from './rom-capacity';
 
 Vue.use(VueCompositionApi);
 
-export {markRomOutdated, useRomOutdated, useRomCapacity};
+export {markRomOutdated, useRomOutdated, useRomCapacity, useHasCompiledRom};
 
 const EMPTY_WORKSPACE = '<xml xmlns="https://developers.google.com/blockly/xml"/>';
 
@@ -95,11 +96,51 @@ const withHeadlessWorkspace = (callback) => {
 // time; a graphics edit alone would otherwise leave the cached code stale.
 const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.workspaceToCode(workspace));
 
-// How many user-created variables the current project actually uses - needed
-// to check whether disabling Superchip RAM would leave too few letters free
-// for them (see Configuration.vue).
+// How many letter-pool slots the current project would actually need if
+// Superchip RAM were off - used by Configuration.vue to check whether
+// disabling it would leave too few letters free. Deliberately NOT just
+// Blockly.Variables.allUsedVarModels(workspace).length (pure user-created
+// variables) - with Superchip on, every app-internal dev var (missile fire's
+// own fired-direction/speed, seek's own target/throttle state, background
+// fade timers, etc. - see generators/bbasic.js's own routeDevVar) is ALSO
+// routed through the very same 26-letter pool the instant Superchip goes
+// off, competing with user variables for the exact same slots. Counting only
+// user variables against the FULL letter pool undercounted real pressure
+// whenever a project leaned on dev-var-heavy features but few explicit
+// variables - letting "disable Superchip" through here even though the real
+// build (bbasic.js's own "Too many variables" throw) would then fail. A real
+// headless compile (same as regenerateCode above) is run so
+// letterVarsUsed/superchipVarsUsed reflect this exact project's actual
+// dev-var + user-var total (see bbasic.js's own routeDevVar/init() comments
+// on how those two fields get set) - their SUM is exactly what would need to
+// fit in the letter pool alone once Superchip stops splitting that load with
+// the Superchip var pool.
 export const countUsedVariables = () =>
-  withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
+  withHeadlessWorkspace((workspace) => {
+    BlocklyBB.workspaceToCode(workspace);
+    return (BlocklyBB.letterVarsUsed || 0) + (BlocklyBB.superchipVarsUsed || 0);
+  });
+
+// Whether the project needs "playercolors" (player0's own per-row sprite
+// color kernel option) - either a real sprite_player0_rainbow_colors block
+// on the canvas, or the standing "Enable per-row Player 0 sprite colors"
+// toggle (see useSpriteColorsFor in generators/bbasic.js) - needed by
+// Configuration.vue to force "Show blank lines" AND the Player 1 sprite
+// colors toggle back on (disabling both) whenever either is active. See
+// generators/bbasic.js's effectiveShowBlankLines for the "Show blank lines"
+// half of that: batari Basic's own kernel_options combination table never
+// pairs "playercolors" with "no_blank_lines" in any valid row, confirmed by
+// a real "Invalid combination of options" build failure when both were
+// emitted together - and generateConfiguration's own comment for the
+// "player1colors" half: playercolors is never valid without it either.
+export const usesPlayer0RainbowColors = () => {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  if (config.enablePlayer0SpriteColors) return true;
+  return withHeadlessWorkspace((workspace) =>
+    workspace.getAllBlocks(false).some((block) =>
+      block.type === 'sprite_player0_rainbow_colors' && block.isEnabled()));
+};
 
 
 // The compiler hardcodes the pfcolors table pointer as "pfcolorlabelN-84",
@@ -130,7 +171,28 @@ const patchSuperchipPfColorsPointer = ({mainAsm, workDir}, config) => {
 // surfacing it as an unrelocatable error immediately. Anything else is a
 // genuine problem in the user's own project that auto-relocating an event
 // would only obscure, so it's surfaced immediately instead.
-const isOverflowError = (e) => /segment overflow|origin reverse-indexed/i.test((e && e.message) || '');
+//
+// A THIRD overflow shape, confirmed directly against a real build (Superchip
+// RAM + a pfres above the standard 12 + a bankswitched ROM size above 8k -
+// none of those three alone reproduces it, only all three together):
+// bank 1 overflowing its RORG'd segment in a way DASM doesn't report as a
+// clean "segment overflow" at all - instead its own two-pass symbol
+// resolution desyncs, and it cascades into "Unknown Mnemonic" errors on
+// dozens of unrelated lines throughout the rest of the file, none of which
+// the user's own project touches (stock runtime labels like the bankswitch
+// trampoline itself, or the score digit table). The one consistent, safe-
+// to-match signature across every reproduction of this: DASM can no longer
+// resolve "BS_jsr"/"BS_return", the bankswitch call/return trampoline's own
+// labels - a user's own project can never reference those directly (they're
+// pure DASM-internal symbols emitted by the "gosub"/"return" macros), so
+// this is unambiguous evidence of the same "bank 1 doesn't fit" condition
+// as a plain segment overflow, just reported unrecognizably. Whichever unit
+// the retry loop picks to relocate next also shrinks bank 1 by the same
+// amount either way, so no separate handling is needed once caught here -
+// it just needs to be recognized as "try relocating" instead of surfacing
+// the cascade directly.
+const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown Mnemonic 'jmp BS_(jsr|return)'/i
+    .test((e && e.message) || '');
 
 // How many physical banks each bankswitched ROM size actually provides
 // (2k/4k don't bankswitch at all, so they're absent - overflowing there just
@@ -140,7 +202,7 @@ const isOverflowError = (e) => /segment overflow|origin reverse-indexed/i.test((
 // bank, and cross-bank calls work identically regardless of which bank
 // number is used (confirmed for bank 2 directly against the compiler and
 // the emulator - see the bank-targeting feasibility notes).
-export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8};
+export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
 
 // Graphics unit keys (see wrapRelocatableGraphics in generators/bbasic.js)
 // are generated, code-facing identifiers ("background3", "player0default",
@@ -215,10 +277,48 @@ const resolveMusicSongLabels = () => {
 // anything itself. superchip.available is 0 (not the full 29-slot budget)
 // when Superchip RAM is off, matching how routeDevVar itself never touches
 // that pool in that case either.
-const computeVariableUsage = () => ({
-  letters: {used: BlocklyBB.letterVarsUsed || 0, available: BlocklyBB.letterVarsAvailable || 0},
-  superchip: {used: BlocklyBB.superchipVarsUsed || 0, available: BlocklyBB.superchipVarsAvailable || 0},
-});
+const computeVariableUsage = () => {
+  const config = useConfigurationStorage().value || {};
+  // The 12 SYSTEM_VARIABLES (player0frame, framecounter, etc. - see their own
+  // comment in generators/bbasic.js) are always dimmed, but land on a
+  // DIFFERENT pool depending on Superchip: real letters when it's off, or
+  // var0-var11 (a fixed region OUTSIDE letterVarsAvailable/
+  // superchipVarsAvailable's own 26-letter/32-slot totals, which only ever
+  // described the competitive dev/user pool) when it's on. "Total Variables"
+  // is meant to read as everything actually reserved out of whichever pool
+  // it really lives in, so this folds systemVarCount into whichever side
+  // System reserved is ACTUALLY occupying this build, rather than leaving it
+  // out of both (the previous, confusing behavior this replaces).
+  const systemVarCount = SYSTEM_VARIABLES.length;
+  return {
+    letters: {
+      used: (BlocklyBB.letterVarsUsed || 0) + (config.enableSuperchip ? 0 : systemVarCount),
+      available: BlocklyBB.letterVarsAvailable || 0,
+    },
+    superchip: {
+      used: (BlocklyBB.superchipVarsUsed || 0) + (config.enableSuperchip ? systemVarCount : 0),
+      available: config.enableSuperchip ? (BlocklyBB.superchipVarsAvailable || 0) + systemVarCount : 0,
+    },
+    // System variables (player0frame, newbackground, etc. - see
+    // SYSTEM_VARIABLES' own comment in generators/bbasic.js) are a SEPARATE,
+    // always-unconditional set of "dim" lines - never routed through
+    // routeDevVar/letterVarAssignments/superchipVarAssignments at all, since
+    // they're not part of that competitive pool (every one of them exists on
+    // every build, dev/user var count or not). Computed directly here, the
+    // same "var${i}"-with-Superchip/literal-letter-otherwise rule
+    // generateSystemDims itself uses, rather than threading a third array
+    // through BlocklyBB, since it needs nothing from an actual compile -
+    // just the current Superchip toggle.
+    systemAssignments: SYSTEM_VARIABLES.map(([name, letter], i) =>
+      ({name, slot: config.enableSuperchip ? `var${i}` : letter})),
+    // Per-slot breakdown for the dynamic dev/user var pool (see bbasic.js's
+    // own letterVarAssignments/superchipVarAssignments comment) - which
+    // actual name landed on which letter/var slot, for the ROM capacity
+    // display's own expandable list.
+    letterAssignments: BlocklyBB.letterVarAssignments || [],
+    superchipAssignments: BlocklyBB.superchipVarAssignments || [],
+  };
+};
 
 // Every graphics/event/music/subroutine unit's own current bank, grouped by
 // bank instead of by unit (the shape getRelocationBanks/pickRelocationCandidate
@@ -412,12 +512,32 @@ const musicReservedBank = (maxBanks, textMinikernelActive) => {
 // reserved music bank, if any) - kept as a separate param rather than
 // folded into one exclusion set since excludeBank alone is the common case
 // every other caller uses.
-const pickNextBank = (banks, maxBanks, textMinikernelActive, excludeBank, extraExcluded) => {
+// excludeBanks is a HARD exclusion - always the reserved music bank (never
+// a valid target for non-music content at all) and, from the stuckBank
+// fallback's own call site, every bank already tried for THIS unit
+// (including its own current bank - moving a unit to the bank it's already
+// in is a pure no-op that still counts as an attempt). A SOFT version of
+// this (a large penalty added to an already-tried bank's tally instead of
+// excluding it outright) was tried and reverted here: it fixed the
+// "permanently out of options" dead-end below by letting a previously-tried
+// bank stay pickable as a last resort, but introduced a different, equally
+// real bug - once two or more banks were EQUALLY penalized, the tie-break
+// (still just "fewest current occupants") could alternate a unit back and
+// forth between exactly two of them forever, each move flipping which one
+// currently has fewer occupants - confirmed directly on a real project (one
+// event alternating between the same two banks, ~19 times, zero net
+// progress). Hard exclusion doesn't have that failure mode (a bank, once
+// tried, is simply never offered again), so the "ran out of every bank"
+// case is instead handled at the stuckBank fallback's own call site by
+// clearing that one unit's own tried-set and giving it a fresh attempt,
+// rather than by softening the exclusion here.
+const pickNextBank = (banks, maxBanks, textMinikernelActive, excludeBanks) => {
   const highestBank = textMinikernelActive ? maxBanks - 1 : maxBanks;
   if (highestBank < 2) return null;
   const counts = {};
   for (let bank = 2; bank <= highestBank; bank++) {
-    if (bank !== excludeBank && !(extraExcluded && extraExcluded.has(bank))) counts[bank] = 0;
+    if (excludeBanks && excludeBanks.has(bank)) continue;
+    counts[bank] = 0;
   }
   if (!Object.keys(counts).length) return null;
   const tally = (unitBanks) => Object.values(unitBanks || {}).forEach((bank) => {
@@ -476,13 +596,21 @@ export const buildRom = async () => {
   // Every relocatable unit (events, graphics, music, subroutines - see
   // hooks/relocation-banks.js) starts this build fresh, back at bank 1,
   // rather than carrying over wherever a PREVIOUS build happened to leave
-  // it. Bank assignments deliberately aren't persisted across builds at
-  // all (see relocation-banks.js's own comment for why) - a relocation
-  // decision is cheap enough to remake from scratch every time that there's
-  // no real cost, only the upside of every build reflecting exactly the
-  // project as it stands right now.
+  // it. Bank assignments aren't PERSISTED across builds (see relocation-
+  // banks.js's own comment for why that was tried and reverted), but the
+  // last SUCCESSFUL build's own layout is kept in memory for this session as
+  // a first-attempt hint (seedRelocationBanksFromLastSuccess, below) -
+  // abandoned immediately, via the exact same resetRelocationBanks() this
+  // always called, the moment that first attempt doesn't compile clean (see
+  // the catch block below), so every attempt from #2 onward behaves
+  // identically to how this has always worked.
   resetRelocationBanks();
+  const seededFromLastSuccess = seedRelocationBanksFromLastSuccess(
+      (configurationStorage.value || {}).romSize);
   clearCompileLog();
+  if (seededFromLastSuccess) {
+    appendCompileLog('Trying the last successful bank layout first...', 'stage');
+  }
   const buildStartedAt = performance.now();
 
   // An earlier version of this also relocated graphics out of bank 1
@@ -542,7 +670,8 @@ export const buildRom = async () => {
         if (!candidate) break;
         const bank = candidate.kind === 'musicBanks' && reservedMusicBank ?
           reservedMusicBank :
-          pickNextBank(banks, proactiveMaxBanks, textMinikernelActive, reservedMusicBank);
+          pickNextBank(banks, proactiveMaxBanks, textMinikernelActive,
+              reservedMusicBank ? new Set([reservedMusicBank]) : null);
         if (!bank) break;
         setRelocationBank(candidate.kind, candidate.name, bank);
         appendCompileLog(
@@ -559,6 +688,21 @@ export const buildRom = async () => {
   }
 
   for (let attempt = 0; attempt <= MAX_RELOCATION_ATTEMPTS; attempt++) {
+    // Every stage below is a synchronous, CPU-bound WASM run (see
+    // bb-compiler.js's runWasi - wasi.start blocks until the module exits),
+    // chained together with awaits on already-resolved/microtask promises -
+    // none of which are real macrotasks, so the browser never gets a chance
+    // to repaint or process input between them. A project that needs many
+    // relocation attempts to converge (see MAX_RELOCATION_ATTEMPTS's own
+    // comment) used to run all of them back-to-back with zero yields at
+    // all, appearing as a total tab freeze for however long that took - up
+    // to roughly a minute for the full 64-attempt budget, confirmed
+    // directly (see the post-loop fallback's own comment below). A single
+    // setTimeout(0) forces a real macrotask boundary here, letting the
+    // compile log's own live updates actually paint and the tab stay
+    // responsive between attempts, without changing anything about the
+    // relocation logic itself.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     appendCompileLog(attempt === 0 ? 'Generating bBasic code...' :
       `Attempt ${attempt + 1}: generating bBasic code...`, 'stage');
     let code;
@@ -642,12 +786,26 @@ export const buildRom = async () => {
         {...capacity, romSize: config.romSize, bankContents: maxBanks ? computeBankContents(maxBanks) : undefined,
           variableUsage: computeVariableUsage()} :
         capacity);
+      // Remembers THIS build's own final layout as the next build's own
+      // first-attempt hint (see seedRelocationBanksFromLastSuccess's own
+      // comment in relocation-banks.js) - recorded on every success, not
+      // just ones that needed relocation at all, so a project that fits in
+      // bank 1 alone keeps skipping straight to a real compile too (an empty
+      // banks object is itself a perfectly valid, useful "hint").
+      recordSuccessfulRelocationBanks(config.romSize);
       appendCompileLog('Build succeeded.', 'stage');
       appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
       return true;
     } catch (e) {
       lastCode = code;
       lastFailure = e;
+      // The seeded first attempt (see seedRelocationBanksFromLastSuccess
+      // above) didn't pan out - abandon it completely rather than patching
+      // further on top of it, so every attempt from here on behaves
+      // identically to how this retry loop has always worked (see this
+      // block's own git history/comments below), starting from true
+      // scratch exactly like a never-seeded build's own first failure would.
+      if (attempt === 0 && seededFromLastSuccess) resetRelocationBanks();
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
       if (isOverflowError(e) && maxBanks) {
         // Diagnostic-only for now (see bb-compiler.js's own comment on
@@ -684,7 +842,8 @@ export const buildRom = async () => {
         let bank = candidate && (
           candidate.kind === 'musicBanks' && reservedMusicBank ?
             reservedMusicBank :
-            pickNextBank(banks, maxBanks, textMinikernelActive, reservedMusicBank));
+            pickNextBank(banks, maxBanks, textMinikernelActive,
+                reservedMusicBank ? new Set([reservedMusicBank]) : null));
 
         // Fallback for when nothing is left in bank 1 to relocate, but some
         // OTHER bank turns out to be too full too - the one case
@@ -788,7 +947,31 @@ export const buildRom = async () => {
               // bank 1's own "still there" candidates run out (which happens
               // within the first few attempts), nearly every relocation for
               // the rest of the build goes through this exact fallback path.
-              const nextBank = pickNextBank(banks, maxBanks, textMinikernelActive, reservedMusicBank, triedBanks);
+              // Every bank already tried for THIS unit (triedBanks, which
+              // already includes stuckBank - added a few lines above) is a
+              // HARD exclusion, not a soft penalty - see pickNextBank's own
+              // comment for why a softer version of this (letting a
+              // previously-tried bank stay pickable, just deprioritized)
+              // caused a different real bug, a unit oscillating forever
+              // between the same two equally-penalized banks.
+              const excludeBanks = new Set([reservedMusicBank, ...triedBanks].filter(Boolean));
+              let nextBank = pickNextBank(banks, maxBanks, textMinikernelActive, excludeBanks);
+              // Every available bank has now been tried for this ONE unit
+              // (not the whole build - see the outer stuckBank exhaustion
+              // check above, a separate case) - rather than give up on it
+              // for the rest of the build the way a permanent hard exclusion
+              // would, its own tried-set is reset here and it gets one more
+              // fresh attempt (still never straight back to stuckBank
+              // itself, the one place a move is guaranteed to be a no-op).
+              // A bank that didn't fit this unit alongside 40 attempts' worth
+              // of OTHER since-moved content may well fit it now that
+              // everything around it has changed.
+              if (!nextBank) {
+                triedBanks.clear();
+                triedBanks.add(stuckBank);
+                nextBank = pickNextBank(banks, maxBanks, textMinikernelActive,
+                    new Set([reservedMusicBank, stuckBank].filter(Boolean)));
+              }
               if (nextBank) {
                 candidate = {kind: next.kind, name: next.name};
                 bank = nextBank;

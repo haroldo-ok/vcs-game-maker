@@ -39,5 +39,18 @@ export const useCollapsedIds = (name) => {
     };
     localStorage.setItem(keyOf(name), JSON.stringify(stored.value));
   };
-  return {isCollapsed, toggleCollapsed};
+  // For a freshly created entry - ids are reassigned starting from
+  // (current max id) + 1 (see e.g. TextEditor.vue's own handleAddEntry), so
+  // deleting the highest-numbered card and adding a new one reuses that same
+  // id. Without this, a brand new card silently inherited whatever collapsed
+  // state that old, deleted id happened to have in localStorage - a real
+  // reported bug ("new text cards should start open").
+  const ensureExpanded = (entry) => {
+    if (!stored.value[entry.id]) return;
+    const next = {...stored.value};
+    delete next[entry.id];
+    stored.value = next;
+    localStorage.setItem(keyOf(name), JSON.stringify(stored.value));
+  };
+  return {isCollapsed, toggleCollapsed, ensureExpanded};
 };

@@ -69,9 +69,24 @@ export default (Blockly) => {
     const frameDelta = block.getFieldValue('DELTA');
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
 
+    // "- 1" compensates for commongamelogic's own "framecounter =
+    // framecounter + 1" (see bbasic.bb.hbs), which always runs before any
+    // event body (and so before this check) gets a chance to run each
+    // frame - without it, the very first frame this block's own event body
+    // ever executes already sees framecounter = 1, not 0, so "every N
+    // frames" never actually fires on that first frame, only starting once
+    // framecounter reaches a full interval later. Confirmed as a real
+    // reported bug ("should trigger immediately and then wait to repeat").
+    // Safe against framecounter's own eventual wraparound (255 -> 0, a
+    // real free-running byte): "framecounter - 1" wraps to 255 exactly the
+    // same way the 6502's own unsigned subtraction does, and since every
+    // MASK option here is 2^n-1 (interval a power of two dividing 256
+    // evenly - see FRAME_OPTIONS in blocks/event.js), the resulting
+    // periodicity is identical regardless of which representative of
+    // framecounter this lands on.
     return '\n' +
     [
-      `temp1 = (framecounter + ${frameDelta}) & ${frameMask}`,
+      `temp1 = (framecounter - 1 + ${frameDelta}) & ${frameMask}`,
       `if temp1 then goto ${labelEnd}`,
       code,
       `@ ${labelEnd}`,
