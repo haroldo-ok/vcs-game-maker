@@ -31,6 +31,26 @@
                   <v-btn
                     icon
                     small
+                    title="Undo"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    :disabled="!canUndoTable(table)"
+                    @click="() => handleUndoTable(table)"
+                  >
+                    <v-icon>mdi-undo</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Redo"
+                    class="data-flat-icon-btn data-icon-btn-size"
+                    :disabled="!canRedoTable(table)"
+                    @click="() => handleRedoTable(table)"
+                  >
+                    <v-icon>mdi-redo</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
                     title="Duplicate this table"
                     class="data-flat-icon-btn data-icon-btn-size"
                     @click="() => handleDuplicateTable(table)"
@@ -264,7 +284,7 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, ref, watch} from '@vue/composition-api';
 import {max} from 'lodash';
 import {saveAs} from 'file-saver';
 
@@ -406,6 +426,93 @@ export default defineComponent({
     };
 
     const {isCollapsed, toggleCollapsed} = useCollapsedIds('data');
+
+    // Undo/redo for a whole table's own content (name/columns/values/
+    // valueFormats - everything but its id), one stack pair per table id -
+    // same shape as MusicEditor.vue's own pattern undo/redo
+    // (patternUndoStacks/patternRedoStacks/patternLastSnapshot), scoped to a
+    // whole table here (rather than just a few fiddly-to-drag fields, the
+    // way SoundFXEditor.vue's own envelope undo/redo narrows to just
+    // Attack/Decay/Sustain/Release) since every field on a table - a typo'd
+    // name, an accidental Columns change, a batch CSV import gone wrong - is
+    // equally easy to want to step back from here.
+    const DATA_HISTORY_KEYS = ['name', 'columns', 'values', 'valueFormats'];
+    const snapshotTable = (table) => JSON.stringify(
+        DATA_HISTORY_KEYS.reduce((acc, key) => {
+          acc[key] = table[key]; return acc;
+        }, {}));
+    const tableUndoStacks = ref({});
+    const tableRedoStacks = ref({});
+    const tableLastSnapshot = {};
+    // Seeded once, synchronously, for every table already on disk when this
+    // component mounts - same reasoning as MusicEditor.vue's own identical
+    // seeding loop: without this, the reactive watcher below (which only
+    // ever fires AFTER a mutation has already happened) would have no true
+    // pre-edit baseline to offer the very first edit's own Undo.
+    state.value.dataTables.forEach((table) => {
+      tableLastSnapshot[table.id] = snapshotTable(table);
+    });
+    // Debounced (not one push per keystroke) - typing a table name or
+    // repeatedly toggling a value's format fires this watcher many times in
+    // a row, and coalescing those into one undo step per PAUSE in editing
+    // (not one per underlying mutation) matches how a typical undo history
+    // actually reads to a user - same 500ms debounce MusicEditor.vue/
+    // SoundFXEditor.vue's own history watchers already use.
+    let tableHistoryDebounce = null;
+    watch(() => state.value.dataTables, () => {
+      clearTimeout(tableHistoryDebounce);
+      tableHistoryDebounce = setTimeout(() => {
+        state.value.dataTables.forEach((table) => {
+          const snapshot = snapshotTable(table);
+          const last = tableLastSnapshot[table.id];
+          if (last !== undefined && last !== snapshot) {
+            const stack = tableUndoStacks.value[table.id] || [];
+            tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: [...stack, last]};
+            // A fresh edit invalidates whatever redo history existed from an
+            // earlier undo - same convention as any standard undo/redo stack.
+            if ((tableRedoStacks.value[table.id] || []).length) {
+              tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: []};
+            }
+          }
+          tableLastSnapshot[table.id] = snapshot;
+        });
+      }, 500);
+    }, {deep: true});
+
+    const applyTableSnapshot = (table, snapshotJson) => {
+      const data = JSON.parse(snapshotJson);
+      table.name = data.name;
+      // $set for columns/valueFormats - same reason as handleColumnsInput's
+      // own comment above: a table snapshotted before either field existed
+      // can't pick up a brand new property through a plain assignment, Vue 2
+      // never notices it.
+      instance.proxy.$set(table, 'columns', data.columns);
+      table.values = data.values;
+      instance.proxy.$set(table, 'valueFormats', data.valueFormats);
+      // Written directly (not through the watcher above) so restoring a
+      // snapshot is never itself mistaken for a new edit worth recording.
+      tableLastSnapshot[table.id] = snapshotJson;
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const canUndoTable = (table) => (tableUndoStacks.value[table.id] || []).length > 0;
+    const canRedoTable = (table) => (tableRedoStacks.value[table.id] || []).length > 0;
+    const handleUndoTable = (table) => {
+      const stack = tableUndoStacks.value[table.id] || [];
+      if (!stack.length) return;
+      const redoStack = tableRedoStacks.value[table.id] || [];
+      tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: [...redoStack, snapshotTable(table)]};
+      tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: stack.slice(0, -1)};
+      applyTableSnapshot(table, stack[stack.length - 1]);
+    };
+    const handleRedoTable = (table) => {
+      const stack = tableRedoStacks.value[table.id] || [];
+      if (!stack.length) return;
+      const undoStack = tableUndoStacks.value[table.id] || [];
+      tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: [...undoStack, snapshotTable(table)]};
+      tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: stack.slice(0, -1)};
+      applyTableSnapshot(table, stack[stack.length - 1]);
+    };
 
     // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
     // SoundFXEditor.vue/MusicEditor.vue's own uses of this same hook) -
@@ -902,6 +1009,7 @@ export default defineComponent({
       handleExportCsv, handleImportCsv,
       tableColumns, handleColumnsInput, handleColumnsChange,
       isCollapsed, toggleCollapsed,
+      canUndoTable, canRedoTable, handleUndoTable, handleRedoTable,
       maxValues: MAX_DATA_TABLE_VALUES,
       DATA_VALUE_CELL_MIN_PX,
       DATA_VALUES_EXTRA_SLACK_PX,

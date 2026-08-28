@@ -428,7 +428,7 @@ export default defineComponent({
       const maxId = max(backgrounds.map((o) => o.id)) || 0;
       const newBackground = {
         id: maxId + 1,
-        name: `Background ${maxId + 1}`,
+        name: 'Background',
         pixels: buildDefaultBackgroundPixels(backgroundRows.value),
       };
 

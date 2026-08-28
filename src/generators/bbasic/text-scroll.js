@@ -18,7 +18,7 @@ import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDispl
 // scroll - see buildTextScrollSetupLines' own comment for why every "Show
 // text" call always writes all of these, even for a message that fits
 // without scrolling.
-export const textScrollBaseVarName = () => '_textScrollBase';
+export const textScrollBaseVarName = () => '_textScrollStart';
 // The message's own far-end TextIndex bound (base + its own max scroll
 // offset), NOT a relative distance - deliberately absolute so
 // generateTextScrollAdvance below can compare it directly against
@@ -36,7 +36,7 @@ export const textScrollBaseVarName = () => '_textScrollBase';
 // this var" / "TextIndex <> base" - the same single comparison as before,
 // just against a variable instead of a literal 0. Net: one whole dev var
 // gone, no per-frame cost added (if anything, slightly less).
-export const textScrollFarEndVarName = () => '_textScrollFarEnd';
+export const textScrollFarEndVarName = () => '_textScrollEnd';
 export const textScrollTimerVarName = () => '_textScrollTimer';
 export const textScrollSpeedVarName = () => '_textScrollSpeed';
 // The "pause at limits" DURATION, in frames - how long to hold at each end

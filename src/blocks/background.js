@@ -242,7 +242,7 @@ export const DEFAULT_BACKGROUNDS = {
   backgrounds: [
     {
       id: 1,
-      name: 'Test 1',
+      name: 'Background',
       pixels: playfieldToMatrix(
           'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
         'X..............................X\n' +
