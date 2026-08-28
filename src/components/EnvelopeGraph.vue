@@ -1,14 +1,14 @@
 <template>
   <div class="envelope-graph-wrapper">
-    <div class="envelope-graph-scale">
-      <span
-        v-for="tick in scaleTicks"
-        v-bind:key="tick"
-        class="envelope-graph-scale-tick"
-        :style="{top: (100 - tick) + '%'}"
-      >{{ tick }}</span>
-    </div>
     <div class="envelope-graph" ref="container">
+      <div class="envelope-graph-scale">
+        <span
+          v-for="tick in scaleTicks"
+          v-bind:key="tick"
+          class="envelope-graph-scale-tick"
+          :style="{top: (100 - tick) + '%'}"
+        >{{ tick }}</span>
+      </div>
       <!-- Exactly two kinds of vertical line: one at each user-editable
            dot's own CURRENT position (attack/decay/release-start - the
            three draggable handles below), and one above each stage
@@ -52,7 +52,7 @@
       <div
         class="envelope-graph-dot envelope-graph-dot-handle"
         :style="dotStyle(sustainEndX, sustainPercent)"
-        title="Release - drag to change how many frames it takes to reach silence"
+        title="Release/Sustain - drag horizontally to change Release, vertically to change Sustain level"
         @mousedown="startDrag('release', $event)"
       />
       <!-- Always sits at the graph's own right edge (releaseX is 100% by
@@ -226,7 +226,9 @@ export default defineComponent({
         // it, same self-correcting approximation decaySustain's own drag
         // already relies on).
         const release = this.snapTo(ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, Math.max(0, totalUnits - xUnits));
+        const sustainPercent = this.snapTo(ENVELOPE_SUSTAIN_PERCENT_OPTIONS, yPercent);
         this.$emit('update:release', release);
+        this.$emit('update:sustainPercent', sustainPercent);
       }
     },
     stopDrag() {
@@ -246,7 +248,7 @@ export default defineComponent({
   display: flex;
   width: 100%;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 4px;
   /* Breathing room from whatever follows (e.g. SoundFXEditor.vue's own
      Delete button row, which sits flush with zero top padding) - without
      this the graph's own bottom edge and the next control below it touch
@@ -258,25 +260,44 @@ export default defineComponent({
 /* 0-100%, not a raw AUDV value - Sustain (and so this whole graph) is
    always a percentage of this preset's own peak volume, matching how
    ENVELOPE_SUSTAIN_PERCENT_OPTIONS itself is defined (see blocks/
-   soundfx.js). Right-aligned digits. Each tick is absolutely positioned
-   (see envelope-graph-scale-tick below) rather than flex "space-between" -
-   a plain span's own ~22px line-height meant 5 of them (110px) didn't fit
+   soundfx.js). Sits INSIDE the graph now, just past the left border,
+   overlaid on the curve/grid rather than its own separate column outside
+   the frame - each tick is absolutely positioned (see
+   envelope-graph-scale-tick below) rather than flex "space-between" - a
+   plain span's own ~22px line-height meant 5 of them (110px) didn't fit
    this 90px-tall column, so "space-between" silently grew the container
    and pushed every tick below "100" progressively lower than its real
    gridline. */
 .envelope-graph-scale {
-  position: relative;
-  font-size: 10px;
-  opacity: 0.6;
-  text-align: right;
-  /* Matches .envelope-graph's own height below, so each tick's own "top"
-     percent (0-100) lines up with that graph's identical 0-100% gridlines. */
+  position: absolute;
+  left: 6px;
+  top: 0;
+  /* Explicit height (matching .envelope-graph's own) rather than the
+     top:0/bottom:0 stretch trick other absolutely-positioned children here
+     use - this element's own text content gives it an intrinsic height
+     that top:0/bottom:0 alone doesn't override, which was making its
+     ticks' own percentage "top" values resolve against the wrong (much
+     taller) containing block. */
   height: 90px;
+  width: 20px;
+  font-size: 10px;
+  text-align: left;
+  pointer-events: none;
 }
 
 .envelope-graph-scale-tick {
   position: absolute;
-  right: 0;
+  left: 0;
+  /* Same flat grey as the x-axis stage labels (see
+     .envelope-graph-stage-label below) - a real color, not opacity, so it
+     doesn't also dilute the white outline below. */
+  color: #666;
+  /* Crisp 1px white outline at full opacity - -webkit-text-stroke draws a
+     real stroke (paint-order puts it BEHIND the fill) rather than the
+     softer, easy-to-miss-at-10px look stacked text-shadows gave at this
+     font size. */
+  -webkit-text-stroke: 3px #fff;
+  paint-order: stroke fill;
   transform: translateY(-50%);
 }
 
@@ -306,6 +327,13 @@ export default defineComponent({
   width: 100%;
   height: 100%;
   display: block;
+  /* Positioned (not just static/in-flow) so its own stacking is decided by
+     DOM order against .envelope-graph-scale, same as every other
+     absolutely-positioned sibling here - without this, a static element
+     always paints BELOW any positioned sibling regardless of source order,
+     which was putting the curve behind the y-axis text even after removing
+     that text's own z-index. */
+  position: relative;
 }
 
 .envelope-graph-snap-line-vertical {
@@ -377,7 +405,10 @@ export default defineComponent({
   transform: translateX(-50%);
   margin-top: 2px;
   font-size: 11px;
-  opacity: 0.6;
+  /* Flat grey (was opacity: 0.6) - same visual result, but a real color
+     the y-axis ticks can match exactly (see .envelope-graph-scale-tick's
+     own comment for why they use color instead of opacity). */
+  color: #666;
   white-space: nowrap;
 }
 </style>

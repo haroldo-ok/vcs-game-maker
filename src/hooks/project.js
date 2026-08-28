@@ -151,6 +151,13 @@ export const useHideSidebarStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideSidebar');
 export const useBlocklyControlsHorizontalStorage = () =>
   useBooleanAppSetting('vcs-game-maker.blocklyControlsHorizontal');
+// Same "standing app preference" reasoning as the others here - applies a
+// CSS filter across every block (workspace canvas AND the toolbox/flyout,
+// see BlocklyComponent.vue's own .blocklyDiv binding) rather than touching
+// any block's own colour value, so it works uniformly regardless of which
+// theme/category colours are actually in play.
+export const useDesaturateBlocklyColorsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.desaturateBlocklyColors');
 export const useHideDescriptionTextStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideDescriptionText');
 export const useMuteBlocklySoundsStorage = () =>
@@ -163,6 +170,17 @@ export const useMuteBlocklySoundsStorage = () =>
 // navigating away").
 export const useGridSnapStorage = () =>
   useBooleanAppSetting('vcs-game-maker.gridSnap');
+// Same "standing app preference, not a project setting" reasoning as the
+// others above - lets a player switch the Sound tab's own card list between
+// a multi-column grid (the default) and a single full-width column, same
+// choice SoundFXEditor.vue's own .soundfx-list layout has gone back and
+// forth on for itself in the past.
+export const useSoundFxColumnsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.soundFxColumns', true);
+// Same "standing app preference" reasoning as useSoundFxColumnsStorage
+// above, for the Text tab's own card list (TextEditor.vue's .text-list).
+export const useTextColumnsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.textColumns', true);
 // Same "standing app preference, not a project setting" reasoning as the
 // others above - a real reported correction (it started out living in
 // configurationState/Project.vue's own configuration bag, meaning it reset

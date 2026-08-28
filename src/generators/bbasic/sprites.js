@@ -153,6 +153,10 @@ export const rainbowColorOffsetVarName = (name) => `_${name}RainbowColorOffset`;
 // 255/anything else for "no direction") and a speed (1-7), both captured
 // once at fire time so the per-frame check never has to re-evaluate the
 // original ANGLE/SPEED block inputs.
+// RAM shadow for CTRLPF - see reserveCtrlpfShadowDevVar's own comment for
+// why ball width/priority can't safely read the real hardware register back.
+export const ctrlpfShadowVarName = () => '_ctrlpf';
+
 export const missileFireFlagsVarName = () => '_missileFireFlags';
 export const missileFireActiveBit = (name) => name === 'missile1' ? 1 : 0;
 export const missileFireDirVarName = (name) => `_${name}FireDir`;
@@ -231,6 +235,47 @@ export const reserveMissileFireDevVars = (reserveDevVar, usedFor) => {
     reserveDevVar(missileFireDirVarName(name), undefined, 'this missile\'s fired direction (0-7, or 255 for none)');
     reserveDevVar(missileFireSpeedVarName(name), undefined, 'this missile\'s fired speed (pixels/frame)');
   });
+};
+
+// Ball width and playfield priority both need to read-modify-write CTRLPF -
+// clear just their own bits, keep everything else. That's unsafe done
+// directly against the real hardware register: CTRLPF's write address ($0A)
+// is ALIASED on real 2600 hardware with INPT2 (paddle port 2) in read mode -
+// TIA only decodes 6 address bits and distinguishes write-only vs read-only
+// registers sharing an address purely by the CPU's R/W line, not by the
+// address itself (confirmed directly against vcs.h: CTRLPF and INPT2 are
+// both "ds 1" at the same offset, in TIA_REGISTERS_WRITE and
+// TIA_REGISTERS_READ respectively). So "CTRLPF & 207" doesn't read back
+// whatever was last written to CTRLPF at all - it reads live paddle-port
+// input (open bus/garbage if nothing's plugged in), and OR/ANDing that into
+// a "preserve the other bits" write can set or clear ANY bit, including bit
+// 1 (score mode) - confirmed as the actual root cause of a real reported bug
+// ("ball width flips half the playfield to player1's color"), after ruling
+// out compiler operator-precedence (splitting the multiply into its own
+// statement first didn't fix it either, since the read-back itself was
+// always the problem, however the expression was shaped).
+// This dev var is CTRLPF's own RAM shadow: ball width/priority read-modify-
+// write THIS instead (an ordinary RAM byte, safe to read back), then flush
+// it to the real CTRLPF right after - CTRLPF isn't touched anywhere else in
+// the generated kernel (unlike NUSIZ0/COLUP0/etc, it's never clobbered by
+// the score routine), so a flush immediately after each write is enough;
+// no once-per-frame restore in commongamelogic is needed.
+export const reserveCtrlpfShadowDevVar = (reserveDevVar, used) => {
+  if (!used) return;
+  reserveDevVar(ctrlpfShadowVarName(), undefined,
+      'RAM shadow of CTRLPF - the real register can\'t be safely read back (aliases INPT2)');
+};
+
+// Setup-section one-off (see bbasic.bb.hbs's own generatedCtrlpfShadowSetup
+// splice, right alongside generatedKeypadSetup) - matches startup.asm's own
+// real CTRLPF initial value (reflect bit only) so the shadow and the
+// hardware register agree from the very first ball width/priority write,
+// rather than the shadow starting at 0 (bB's normal all-vars-start-at-zero
+// default) and silently dropping reflect the first time either block runs.
+export const generateCtrlpfShadowSetup = (Blockly) => {
+  if (!Blockly.BBasic.ctrlpfShadowUsed) return '';
+  const shadowVar = Blockly.BBasic.nameDB_.getName(ctrlpfShadowVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  return ` ${shadowVar} = 1`;
 };
 
 // Spliced into commongamelogic right after generatedAnimations (see this
@@ -446,7 +491,22 @@ export default (Blockly) => {
         // set - a real bug (reported as "changing sprite priority flips the
         // right half of the playfield," since whichever of the two blocks
         // ran later silently undid the other's own bit).
-        return `CTRLPF = (CTRLPF & 207) + (${argument0}) * 16\n`;
+        //
+        // Reads/writes the CTRLPF RAM shadow (see reserveCtrlpfShadowDevVar's
+        // own comment for why the real hardware register can't be safely
+        // read back), flushing it to the real CTRLPF right after. temp1
+        // holds the multiply as its own statement rather than inline (not
+        // the actual root cause of the playfield-flip bug, but still cheap
+        // insurance against batari Basic's own documented history of
+        // compound-expression bugs, e.g. RAND_OPTIONS ruling out division
+        // combined with multiplication in one expression) - safe here, only
+        // clobbered by drawscreen, which can't run mid-statement (see
+        // score.js's own comment on the same convention).
+        const shadowVar = Blockly.BBasic.nameDB_.getName(ctrlpfShadowVarName(),
+            Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return `temp1 = (${argument0}) * 16\n` +
+            `${shadowVar} = (${shadowVar} & 207) + temp1\n` +
+            `CTRLPF = ${shadowVar}\n`;
       } else if (varName.endsWith('visibility')) {
         const blockNumber = Blockly.BBasic.blockNumbers.next();
         const baseLabel = `_visibility_${blockNumber}`;
@@ -649,11 +709,16 @@ export default (Blockly) => {
   ['player0', 'player1'].forEach(createGeneratorForPlayer);
   ['missile0', 'missile1'].forEach(createGeneratorForMissile);
 
-  // Bit 2 of CTRLPF. Set through the bit-index syntax rather than a full
-  // assignment so it doesn't clobber the other bits sprite_ball_set already
-  // packs into CTRLPF (reflection, ball width).
+  // Bit 2 of CTRLPF. Set through the bit-index syntax on the CTRLPF RAM
+  // shadow (see reserveCtrlpfShadowDevVar's own comment - real CTRLPF can't
+  // be safely read back), not a full assignment, so it doesn't clobber the
+  // other bits sprite_ball_set already packs into the shadow (reflection,
+  // ball width) - then flushed to the real CTRLPF right after.
   Blockly.BBasic['sprite_priority_set'] = function(block) {
     const value = block.getFieldValue('VALUE');
-    return `CTRLPF{2} = ${value}\n`;
+    const shadowVar = Blockly.BBasic.nameDB_.getName(ctrlpfShadowVarName(),
+        Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return `${shadowVar}{2} = ${value}\n` +
+        `CTRLPF = ${shadowVar}\n`;
   };
 };

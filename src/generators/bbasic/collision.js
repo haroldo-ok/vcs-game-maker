@@ -25,12 +25,16 @@ export const collisionMoveOldYVar = (playerNum) => `collisionOldY${playerNum}`;
 // fully reverted, after it caused two separate real bugs on an actual
 // project: a ROM lockup (an out-of-range playfield row index from the box
 // math, since fixed but apparently not the only issue) and, afterward, a
-// hard crash on contact that persisted even after that fix. Given this
-// exact class of collision code has now broken in more than one way across
-// more than one attempt (see the even earlier predictive, run-every-frame
+// hard crash on contact that persisted even after that fix. A further
+// predictive, per-direction "move if clear" version (checking before moving
+// instead of reverting after, closely modeled on a working reference
+// example) was also tried and reverted - it moved correctly, but caused a
+// screen roll on any joystick input, still unresolved. Given this exact
+// class of collision code has now broken in more than one way across
+// several attempts (see the even earlier predictive, run-every-frame
 // version's own screen-roll failure, previously reverted too - git history
-// on this file has the full account of both), this block is back to the
-// simple, originally-shipped behavior below: revert X and Y together,
+// on this file has the full account), this block is back to the simple,
+// originally-shipped behavior below: revert X and Y together,
 // unconditionally, on any collision - it stops a diagonal move dead at a
 // wall instead of sliding along it, but it's the one version of this that's
 // actually held up.

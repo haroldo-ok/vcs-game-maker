@@ -36,7 +36,8 @@ import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
   reserveRomNoiseDevVars, reserveRainbowColorDevVars,
-  generateMissileFireChecks, reserveMissileFireDevVars} from './bbasic/sprites';
+  generateMissileFireChecks, reserveMissileFireDevVars,
+  reserveCtrlpfShadowDevVar, generateCtrlpfShadowSetup} from './bbasic/sprites';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
@@ -403,6 +404,28 @@ Blockly.BBasic.init = function(workspace) {
     }
   });
 
+  // Same early block-type pre-scan reasoning as above, for CTRLPF's own RAM
+  // shadow (see reserveCtrlpfShadowDevVar's own comment in generators/
+  // bbasic/sprites.js) - sprite_priority_set is its own dedicated block
+  // type, but ball width is just one VAR choice on the generic
+  // sprite_ball_set setter. VAR is a plain field_dropdown (see blocks/
+  // sprites.js's own buildSpriteBlocks), not a Blockly variable field, so
+  // its value IS the literal name string already ('ballwidth') - comparing
+  // it directly here, exactly like the generator's own `varName === 'ballwidth'`
+  // check does after resolving it through nameDB_. Two wrong approaches
+  // tried and ruled out first: workspace.getVariableById(fieldValue) always
+  // returned nothing (fieldValue was never a variable ID to begin with, so
+  // this pre-scan silently never found ball width in use); routing through
+  // this.nameDB_.getName(...) crashed instead, since nameDB_ isn't
+  // constructed yet this early in init() (it's set up further down, well
+  // after this pre-scan section runs).
+  this.ctrlpfShadowUsed = workspace.getAllBlocks(false).some((block) => {
+    if (!block.isEnabled()) return false;
+    if (block.type === 'sprite_priority_set') return true;
+    if (block.type === 'sprite_ball_set') return block.getFieldValue('VAR') === 'ballwidth';
+    return false;
+  });
+
   // Same early block-type pre-scan reasoning as the ones above - see
   // controls_repeat_ext's own comment in generators/bbasic/loops.js for
   // why a "repeat" block whose count is a complex expression needs its own
@@ -530,14 +553,16 @@ Blockly.BBasic.init = function(workspace) {
     this.distancePointChecks.set(block.id, {axis, obj0: block.getFieldValue('VAR0'), index: distancePointIndex, block});
   });
 
-  // Which players use the hardware-collision backtrack check block (see
+  // Which players use the hardware-collision backtrack block (see
   // blocks/collision.js) - each one needs its own pair of hidden bytes to
   // hold the position from before its last move, so this is decided before
   // variable letters are handed out below, same reason as the pre-scans
   // above.
   this.collisionMovePlayers = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
-    if (block.type === 'collision_check_position') this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
+    if (block.type === 'collision_check_position') {
+      this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
+    }
   });
 
   // Every "fade finished" watch (background_fade_finished in blocks/
@@ -566,18 +591,25 @@ Blockly.BBasic.init = function(workspace) {
   this.projectMusic = resolveProjectMusic(workspace, this.notePlayedInstruments);
 
   // Whether channnel0duration/channnel1duration (see SYSTEM_VARIABLES'
-  // own comment) are needed at all - a "Play sound" block is the only thing
-  // that ever WRITES them (see soundfx.js's own soundfx_play generator), but
-  // music's own generated code READS them unconditionally too, whenever
-  // music exists at all (see generators/bbasic/music.js's own comments on
-  // "soundfx_play/channnel0duration+channnel1duration" - a sound effect
-  // sharing a channel with music needs to keep exclusive hardware control
-  // for its own duration), so either one alone already needs both vars to
-  // exist. A project with neither pays nothing - see
+  // own comment) are needed at all - two block types ever WRITE them:
+  // soundfx_play (see soundfx.js's own generator, a Sound-tab-preset
+  // reference) and simple_sound_set (see generators/bbasic/sound.js's own
+  // generator, the freeform "Play sound" block that sets AUDC/AUDF/AUDV
+  // directly) - confirmed as a real bug: simple_sound_set was missing here,
+  // so a project using ONLY that block (no soundfx_play, no music) never
+  // got channnel0duration/channnel1duration reserved/dim'd at all, and the
+  // generator's own reference to it fell through to DASM as a bare unknown
+  // symbol ("Unknown Mnemonic 'sta channnel0duration'"). Music's own
+  // generated code READS them unconditionally too, whenever music exists at
+  // all (see generators/bbasic/music.js's own comments on "soundfx_play/
+  // channnel0duration+channnel1duration" - a sound effect sharing a channel
+  // with music needs to keep exclusive hardware control for its own
+  // duration), so any one of the three alone already needs both vars to
+  // exist. A project using none of them pays nothing - see
   // generateChannelDurationChecks below, which reuses this same flag to
   // skip the per-frame decrement entirely, not just the dev vars.
   this.channelDurationUsed = !!this.projectMusic || workspace.getAllBlocks(false).some((block) =>
-    block.type === 'soundfx_play' && block.isEnabled());
+    (block.type === 'soundfx_play' || block.type === 'simple_sound_set') && block.isEnabled());
 
   // Every one-shot music event watch - "sequence chip finished"
   // (music_sequence_chip_finished/_by_id) AND "note played by instrument"
@@ -821,6 +853,12 @@ Blockly.BBasic.init = function(workspace) {
   // bbasic/sprites.js) - a no-op unless missileFireUsedFor's own early
   // pre-scan (above) found it used.
   reserveMissileFireDevVars(reserveDevVar, this.missileFireUsedFor);
+
+  // Same bucket again, for CTRLPF's own RAM shadow (see
+  // reserveCtrlpfShadowDevVar's own comment in generators/bbasic/sprites.js)
+  // - a no-op unless ctrlpfShadowUsed's own early pre-scan (above) found it
+  // used.
+  reserveCtrlpfShadowDevVar(reserveDevVar, this.ctrlpfShadowUsed);
 
   // Same bucket again, for "Joystick N direction (8-way)"'s own per-frame
   // result (see joyDir8ResultVarName's own comment in generators/bbasic/
@@ -1681,6 +1719,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedRunOnceEdgeReset = Blockly.BBasic.generateRunOnceEdgeResetCall();
   const generatedKeypadPollCall = Blockly.BBasic.generateKeypadPollCall();
   const generatedKeypadSetup = Blockly.BBasic.generateKeypadSetup();
+  const generatedCtrlpfShadowSetup = generateCtrlpfShadowSetup(Blockly);
 
   this.isInitialized = false;
 
@@ -1711,7 +1750,7 @@ Blockly.BBasic.finish = function(code) {
     generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
     generatedJoystickDirection8Checks,
     generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset,
-    generatedKeypadPollCall, generatedKeypadSetup});
+    generatedKeypadPollCall, generatedKeypadSetup, generatedCtrlpfShadowSetup});
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the
