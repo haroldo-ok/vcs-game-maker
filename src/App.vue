@@ -266,6 +266,15 @@
           >
             {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
           </v-btn>
+          <v-btn
+            v-if="isElectron"
+            color="primary"
+            :loading="launchingStella"
+            :disabled="!hasCompiledRom"
+            @click="handleTestInStella"
+          >
+            Test in Stella
+          </v-btn>
           <v-btn color="primary" :disabled="!hasCompiledRom" @click="handleRomDownload">
             Save ROM
           </v-btn>
@@ -285,16 +294,36 @@
           rounded
           class="rom-capacity-bar"
         />
-        <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
-        <div v-if="romVariablesText" class="rom-capacity-summary">{{ romVariablesText }}</div>
-        <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
-          <div v-for="bank in romCapacityBanks" :key="bank.number" class="rom-capacity-bank">
-            <div class="rom-capacity-bank-header">
-              <strong>Bank {{ bank.number }}:</strong> {{ bank.freeText }}
+        <div class="rom-capacity-log">
+          <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
+          <div v-if="romVariablesSummary" class="rom-capacity-summary"><strong>Total Variables:</strong> {{ romVariablesSummary }}</div>
+          <div v-if="romSystemVariableAssignments.length" class="rom-capacity-summary"><strong>System reserved:</strong></div>
+          <div v-if="romSystemVariableAssignments.length" class="rom-capacity-variables">
+            <div v-for="assignment in romSystemVariableAssignments" :key="assignment.slot">
+              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}
             </div>
-            <div v-if="bank.contents.length" class="rom-capacity-bank-contents">
-              <div v-for="part in bank.contents" :key="part.label">
-                <strong>{{ part.label }}{{ part.names ? ':' : '' }}</strong> {{ part.names }}
+          </div>
+          <div v-if="romBlockVariableAssignments.length" class="rom-capacity-summary"><strong>Required by blocks:</strong></div>
+          <div v-if="romBlockVariableAssignments.length" class="rom-capacity-variables">
+            <div v-for="assignment in romBlockVariableAssignments" :key="assignment.slot">
+              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}
+            </div>
+          </div>
+          <div v-if="romUserVariableAssignments.length" class="rom-capacity-summary"><strong>User defined:</strong></div>
+          <div v-if="romUserVariableAssignments.length" class="rom-capacity-variables">
+            <div v-for="assignment in romUserVariableAssignments" :key="assignment.slot">
+              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}
+            </div>
+          </div>
+          <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
+            <div v-for="bank in romCapacityBanks" :key="bank.number" class="rom-capacity-bank">
+              <div class="rom-capacity-bank-header">
+                <strong>Bank {{ bank.number }}:</strong> {{ bank.freeText }}
+              </div>
+              <div v-if="bank.contents.length" class="rom-capacity-bank-contents">
+                <div v-for="part in bank.contents" :key="part.label">
+                  <strong>{{ part.label }}{{ part.names ? ':' : '' }}</strong> {{ part.names }}
+                </div>
               </div>
             </div>
           </div>
@@ -366,7 +395,8 @@
 </template>
 
 <script>
-import {useCompileLog, useErrorStorage, useHideDescriptionTextStorage, useHideSidebarStorage} from './hooks/project';
+import {useCompileLog, useErrorStorage, useHideDescriptionTextStorage, useHideSidebarStorage,
+  useStellaPathStorage} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom} from './hooks/rom';
 import {productName, version} from '../package.json';
 
@@ -404,6 +434,18 @@ const ERROR_HEIGHT_KEY = 'vcs-game-maker.errorHeight';
 const EMULATOR_MEASURE_RETRIES = 60;
 const EMULATOR_MEASURE_INTERVAL = 50;
 
+// Alphabetizes the "Variables" panel's own per-slot lists (a-z for a plain
+// letter slot; numeric-aware for a Superchip "varN" slot, so var2 sorts
+// before var10 rather than after it as a plain string compare would) -
+// these arrive in RESERVATION order (whichever feature/user variable
+// happened to route first), which is meaningless to a reader scanning for
+// a specific letter/slot. localeCompare's own {numeric: true} option
+// handles both slot shapes with one comparator: plain single-letter slots
+// (a, b, c...) collate alphabetically same as always, and multi-character
+// "varN" slots collate by their embedded number instead of lexicographically.
+const sortByAssignmentSlot = (assignments) =>
+  [...assignments].sort((a, b) => a.slot.localeCompare(b.slot, undefined, {numeric: true}));
+
 const readStoredWidth = () => {
   const stored = parseInt(localStorage.getItem(EMULATOR_WIDTH_KEY), 10);
   return Number.isFinite(stored) ? stored : EMULATOR_DEFAULT_WIDTH;
@@ -430,6 +472,7 @@ export default {
     errorHeight: readStoredErrorHeight(),
     resizingError: false,
     building: false,
+    launchingStella: false,
   }),
   setup() {
     const errorStorage = useErrorStorage();
@@ -439,6 +482,7 @@ export default {
       hasCompiledRom: useHasCompiledRom(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
       hideSidebarStorage: useHideSidebarStorage(),
+      stellaPathStorage: useStellaPathStorage(),
     };
   },
   mounted() {
@@ -480,6 +524,13 @@ export default {
     // useHideSidebarStorage's own comment in hooks/project.js.
     hideSidebar() {
       return !!this.hideSidebarStorage;
+    },
+    // Same "window.electronAPI's mere presence" check as Configuration.vue's
+    // own isElectron - see preload.js's own comment. Gates the "Test in
+    // Stella" button's very existence (not just whether it's enabled),
+    // since a plain web build has no way to launch a local program at all.
+    isElectron() {
+      return !!window.electronAPI;
     },
     emulatorScaleStyle() {
       return {
@@ -532,12 +583,46 @@ export default {
     // (available is 0 then - see computeVariableUsage's own comment) rather
     // than shown as "0 of 0", which would read as broken rather than simply
     // not applicable yet.
-    romVariablesText() {
+    romVariablesSummary() {
       const usage = this.romCapacity && this.romCapacity.variableUsage;
       if (!usage) return '';
       const letters = `${usage.letters.used} of ${usage.letters.available} letters`;
-      if (!usage.superchip.available) return `Variables: ${letters} used.`;
-      return `Variables: ${letters}, ${usage.superchip.used} of ${usage.superchip.available} Superchip RAM used.`;
+      if (!usage.superchip.available) return `${letters} used.`;
+      return `${letters}, ${usage.superchip.used} of ${usage.superchip.available} Superchip RAM used.`;
+    },
+    // System variables (player0frame, newbackground, etc. - see
+    // SYSTEM_VARIABLES' own comment in generators/bbasic.js) - a SEPARATE,
+    // always-unconditional set of "dim" lines, deliberately NOT folded into
+    // romVariableAssignments/romVariablesSummary below: those two describe the
+    // competitive dev/user var pool specifically (14 letters without
+    // Superchip, matching USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP - see its
+    // own comment in generators/bbasic.js for why system variables' own 12
+    // letters are excluded from that count), so merging system variables into
+    // that same list would make "X of 14" look wrong the moment the list
+    // shows more than 14 entries, even though nothing is actually broken.
+    romSystemVariableAssignments() {
+      const usage = this.romCapacity && this.romCapacity.variableUsage;
+      return sortByAssignmentSlot((usage && usage.systemAssignments) || []);
+    },
+    // Per-slot breakdown of the competitive dev/user var pool (see bbasic.js's
+    // own letterVarAssignments/superchipVarAssignments and hooks/rom.js's
+    // computeVariableUsage), split into two separate lists by each entry's own
+    // isUserVariable flag (see bbasic.js's own userVarNames comment) - a dev
+    // var some block quietly needs (rand16, collision-move's own backtrack
+    // bytes, missile fire's own fired-direction state, etc.) reads very
+    // differently from a variable the user themselves created on the
+    // Variables tab, even though both draw from the exact same letter/
+    // Superchip budget and both count toward the summary line's own "X of Y"
+    // above. Letters first (the pool every project always has), Superchip
+    // slots after - matches the summary line's own "letters, ... Superchip
+    // RAM" order; each half sorted independently (see sortByAssignmentSlot's
+    // own comment) so that grouping itself is preserved, only the ORDER
+    // within each half changes.
+    romBlockVariableAssignments() {
+      return this.romVariableAssignmentsByOwner(false);
+    },
+    romUserVariableAssignments() {
+      return this.romVariableAssignmentsByOwner(true);
     },
     // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
     // summary above averages over every bank, which can look like there's
@@ -608,6 +693,18 @@ export default {
     },
   },
   methods: {
+    // Shared by romBlockVariableAssignments/romUserVariableAssignments above -
+    // a plain method (not two near-identical computeds) since the only
+    // difference between them is which side of isUserVariable they keep.
+    romVariableAssignmentsByOwner(isUserVariable) {
+      const usage = this.romCapacity && this.romCapacity.variableUsage;
+      if (!usage) return [];
+      const matches = (assignment) => !!assignment.isUserVariable === isUserVariable;
+      return [
+        ...sortByAssignmentSlot((usage.letterAssignments || []).filter(matches)),
+        ...sortByAssignmentSlot((usage.superchipAssignments || []).filter(matches)),
+      ];
+    },
     // Scrolls the bottom console pane (see .error-scroll-wrapper's own
     // ref) to its newest line - called after $nextTick from the
     // compileLog/errorStorage watchers above, so the DOM has already
@@ -943,6 +1040,32 @@ export default {
       link.href = URL.createObjectURL(blob);
       link.download = 'compiled-rom.bin';
       link.click();
+    },
+    // "Test in Stella" - launches the user's own local Stella install
+    // (configured on the Options tab - see Configuration.vue's own Stella
+    // field) with the just-compiled ROM, with no extra CLI flags ("default
+    // settings", per the explicit request - Stella's own UI already
+    // remembers whatever the user last configured there across runs). Only
+    // reachable in the desktop build at all (see isElectron above) - a
+    // browser tab has no way to launch a local program.
+    async handleTestInStella() {
+      if (!window.Javatari?.compiledResult) {
+        this.errorStorage.value = 'There is no compiled ROM yet; use "Update ROM" first.';
+        return;
+      }
+      if (!this.stellaPathStorage) {
+        this.errorStorage.value = 'Set the Stella installation location on the Options tab first.';
+        return;
+      }
+      this.launchingStella = true;
+      try {
+        const result = await window.electronAPI.launchStella(this.stellaPathStorage, Javatari.compiledResult.output);
+        if (!result.success) {
+          this.errorStorage.value = `Couldn't launch Stella: ${result.error}`;
+        }
+      } finally {
+        this.launchingStella = false;
+      }
     },
   },
 };
@@ -1815,6 +1938,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    centered as a group. */
 .rom-buttons-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
 }
@@ -1976,6 +2100,30 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   flex: 0 0 auto !important;
 }
 
+/* Everything from the "Total Variables"/"System reserved" summary lines down
+   through the per-bank breakdown is ONE scrollable region now (previously
+   only .rom-capacity-detail, the per-bank breakdown, scrolled on its own -
+   once the System reserved/Required by blocks/User defined lists above it
+   grew past a project's available drawer height, THEY had nowhere to shrink
+   (flex-shrink: 0, sized to content), so the overflow spilled out of
+   .emulator-drawer-inner entirely and the WHOLE drawer started scrolling
+   instead, a real reported regression). The "bytes free" line and its
+   progress bar (.rom-capacity/.rom-capacity-bar) stay OUTSIDE this, as their
+   own fixed (flex-shrink: 0) siblings, same as the emulator/buttons above
+   them - always visible, never pushed off by a long variable/bank list.
+   flex: 1 (with the drawer content column above) lets this grow to fill
+   whatever room those fixed elements don't use, instead of staying a fixed
+   height, with its own scrollbar (min-height: 0 is required for a flex
+   child to be allowed to shrink below its content size and actually scroll
+   instead of overflowing the drawer). Every child inside it (rom-capacity-
+   summary/-variables/-detail) is plain in-flow content, not itself a flex
+   item, so no flex-shrink of its own is needed. */
+.rom-capacity-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .rom-capacity {
   text-align: center;
   font-size: 0.8em;
@@ -2005,14 +2153,26 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   margin: 2px 0 0;
   padding: 0 8px;
   user-select: text;
-  flex-shrink: 0;
 }
 
-/* flex: 1 (with the drawer content column below) lets this grow to fill
-   whatever room is left under the emulator/buttons/summary line instead of
-   staying a fixed height, with its own scrollbar (min-height: 0 is required
-   for a flex child to be allowed to shrink below its content size and
-   actually scroll instead of overflowing the drawer). */
+/* The "Variables:" summary line's own per-slot breakdown - same sizing as
+   .rom-capacity-summary just above (it reads as a continuation of that line,
+   not a new section), indented like .rom-capacity-bank-contents' own list
+   items so each "letter: name" pair reads as a sub-item of the summary. */
+.rom-capacity-variables {
+  font-size: 0.75em;
+  opacity: 0.6;
+  text-align: left;
+  margin: 2px 0 0;
+  padding: 0 8px;
+  user-select: text;
+}
+
+.rom-capacity-variables > div {
+  padding-left: 1em;
+  white-space: pre-wrap;
+}
+
 .rom-capacity-detail {
   font-size: 0.75em;
   opacity: 0.6;
@@ -2020,9 +2180,6 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   margin: 6px 0 0;
   padding: 0 8px;
   user-select: text;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .rom-capacity-bank {

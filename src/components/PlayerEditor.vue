@@ -340,15 +340,18 @@ export default defineComponent({
     };
 
     const configurationStorage = useConfigurationStorage();
-    // Per-row SPRITE colors (batari Basic playercolors/player1colors) are an
-    // all-or-nothing, project-wide setting (see the Options tab's "enable
-    // per-row sprite colors" toggle) - same reasoning as BackgroundEditor's
-    // own pfColorsEnabled, and shared between BOTH players since this
-    // component is instantiated once per player (see PlayerEditor's own
-    // "name" prop) but the underlying kernel_options line is a single
-    // project-wide setting either way.
+    // Per-row SPRITE colors (batari Basic playercolors/player1colors) - see
+    // the Options tab's own "Enable per-row Player 0/1 sprite colors"
+    // toggles (one per player, since player1colors is valid on its own but
+    // playercolors isn't - see generateConfiguration's own comment in
+    // generators/bbasic.js) - same reasoning as BackgroundEditor's own
+    // pfColorsEnabled. props.name ('player0'/'player1') picks the matching
+    // toggle for whichever player THIS instance is editing (see
+    // PlayerEditor's own "name" prop - this component is instantiated once
+    // per player).
+    const configKey = props.name === 'player0' ? 'enablePlayer0SpriteColors' : 'enablePlayer1SpriteColors';
     const spriteColorsEnabled = computed(() =>
-      (configurationStorage && configurationStorage.value && configurationStorage.value.enableSpriteColors) ??
+      (configurationStorage && configurationStorage.value && configurationStorage.value[configKey]) ??
         false);
 
     // Read-only here - components/QuickColorPalette.vue (mounted above)

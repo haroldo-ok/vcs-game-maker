@@ -148,9 +148,41 @@ const buildKeypadBlock = (name, description, colour) => ({
     '(the Atari Keypad/Kids Controller peripheral) - recomputed automatically once per frame.',
 });
 
+// True while ANY key is held on the given keypad - the same underlying
+// per-frame scan value buildKeypadBlock's own equality check reads (0 = no
+// key currently pressed - see KEYPAD_KEY_OPTIONS' own comment above), just
+// compared against 0 instead of one specific key.
+const buildKeypadAnyPressedBlock = (name, description, colour) => ({
+  'type': `input_${name}_any_pressed`,
+  'message0': `${KEYPAD_ICON} Any key is pressed on ${description}`,
+  'output': 'Boolean',
+  colour,
+  'tooltip': `Reads whether any key is currently held on ${description} ` +
+    '(the Atari Keypad/Kids Controller peripheral) - recomputed automatically once per frame.',
+});
+
+// The raw scanned key ID as a Number (1-12, same numbering as
+// KEYPAD_KEY_OPTIONS above, or 0 the instant nothing is held) - lets a
+// project read/store/compare WHICH key is pressed at runtime, rather than
+// only checking one fixed key like buildKeypadBlock's own block does.
+const buildKeypadIdBlock = (name, description, colour) => ({
+  'type': `input_${name}_id_get`,
+  'message0': `${KEYPAD_ICON} Key ID pressed on ${description}`,
+  'output': 'Number',
+  colour,
+  'tooltip': `The ID (1-12: 1-9, then *, 0, # - see the "key is pressed" block's own dropdown ` +
+    `order) of whichever key is currently held on ${description} (the Atari Keypad/Kids ` +
+    'Controller peripheral), or 0 the instant no key is held. Recomputed automatically once ' +
+    'per frame.',
+});
+
 Blockly.defineBlocksWithJsonArray([
   buildKeypadBlock('keypad0', 'Keypad 0', 'red'),
   buildKeypadBlock('keypad1', 'Keypad 1', 'blue'),
+  buildKeypadAnyPressedBlock('keypad0', 'Keypad 0', 'red'),
+  buildKeypadAnyPressedBlock('keypad1', 'Keypad 1', 'blue'),
+  buildKeypadIdBlock('keypad0', 'Keypad 0', 'red'),
+  buildKeypadIdBlock('keypad1', 'Keypad 1', 'blue'),
 ]);
 
 // The two objects being compared are picked at design time (dropdowns, not

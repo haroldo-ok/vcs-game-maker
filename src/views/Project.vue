@@ -49,7 +49,7 @@
                 Do you really want to start a new project?
               </v-card-title>
 
-              <v-card-text>
+              <v-card-text class="mt-4">
                 This will create a new project, clearing all the blocks on the actions tab,
                 all the graphics and animations on the player 0 and player 1 tab, all of the
                 backgrounds on the backgrounds tab and replace all the options with default
@@ -59,20 +59,20 @@
               <v-divider></v-divider>
 
               <v-card-actions>
-                <v-spacer></v-spacer>
                 <v-btn
                   color="primary"
                   text
                   @click="handleNewProject"
                 >
-                  Yes, recreate the project
+                  Create new project
                 </v-btn>
+                <v-spacer></v-spacer>
                 <v-btn
                   color="secondary"
                   text
                   @click="data.newProjectDialog = false"
                 >
-                  No, nevermind
+                  Nevermind
                 </v-btn>
               </v-card-actions>
             </v-card>

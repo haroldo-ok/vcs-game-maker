@@ -92,10 +92,22 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.enableSpriteColors"
+          v-model="configurationState.enablePlayer0SpriteColors"
           @change="handleChangeConfiguration"
-          label="Enable per-row sprite colors (playercolors player1colors)"
-          hint="Lets player sprites show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on."
+          label="Enable per-row Player 0 sprite colors (playercolors)"
+          hint="Lets Player 0 show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on. Costs missile0 (can't be used as a sprite anywhere in the project once this is on) and paddle input. batari Basic requires player1colors alongside playercolors, so turning this on also turns on (and locks on) Player 1 sprite colors below, costing missile1 too."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enablePlayer1SpriteColors"
+          @change="handleChangeConfiguration"
+          :disabled="player0RainbowColorsActive"
+          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
+          label="Enable per-row Player 1 sprite colors (player1colors)"
+          :hint="player0RainbowColorsActive ?
+            'Forced on: batari Basic requires player1colors whenever playercolors (Player 0 sprite colors, above) is on.' :
+            'Lets Player 1 show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on. Costs missile1 (can\'t be used as a sprite anywhere in the project once this is on) - unlike Player 0 sprite colors, this works on its own with no other cost.'"
           persistent-hint
           class="option-switch"
         />
@@ -210,6 +222,22 @@
           persistent-hint
           class="option-switch"
         />
+        <v-text-field
+          v-model="stellaPathStorage"
+          label="Stella installation location"
+          :disabled="!isElectron"
+          :hint="isElectron ?
+            'Path to the Stella executable, used by the emulator preview\'s own \'Test in Stella\' button. You need to install Stella yourself first - this only points the app at it.' :
+            'Only available in the desktop app - the browser version has no way to launch a local program.'"
+          persistent-hint
+          class="stella-path-field"
+        >
+          <template v-slot:append>
+            <v-btn text small :disabled="!isElectron" @click="handleBrowseForStella">
+              Browse...
+            </v-btn>
+          </template>
+        </v-text-field>
       </div>
     </v-card-text>
     </v-card>
@@ -221,7 +249,7 @@ import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
 import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage,
   useDesaturateBlocklyColorsStorage, useErrorStorage,
   useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage,
-  useProjectAutoIncrementVersionStorage} from '../hooks/project';
+  useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
@@ -273,7 +301,8 @@ const collapsedSections = ref(loadCollapsedSections());
 const DEFAULT_CONFIGURATION = {
   showScore: true,
   showBlankLines: true,
-  enableSpriteColors: false,
+  enablePlayer0SpriteColors: false,
+  enablePlayer1SpriteColors: false,
   enablePfColors: false,
   enableSuperchip: false,
   enableOptimizationSpeed: false,
@@ -305,6 +334,19 @@ export default defineComponent({
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
+    const stellaPathStorage = useStellaPathStorage();
+    // window.electronAPI only exists inside the desktop (Electron) build's
+    // own preload script (see preload.js) - a plain web-served copy of this
+    // same app has no such thing, so this is what tells the two apart at
+    // runtime rather than any build-time flag.
+    const isElectron = computed(() => !!window.electronAPI);
+    const handleBrowseForStella = async () => {
+      const picked = await window.electronAPI.pickStellaPath();
+      // null specifically means the user cancelled the dialog (see
+      // background.js's own "stella:pick-path" handler) - leaves whatever
+      // was already saved untouched rather than clearing it.
+      if (picked) stellaPathStorage.value = picked;
+    };
 
     // Which sections are collapsed - a Set of section keys, matching the
     // collapse pattern already used by the other tabs' own cards (a plain
@@ -365,12 +407,20 @@ export default defineComponent({
     // already has it) even when the user never touches this switch directly
     // themselves - not just the handleChangeConfiguration path below, which
     // only runs when some OTHER switch on this page is what triggered the
-    // change.
+    // change. Also forces Player 1 sprite colors on: batari Basic's own
+    // kernel_options combination table never has a valid row with
+    // "playercolors" alone, it always needs "player1colors" too (see
+    // generateConfiguration's own comment in generators/bbasic.js) - so
+    // whenever playercolors is needed (a player0 rainbow-colors block, OR
+    // the "Enable per-row Player 0 sprite colors" toggle), player1colors has
+    // to come along with it, same reasoning/pattern as showBlankLines just
+    // below.
     watch(player0RainbowColorsActive, (active) => {
       if (!active) return;
       const state = configurationState.value;
-      if (state.showBlankLines) return;
+      if (state.showBlankLines && state.enablePlayer1SpriteColors) return;
       state.showBlankLines = true;
+      state.enablePlayer1SpriteColors = true;
       configurationState.value = state;
     }, {immediate: true});
 
@@ -462,7 +512,8 @@ export default defineComponent({
       const state = configurationState.value;
       state.showScore = DEFAULT_CONFIGURATION.showScore;
       state.showBlankLines = DEFAULT_CONFIGURATION.showBlankLines;
-      state.enableSpriteColors = DEFAULT_CONFIGURATION.enableSpriteColors;
+      state.enablePlayer0SpriteColors = DEFAULT_CONFIGURATION.enablePlayer0SpriteColors;
+      state.enablePlayer1SpriteColors = DEFAULT_CONFIGURATION.enablePlayer1SpriteColors;
       state.enablePfColors = DEFAULT_CONFIGURATION.enablePfColors;
       state.enableSuperchip = DEFAULT_CONFIGURATION.enableSuperchip;
       state.enableOptimizationSpeed = DEFAULT_CONFIGURATION.enableOptimizationSpeed;
@@ -492,6 +543,7 @@ export default defineComponent({
       loadLastProject,
       muteBlocklySounds, hideSidebar, blocklyControlsHorizontal, desaturateBlocklyColors,
       hideDescriptionText, projectAutoIncrementVersion,
+      stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,
       toggleSection,
     };

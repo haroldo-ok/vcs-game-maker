@@ -511,8 +511,18 @@ Blockly.BBasic.init = function(workspace) {
   // scanning only the port(s) actually in use matters (leaves the other
   // port's SWCHA bits as inputs, so an ordinary joystick can still be
   // plugged into it).
-  this.keypad0Used = workspace.getAllBlocks(false).some((block) => block.type === 'input_keypad0_get');
-  this.keypad1Used = workspace.getAllBlocks(false).some((block) => block.type === 'input_keypad1_get');
+  // "Any key is pressed"/"Key ID pressed" (see blocks/input.js's own
+  // buildKeypadAnyPressedBlock/buildKeypadIdBlock) both read the exact same
+  // per-frame poll byte as "key X is pressed" above, just compared/exposed
+  // differently - included in this same used-scan so using ONLY one of
+  // these newer blocks (with no "key X is pressed" block anywhere) still
+  // reserves the poll byte and runs the scan.
+  const KEYPAD_BLOCK_TYPES = {
+    '0': ['input_keypad0_get', 'input_keypad0_any_pressed', 'input_keypad0_id_get'],
+    '1': ['input_keypad1_get', 'input_keypad1_any_pressed', 'input_keypad1_id_get'],
+  };
+  this.keypad0Used = workspace.getAllBlocks(false).some((block) => KEYPAD_BLOCK_TYPES['0'].includes(block.type));
+  this.keypad1Used = workspace.getAllBlocks(false).some((block) => KEYPAD_BLOCK_TYPES['1'].includes(block.type));
 
   // Same idea, for "Joystick N direction (8-way)" getter blocks (see
   // joyDir8ResultVarName's own comment in generators/bbasic/input.js for why
@@ -1013,10 +1023,17 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(fadeFlagsVarName(), undefined, 'shared active/finished bit-flags byte for every fadeable register');
   }
 
-  // Add user variables, but only ones that are being used.
+  // Add user variables, but only ones that are being used. Their own FINAL
+  // routed names are tracked separately (userVarNames) so the ROM capacity
+  // display's own per-slot list (see letterVarAssignments/
+  // superchipVarAssignments below) can tell an actual user-created variable
+  // apart from every OTHER entry in that exact same pool - a dev var some
+  // block quietly needs (rand16, collision-move's own backtrack bytes, etc.),
+  // not something the user themselves created on the Variables tab.
   const variables = Blockly.Variables.allUsedVarModels(workspace);
+  this.userVarNames = new Set();
   for (let i = 0; i < variables.length; i++) {
-    reserveDevVar(variables[i].getId(), Blockly.VARIABLE_CATEGORY_NAME);
+    this.userVarNames.add(reserveDevVar(variables[i].getId(), Blockly.VARIABLE_CATEGORY_NAME));
   }
 
   // Add the run-once flag bytes computed above, after user variables so an
@@ -1061,9 +1078,34 @@ Blockly.BBasic.init = function(workspace) {
   // 0, e.g. every dev var fit inside the Superchip pool alone) so the display
   // still has real numbers rather than needing its own fallback logic.
   this.letterVarsUsed = defvars.length;
-  this.letterVarsAvailable = availableLetters.length;
+  // DISPLAY-only total - deliberately NOT availableLetters.length (the real
+  // internal cap the "Too many variables" check just above/below actually
+  // enforces, which is USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP's smaller 14
+  // without Superchip, since the 12 system-variable letters really aren't
+  // free for this pool). Now that the ROM capacity display shows "System
+  // reserved" as its own separate list (see App.vue's own
+  // romSystemVariableAssignments), repeating that same 12-letter subtraction
+  // in THIS total read as confusing rather than informative - showing the
+  // full alphabet here (26, minus TEXT_MINIKERNEL_RESERVED_LETTERS when
+  // active, same as the Superchip-on case already did) matches what's
+  // actually visible on screen: 26 letters total, some shown under "System
+  // reserved", the rest counted here.
+  this.letterVarsAvailable = this.isTextMinikernelActive() ?
+    ALL_LETTERS.length - TEXT_MINIKERNEL_RESERVED_LETTERS.length : ALL_LETTERS.length;
   this.superchipVarsUsed = this.superchipVars.length;
   this.superchipVarsAvailable = config.enableSuperchip ? superchipVarBudget : 0;
+  // Same zip order the actual "dim" declarations below (and
+  // generateSuperchipVarDims) use - defvars[i]/superchipVars[i] pairs with
+  // availableLetters[i]/var${SUPERCHIP_VAR_START + i} respectively. Exposed
+  // (alongside the plain counts above) for the ROM capacity display's own
+  // per-slot breakdown (see hooks/rom.js's computeVariableUsage/App.vue's
+  // romVariableAssignments) - lets a project actually see WHICH name landed
+  // on which letter/var slot, not just how many total are used, e.g. to spot
+  // a dev var that's still being reserved when it shouldn't be.
+  this.letterVarAssignments = defvars.map((name, i) =>
+    ({name, slot: availableLetters[i], description: this.devVarDescriptions[name], isUserVariable: this.userVarNames.has(name)}));
+  this.superchipVarAssignments = this.superchipVars.map((name, i) =>
+    ({name, slot: `var${SUPERCHIP_VAR_START + i}`, description: this.devVarDescriptions[name], isUserVariable: this.userVarNames.has(name)}));
   if (defvars.length) {
     if (defvars.length > availableLetters.length) {
       throw new Error(`Too many variables: this project defines ${defvars.length + this.superchipVars.length}, ` +
@@ -2161,21 +2203,25 @@ Blockly.BBasic.usePlayfieldRowColors = function() {
 };
 
 // Whether generated code should include per-row SPRITE colors
-// (playercolors/player1colors) as a standing project setting (the
-// "enableSpriteColors" option on the Options tab), independent of whether
-// any sprite_*_rainbow_colors block actually exists on the canvas - unlike
-// that block-presence check (rainbowColorUsedFor), this is the user
-// explicitly opting in ahead of time, the same way enablePfColors is a
-// standing toggle rather than being driven by which backgrounds happen to
-// have custom row colors set. Deliberately NOT excluded while Superchip RAM
-// is on (unlike usePlayfieldRowColors just above) - per-row sprite colors
-// reads through player0color/player1color (aliased onto paddle/missile1y),
-// a completely separate pointer from the playfield's own pfcolortable, and
-// testing confirms it renders correctly with Superchip on.
-Blockly.BBasic.useSpriteColors = function() {
+// (playercolors/player1colors) as a standing project setting (the Options
+// tab's own "Enable per-row Player 0/1 sprite colors" toggles - one per
+// player, since batari Basic allows "player1colors" on its own without
+// "playercolors", but not the other way around - see generateConfiguration's
+// own comment on why enabling playercolors forces player1colors on too),
+// independent of whether any sprite_*_rainbow_colors block actually exists
+// on the canvas - unlike that block-presence check (rainbowColorUsedFor),
+// this is the user explicitly opting in ahead of time, the same way
+// enablePfColors is a standing toggle rather than being driven by which
+// backgrounds happen to have custom row colors set. Deliberately NOT
+// excluded while Superchip RAM is on (unlike usePlayfieldRowColors just
+// above) - per-row sprite colors reads through player0color/player1color
+// (aliased onto paddle/missile1y), a completely separate pointer from the
+// playfield's own pfcolortable, and testing confirms it renders correctly
+// with Superchip on. name is 'player0' or 'player1'.
+Blockly.BBasic.useSpriteColorsFor = function(name) {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  return config.enableSpriteColors ?? false;
+  return (name === 'player0' ? config.enablePlayer0SpriteColors : config.enablePlayer1SpriteColors) ?? false;
 };
 
 // Whether a real, populated pfcolortable (one "pfcolors:" block per
@@ -2197,7 +2243,7 @@ Blockly.BBasic.useSpriteColors = function() {
 // feature on themselves.
 Blockly.BBasic.needsPlayfieldColorTable = function() {
   return this.usePlayfieldRowColors() || rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) ||
-    this.useSpriteColors();
+    this.useSpriteColorsFor('player0');
 };
 
 // Whether "no_blank_lines" can actually go on the kernel_options line.
@@ -2216,7 +2262,7 @@ Blockly.BBasic.effectiveShowBlankLines = function() {
   const config = (configurationStorage && configurationStorage.value) || {};
   const requested = config.showBlankLines ?? true;
   if (requested) return true;
-  return rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) || this.useSpriteColors();
+  return rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) || this.useSpriteColorsFor('player0');
 };
 
 // Spliced into bbasic.bb.hbs's main loop right after the user's own generated
@@ -2444,14 +2490,22 @@ Blockly.BBasic.generateConfiguration = function() {
   // Configuration.vue disables the toggle outright) whenever player0
   // rainbow colors is active.
   //
-  // The standing "enable per-row sprite colors" toggle (useSpriteColors)
-  // forces both options on the same way a rainbow-colors block would, even
-  // with no such block on the canvas - the same "opt in ahead of time"
-  // relationship enablePfColors already has with backgrounds' own row
-  // colors (see useSpriteColors' own comment).
-  const needsPlayerColors = rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) || this.useSpriteColors();
+  // The standing "enable per-row Player 0/1 sprite colors" toggles
+  // (useSpriteColorsFor) force their own option on the same way a matching
+  // rainbow-colors block would, even with no such block on the canvas - the
+  // same "opt in ahead of time" relationship enablePfColors already has with
+  // backgrounds' own row colors (see useSpriteColorsFor's own comment).
+  // "playercolors" is never valid without "player1colors" alongside it (bB's
+  // own kernel_options combination table has no row with playercolors alone -
+  // confirmed by rainbowColorNeedsPlayer1Colors' own unconditional
+  // "any rainbow color usage at all" check above), so needsPlayerColors being
+  // true forces player1colors on too, below - Configuration.vue's own watch
+  // keeps the Player 1 toggle itself in sync with this same rule (forced on
+  // and disabled) whenever the Player 0 one is on, but this check exists
+  // independently in case the two ever desync (e.g. an old saved project).
+  const needsPlayerColors = rainbowColorNeedsPlayerColors(this.rainbowColorUsedFor) || this.useSpriteColorsFor('player0');
   if (needsPlayerColors) kernelOptions.push('playercolors');
-  if (rainbowColorNeedsPlayer1Colors(this.rainbowColorUsedFor) || this.useSpriteColors()) {
+  if (needsPlayerColors || rainbowColorNeedsPlayer1Colors(this.rainbowColorUsedFor) || this.useSpriteColorsFor('player1')) {
     kernelOptions.push('player1colors');
   }
   const usePfColorsOption = this.needsPlayfieldColorTable();
@@ -2913,8 +2967,9 @@ Blockly.BBasic.generateAnimations = function() {
       const graphicLabel = `${animationLabel}frame${frameIndex}Graphic`;
       pixelKeyToGraphicLabel.set(pixelKey, graphicLabel);
       const pixelSource = frame.pixels.slice().reverse().map((row) => '  %' + row.join(''));
-      // Per-row sprite colors (useSpriteColors, see Configuration.vue's own
-      // "enable per-row sprite colors" toggle) - a real "playercolor:" block
+      // Per-row sprite colors (useSpriteColorsFor, see Configuration.vue's
+      // own "enable per-row Player 0/1 sprite colors" toggles) - a real
+      // "playercolor:" block
       // declared right alongside this frame's own graphic, exactly the same
       // way generateBackgrounds' buildPfcolors declares a "pfcolors:" block
       // right alongside each background's own "playfield:" - both are real
@@ -2928,7 +2983,7 @@ Blockly.BBasic.generateAnimations = function() {
       // playfield's own pfres-based row-count math, not this 1:1 per-scanline
       // indexing, which the graphic pointer already relies on working
       // correctly.
-      const colorSource = this.useSpriteColors() ? (() => {
+      const colorSource = this.useSpriteColorsFor(name) ? (() => {
         const rowColors = frame.rowColors || [];
         const resolved = frame.pixels.map((_, i) => rowColors[i] ?? DEFAULT_ROW_COLOR);
         const rows = resolved.slice().reverse().map((byte) => '  ' + colorByteToBBasic(byte));

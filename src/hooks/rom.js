@@ -7,7 +7,7 @@ import Blockly from 'blockly';
 import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from './bb-compiler';
 
 import '../blocks';
-import BlocklyBB, {RELOCATABLE_EVENT_NAMES} from '../generators/bbasic';
+import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
 import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../generators/bbasic/text-minikernel-files';
 import {processBackgroundStorageDefaults} from '../blocks/background';
@@ -18,7 +18,8 @@ import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from './project';
-import {getRelocationBanks, resetRelocationBanks, setRelocationBank} from './relocation-banks';
+import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
+  recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
 import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom} from './rom-status';
 import {setRomCapacity, useRomCapacity} from './rom-capacity';
 
@@ -95,26 +96,47 @@ const withHeadlessWorkspace = (callback) => {
 // time; a graphics edit alone would otherwise leave the cached code stale.
 const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.workspaceToCode(workspace));
 
-// How many user-created variables the current project actually uses - needed
-// to check whether disabling Superchip RAM would leave too few letters free
-// for them (see Configuration.vue).
+// How many letter-pool slots the current project would actually need if
+// Superchip RAM were off - used by Configuration.vue to check whether
+// disabling it would leave too few letters free. Deliberately NOT just
+// Blockly.Variables.allUsedVarModels(workspace).length (pure user-created
+// variables) - with Superchip on, every app-internal dev var (missile fire's
+// own fired-direction/speed, seek's own target/throttle state, background
+// fade timers, etc. - see generators/bbasic.js's own routeDevVar) is ALSO
+// routed through the very same 26-letter pool the instant Superchip goes
+// off, competing with user variables for the exact same slots. Counting only
+// user variables against the FULL letter pool undercounted real pressure
+// whenever a project leaned on dev-var-heavy features but few explicit
+// variables - letting "disable Superchip" through here even though the real
+// build (bbasic.js's own "Too many variables" throw) would then fail. A real
+// headless compile (same as regenerateCode above) is run so
+// letterVarsUsed/superchipVarsUsed reflect this exact project's actual
+// dev-var + user-var total (see bbasic.js's own routeDevVar/init() comments
+// on how those two fields get set) - their SUM is exactly what would need to
+// fit in the letter pool alone once Superchip stops splitting that load with
+// the Superchip var pool.
 export const countUsedVariables = () =>
-  withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
+  withHeadlessWorkspace((workspace) => {
+    BlocklyBB.workspaceToCode(workspace);
+    return (BlocklyBB.letterVarsUsed || 0) + (BlocklyBB.superchipVarsUsed || 0);
+  });
 
 // Whether the project needs "playercolors" (player0's own per-row sprite
 // color kernel option) - either a real sprite_player0_rainbow_colors block
-// on the canvas, or the standing "enable per-row sprite colors" toggle (see
-// useSpriteColors in generators/bbasic.js) - needed by Configuration.vue to
-// force "Show blank lines" back on (and disable the toggle) whenever either
-// is active. See generators/bbasic.js's effectiveShowBlankLines for why:
-// batari Basic's own kernel_options combination table never pairs
-// "playercolors" with "no_blank_lines" in any valid row, confirmed by a
-// real "Invalid combination of options" build failure when both were
-// emitted together.
+// on the canvas, or the standing "Enable per-row Player 0 sprite colors"
+// toggle (see useSpriteColorsFor in generators/bbasic.js) - needed by
+// Configuration.vue to force "Show blank lines" AND the Player 1 sprite
+// colors toggle back on (disabling both) whenever either is active. See
+// generators/bbasic.js's effectiveShowBlankLines for the "Show blank lines"
+// half of that: batari Basic's own kernel_options combination table never
+// pairs "playercolors" with "no_blank_lines" in any valid row, confirmed by
+// a real "Invalid combination of options" build failure when both were
+// emitted together - and generateConfiguration's own comment for the
+// "player1colors" half: playercolors is never valid without it either.
 export const usesPlayer0RainbowColors = () => {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  if (config.enableSpriteColors) return true;
+  if (config.enablePlayer0SpriteColors) return true;
   return withHeadlessWorkspace((workspace) =>
     workspace.getAllBlocks(false).some((block) =>
       block.type === 'sprite_player0_rainbow_colors' && block.isEnabled()));
@@ -255,10 +277,48 @@ const resolveMusicSongLabels = () => {
 // anything itself. superchip.available is 0 (not the full 29-slot budget)
 // when Superchip RAM is off, matching how routeDevVar itself never touches
 // that pool in that case either.
-const computeVariableUsage = () => ({
-  letters: {used: BlocklyBB.letterVarsUsed || 0, available: BlocklyBB.letterVarsAvailable || 0},
-  superchip: {used: BlocklyBB.superchipVarsUsed || 0, available: BlocklyBB.superchipVarsAvailable || 0},
-});
+const computeVariableUsage = () => {
+  const config = useConfigurationStorage().value || {};
+  // The 12 SYSTEM_VARIABLES (player0frame, framecounter, etc. - see their own
+  // comment in generators/bbasic.js) are always dimmed, but land on a
+  // DIFFERENT pool depending on Superchip: real letters when it's off, or
+  // var0-var11 (a fixed region OUTSIDE letterVarsAvailable/
+  // superchipVarsAvailable's own 26-letter/32-slot totals, which only ever
+  // described the competitive dev/user pool) when it's on. "Total Variables"
+  // is meant to read as everything actually reserved out of whichever pool
+  // it really lives in, so this folds systemVarCount into whichever side
+  // System reserved is ACTUALLY occupying this build, rather than leaving it
+  // out of both (the previous, confusing behavior this replaces).
+  const systemVarCount = SYSTEM_VARIABLES.length;
+  return {
+    letters: {
+      used: (BlocklyBB.letterVarsUsed || 0) + (config.enableSuperchip ? 0 : systemVarCount),
+      available: BlocklyBB.letterVarsAvailable || 0,
+    },
+    superchip: {
+      used: (BlocklyBB.superchipVarsUsed || 0) + (config.enableSuperchip ? systemVarCount : 0),
+      available: config.enableSuperchip ? (BlocklyBB.superchipVarsAvailable || 0) + systemVarCount : 0,
+    },
+    // System variables (player0frame, newbackground, etc. - see
+    // SYSTEM_VARIABLES' own comment in generators/bbasic.js) are a SEPARATE,
+    // always-unconditional set of "dim" lines - never routed through
+    // routeDevVar/letterVarAssignments/superchipVarAssignments at all, since
+    // they're not part of that competitive pool (every one of them exists on
+    // every build, dev/user var count or not). Computed directly here, the
+    // same "var${i}"-with-Superchip/literal-letter-otherwise rule
+    // generateSystemDims itself uses, rather than threading a third array
+    // through BlocklyBB, since it needs nothing from an actual compile -
+    // just the current Superchip toggle.
+    systemAssignments: SYSTEM_VARIABLES.map(([name, letter], i) =>
+      ({name, slot: config.enableSuperchip ? `var${i}` : letter})),
+    // Per-slot breakdown for the dynamic dev/user var pool (see bbasic.js's
+    // own letterVarAssignments/superchipVarAssignments comment) - which
+    // actual name landed on which letter/var slot, for the ROM capacity
+    // display's own expandable list.
+    letterAssignments: BlocklyBB.letterVarAssignments || [],
+    superchipAssignments: BlocklyBB.superchipVarAssignments || [],
+  };
+};
 
 // Every graphics/event/music/subroutine unit's own current bank, grouped by
 // bank instead of by unit (the shape getRelocationBanks/pickRelocationCandidate
@@ -536,13 +596,21 @@ export const buildRom = async () => {
   // Every relocatable unit (events, graphics, music, subroutines - see
   // hooks/relocation-banks.js) starts this build fresh, back at bank 1,
   // rather than carrying over wherever a PREVIOUS build happened to leave
-  // it. Bank assignments deliberately aren't persisted across builds at
-  // all (see relocation-banks.js's own comment for why) - a relocation
-  // decision is cheap enough to remake from scratch every time that there's
-  // no real cost, only the upside of every build reflecting exactly the
-  // project as it stands right now.
+  // it. Bank assignments aren't PERSISTED across builds (see relocation-
+  // banks.js's own comment for why that was tried and reverted), but the
+  // last SUCCESSFUL build's own layout is kept in memory for this session as
+  // a first-attempt hint (seedRelocationBanksFromLastSuccess, below) -
+  // abandoned immediately, via the exact same resetRelocationBanks() this
+  // always called, the moment that first attempt doesn't compile clean (see
+  // the catch block below), so every attempt from #2 onward behaves
+  // identically to how this has always worked.
   resetRelocationBanks();
+  const seededFromLastSuccess = seedRelocationBanksFromLastSuccess(
+      (configurationStorage.value || {}).romSize);
   clearCompileLog();
+  if (seededFromLastSuccess) {
+    appendCompileLog('Trying the last successful bank layout first...', 'stage');
+  }
   const buildStartedAt = performance.now();
 
   // An earlier version of this also relocated graphics out of bank 1
@@ -718,12 +786,26 @@ export const buildRom = async () => {
         {...capacity, romSize: config.romSize, bankContents: maxBanks ? computeBankContents(maxBanks) : undefined,
           variableUsage: computeVariableUsage()} :
         capacity);
+      // Remembers THIS build's own final layout as the next build's own
+      // first-attempt hint (see seedRelocationBanksFromLastSuccess's own
+      // comment in relocation-banks.js) - recorded on every success, not
+      // just ones that needed relocation at all, so a project that fits in
+      // bank 1 alone keeps skipping straight to a real compile too (an empty
+      // banks object is itself a perfectly valid, useful "hint").
+      recordSuccessfulRelocationBanks(config.romSize);
       appendCompileLog('Build succeeded.', 'stage');
       appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
       return true;
     } catch (e) {
       lastCode = code;
       lastFailure = e;
+      // The seeded first attempt (see seedRelocationBanksFromLastSuccess
+      // above) didn't pan out - abandon it completely rather than patching
+      // further on top of it, so every attempt from here on behaves
+      // identically to how this retry loop has always worked (see this
+      // block's own git history/comments below), starting from true
+      // scratch exactly like a never-seeded build's own first failure would.
+      if (attempt === 0 && seededFromLastSuccess) resetRelocationBanks();
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
       if (isOverflowError(e) && maxBanks) {
         // Diagnostic-only for now (see bb-compiler.js's own comment on

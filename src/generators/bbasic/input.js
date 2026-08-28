@@ -359,6 +359,23 @@ export default (Blockly) => {
       const key = block.getFieldValue('KEY');
       return [`${varName} = ${key}`, Blockly.BBasic.ORDER_EQUALITY];
     };
+
+    // "Any key is pressed" - same poll byte, compared against 0 (no key
+    // currently held - see KEYPAD_KEY_OPTIONS' own comment in blocks/
+    // input.js) instead of one specific key.
+    Blockly.BBasic[`input_keypad${port}_any_pressed`] = function(block) {
+      const varName = Blockly.BBasic.nameDB_.getName(
+          keypadKeyVarName(port), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [`${varName} <> 0`, Blockly.BBasic.ORDER_EQUALITY];
+    };
+
+    // "Key ID pressed" - the poll byte itself, exposed as a plain Number
+    // rather than compared against anything.
+    Blockly.BBasic[`input_keypad${port}_id_get`] = function(block) {
+      const varName = Blockly.BBasic.nameDB_.getName(
+          keypadKeyVarName(port), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [varName, Blockly.BBasic.ORDER_ATOMIC];
+    };
   };
 
   ['0', '1'].forEach(createGeneratorForKeypad);

@@ -95,7 +95,7 @@
             </value>
         </block>
         <block type="sprite_player0_rom_noise_stop"></block>
-        {{#if enableSpriteColors}}
+        {{#if enablePlayer0SpriteColors}}
         <block type="sprite_player0_rainbow_colors">
             <value name="OFFSET">
                 <shadow type="math_number">
@@ -145,7 +145,7 @@
             </value>
         </block>
         <block type="sprite_player1_rom_noise_stop"></block>
-        {{#if enableSpriteColors}}
+        {{#if enablePlayer1SpriteColors}}
         <block type="sprite_player1_rainbow_colors">
             <value name="OFFSET">
                 <shadow type="math_number">
@@ -278,6 +278,10 @@
         <block type="input_joy1_direction8"></block>
         <block type="input_keypad0_get"></block>
         <block type="input_keypad1_get"></block>
+        <block type="input_keypad0_any_pressed"></block>
+        <block type="input_keypad1_any_pressed"></block>
+        <block type="input_keypad0_id_get"></block>
+        <block type="input_keypad1_id_get"></block>
 
         <block type="collision_get"></block>
         <block type="collision_check_position"></block>
