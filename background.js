@@ -108,10 +108,14 @@ ipcMain.handle('stella:launch', async (event, {stellaPath, romBytes}) => {
 // menu) so Ctrl+C/Cut/Paste/Select All accelerators are guaranteed to be
 // wired up - covers plain selectable text (e.g. the error console) as well
 // as editable fields, since role: 'copy' etc. act on whatever's currently
-// selected/focused in the renderer either way.
+// selected/focused in the renderer either way. visible: false hides it from
+// the menu bar - the app has no other use for a visible menu bar, and the
+// accelerators stay registered either way (Electron only stops firing an
+// item's accelerator when the item is actually removed, not just hidden).
 Menu.setApplicationMenu(Menu.buildFromTemplate([
   {
     label: 'Edit',
+    visible: false,
     submenu: [
       {role: 'cut'},
       {role: 'copy'},
