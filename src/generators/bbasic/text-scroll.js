@@ -225,11 +225,14 @@ export const registerFreeTypedScrollMessage = (Blockly, text) => {
 
 // Builds the lines every "Show text" block's generator emits to (re)point
 // the Text Minikernel at a message and (re)configure the shared scroll
-// state for it - called unconditionally, even for a message that fits
-// without scrolling (maxOffsetExpr = '0' then), so a static message halts
-// any scrolling left running from whatever was shown before it, rather than
-// the per-frame check (see generateTextScrollAdvance below) silently
-// continuing to animate a message that already changed underneath it.
+// state for it - called unconditionally, including for a message that fits
+// without scrolling, so a static message halts any scrolling left running
+// from whatever was shown before it, rather than the per-frame check (see
+// generateTextScrollAdvance below) silently continuing to animate a message
+// that already changed underneath it. See the maxOffsetExpr === 0 fast path
+// below for the (structurally can-never-scroll) case this most commonly
+// covers - everything from here down is the full version, used whenever
+// scrolling is actually possible for this call site.
 //
 // The actual RESET (offset/direction/timer/TextIndex all snapping back to
 // the start) only happens when offsetExpr differs from the base the scroll
@@ -257,13 +260,61 @@ export const registerFreeTypedScrollMessage = (Blockly, text) => {
 // text-minikernel.js's own emitScrollSetup), and DASM requires every label
 // in the whole program to be unique, so reusing one fixed skip-label name
 // across more than one call site would collide.
-export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr, speedCode, pauseCode, uniqueId) => {
-  const base = resolveVar(textScrollBaseVarName());
-  const farEnd = resolveVar(textScrollFarEndVarName());
-  const timer = resolveVar(textScrollTimerVarName());
-  const speed = resolveVar(textScrollSpeedVarName());
-  const pauseDuration = resolveVar(textScrollPauseDurationVarName());
-  const state = resolveVar(textScrollStateVarName());
+export const buildTextScrollSetupLines = (
+    resolveVar, offsetExpr, maxOffsetExpr, speedCode, pauseCode, uniqueId, scrollActive) => {
+  // resolveVar (Blockly.BBasic.nameDB_.getName under the hood - see
+  // emitScrollSetup's own comment in text-minikernel.js) is what actually
+  // ASSIGNS a real letter/RAM slot to a dev var name the FIRST time it's
+  // called, independent of reserveTextScrollDevVars' own separate pre-scan
+  // reservation - so these six calls have to stay lazy (only made when a
+  // return path below actually needs that name), not hoisted up here
+  // unconditionally, or the !scrollActive fast path below would silently
+  // re-allocate the exact letters it exists to avoid spending.
+  const base = () => resolveVar(textScrollBaseVarName());
+  const farEnd = () => resolveVar(textScrollFarEndVarName());
+  const timer = () => resolveVar(textScrollTimerVarName());
+  const speed = () => resolveVar(textScrollSpeedVarName());
+  const pauseDuration = () => resolveVar(textScrollPauseDurationVarName());
+  const state = () => resolveVar(textScrollStateVarName());
+  // maxOffsetExpr === 0 (a real JS number, not a runtime expression string
+  // like the by-id-scroll block's own "text_scroll_max[id]") means THIS
+  // call site can never scroll, full stop - known at compile time,
+  // regardless of what offsetExpr evaluates to. farEnd = base always holds
+  // for it, which is exactly generateTextScrollAdvance's own short-circuit
+  // condition (its very first check, before touching timer/state at all),
+  // so none of the reset-guard machinery below - branches, labels, the
+  // timer/speed/pauseDuration writes - can ever affect anything observable
+  // for a call site like this: scroll_at's Left/Right checks only compare
+  // TextIndex against base/farEnd (both always pinned to offsetExpr right
+  // here), and scroll_control's actions only touch state/timer, neither of
+  // which generateTextScrollAdvance ever reads once it's already bailed out
+  // on farEnd = base. A plain, unconditional 4-line write covers every
+  // externally-visible effect the full version has for this case, INCLUDING
+  // the "was previously Clear text'd" edge case the reset-guard's own
+  // state-2 check exists for above (moot here - this always re-writes
+  // TextIndex regardless, no guard to skip past). Added specifically to fix
+  // a real reported ROM-capacity regression: every "Show text" call site
+  // unconditionally cost this function's full ~11 lines even when, as here,
+  // the referenced message could structurally never scroll - a project with
+  // many short, non-scrolling messages (the common case) was paying for
+  // scroll infrastructure it could never use at every single call site.
+  if (maxOffsetExpr === 0) {
+    // scrollActive false means NO block anywhere in the project can ever
+    // make a message scroll or reads/controls scroll state (see
+    // Blockly.BBasic.isTextScrollActive's own comment) - in that case
+    // generateTextScrollAdvance is never even emitted, so nothing ever
+    // reads base/farEnd/state either, and reserveTextScrollDevVars never
+    // reserves them - writing to them here would reference unreserved
+    // (undim'd) variables. TextIndex alone (a real bB system variable,
+    // always available) is the only thing that still needs setting.
+    if (!scrollActive) return [`TextIndex = ${offsetExpr}`];
+    return [
+      `TextIndex = ${offsetExpr}`,
+      `${base()} = ${offsetExpr}`,
+      `${farEnd()} = ${offsetExpr}`,
+      `${state()} = 0`,
+    ];
+  }
   const skipLabel = `_textscroll_setup_skip_${uniqueId}`;
   const resetLabel = `_textscroll_setup_reset_${uniqueId}`;
   return [
@@ -276,11 +327,11 @@ export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr,
     // value this check actually cares about. Checked before, not instead
     // of, the ordinary base guard, so the common per-frame "same message,
     // never cleared" case still skips straight past the reset as before.
-    `if (${state} & ${TEXT_SCROLL_STATE_MASK}) = 2 then goto ${resetLabel}`,
-    `if ${base} = ${offsetExpr} then goto ${skipLabel}`,
+    `if (${state()} & ${TEXT_SCROLL_STATE_MASK}) = 2 then goto ${resetLabel}`,
+    `if ${base()} = ${offsetExpr} then goto ${skipLabel}`,
     `@${resetLabel}`,
     `TextIndex = ${offsetExpr}`,
-    `${base} = ${offsetExpr}`,
+    `${base()} = ${offsetExpr}`,
     // A genuinely new message always starts unpaused AND scrolling forward,
     // even if the PREVIOUS message was left paused/reversed (see
     // text_minikernel_scroll_control's own "Pause" action) - neither is a
@@ -290,7 +341,7 @@ export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr,
     // comment) is correct here specifically BECAUSE this is the one place
     // direction is meant to reset too - see TEXT_SCROLL_DIR_BIT's own
     // comment.
-    `${state} = 0`,
+    `${state()} = 0`,
     // Starts the message at its own near end (TextIndex = base), which is
     // itself the SAME "limit" the per-frame advance (generateTextScrollAdvance
     // below) already pauses at for "pause" frames every time it's reached
@@ -299,7 +350,7 @@ export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr,
     // limits" duration before its first scroll step too, instead of the
     // shorter per-character "speed" duration, which used to make it start
     // scrolling away almost immediately.
-    `${timer} = ${pauseCode}`,
+    `${timer()} = ${pauseCode}`,
     `@${skipLabel}`,
     // Absolute, not relative (see textScrollFarEndVarName's own comment) -
     // "base" here (not offsetExpr again) deliberately reuses whatever
@@ -309,9 +360,9 @@ export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr,
     // offsetExpr can also be a table lookup (e.g. "text_offsets[id]" for
     // "Show text with ID"), which a second, redundant read would only cost
     // cycles on for no benefit.
-    `${farEnd} = ${base} + ${maxOffsetExpr}`,
-    `${speed} = ${speedCode}`,
-    `${pauseDuration} = ${pauseCode}`,
+    `${farEnd()} = ${base()} + ${maxOffsetExpr}`,
+    `${speed()} = ${speedCode}`,
+    `${pauseDuration()} = ${pauseCode}`,
   ];
 };
 
@@ -324,7 +375,12 @@ export const buildTextScrollSetupLines = (resolveVar, offsetExpr, maxOffsetExpr,
 // costs almost nothing for a project that never uses scrolling text at all,
 // and only a few cycles per frame even for one that does.
 export const generateTextScrollAdvance = (Blockly) => {
-  if (!Blockly.BBasic.isTextMinikernelActive()) return '';
+  // isTextScrollActive (not just isTextMinikernelActive) - a project using
+  // only plain, static "Show text" blocks has nothing for this to ever do
+  // (every call site's own farEnd already equals base unconditionally, see
+  // buildTextScrollSetupLines' own maxOffsetExpr===0 fast path), and none
+  // of the vars this references below are even reserved in that case.
+  if (!Blockly.BBasic.isTextScrollActive()) return '';
   const resolveVar = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const base = resolveVar(textScrollBaseVarName());
   const farEnd = resolveVar(textScrollFarEndVarName());

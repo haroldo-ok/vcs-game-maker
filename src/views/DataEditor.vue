@@ -1,12 +1,19 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Data</v-card-title>
       <v-card-text>
         <v-list class="data-list">
           <v-list-item class="entry-list-item" v-for="(table, index) in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
-              <v-card outlined class="data-card" :class="dragCardClass(index)" v-on="dragTargetListeners(index)">
+              <v-card
+                outlined
+                :ripple="false"
+                class="data-card"
+                :class="[dragCardClass(index), {'data-card-selected': table.id === selectedCardId}]"
+                v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(table.id)"
+              >
                 <div
                   class="data-drag-handle"
                   title="Drag to reorder"
@@ -406,6 +413,19 @@ export default defineComponent({
     const textOptions = computed(() =>
       processTextStringsStorageDefaults(textStringsStorage).textStrings
           .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards and SoundFXEditor.vue/TextEditor.vue's own cards (see
+    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // component state, not persisted, not wired into anything else.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
+    };
+
     const state = computed({
       get() {
         try {
@@ -1000,6 +1020,7 @@ export default defineComponent({
     };
 
     return {
+      selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
       copiedTableData, handleCopyTable, handlePasteTable,
       handleAddValue, handleDeleteValue, handleValueChange, handleSelectValue, handleSubtractValue,
@@ -1055,8 +1076,17 @@ export default defineComponent({
   margin-top: 12px;
 }
 
+/* overflow: visible added alongside the padding reset (see MusicEditor.vue's
+   own identical fix) - stops this element's default "overflow: hidden" from
+   clipping a selected card's own 2px outline - min-width: 0 has to come
+   with it (same comment there for the full explanation): overflow: visible
+   silently undoes a flex item's own default 0 min-width, letting it refuse
+   to shrink below its own widest content (a wide table) instead of the
+   tab's width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 /* No max-width (used to cap at 640px) - a table with many columns needs the

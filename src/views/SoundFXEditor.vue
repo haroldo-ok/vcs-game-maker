@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Sound</v-card-title>
       <v-card-text>
         <div class="dim-controls">
@@ -54,9 +54,11 @@
             <v-list-item-content>
               <v-card
                 outlined
+                :ripple="false"
                 class="soundfx-card"
-                :class="dragCardClass(index)"
+                :class="[dragCardClass(index), {'soundfx-card-selected': soundEffect.id === selectedCardId}]"
                 v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(soundEffect.id)"
               >
                 <div
                   class="soundfx-drag-handle"
@@ -445,6 +447,22 @@ export default defineComponent({
     watch(dimSoundFxPercent, (value) => {
       dimSoundFxPercentDisplay.value = value;
     });
+
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards (see its own comment for the full reasoning): plain
+    // local component state, not persisted, not wired into anything else.
+    // Clicking anywhere in a sound effect's own card selects it; clicking
+    // outside any card (this tab's own outer editor-container, see its own
+    // @click) clears the selection.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
+    };
+
     const state = computed({
       get() {
         try {
@@ -725,6 +743,7 @@ export default defineComponent({
     };
 
     return {
+      selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
       handleExportSoundEffect, handleImportSoundEffect,
       canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, handleResetEnvelope,
@@ -782,8 +801,22 @@ export default defineComponent({
   align-items: start;
 }
 
+/* overflow: visible added alongside the existing padding reset - Vuetify's
+   own default "overflow: hidden" here (normally there to ellipsis-truncate
+   long list-item text, not relevant to a card filling this whole slot) was
+   clipping the selected card's own 2px outline (see .soundfx-card-selected
+   - an outline draws outside the border edge, in the few pixels of this
+   parent's own box the card doesn't otherwise use), a real reported bug.
+   min-width: 0 is needed ALONGSIDE that change (see MusicEditor.vue's own
+   identical fix for the full explanation) - a flex item's own min-width
+   defaults to "auto" (its content's own intrinsic width) UNLESS overflow is
+   something other than visible, in which case the default is 0 instead;
+   switching to overflow: visible silently undid that, letting a card
+   refuse to shrink below its own widest content instead of the tab's width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 .dim-controls {
@@ -873,6 +906,12 @@ export default defineComponent({
   position: relative;
   width: 100%;
 }
+
+/* Card-level click-to-select styling (cursor/ripple/hover suppression on
+   .soundfx-card.v-card--link/.editor-container.v-card--link, and the actual
+   .soundfx-card-selected outline) lives in App.vue's own global stylesheet
+   now, shared with MusicEditor.vue's identical .song-card treatment rather
+   than duplicated per-tab - see its own comment there. */
 
 /* Same reasoning/placement as TextEditor.vue's identical .text-drag-handle
    rule (see hooks/drag-reorder.js's own comment) - only this top strip is

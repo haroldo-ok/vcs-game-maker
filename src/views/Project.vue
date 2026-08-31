@@ -149,6 +149,7 @@ import {getDateInfix} from '../utils/date';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 import {persistActiveFileHandle, loadPersistedFileHandle, ensureWritePermission} from '../utils/file-handle-storage';
+import {version as appVersion} from '../../package.json';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
 const FORMAT_VERSION = 1.0;
@@ -329,6 +330,14 @@ export default defineComponent({
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
+        // The actual VCS Game Maker release that wrote this file (package.json's
+        // own version, e.g. "0.50.28") - distinct from format-version above,
+        // which is this .vcsgm SCHEMA's own version and only bumps when the
+        // save shape itself changes. Purely informational (nothing reads this
+        // back on load) - lets a saved file's own history/support requests
+        // say which app build produced it, same reasoning generation-time
+        // already does for when.
+        'app-version': appVersion,
         'generation-time': new Date(),
         configuration,
         'blockly-workspace': this.workspaceStorage,

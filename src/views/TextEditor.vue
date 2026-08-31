@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Text</v-card-title>
       <v-card-text>
         <p class="v-messages theme--light v-messages__message">
@@ -50,9 +50,11 @@
             <v-list-item-content>
               <v-card
                 outlined
+                :ripple="false"
                 class="text-card"
-                :class="dragCardClass(index)"
+                :class="[dragCardClass(index), {'text-card-selected': entry.id === selectedCardId}]"
                 v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(entry.id)"
               >
                 <div
                   class="text-drag-handle"
@@ -239,6 +241,19 @@ export default defineComponent({
       },
     });
 
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards and SoundFXEditor.vue's own sound effect cards (see
+    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // component state, not persisted, not wired into anything else.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
+    };
+
     const state = computed({
       get() {
         try {
@@ -377,6 +392,7 @@ export default defineComponent({
     };
 
     return {
+      selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
       isCollapsed, toggleCollapsed, textBkColor, textMaxDisplayWidth, TEXT_MAX_DISPLAY_WIDTH_OPTIONS,
       textColumns,
@@ -485,9 +501,17 @@ export default defineComponent({
    BackgroundEditor.vue's own .background-list, see its comment there),
    without anything similar between columns - zeroing it here keeps this
    grid's own gap as the only source of spacing, matching the Background
-   tab's spacing exactly. */
+   tab's spacing exactly. overflow: visible (see MusicEditor.vue's own
+   identical fix) stops this same element's default "overflow: hidden"
+   from clipping a selected card's own 2px outline - min-width: 0 has to
+   come with it (same comment there for the full explanation): overflow:
+   visible silently undoes a flex item's own default 0 min-width, letting
+   it refuse to shrink below its own widest content instead of the tab's
+   width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 .text-card {

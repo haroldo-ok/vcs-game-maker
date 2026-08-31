@@ -87,19 +87,29 @@ const handlebarsTemplate = Handlebars.compile(templateText);
 // reserved - kept as real data (not just a JS comment) so generateSystemDims
 // below can also emit it as a "rem" line right above the matching "dim" in
 // the actual generated bBasic code, not just here in this source file.
+// Listed in ascending letter order (l through z) - not grouped by feature the
+// way an earlier version of this was - so the generated "dim" lines (see
+// generateSystemDims below, which maps this array in order) and the ROM
+// capacity display's own "System reserved" list (hooks/rom.js's
+// computeVariableUsage, same array/same order) both read as a straight a-z
+// sequence, and a Superchip build's own var0-var11 numbering (also this
+// array's own position, see generateSystemDims/backgroundRealColorRawTarget)
+// follows that exact same order. Every other lookup here (findIndex by name)
+// already adapts automatically to whatever order this array declares, so
+// reordering it is safe on its own - nothing hardcodes a specific index.
 export const SYSTEM_VARIABLES = [
-  ['player0frame', 'x', 'real bB kernel var: which graphic frame player0 shows'],
-  ['player1frame', 'z', 'real bB kernel var: which graphic frame player1 shows'],
-  ['newbackground', 'y', 'real bB kernel var: which background is currently selected'],
-  ['player0size', 't', 'restores NUSIZ0 every frame (score routine clobbers it)'],
-  ['player1size', 's', 'restores NUSIZ1 every frame (score routine clobbers it)'],
-  ['player0realcolor', 'r', 'restores COLUP0 every frame (score routine clobbers it)'],
-  ['player1realcolor', 'q', 'restores COLUP1 every frame (score routine clobbers it)'],
-  ['playfieldrealcolor', 'm', 'restores COLUPF every frame (score routine clobbers it)'],
   ['backgroundrealcolor', 'l', 'restores COLUBK every frame (score routine clobbers it)'],
-  ['player0animation', 'p', 'which animation is currently playing on player0'],
-  ['player1animation', 'o', 'which animation is currently playing on player1'],
+  ['playfieldrealcolor', 'm', 'restores COLUPF every frame (score routine clobbers it)'],
   ['framecounter', 'n', 'free-running frame counter, default fallback for several features'],
+  ['player1animation', 'o', 'which animation is currently playing on player1'],
+  ['player0animation', 'p', 'which animation is currently playing on player0'],
+  ['player1realcolor', 'q', 'restores COLUP1 every frame (score routine clobbers it)'],
+  ['player0realcolor', 'r', 'restores COLUP0 every frame (score routine clobbers it)'],
+  ['player1size', 's', 'restores NUSIZ1 every frame (score routine clobbers it)'],
+  ['player0size', 't', 'restores NUSIZ0 every frame (score routine clobbers it)'],
+  ['player0frame', 'x', 'real bB kernel var: which graphic frame player0 shows'],
+  ['player1frame', 'y', 'real bB kernel var: which graphic frame player1 shows'],
+  ['newbackground', 'z', 'real bB kernel var: which background is currently selected'],
 ];
 
 const ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
@@ -361,6 +371,21 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
 
+  // Whether the project actually uses any block that can make a message
+  // scroll, or that reads/controls in-progress scroll state - as opposed to
+  // plain, always-static "Show text"/"Show text ID"/"Show text [literal]"
+  // blocks, which (per text-scroll.js's own maxOffsetExpr===0 fast path)
+  // never touch the scroll dev vars at all. Gates reserveTextScrollDevVars
+  // below AND generateTextScrollAdvance's own per-frame splice (see its
+  // own comment in text-scroll.js) - a project using only plain, static
+  // Show-text blocks has no use for ANY of the 6 scroll dev vars, and used
+  // to reserve all 6 anyway just because the Text Minikernel was active at
+  // all, a real reported bug ("why are text scroll variables reserved when
+  // there are no text scroll blocks in the project").
+  const TEXT_SCROLL_BLOCK_TYPES = ['text_minikernel_show_named_scroll', 'text_minikernel_show_scroll',
+    'text_minikernel_show_by_id_scroll', 'text_minikernel_scroll_control', 'text_minikernel_scroll_at'];
+  this.textScrollUsed = workspace.getAllBlocks(false).some((block) => TEXT_SCROLL_BLOCK_TYPES.includes(block.type));
+
   // Same early block-type pre-scan reasoning as textMinikernelUsed just
   // above, for sprite_player0_rom_noise/sprite_player1_rom_noise (see
   // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) -
@@ -453,14 +478,18 @@ Blockly.BBasic.init = function(workspace) {
   // dedicated, properly-declared variable (REPEAT_BOUND_VAR_NAME below),
   // not a shared scratch register like temp1 - has to be known before
   // reserveDevVar hands out user variable letters below, well before that
-  // block's own generator would otherwise run. Reserved whenever ANY
-  // repeat block exists at all, regardless of whether ITS OWN count
-  // expression actually turns out to need it - simpler and safer than
-  // replicating that same "is this expression complex enough" check here
-  // a second time, at the cost of reserving one byte a plain-number-count
-  // project never technically needed.
+  // block's own generator would otherwise run.
   this.repeatLoopUsed = workspace.getAllBlocks(false).some((block) =>
     (block.type === 'controls_repeat_ext' || block.type === 'controls_repeat') && block.isEnabled());
+  // Same pre-scan, but specifically for whether REPEAT_BOUND_VAR_NAME
+  // itself is needed - repeatBoundVarNeeded (generators/bbasic/loops.js)
+  // mirrors controls_repeat_ext's own generator to tell a plain-literal/
+  // bare-variable count (never needs the var) apart from a genuinely
+  // complex one (the only case that does), so a project whose every
+  // "Repeat" block uses a simple count doesn't reserve this at all.
+  this.repeatBoundVarUsed = workspace.getAllBlocks(false).some((block) =>
+    (block.type === 'controls_repeat_ext' || block.type === 'controls_repeat') && block.isEnabled() &&
+    repeatBoundVarNeeded(block, Blockly));
 
   // Same early pre-scan reasoning as repeatLoopUsed just above, for
   // WAIT_FRAMES_COUNTER_VAR_NAME (see its own comment in
@@ -541,19 +570,14 @@ Blockly.BBasic.init = function(workspace) {
   // backgroundGetPixelXVarName/backgroundGetPixelYVarName comment) - this
   // block normally uses bB's free temp1/temp2 scratch registers at no dev-
   // var cost at all, UNLESS it's nested inside a function_define block's own
-  // body, where temp1-temp6 are ALSO bB's fixed argument-passing convention
-  // and could otherwise get silently clobbered - only that specific,
-  // uncommon nesting actually needs (and reserves) these two dev vars.
-  const isInsideFunctionDefine = (block) => {
-    let ancestor = block.getParent();
-    while (ancestor) {
-      if (ancestor.type === 'function_define') return true;
-      ancestor = ancestor.getParent();
-    }
-    return false;
-  };
+  // body AND at least one of its own X/Y arguments is a non-simple
+  // expression (temp1-temp6 are ALSO bB's fixed argument-passing convention,
+  // so only THAT combination could otherwise silently clobber a function's
+  // own live parameter) - backgroundGetPixelDevVarsNeeded mirrors the
+  // generator's own useDevVars/isSimple checks exactly, rather than the
+  // coarser "nested in a function at all" check this used to make do with.
   this.backgroundGetPixelUsed = workspace.getAllBlocks(false)
-      .some((block) => block.type === 'background_get_pixel' && isInsideFunctionDefine(block));
+      .some((block) => block.type === 'background_get_pixel' && backgroundGetPixelDevVarsNeeded(block));
 
   // Same idea, for function_call_statement's own discarded-return-value
   // scratch var (see generators/bbasic/function.js's own comment on
@@ -865,9 +889,12 @@ Blockly.BBasic.init = function(workspace) {
 
   // Same bucket again, for the Text Minikernel's own per-character
   // scrolling feature (see generators/bbasic/text-scroll.js) - a no-op
-  // unless textMinikernelUsed's own early pre-scan (above) found it active,
-  // same reasoning as scoreBkColorNeedsOwnVar just above.
-  reserveTextScrollDevVars(reserveDevVar, this.textMinikernelUsed);
+  // unless textScrollUsed's own early pre-scan (above) found a genuine
+  // scroll-related block on the canvas, same reasoning as
+  // scoreBkColorNeedsOwnVar just above. Gated on textScrollUsed, not plain
+  // textMinikernelUsed - a project using only plain, static "Show text"
+  // blocks needs none of these.
+  reserveTextScrollDevVars(reserveDevVar, this.textScrollUsed);
 
   // Same bucket again, for the ROM noise feature's own per-player state (see
   // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) - a
@@ -910,9 +937,9 @@ Blockly.BBasic.init = function(workspace) {
 
   // Same bucket again, for "repeat" loops whose own count is a complex
   // expression (see REPEAT_BOUND_VAR_NAME's own comment) - a no-op unless
-  // repeatLoopUsed's own early pre-scan (above) found a repeat block at
-  // all.
-  if (this.repeatLoopUsed) {
+  // repeatBoundVarUsed's own early pre-scan (above) found a repeat block
+  // whose own count genuinely needs it, not just any repeat block at all.
+  if (this.repeatBoundVarUsed) {
     reserveDevVar(REPEAT_BOUND_VAR_NAME, undefined, '"Repeat X times" own bound, when X is a complex expression');
   }
   // Same bucket again, for the "repeat" block's own for-loop variable
@@ -945,14 +972,28 @@ Blockly.BBasic.init = function(workspace) {
   // generateEnvelopeChecks) - a plain byte, not packed into the shared
   // envelopeConfig nibble pair (var47), since it needs the full 0-32 range
   // (up to ENVELOPE_STAGE_FRAME_OPTIONS' own max of 16 frames each for
-  // attack AND decay) rather than a 4-bit index. Only reserved when an
-  // envelope is actually used anywhere in the project (either a Sound
-  // Effect or a Music-tab instrument note - see this.projectMusic's own
-  // channelHasEnvelope, resolved above) - a plain "Play sound"/Music-tab
-  // project with no envelopes pays nothing.
-  if (anySoundEffectHasEnvelope() || (this.projectMusic && this.projectMusic.channelHasEnvelope[0]) ||
-    (this.projectMusic && this.projectMusic.channelHasEnvelope[1])) {
+  // attack AND decay) rather than a 4-bit index. Reserved independently per
+  // channel - soundEffectChannelHasEnvelope checks that SPECIFIC channel's
+  // own soundfx_play blocks (CHANNEL is a fixed field, known at compile
+  // time), same as projectMusic's own channelHasEnvelope already does for
+  // Music tracks - a project using envelope only on one channel doesn't pay
+  // for the other, and a Sound tab preset with Envelope on that's never
+  // actually triggered anywhere costs nothing at all.
+  // Stashed on "this" (not just a local) so generateEnvelopeChecks below can
+  // read the exact same per-channel decision later and skip building (and
+  // so skip resolving) that channel's own dispatch section entirely when
+  // it's false - envelopeStageNUsed has to stay in lockstep with whether
+  // that var was actually reserved, or a channel this skips reserving for
+  // would still get referenced by unconditionally-generated asm, and DASM
+  // would fail on an undeclared symbol.
+  this.envelopeStage0Used =
+    soundEffectChannelHasEnvelope(workspace, '0') || !!(this.projectMusic && this.projectMusic.channelHasEnvelope[0]);
+  this.envelopeStage1Used =
+    soundEffectChannelHasEnvelope(workspace, '1') || !!(this.projectMusic && this.projectMusic.channelHasEnvelope[1]);
+  if (this.envelopeStage0Used) {
     reserveDevVar('envelopeStage0', undefined, 'channel 0\'s own attack+decay frame countdown');
+  }
+  if (this.envelopeStage1Used) {
     reserveDevVar('envelopeStage1', undefined, 'channel 1\'s own attack+decay frame countdown');
   }
 
@@ -3075,7 +3116,7 @@ Blockly.BBasic.generateAnimations = function() {
   const player1Code = processAnimations('player1', usePlayer1Storage());
   return player0Code + '\n\n\n' + player1Code;
 };
-import background from './bbasic/background';
+import background, {backgroundGetPixelDevVarsNeeded} from './bbasic/background';
 import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';
@@ -3085,13 +3126,14 @@ import event from './bbasic/event';
 import functionGenerators from './bbasic/function';
 import input from './bbasic/input';
 import logic from './bbasic/logic';
-import loops, {REPEAT_BOUND_VAR_NAME, REPEAT_COUNTER_VAR_NAME, WAIT_FRAMES_COUNTER_VAR_NAME} from './bbasic/loops';
+import loops, {REPEAT_BOUND_VAR_NAME, REPEAT_COUNTER_VAR_NAME, WAIT_FRAMES_COUNTER_VAR_NAME,
+  repeatBoundVarNeeded} from './bbasic/loops';
 import math from './bbasic/math';
 import music from './bbasic/music';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
-import soundfx, {anySoundEffectHasEnvelope, resetEnvelopeConfigs} from './bbasic/soundfx';
+import soundfx, {soundEffectChannelHasEnvelope, resetEnvelopeConfigs} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';

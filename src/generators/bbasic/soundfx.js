@@ -53,6 +53,32 @@ export const anySoundEffectHasEnvelope = () => {
   }
 };
 
+// Same idea, but for one SPECIFIC channel - unlike anySoundEffectHasEnvelope
+// above (deliberately "any preset, anywhere," since that's what decides
+// whether the shared envelopeConfig byte/per-frame check/data tables need to
+// exist in the ROM AT ALL), this is for generators/bbasic.js's own
+// envelopeStage0/envelopeStage1 reservation, which needs to know PER CHANNEL
+// whether it's actually needed. CHANNEL is a fixed dropdown field on
+// soundfx_play (not a runtime expression - see blocks/soundfx.js), so which
+// channel each trigger targets is fully known at compile time, the same way
+// resolveProjectMusic's own per-channel channelHasEnvelope already is for
+// Music tracks - this only differs by also requiring the block to actually
+// reference a preset with Envelope on, not just exist.
+export const soundEffectChannelHasEnvelope = (workspace, channel) => {
+  try {
+    const configurationStorage = useConfigurationStorage();
+    if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return false;
+    const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
+    return workspace.getAllBlocks(false).some((block) =>
+      block.type === 'soundfx_play' && block.isEnabled() &&
+      `${block.getFieldValue('CHANNEL')}` === `${channel}` &&
+      data.soundEffects.some((soundEffect) =>
+        `${soundEffect.id}` === `${block.getFieldValue('SOUNDFX')}` && !!soundEffect.envelope));
+  } catch (e) {
+    return false;
+  }
+};
+
 // Whether any Music-tab channel actually plays an envelope-enabled
 // instrument note - reads this.projectMusic (set once in
 // generators/bbasic.js's own init(), before any of the functions below ever
@@ -306,8 +332,15 @@ export default (Blockly) => {
     if (!configs.length) return '';
     const channel0 = this.nameDB_.getName('channnel0duration', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const channel1 = this.nameDB_.getName('channnel1duration', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const stage0 = this.nameDB_.getName('envelopeStage0', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const stage1 = this.nameDB_.getName('envelopeStage1', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // Lazy (not resolved up front) - resolveVar/nameDB_.getName allocates a
+    // real letter the first time it's called, independent of whether
+    // generators/bbasic.js's own reservation gate (envelopeStage0Used/
+    // envelopeStage1Used) actually reserved it, so these can only be called
+    // from inside each channel's own section below, guarded by that exact
+    // same flag - same hazard/fix shape as buildTextScrollSetupLines' own
+    // comment in text-scroll.js.
+    const stage0 = () => this.nameDB_.getName('envelopeStage0', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const stage1 = () => this.nameDB_.getName('envelopeStage1', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const channelHasMusicEnvelope = (this.projectMusic || {}).channelHasEnvelope || {};
 
     // A channel's own remaining-frames-until-the-note-ends source is
@@ -381,35 +414,54 @@ export default (Blockly) => {
       return lines;
     };
 
-    const remaining0 = buildRemainingVar('0', channel0);
-    const remaining1 = buildRemainingVar('1', channel1);
+    // Each channel's own section (the runtime "is this channel's own nibble
+    // actually a real config, or NO_ENVELOPE_SENTINEL" guard, plus its own
+    // dispatch) is only built at all - and so only ever resolves that
+    // channel's own stage var - when generators/bbasic.js's own pre-scan
+    // (envelopeStage0Used/envelopeStage1Used) found it genuinely needed;
+    // omitted entirely otherwise, so a project using envelope on only one
+    // channel never references (or reserves) the other channel's own var.
+    const channel0Section = (() => {
+      if (!this.envelopeStage0Used) return [];
+      const remaining0 = buildRemainingVar('0', channel0);
+      return [
+        '       lda envelopeConfig',
+        '       and #$0F',
+        '       cmp #' + NO_ENVELOPE_SENTINEL,
+        '       beq _envelope0_done',
+        ...remaining0.lines,
+        '       lda envelopeConfig',
+        '       and #$0F',
+        '       tax',
+        ...buildChannelDispatch('0', '0', remaining0.remainingVar, stage0()),
+      ];
+    })();
+    const channel1Section = (() => {
+      if (!this.envelopeStage1Used) return [];
+      const remaining1 = buildRemainingVar('1', channel1);
+      return [
+        '       lda envelopeConfig',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       cmp #' + NO_ENVELOPE_SENTINEL,
+        '       beq _envelope1_done',
+        ...remaining1.lines,
+        '       lda envelopeConfig',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       tax',
+        ...buildChannelDispatch('1', '1', remaining1.remainingVar, stage1()),
+      ];
+    })();
 
     return [
       ' asm',
-      '       lda envelopeConfig',
-      '       and #$0F',
-      '       cmp #' + NO_ENVELOPE_SENTINEL,
-      '       beq _envelope0_done',
-      ...remaining0.lines,
-      '       lda envelopeConfig',
-      '       and #$0F',
-      '       tax',
-      ...buildChannelDispatch('0', '0', remaining0.remainingVar, stage0),
-      '       lda envelopeConfig',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       cmp #' + NO_ENVELOPE_SENTINEL,
-      '       beq _envelope1_done',
-      ...remaining1.lines,
-      '       lda envelopeConfig',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       tax',
-      ...buildChannelDispatch('1', '1', remaining1.remainingVar, stage1),
+      ...channel0Section,
+      ...channel1Section,
       'end',
     ].join('\n');
   };

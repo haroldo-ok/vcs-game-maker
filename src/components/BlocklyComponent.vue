@@ -571,6 +571,20 @@ export default {
       document.fonts.load('normal 11px "IBM Plex Mono"').catch(() => {}).then(() => {
         if (!this.workspace) return;
         this.workspace.getAllBlocks(false).forEach((block) => block.render());
+        // The toolbox flyout is a genuinely separate sub-workspace (its own
+        // blocks, its own earlier text measurement race) - getAllBlocks
+        // above only walks the MAIN workspace, so a category open at the
+        // moment the font finishes loading still stayed the wrong size
+        // until it was closed and reopened, a real reported recurrence of
+        // this same bug. getFlyout() returns null whenever no category is
+        // currently open (nothing to fix yet - the flyout measures fresh,
+        // correctly, the next time one IS opened, by which point the font
+        // load below has long since resolved).
+        const flyout = this.workspace.getFlyout && this.workspace.getFlyout();
+        const flyoutWorkspace = flyout && flyout.getWorkspace && flyout.getWorkspace();
+        if (flyoutWorkspace) {
+          flyoutWorkspace.getAllBlocks(false).forEach((block) => block.render());
+        }
       });
     }
 

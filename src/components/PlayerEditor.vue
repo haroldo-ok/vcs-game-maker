@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text>
         <div class="editor-toolbar-row">
@@ -17,9 +17,11 @@
             <v-list-item-content>
               <v-card
                 outlined
+                :ripple="false"
                 class="animation-card"
-                :class="dragCardClass(index)"
+                :class="[dragCardClass(index), {'animation-card-selected': animation.id === selectedCardId}]"
                 v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(animation.id)"
               >
                 <div
                   class="animation-drag-handle"
@@ -387,6 +389,22 @@ export default defineComponent({
       frame.rowColors = next;
     };
 
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards and the other tabs' own entry cards (see
+    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // component state, not persisted, not wired into anything else. Shared
+    // between Player 0 and Player 1 (both just PlayerEditor with different
+    // props), each with its own independent selection since they're
+    // separate component instances.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
+    };
+
     const playerStorage = props.storageFactory();
     const state = computed({
       get() {
@@ -638,7 +656,8 @@ export default defineComponent({
       });
     };
 
-    return {state, handleChildChange,
+    return {selectedCardId, selectCard, deselectCard,
+      state, handleChildChange,
       handleAddFrame, handleDeleteFrame, handleResizeAllFrames,
       handleAddAnimation, handleDeleteAnimation, handleSetPreviewScale,
       handleRowColorsInput, editorRowColors, spriteColorsEnabled,
@@ -689,8 +708,16 @@ export default defineComponent({
   margin-top: 12px;
 }
 
+/* overflow: visible added alongside the padding reset (see MusicEditor.vue's
+   own identical fix) - stops this element's default "overflow: hidden" from
+   clipping a selected card's own 2px outline - min-width: 0 has to come
+   with it (same comment there for the full explanation): overflow: visible
+   silently undoes a flex item's own default 0 min-width, letting it refuse
+   to shrink below its own widest content instead of the tab's width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 /* Same rounded, thin-bordered look as the Sound/Data/Text/Music tabs' own

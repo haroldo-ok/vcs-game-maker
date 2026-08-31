@@ -331,13 +331,13 @@ const computeVariableUsage = () => {
 // bank number too (see KERNEL_BANK_BY_ROMSIZE's identical values and
 // duplicated-on-purpose comment in generators/bbasic/text-minikernel.js) -
 // always the single highest-numbered bank for the ROM's size.
-const computeBankContents = (maxBanks) => {
+const computeBankContents = (maxBanks, textMinikernelActive) => {
   const banks = getRelocationBanks();
   const contents = {};
   for (let bank = 1; bank <= maxBanks; bank++) {
     contents[bank] = {
       events: [], backgrounds: [], player0Sprites: [], player1Sprites: [], music: [], subroutines: [],
-      dataTables: [], textMinikernel: false,
+      dataTables: [], textMinikernel: false, bankOverhead: false,
     };
   }
   const place = (list, names, bankMap, labelFn) => {
@@ -387,8 +387,30 @@ const computeBankContents = (maxBanks) => {
           if (contents[bank]) contents[bank].dataTables.push(table.name || `Unnamed ${table.id}`);
         });
       });
-  if (BlocklyBB.isTextMinikernelActive() && contents[maxBanks]) {
+  // textMinikernelActive is passed in by the caller (captured at the exact
+  // moment THIS build's own regenerateCode() ran) rather than read fresh off
+  // BlocklyBB.isTextMinikernelActive() here - this function runs well after
+  // that, following the real async compile/assemble steps, and BlocklyBB is
+  // a shared singleton reused across every workspaceToCode() call (see its
+  // own comment in generators/bbasic.js) - anything else touching it in the
+  // meantime (e.g. the Actions tab's own live code preview,
+  // ActionEditor.vue's own workspaceToCode call) can flip textMinikernelUsed
+  // back before this ever reads it, silently dropping the Text Minikernel's
+  // own real bank-8-ish usage from the display - a real reported bug (the
+  // top bank showing real used bytes with no "Text Minikernel" entry to
+  // account for them).
+  if (textMinikernelActive && contents[maxBanks]) {
     contents[maxBanks].textMinikernel = true;
+  }
+  // generateRelocatedSections (generators/bbasic.js) always declares this
+  // exact top bank on a bankswitched, non-Text-Minikernel build, even with
+  // nothing relocated into it, so DASM pads it to full size instead of
+  // truncating the assembled binary - that costs real bytes (bB's own
+  // per-bank bankswitch entry code), but none of the categories above ever
+  // account for it, so the top bank showed used space with an empty content
+  // list whenever nothing else happened to be relocated there.
+  if (!textMinikernelActive && maxBanks > 1 && contents[maxBanks]) {
+    contents[maxBanks].bankOverhead = true;
   }
   return contents;
 };
@@ -783,7 +805,8 @@ export const buildRom = async () => {
       // measurement from a since-changed ROM size would misinform rather
       // than help.
       setRomCapacity(capacity ?
-        {...capacity, romSize: config.romSize, bankContents: maxBanks ? computeBankContents(maxBanks) : undefined,
+        {...capacity, romSize: config.romSize,
+          bankContents: maxBanks ? computeBankContents(maxBanks, textMinikernelActive) : undefined,
           variableUsage: computeVariableUsage()} :
         capacity);
       // Remembers THIS build's own final layout as the next build's own

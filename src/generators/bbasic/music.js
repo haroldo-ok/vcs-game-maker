@@ -583,6 +583,22 @@ export const musicPlayByIdArgVarName = () => '_musicPlayByIdArg';
 // advances, to pick which song's own Seq table (see musicSeqTableName) to
 // consult - see generateMusicChecks' own seqTableLookup comment.
 export const musicSongIndexVarName = () => '_musicSongIndex';
+// Snapshots musicSongIndexVarName's own value at the exact moment a song
+// naturally finishes (see generateMusicChecks' own finishCheck, right
+// alongside where it sets musicJustStoppedBit) - lets music_song_stopped_by_
+// id/_by_number (see their own generators below) tell WHICH song just
+// stopped apart from "a song, some song, stopped", without needing a
+// dedicated pooled bit per watched song the way music_sequence_chip_
+// finished_by_id does (that system exists because MULTIPLE chip-finished
+// watches can be genuinely simultaneous/overlapping; only one song is ever
+// playing - and so ever stopping - at a time, so one shared "which song"
+// byte is enough. Stays correctly matched to musicJustStoppedBit even if
+// left unconsumed for a while - see the two "by" blocks' own comments - a
+// later real stop always overwrites both together. Only reserved once the
+// project actually has a music_song_stopped_by_id/_by_number block AND more
+// than one song (see usesFilteredSongStopped/multiSong in
+// reserveMusicDevVars) - a single-song project has nothing to distinguish.
+export const musicJustStoppedSongVarName = () => '_musicJustStoppedSong';
 // Current song's own sequence.length - replaces the literal constant the
 // single-song version of generateMusicChecks' wrap check still uses
 // directly, since that number now varies by whichever song is playing. Set
@@ -789,10 +805,19 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   // Merges into the previous event when it holds the exact same register
   // values, envelope flag, arpeggio speed/interval/range, AND
   // notePlayedIndex (e.g. two adjacent rests) - same audio, fewer bytes.
-  // notePlayedIndex is included in the merge check for the same reason the
-  // others are: two adjacent notes from DIFFERENT instruments that happen to
-  // share identical register values must never merge into one event, or one
-  // of their own "note played" watches would silently stop firing for it.
+  // Never merges two AUDIBLE events (audv > 0) together, even when every
+  // field matches exactly - each placed note is its own distinct attack the
+  // user put on the piano roll, not a continuation of whatever happened to
+  // precede it. Merging two adjacent same-pitch notes from the SAME
+  // instrument used to collapse them into a single held note: harmless for
+  // raw TIA audio (no discontinuity either way without an envelope), but it
+  // silently dropped one of the two notes' own "note played" watch firings
+  // (see resolveNotePlayedInstruments) and any timing a project's own logic
+  // derives from note boundaries - reported directly as "notes next to each
+  // other, on the same pitch, blending into a single note". Merging rests
+  // into each other (or into a following identical rest) is still safe and
+  // desired - a rest never fires a note-played watch and has no boundary
+  // for anything to observe.
   // Left un-chunked here on purpose: chunking to the per-channel
   // frame-per-byte limit only happens once, in a final pass below (see the
   // final chunking pass), so a long merged run always splits into the
@@ -804,7 +829,8 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     if (frames <= 0) return;
     const events = perChannel[channel];
     const prev = events[events.length - 1];
-    if (prev && prev.audv === audv && prev.audc === audc && prev.audf === audf && prev.envelope === envelope &&
+    if (prev && !(prev.audv > 0 && Number(audv) > 0) &&
+      prev.audv === audv && prev.audc === audc && prev.audf === audf && prev.envelope === envelope &&
       prev.arpeggioSpeed === arpeggioSpeed && prev.arpeggioInterval === arpeggioInterval &&
       prev.arpeggioRange === arpeggioRange && prev.notePlayedIndex === notePlayedIndex &&
       prev.envelopeAttack === envelopeAttack && prev.envelopeDecay === envelopeDecay &&
@@ -1194,6 +1220,13 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return null;
 
   const usesSongById = workspace.getAllBlocks(false).some((block) => block.type === 'music_play_song_by_id');
+  // Whether this project's own "When song has stopped playing" watches ever
+  // need to filter by which specific song stopped (music_song_stopped_by_id/
+  // _by_number), rather than firing for whichever song happens to stop -
+  // gates musicJustStoppedSongVarName's own reservation below (see its own
+  // comment) the same way usesSongById gates musicPlayByIdArgVarName's.
+  const usesFilteredSongStopped = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'music_song_stopped_by_id' || block.type === 'music_song_stopped_by_number');
   const referencedIds = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'music_play_song') referencedIds.add(`${block.getFieldValue('SONG')}`);
@@ -1432,6 +1465,7 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     channelHasEnvelope,
     channelHasArpeggio,
     usesSongById,
+    usesFilteredSongStopped,
     songSeqOffset,
     combinedSeqTables,
     notePlayedChannelsById,
@@ -1542,6 +1576,14 @@ export const reserveMusicDevVars = (reserveDevVar, music, musicEventFlags) => {
     if (music.usesSongById) {
       reserveDevVar(musicPlayByIdArgVarName(), undefined, '"Play song by ID" own runtime song-id argument');
     }
+    // Only "When song [name]/[id] has stopped playing" actually reads/writes
+    // this - the plain "When song has stopped playing" (no song specified)
+    // never needs to know WHICH song stopped, so a project using only that
+    // one pays nothing extra for it.
+    if (music.usesFilteredSongStopped) {
+      reserveDevVar(musicJustStoppedSongVarName(), undefined,
+          'which song (its own songIndex) most recently stopped, for the "by id"/"by number" song-stopped watches');
+    }
   }
 };
 
@@ -1650,7 +1692,10 @@ export default (Blockly) => {
   // music_song_stopped and music_song_stopped_by_id below - identical
   // behavior, the latter just also carries a SONG dropdown for readability
   // (see its own comment in blocks/music.js for why it's a separate block
-  // rather than an added field on this one).
+  // rather than an added field on this one). Used directly for the plain
+  // music_song_stopped block (fires for ANY song), and as the fallback for
+  // music_song_stopped_by_id/_by_number on a single-song project (see their
+  // own comments below) - nothing to filter by there either way.
   const generateSongStopped = (block) => {
     const music = Blockly.BBasic.projectMusic;
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
@@ -1668,8 +1713,96 @@ export default (Blockly) => {
     '\n';
   };
   Blockly.BBasic['music_song_stopped'] = generateSongStopped;
-  Blockly.BBasic['music_song_stopped_by_id'] = generateSongStopped;
-  Blockly.BBasic['music_song_stopped_by_number'] = generateSongStopped;
+
+  // Filters generateSongStopped's own shared flag by WHICH song actually
+  // stopped (see musicJustStoppedSongVarName's own comment) - previously
+  // shared generateSongStopped verbatim with every OTHER song-stopped
+  // block, firing for whichever song happened to stop regardless of this
+  // one's own SONG dropdown, a real reported bug. Target is known at
+  // COMPILE time here (a fixed dropdown), so this only needs one constant
+  // comparison, unlike music_song_stopped_by_number below.
+  Blockly.BBasic['music_song_stopped_by_id'] = function(block) {
+    const music = Blockly.BBasic.projectMusic;
+    if (!music) return '';
+    // Nothing to filter by on a single-song project - there's only ever
+    // one possible song to have stopped, same reasoning as
+    // musicJustStoppedSongVarName's own multiSong reservation gate.
+    if (music.songs.length <= 1) return generateSongStopped(block);
+    const songId = Number(block.getFieldValue('SONG'));
+    const target = music.songs.find((s) => s.songId === songId);
+    // A stale dropdown (song deleted, or never actually included by
+    // resolveProjectMusic - e.g. nothing ever plays it) has no runtime
+    // songIndex to match against at all - permanently no-ops, same leniency
+    // generateMusicEventCheck's own "target is null" case already uses
+    // elsewhere in this file.
+    if (!target) return '';
+    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelEnd = `_music_stopped_${blockNumber}_end`;
+    const flagBit = `${resolveVar(musicFlagsVarName())}{${musicJustStoppedBit}}`;
+    return '\n' +
+    [
+      `if !${flagBit} then goto ${labelEnd}`,
+      // Deliberately does NOT clear flagBit when the song doesn't match -
+      // some OTHER watch (a different song's own by-id/by-number block, or
+      // a plain music_song_stopped) may still need to see it fire this same
+      // frame. musicJustStoppedSongVarName always reflects the MOST RECENT
+      // stop (updated alongside flagBit itself in generateMusicChecks) - a
+      // genuinely stale, never-consumed flag can only go on to match a
+      // LATER, real stop of THIS SAME target song; it can never spuriously
+      // read as a match for the wrong reason.
+      `if ${resolveVar(musicJustStoppedSongVarName())} <> ${target.songIndex} then goto ${labelEnd}`,
+      `${flagBit} = 0`,
+      code,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
+
+  // Same filtering as music_song_stopped_by_id above, but the target song
+  // is a runtime VALUE (a variable or computed expression), not a fixed
+  // dropdown - there's no single compile-time songIndex to compare
+  // musicJustStoppedSongVarName() against directly. Dispatches the other
+  // way instead: for whichever song musicJustStoppedSongVarName() says
+  // just stopped, compares THAT song's own real id against the runtime
+  // value - the same "if songIndexVar = N then check id N" shape
+  // buildMusicPlayByIdBody already uses for the opposite (id -> index)
+  // direction, and the same "if A then if B then C" nested-single-line-if
+  // batari Basic syntax already used elsewhere (e.g. real bB reference code:
+  // "if joy0left then if player0x > 1 then gosub move_left").
+  Blockly.BBasic['music_song_stopped_by_number'] = function(block) {
+    const music = Blockly.BBasic.projectMusic;
+    if (!music) return '';
+    if (music.songs.length <= 1) return generateSongStopped(block);
+    // Same ORDER_NONE as music_play_song_by_id's own identical SONG_ID
+    // field, for the same reason - this substitutes into a plain "if X = Y"
+    // comparison here rather than an assignment, but needs the same loose
+    // precedence either way.
+    const targetId = Blockly.BBasic.valueToCode(block, 'SONG_ID', Blockly.BBasic.ORDER_NONE) || '0';
+    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+    const blockNumber = Blockly.BBasic.blockNumbers.next();
+    const labelEnd = `_music_stopped_${blockNumber}_end`;
+    const labelMatch = `_music_stopped_${blockNumber}_match`;
+    const flagBit = `${resolveVar(musicFlagsVarName())}{${musicJustStoppedBit}}`;
+    const songVar = resolveVar(musicJustStoppedSongVarName());
+    const dispatch = music.songs.map((song) =>
+      `if ${songVar} = ${song.songIndex} then if ${targetId} = ${song.songId} then goto ${labelMatch}`);
+    return '\n' +
+    [
+      `if !${flagBit} then goto ${labelEnd}`,
+      ...dispatch,
+      // No song matched (including the "flag stale/never consumed by
+      // anyone" case) - same "leave flagBit alone" reasoning as
+      // music_song_stopped_by_id above, so any other watch still gets its
+      // own chance to see it.
+      `goto ${labelEnd}`,
+      `@ ${labelMatch}`,
+      `${flagBit} = 0`,
+      code,
+      `@ ${labelEnd}`,
+    ].join('\n') +
+    '\n';
+  };
 
   // Same one-shot check-and-clear shape as generateSongStopped above (the
   // flag itself is set elsewhere - see resolveMusicEventFlags' own comment
@@ -2672,11 +2805,19 @@ export default (Blockly) => {
       // Otherwise some other channel is still playing, so only this
       // channel's own audio mutes.
       const otherChannels = allChannels.filter((other) => other !== channel);
+      // Snapshots which song this was (see musicJustStoppedSongVarName's own
+      // comment) right alongside justStoppedBit itself, only once a "by id"/
+      // "by number" song-stopped watch actually exists to read it back -
+      // multiSong-gated the same way songIndexVar itself is (a single-song
+      // project has nothing for this to ever distinguish).
+      const justStoppedSongSet = multiSong && music.usesFilteredSongStopped ?
+        [` ${resolveVar(musicJustStoppedSongVarName())} = ${songIndexVar}`] : [];
       const finishCheck = [
         ...otherChannels.map((other) =>
           ` if ${activeBitByChannel[other]} then goto _music${channel}_skip`),
         ` ${playingBit} = 0`,
         ` ${justStoppedBit} = 1`,
+        ...justStoppedSongSet,
       ];
 
       // Plain bB two-line check, not a hand-optimized "inline"-d .asm gate

@@ -27,6 +27,23 @@ import {getNamedScrollLayout, registerFreeTypedScrollMessage, buildTextScrollSet
 // bbasic.js's own BANKSWITCHED_ROM_SIZES duplicate).
 const KERNEL_BANK_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
 
+// Resolves a literal "math_number" field's own text to a real JS number, or
+// null if it isn't one of the literal forms that block's own field
+// validator accepts (see blocks/math.js) - decimal, $1F/0x1F hex, or
+// %1010/0b1010 binary. Used by text_minikernel_show_by_id_scroll below to
+// recognize "Scroll text ID [a literal number]" specifically, so that ONE
+// exact entry's own maxOffset can be checked instead of falling back to
+// "does anything in the whole project scroll."
+const parseLiteralNumberField = (raw) => {
+  const text = String(raw).trim();
+  if (/^\$[0-9a-fA-F]+$/.test(text)) return parseInt(text.slice(1), 16);
+  if (/^0[xX][0-9a-fA-F]+$/.test(text)) return parseInt(text.slice(2), 16);
+  if (/^%[01]+$/.test(text)) return parseInt(text.slice(1), 2);
+  if (/^0[bB][01]+$/.test(text)) return parseInt(text.slice(2), 2);
+  if (/^-?\d+$/.test(text)) return Number(text);
+  return null;
+};
+
 // Converts text into a fixed-width row of glyph tokens for the
 // "data text_strings" table: upper-cased, unsupported characters become
 // spaces, and the result is always exactly TEXT_MESSAGE_LENGTH tokens long.
@@ -116,7 +133,8 @@ export default (Blockly) => {
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const uniqueId = Blockly.BBasic.blockNumbers.next('textScroll');
-    const lines = buildTextScrollSetupLines(resolveVar, offsetExpr, maxOffsetExpr, speed, pause, uniqueId);
+    const lines = buildTextScrollSetupLines(
+        resolveVar, offsetExpr, maxOffsetExpr, speed, pause, uniqueId, Blockly.BBasic.isTextScrollActive());
     return lines.join('\n') + '\n';
   };
 
@@ -174,13 +192,46 @@ export default (Blockly) => {
     Blockly.BBasic.usesDivMul = true;
     return emitScrollSetup(`(${argument0}) * ${TEXT_MESSAGE_LENGTH}`, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
   };
-  // Scroll by-id block: which entry gets shown isn't known until runtime,
-  // so unlike the compile-time-known blocks above, this needs an actual
-  // runtime table lookup - see trackTextByIdScrollUsage/
-  // generateTextOffsetTables' own comments in text-scroll.js.
+  // Scroll by-id block: normally WHICH entry gets shown isn't known until
+  // runtime, so the offset needs the real "text_offsets[id]" table lookup -
+  // but every entry's own maxOffset is Text tab data, known at compile time
+  // either way, so two levels of shortcut apply before falling back to an
+  // actual runtime "text_scroll_max[id]" table read:
+  //  1. A literal number plugged directly into VALUE (e.g. "Scroll text ID
+  //     3") means the exact entry is ALSO known at compile time here, same
+  //     as the named blocks above - resolve straight to that one entry's
+  //     own maxOffset (same layout[position] indexing
+  //     text_minikernel_show_named_scroll uses, since this block's own
+  //     tooltip documents the same "position on the Text tab" numbering).
+  //  2. Otherwise the id is only known at runtime, but if NO entry in the
+  //     WHOLE project is long enough to ever scroll, text_scroll_max[id]
+  //     would read 0 for every possible id regardless of which one gets
+  //     picked - same fast path, just proven a different way.
+  // trackTextByIdScrollUsage (which pulls the scrollable append-region data
+  // into the ROM at all) is only ever called on the genuine fallback path,
+  // where a real runtime table lookup is unavoidable.
   Blockly.BBasic['text_minikernel_show_by_id_scroll'] = function(block) {
     markTextMinikernelUsed();
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const layout = getNamedScrollLayout();
+
+    const valueBlock = block.getInputTargetBlock('VALUE');
+    const literalId = valueBlock && valueBlock.type === 'math_number' ?
+      parseLiteralNumberField(valueBlock.getFieldValue('NUM')) : null;
+    if (literalId != null) {
+      // Both halves are compile-time literals here (not just maxOffset) -
+      // entry.offset is the exact same value text_offsets[literalId] would
+      // have read from the table at runtime, so using it directly also
+      // skips that table read, the same way the plain named blocks above
+      // never touch text_offsets at all.
+      const entry = layout[literalId] || layout[0];
+      return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
+    }
+
+    if (!layout.some((entry) => entry.maxOffset > 0)) {
+      return emitScrollSetup(`text_offsets[${argument0}]`, 0, ...scrollFieldCodes(block));
+    }
+
     trackTextByIdScrollUsage(Blockly, Blockly.BBasic.getCurrentBank());
     return emitScrollSetup(
         `text_offsets[${argument0}]`, `text_scroll_max[${argument0}]`, ...scrollFieldCodes(block));
@@ -207,6 +258,12 @@ export default (Blockly) => {
     // 0 for free (see TEXT_SCROLL_DIR_BIT's own comment) - no separate write
     // needed, unlike the "Pause"/"Unpause" actions in
     // text_minikernel_scroll_control, which specifically must NOT do that.
+    // Same "resolveVar allocates a real letter the first time it's called,
+    // independent of reserveTextScrollDevVars' own reservation" hazard as
+    // buildTextScrollSetupLines' own comment in text-scroll.js - only
+    // resolved (and only written) when the project actually has some other
+    // scroll-related block that could ever read base/farEnd/state at all.
+    if (!Blockly.BBasic.isTextScrollActive()) return `TextIndex = 0\n`;
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const base = resolveVar(textScrollBaseVarName());
@@ -310,6 +367,16 @@ export default (Blockly) => {
   // know this well before any block's own generator runs.
   Blockly.BBasic.isTextMinikernelActive = function() {
     return !!this.textMinikernelUsed;
+  };
+
+  // Whether the project uses any block that can actually make a message
+  // scroll or that reads/controls in-progress scroll state - see the
+  // textScrollUsed pre-scan in bbasic.js for exactly which block types
+  // count. Drives both reserveTextScrollDevVars (bbasic.js) and
+  // generateTextScrollAdvance's own splice (text-scroll.js) - a project
+  // using only plain, static "Show text" blocks needs neither.
+  Blockly.BBasic.isTextScrollActive = function() {
+    return !!this.textScrollUsed;
   };
 
   // TextIndex/TextDataPtr sit in var44/var46 (2 bytes: var46+var47) - scratch

@@ -62,6 +62,10 @@
         <v-btn to="/project" link text class="project-item" title="Project" elevation="0">
           <v-icon>mdi-pencil-ruler</v-icon>
         </v-btn>
+
+        <v-btn to="/about" link text class="about-item" title="About" elevation="0">
+          <v-icon>mdi-information-outline</v-icon>
+        </v-btn>
     </v-app-bar>
 
     <v-navigation-drawer
@@ -230,6 +234,19 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Project</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/about"
+          link
+          class="about-item"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-information-outline</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>About</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
       </v-list>
@@ -738,6 +755,7 @@ export default {
           .filter(([, names]) => names.length)
           .map(([label, names]) => ({label, names: names.join(', ')}));
       if (contents.textMinikernel) parts.push({label: 'Text Minikernel', names: ''});
+      if (contents.bankOverhead) parts.push({label: 'Bank switching overhead', names: ''});
       return parts;
     },
     // Javatari's own size is whatever it chose at startup, so scale it to the
@@ -1128,6 +1146,66 @@ export default {
 .text-card,
 .song-card {
   border-color: rgba(0, 0, 0, 0.24) !important;
+}
+
+/* Card-level click-to-select (see selectCard/selectedCardId/deselectCard in
+   MusicEditor.vue/SoundFXEditor.vue) - shared here, once, the same way the
+   border-color darkening just above and .editor-container squaring below
+   already are, rather than duplicating this same CSS in every tab that
+   adds the feature. Suppresses every v-card--link side effect (Vuetify's
+   own default for ANY v-card with a click listener - a pointer cursor,
+   ripple, and a hover/focus/active darkening overlay via ::before) on both
+   a selectable card AND its own tab's outer editor-container (whose own
+   click clears the selection - see deselectCard) - the ONLY visual effect
+   either should have is the selected card's own outline below, nothing
+   else. Add a tab's own MAIN card class (matching the list just above) to
+   both selector groups here when wiring up a new tab. */
+.soundfx-card.v-card--link,
+.song-card.v-card--link,
+.text-card.v-card--link,
+.data-card.v-card--link,
+.animation-card.v-card--link,
+.background-card.v-card--link,
+.editor-container.v-card--link {
+  cursor: default;
+}
+.soundfx-card.v-card--link::before,
+.song-card.v-card--link::before,
+.text-card.v-card--link::before,
+.data-card.v-card--link::before,
+.animation-card.v-card--link::before,
+.background-card.v-card--link::before,
+.editor-container.v-card--link::before {
+  display: none !important;
+}
+.soundfx-card.v-card--link:hover,
+.song-card.v-card--link:hover,
+.text-card.v-card--link:hover,
+.data-card.v-card--link:hover,
+.animation-card.v-card--link:hover,
+.background-card.v-card--link:hover,
+.editor-container.v-card--link:hover {
+  box-shadow: none !important;
+}
+
+/* Recolors a selected card's own border to the app's primary blue, plus a
+   2px outline (drawn outside the border edge, never part of layout/box-
+   sizing, so a card's own content never shifts when selected) for extra
+   visual weight. Both need !important: border-color beats v-sheet--
+   outlined's own rule on specificity, and outline-style needs to beat
+   Vuetify's own base stylesheet, which resets "outline: 0" on .v-card -
+   without it, only outline-color/outline-width actually applied (confirmed
+   directly: outline-STYLE stayed "none", so nothing ever painted) and the
+   selected card visually looked like nothing but the border-color change
+   had happened at all. */
+.soundfx-card-selected,
+.song-card-selected,
+.text-card-selected,
+.data-card-selected,
+.animation-card-selected,
+.background-card-selected {
+  border-color: var(--v-primary-base, #1976d2) !important;
+  outline: 2px solid var(--v-primary-base, #1976d2) !important;
 }
 
 /* Every tab's own main window card shares this exact class name
@@ -2046,6 +2124,17 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .sound-item > .v-list-item__content {
   color: rgb(156, 39, 176) !important;
   border-left-color: rgb(156, 39, 176) !important;
+}
+
+/* Never had a color rule of its own before this - fell back to the same
+   unstyled default color the About tab (also with no rule of its own)
+   happens to render with, making the two tabs look identically colored
+   even though they're unrelated. */
+.music-item,
+.music-item > .v-list-item__icon > .theme--light.v-icon,
+.music-item > .v-list-item__content {
+  color: rgb(0, 188, 212) !important;
+  border-left-color: rgb(0, 188, 212) !important;
 }
 
 .text-tab-item,
