@@ -446,7 +446,10 @@ export const resolveSeekArrivedWatches = (workspace) => {
   return watched;
 };
 
-const buildMissileBlocks = ({name, description, icon, colour}) => {
+// Missile-only (NUSIZ0/1 width/copies) - the ball has its own separate
+// width mechanism (CTRLPF, see reserveCtrlpfShadowDevVar in
+// generators/bbasic/sprites.js), so this is never called for it.
+const buildMissileSizeBlock = ({name, description, icon, colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for changing a player's size and quantity.
     {
@@ -464,6 +467,14 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
       colour,
       'extensions': ['math_change_tooltip'],
     },
+  ]);
+};
+
+// Shared by missile0/missile1/ball - see createGeneratorForFireBall in
+// generators/bbasic/sprites.js for the fully name-generic trigger/per-frame
+// movement this drives; nothing here is missile-specific.
+const buildFireBlock = ({name, description, icon, colour}) => {
+  Blockly.defineBlocksWithJsonArray([
     // Fires this missile from the given starting X/Y, moving at the given
     // angle/speed until it goes off-screen, where it just stops (see
     // generateMissileFireChecks) - its own Height/visibility is left
@@ -515,7 +526,7 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
         'player\'s own X/Y position blocks, for a traditional "fire from the player" missile), ' +
         'moving it automatically (a few pixels every frame) until it goes off-screen, where it ' +
         `simply stops moving - ${description}'s own Height/visibility is never touched by this ` +
-        'block, so it never changes size or disappears on its own; use "Missile: set Height" ' +
+        `block, so it never changes size or disappears on its own; use "${description}: set Height" ` +
         'yourself if you want it hidden once it stops. Angle is 0-7 ' +
         '(0=Up, 1=Up-Right, 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left, clockwise ' +
         'from Up) - plug in a "Joystick direction (8-way)" block to fire toward wherever the ' +
@@ -532,6 +543,34 @@ const buildMissileBlocks = ({name, description, icon, colour}) => {
         'inside an "every X frames" block, slows the actual in-flight movement down to that same ' +
         'rate (one step every X frames) instead of moving every frame regardless - unchecked (the ' +
         'default), it always moves every frame once fired, no matter what wraps this block.',
+    },
+  ]);
+};
+
+// Shared by missile0/missile1/ball, same as buildFireBlock above - reverses
+// whichever direction this object was last fired at (see sprite_*_fire)
+// by a flat 180 degrees (e.g. angle 2/Right becomes 6/Left) so it heads back
+// the way it came. Deliberately just that one thing, no built-in screen-edge
+// or collision detection of its own (confirmed with the user: no "gravity"/
+// physics, just the direction flip) - place this behind whatever collision
+// check (e.g. collision_get) or screen-edge check the user's own project
+// already needs, same "trigger block, no detection built in" shape as
+// sprite_*_fire itself leaving throttling/rate-limiting up to the user.
+const buildBounceBlock = ({name, description, icon, colour}) => {
+  Blockly.defineBlocksWithJsonArray([
+    {
+      'type': `sprite_${name}_bounce`,
+      'message0': `${icon} Bounce ${description}`,
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': `Reverses ${description}'s currently fired direction (see "Fire ${description}") ` +
+        'by 180 degrees, so it heads back the way it came - e.g. Right becomes Left, Up-Right ' +
+        'becomes Down-Left. Just the direction flip, nothing else: place this behind whatever ' +
+        `check decides ${description} should bounce (a collision block, a screen-edge X/Y ` +
+        `comparison, etc.) - it doesn't detect anything on its own. Has no effect if ${description} ` +
+        'hasn\'t been fired (or has already gone off-screen and stopped) - reversing a "no ' +
+        'direction" state is harmless, but does nothing useful.',
     },
   ]);
 };
@@ -602,7 +641,21 @@ buildSpriteBlocks({
   options: buildMissileOptions('missile0'),
 });
 
-buildMissileBlocks({
+buildMissileSizeBlock({
+  name: 'missile0',
+  description: 'Missile 0',
+  icon: MISSILE_ICON,
+  colour: 'red',
+});
+
+buildFireBlock({
+  name: 'missile0',
+  description: 'Missile 0',
+  icon: MISSILE_ICON,
+  colour: 'red',
+});
+
+buildBounceBlock({
   name: 'missile0',
   description: 'Missile 0',
   icon: MISSILE_ICON,
@@ -617,7 +670,21 @@ buildSpriteBlocks({
   options: buildMissileOptions('missile1'),
 });
 
-buildMissileBlocks({
+buildMissileSizeBlock({
+  name: 'missile1',
+  description: 'Missile 1',
+  icon: MISSILE_ICON,
+  colour: 'blue',
+});
+
+buildFireBlock({
+  name: 'missile1',
+  description: 'Missile 1',
+  icon: MISSILE_ICON,
+  colour: 'blue',
+});
+
+buildBounceBlock({
   name: 'missile1',
   description: 'Missile 1',
   icon: MISSILE_ICON,
@@ -633,6 +700,20 @@ buildSpriteBlocks({
   writeOnlyOptions: [
     [HEIGHT_ICON + ' Width', 'ballwidth'],
   ],
+});
+
+buildFireBlock({
+  name: 'ball',
+  description: 'Ball',
+  icon: BALL_ICON,
+  colour: '#ff8800',
+});
+
+buildBounceBlock({
+  name: 'ball',
+  description: 'Ball',
+  icon: BALL_ICON,
+  colour: '#ff8800',
 });
 
 // The Atari 2600 only has one priority switch for the whole screen: it can't

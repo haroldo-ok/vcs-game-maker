@@ -782,7 +782,8 @@ export const musicChannelsUsedBySong = (song) => {
 // A pattern's own encoded data is therefore always the same regardless of
 // where in a sequence it's referenced, which is exactly what makes reusing
 // it safe.
-const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}, notePlayedIndexById = new Map()) => {
+const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}, notePlayedIndexById = new Map(),
+    channelHasEnvelopeOverride = null) => {
   const perChannel = {};
   channels.forEach((channel) => {
     perChannel[channel] = [];
@@ -968,7 +969,23 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   // its tail.
   const chunked = {};
   Object.entries(perChannel).forEach(([channel, events]) => {
-    const hasEnvelope = events.some((event) => event.envelope);
+    // Reader side (generateMusicChecks) masks off the duration byte's bit 7
+    // based on channelHasEnvelope[channel] - OR'd across EVERY pattern on
+    // this channel (see resolveProjectMusic, ~line 1381), not just this one
+    // pattern. Chunking here MUST cap to the same MAX_EVENT_FRAMES_WITH_ENVELOPE
+    // limit whenever the reader will apply that mask, even if THIS pattern
+    // alone has no enveloped notes - otherwise a long rest/note in an
+    // envelope-free pattern can write a duration byte with bit 7 legitimately
+    // part of the frame count, which the reader then silently strips,
+    // truncating that note's duration by up to 128 frames and desyncing this
+    // channel's timing (reported as "missing notes"). channelHasEnvelopeOverride
+    // is null only when this function is called before that global flag is
+    // known yet (see the pre-pass in resolveProjectMusic that computes it) -
+    // in that case falling back to this pattern's own local scope is safe,
+    // since that pre-pass only cares whether ANY event.envelope is true, which
+    // chunking preserves regardless of maxFrames.
+    const hasEnvelope = channelHasEnvelopeOverride ? channelHasEnvelopeOverride[channel] :
+      events.some((event) => event.envelope);
     chunked[channel] = [];
     events.forEach(({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
       notePlayedIndex, envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease}) => {
@@ -1318,6 +1335,41 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     });
   });
 
+  // Whether ANY pattern, from ANY included song, ever plays an enveloped
+  // note on this channel - needed BEFORE the real encoding pass below runs
+  // (not derived incrementally as it goes), because generateMusicChecks'
+  // own duration-byte read (see its own hasEnvelope comment) masks off bit 7
+  // per CHANNEL, project-wide, not per pattern. Passing this precomputed,
+  // already-global flag into flattenPatternEvents (as channelHasEnvelopeOverride)
+  // makes its own duration-byte chunking use the exact same scope the reader
+  // will use - previously it recomputed a PATTERN-local hasEnvelope instead
+  // (see flattenPatternEvents' own now-updated comment), so a channel mixing
+  // one enveloped pattern with another, ordinary pattern could legitimately
+  // write a long rest/note's duration byte with bit 7 set as part of the raw
+  // frame count in the ordinary pattern, which the reader then silently
+  // stripped 128 frames from - cutting that note/rest short and reported as
+  // "missing notes", including on channels/notes that never enabled envelope
+  // themselves at all. Computed the same way channelHasEnvelope itself is
+  // (musicChannelHasEnvelope on flattenPatternEvents' own un-chunked-scope-
+  // agnostic output - envelope presence survives chunking regardless of
+  // maxFrames, see flattenPatternEvents' own isFinalChunk handling), just
+  // run as its own pre-pass, mirroring instrumentBytes' pre-pass just above.
+  const channelHasEnvelopeGlobal = {};
+  channels.forEach((channel) => {
+    channelHasEnvelopeGlobal[channel] = false;
+  });
+  resolvedSongs.forEach(({song}) => {
+    const distinctPatternIds = [...new Set((song.sequence || []).map((group) => `${group.patternId}`))];
+    distinctPatternIds.forEach((patternId) => {
+      const pattern = (song.patterns || []).find(({id: pid}) => `${pid}` === patternId);
+      if (!pattern) return;
+      const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById);
+      Object.entries(perChannel).forEach(([channel, events]) => {
+        if (musicChannelHasEnvelope(events)) channelHasEnvelopeGlobal[channel] = true;
+      });
+    });
+  });
+
   const channelPages = {};
   const channelHasEnvelope = {};
   const channelHasArpeggio = {};
@@ -1372,7 +1424,8 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     distinctPatternIds.forEach((patternId) => {
       const pattern = (song.patterns || []).find(({id: pid}) => `${pid}` === patternId);
       if (!pattern) return;
-      const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById);
+      const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById,
+          channelHasEnvelopeGlobal);
       Object.entries(perChannel).forEach(([channel, events]) => {
         const pages = eventsToPages(events, getInstrumentIndex);
         patternStartPage[channel][patternId] = channelPages[channel].length;
@@ -2001,14 +2054,16 @@ export default (Blockly) => {
     // indexed by an ENVELOPE_CHANGE_SENTINEL marker's own runtime byte (see
     // buildEnvelopeMarkerSubroutine below). Generated HERE - as part of
     // musicEngine's own relocatable payload - rather than alongside
-    // _envelopeAd{n}/_envelopeRel{n} (always bank-1-fixed, see
-    // generateEnvelopeDataTables in soundfx.js): those are only ever read
-    // by generateEnvelopeChecks, which is ALSO bank-1-fixed, so they're
-    // safe together; this table is read by musicEngine's own code, which
-    // can get relocated to a different bank entirely, so it has to travel
-    // WITH that code instead (see resumeRead's own comment just below on
-    // this exact class of bug - a table and the code reading it must
-    // always share a bank, with no tag needed when they do).
+    // _envelopeAd{n}/_envelopeRel{n} (see buildEnvelopeDataTables in
+    // soundfx.js, itself now folded into generateEnvelopeChecks' own
+    // separate relocatable payload, wrapRelocatableGraphics('soundfxEnvelopeChecks', ...)
+    // - the two units can land in DIFFERENT banks from each other, so each
+    // has to carry its own copy of whatever data its own code reads): this
+    // table is read by musicEngine's own code specifically, which can get
+    // relocated independently, so it has to travel WITH that code instead
+    // (see resumeRead's own comment just below on this exact class of bug -
+    // a table and the code reading it must always share a bank, with no tag
+    // needed when they do).
     const anyChannelHasEnvelope = Object.values(music.channelHasEnvelope || {}).some(Boolean);
     const envelopeAdLenTable = anyChannelHasEnvelope ? (() => {
       const configs = getEnvelopeConfigs();

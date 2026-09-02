@@ -21,8 +21,9 @@ import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
   backgroundFadeTimerVarName, backgroundFadePaceVarName, backgroundFadeTargetVarName,
   fadeFlagsVarName, backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks} from '../blocks/background';
-import {functionCallDiscardVarName} from '../blocks/function';
+import {functionCallDiscardVarName, functionCallArgVarName, MAX_FUNCTION_ARGS} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
+import {textShowByIdArgVarName} from '../blocks/text-strings';
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
@@ -30,7 +31,9 @@ import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {keypadKeyVarName} from '../utils/keypad';
 import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
-  reserveJoystickDirection8DevVars, generateJoystickDirection8Checks} from './bbasic/input';
+  reserveJoystickDirection8DevVars, generateJoystickDirection8Checks,
+  reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
+  generateJoystickButtonChecks, generateJoystickDoubleTapChecks} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
 import {scoreBkColorVarName} from './bbasic/score';
 import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
@@ -386,6 +389,13 @@ Blockly.BBasic.init = function(workspace) {
     'text_minikernel_show_by_id_scroll', 'text_minikernel_scroll_control', 'text_minikernel_scroll_at'];
   this.textScrollUsed = workspace.getAllBlocks(false).some((block) => TEXT_SCROLL_BLOCK_TYPES.includes(block.type));
 
+  // Same early block-type pre-scan reasoning as textScrollUsed just above,
+  // for "Show text with ID"/"Scroll text ID"'s own dedicated capture var
+  // (see textShowByIdArgVarName's own comment in blocks/text-strings.js) -
+  // has to be known before reserveDevVar hands out user variable letters.
+  this.textShowByIdUsed = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'text_minikernel_show_by_id' || block.type === 'text_minikernel_show_by_id_scroll');
+
   // Same early block-type pre-scan reasoning as textMinikernelUsed just
   // above, for sprite_player0_rom_noise/sprite_player1_rom_noise (see
   // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) -
@@ -420,13 +430,17 @@ Blockly.BBasic.init = function(workspace) {
   });
 
   // Same early block-type pre-scan reasoning as romNoiseUsedFor above, for
-  // sprite_missile0_fire/sprite_missile1_fire (see reserveMissileFireDevVars'
-  // own comment in generators/bbasic/sprites.js) - has to be known before
-  // reserveDevVar hands out user variable letters below.
+  // sprite_missile0_fire/sprite_missile1_fire/sprite_ball_fire (see
+  // reserveMissileFireDevVars' own comment in generators/bbasic/sprites.js)
+  // - has to be known before reserveDevVar hands out user variable letters
+  // below. sprite_${name}_bounce counts too, not just _fire - it reads/
+  // writes the exact same dirVar (see its own generator's comment), so a
+  // project using Bounce without ever placing a matching Fire block still
+  // needs dirVar reserved.
   this.missileFireUsedFor = new Set();
-  ['missile0', 'missile1'].forEach((name) => {
+  ['missile0', 'missile1', 'ball'].forEach((name) => {
     if (workspace.getAllBlocks(false).some((block) =>
-      block.type === `sprite_${name}_fire` && block.isEnabled())) {
+      (block.type === `sprite_${name}_fire` || block.type === `sprite_${name}_bounce`) && block.isEnabled())) {
       this.missileFireUsedFor.add(name);
     }
   });
@@ -563,6 +577,35 @@ Blockly.BBasic.init = function(workspace) {
     if (workspace.getAllBlocks(false).some((block) => block.type === `input_${name}_direction8`)) {
       this.joyDirection8UsedFor.add(name);
     }
+  });
+
+  // Same idea, for the combined "Fire [tapped/held/released/double-tapped]"
+  // block (see generators/bbasic/input.js's own reserveJoystickButtonDevVars
+  // comment) - one block type, any MODE counts, since all four modes read
+  // from the same shared held/prev/justReleased/lastPressFrames dev vars for
+  // a given joystick.
+  this.joyButtonUsedFor = new Set();
+  ['joy0', 'joy1'].forEach((name) => {
+    if (workspace.getAllBlocks(false).some((block) => block.type === `input_${name}_fire_pattern`)) {
+      this.joyButtonUsedFor.add(name);
+    }
+  });
+
+  // Same idea as distancePointChecks below, for MODE="DOUBLE_TAP" instances
+  // of that same combined block (see generators/bbasic/input.js's
+  // joyDoubleTapResultVarName/joyDoubleTapTimerVarName comment) - each
+  // instance gets its own hidden result+timer pair rather than sharing one,
+  // since different instances on the same joystick can each have their own
+  // FRAMES field value.
+  this.joyDoubleTapChecks = new Map();
+  let joyDoubleTapIndex = 0;
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type !== 'input_joy0_fire_pattern' && block.type !== 'input_joy1_fire_pattern') return;
+    if (block.getFieldValue('MODE') !== 'DOUBLE_TAP') return;
+    joyDoubleTapIndex++;
+    const name = block.type === 'input_joy0_fire_pattern' ? 'joy0' : 'joy1';
+    const window = Math.max(1, Math.min(255, Math.round(Number(block.getFieldValue('FRAMES')) || 20)));
+    this.joyDoubleTapChecks.set(block.id, {name, window, index: joyDoubleTapIndex});
   });
 
   // Same idea, for "Background get pixel" blocks' own X/Y scratch dev vars
@@ -862,6 +905,9 @@ Blockly.BBasic.init = function(workspace) {
   // generators/bbasic/function.js's own function_call_statement).
   if (this.functionCallStatementUsed) {
     reserveDevVar(functionCallDiscardVarName(), undefined, 'calling a Function as a bare statement discards its return value here');
+    for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
+      reserveDevVar(functionCallArgVarName(i), undefined, `calling a Function as a bare statement passes argument ${i} through here`);
+    }
   }
 
   // Same bucket again, for the collision-check backtrack bytes (see the
@@ -895,6 +941,15 @@ Blockly.BBasic.init = function(workspace) {
   // textMinikernelUsed - a project using only plain, static "Show text"
   // blocks needs none of these.
   reserveTextScrollDevVars(reserveDevVar, this.textScrollUsed);
+
+  // Same bucket again, for "Show text with ID"/"Scroll text ID"'s own
+  // dedicated capture var (see textShowByIdArgVarName's own comment in
+  // blocks/text-strings.js) - a no-op unless textShowByIdUsed's own early
+  // pre-scan (above) found either block used anywhere.
+  if (this.textShowByIdUsed) {
+    reserveDevVar(textShowByIdArgVarName(), undefined,
+        '"Show text with ID"/"Scroll text ID": captures the ID once before using it, safe even inside a Function');
+  }
 
   // Same bucket again, for the ROM noise feature's own per-player state (see
   // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) - a
@@ -934,6 +989,18 @@ Blockly.BBasic.init = function(workspace) {
   // input.js) - a no-op unless joyDirection8UsedFor's own early pre-scan
   // (above) found it used.
   reserveJoystickDirection8DevVars(reserveDevVar, this.joyDirection8UsedFor);
+
+  // Same bucket again, for the Fire tap/hold/released/double-tap blocks'
+  // own shared per-joystick state (see reserveJoystickButtonDevVars' own
+  // comment in generators/bbasic/input.js) - a no-op unless joyButtonUsedFor's
+  // own early pre-scan (above) found any of them used.
+  reserveJoystickButtonDevVars(reserveDevVar, this.joyButtonUsedFor);
+
+  // Same bucket again, for each "Fire double-tapped" block's own per-
+  // instance result+timer pair (see reserveJoystickDoubleTapDevVars' own
+  // comment in generators/bbasic/input.js) - a no-op unless
+  // joyDoubleTapChecks' own early pre-scan (above) found any such blocks.
+  reserveJoystickDoubleTapDevVars(reserveDevVar, this.joyDoubleTapChecks);
 
   // Same bucket again, for "repeat" loops whose own count is a complex
   // expression (see REPEAT_BOUND_VAR_NAME's own comment) - a no-op unless
@@ -1224,10 +1291,25 @@ Blockly.BBasic.init = function(workspace) {
   // always ends in an explicit "return <value>" from a function_return
   // block, never an auto-appended bare "return") don't fit
   // generateSubroutineBody's shared wrapper - see generateFunctions() below.
-  // Always bank 1 in this first implementation (see generateFunctions'
-  // own comment) - unlike subroutines, functions don't participate in
-  // getSubroutineBank/generateRelocatedSections at all yet.
+  // Relocatable as its own atomic unit (see getFunctionBank/
+  // generateRelocatedSections) - but only ever as part of a "family" grouped
+  // with every OTHER function/wrapper subroutine it calls (or is called by)
+  // as a plain value expression (see hooks/rom.js's computeFunctionFamilies):
+  // unlike gosub/goto, a bB function-call expression has no bank-tag syntax
+  // of its own, so anything using it as a value can only ever share ITS
+  // bank, never cross into a different one.
   this.functions = {};
+
+  // Every function_call_statement wrapper subroutine's own resolved name
+  // (see registerFunctionCallWrapper in generators/bbasic/function.js) -
+  // tracked separately from this.subroutines' own keys so hooks/rom.js's
+  // computeFunctionFamilies can tell a wrapper apart from an ordinary
+  // user-authored subroutine without guessing from its name. A wrapper's
+  // own body is a plain value-form call into the function it wraps (the
+  // whole reason it has to join that function's own relocation family,
+  // unlike whatever calls the WRAPPER, which does so via a bank-taggable
+  // "gosub" and is free to relocate independently).
+  this.functionCallWrapperNames = new Set();
 
   // See RUN_ONCE_EDGE_RESET_NAME's own comment - registered as an ordinary
   // subroutine (rather than left as a separately-templated, always-bank-1
@@ -1272,6 +1354,7 @@ Blockly.BBasic.usedRelocationBankNumbers = function() {
     ...Object.values(banks.graphicsBanks || {}),
     ...Object.values(banks.musicBanks || {}),
     ...Object.values(banks.subroutineBanks || {}),
+    ...Object.values(banks.functionBanks || {}),
   ].filter((bank) => bank !== 1));
 };
 
@@ -1310,6 +1393,56 @@ Blockly.BBasic.estimateSubroutineSize = function(name) {
   return (Blockly.BBasic.subroutines[name] || '').length;
 };
 
+// Same idea as getSubroutineBank, for user-defined functions (see
+// generators/bbasic/function.js) - a separate bucket (functionBanks) since a
+// function is only ever relocated as part of a "family" (see hooks/rom.js's
+// computeFunctionFamilies), never entirely independently the way an event or
+// an ordinary subroutine can be.
+Blockly.BBasic.getFunctionBank = function(name) {
+  const functionBanks = getRelocationBanks().functionBanks || {};
+  return functionBanks[name] || 1;
+};
+
+// Every function name currently defined - dynamic, same reasoning as
+// getSubroutineNames.
+Blockly.BBasic.getFunctionNames = function() {
+  return Object.keys(Blockly.BBasic.functions);
+};
+
+// A function's own generated source length, as a rough, fast proxy for its
+// compiled size - same rationale as estimateSubroutineSize.
+Blockly.BBasic.estimateFunctionSize = function(name) {
+  return (Blockly.BBasic.functions[name] || '').length;
+};
+
+// True if the given already-generated code text calls ANY bB function (see
+// generators/bbasic/function.js) via a plain VALUE-form call (a bare
+// "name(args)" - either function_call directly, or function_call_statement's
+// own wrapper subroutine body, see registerFunctionCallWrapper). Unlike
+// gosub/goto, that expression has no bank-tag syntax of its own - it
+// compiles to a plain same-bank call, so calling one from code that's been
+// relocated to a different bank jumps to whatever happens to be paged in
+// there instead of the function's own body, corrupting execution regardless
+// of what the function itself does (confirmed directly: a real project's
+// title_start crashed the ROM in the emulator the moment it called ANY
+// function, purely from being relocated off bank 1 by this app's own
+// automatic bank-fitting).
+//
+// Used by hooks/rom.js's own pickRelocationCandidate two different ways: an
+// ordinary event or user-authored subroutine matching this stays excluded
+// from independent relocation entirely (still pinned to bank 1, unchanged
+// from this app's first bank-switching implementation) - but a function or
+// function_call_statement WRAPPER subroutine matching this instead joins
+// whatever it references as part of one shared relocation "family" (see
+// computeFunctionFamilies), free to move together to any bank with room, not
+// just bank 1. Checks the already-generated code text (not the Blockly block
+// tree) for the same reason estimateEventSize/estimateSubroutineSize already
+// read generated code back rather than re-deriving from blocks.
+Blockly.BBasic.codeReferencesAnyFunction = function(codeText) {
+  const names = Object.keys(Blockly.BBasic.functions);
+  return names.length > 0 && names.some((name) => codeText.includes(`${name}(`));
+};
+
 // The bank the code currently being generated will end up in - either the
 // event currently being walked, or bank 1 if this is the main per-frame loop
 // (which is not relocatable; see the bank-targeting feasibility notes).
@@ -1334,9 +1467,20 @@ Blockly.BBasic.estimateSubroutineSize = function(name) {
 // gameplay_start and setScene happened to share the same relocated bank,
 // even though the call site itself was really still in bank 1.
 const SUBROUTINE_EVENT_NAME_PREFIX = 'subroutine_';
+// function_define (generators/bbasic/function.js) sets currentEventName to
+// this prefix instead of SUBROUTINE_EVENT_NAME_PREFIX above - a DISTINCT
+// prefix, not reused, specifically so getCurrentBank can resolve a function's
+// own bank through getFunctionBank (backed by functionBanks/
+// computeFunctionFamilies) rather than getSubroutineBank, which knows nothing
+// about functions and would silently default every one of them back to bank
+// 1 regardless of where its family actually landed.
+const FUNCTION_EVENT_NAME_PREFIX = 'function_';
 Blockly.BBasic.getCurrentBank = function() {
   const eventName = Blockly.BBasic.currentEventName;
   if (!eventName) return 1;
+  if (eventName.startsWith(FUNCTION_EVENT_NAME_PREFIX)) {
+    return Blockly.BBasic.getFunctionBank(eventName.slice(FUNCTION_EVENT_NAME_PREFIX.length));
+  }
   if (eventName.startsWith(SUBROUTINE_EVENT_NAME_PREFIX)) {
     return Blockly.BBasic.getSubroutineBank(eventName.slice(SUBROUTINE_EVENT_NAME_PREFIX.length));
   }
@@ -1581,6 +1725,8 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
   const musicEntries = Object.entries(Blockly.BBasic.relocatableMusicUnits);
   const subroutineEntries = Object.entries(Blockly.BBasic.subroutines)
       .filter(([name]) => Blockly.BBasic.getSubroutineBank(name) !== 1);
+  const functionEntries = Object.entries(Blockly.BBasic.functions)
+      .filter(([name]) => Blockly.BBasic.getFunctionBank(name) !== 1);
 
   // The single HIGHEST bank the chosen ROM size promises always needs its
   // own "bank N ... bank 1" section, even with nothing relocated into it -
@@ -1647,6 +1793,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     ...graphicsEntries.map(([, unit]) => unit.bank),
     ...musicEntries.map(([, unit]) => unit.bank),
     ...subroutineEntries.map(([name]) => Blockly.BBasic.getSubroutineBank(name)),
+    ...functionEntries.map(([name]) => Blockly.BBasic.getFunctionBank(name)),
     ...everyDeclaredBank,
   ])].filter((bank) => bank !== 1);
 
@@ -1691,6 +1838,9 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     const subroutineBodies = subroutineEntries
         .filter(([name]) => Blockly.BBasic.getSubroutineBank(name) === bank)
         .map(([name, body]) => generateSubroutineBody(name, body));
+    const functionBodies = functionEntries
+        .filter(([name]) => Blockly.BBasic.getFunctionBank(name) === bank)
+        .map(([name, body]) => generateFunctionBody(name, body));
     const tablesForBank = Blockly.BBasic.generateDataTables(bank);
     const textOffsetTablesForBank = generateTextOffsetTables(Blockly, bank);
     return [
@@ -1699,6 +1849,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
       ...graphicsBodies,
       ...musicBodies,
       ...subroutineBodies,
+      ...functionBodies,
       tablesForBank,
       textOffsetTablesForBank,
       ` bank 1`,
@@ -1763,7 +1914,6 @@ Blockly.BBasic.finish = function(code) {
   Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
   const generatedDataTables = Blockly.BBasic.generateDataTables(1);
-  const generatedEnvelopeDataTables = Blockly.BBasic.generateEnvelopeDataTables();
   const generatedRomNoiseChecks = generateRomNoiseChecks(Blockly);
   const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
@@ -1798,6 +1948,12 @@ Blockly.BBasic.finish = function(code) {
   // side effect (the nibble packing math needs mul8/div8), which
   // generateDivMul() then reads to decide whether to inline div_mul.asm.
   const generatedChannelDurationChecks = Blockly.BBasic.generateChannelDurationChecks();
+  // Also has to run before generateRelocatedSections() below (same reasoning
+  // as generatedMusicChecks' own comment just below this) - it now registers
+  // its own "soundfxEnvelopeChecks" unit into relocatableGraphicsUnits (see
+  // wrapRelocatableGraphics' own call site at the end of generateEnvelopeChecks
+  // in generators/bbasic/soundfx.js), which that call needs to already be
+  // there to actually place it in a relocated bank's own section.
   const generatedEnvelopeChecks = Blockly.BBasic.generateEnvelopeChecks();
   // No ordering constraint of its own - background_fade_to's usesDivMul
   // side effect already happened during the main workspaceToCode() pass
@@ -1819,6 +1975,14 @@ Blockly.BBasic.finish = function(code) {
   // to run before generateDivMul() below, since it may set usesDivMul as a
   // side effect.
   const generatedJoystickDirection8Checks = generateJoystickDirection8Checks(Blockly);
+  // Same splice region as generatedJoystickDirection8Checks just above - no
+  // usesDivMul (or any other) side effects of its own, so no ordering
+  // constraint relative to generateDivMul() below, but generateJoystickDoubleTapChecks
+  // (right after) DOES depend on this having already run THIS SAME PASS
+  // (it reads justReleasedVar, which this is what actually computes each
+  // frame - see that function's own comment).
+  const generatedJoystickButtonChecks = generateJoystickButtonChecks(Blockly);
+  const generatedJoystickDoubleTapChecks = generateJoystickDoubleTapChecks(Blockly);
   // Has to run before generateDivMul() below: its own POINT input can be
   // any value block, including one that sets usesDivMul as a side effect
   // (e.g. a math_arithmetic divide) - generateDivMul() only sees whatever
@@ -1836,6 +2000,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedKeypadPollCall = Blockly.BBasic.generateKeypadPollCall();
   const generatedKeypadSetup = Blockly.BBasic.generateKeypadSetup();
   const generatedCtrlpfShadowSetup = generateCtrlpfShadowSetup(Blockly);
+  const generatedBackgroundFadeSetup = Blockly.BBasic.generateBackgroundFadeSetup();
 
   this.isInitialized = false;
 
@@ -1854,7 +2019,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedBody = definitions.filter((definition) => definition.trim() !== '').join('\n\n') +
     '\n\n\n' + code;
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
-    generatedAnimations, generatedDataTables, generatedEnvelopeDataTables, generatedRomNoiseChecks,
+    generatedAnimations, generatedDataTables, generatedRomNoiseChecks,
     generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
     generatedSeekChecks,
     generatedTextOffsetTables, generatedJoyDir8Table,
@@ -1865,9 +2030,9 @@ Blockly.BBasic.finish = function(code) {
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedChannelDurationChecks,
     generatedEnvelopeChecks, hasSoundHandling, hasFadeRoutines,
     generatedBackgroundFadeChecks, generatedMusicChecks, generatedDistanceChecks, generatedDistancePointChecks,
-    generatedJoystickDirection8Checks,
+    generatedJoystickDirection8Checks, generatedJoystickButtonChecks, generatedJoystickDoubleTapChecks,
     generatedTextScrollAdvance, generatedScoreBkColorAsm, generatedRunOnceEdgeReset,
-    generatedKeypadPollCall, generatedKeypadSetup, generatedCtrlpfShadowSetup});
+    generatedKeypadPollCall, generatedKeypadSetup, generatedCtrlpfShadowSetup, generatedBackgroundFadeSetup});
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the
@@ -2953,9 +3118,9 @@ Blockly.BBasic.generateSubroutines = function() {
       .join('\n\n');
 };
 
-// Splices every user-defined function (see function_define in
-// generators/bbasic/function.js) into the same never-fallen-into spot
-// generateSubroutines uses, right alongside it - "function <name>" is
+// Builds one function's own "function <name> ... @end" block - shared by
+// generateFunctions (bank 1) and generateRelocatedSections (any other bank)
+// below, mirroring generateSubroutineBody's own split. "function <name>" is
 // batari Basic's own real header for this (not a bare "@name" label), and
 // the body already ends in an explicit "return <value>" from a
 // function_return block, so unlike generateSubroutineBody this never
@@ -2965,9 +3130,58 @@ Blockly.BBasic.generateSubroutines = function() {
 // mistake, not something to paper over) a bare valueless "return" that
 // doesn't match the "always returns a number" contract every function_call
 // site assumes.
+//
+// "function ... end" needs a literal closing "end", exactly like
+// "data ... end"/"asm ... end" - confirmed directly against the reference bB
+// compiler's own source: endfunction() exists specifically to reset
+// doingfunction back to 0 when it sees that keyword ("if (!doingfunction)
+// prerror('extraneous end keyword encountered')"), meaning bB's own parser
+// expects one. This was missing here entirely at first - a genuine,
+// pre-existing bug (not introduced by any generator that fills in a
+// function's own body), confirmed as the actual cause of a real
+// "auto: failed" emulator crash: with no explicit terminator, the function's
+// own compiled body has nothing marking where it ends, corrupting whatever
+// assembles right after it. "@end" (not a bare "end") for the same reason
+// generateSubroutineBody's own "@name" label uses it - normalizeIndents
+// below indents every line by default, but a "@"-prefixed line has that
+// prefix (and the indent it would otherwise get) stripped back to column 0
+// in its own second pass, matching the same "data ${name}\n...\nend" shape
+// unindented "end" lines already use everywhere else in this codebase.
+//
+// "return 0" unconditionally appended right before "@end" - a SECOND,
+// independently real bug, exposed cleanly by a fully-disabled function body
+// (no reachable function_return block left at all): unlike a subroutine
+// (which always falls through into an auto-appended trailing "return" - see
+// generateSubroutineBody), a function has NO implicit exit of its own; it
+// only ever exits via an explicit "return <value>" from a function_return
+// block. A body with no reachable return at all (every function_return
+// disabled/removed, or more generally any code path that doesn't end in
+// one) falls straight through "end" into whatever's compiled right after it
+// - confirmed directly against a real generated ROM: a function with
+// everything inside disabled produced "function name\n  rem ...\nend" with
+// no return statement anywhere, meaning calling it executes straight into
+// the Data tables section as if it were code. A trailing "return 0" is
+// always safe to add: unreachable dead code (a few bytes) whenever the
+// user's own blocks already guarantee a return on every path, and the only
+// thing standing between "call this function" and silently corrupting
+// execution otherwise. (Not a bare "return" - see this generator's own
+// contract that a function call is a Number expression above - "return 0"
+// satisfies that the same way a genuine function_return block's own value
+// does.)
+const generateFunctionBody = (name, body) =>
+  Blockly.BBasic.normalizeIndents(`function ${name}\n${body}\nreturn 0\n@end`);
+
+// Splices every user-defined function (see function_define in
+// generators/bbasic/function.js) STILL ASSIGNED TO BANK 1 into the same
+// never-fallen-into spot generateSubroutines uses, right alongside it. A
+// function relocated to another bank (see getFunctionBank/
+// computeFunctionFamilies in hooks/rom.js) is emitted in its own bank's own
+// section instead by generateRelocatedSections below, same as a relocated
+// subroutine.
 Blockly.BBasic.generateFunctions = function() {
   return Object.entries(Blockly.BBasic.functions)
-      .map(([name, body]) => Blockly.BBasic.normalizeIndents(`function ${name}\n${body}`))
+      .filter(([name]) => Blockly.BBasic.getFunctionBank(name) === 1)
+      .map(([name, body]) => generateFunctionBody(name, body))
       .join('\n\n');
 };
 

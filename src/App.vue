@@ -749,7 +749,9 @@ export default {
         ['Player 1', contents.player1Sprites],
         ['Music', contents.music],
         ['Subroutines', contents.subroutines],
+        ['Functions', contents.functions],
         ['Data tables', contents.dataTables],
+        ['Sound', contents.soundEffects],
       ];
       const parts = groups
           .filter(([, names]) => names.length)

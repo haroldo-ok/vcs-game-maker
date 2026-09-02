@@ -27,6 +27,23 @@ const MAX_FUNCTION_ARGS = 6;
 // all.
 export const functionCallDiscardVarName = () => '_functionCallResult';
 
+// Scratch storage for function_call_statement's own arguments, handed off to
+// a small per-function wrapper subroutine (see registerFunctionCallWrapper in
+// generators/bbasic/function.js) instead of calling the function inline. A
+// bB function call ("name(args)") has no bank-tag syntax of its own - unlike
+// gosub/goto, it can only ever be called from the exact bank the function
+// itself lives in (always bank 1, see this.functions' own comment in
+// generators/bbasic.js's init()) - so an event/subroutine calling one
+// directly was permanently pinned to bank 1 too, real bytes and all,
+// confirmed as a real reported ROM-capacity overflow once enough surrounding
+// code (unrelated to the call itself) got dragged along for the ride purely
+// by sharing a statement stack with it. Routing through "gosub" instead needs
+// somewhere to stash the arguments first (gosub itself carries none) - these
+// vars are that somewhere, reserved only for a project that actually calls a
+// function as a bare statement at all (see functionCallStatementUsed's own
+// pre-scan in generators/bbasic.js).
+export const functionCallArgVarName = (index) => `_fnCallArg${index}`;
+
 // Block for defining a native batari Basic "function" - a real,
 // value-returning callable (see generators/bbasic/function.js for the exact
 // "function <name> ... return <expr>" syntax this compiles to), distinct

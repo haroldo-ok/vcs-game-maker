@@ -120,6 +120,67 @@ Blockly.defineBlocksWithJsonArray([
   buildJoystickDirection8Block('joy1', 'Joystick 1', 'blue'),
 ]);
 
+// Fire-button press-pattern detection, one combined block per joystick (a
+// MODE dropdown picking which pattern, same "one block + dropdown" shape
+// buildInputBlocks/CONSOLE_SWITCH_OPTIONS already use above, rather than a
+// separate block type per pattern) - see generators/bbasic/input.js's own
+// generateJoystickButtonChecks/generateJoystickDoubleTapChecks for the
+// per-frame held-duration/edge tracking this reads back from (joy0fire/
+// joy1fire themselves are only ever valid in a boolean/branch context - see
+// that file's own comment - so none of this can be computed inline at the
+// getter's own call site). Fire-specific (not Up/Down/Left/Right) since
+// "tap"/"hold"/"double-tap" only make sense for a single momentary button,
+// not a direction that's naturally held for as long as it's pushed.
+const FIRE_PATTERN_OPTIONS = [
+  ['tapped', 'TAP'],
+  ['held', 'HOLD'],
+  ['released', 'RELEASED'],
+  ['double-tapped', 'DOUBLE_TAP'],
+];
+
+const buildJoystickButtonBlock = (name, description, colour) => ({
+  'type': `input_${name}_fire_pattern`,
+  'message0': `${FIRE_ICON} ${description} Fire %1 %2 frames`,
+  'args0': [
+    {
+      'type': 'field_dropdown',
+      'name': 'MODE',
+      'options': FIRE_PATTERN_OPTIONS,
+    },
+    {
+      'type': 'field_number',
+      'name': 'FRAMES',
+      'value': 20,
+      'min': 1,
+      'max': 255,
+      'precision': 1,
+    },
+  ],
+  'inputsInline': true,
+  'output': 'Boolean',
+  colour,
+  'tooltip': `Reads ${description}'s Fire button press pattern - "frames" means something ` +
+    'different depending on which pattern is picked (60 frames = 1 second), and is ignored ' +
+    'entirely for "released":\n' +
+    '• tapped - true for exactly one frame, the instant Fire is released, but only if the ' +
+    'press that just ended lasted no longer than "frames" (a quick press-and-release).\n' +
+    '• held - true on every frame Fire has been continuously held down for at least ' +
+    '"frames" so far - stays true for as long as it\'s still held past that point, not just one ' +
+    'frame.\n' +
+    '• released - true for exactly one frame, the instant Fire goes from held down to ' +
+    'released.\n' +
+    '• double-tapped - true for exactly one frame, the instant Fire is released for the ' +
+    'SECOND time within "frames" of the first release. Every release starts (or restarts) its ' +
+    'own window; a release that doesn\'t land inside a still-open window from an earlier release ' +
+    'just opens a new window of its own instead of triggering this. Doesn\'t care how long either ' +
+    'individual press was held, only the gap between the two releases.',
+});
+
+Blockly.defineBlocksWithJsonArray([
+  buildJoystickButtonBlock('joy0', 'Joystick 0', 'red'),
+  buildJoystickButtonBlock('joy1', 'Joystick 1', 'blue'),
+]);
+
 // Key values 1-12 read in the same reading order the physical Atari
 // keypad's 3x4 grid is wired in - 1,2,3 / 4,5,6 / 7,8,9 / *,0,#. 0 itself is
 // reserved for "no key pressed", not a selectable option here (a getter

@@ -22,10 +22,10 @@
 // MAX_RELOCATION_ATTEMPTS in rom.js) and is always correct for exactly the
 // project as it stands right now - there's no real cost to always starting
 // fresh, only upside.
-let banks = {graphicsBanks: {}, musicBanks: {}, subroutineBanks: {}, eventBanks: {}};
+let banks = {graphicsBanks: {}, musicBanks: {}, subroutineBanks: {}, eventBanks: {}, functionBanks: {}};
 
 export const resetRelocationBanks = () => {
-  banks = {graphicsBanks: {}, musicBanks: {}, subroutineBanks: {}, eventBanks: {}};
+  banks = {graphicsBanks: {}, musicBanks: {}, subroutineBanks: {}, eventBanks: {}, functionBanks: {}};
 };
 
 // Read-only snapshot for the generator's own bank-lookup functions

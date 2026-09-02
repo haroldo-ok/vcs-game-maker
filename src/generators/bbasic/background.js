@@ -197,11 +197,33 @@ export default (Blockly) => {
   // (generateBackgroundFadeChecks below reads that bit every frame from
   // then on and does the actual stepping; see backgroundFadeTimerVarName's
   // own comment in blocks/background.js for why this is a one-shot trigger
-  // rather than a "call every frame yourself" block). Retriggering an
-  // already-active fade (e.g. the user's own code calls this again before
-  // the previous one finished) simply overwrites the target/pace and
-  // re-primes the timer - the new fade just continues from wherever the
-  // color currently is, same as a fresh trigger would.
+  // rather than a "call every frame yourself" block).
+  //
+  // The actual RESET (timer/pace/active all snapping back to a fresh fade)
+  // only happens when color differs from the target this fade was last
+  // triggered for - guarded by a real "if targetVar = color then skip"
+  // rather than unconditional, because a "Fade to color" block placed in a
+  // per-frame event (title_update, say) calls this every single frame for
+  // the SAME target color: unconditionally re-priming the timer every time
+  // that happens meant the per-frame step (generateBackgroundFadeChecks,
+  // which runs earlier in commongamelogic, so its own progress got
+  // immediately overwritten right after) could never actually count down to
+  // 0 - a real reported bug ("fade finished never seems to trigger"; the
+  // fade itself never finishes, since it's perpetually reset before it can),
+  // same class of bug (and same fix) as buildTextScrollSetupLines' own
+  // "same message, don't re-reset" guard in text-scroll.js. Retriggering
+  // with a genuinely DIFFERENT target color still restarts the fade toward
+  // that new target from wherever the color currently sits, same as a fresh
+  // trigger would - this only skips the reset when the request is a no-op
+  // repeat of whatever's already in flight (or already reached).
+  //
+  // color is captured into temp1 exactly once, before the comparison,
+  // rather than embedded directly into both the "if" and the assignment -
+  // it can be an arbitrary expression (not necessarily side-effect-free,
+  // e.g. a Random block), and evaluating it twice could disagree with
+  // itself between the guard check and the actual reset (same reasoning
+  // random_between_set's own "rand" capture uses in generators/bbasic/
+  // random.js).
   //
   // Shared by background_fade_to below and score.js's own score_fade_to /
   // text-minikernel.js's own text_minikernel_fade_to - the trigger body is
@@ -227,19 +249,23 @@ export default (Blockly) => {
 
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const paceReadyLabel = `_bgfade_${blockNumber}_paceready`;
+    const skipLabel = `_bgfade_${blockNumber}_skip`;
 
     // Guards frames < FADE_STEPS the same way the old inline version did:
     // the division alone would floor to 0, which would otherwise underflow
     // the very next decrement (in the per-frame check) into a huge wrapped
     // byte instead of counting down from 0 the way a signed timer would.
     return [
-      `${targetVar} = ${color}`,
+      `temp1 = ${color}`,
+      `if ${targetVar} = temp1 then goto ${skipLabel}`,
+      `${targetVar} = temp1`,
       `${paceVar} = (${frames}) / ${FADE_STEPS}`,
       `if ${paceVar} <> 0 then goto ${paceReadyLabel}`,
       ` ${paceVar} = 1`,
       `@ ${paceReadyLabel}`,
       `${timerVar} = ${paceVar}`,
       `${activeBit} = 1`,
+      `@ ${skipLabel}`,
     ].join('\n') + '\n';
   };
 
@@ -510,6 +536,31 @@ export default (Blockly) => {
     };
 
     return [...fadeVarsUsed].map(checksForVar).flat().join('\n');
+  };
+
+  // One-time Setup-section initialization (see bbasic.bb.hbs's own
+  // generatedBackgroundFadeSetup splice, right alongside
+  // generatedCtrlpfShadowSetup/generatedKeypadSetup) - every fade's own
+  // targetVar (see emitColorFadeTrigger's own "if targetVar = requested
+  // color then skip the reset" guard) needs to start at a value NO real
+  // requested color can ever equal, or that guard's very first real trigger
+  // could spuriously match on whatever targetVar happens to already hold.
+  // Confirmed as a real, reported bug: zeroed RAM (this codebase's own dev
+  // vars have no other default) leaves targetVar starting at plain 0, and 0
+  // is itself a perfectly ordinary, plausible requested color (pure black -
+  // hue 0, luminance 0) - a project's very first "fade to black" call would
+  // see targetVar(0) already "equal" to the requested color(0) and skip the
+  // reset entirely, never actually starting the fade. 255 is guaranteed
+  // safe: every real color byte a "Color" picker can ever produce is even
+  // (the 2600 ignores a color register's own low bit - see
+  // utils/palette.js's own "byte is (index << 1)" comment), so an odd
+  // sentinel can never collide with a genuine request.
+  Blockly.BBasic.generateBackgroundFadeSetup = function() {
+    const fadeVarsUsed = this.backgroundFadeVarsUsed || new Set();
+    if (!fadeVarsUsed.size) return '';
+    return [...fadeVarsUsed]
+        .map((rawVar) => ` ${resolveVar(backgroundFadeTargetVarName(rawVar))} = 255`)
+        .join('\n');
   };
 
   // Shared by background_fade_finished below and score.js's own

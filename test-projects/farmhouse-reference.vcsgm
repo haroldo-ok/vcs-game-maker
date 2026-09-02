@@ -1,0 +1,3318 @@
+type: VCS Game Maker Project
+format-version: 1
+generation-time: 2026-07-30T20:39:05.920Z
+configuration:
+  showScore: true
+  showBlankLines: true
+  enablePfColors: false
+  enableSuperchip: true
+  enableOptimizationSpeed: false
+  enableInlineRand: false
+  pfres: 24
+  romSize: 32k
+  scoreFont: custom
+blockly-workspace: >-
+  <xml xmlns="https://developers.google.com/blockly/xml">
+    <variables>
+      <variable id=".@P(#CokFuU4.Dd5]@:7">gVars</variable>
+      <variable id="[H+;t~ZjaIz|wt[NOCam">BGScene</variable>
+      <variable id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</variable>
+      <variable id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</variable>
+      <variable id="E={XKjr6rV78*RQ_)%Z}">BGColor</variable>
+      <variable id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</variable>
+    </variables>
+    <block type="event_block" id="vBS;OO)i0BjYf|I1u`9s" x="-313" y="-112">
+      <field name="EVENT">system_start</field>
+      <statement name="DO">
+        <block type="background_set_color" id="/@6~qTJlOb{FR6^8W?e/">
+          <field name="VAR">COLUBK</field>
+          <value name="VALUE">
+            <shadow type="math_number">
+              <field name="NUM">20</field>
+            </shadow>
+            <block type="color_get" id=";W][%_Cl=DueM@ZFU{G8">
+              <field name="COLOR">4</field>
+            </block>
+          </value>
+          <next>
+            <block type="background_set_color" id=".*PoXfw-|%zow=YAGo$+">
+              <field name="VAR">COLUPF</field>
+              <value name="VALUE">
+                <shadow type="math_number">
+                  <field name="NUM">20</field>
+                </shadow>
+                <block type="color_get" id="UbB73@hA(r(`8;:u*CF2">
+                  <field name="COLOR">6</field>
+                </block>
+              </value>
+              <next>
+                <block type="background_set" id="ui)5N7lnvuKw[j9{d~O]">
+                  <value name="VALUE">
+                    <shadow type="background_select" id="3G{}OUn-T)vU$`i*(N8o">
+                      <field name="VAR">1</field>
+                    </shadow>
+                    <block type="background_select" id="6?]]_p2:7Ez|4Ry8EW.X">
+                      <field name="VAR">1</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="sprite_player0_set" id="W;Kta6_CnB3lWj9VQ)c$">
+                      <field name="VAR">player0visibility</field>
+                      <value name="VALUE">
+                        <shadow type="math_number" id="JM7gMS1atCt2D_W9q|Ze">
+                          <field name="NUM">0</field>
+                        </shadow>
+                      </value>
+                      <next>
+                        <block type="sprite_player1_set" id="[abd.!/xgV}.Rfv%1RqC">
+                          <field name="VAR">player1visibility</field>
+                          <value name="VALUE">
+                            <shadow type="math_number" id="Jdq~.yP#8]ZjP^%-/U16">
+                              <field name="NUM">0</field>
+                            </shadow>
+                          </value>
+                          <next>
+                            <block type="bit_set" id="vn]j)bit)vu?$06b^:M{">
+                              <field name="BIT">0</field>
+                              <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                              <value name="VALUE">
+                                <shadow type="logic_boolean" id="2k4pVJal|F5yq-|;fVGO">
+                                  <field name="BOOL">TRUE</field>
+                                </shadow>
+                                <block type="logic_boolean" id="8LUR`.8DWw/=jMI$H-eE">
+                                  <field name="BOOL">FALSE</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="wait_frames" id="~*0cArCYxh68GVOLfBN]">
+                                  <value name="FRAMES">
+                                    <shadow type="math_number" id="55h;D49OetXG7~Y:(=Xe">
+                                      <field name="NUM">30</field>
+                                    </shadow>
+                                  </value>
+                                  <next>
+                                    <block type="controls_if" id="0`HoGY?9THXm2a%jn*U=">
+                                      <value name="IF0">
+                                        <block type="bit_get" id="4XI6L_f9)?~y#M(kWPe@">
+                                          <field name="BIT">0</field>
+                                          <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                                        </block>
+                                      </value>
+                                      <statement name="DO0">
+                                        <block type="simple_sound_set" id=",P_n,FfG71g|qP6WXsK%">
+                                          <field name="AUDC">14</field>
+                                          <field name="AUDF">9</field>
+                                          <field name="AUDV">15</field>
+                                          <field name="DURATION">60</field>
+                                          <field name="CHANNEL">0</field>
+                                        </block>
+                                      </statement>
+                                      <next>
+                                        <block type="event_change_state" id="T.=[J;dwvH]RRwfXO0ZP">
+                                          <field name="STATE">title</field>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="controls_if" id="XdG`?4$faWWmXE8zpf8i" x="438" y="-112">
+      <comment pinned="false" h="80" w="160">Farmhouse</comment>
+      <value name="IF0">
+        <block type="logic_compare" id="+-_!x^FcI`grXZ35K(y:">
+          <field name="OP">EQ</field>
+          <value name="A">
+            <block type="variables_get" id="SR~*1*Zywdj$ha1(Ejcq">
+              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+            </block>
+          </value>
+          <value name="B">
+            <block type="math_number" id="w}g#BHqj.uU|GzBbDRj1">
+              <field name="NUM">2</field>
+            </block>
+          </value>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="score_color_set" id="~u=`=rc$o*n1Suz!vDvh">
+          <value name="VALUE">
+            <shadow type="color_get" id="L8uoStV5QLDX{.0Vi2b9">
+              <field name="COLOR">30</field>
+            </shadow>
+          </value>
+          <next>
+            <block type="sprite_missile0_set" id="F3rCjX:UsHvw;(+4hz51">
+              <field name="VAR">missile0y</field>
+              <value name="VALUE">
+                <shadow type="math_number">
+                  <field name="NUM">46</field>
+                </shadow>
+                <block type="math_number" id=")Eebl_~bjR%jh@te1o%n">
+                  <field name="NUM">0</field>
+                </block>
+              </value>
+              <next>
+                <block type="sprite_player0_set" id=".RG1m]AEpFB$A}!%$eX(">
+                  <field name="VAR">player0realcolor</field>
+                  <value name="VALUE">
+                    <shadow type="color_get">
+                      <field name="COLOR">14</field>
+                    </shadow>
+                    <block type="color_get" id="v%!IGT_j+1T{~f{bS?W`">
+                      <field name="COLOR">14</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="sprite_player1_set" id="I)WD0wO.c]PLiY@S3B!3">
+                      <field name="VAR">player1realcolor</field>
+                      <value name="VALUE">
+                        <shadow type="color_get">
+                          <field name="COLOR">250</field>
+                        </shadow>
+                        <block type="color_get" id="wwB_vQ=H0`^U)-YRn%g1">
+                          <field name="COLOR">38</field>
+                        </block>
+                      </value>
+                      <next>
+                        <block type="sprite_player1_set" id="j-x0RB!2Ab)#n={Kvz|X">
+                          <field name="VAR">player1visibility</field>
+                          <value name="VALUE">
+                            <shadow type="math_number" id="GaUdT%?=/mWqPAfFan+a">
+                              <field name="NUM">1</field>
+                            </shadow>
+                          </value>
+                          <next>
+                            <block type="sprite_player1_set" id="Ac5ciPu,]Wb!~WGd$qB7">
+                              <field name="VAR">player1y</field>
+                              <value name="VALUE">
+                                <shadow type="math_number" id="j,iaj6%S+(C*kMdBJ=9{">
+                                  <field name="NUM">0</field>
+                                </shadow>
+                                <block type="math_number" id="Myq:TjTyHilG6sO-K-D3">
+                                  <field name="NUM">0</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="sprite_missile1_set" id="vRY;z7%TQdkP2O4oIeJ%">
+                                  <field name="VAR">missile1x</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number" id="Q_A;|Dvj0S/}$9RFJW,K">
+                                      <field name="NUM">78</field>
+                                    </shadow>
+                                    <block type="math_number" id=".=A]?(+x(~Zv2{Jl*%,i">
+                                      <field name="NUM">78</field>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="sprite_missile1_set" id="G_5$^v$O[7vUga}$/t5~">
+                                      <field name="VAR">missile1y</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="pqRd^@fW0EziDT|AX[qP">
+                                          <field name="NUM">54</field>
+                                        </shadow>
+                                        <block type="math_number" id="k.C09s9sCvR*FV.aGVx;">
+                                          <field name="NUM">54</field>
+                                        </block>
+                                      </value>
+                                      <next>
+                                        <block type="sprite_missile1_size" id="kt:BO|P9rHK{7GK^HJMj">
+                                          <field name="SIZE">$30</field>
+                                          <next>
+                                            <block type="sprite_missile1_set" id="=5@*5?w0a~XO~/cosit1">
+                                              <field name="VAR">missile1height</field>
+                                              <value name="VALUE">
+                                                <shadow type="math_number" id=",_.JnJ4u#EsWxiF`tajm">
+                                                  <field name="NUM">10</field>
+                                                </shadow>
+                                                <block type="math_number" id="jKHGK;#DbQ*,0rAi_JC=">
+                                                  <field name="NUM">10</field>
+                                                </block>
+                                              </value>
+                                              <next>
+                                                <block type="sprite_ball_set" id="8Fa12x$4d4~3q=q0[^H`">
+                                                  <field name="VAR">bally</field>
+                                                  <value name="VALUE">
+                                                    <shadow type="math_number" id="YCabeSLsEafF)Qb+lZ}7">
+                                                      <field name="NUM">0</field>
+                                                    </shadow>
+                                                  </value>
+                                                  <next>
+                                                    <block type="controls_if" id="E-rS!y=Fj|W!}#7{Tbuw">
+                                                      <comment pinned="false" h="80" w="160">Left</comment>
+                                                      <value name="IF0">
+                                                        <block type="logic_compare" id="2hNwq*#$7ojszC!!p=iR">
+                                                          <field name="OP">LT</field>
+                                                          <value name="A">
+                                                            <block type="sprite_player0_get" id="A}TRKLz~ZUTz-UaD+en(">
+                                                              <field name="VAR">player0x</field>
+                                                            </block>
+                                                          </value>
+                                                          <value name="B">
+                                                            <block type="math_number" id="mEkE1{)+uLkZ0l}v|H:_">
+                                                              <field name="NUM">14</field>
+                                                            </block>
+                                                          </value>
+                                                        </block>
+                                                      </value>
+                                                      <statement name="DO0">
+                                                        <block type="variables_set" id="rJ-l)tDO~(m[;gy8rd$4">
+                                                          <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                                          <value name="VALUE">
+                                                            <block type="math_number" id="!f0i|i^0Ja=}2H~MB_+8">
+                                                              <field name="NUM">4</field>
+                                                            </block>
+                                                          </value>
+                                                          <next>
+                                                            <block type="variables_set" id="7VC+hip`8nWI)rWZcxX_">
+                                                              <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                                              <value name="VALUE">
+                                                                <block type="math_number" id="p:O]p`z$!Uy[S5OTWr`?">
+                                                                  <field name="NUM">5</field>
+                                                                </block>
+                                                              </value>
+                                                              <next>
+                                                                <block type="variables_set" id="?Z7Z^(o.XjtTwJ}L.6c]">
+                                                                  <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                                  <value name="VALUE">
+                                                                    <block type="math_number" id="xrBNNU-V|^#xV3jMuz;/">
+                                                                      <field name="NUM">1</field>
+                                                                    </block>
+                                                                  </value>
+                                                                  <next>
+                                                                    <block type="sprite_player0_set" id="z.3wLThp|=9Bi{vPMwTF">
+                                                                      <field name="VAR">player0x</field>
+                                                                      <value name="VALUE">
+                                                                        <shadow type="math_number" id="?tj^)%;^ZD8Wd}w^yw4#">
+                                                                          <field name="NUM">1</field>
+                                                                        </shadow>
+                                                                        <block type="math_number" id=".Tk@@FmOAnFng:jqg:1:">
+                                                                          <field name="NUM">134</field>
+                                                                        </block>
+                                                                      </value>
+                                                                    </block>
+                                                                  </next>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </statement>
+                                                      <next>
+                                                        <block type="controls_if" id="IjqMP6VXy::lL#V9FWxd">
+                                                          <comment pinned="false" h="80" w="160">Right</comment>
+                                                          <value name="IF0">
+                                                            <block type="logic_compare" id="!_drc[otfRX^Z6pQN1rx">
+                                                              <field name="OP">GT</field>
+                                                              <value name="A">
+                                                                <block type="sprite_player0_get" id="N0?`VDs!r.7/12SVEQ1`">
+                                                                  <field name="VAR">player0x</field>
+                                                                </block>
+                                                              </value>
+                                                              <value name="B">
+                                                                <block type="math_number" id="z+ON7NQ]pH^rwnpc(LU8">
+                                                                  <field name="NUM">136</field>
+                                                                </block>
+                                                              </value>
+                                                            </block>
+                                                          </value>
+                                                          <statement name="DO0">
+                                                            <block type="variables_set" id="[vrVK;s%W}wjqlp[r^Y`">
+                                                              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                                              <value name="VALUE">
+                                                                <block type="math_number" id="gB!7]Y[A+4_QQ}oTHHOJ">
+                                                                  <field name="NUM">3</field>
+                                                                </block>
+                                                              </value>
+                                                              <next>
+                                                                <block type="variables_set" id="X0F`tFp[iQ60Y$7#2:dq">
+                                                                  <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                                                  <value name="VALUE">
+                                                                    <block type="math_number" id="R2m2ge%1BAo#$UcN.(s#">
+                                                                      <field name="NUM">5</field>
+                                                                    </block>
+                                                                  </value>
+                                                                  <next>
+                                                                    <block type="variables_set" id="]wF@(]zXq9]FK0O4oeRh">
+                                                                      <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                                      <value name="VALUE">
+                                                                        <block type="math_number" id="!*VK9s2D=8!KT2/Y]$vO">
+                                                                          <field name="NUM">1</field>
+                                                                        </block>
+                                                                      </value>
+                                                                      <next>
+                                                                        <block type="sprite_player0_set" id="%*v@:pk)z+U;k#RjBF%=">
+                                                                          <field name="VAR">player0x</field>
+                                                                          <value name="VALUE">
+                                                                            <shadow type="math_number">
+                                                                              <field name="NUM">1</field>
+                                                                            </shadow>
+                                                                            <block type="math_number" id="^r1-h,3#0l}jCzl)uxN|">
+                                                                              <field name="NUM">16</field>
+                                                                            </block>
+                                                                          </value>
+                                                                        </block>
+                                                                      </next>
+                                                                    </block>
+                                                                  </next>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </statement>
+                                                          <next>
+                                                            <block type="controls_if" id="{VssJ9HJn~L!Y!G4S!B(">
+                                                              <comment pinned="false" h="80" w="160">Down</comment>
+                                                              <value name="IF0">
+                                                                <block type="logic_compare" id="}uoe9}U!{YQ[J#7_oJ{0">
+                                                                  <field name="OP">GT</field>
+                                                                  <value name="A">
+                                                                    <block type="sprite_player0_get" id="P0Ls#,eT-xu38i#zl-hM">
+                                                                      <field name="VAR">player0y</field>
+                                                                    </block>
+                                                                  </value>
+                                                                  <value name="B">
+                                                                    <block type="math_number" id="SQnC1C$Fjpm9@K)~4YTs">
+                                                                      <field name="NUM">92</field>
+                                                                    </block>
+                                                                  </value>
+                                                                </block>
+                                                              </value>
+                                                              <statement name="DO0">
+                                                                <block type="variables_set" id="`^HM2CvyM/,yA:%-vKQ~">
+                                                                  <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                                                  <value name="VALUE">
+                                                                    <block type="math_number" id="4QvmxT7WjOkmPPM8-P]u">
+                                                                      <field name="NUM">8</field>
+                                                                    </block>
+                                                                  </value>
+                                                                  <next>
+                                                                    <block type="variables_set" id="a@t]skuU5c7xiB}$KoTG">
+                                                                      <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                                                      <value name="VALUE">
+                                                                        <block type="math_number" id="dx4q[E0#[p[TRvM$L9]~">
+                                                                          <field name="NUM">2</field>
+                                                                        </block>
+                                                                      </value>
+                                                                      <next>
+                                                                        <block type="variables_set" id="0EC]5NlX~^#8Wy=_I-W[">
+                                                                          <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                                          <value name="VALUE">
+                                                                            <block type="math_number" id="={A3+6XyU#;7u+8MKu_R">
+                                                                              <field name="NUM">1</field>
+                                                                            </block>
+                                                                          </value>
+                                                                          <next>
+                                                                            <block type="sprite_player0_set" id="[%@MK4D@{`*-hAc:eKWT">
+                                                                              <field name="VAR">player0y</field>
+                                                                              <value name="VALUE">
+                                                                                <shadow type="math_number">
+                                                                                  <field name="NUM">1</field>
+                                                                                </shadow>
+                                                                                <block type="math_number" id="KtFsgPcJC38=#~XMvCd/">
+                                                                                  <field name="NUM">12</field>
+                                                                                </block>
+                                                                              </value>
+                                                                              <next>
+                                                                                <block type="sprite_missile1_set" id="JYfRmy[/+~^OSD+I]#F_">
+                                                                                  <field name="VAR">missile1y</field>
+                                                                                  <value name="VALUE">
+                                                                                    <shadow type="math_number" id="K?ogfSM;P9k[#KqvR7x:">
+                                                                                      <field name="NUM">0</field>
+                                                                                    </shadow>
+                                                                                    <block type="math_number" id="f7iYS!eI0%Cs]m@pWv:N">
+                                                                                      <field name="NUM">0</field>
+                                                                                    </block>
+                                                                                  </value>
+                                                                                </block>
+                                                                              </next>
+                                                                            </block>
+                                                                          </next>
+                                                                        </block>
+                                                                      </next>
+                                                                    </block>
+                                                                  </next>
+                                                                </block>
+                                                              </statement>
+                                                              <next>
+                                                                <block type="controls_if" id="$u#Si|,vKIc0*4x[0:Mo">
+                                                                  <comment pinned="false" h="80" w="160">Farmhouse Door</comment>
+                                                                  <value name="IF0">
+                                                                    <block type="collision_get" id="3@gjd9TR,blbvaEcM0NP">
+                                                                      <field name="VAR0">player0</field>
+                                                                      <field name="VAR1">missile1</field>
+                                                                    </block>
+                                                                  </value>
+                                                                  <statement name="DO0">
+                                                                    <block type="variables_set" id="YKPErq8gaWyCZ%Df*TD(">
+                                                                      <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                                                      <value name="VALUE">
+                                                                        <block type="math_number" id="]7z;v~wXe_TQ`,$s}3_f">
+                                                                          <field name="NUM">6</field>
+                                                                        </block>
+                                                                      </value>
+                                                                      <next>
+                                                                        <block type="variables_set" id="4{)[04_V?/s#]U+4pTLD">
+                                                                          <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                                                          <value name="VALUE">
+                                                                            <block type="math_number" id="9*,n*]D`wH1LZCmB[esA">
+                                                                              <field name="NUM">6</field>
+                                                                            </block>
+                                                                          </value>
+                                                                          <next>
+                                                                            <block type="variables_set" id="KT=B-[yZ,b;77,RPG+F{">
+                                                                              <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                                              <value name="VALUE">
+                                                                                <block type="math_number" id="xG|G1Ft2EU5*2YT!xNLT">
+                                                                                  <field name="NUM">1</field>
+                                                                                </block>
+                                                                              </value>
+                                                                              <next>
+                                                                                <block type="sprite_player0_set" id="g$zAI3GI6bVX;6Gkx-/Y">
+                                                                                  <field name="VAR">player0y</field>
+                                                                                  <value name="VALUE">
+                                                                                    <shadow type="math_number">
+                                                                                      <field name="NUM">1</field>
+                                                                                    </shadow>
+                                                                                    <block type="math_number" id="d.]A];1LY?s7ZY82#$dY">
+                                                                                      <field name="NUM">78</field>
+                                                                                    </block>
+                                                                                  </value>
+                                                                                </block>
+                                                                              </next>
+                                                                            </block>
+                                                                          </next>
+                                                                        </block>
+                                                                      </next>
+                                                                    </block>
+                                                                  </statement>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="controls_if" id="A=UoxK6H4Pob`vu[8jpx" x="988" y="-113">
+      <comment pinned="false" h="80" w="160">Farm Graveyard</comment>
+      <value name="IF0">
+        <block type="logic_compare" id="X|mY}aw?7WrfJC2J!c3)">
+          <field name="OP">EQ</field>
+          <value name="A">
+            <block type="variables_get" id="6@s[KTJ!U.905s]wple-">
+              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+            </block>
+          </value>
+          <value name="B">
+            <block type="math_number" id="O`P!pjzw~LfTI#`Dg`~I">
+              <field name="NUM">3</field>
+            </block>
+          </value>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="sprite_player0_set" id="|{nzJ|1bD:|.z;uCS^1Y">
+          <field name="VAR">player0realcolor</field>
+          <value name="VALUE">
+            <shadow type="color_get" id="234B$#i/*M=SS~lqC6y@">
+              <field name="COLOR">14</field>
+            </shadow>
+            <block type="color_get" id="JRL%bKsvM#k!}cfobIt-">
+              <field name="COLOR">174</field>
+            </block>
+          </value>
+          <next>
+            <block type="sprite_missile1_set" id="rTVrw%X|z!m];KnP!(9/">
+              <field name="VAR">missile1y</field>
+              <value name="VALUE">
+                <shadow type="math_number" id="(@bls[QB2~:hYq_GDtSJ">
+                  <field name="NUM">0</field>
+                </shadow>
+              </value>
+              <next>
+                <block type="sprite_player1_set" id="M,j1MM9:T;6kefWBVt4R">
+                  <field name="VAR">player1realcolor</field>
+                  <value name="VALUE">
+                    <shadow type="color_get" id="W5gE=Dj;n0_5]wzqk}hA">
+                      <field name="COLOR">250</field>
+                    </shadow>
+                    <block type="color_get" id="BeWl4PB@|KuAGN1riX%6">
+                      <field name="COLOR">174</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="sprite_player1_set" id="GB3wuhwTyE]d_TWb^.+f">
+                      <field name="VAR">player1visibility</field>
+                      <value name="VALUE">
+                        <shadow type="math_number" id="#IVk*QA)Ul4e{IkjjlO2">
+                          <field name="NUM">1</field>
+                        </shadow>
+                      </value>
+                      <next>
+                        <block type="sprite_player1_set" id="gzogqbU9![O7wOOgMr!y">
+                          <field name="VAR">player1animation</field>
+                          <value name="VALUE">
+                            <shadow type="math_number" id="VTQEz@;dY63xz6-g?Z2(">
+                              <field name="NUM">1</field>
+                            </shadow>
+                          </value>
+                          <next>
+                            <block type="sprite_player1_size" id=".U6zg/}Q2I;gmJaR7O*B">
+                              <field name="SIZE">$7</field>
+                              <next>
+                                <block type="sprite_player1_set" id="/cLd8UUG^=fsjE5}1b|D">
+                                  <field name="VAR">player1x</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number" id="sZAE~B2MT2Ngd$`m/)FR">
+                                      <field name="NUM">88</field>
+                                    </shadow>
+                                  </value>
+                                  <next>
+                                    <block type="sprite_player1_set" id="lShWXHs*arJMU@3?*E!P">
+                                      <field name="VAR">player1y</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="hXDV$j@h*UXCt8Qu^ZQi">
+                                          <field name="NUM">35</field>
+                                        </shadow>
+                                      </value>
+                                      <next>
+                                        <block type="sprite_ball_set" id="VMGybcK#{EzYlZgy2nD#">
+                                          <field name="VAR">bally</field>
+                                          <value name="VALUE">
+                                            <shadow type="math_number" id="/{3!kMd=_zy#a+a?D_KU">
+                                              <field name="NUM">0</field>
+                                            </shadow>
+                                          </value>
+                                          <next>
+                                            <block type="controls_if" id="evpJ)(GnE897UfInvg{Q">
+                                              <comment pinned="false" h="80" w="160">Left</comment>
+                                              <value name="IF0">
+                                                <block type="logic_compare" id="iz[QcRETrlub7K(P[0Hf">
+                                                  <field name="OP">LT</field>
+                                                  <value name="A">
+                                                    <block type="sprite_player0_get" id="?1KlWgVeT/FNOjL5+X(2">
+                                                      <field name="VAR">player0x</field>
+                                                    </block>
+                                                  </value>
+                                                  <value name="B">
+                                                    <block type="math_number" id="B(9|uTM;NkK%ALGJSdiq">
+                                                      <field name="NUM">14</field>
+                                                    </block>
+                                                  </value>
+                                                </block>
+                                              </value>
+                                              <statement name="DO0">
+                                                <block type="variables_set" id="txuZ/,^nn|)CmrDX`hFY">
+                                                  <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                                  <value name="VALUE">
+                                                    <block type="math_number" id="b,V1!sXp{/LEeAR};jiT">
+                                                      <field name="NUM">2</field>
+                                                    </block>
+                                                  </value>
+                                                  <next>
+                                                    <block type="variables_set" id="FYYx2?FOaAVM@p+y?sSg">
+                                                      <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                                      <value name="VALUE">
+                                                        <block type="math_number" id="3z8.4Pdhy?0ok{_3w1Ha">
+                                                          <field name="NUM">1</field>
+                                                        </block>
+                                                      </value>
+                                                      <next>
+                                                        <block type="variables_set" id="dpJqEA)WK,6jEIU%ZbBN">
+                                                          <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                          <value name="VALUE">
+                                                            <block type="math_number" id="{YKcQu-Aa]T#^l,]E49U">
+                                                              <field name="NUM">1</field>
+                                                            </block>
+                                                          </value>
+                                                          <next>
+                                                            <block type="sprite_player0_set" id="cZ,[j+7R62-c3os@*vZ,">
+                                                              <field name="VAR">player0x</field>
+                                                              <value name="VALUE">
+                                                                <shadow type="math_number">
+                                                                  <field name="NUM">1</field>
+                                                                </shadow>
+                                                                <block type="math_number" id="tW,@(TB!Me%-]5L@:/DR">
+                                                                  <field name="NUM">134</field>
+                                                                </block>
+                                                              </value>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </statement>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="controls_if" id=";KM.mdsL:QJGYUG*fsJ_" x="1537" y="-112">
+      <comment pinned="false" h="80" w="160">FarmHenge</comment>
+      <value name="IF0">
+        <block type="logic_compare" id="{vfAXHm!~H18H!5o:+qV">
+          <field name="OP">EQ</field>
+          <value name="A">
+            <block type="variables_get" id="dPbE.$3V^hdk9Vs{Y=@K">
+              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+            </block>
+          </value>
+          <value name="B">
+            <block type="math_number" id="+/2%63czl%eUk)89c(mV">
+              <field name="NUM">4</field>
+            </block>
+          </value>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="sprite_missile1_set" id="UDuBYaBTugQW:!t3T7OG">
+          <field name="VAR">missile1y</field>
+          <value name="VALUE">
+            <shadow type="math_number" id="%Uy[aC/aVv0X_P|2/*iO">
+              <field name="NUM">0</field>
+            </shadow>
+          </value>
+          <next>
+            <block type="sprite_player0_set" id="]pD!HREK{N/}_Us)AU7a" disabled="true">
+              <field name="VAR">player0realcolor</field>
+              <value name="VALUE">
+                <shadow type="color_get">
+                  <field name="COLOR">14</field>
+                </shadow>
+                <block type="color_get" id="|JQ3S,Y]uzlG#$I?so}n">
+                  <field name="COLOR">12</field>
+                </block>
+              </value>
+              <next>
+                <block type="sprite_missile0_set" id="[M{j/tl]7lfb}%?J8e!k" disabled="true">
+                  <field name="VAR">missile0y</field>
+                  <value name="VALUE">
+                    <shadow type="math_number" id="6;#}TRJ{d~z$k#[}F*F/">
+                      <field name="NUM">46</field>
+                    </shadow>
+                    <block type="math_number" id="l8wxonju~*=K@m|UO*Ug">
+                      <field name="NUM">46</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="event_frame_every_n" id="B7oIAYT^C/?{u=jsU1:d" disabled="true">
+                      <field name="MASK">1</field>
+                      <field name="DELTA">1</field>
+                      <statement name="DO">
+                        <block type="sprite_missile0_set" id="-XSx0@LPUiPqR)B1fXG?">
+                          <field name="VAR">missile0x</field>
+                          <value name="VALUE">
+                            <shadow type="math_number" id="|;@U9,^~3+8E=MmU(=|;">
+                              <field name="NUM">92</field>
+                            </shadow>
+                          </value>
+                          <next>
+                            <block type="sprite_missile0_size" id="QFJ3V|K/:yF+4@b)[dUq">
+                              <field name="SIZE">$20</field>
+                              <next>
+                                <block type="sprite_missile0_set" id="Ue2q?-(A4nG4f.jTQjX(">
+                                  <field name="VAR">missile0height</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number" id="qtog2`Vz@$d_jClTC$41">
+                                      <field name="NUM">4</field>
+                                    </shadow>
+                                    <block type="math_number" id="X[PM$Y=x?dD_i/6_5/Hs">
+                                      <field name="NUM">2</field>
+                                    </block>
+                                  </value>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </statement>
+                      <next>
+                        <block type="event_frame_every_n" id="z13@VbW=%O3Zxi)-=Zw;" disabled="true">
+                          <field name="MASK">3</field>
+                          <field name="DELTA">1</field>
+                          <statement name="DO">
+                            <block type="sprite_missile0_set" id="Kil^Ypz?pV.bk7vQd!${">
+                              <field name="VAR">missile0x</field>
+                              <value name="VALUE">
+                                <shadow type="math_number" id="I/p=;^lz8i^zOb/#aQb|">
+                                  <field name="NUM">93</field>
+                                </shadow>
+                                <block type="math_number" id="vF~|,eN_t1YdN[QbkBrD">
+                                  <field name="NUM">93</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="sprite_missile0_size" id="mTV=BGf7B9,sb_d}{Iu.">
+                                  <field name="SIZE">$10</field>
+                                  <next>
+                                    <block type="sprite_missile0_set" id="v3Ug;`|,0rwLsPW$%2ok">
+                                      <field name="VAR">missile0height</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="|Rjc-Djq_MMC|idtg$X$">
+                                          <field name="NUM">6</field>
+                                        </shadow>
+                                        <block type="math_number" id="I|Iz4NN7:y6;GyCJ[VX~">
+                                          <field name="NUM">3</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </statement>
+                          <next>
+                            <block type="event_frame_every_n" id="rw5Zi*3r?JiO=Qm$JE*0" disabled="true">
+                              <field name="MASK">7</field>
+                              <field name="DELTA">1</field>
+                              <statement name="DO">
+                                <block type="sprite_missile0_set" id="uLPNJvz1T`+ULR}Ia?]9">
+                                  <field name="VAR">missile0x</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number">
+                                      <field name="NUM">93</field>
+                                    </shadow>
+                                    <block type="math_number" id="V9EDXXkI/7+[7J=BsQO,">
+                                      <field name="NUM">93</field>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="sprite_missile0_size" id="8!,FYYmhfQIsT=0]b=%6">
+                                      <field name="SIZE">$10</field>
+                                      <next>
+                                        <block type="sprite_missile0_set" id="R$OsyMwHR1cKu0X{;;as">
+                                          <field name="VAR">missile0height</field>
+                                          <value name="VALUE">
+                                            <shadow type="math_number">
+                                              <field name="NUM">6</field>
+                                            </shadow>
+                                            <block type="math_number" id="hSBPGk{a|LJv5v+stO*+">
+                                              <field name="NUM">4</field>
+                                            </block>
+                                          </value>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </statement>
+                              <next>
+                                <block type="controls_if" id="C#~[NuK^h,C:@}0lL+Mb">
+                                  <comment pinned="false" h="80" w="160">Right</comment>
+                                  <value name="IF0">
+                                    <block type="logic_compare" id="bX*TPW--H04FxXZRt1je">
+                                      <field name="OP">GT</field>
+                                      <value name="A">
+                                        <block type="sprite_player0_get" id="k`3Wc@Af7lO@Y95y{TKX">
+                                          <field name="VAR">player0x</field>
+                                        </block>
+                                      </value>
+                                      <value name="B">
+                                        <block type="math_number" id="A/ou$q=ktJ_ZJAO+3z{E">
+                                          <field name="NUM">136</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </value>
+                                  <statement name="DO0">
+                                    <block type="variables_set" id="XB%*!p03C*-:(JkE*I`g">
+                                      <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                      <value name="VALUE">
+                                        <block type="math_number" id="0T2|s.2dNz4y)wzL)yco">
+                                          <field name="NUM">2</field>
+                                        </block>
+                                      </value>
+                                      <next>
+                                        <block type="variables_set" id="R%srJ`3Y1+apd6FV5!1i">
+                                          <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                          <value name="VALUE">
+                                            <block type="math_number" id="~n%=W,;+mC1dvFbSuA6P">
+                                              <field name="NUM">1</field>
+                                            </block>
+                                          </value>
+                                          <next>
+                                            <block type="variables_set" id="~ykfEC04O$!ISSXHQ4!G">
+                                              <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                              <value name="VALUE">
+                                                <block type="math_number" id="9Kv5(N?(f;9-H|zZW%^u">
+                                                  <field name="NUM">1</field>
+                                                </block>
+                                              </value>
+                                              <next>
+                                                <block type="sprite_player0_set" id="RWYe$J#qP0b,-uGh52xp">
+                                                  <field name="VAR">player0x</field>
+                                                  <value name="VALUE">
+                                                    <shadow type="math_number">
+                                                      <field name="NUM">1</field>
+                                                    </shadow>
+                                                    <block type="math_number" id="Z9Ey-@84-ztgCQ?z8q1f">
+                                                      <field name="NUM">16</field>
+                                                    </block>
+                                                  </value>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </statement>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="controls_if" id="y/J|2n8{NvTb@Z}gqBMR" x="2413" y="-137">
+      <value name="IF0">
+        <block type="logic_compare" id="}Qx@YlRCGN=wQ;^ogZQt">
+          <field name="OP">EQ</field>
+          <value name="A">
+            <block type="variables_get" id="=(=-;B3zRGTE;PIg96]G">
+              <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+            </block>
+          </value>
+          <value name="B">
+            <block type="logic_boolean" id="5z$6{jFbQ3/VPVsm8?=,">
+              <field name="BOOL">TRUE</field>
+            </block>
+          </value>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="background_set" id="%Z+5R4dXl0l`D1TvH:*C">
+          <value name="VALUE">
+            <shadow type="background_select">
+              <field name="VAR">1</field>
+            </shadow>
+            <block type="variables_get" id="V]!#l@VJ;}kIAnWFG.*z">
+              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+            </block>
+          </value>
+          <next>
+            <block type="controls_if" id="O*hG=Fd,vjx10mV]ag]J">
+              <comment pinned="false" h="80" w="160">Title</comment>
+              <value name="IF0">
+                <block type="logic_compare" id="?P6h[El^m3?=A+zBWm}S">
+                  <field name="OP">EQ</field>
+                  <value name="A">
+                    <block type="variables_get" id="M^Z%3B5tnx[J$K6t)!SM">
+                      <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                    </block>
+                  </value>
+                  <value name="B">
+                    <block type="math_number" id="7m6$NL0MlhLb`[Bysjrx">
+                      <field name="NUM">0</field>
+                    </block>
+                  </value>
+                </block>
+              </value>
+              <statement name="DO0">
+                <block type="background_set_color" id="Y/@9qI2EJ*}A=y4*CR,=">
+                  <field name="VAR">COLUBK</field>
+                  <value name="VALUE">
+                    <shadow type="math_number" id="jvMUqG4ZR/omIu*=}SAd">
+                      <field name="NUM">20</field>
+                    </shadow>
+                    <block type="color_get" id="_#/NsN.,a4B;N({I*D09">
+                      <field name="COLOR">146</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="background_set_color" id="mMQvI:}HH7EDX|=2.0k(">
+                      <field name="VAR">COLUPF</field>
+                      <value name="VALUE">
+                        <shadow type="math_number" id="wQO55}smRt#PDJuf+_I*">
+                          <field name="NUM">20</field>
+                        </shadow>
+                        <block type="color_get" id="z6TGAgJno%g$0-%o;aH%">
+                          <field name="COLOR">140</field>
+                        </block>
+                      </value>
+                    </block>
+                  </next>
+                </block>
+              </statement>
+              <next>
+                <block type="controls_if" id="?bd)Vb`:y$(`o3R/N1m@">
+                  <comment pinned="false" h="80" w="160">Grassland</comment>
+                  <value name="IF0">
+                    <block type="logic_compare" id="IGmt}B2QhBXUEsaC`XX~">
+                      <field name="OP">EQ</field>
+                      <value name="A">
+                        <block type="variables_get" id="Ku$;zKBfNu_CktV*,[JY">
+                          <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                        </block>
+                      </value>
+                      <value name="B">
+                        <block type="math_number" id="0EaA==yGQy~hmED)inGg">
+                          <field name="NUM">1</field>
+                        </block>
+                      </value>
+                    </block>
+                  </value>
+                  <statement name="DO0">
+                    <block type="background_set_color" id="6bRrj-g8uf-cd~=}tx8N">
+                      <field name="VAR">COLUBK</field>
+                      <value name="VALUE">
+                        <shadow type="math_number">
+                          <field name="NUM">20</field>
+                        </shadow>
+                        <block type="color_get" id="*1Rn.qRJN2u4}W30E-a;">
+                          <field name="COLOR">182</field>
+                        </block>
+                      </value>
+                      <next>
+                        <block type="background_set_color" id="?/)m3AIJpe9.prWeauGE">
+                          <field name="VAR">COLUPF</field>
+                          <value name="VALUE">
+                            <shadow type="math_number">
+                              <field name="NUM">20</field>
+                            </shadow>
+                            <block type="color_get" id="7}/idP/Ony8aB5rQj|Nu">
+                              <field name="COLOR">252</field>
+                            </block>
+                          </value>
+                        </block>
+                      </next>
+                    </block>
+                  </statement>
+                  <next>
+                    <block type="controls_if" id="+4k]:U-Xq%c7[C6+CYVf">
+                      <comment pinned="false" h="80" w="160">Desert</comment>
+                      <value name="IF0">
+                        <block type="logic_compare" id="6=Ck/M{6B2RY^xP@[d{d">
+                          <field name="OP">EQ</field>
+                          <value name="A">
+                            <block type="variables_get" id="F3C5(}H3$1Z#y--(c8jD">
+                              <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                            </block>
+                          </value>
+                          <value name="B">
+                            <block type="math_number" id="UE3ns3|L(^@hIu5`;U9]">
+                              <field name="NUM">2</field>
+                            </block>
+                          </value>
+                        </block>
+                      </value>
+                      <statement name="DO0">
+                        <block type="background_set_color" id="Y^l!axc#~[A#I)0S1hp9">
+                          <field name="VAR">COLUBK</field>
+                          <value name="VALUE">
+                            <shadow type="math_number">
+                              <field name="NUM">20</field>
+                            </shadow>
+                            <block type="color_get" id="u-|u.0DOE_#%jeb0{~PX">
+                              <field name="COLOR">246</field>
+                            </block>
+                          </value>
+                          <next>
+                            <block type="background_set_color" id="DwL8F$#$!PeJi=OJMbC|">
+                              <field name="VAR">COLUPF</field>
+                              <value name="VALUE">
+                                <shadow type="math_number" id="nqsSo_`)qMc9n3=l@R1Z">
+                                  <field name="NUM">20</field>
+                                </shadow>
+                                <block type="color_get" id="]O*f9@D^!dAj`$RZ,DTA">
+                                  <field name="COLOR">250</field>
+                                </block>
+                              </value>
+                            </block>
+                          </next>
+                        </block>
+                      </statement>
+                      <next>
+                        <block type="controls_if" id="B*=t^E?d;BJ#F{x*;Yw7">
+                          <comment pinned="false" h="80" w="160">Mountain</comment>
+                          <value name="IF0">
+                            <block type="logic_compare" id="ko}X#k`JW$_}H+O7j7o4">
+                              <field name="OP">EQ</field>
+                              <value name="A">
+                                <block type="variables_get" id="U(sy}sp2E,|%*$gKCM2j">
+                                  <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                </block>
+                              </value>
+                              <value name="B">
+                                <block type="math_number" id="8G/h`3^/H(*5W2=h;52[">
+                                  <field name="NUM">3</field>
+                                </block>
+                              </value>
+                            </block>
+                          </value>
+                          <statement name="DO0">
+                            <block type="background_set_color" id="cNH6JY:Vs]tLW8QWy$7O">
+                              <field name="VAR">COLUBK</field>
+                              <value name="VALUE">
+                                <shadow type="math_number">
+                                  <field name="NUM">20</field>
+                                </shadow>
+                                <block type="color_get" id="+nuzTUJ)Ix[WE9PijR,O">
+                                  <field name="COLOR">6</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="background_set_color" id="MJnhZ}!04kukIYm|$G#Z">
+                                  <field name="VAR">COLUPF</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number">
+                                      <field name="NUM">20</field>
+                                    </shadow>
+                                    <block type="color_get" id="uJ$r,H(y]l#K[#)~IYB6">
+                                      <field name="COLOR">10</field>
+                                    </block>
+                                  </value>
+                                </block>
+                              </next>
+                            </block>
+                          </statement>
+                          <next>
+                            <block type="controls_if" id="(#[WU_]sSxJRcD.vWXVj">
+                              <value name="IF0">
+                                <block type="logic_compare" id="Y0dVsGtYqvYX]x,f==wn">
+                                  <field name="OP">EQ</field>
+                                  <value name="A">
+                                    <block type="variables_get" id="9NSVFjl$=DV4!CfSr:.=">
+                                      <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                    </block>
+                                  </value>
+                                  <value name="B">
+                                    <block type="math_number" id="x^$y%c3H5s_dYPGA0)Pk">
+                                      <field name="NUM">4</field>
+                                    </block>
+                                  </value>
+                                </block>
+                              </value>
+                              <statement name="DO0">
+                                <block type="background_set_color" id="h@hP(,E6vS~judiRvh(s">
+                                  <field name="VAR">COLUBK</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number">
+                                      <field name="NUM">20</field>
+                                    </shadow>
+                                    <block type="color_get" id="NOqe)UHt8S3T$2NzZLm+">
+                                      <field name="COLOR">100</field>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="background_set_color" id="c~IBW*|M;j=NF~estaMb">
+                                      <field name="VAR">COLUPF</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number">
+                                          <field name="NUM">20</field>
+                                        </shadow>
+                                        <block type="color_get" id="`RIA3Eop6|eAj}e1GlgF">
+                                          <field name="COLOR">110</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </next>
+                                </block>
+                              </statement>
+                              <next>
+                                <block type="controls_if" id="|0(D4szzrtKvB1b5cl!$">
+                                  <comment pinned="false" h="80" w="160">Oracle</comment>
+                                  <value name="IF0">
+                                    <block type="logic_compare" id="AoEVh*KD(9[?l~nRm^_u">
+                                      <field name="OP">EQ</field>
+                                      <value name="A">
+                                        <block type="variables_get" id="O(Ww85FuGl;2r~jz:(^i">
+                                          <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                        </block>
+                                      </value>
+                                      <value name="B">
+                                        <block type="math_number" id="XktRc:6[YN35e~(9Ui~@">
+                                          <field name="NUM">5</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </value>
+                                  <statement name="DO0">
+                                    <block type="background_set_color" id="Y0D+~7^Xs(_{eM|Jk2mP">
+                                      <field name="VAR">COLUBK</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number">
+                                          <field name="NUM">20</field>
+                                        </shadow>
+                                        <block type="color_get" id="}p~[[scV$2I:rLVk4p6/">
+                                          <field name="COLOR">150</field>
+                                        </block>
+                                      </value>
+                                      <next>
+                                        <block type="background_set_color" id="aDrTm#xrhbxOPSrj?-Ew">
+                                          <field name="VAR">COLUPF</field>
+                                          <value name="VALUE">
+                                            <shadow type="math_number">
+                                              <field name="NUM">20</field>
+                                            </shadow>
+                                            <block type="color_get" id="t6qlEH3xFv[e/zz/g#ZF">
+                                              <field name="COLOR">156</field>
+                                            </block>
+                                          </value>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </statement>
+                                  <next>
+                                    <block type="controls_if" id="MgBqC84h?p*CAn;@PS9o">
+                                      <comment pinned="false" h="80" w="160">Desert</comment>
+                                      <value name="IF0">
+                                        <block type="logic_compare" id=")KPGqtF%M0p}wWI7i@/#">
+                                          <field name="OP">EQ</field>
+                                          <value name="A">
+                                            <block type="variables_get" id="}IN.!.x[6,,U,vejNoex">
+                                              <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                            </block>
+                                          </value>
+                                          <value name="B">
+                                            <block type="math_number" id="q}7h,-pzc$_+%YHimz5r">
+                                              <field name="NUM">6</field>
+                                            </block>
+                                          </value>
+                                        </block>
+                                      </value>
+                                      <statement name="DO0">
+                                        <block type="background_set_color" id="fbxv3mbI_oj.V%~?Eazl">
+                                          <field name="VAR">COLUBK</field>
+                                          <value name="VALUE">
+                                            <shadow type="math_number" id="UTdB0d|@0sfnR@[Z{SJ^">
+                                              <field name="NUM">20</field>
+                                            </shadow>
+                                            <block type="color_get" id="R**0#j~mdflU!d?E]vGV">
+                                              <field name="COLOR">16</field>
+                                            </block>
+                                          </value>
+                                          <next>
+                                            <block type="background_set_color" id="cGe(*(gHp77K=|Li[G9v">
+                                              <field name="VAR">COLUPF</field>
+                                              <value name="VALUE">
+                                                <shadow type="math_number" id="Xm{4n-C#x21(1%mOe/sP">
+                                                  <field name="NUM">20</field>
+                                                </shadow>
+                                                <block type="color_get" id="5=7:,EApmO}t)Gp7jykk">
+                                                  <field name="COLOR">36</field>
+                                                </block>
+                                              </value>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </statement>
+                                      <next>
+                                        <block type="variables_set" id="OkO0n(ZGtLH#j/)Z/[J7">
+                                          <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                          <value name="VALUE">
+                                            <block type="logic_boolean" id="J^{zE1VKlWR+WH8jB$qT">
+                                              <field name="BOOL">FALSE</field>
+                                            </block>
+                                          </value>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="event_frame_every_n" id="L]vv|UzBt,oIg?21bV_Q" x="3487" y="-162">
+      <field name="MASK">1</field>
+      <field name="DELTA">0</field>
+      <comment pinned="false" h="80" w="160">Player Movement</comment>
+      <statement name="DO">
+        <block type="controls_if" id="3mGi6=o~)GVNCDm:!q`x">
+          <value name="IF0">
+            <block type="logic_operation" id="v.O-3QMB6zfhuU2pqn}5">
+              <field name="OP">AND</field>
+              <value name="A">
+                <block type="variables_get" id="2sfb~ySod;bmIC:{;G]W">
+                  <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+                </block>
+              </value>
+              <value name="B">
+                <block type="collision_get" id="%qZub+Fm.QM^9@[E=e=m">
+                  <field name="VAR0">player0</field>
+                  <field name="VAR1">playfield</field>
+                </block>
+              </value>
+            </block>
+          </value>
+          <statement name="DO0">
+            <block type="variables_set" id="{Siio5=+G{,t;UpkkEiq">
+              <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+              <value name="VALUE">
+                <block type="math_single" id="WP=o61jYh5b#1`$r=yp9">
+                  <field name="OP">NEG</field>
+                  <value name="NUM">
+                    <block type="variables_get" id="M@n^LWaHT{.$m]WVf63E">
+                      <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+                    </block>
+                  </value>
+                </block>
+              </value>
+              <next>
+                <block type="sprite_player0_change" id="L)p]+4^.xE?f:LQMNrWE">
+                  <field name="VAR">player0y</field>
+                  <value name="DELTA">
+                    <shadow xmlns="" type="math_number">
+                      <field name="NUM">1</field>
+                    </shadow>
+                    <block type="variables_get" id="=z3UJkR)MFQ@$@;@sFn#">
+                      <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+                    </block>
+                  </value>
+                </block>
+              </next>
+            </block>
+          </statement>
+          <next>
+            <block type="variables_set" id="$MV!K9gu-U;AaBda`ER=">
+              <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+              <value name="VALUE">
+                <block type="math_number" id="Y{73H`g|HxzFKitW[gh;">
+                  <field name="NUM">0</field>
+                </block>
+              </value>
+              <next>
+                <block type="controls_if" id="r=;rP|5sxzuzwN%%`AzZ">
+                  <value name="IF0">
+                    <block type="input_joy0_get" id="BkiCYpj[Fd;_!=@EfZUm">
+                      <field name="VAR">joy0down</field>
+                    </block>
+                  </value>
+                  <statement name="DO0">
+                    <block type="variables_set" id="LA7T+qWt9n7|,wI~KTL+">
+                      <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+                      <value name="VALUE">
+                        <block type="math_number" id="Vk;Nw[T,d~f5M}=:dsl%">
+                          <field name="NUM">1</field>
+                        </block>
+                      </value>
+                    </block>
+                  </statement>
+                  <next>
+                    <block type="controls_if" id="@EMMT`Rmi(oi)`n]IpC9">
+                      <value name="IF0">
+                        <block type="input_joy0_get" id="CJj-rI1?)u2G+b4_tjpM">
+                          <field name="VAR">joy0up</field>
+                        </block>
+                      </value>
+                      <statement name="DO0">
+                        <block type="variables_set" id="KMMykPtAwplam6sM?m8:">
+                          <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+                          <value name="VALUE">
+                            <block type="math_number" id="PdO~gsi%J!lo!aj/t07S">
+                              <field name="NUM">255</field>
+                            </block>
+                          </value>
+                        </block>
+                      </statement>
+                      <next>
+                        <block type="sprite_player0_change" id=":Pto/NBE?HPoHX)oV}+J">
+                          <field name="VAR">player0y</field>
+                          <value name="DELTA">
+                            <shadow xmlns="" type="math_number">
+                              <field name="NUM">1</field>
+                            </shadow>
+                            <block type="variables_get" id="XNz$^zSxw5]hUhd?Tg~m">
+                              <field name="VAR" id="Q3]JSq19*^Q8Kg3T6GtQ">p0Yspeed</field>
+                            </block>
+                          </value>
+                          <next>
+                            <block type="controls_if" id="[HcLH/h~Mi%u%o^ejYM[">
+                              <value name="IF0">
+                                <block type="logic_operation" id="uNS_=6O6S7TU0[}REM,v">
+                                  <field name="OP">AND</field>
+                                  <value name="A">
+                                    <block type="variables_get" id="*b?pS(5y9at:6{9X7*aC">
+                                      <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                    </block>
+                                  </value>
+                                  <value name="B">
+                                    <block type="collision_get" id=")!5-L76RYH`oGBQ$azVk">
+                                      <field name="VAR0">player0</field>
+                                      <field name="VAR1">playfield</field>
+                                    </block>
+                                  </value>
+                                </block>
+                              </value>
+                              <statement name="DO0">
+                                <block type="variables_set" id="2j@}U3(RJOGuM[G,![Io">
+                                  <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                  <value name="VALUE">
+                                    <block type="math_single" id="x.OC|MQpI+]PJb.f(R8R">
+                                      <field name="OP">NEG</field>
+                                      <value name="NUM">
+                                        <block type="variables_get" id=":bmO#7wW=U(@58iwr/;0">
+                                          <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="sprite_player0_change" id="=s?yh:F9U,lUCLZMgwJ1">
+                                      <field name="VAR">player0x</field>
+                                      <value name="DELTA">
+                                        <shadow xmlns="" type="math_number">
+                                          <field name="NUM">1</field>
+                                        </shadow>
+                                        <block type="variables_get" id="q;=M:$ahuPU0H~(v`]J7">
+                                          <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </next>
+                                </block>
+                              </statement>
+                              <next>
+                                <block type="variables_set" id="!`oB*I+utU1*$w-u3%N%">
+                                  <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                  <value name="VALUE">
+                                    <block type="math_number" id="iuNy6zRH8}:T(cT[fd:a">
+                                      <field name="NUM">0</field>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="controls_if" id="xYwE8}iRBN:M_L1t$aT{">
+                                      <value name="IF0">
+                                        <block type="input_joy0_get" id="8UMZD05nl~dwK8hW.^sS">
+                                          <field name="VAR">joy0right</field>
+                                        </block>
+                                      </value>
+                                      <statement name="DO0">
+                                        <block type="sprite_player0_set" id="L4Vk{K:ay+e](-BeDRKj">
+                                          <field name="VAR">__player0size_3_</field>
+                                          <value name="VALUE">
+                                            <shadow type="color_get">
+                                              <field name="COLOR">212</field>
+                                            </shadow>
+                                            <block type="math_number" id="mkA*#$q6;6v7:`2/7fsV">
+                                              <field name="NUM">1</field>
+                                            </block>
+                                          </value>
+                                          <next>
+                                            <block type="variables_set" id="ipmnL*VKp(Q,wtLJ*#+4">
+                                              <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                              <value name="VALUE">
+                                                <block type="math_number" id="FhqOHb9G5M=7EL~B|_8Q">
+                                                  <field name="NUM">1</field>
+                                                </block>
+                                              </value>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </statement>
+                                      <next>
+                                        <block type="controls_if" id=":wz-XV~*yNm@8lF.hO;0">
+                                          <value name="IF0">
+                                            <block type="input_joy0_get" id="q-[H%JlvWjE~LggU|oJM">
+                                              <field name="VAR">joy0left</field>
+                                            </block>
+                                          </value>
+                                          <statement name="DO0">
+                                            <block type="sprite_player0_set" id="gfl]KkmcrFxg#i96ulis">
+                                              <field name="VAR">__player0size_3_</field>
+                                              <value name="VALUE">
+                                                <shadow type="color_get" id="/}q-T8W24i(q5=xEXFld">
+                                                  <field name="COLOR">212</field>
+                                                </shadow>
+                                                <block type="math_number" id="Nf}e1?KR@B*Zy_ClDDp8">
+                                                  <field name="NUM">0</field>
+                                                </block>
+                                              </value>
+                                              <next>
+                                                <block type="variables_set" id="vP(8sc$b|VeK5$+W]$pJ">
+                                                  <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                                  <value name="VALUE">
+                                                    <block type="math_number" id="$Y2|9m/+D*TO@UV/hr-`">
+                                                      <field name="NUM">255</field>
+                                                    </block>
+                                                  </value>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </statement>
+                                          <next>
+                                            <block type="sprite_player0_change" id="!yD9,c`/tQ.UQ^EAy|P:">
+                                              <field name="VAR">player0x</field>
+                                              <value name="DELTA">
+                                                <shadow xmlns="" type="math_number">
+                                                  <field name="NUM">1</field>
+                                                </shadow>
+                                                <block type="variables_get" id="e3(0}l+?jqG~|G)9%/FW">
+                                                  <field name="VAR" id="H`V3qTDYB/eItqFK#OxA">p0Xspeed</field>
+                                                </block>
+                                              </value>
+                                              <next>
+                                                <block type="controls_if" id="5%yK`28[tdNgOsKW7wlg">
+                                                  <mutation else="1"></mutation>
+                                                  <value name="IF0">
+                                                    <block type="logic_operation" id=":z*xy$NkQ.(Av1LE?HZx">
+                                                      <field name="OP">OR</field>
+                                                      <value name="A">
+                                                        <block type="input_joy0_get" id="FcpPVQ1ev`03$muJ^Q==">
+                                                          <field name="VAR">joy0up</field>
+                                                        </block>
+                                                      </value>
+                                                      <value name="B">
+                                                        <block type="input_joy0_get" id="P~1YYP[g}|M$:INnt:PT">
+                                                          <field name="VAR">joy0down</field>
+                                                        </block>
+                                                      </value>
+                                                    </block>
+                                                  </value>
+                                                  <statement name="DO0">
+                                                    <block type="bit_set" id="HH(T$17A))}H$ZMS0q+N">
+                                                      <field name="BIT">1</field>
+                                                      <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="logic_boolean" id="Fp_G%@}AP=lpqb4`Bqe}">
+                                                          <field name="BOOL">TRUE</field>
+                                                        </shadow>
+                                                      </value>
+                                                    </block>
+                                                  </statement>
+                                                  <statement name="ELSE">
+                                                    <block type="bit_set" id="JKPA.b9K3{XSD|pqXFJ}">
+                                                      <field name="BIT">1</field>
+                                                      <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="logic_boolean" id="IQJ_z`(VO|Q7Ya^??kls">
+                                                          <field name="BOOL">FALSE</field>
+                                                        </shadow>
+                                                      </value>
+                                                    </block>
+                                                  </statement>
+                                                  <next>
+                                                    <block type="controls_if" id="@[2A|JjHvpo:Y*NxnD?N">
+                                                      <mutation else="1"></mutation>
+                                                      <value name="IF0">
+                                                        <block type="logic_operation" id="bWEu58:_2M]L#llOTD/r">
+                                                          <field name="OP">OR</field>
+                                                          <value name="A">
+                                                            <block type="input_joy0_get" id="GMS|7A.7=~;bnN,-Bfo9">
+                                                              <field name="VAR">joy0left</field>
+                                                            </block>
+                                                          </value>
+                                                          <value name="B">
+                                                            <block type="input_joy0_get" id="A9,rF)KOz*vVlxCMw[-G">
+                                                              <field name="VAR">joy0right</field>
+                                                            </block>
+                                                          </value>
+                                                        </block>
+                                                      </value>
+                                                      <statement name="DO0">
+                                                        <block type="bit_set" id="H@uO@X6=~NZS@#IveT|h">
+                                                          <field name="BIT">2</field>
+                                                          <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="logic_boolean" id="A(Flpay2#l!)}od7d]:D">
+                                                              <field name="BOOL">TRUE</field>
+                                                            </shadow>
+                                                          </value>
+                                                        </block>
+                                                      </statement>
+                                                      <statement name="ELSE">
+                                                        <block type="bit_set" id="+7NUCxs35qdjbg#s;5[4">
+                                                          <field name="BIT">2</field>
+                                                          <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="logic_boolean" id="JxC`}sFnn(G*GYvLPPQ=">
+                                                              <field name="BOOL">FALSE</field>
+                                                            </shadow>
+                                                          </value>
+                                                        </block>
+                                                      </statement>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="event_block" id="TUG+)~:Ozfhx~[`kaptR" x="-312" y="338">
+      <field name="EVENT">title_update</field>
+      <statement name="DO">
+        <block type="controls_if" id="w!$sC64I4kq*YU[.`(]W">
+          <value name="IF0">
+            <block type="input_joy0_get" id="xU5HtJ(C:zK!@Hj,=B^K">
+              <field name="VAR">joy0fire</field>
+            </block>
+          </value>
+          <statement name="DO0">
+            <block type="event_change_state" id="j=z/MqHEG}G$U3M04f[g">
+              <field name="STATE">gameplay</field>
+            </block>
+          </statement>
+        </block>
+      </statement>
+    </block>
+    <block type="event_block" id="6h6)U6|uz+03b%967{J1" x="-313" y="513">
+      <field name="EVENT">gameplay_start</field>
+      <statement name="DO">
+        <block type="score_bar_set_lives" id=";`jt3VkT0H5sxkVnFK6U">
+          <field name="VAR">pfscore1</field>
+          <value name="VALUE">
+            <shadow type="math_number" id="$anbo()FxrJ|hxOO!R]h">
+              <field name="NUM">4</field>
+            </shadow>
+          </value>
+          <next>
+            <block type="score_bar_set_lives" id="NgY/wJO$377y).46y^P9">
+              <field name="VAR">pfscore2</field>
+              <value name="VALUE">
+                <shadow type="math_number" id="+dJS29-_.C%iG2|~Uejd">
+                  <field name="NUM">4</field>
+                </shadow>
+              </value>
+              <next>
+                <block type="score_set" id="%IHD#Ms(07oMgy#R)LGo">
+                  <value name="VALUE">
+                    <shadow type="math_number" id="Hll:u%JP7?[K:wZ:S}57">
+                      <field name="NUM">123450</field>
+                    </shadow>
+                    <block type="math_number" id="=|q2R;Nma=3~fx434kHp">
+                      <field name="NUM">123450</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="score_digit_set" id="[;/kOD![Rqy=Lm4}/6u{" disabled="true">
+                      <field name="DIGIT">1</field>
+                      <value name="VALUE">
+                        <shadow type="math_number" id="t:+=90vR$a?^eXj]NI5:">
+                          <field name="NUM">2</field>
+                        </shadow>
+                      </value>
+                      <next>
+                        <block type="score_digit_set" id="_P:u}ArQxuvIk3mk~}OP" disabled="true">
+                          <field name="DIGIT">2</field>
+                          <value name="VALUE">
+                            <shadow type="math_number" id="GK^:WydqzucoC$MM2z2i">
+                              <field name="NUM">1</field>
+                            </shadow>
+                          </value>
+                          <next>
+                            <block type="score_digit_set" id="w~[[oy39/R.!#NK/J{hq" disabled="true">
+                              <field name="DIGIT">3</field>
+                              <value name="VALUE">
+                                <shadow type="math_number" id="A3qTpZy[f*`(XHj:kJI2">
+                                  <field name="NUM">3</field>
+                                </shadow>
+                              </value>
+                              <next>
+                                <block type="score_digit_set" id="wV.~I#D2d$EYGa:-?Jww" disabled="true">
+                                  <field name="DIGIT">4</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number" id="Lsv[[ckoDO[(XaT2H*Ab">
+                                      <field name="NUM">4</field>
+                                    </shadow>
+                                  </value>
+                                  <next>
+                                    <block type="score_digit_set" id=",o9n.jDF3@sxg3/4u5E`" disabled="true">
+                                      <field name="DIGIT">5</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="|v.|I[kIXHxJ8mKuPUy:">
+                                          <field name="NUM">5</field>
+                                        </shadow>
+                                      </value>
+                                      <next>
+                                        <block type="variables_set" id="du[Xo]oU0MD=7?{h284y">
+                                          <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                          <value name="VALUE">
+                                            <block type="math_number" id="aaM{PS3=2GCB1wVEXo.g">
+                                              <field name="NUM">2</field>
+                                            </block>
+                                          </value>
+                                          <next>
+                                            <block type="variables_set" id="Q4ITzM[e3y@)Vg]zLv9}">
+                                              <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                              <value name="VALUE">
+                                                <block type="math_number" id="XA$br.{{;;1BV=dL`nxS">
+                                                  <field name="NUM">1</field>
+                                                </block>
+                                              </value>
+                                              <next>
+                                                <block type="variables_set" id="8IrWf;2JV%ToMP:UkQW+">
+                                                  <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                  <value name="VALUE">
+                                                    <block type="logic_boolean" id="(r%?Pf:9A~/HAD/TrN(8">
+                                                      <field name="BOOL">TRUE</field>
+                                                    </block>
+                                                  </value>
+                                                  <next>
+                                                    <block type="sprite_player0_set" id="}1-q}j~3XY}YN+[aGH4-">
+                                                      <field name="VAR">player0visibility</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="math_number" id="G6@-i%gPoh?lKi}kLdp5">
+                                                          <field name="NUM">1</field>
+                                                        </shadow>
+                                                        <block type="math_number" id="x*#D8MgzTM]C)5os*w.D">
+                                                          <field name="NUM">1</field>
+                                                        </block>
+                                                      </value>
+                                                      <next>
+                                                        <block type="sprite_player0_set" id="^@6_2x3t/FE+JG!f(WnK">
+                                                          <field name="VAR">player0realcolor</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="color_get" id="DwR6V{w:G?FMGP2E|nxU">
+                                                              <field name="COLOR">14</field>
+                                                            </shadow>
+                                                            <block type="color_get" id="zT$$D?BjE(I)p-7hJT(N">
+                                                              <field name="COLOR">14</field>
+                                                            </block>
+                                                          </value>
+                                                          <next>
+                                                            <block type="sprite_player0_set" id="_~sBL|s8iL_^[6*`nZj3">
+                                                              <field name="VAR">player0animation</field>
+                                                              <value name="VALUE">
+                                                                <shadow type="math_number" id="t8$C3i|d/%c_l$s`#zAF">
+                                                                  <field name="NUM">1</field>
+                                                                </shadow>
+                                                                <block type="math_number" id="Er4!=Z?}%M)JF2`xYu^d">
+                                                                  <field name="NUM">1</field>
+                                                                </block>
+                                                              </value>
+                                                              <next>
+                                                                <block type="text_minikernel_show" id=",mS9t/q/Hul6n-9tf+~.">
+                                                                  <field name="TEXT">HELLO WORLD!</field>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="controls_if" id="UhvctU*h@;K2+uv[Dh0." x="3488" y="787">
+      <value name="IF0">
+        <block type="bit_get" id="UY*e8vG%uW#O!Bb@^A?[">
+          <field name="BIT">0</field>
+          <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="controls_if" id="N^XOX|16y:;lY4ygP~/T">
+          <comment pinned="false" h="80" w="160">Player walk</comment>
+          <value name="IF0">
+            <block type="logic_compare" id=":XV.%*G^%d5#W2-)Ev;%">
+              <field name="OP">EQ</field>
+              <value name="A">
+                <block type="sprite_player0_get" id="*BJms@7:DLXT}P#Rw+5y">
+                  <field name="VAR">player0frame</field>
+                </block>
+              </value>
+              <value name="B">
+                <block type="math_number" id=";EY9H40k7vKddXWyh+kG">
+                  <field name="NUM">1</field>
+                </block>
+              </value>
+            </block>
+          </value>
+          <statement name="DO0">
+            <block type="soundfx_play" id="F2*dNp@F;qP)wr2o]^t.">
+              <field name="SOUNDFX">1</field>
+              <field name="CHANNEL">0</field>
+            </block>
+          </statement>
+        </block>
+      </statement>
+      <next>
+        <block type="controls_if" id="!|$b!9;+i_QR`?v}^o!Q">
+          <mutation else="1"></mutation>
+          <value name="IF0">
+            <block type="logic_operation" id="YX7/z(j+uyCbf8Cy*3e)">
+              <field name="OP">OR</field>
+              <value name="A">
+                <block type="bit_get" id="T:HP50]b~QYN+!$hl4C:">
+                  <field name="BIT">1</field>
+                  <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                </block>
+              </value>
+              <value name="B">
+                <block type="bit_get" id="1uW=l]9^2AUxdMjo3`s?">
+                  <field name="BIT">2</field>
+                  <field name="VAR">.@P(#CokFuU4.Dd5]@:7</field>
+                </block>
+              </value>
+            </block>
+          </value>
+          <statement name="DO0">
+            <block type="sprite_player0_set" id="(QME#Tw-n-~@Y,RJ|PSs">
+              <field name="VAR">player0animation</field>
+              <value name="VALUE">
+                <shadow type="math_number" id="kJTrmUu#C0noO9Up}/*t">
+                  <field name="NUM">1</field>
+                </shadow>
+                <block type="sprite_player0_animation_select" id="]b(R@m@}D5@@??hFPV,)">
+                  <field name="VAR">0</field>
+                </block>
+              </value>
+            </block>
+          </statement>
+          <statement name="ELSE">
+            <block type="sprite_player0_set" id="bx*}If;WeA[+4X,M=k%X">
+              <field name="VAR">player0animation</field>
+              <value name="VALUE">
+                <shadow type="math_number">
+                  <field name="NUM">1</field>
+                </shadow>
+                <block type="sprite_player0_animation_select" id="jRt2u)UEkSb*mVQ=5%h:">
+                  <field name="VAR">1</field>
+                </block>
+              </value>
+            </block>
+          </statement>
+        </block>
+      </next>
+    </block>
+    <block type="controls_if" id="9oR4Wj*]Gx@8%[$vD?/S" x="437" y="987">
+      <comment pinned="false" h="80" w="160">Farm Inside</comment>
+      <value name="IF0">
+        <block type="logic_compare" id="+qBmMvxSrDiXW2s|+dY[">
+          <field name="OP">EQ</field>
+          <value name="A">
+            <block type="variables_get" id="ia(y[Nn.1n%n{~f(+kx`">
+              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+            </block>
+          </value>
+          <value name="B">
+            <block type="math_number" id="]ZG6T)?t3@t*=#[ZSVEU">
+              <field name="NUM">6</field>
+            </block>
+          </value>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="sprite_player0_set" id="#wK`Gt5m%l{(vU?2W1}]">
+          <field name="VAR">player0realcolor</field>
+          <value name="VALUE">
+            <shadow type="color_get" id="!1tL*^xl^stS9#xD@1#f">
+              <field name="COLOR">14</field>
+            </shadow>
+            <block type="color_get" id="{umP).H*#ot!|;,C+,LI">
+              <field name="COLOR">42</field>
+            </block>
+          </value>
+          <next>
+            <block type="sprite_player1_set" id="q{eqWjd;@Qrn@w:[D1gx">
+              <field name="VAR">player1visibility</field>
+              <value name="VALUE">
+                <shadow type="math_number" id="l4r@Ts;gI:GDI}EtKe{W">
+                  <field name="NUM">1</field>
+                </shadow>
+                <block type="logic_boolean" id=".S6.l0jY4iB@,kDNO#g=">
+                  <field name="BOOL">TRUE</field>
+                </block>
+              </value>
+              <next>
+                <block type="sprite_player1_set" id="aN8mGBq7dzB9/zP9B@**">
+                  <field name="VAR">player1realcolor</field>
+                  <value name="VALUE">
+                    <shadow type="color_get" id="Wk^UA8-[!Hzu5C^P}x`+">
+                      <field name="COLOR">250</field>
+                    </shadow>
+                    <block type="color_get" id="DXi.3~kVyJcDA]EYPzq/">
+                      <field name="COLOR">42</field>
+                    </block>
+                  </value>
+                  <next>
+                    <block type="event_frame_even_odd" id="ygi=QZQEEh|%Yc{DD2pt">
+                      <statement name="DO_EVEN">
+                        <block type="sprite_player1_size" id="ZuVip!U]#3|Y7tS$~O9O">
+                          <field name="SIZE">$5</field>
+                          <next>
+                            <block type="sprite_player1_set" id="Nz,:[{v;u2-ZtZ3.iq3r">
+                              <field name="VAR">player1x</field>
+                              <value name="VALUE">
+                                <shadow type="math_number" id="[IJ[OkNm2o~hkEYufhs,">
+                                  <field name="NUM">1</field>
+                                </shadow>
+                                <block type="math_number" id="-_*,FU]8CCb7b!4kbP3e">
+                                  <field name="NUM">100</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="sprite_player1_set" id="I%S)^jG)k%jiNI}WFe2m">
+                                  <field name="VAR">player1y</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number">
+                                      <field name="NUM">1</field>
+                                    </shadow>
+                                    <block type="math_number" id="_9A$!Ne}l$FZDXZ|KBWI">
+                                      <field name="NUM">76</field>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="sprite_player1_set" id="#!jsWe+I6;8ae{9a2psW">
+                                      <field name="VAR">player1animation</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="Z+(sE,5@K1zgrDrhM]S-">
+                                          <field name="NUM">1</field>
+                                        </shadow>
+                                        <block type="sprite_player1_animation_select" id="I6!3|.acd5;yK@FYiJAG">
+                                          <field name="VAR">2</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </statement>
+                      <statement name="DO_ODD">
+                        <block type="sprite_player1_size" id="y$B7v6iD-+X!i4}1Pnlq" disabled="true">
+                          <field name="SIZE">$5</field>
+                          <next>
+                            <block type="sprite_player1_set" id="Pfr@XbBvAK33ov?|{cYQ" disabled="true">
+                              <field name="VAR">player1x</field>
+                              <value name="VALUE">
+                                <shadow type="math_number">
+                                  <field name="NUM">1</field>
+                                </shadow>
+                                <block type="math_number" id="`sY;?Yqk%N,htAfo$s];">
+                                  <field name="NUM">40</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="sprite_player1_set" id="p6-@74v-w|PPNLVjbKZs" disabled="true">
+                                  <field name="VAR">player1y</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number">
+                                      <field name="NUM">1</field>
+                                    </shadow>
+                                    <block type="math_number" id="_WuhF6Pnj.ydi.c,Ud]#">
+                                      <field name="NUM">67</field>
+                                    </block>
+                                  </value>
+                                  <next>
+                                    <block type="sprite_player1_set" id="]sIyJWz^9l9wL+]HVLjN" disabled="true">
+                                      <field name="VAR">player1animation</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="s;l0W..Z_GM0z6@]k3_L">
+                                          <field name="NUM">1</field>
+                                        </shadow>
+                                        <block type="sprite_player1_animation_select" id="|0vusH{|Kc@B=~9${!2:">
+                                          <field name="VAR">3</field>
+                                        </block>
+                                      </value>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </statement>
+                      <next>
+                        <block type="sprite_missile1_set" id="h(4_;O$|}Grt3~BV#X5Q">
+                          <field name="VAR">missile1y</field>
+                          <value name="VALUE">
+                            <shadow type="math_number" id="qn_j/wJzhCl[?BL{tS17">
+                              <field name="NUM">82</field>
+                            </shadow>
+                          </value>
+                          <next>
+                            <block type="event_frame_every_n" id="f1SVO{l_dgb.m8=r99z!">
+                              <field name="MASK">1</field>
+                              <field name="DELTA">1</field>
+                              <statement name="DO">
+                                <block type="sprite_missile1_size" id="]tVAeA/kbDL*g52iFjN7">
+                                  <field name="SIZE">$30</field>
+                                  <next>
+                                    <block type="sprite_missile1_set" id="p}#M;+zFk]a~dqN)]LV}">
+                                      <field name="VAR">missile1height</field>
+                                      <value name="VALUE">
+                                        <shadow type="math_number" id="Zq/mR*!v$CJAB=VZd]!D">
+                                          <field name="NUM">4</field>
+                                        </shadow>
+                                      </value>
+                                      <next>
+                                        <block type="sprite_missile1_set" id="op$O5f*F2B`.xf4tseHN">
+                                          <field name="VAR">missile1x</field>
+                                          <value name="VALUE">
+                                            <shadow type="math_number" id="ra3)gY.D-aKRLW*fTWW@">
+                                              <field name="NUM">78</field>
+                                            </shadow>
+                                          </value>
+                                          <next>
+                                            <block type="sprite_ball_set" id="ZXl*%vUc1mqpImemhUZb" disabled="true">
+                                              <field name="VAR">ballwidth</field>
+                                              <value name="VALUE">
+                                                <shadow type="math_number" id="rFJPJVurjFv,m3:q::xv">
+                                                  <field name="NUM">7</field>
+                                                </shadow>
+                                              </value>
+                                              <next>
+                                                <block type="sprite_ball_set" id="i$U=:X{EXeeei5z@vt?[" disabled="true">
+                                                  <field name="VAR">ballheight</field>
+                                                  <value name="VALUE">
+                                                    <shadow type="math_number" id="v[8rWZgRgHH^DsU(A]Q:">
+                                                      <field name="NUM">8</field>
+                                                    </shadow>
+                                                  </value>
+                                                  <next>
+                                                    <block type="sprite_ball_set" id="D.TXhp[-/0.$:u^]i/p:" disabled="true">
+                                                      <field name="VAR">ballx</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="math_number" id="vZDsZ/KqGK`eDY9^.(3*">
+                                                          <field name="NUM">78</field>
+                                                        </shadow>
+                                                      </value>
+                                                      <next>
+                                                        <block type="sprite_ball_set" id="8kz5[Mh7+SPSvTs6pg4h" disabled="true">
+                                                          <field name="VAR">bally</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="math_number" id="28~UoUE?(3T1qo3?nO%+">
+                                                              <field name="NUM">30</field>
+                                                            </shadow>
+                                                          </value>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </statement>
+                              <next>
+                                <block type="event_frame_every_n" id="]/@?hf,t3mk4B=y.Wa}c">
+                                  <field name="MASK">3</field>
+                                  <field name="DELTA">1</field>
+                                  <statement name="DO">
+                                    <block type="sprite_missile1_size" id="}TQMX{A$Wb%UR:!iyV$y">
+                                      <field name="SIZE">$20</field>
+                                      <next>
+                                        <block type="sprite_missile1_set" id="m~BiTJ|W0e.{zI:4*SBG">
+                                          <field name="VAR">missile1height</field>
+                                          <value name="VALUE">
+                                            <shadow type="math_number" id="?_9q1Gx$1]^*,Gj|a#=+">
+                                              <field name="NUM">6</field>
+                                            </shadow>
+                                          </value>
+                                          <next>
+                                            <block type="sprite_missile1_set" id="U+4))wqxH8{ETxVoOros">
+                                              <field name="VAR">missile1x</field>
+                                              <value name="VALUE">
+                                                <shadow type="math_number" id="*tE7dbVc!b28_r)ReI,B">
+                                                  <field name="NUM">80</field>
+                                                </shadow>
+                                              </value>
+                                              <next>
+                                                <block type="sprite_ball_set" id="BX%oy2I3A4b,p{UUaLCl" disabled="true">
+                                                  <field name="VAR">ballwidth</field>
+                                                  <value name="VALUE">
+                                                    <shadow type="math_number" id="Al99ne6Q1Z6fg)KzBa+~">
+                                                      <field name="NUM">2</field>
+                                                    </shadow>
+                                                  </value>
+                                                  <next>
+                                                    <block type="sprite_ball_set" id="7}zDQRiRr]zlf.8yvOE=" disabled="true">
+                                                      <field name="VAR">ballheight</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="math_number" id="(J,EnN}@iS(H?-V+F.i!">
+                                                          <field name="NUM">8</field>
+                                                        </shadow>
+                                                      </value>
+                                                      <next>
+                                                        <block type="sprite_ball_set" id="dh8]f!~-7mJOhX5//%cb" disabled="true">
+                                                          <field name="VAR">ballx</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="math_number" id="C!Dnk+{-RE}A(wu7zcH*">
+                                                              <field name="NUM">80</field>
+                                                            </shadow>
+                                                          </value>
+                                                          <next>
+                                                            <block type="sprite_ball_set" id=";vO(KWnu$(`B}-`=F.|!" disabled="true">
+                                                              <field name="VAR">bally</field>
+                                                              <value name="VALUE">
+                                                                <shadow type="math_number" id="Jm4uoB1qF57K@7d8}QHK">
+                                                                  <field name="NUM">26</field>
+                                                                </shadow>
+                                                              </value>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </statement>
+                                  <next>
+                                    <block type="event_frame_every_n" id="Yikl}gsBPnq,{41m(*xu">
+                                      <field name="MASK">7</field>
+                                      <field name="DELTA">3</field>
+                                      <statement name="DO">
+                                        <block type="sprite_missile1_size" id="N9*=.8[viyb+pNCl+Pe{">
+                                          <field name="SIZE">$10</field>
+                                          <next>
+                                            <block type="sprite_missile1_set" id="iJUVEQZ*WOO=[iN@;a]}">
+                                              <field name="VAR">missile1height</field>
+                                              <value name="VALUE">
+                                                <shadow type="math_number" id="=sZ~^GP.DJ,INDP)1xYu">
+                                                  <field name="NUM">8</field>
+                                                </shadow>
+                                              </value>
+                                              <next>
+                                                <block type="sprite_missile1_set" id="4JT|HL?RNSquk:OA7QQO">
+                                                  <field name="VAR">missile1x</field>
+                                                  <value name="VALUE">
+                                                    <shadow type="math_number" id="$(QHI6;^78_:?@FT}Ycj">
+                                                      <field name="NUM">81</field>
+                                                    </shadow>
+                                                  </value>
+                                                  <next>
+                                                    <block type="sprite_ball_set" id="JFB9U-TtIpsGj[1gHw|4" disabled="true">
+                                                      <field name="VAR">ballwidth</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="math_number" id="-q=X{gTVEIU@YMpKW%6n">
+                                                          <field name="NUM">1</field>
+                                                        </shadow>
+                                                      </value>
+                                                      <next>
+                                                        <block type="sprite_ball_set" id=";rPW@s@.e|eeQ}G+iaow" disabled="true">
+                                                          <field name="VAR">ballheight</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="math_number" id="hh]dh4c80b%mZx1.SON*">
+                                                              <field name="NUM">9</field>
+                                                            </shadow>
+                                                          </value>
+                                                          <next>
+                                                            <block type="sprite_ball_set" id="vuB4p0=hOMxvwXv-?*L7" disabled="true">
+                                                              <field name="VAR">ballx</field>
+                                                              <value name="VALUE">
+                                                                <shadow type="math_number" id="A6)~7GvY`a(tI_*Gt/fv">
+                                                                  <field name="NUM">81</field>
+                                                                </shadow>
+                                                              </value>
+                                                              <next>
+                                                                <block type="sprite_ball_set" id="g;70PN*R-^If+H,yHD-g" disabled="true">
+                                                                  <field name="VAR">bally</field>
+                                                                  <value name="VALUE">
+                                                                    <shadow type="math_number" id="~[^orpHN91%#cDnN~:Ic">
+                                                                      <field name="NUM">28</field>
+                                                                    </shadow>
+                                                                  </value>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </statement>
+                                      <next>
+                                        <block type="event_frame_every_n" id="f[ltvlc[`~f~!q[lr}?j">
+                                          <field name="MASK">7</field>
+                                          <field name="DELTA">5</field>
+                                          <statement name="DO">
+                                            <block type="sprite_missile1_size" id="u!v9ZnEN*=yxz}Lj;493">
+                                              <field name="SIZE">$20</field>
+                                              <next>
+                                                <block type="sprite_missile1_set" id="2*JAQf+|$N#.0~=sLJ$`">
+                                                  <field name="VAR">missile1height</field>
+                                                  <value name="VALUE">
+                                                    <shadow type="math_number" id="xxq,:Q/v5yUl?FX7lH2y">
+                                                      <field name="NUM">8</field>
+                                                    </shadow>
+                                                  </value>
+                                                  <next>
+                                                    <block type="sprite_missile1_set" id="^[cuVUhXA|LDbHsW_5{q">
+                                                      <field name="VAR">missile1x</field>
+                                                      <value name="VALUE">
+                                                        <shadow type="math_number" id="H$?ma`wE:,!O,ya_B_|e">
+                                                          <field name="NUM">80</field>
+                                                        </shadow>
+                                                      </value>
+                                                      <next>
+                                                        <block type="sprite_ball_set" id="].mb`{|:x8_.qES^t0a5" disabled="true">
+                                                          <field name="VAR">ballwidth</field>
+                                                          <value name="VALUE">
+                                                            <shadow type="math_number" id="+^@Bi`Pf/PMf(G;q8qHN">
+                                                              <field name="NUM">1</field>
+                                                            </shadow>
+                                                          </value>
+                                                          <next>
+                                                            <block type="sprite_ball_set" id="1]+WYG_xpb2#/V]{Jb+P" disabled="true">
+                                                              <field name="VAR">ballheight</field>
+                                                              <value name="VALUE">
+                                                                <shadow type="math_number" id="3x%(N{S_[*p[)jvAyx8g">
+                                                                  <field name="NUM">9</field>
+                                                                </shadow>
+                                                              </value>
+                                                              <next>
+                                                                <block type="sprite_ball_set" id="(b!2P@I:iQ,QkUTxO0lj" disabled="true">
+                                                                  <field name="VAR">ballx</field>
+                                                                  <value name="VALUE">
+                                                                    <shadow type="math_number" id="plXAH#Gjc=ZQAx!Z1n#+">
+                                                                      <field name="NUM">80</field>
+                                                                    </shadow>
+                                                                  </value>
+                                                                  <next>
+                                                                    <block type="sprite_ball_set" id="#Rh|HLHHhW5scj=*$IHL" disabled="true">
+                                                                      <field name="VAR">bally</field>
+                                                                      <value name="VALUE">
+                                                                        <shadow type="math_number" id="kQ=(xNxk,XZ1y[*vS#XT">
+                                                                          <field name="NUM">28</field>
+                                                                        </shadow>
+                                                                      </value>
+                                                                    </block>
+                                                                  </next>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </next>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </statement>
+                                          <next>
+                                            <block type="sprite_missile1_set" id="Tw(7awK|_:*iiUzW@v.*">
+                                              <field name="VAR">missile1y</field>
+                                              <value name="VALUE">
+                                                <shadow type="math_number" id="g~#m?99BW].^bVOMl5/7">
+                                                  <field name="NUM">22</field>
+                                                </shadow>
+                                              </value>
+                                              <next>
+                                                <block type="controls_if" id="HdnmIAZlFc{V#]9#mAk;">
+                                                  <comment pinned="false" h="80" w="160">Down</comment>
+                                                  <value name="IF0">
+                                                    <block type="logic_compare" id="`mPnlq-9tb8M`~0W2q#S">
+                                                      <field name="OP">GT</field>
+                                                      <value name="A">
+                                                        <block type="sprite_player0_get" id="i-o`jau+Khq|EJJNz.?w">
+                                                          <field name="VAR">player0y</field>
+                                                        </block>
+                                                      </value>
+                                                      <value name="B">
+                                                        <block type="math_number" id="d@+%0K_guM;~K-#!e-0)">
+                                                          <field name="NUM">92</field>
+                                                        </block>
+                                                      </value>
+                                                    </block>
+                                                  </value>
+                                                  <statement name="DO0">
+                                                    <block type="variables_set" id="^0+E:~8,]hxb=TNiK:|M">
+                                                      <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                                                      <value name="VALUE">
+                                                        <block type="math_number" id="vf#}!3qUy~P[VZEc}_D,">
+                                                          <field name="NUM">2</field>
+                                                        </block>
+                                                      </value>
+                                                      <next>
+                                                        <block type="variables_set" id="zCwJi/%j=xG76RCrN}Fh">
+                                                          <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                                                          <value name="VALUE">
+                                                            <block type="math_number" id="KLYvkPb[d/~@Fkwlz5jn">
+                                                              <field name="NUM">1</field>
+                                                            </block>
+                                                          </value>
+                                                          <next>
+                                                            <block type="variables_set" id="H8|4`;Cr2CVcaJJwl_@I">
+                                                              <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                                                              <value name="VALUE">
+                                                                <block type="math_number" id="z.Y@9l6H)kMw{b26vt5H">
+                                                                  <field name="NUM">1</field>
+                                                                </block>
+                                                              </value>
+                                                              <next>
+                                                                <block type="sprite_player0_set" id="ojjG$ZM*q7ug`xkC~3!X">
+                                                                  <field name="VAR">player0x</field>
+                                                                  <value name="VALUE">
+                                                                    <shadow type="math_number">
+                                                                      <field name="NUM">1</field>
+                                                                    </shadow>
+                                                                    <block type="math_number" id="Y/:YAU+NR5J@~S|f8,}K">
+                                                                      <field name="NUM">77</field>
+                                                                    </block>
+                                                                  </value>
+                                                                  <next>
+                                                                    <block type="sprite_player0_set" id="@9tE|3I(r?gP+bexI]FH">
+                                                                      <field name="VAR">player0y</field>
+                                                                      <value name="VALUE">
+                                                                        <shadow type="math_number">
+                                                                          <field name="NUM">1</field>
+                                                                        </shadow>
+                                                                        <block type="math_number" id="6L.U/=boB^*D)q,vAknq">
+                                                                          <field name="NUM">64</field>
+                                                                        </block>
+                                                                      </value>
+                                                                    </block>
+                                                                  </next>
+                                                                </block>
+                                                              </next>
+                                                            </block>
+                                                          </next>
+                                                        </block>
+                                                      </next>
+                                                    </block>
+                                                  </statement>
+                                                </block>
+                                              </next>
+                                            </block>
+                                          </next>
+                                        </block>
+                                      </next>
+                                    </block>
+                                  </next>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </next>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+    <block type="controls_if" id="QJV;Ito{v`RLEqm8^MvA" x="1087" y="988">
+      <comment pinned="false" h="80" w="160">Farm Entrance</comment>
+      <value name="IF0">
+        <block type="logic_compare" id="ttNG{|AloLPrg,e3E+mR">
+          <field name="OP">EQ</field>
+          <value name="A">
+            <block type="variables_get" id="|BoW,M$dXE[_X{Vw^Azb">
+              <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+            </block>
+          </value>
+          <value name="B">
+            <block type="math_number" id="PmIxLheNUxk)g`.t6KaH">
+              <field name="NUM">8</field>
+            </block>
+          </value>
+        </block>
+      </value>
+      <statement name="DO0">
+        <block type="score_color_set" id="}ASWr-Qh7$0YzkFu58L-" disabled="true">
+          <value name="VALUE">
+            <shadow type="color_get" id="LuLD_NY}M;07+qYWYs%U">
+              <field name="COLOR">18</field>
+            </shadow>
+          </value>
+          <next>
+            <block type="sprite_player1_set" id="1`SUT)H|nym~63W}##.;">
+              <field name="VAR">player1visibility</field>
+              <value name="VALUE">
+                <shadow type="math_number" id="(PCBmzO;8R2nNO+m*1qx">
+                  <field name="NUM">0</field>
+                </shadow>
+              </value>
+              <next>
+                <block type="controls_if" id="Vd^(sd)#*k}rI13GiQ8@">
+                  <comment pinned="false" h="80" w="160">Left</comment>
+                  <value name="IF0">
+                    <block type="logic_compare" id="h/dPJ;jKeST230zgq#c$">
+                      <field name="OP">LT</field>
+                      <value name="A">
+                        <block type="sprite_player0_get" id="rE[]d=As]-z_H/u$KEK5">
+                          <field name="VAR">player0y</field>
+                        </block>
+                      </value>
+                      <value name="B">
+                        <block type="math_number" id="+1B6P#YJ{=Dw[Ch9pKJ[">
+                          <field name="NUM">10</field>
+                        </block>
+                      </value>
+                    </block>
+                  </value>
+                  <statement name="DO0">
+                    <block type="variables_set" id="lX6#gH{!p2kExhs+:6yE">
+                      <field name="VAR" id="[H+;t~ZjaIz|wt[NOCam">BGScene</field>
+                      <value name="VALUE">
+                        <block type="math_number" id="B~#WA(ih_vob409jf]V(">
+                          <field name="NUM">2</field>
+                        </block>
+                      </value>
+                      <next>
+                        <block type="variables_set" id="B]U_VP=@dJ`u0m-Q0d@Z">
+                          <field name="VAR" id="E={XKjr6rV78*RQ_)%Z}">BGColor</field>
+                          <value name="VALUE">
+                            <block type="math_number" id="EOq:pLcsy7F)f,V?OOf^">
+                              <field name="NUM">1</field>
+                            </block>
+                          </value>
+                          <next>
+                            <block type="variables_set" id=",eg8Z2x51Z.sbC~+^w(r">
+                              <field name="VAR" id="f1Ag9Rk8lHN4Zpz]NJS^">SetBG</field>
+                              <value name="VALUE">
+                                <block type="math_number" id="#J2c:9tHn#6L3tal*;6w">
+                                  <field name="NUM">1</field>
+                                </block>
+                              </value>
+                              <next>
+                                <block type="sprite_player0_set" id="W%(%x5PmF$[t:awxPdl^">
+                                  <field name="VAR">player0y</field>
+                                  <value name="VALUE">
+                                    <shadow type="math_number">
+                                      <field name="NUM">1</field>
+                                    </shadow>
+                                    <block type="math_number" id="UW;^1NS?wjw]^gt(j$c-">
+                                      <field name="NUM">90</field>
+                                    </block>
+                                  </value>
+                                </block>
+                              </next>
+                            </block>
+                          </next>
+                        </block>
+                      </next>
+                    </block>
+                  </statement>
+                </block>
+              </next>
+            </block>
+          </next>
+        </block>
+      </statement>
+    </block>
+  </xml>
+player-0:
+  animations:
+    - id: 1
+      name: 0-Move
+      frames:
+        - id: 1
+          duration: 7
+          pixels: |-
+            ........
+            X..XXX..
+            X...X...
+            X.XXXXX.
+            XX.XXXX.
+            X..XXXXX
+            X..X.X.X
+            X..X.X.X
+            X..X.X..
+            X..X..XX
+        - id: 2
+          duration: 7
+          pixels: |-
+            ...XXX..
+            .X..X...
+            .X.XXXX.
+            .XXXXXX.
+            .X.XXXXX
+            .X.XXX.X
+            .X..X..X
+            .X..X...
+            .X..XXX.
+            .X..X...
+        - id: 3
+          duration: 7
+          pixels: |-
+            ...XXX..
+            ..X.X...
+            ..XXXXX.
+            ..XXXXXX
+            ..XXXXXX
+            ..XX.X.X
+            ..XX.X..
+            ..X..X..
+            ..XXX.X.
+            ..X...X.
+        - id: 4
+          duration: 7
+          pixels: |-
+            ...XXX..
+            ....X...
+            ...XXXX.
+            ...XXXXX
+            ..XXXXXX
+            ...X.X.X
+            ..XX..X.
+            .XXX..X.
+            ..XX...X
+            ...X...X
+        - id: 5
+          duration: 7
+          pixels: |-
+            ........
+            .X.XXX..
+            .X..X...
+            .XXXXXX.
+            .X.XXXX.
+            .X.XXXXX
+            .X.X.X.X
+            .X.X.X.X
+            .X.X.X..
+            .X.X..XX
+        - id: 6
+          duration: 7
+          pixels: |-
+            X..XXX..
+            X...X...
+            XXXXXXX.
+            X..XXXX.
+            X..XXXXX
+            X..XXX.X
+            X...X..X
+            X...X...
+            X...XXX.
+            ....X...
+        - id: 7
+          duration: 7
+          pixels: |-
+            ...XXX..
+            X...X...
+            X.XXXXX.
+            XX.XXXXX
+            X..XXXXX
+            X..X.X.X
+            X..X.X..
+            X.X..X..
+            X..XX.X.
+            X.....X.
+        - id: 8
+          duration: 7
+          pixels: |-
+            ...XXX..
+            ....X...
+            X.XXXXX.
+            XX.XXXXX
+            X..XXXXX
+            X..X.X.X
+            X.X...X.
+            XX....X.
+            X.X....X
+            X..X...X
+    - id: 2
+      name: 1-Idle
+      frames:
+        - id: 2
+          duration: 8
+          pixels: |-
+            ...XXX..
+            .X..X...
+            .X.XXXX.
+            .X.XXXX.
+            .XXXXXXX
+            .X.X.X.X
+            .X.X.X.X
+            .X.X.X..
+            .X.X.X..
+            .X.X.X..
+player-1:
+  animations:
+    - id: 1
+      name: Example1
+      frames:
+        - id: 1
+          duration: 10
+          pixels: |-
+            ...XXX..
+            ...XXX..
+            ...XXX..
+            ..X.X...
+            ..XXXXX.
+            ....X.X.
+            ...X.X..
+            ..X...X.
+        - id: 2
+          duration: 10
+          pixels: |-
+            ...XXX..
+            ...XXX..
+            ...XXX..
+            ....X.X.
+            ..XXXXX.
+            ..X.X...
+            ...X.X..
+            ...X.X..
+    - id: 2
+      name: Tree
+      frames:
+        - id: 1
+          duration: 10
+          pixels: |-
+            ...X....
+            ..X...X.
+            ...X.X..
+            .X.XX...
+            ..XX....
+            X..X.X..
+            .X.XX..X
+            .X.X..X.
+            X.XXXX.X
+            ..XXX...
+            ..XX.X..
+            ..XX..X.
+            .XXX.X.X
+            .XX.....
+            .XX.....
+            .XX.....
+            .XX.....
+            .XXX....
+            ..XX....
+            ..XX....
+            ..XX....
+            .XXXX...
+            XXXXXX..
+            ..XX....
+    - id: 3
+      name: Rug
+      frames:
+        - id: 1
+          duration: 10
+          pixels: |-
+            .XXXXXX.
+            .XXXXXX.
+            .XXXXXX.
+            XXXXXXXX
+            XX....XX
+            XXX..XXX
+            X......X
+            XXXXXXXX
+            X......X
+            XXXXX.XX
+            X......X
+            XXX.XX.X
+            X......X
+            XX.X..XX
+            X......X
+            XXX.X..X
+            X......X
+            XX.....X
+            X......X
+            X...X.XX
+            X......X
+            XX.X...X
+            X......X
+            X......X
+            X.....XX
+            X......X
+            XX..X..X
+            X......X
+            X......X
+            X......X
+            X......X
+            XX.....X
+            X......X
+            X......X
+            X......X
+            X......X
+            X......X
+            X......X
+            X......X
+            X......X
+            X......X
+            XX....XX
+            XX....XX
+            XX....XX
+            XXXXXXXX
+            .XXXXXX.
+            .XXXXXX.
+            .XXXXXX.
+    - id: 4
+      name: Table
+      frames:
+        - id: 1
+          duration: 10
+          pixels: |-
+            .....XXX
+            .....XXX
+            .....XXX
+            ......XX
+            .......X
+            ....XXXX
+            .......X
+            ....XXXX
+            .......X
+            ....X.XX
+            .......X
+            ....XX.X
+            .......X
+            ......XX
+            .......X
+            ....X..X
+            .......X
+            .......X
+            .......X
+            ....X.XX
+            .......X
+            ...X...X
+            .......X
+            .......X
+            ......XX
+            .......X
+            ....X..X
+            .......X
+            .......X
+            .......X
+            .......X
+            .......X
+    - id: 5
+      name: Table
+      frames:
+        - id: 1
+          duration: 10
+          pixels: |-
+            .XXXXXX.
+            X......X
+            XXXXXXXX
+            X......X
+            X....X.X
+            X......X
+            X.X..X.X
+            .XXXXXX.
+backgrounds:
+  backgrounds:
+    - id: 1
+      name: 1-Title
+      pixels: |-
+        ................................
+        ....XX..........................
+        ...XXXX.X................X.XX...
+        ................................
+        ................................
+        .....................XX.........
+        ................................
+        ..XXXXXXXXXXXXXXXXXXXXXXXXXXXX..
+        .X............................X.
+        .X..X...X...XX.XX..X...XX..XX.X.
+        .X.X.X.X.X.X..X...X.X.X...X...X.
+        .X.X.X.X.X..X..X..X.X.X...XX..X.
+        .X.XX..XXX...X..X.XXX.X.X.X...X.
+        .X.X...X.X.XX.XX..X.X..XX..XX.X.
+        .X............................X.
+        ..XXXXXXXXXXXXXXXXXXXXXXXXXXXX..
+        ................................
+        ................................
+        ......XX........................
+        ....X.XX........................
+        ..........................XX....
+        ........................X.XXX...
+        ..........XX....................
+        ................................
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 2
+      name: 2-Farmhouse
+      pixels: |-
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        ...............................X
+        ...............................X
+        ...............................X
+        ...............................X
+        ...............................X
+        ............XXXXXXXX...........X
+        ...........XXXXXXXXXX.........XX
+        ...........XX.X..X.XX...........
+        ...........XX.X..X.XX...........
+        ...........XXXXXXXXXX...XX......
+        ...........XXXX..XXXX...XX.X....
+        ...........XXXX..XXXX...........
+        .....XX....XXXX..XXXX...........
+        ...X.XXX........................
+        ................................
+        ..............................XX
+        ...............................X
+        ...............................X
+        ...............................X
+        ...............................X
+        ...........X........X..........X
+        XXXXXXXXXXXX........XXXXXXXXXXXX
+        XXXXXXXXXXXX........XXXXXXXXXXXX
+      rowColors:
+        - 24
+        - 28
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 3
+      name: 3-Graveyard
+      pixels: |-
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        X.....X........................X
+        X.....X........................X
+        X.....X........................X
+        X.....X........................X
+        X.....X........................X
+        XX....X.............XX.........X
+        ......X.............XX.........X
+        ......X.........X..............X
+        ......X.........X..............X
+        ......X........................X
+        ......X........................X
+        ......X........................X
+        ......X........................X
+        ......XXXXXXXX.XX......XXX...XXX
+        XX....XXX..XXXX.X......XXXX.XXXX
+        X..............................X
+        X..............................X
+        X..............................X
+        X..............................X
+        X..............................X
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 4
+      name: 4-FarmHenge
+      pixels: |-
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        X...............................
+        X...............................
+        X........X....XXX.X....X........
+        X........X....XXX.X....XX.......
+        X.......XX............XXX.......
+        X.......XX.............X........
+        X..X............................
+        X..X.......................X....
+        X..XX......................X....
+        X..XX...................XX.XX...
+        X...............................
+        X...............................
+        X...............................
+        X.....................X.........
+        X.......XX............X.........
+        X.......XX.X..........XX........
+        X.....................XX........
+        X..............X................
+        X..............XX...............
+        X..............XX...............
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 5
+      name: 5-Desert-Ruins-1
+      pixels: |-
+        ................................
+        ................................
+        ................................
+        ....XXX.........................
+        ...XXXXX........................
+        ...XXXXXX.X.....................
+        ................................
+        ................................
+        .......................XX.......
+        ......................XXX..X....
+        ......................XXX..X....
+        ..................XX.XXXXXXXX...
+        ................................
+        ................................
+        ................................
+        ................................
+        ................................
+        ................................
+        ..........XX....................
+        .........XXXX.XX................
+        ................................
+        ................................
+        ................................
+        ................................
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 6
+      name: 6-FarmInside
+      pixels: |-
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        X.........XXX......XXX.........X
+        X.........XXX......XXX.........X
+        X..............................X
+        X..............................X
+        X..............................X
+        X..............................X
+        X..............................X
+        X.....XXXX.....................X
+        X.....XXXX.....................X
+        X...X.XXXX.X...................X
+        X...X.XXXX.X...................X
+        X...X.XXXX.X...................X
+        X...X.XXXX.X...................X
+        X.....XXXX.....................X
+        X.....XXXX.....................X
+        X..............................X
+        X..............................X
+        X..............................X
+        X..............................X
+        X..............................X
+        XXXXXXXXXXXX........XXXXXXXXXXXX
+        XXXXXXXXXXXX........XXXXXXXXXXXX
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 7
+      name: 7-Desert-Ruins-2
+      pixels: |-
+        ................................
+        ................................
+        .......XX.......................
+        .......XX.X.....................
+        ................................
+        .........................X......
+        ........................XX......
+        ...XX...........................
+        ................................
+        ................................
+        ................................
+        .............XX.................
+        ................................
+        ................................
+        ......................XX........
+        ......................XXX.......
+        ................................
+        ......XX........................
+        ......XXX.......................
+        ...........................XX...
+        ....................XX...X.XX...
+        ................................
+        ................................
+        ................................
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+    - id: 8
+      name: 8-Farm-Exit
+      pixels: |-
+        XXXXXXXXXXXX........XXXXXXXXXXXX
+        X.......XXXX........XXXXXXX..XXX
+        X..........X........X..........X
+        ...X.......X........X..........X
+        ...........X........X..........X
+        ......XX...X........X..........X
+        ...........X........XXXXXXX....X
+        ..........XX........XX..XX.....X
+        ..........XX....XX..XX..XX.....X
+        ..........X.....XX..XXXXXXXX...X
+        ....X...............X..........X
+        ....XX..............X..X.XX....X
+        ....XX..............X..........X
+        ...XX...............X..........X
+        ...XX...............X..........X
+        ...XXX..............X..........X
+        ....XX.X............X..........X
+        ....X...............X..........X
+        ....................X..........X
+        ...........XX.......X..X.......X
+        ..........XXX.X.....X....X.....X
+        ....................X..........X
+        ....................X..........X
+        ....................X..........X
+      rowColors:
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+        - 14
+score-font:
+  digits:
+    - |-
+      ........
+      ........
+      ........
+      ........
+      ........
+      ........
+      ........
+      ........
+    - |-
+      ...X....
+      ...XX...
+      ...XX...
+      ...XX...
+      ...XX...
+      ..XXXX..
+      ...XX...
+      ...XX...
+    - |-
+      ...XX...
+      .XXX.XX.
+      .XXX..X.
+      .XXX..X.
+      .XXX..X.
+      .XXX..X.
+      ..XX.X..
+      ...XX...
+    - |-
+      ...XX...
+      ...X....
+      ...XX...
+      ...X....
+      ...X....
+      ..XXXX..
+      ..X..X..
+      ..XXXX..
+    - |-
+      ....X...
+      ...X....
+      ..XXX...
+      .XXXXX..
+      .XXXXX..
+      .XXXXX..
+      .XXXXX..
+      ..XXX...
+    - |-
+      ..XXXX..
+      ..X..X..
+      ...XX...
+      ..X..X..
+      ..X..X..
+      ..X..X..
+      .XX..XX.
+      ..XXXX..
+    - |-
+      ........
+      .....X..
+      .....XX.
+      ......X.
+      .XXX..X.
+      .XXXXXX.
+      ....XX..
+      ........
+    - |-
+      ..XXXX..
+      .X....X.
+      .X....X.
+      .X....X.
+      ..XXXX..
+      ...XX...
+      ...XX...
+      ..XXXX..
+    - |-
+      ........
+      .X......
+      .XX.....
+      ..XX....
+      ...XX...
+      ....XX..
+      .....XX.
+      ........
+    - |-
+      ........
+      ........
+      ........
+      ........
+      ........
+      ........
+      ........
+      ........
+data-tables:
+  dataTables:
+    - id: 1
+      name: lvldata
+      values:
+        - 0
+        - 1
+        - 0
+        - 0
+        - 1
+        - 1
+        - 1

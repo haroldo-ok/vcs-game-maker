@@ -158,7 +158,7 @@ export const rainbowColorOffsetVarName = (name) => `_${name}RainbowColorOffset`;
 export const ctrlpfShadowVarName = () => '_ctrlpf';
 
 export const missileFireFlagsVarName = () => '_missileFireFlags';
-export const missileFireActiveBit = (name) => name === 'missile1' ? 1 : 0;
+export const missileFireActiveBit = (name) => ({missile0: 0, missile1: 1, ball: 2})[name];
 export const missileFireDirVarName = (name) => `_${name}FireDir`;
 export const missileFireSpeedVarName = (name) => `_${name}FireSpeed`;
 
@@ -519,7 +519,7 @@ export const generateMissileFireChecks = (Blockly) => {
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const flagsVar = resolveVar(missileFireFlagsVarName());
   const lines = [];
-  ['missile0', 'missile1'].forEach((name) => {
+  ['missile0', 'missile1', 'ball'].forEach((name) => {
     if (!used.has(name)) return;
     const doneLabel = `_missilefire_${name}_done`;
     const dirVar = resolveVar(missileFireDirVarName(name));
@@ -825,14 +825,20 @@ export default (Blockly) => {
     };
   };
 
-  const createGeneratorForMissile = (name) => {
+  const createGeneratorForMissileSize = (name) => {
     Blockly.BBasic[`sprite_${name}_size`] = function(block) {
       const size = block.getFieldValue('SIZE') || 0;
       const varName = name.replace('missile', 'player') + 'size';
       return `${varName} = ${varName} & $0F\n` +
         `${varName} = ${varName} | ${size}\n`;
     };
+  };
 
+  // sprite_*_fire's trigger, plus sprite_*_bounce - shared by missile0/
+  // missile1/ball (nothing here is missile-specific: ballx/bally are plain
+  // bB vars exactly like missile0x/missile0y, and missileFireActiveBit/
+  // missileFireDirVarName/missileFireSpeedVarName already cover 'ball' too).
+  const createGeneratorForFireBall = (name) => {
     // TRIGGER only - see sprite_${name}_rom_noise's own top-of-block comment
     // for why a one-shot assignment here can't be the whole story:
     // generateMissileFireChecks (spliced into commongamelogic) does the
@@ -886,11 +892,37 @@ export default (Blockly) => {
         `${throttleVar} = 1\n` +
         `${flagsVar}{${activeBit}} = 1\n`;
     };
+
+    // Reverses whatever direction this object is CURRENTLY fired at by a
+    // flat 180 degrees (dirVar is 0-7, clockwise from Up - see
+    // sprite_${name}_fire's own tooltip) - no screen-edge or collision
+    // detection of its own, just the flip (confirmed with the user: no
+    // "gravity"/physics here, only the direction change), so it's meant to
+    // be placed behind whatever check the user's own project already has
+    // for deciding a bounce should happen. "+4, wrap back into 0-7 if it
+    // overflowed past 7" rather than a real modulo (bB has no "mod"
+    // operator, and dirVar is always already 0-7 or the sentinel 255 -
+    // whatever a stray reversal of 255 produces is harmless, just
+    // meaningless, since dirVar is never read at all while this object
+    // isn't actively flying - see generateMissileFireChecks' own
+    // "!flagsVar{activeBit}" early-out). missileFireUsedFor's own pre-scan
+    // in bbasic.js's init() treats sprite_${name}_bounce the same as
+    // sprite_${name}_fire (both reference dirVar), so it's always
+    // guaranteed to already exist here even if this project only ever
+    // places a Bounce block for this name and never a Fire block.
+    Blockly.BBasic[`sprite_${name}_bounce`] = function() {
+      const resolveVar = (canonicalName) =>
+        Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const dirVar = resolveVar(missileFireDirVarName(name));
+      return `${dirVar} = ${dirVar} + 4\n` +
+        `if ${dirVar} > 7 then ${dirVar} = ${dirVar} - 8\n`;
+    };
   };
 
   ['player0', 'player1', 'missile0', 'missile1', 'ball'].forEach(createGeneratorForSprite);
   ['player0', 'player1'].forEach(createGeneratorForPlayer);
-  ['missile0', 'missile1'].forEach(createGeneratorForMissile);
+  ['missile0', 'missile1'].forEach(createGeneratorForMissileSize);
+  ['missile0', 'missile1', 'ball'].forEach(createGeneratorForFireBall);
 
   // Just captures the target/speed and sets the active bit for whichever
   // object OBJECT picks - the actual per-frame movement happens in

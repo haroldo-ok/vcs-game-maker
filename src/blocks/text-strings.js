@@ -11,6 +11,23 @@ import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 // storage - see encodeTextMessage in generators/bbasic/text-minikernel.js).
 export const TEXT_MESSAGE_LENGTH = 12;
 
+// Scratch storage for "Show text with ID"'s own VALUE input, captured once
+// before multiplying it by TEXT_MESSAGE_LENGTH (see generators/bbasic/
+// text-minikernel.js's own text_minikernel_show_by_id) - temp1 looks like
+// the obvious spot (used exactly that way throughout this codebase, and
+// genuinely fine for a call made OUTSIDE any function), but is NOT safe for
+// a "Show text with ID" placed INSIDE a function's own body whose own
+// argument also happens to be read via temp1 (see function_param_get's own
+// comment in blocks/function.js for the identical reasoning
+// functionCallDiscardVarName already documents for the same class of risk):
+// "temp1 = someValue" would clobber that function's own live argument the
+// moment this ran, confirmed as a real reported build failure ("Syntax
+// Error '#,'" from a mangled immediate load, inside a function whose own
+// argument was read again later in its body). A dedicated dev var sidesteps
+// that possibility entirely, at the cost of reserving it only for a project
+// that actually uses "Show text with ID" at all.
+export const textShowByIdArgVarName = () => '_textShowByIdArg';
+
 // How many of TEXT_MESSAGE_LENGTH's own 12 positions a project actually
 // wants to USE at once - a project-wide, compile-time-only setting (see
 // TextEditor.vue's own dropdown), never runtime-adjustable: letting it

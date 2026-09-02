@@ -10,6 +10,15 @@
         <div class="about-version">{{ version }}</div>
       </div>
 
+      <a
+        class="about-website"
+        href="https://haroldo-ok.itch.io/vcs-game-maker"
+        target="_blank"
+        rel="noopener"
+      >
+        haroldo-ok.itch.io/vcs-game-maker
+      </a>
+
       <p class="about-description">
         VCS Game Maker is a no-code environment for building Atari 2600 games. Build your game's logic with
         Blockly blocks, and behind the scenes VCSGM generates batari Basic source code (along with a bit of
@@ -120,6 +129,17 @@ export default {
 
 .about-version {
   color: rgba(0, 0, 0, 0.6);
+}
+
+/* A real <a href target="_blank"> (not the openInNewWindow/window.open
+   pattern the Contributors list below uses) - this one's meant to open as
+   an ordinary new TAB, not a separate popup window, so a plain anchor is
+   both simpler and the correct native behavior here. */
+.about-website {
+  display: block;
+  margin-bottom: 24px;
+  color: var(--v-primary-base, #1976d2);
+  text-decoration: underline;
 }
 
 .about-description {

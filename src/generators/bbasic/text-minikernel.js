@@ -3,7 +3,8 @@
 import {chunk} from 'lodash';
 
 import {useConfigurationStorage} from '../../hooks/project';
-import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth,
+  textShowByIdArgVarName} from '../../blocks/text-strings';
 import {getNamedScrollLayout, registerFreeTypedScrollMessage, buildTextScrollSetupLines,
   trackTextByIdScrollUsage, textScrollFarEndVarName,
   textScrollBaseVarName, textScrollStateVarName,
@@ -184,13 +185,34 @@ export default (Blockly) => {
 
   Blockly.BBasic['text_minikernel_show_by_id'] = function(block) {
     markTextMinikernelUsed();
-    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
     // Hand-written "*" rather than routing through the math_arithmetic
     // block generator - see Blockly.BBasic.usesDivMul's own comment
     // elsewhere in this codebase: any multiply/divide has to flag
     // usesDivMul itself so generateDivMul() knows to pull in div_mul.asm.
     Blockly.BBasic.usesDivMul = true;
-    return emitScrollSetup(`(${argument0}) * ${TEXT_MESSAGE_LENGTH}`, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
+    // argument0 captured into a dedicated dev var first, rather than
+    // embedded directly into "(argument0) * TEXT_MESSAGE_LENGTH" - VALUE can
+    // be a genuine bB function call now (e.g. a dynamic-TABLE_ID "Data table
+    // element by ID" block plugged in here - see generators/bbasic/data.js's
+    // own registerDataDispatchFunction), and a function call is only legal
+    // when directly assigned to a variable (confirmed straight from the
+    // reference bB compiler's own source: callfunction() only supports
+    // "var = name(args)") - embedding it inside further arithmetic instead
+    // produced a real, reproduced build failure ("Syntax Error '#,'" from a
+    // mangled immediate load). temp1 (not this block's own capture var) was
+    // tried here first and reverted: this block can sit INSIDE a function
+    // (e.g. one built to work around the exact same "table id from a
+    // variable" need this exists for), and temp1 doubles as that enclosing
+    // function's own argument 1 - confirmed as a second real build failure,
+    // clobbering that argument the moment this ran, same class of bug
+    // functionCallDiscardVarName already exists to avoid in
+    // generators/bbasic/function.js. textShowByIdArgVarName's own dedicated
+    // dev var sidesteps that possibility entirely.
+    const argVar = Blockly.BBasic.nameDB_.getName(
+        textShowByIdArgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return `${argVar} = ${argument0}\n` +
+      emitScrollSetup(`${argVar} * ${TEXT_MESSAGE_LENGTH}`, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
   };
   // Scroll by-id block: normally WHICH entry gets shown isn't known until
   // runtime, so the offset needs the real "text_offsets[id]" table lookup -
@@ -228,13 +250,42 @@ export default (Blockly) => {
       return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
     }
 
+    // argument0 is only ever a compile-time literal on the branch above (the
+    // one case where it's never actually embedded into generated code at
+    // all) - every OTHER value reaching here is a genuine runtime
+    // expression, up to and including another table read (e.g. a "Data: get
+    // element" block plugged straight into this block's own VALUE socket -
+    // a real reported bug: "not stopping at the bounds... when given from a
+    // data table"). Embedding that raw expression directly inside
+    // "text_offsets[...]"/"text_scroll_max[...]" below used to produce a
+    // NESTED table-index expression ("text_offsets[sometable[y]]") - the
+    // same "complex statement" class of corruption already fixed elsewhere
+    // in this codebase for a compound arithmetic index (see
+    // generators/bbasic/music.js's own joyDir8Table comment: "only a single
+    // plain variable index compiles correctly"), just with a nested table
+    // read instead of arithmetic as the culprit. Captured into a dedicated
+    // dev var exactly ONCE here instead (same reasoning
+    // generateDistancePointChecks' own POINT-into-temp2 capture uses for the
+    // "capture once" part), so every table index below is a single plain
+    // variable - also incidentally fixes argument0 otherwise being
+    // evaluated twice over (once per table read) for no reason, since both
+    // reads plug the exact same value in. temp1 itself (not this dedicated
+    // var) was used here originally and reverted: this block can sit INSIDE
+    // a function whose own argument is also read via temp1 (see
+    // text_minikernel_show_by_id's own identical comment just above, and
+    // functionCallDiscardVarName's in blocks/function.js for the same class
+    // of risk) - confirmed as a real build failure, clobbering that
+    // function's own live argument.
+    const argVar = Blockly.BBasic.nameDB_.getName(
+        textShowByIdArgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const captureArg = `${argVar} = ${argument0}\n`;
     if (!layout.some((entry) => entry.maxOffset > 0)) {
-      return emitScrollSetup(`text_offsets[${argument0}]`, 0, ...scrollFieldCodes(block));
+      return captureArg + emitScrollSetup(`text_offsets[${argVar}]`, 0, ...scrollFieldCodes(block));
     }
 
     trackTextByIdScrollUsage(Blockly, Blockly.BBasic.getCurrentBank());
-    return emitScrollSetup(
-        `text_offsets[${argument0}]`, `text_scroll_max[${argument0}]`, ...scrollFieldCodes(block));
+    return captureArg + emitScrollSetup(
+        `text_offsets[${argVar}]`, `text_scroll_max[${argVar}]`, ...scrollFieldCodes(block));
   };
 
   Blockly.BBasic['text_minikernel_clear'] = function(block) {

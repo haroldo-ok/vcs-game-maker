@@ -197,6 +197,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="sprite_missile0_bounce"></block>
 
         <block type="sprite_missile1_get"></block>
         <block type="sprite_missile1_set">
@@ -231,6 +232,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="sprite_missile1_bounce"></block>
 
         <block type="sprite_ball_get"></block>
         <block type="sprite_ball_set">
@@ -247,6 +249,24 @@
                 </shadow>
             </value>
         </block>
+        <block type="sprite_ball_fire">
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="ANGLE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_ball_bounce"></block>
 
         <block type="object_seek_to">
             <value name="X">
@@ -276,6 +296,8 @@
         <block type="input_joy1_get"></block>
         <block type="input_joy0_direction8"></block>
         <block type="input_joy1_direction8"></block>
+        <block type="input_joy0_fire_pattern"></block>
+        <block type="input_joy1_fire_pattern"></block>
         <block type="input_keypad0_get"></block>
         <block type="input_keypad1_get"></block>
         <block type="input_keypad0_any_pressed"></block>
@@ -580,6 +602,11 @@
             </value>
         </block>
         <block type="data_get_element_by_id">
+            <value name="TABLE_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
             <value name="INDEX">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
@@ -587,6 +614,11 @@
             </value>
         </block>
         <block type="data_get_bit_by_id">
+            <value name="TABLE_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
             <value name="INDEX">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
