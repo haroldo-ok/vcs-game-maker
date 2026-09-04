@@ -603,9 +603,18 @@ export default {
     romVariablesSummary() {
       const usage = this.romCapacity && this.romCapacity.variableUsage;
       if (!usage) return '';
-      const letters = `${usage.letters.used} of ${usage.letters.available} letters`;
-      if (!usage.superchip.available) return `${letters} used.`;
-      return `${letters}, ${usage.superchip.used} of ${usage.superchip.available} Superchip RAM used.`;
+      const parts = [`${usage.letters.used} of ${usage.letters.available} letters`];
+      if (usage.superchip.available) parts.push(`${usage.superchip.used} of ${usage.superchip.available} Superchip RAM`);
+      // Superchip's own separate r/w pool (see computeVariableUsage's own
+      // comment in hooks/rom.js) - a completely different resource from the
+      // "Superchip RAM" figure just above (that one shares the same 48-
+      // byte-freed-playfield-plus-26-letter budget the plain letters figure
+      // also draws from; this is its own distinct 128-byte region), so it's
+      // its own clause here rather than folded into that count.
+      if (usage.superchipRw.available) {
+        parts.push(`${usage.superchipRw.used} of ${usage.superchipRw.available} Superchip read/write vars`);
+      }
+      return `${parts.join(', ')} used.`;
     },
     // System variables (player0frame, newbackground, etc. - see
     // SYSTEM_VARIABLES' own comment in generators/bbasic.js) - a SEPARATE,
@@ -720,6 +729,11 @@ export default {
       return [
         ...sortByAssignmentSlot((usage.letterAssignments || []).filter(matches)),
         ...sortByAssignmentSlot((usage.superchipAssignments || []).filter(matches)),
+        // Superchip's own r/w pool (see computeVariableUsage's own comment
+        // in hooks/rom.js) - every entry here is isUserVariable: false, so
+        // this only ever contributes to the block list, never the user one,
+        // matching this pool's own "never offered to the user" design.
+        ...sortByAssignmentSlot((usage.superchipRwAssignments || []).filter(matches)),
       ];
     },
     // Scrolls the bottom console pane (see .error-scroll-wrapper's own

@@ -28,6 +28,36 @@ export const PF_COLUMN_WIDTH_PX = 5;
 // sprite<->playfield Y conversion blocks (generators/bbasic/background.js).
 export const pfRowDivisorFor = (config) => {
   const cfg = config || {};
+  // A manual "pfrowheight" override (see Configuration.vue's own "Override
+  // playfield row height" switch + field for it) takes priority over the
+  // automatic round(96/pfres) calculation below - matches the kernel's own
+  // precedence exactly (std_kernel.asm/std_kernel_vertical_reflect.asm both
+  // check "ifconst pfrowheight" before ever falling back to computing it
+  // from pfres - see generateConfiguration's own comment on
+  // pfRowHeightConfigurationCode in generators/bbasic.js). Gated on
+  // enablePfRowHeight the same way that const's own emission is - the
+  // switch being off means the field's own stored number is never actually
+  // applied, so this has to ignore it too, or these coordinate blocks would
+  // disagree with what the kernel itself is really doing.
+  if (cfg.enablePfRowHeight && cfg.pfrowheight) return Math.round(Number(cfg.pfrowheight));
   const pfres = cfg.enableSuperchip ? effectiveBackgroundRows(config) : 12;
   return Math.round(96 / pfres);
+};
+
+// How many bytes of Superchip RAM's own read/write pool (r000-r127/w000-
+// w127 - a completely separate 128-byte region from the "48 bytes freed
+// from the old RAM playfield" pool generateSystemDims/SUPERCHIP_VAR_START
+// already use, see their own comments in generators/bbasic.js) are NOT
+// already claimed by the current background's own per-row playfield data.
+// Per the real batari Basic reference documentation: that data always
+// costs 4 x pfres bytes, counted down from the top (r/w127 backward), so
+// whatever's left starting from r/w000 is free - confirmed directly
+// against the reference docs' own worked example (pfres=12, the default,
+// leaves 128-48=80 free bytes, r/w000-r/w079). Zero once pfres reaches 32
+// (4*32=128, the whole chip), and zero whenever Superchip itself is off,
+// since this pool doesn't exist at all without it.
+export const superchipRwFreeCount = (config) => {
+  const cfg = config || {};
+  if (!cfg.enableSuperchip) return 0;
+  return Math.max(0, 128 - 4 * effectiveBackgroundRows(config));
 };

@@ -73,14 +73,13 @@ export default (Blockly) => {
   Blockly.BBasic['collision_check_position'] = function(block) {
     const playerNum = block.getFieldValue('PLAYER');
     const player = `player${playerNum}`;
-    // Routed through nameDB_.getName (same bucket bbasic.js dimmed these
-    // with) rather than the raw canonical string, so this always matches
-    // whatever name actually got dimmed - same reasoning as the Distance
-    // blocks' own getter (generators/bbasic/input.js).
-    const oldX = Blockly.BBasic.nameDB_.getName(
-        collisionMoveOldXVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const oldY = Blockly.BBasic.nameDB_.getName(
-        collisionMoveOldYVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // collisionMoveOldXVar/YVar now route through reserveDevVarRW
+    // (generators/bbasic.js's own init()) - a plain lookup here, already
+    // reserved during init(), same "already reserved by the time any
+    // generator runs" timing as every other reserveDevVarRW consumer (see
+    // its own comment there).
+    const oldXPair = Blockly.BBasic.superchipRwPairs[collisionMoveOldXVar(playerNum)];
+    const oldYPair = Blockly.BBasic.superchipRwPairs[collisionMoveOldYVar(playerNum)];
     const blockNumber = Blockly.BBasic.blockNumbers.next(`collision_check_position_${playerNum}`);
     const revertLabel = `_collision_check_${playerNum}_${blockNumber}_revert`;
     const doneLabel = `_collision_check_${playerNum}_${blockNumber}_done`;
@@ -88,11 +87,11 @@ export default (Blockly) => {
       `if collision(${player}, playfield) then goto ${revertLabel}`,
       `goto ${doneLabel}`,
       `@ ${revertLabel}`,
-      `${player}x = ${oldX}`,
-      `${player}y = ${oldY}`,
+      `${player}x = ${oldXPair.read}`,
+      `${player}y = ${oldYPair.read}`,
       `@ ${doneLabel}`,
-      `${oldX} = ${player}x`,
-      `${oldY} = ${player}y`,
+      `${oldXPair.write} = ${player}x`,
+      `${oldYPair.write} = ${player}y`,
     ].join('\n') + '\n';
   };
 };

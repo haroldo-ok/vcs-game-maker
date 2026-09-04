@@ -10,29 +10,108 @@ KERNELBANK = (bs_mask + 1)
 textkernel
 	lda TextColor
 	sta COLUP0
-	sta COLUP1 
-    lda #11
-    tax
-    clc
+	sta COLUP1
     ifconst extendedtxt
-        adc temp1
+        lda temp1
     else
-        adc TextIndex
+        lda TextIndex
     endif
+    jsr showtextrow
+
+    ; "textkernel2ndrow" is unrelated to the real bB "extendedtxt" const
+    ; (text12a.asm's own pointer-math option, unused by this app - see
+    ; generators/bbasic.js) - named apart from it on purpose so the two are
+    ; never confused with each other.
+    ifconst textkernel2ndrow
+        ; drawtextrow's own last scanline (called from inside showtextrow
+        ; below) ends with GRP0/GRP1 still holding row 1's final glyph
+        ; columns (VDELP0/1 stay armed the whole time, and nothing clears
+        ; them until "textrowsdone" below) - between showtextrow's own rts
+        ; and its next jsr's first "sta WSYNC", that leftover shape rides
+        ; along into the next scanline and shows as a sliver of row 1
+        ; smeared into the top of row 2. Blanked the same 3-write way
+        ; "textrowsdone" already does (the double GRP0 write flushes
+        ; VDELP's old-value latch too, not just the top write) before row 2
+        ; starts drawing.
+        lda #0
+        sta GRP0
+        sta GRP1
+        sta GRP0
+        ; Row 2 is ALWAYS drawn here, every frame, regardless of whether the
+        ; message currently shown actually wraps - deliberately NOT skipped
+        ; at runtime. An earlier attempt skipped this whole jsr whenever
+        ; TextRow2Active was clear (cheaper on paper - no extra scanlines
+        ; for a project's many non-wrapping messages), but that made the
+        ; TOTAL number of scanlines in the frame depend on a runtime flag -
+        ; confirmed as a real, visible bug (rendered frame rolling/tearing,
+        ; Javatari's own TV-format auto-detection failing outright). The
+        ; standard kernel's NTSC timing has no way to be 13 scanlines
+        ; shorter on some frames than others - it needs the exact same
+        ; total every time, so row 2's own cost has to be unconditional
+        ; whenever this feature is compiled in at all, even for a message
+        ; that doesn't use it.
+        ;
+        ; Whether THIS message wraps to a second line is only known at
+        ; runtime (a project can freely mix wrapping and non-wrapping
+        ; messages) - TextRow2Active is written by every "Show text" code
+        ; path (see generators/bbasic/text-minikernel.js), 0 unless the
+        ; message just pointed at by TextIndex is one with "Wrap to line 2"
+        ; on. When it's clear, row 2 reads from offset 0 instead of
+        ; TextIndex+12 - the reserved blank guard row (see
+        ; namedMessagePosition's own comment in generators/bbasic/
+        ; text-minikernel.js), always valid and always 12 blank glyphs -
+        ; rather than skipping the read entirely: same fill+draw code, same
+        ; cost, just showing blank instead of a completely unrelated
+        ; message's own opening bytes (whatever happens to sit at
+        ; TextIndex+12 when that Index doesn't actually own a second row).
+        lda TextRow2Active
+        bne userealrow2
+        lda #0
+        jmp gotrow2base
+userealrow2
+        ifconst extendedtxt
+            lda temp1
+        else
+            lda TextIndex
+        endif
+        clc
+        adc #12
+gotrow2base
+        jsr showtextrow
+    endif
+    jmp textrowsdone
+
+; Fills scorepointers from (TextDataPtr),y for 12 bytes, starting at this
+; row's own base offset within text_strings (A, on entry - TextIndex for
+; row 1, TextIndex+12 for row 2, or 0 for an inactive row 2 - see
+; "textkernel2ndrow" above) and reading downward from base+11 to base, then
+; draws the row. A tail call (not a nested jsr) into drawtextrow below -
+; its own rts returns straight to showtextrow's caller.
+showtextrow
+    clc
+    adc #11
     tay
+    ldx #11
 TextPointersLoop
-    lda (TextDataPtr),y  
+    lda (TextDataPtr),y
     sta scorepointers,x
     dey
     dex
     bpl TextPointersLoop
+    jmp drawtextrow
 
+; One row's own cycle-exact 5-line (10-scanline) draw, reading whatever
+; the 12 bytes in "scorepointers" currently hold - unchanged from its
+; original inline form, just wrapped in a jsr/rts (reached via
+; showtextrow's own tail call above) so a second row (see
+; "textkernel2ndrow" above) can reuse it instead of duplicating it.
+drawtextrow
     ldx scorepointers+0
     lda left_text,x
     ldx scorepointers+1
     ora right_text,x
 	ldy #0
-	
+
 firstbreak
     ; Text line 1 / 5
  
@@ -341,7 +420,21 @@ endl2
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
     sta GRP0                ; 3     (54) 5 -> GRP1
-    
+    ; drawtextrow is reached via showtextrow's own tail jmp (see its
+    ; comment above), so THIS rts is what actually returns to whichever
+    ; "jsr showtextrow" call site is currently active (row 1's or row 2's) -
+    ; without it, execution fell straight through into textrowsdone's own
+    ; cleanup code below and out of the subroutine entirely, leaving row 1's
+    ; own still-pending return address sitting unconsumed on the stack. That
+    ; stale address later got popped by an unrelated "rts" elsewhere
+    ; (posttextkernel's own, back in text12a.asm) and used to jump back into
+    ; the middle of textkernel's row-2 logic at a completely wrong point in
+    ; the frame - confirmed as the real cause of a reported bug ("characters
+    ; are missing on line 2" / wrong glyphs / screen rolling, depending on
+    ; exactly where in the frame that stray jump landed).
+    rts
+
+textrowsdone
     lda #0
     sta GRP0
     sta GRP1

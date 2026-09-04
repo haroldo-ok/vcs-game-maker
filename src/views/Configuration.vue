@@ -56,10 +56,32 @@
           type="number"
           min="1"
           max="32"
+          :disabled="!configurationState.enableSuperchip"
           label="Playfield vertical resolution (pfres)"
-          hint="Up to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
+          :hint="configurationState.enableSuperchip ?
+            'Up to 32 rows. Values that don\'t evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal.' :
+            'Only takes effect with Superchip RAM on above - the standard kernel always uses its own fixed 11-row default otherwise.'"
           persistent-hint
           class="pfres-field"
+        />
+        <v-switch
+          v-model="configurationState.enablePfRowHeight"
+          @change="handleChangeConfiguration"
+          label="Override playfield row height (pfrowheight)"
+          hint="Advanced: overrides the row height (in scanlines) the kernel derives from pfres above. Doesn't change how many rows the playfield has, only how tall each one is drawn."
+          persistent-hint
+          class="option-switch pfrowheight-switch"
+        />
+        <v-text-field
+          v-model.number="configurationState.pfrowheight"
+          @change="handleChangePfRowHeight"
+          type="number"
+          min="1"
+          :disabled="!configurationState.enablePfRowHeight"
+          label="Playfield row height (pfrowheight)"
+          hint="The sprite/playfield coordinate conversion blocks on the Actions tab use this value too, so they stay accurate."
+          persistent-hint
+          class="pfrowheight-field"
         />
       </div>
 
@@ -223,17 +245,15 @@
           class="option-switch"
         />
         <v-text-field
+          v-if="isElectron"
           v-model="stellaPathStorage"
           label="Stella installation location"
-          :disabled="!isElectron"
-          :hint="isElectron ?
-            'Path to the Stella executable, used by the emulator preview\'s own \'Test in Stella\' button. You need to install Stella yourself first - this only points the app at it.' :
-            'Only available in the desktop app - the browser version has no way to launch a local program.'"
+          hint="Path to the Stella executable, used by the emulator preview's own 'Test in Stella' button. You need to install Stella yourself first - this only points the app at it."
           persistent-hint
           class="stella-path-field"
         >
           <template v-slot:append>
-            <v-btn text small :disabled="!isElectron" @click="handleBrowseForStella">
+            <v-btn text small @click="handleBrowseForStella">
               Browse...
             </v-btn>
           </template>
@@ -311,6 +331,8 @@ const DEFAULT_CONFIGURATION = {
   enableRand16: true,
   enableCycleScore: false,
   pfres: 24,
+  enablePfRowHeight: false,
+  pfrowheight: 8,
   romSize: '4k',
   scoreFont: '',
   muteAllAudio: false,
@@ -482,6 +504,23 @@ export default defineComponent({
       reflowBackgroundsToHeight(backgroundsStorage, effectiveBackgroundRows(state));
     };
 
+    // Unlike pfres above, this doesn't change how many rows the playfield
+    // has (no reflow needed) - it only overrides the row HEIGHT the kernel
+    // draws each one at (see pfRowDivisorFor in utils/playfield-coords.js,
+    // which prefers this value over its own round(96/pfres) calculation
+    // whenever the "Override playfield row height" switch above is on), so
+    // background pixel data stays exactly as-is. Whether the override is
+    // APPLIED is entirely the switch's own job (enablePfRowHeight) - this
+    // field's own stored number is just clamped to a sane positive integer
+    // here, same as pfres's own handleChangeResolution just above, so an
+    // invalid/emptied field can't leave a NaN or 0 behind for whenever the
+    // switch gets turned back on.
+    const handleChangePfRowHeight = () => {
+      const state = configurationState.value;
+      state.pfrowheight = Math.max(1, Math.round(Number(state.pfrowheight) || DEFAULT_CONFIGURATION.pfrowheight));
+      configurationState.value = state;
+    };
+
     // With Superchip off, the app's own bookkeeping variables have to live on
     // letters, leaving only USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free for
     // user-created ones (see bbasic.js's SYSTEM_VARIABLES comment) - turning
@@ -537,6 +576,7 @@ export default defineComponent({
       configurationState,
       handleChangeConfiguration,
       handleChangeResolution,
+      handleChangePfRowHeight,
       handleToggleSuperchip,
       handleResetToDefaults,
       romSizeOptions,
@@ -650,5 +690,30 @@ export default defineComponent({
    switch itself again. */
 .hide-description-text .pfres-field {
   margin-top: 0;
+}
+
+/* Same reasoning as .pfres-field above, one level further down - it reads
+   as a sub-option of the "Override playfield row height" switch right
+   above it. */
+.pfrowheight-field {
+  margin-left: 46px;
+  margin-top: 12px;
+  max-width: calc(100% - 46px);
+}
+
+.hide-description-text .pfrowheight-field {
+  margin-top: 0;
+}
+
+/* The "Override playfield row height" switch reads as belonging with
+   Superchip's own switch (it's the next "advanced ROM knob" down the
+   list), even though .pfres-field now sits between them in the DOM - the
+   generic ".option-switch + .option-switch" rule above only tightens
+   switches that are immediate DOM siblings, which this one no longer is,
+   so it needs its own explicit override to get the same tighter spacing
+   once Expert mode's hint text is gone. Left alone (Vuetify's own default
+   spacing) while Expert mode is off. */
+.hide-description-text .pfrowheight-switch {
+  margin-top: 2px;
 }
 </style>

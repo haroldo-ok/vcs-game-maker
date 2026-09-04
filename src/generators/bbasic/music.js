@@ -3,6 +3,7 @@
 import {chunk} from 'lodash';
 
 import {findSongById, processSongsStorageDefaults, DEFAULT_PATTERN_STEPS, LENGTH_UNITS_PER_STEP} from '../../blocks/music';
+import {functionCallDiscardVarName} from '../../blocks/function';
 import {processSoundEffectsStorageDefaults, DEFAULT_ARPEGGIO_DIVISION} from '../../blocks/soundfx';
 import {MAX_DATA_TABLE_VALUES} from '../../blocks/data';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage,
@@ -1237,6 +1238,18 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return null;
 
   const usesSongById = workspace.getAllBlocks(false).some((block) => block.type === 'music_play_song_by_id');
+  // Same "no compile-time target, so every song has to be available at
+  // runtime" reasoning as usesSongById above, for music_song_playing_by_
+  // number's own dynamic SONG_ID - kept as its own flag (not folded into
+  // usesSongById itself) since that one ALSO gates the actual "Play song by
+  // ID" dispatch subroutine and its scratch arg var (see
+  // registerMusicPlayResetSubroutine and musicPlayByIdArgVarName's own
+  // reservation below), neither of which this purely-read-only check needs -
+  // widening usesSongById itself would reserve both for a project that only
+  // ever uses this block, never actually plays a song by dynamic ID.
+  const usesSongPlayingByNumber = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'music_song_playing_by_number');
+  const needsEverySong = usesSongById || usesSongPlayingByNumber;
   // Whether this project's own "When song has stopped playing" watches ever
   // need to filter by which specific song stopped (music_song_stopped_by_id/
   // _by_number), rather than firing for whichever song happens to stop -
@@ -1248,7 +1261,7 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'music_play_song') referencedIds.add(`${block.getFieldValue('SONG')}`);
   });
-  const songRefs = usesSongById ?
+  const songRefs = needsEverySong ?
     processSongsStorageDefaults(useSongsStorage()).songs.map(({id}) => `${id}`) :
     [...referencedIds];
   if (!songRefs.length) return null;
@@ -1708,6 +1721,81 @@ export default (Blockly) => {
   };
   Blockly.BBasic['music_play_song'] = generatePlaySong;
   Blockly.BBasic['music_play_song_by_id'] = generatePlaySong;
+
+  // Whether the NAMED song is the one currently playing - musicPlayingBit
+  // alone (see musicFlagsVarName's own comment) can't answer that on its
+  // own once a project has more than one song, since it just means "some
+  // song is playing," not which one. On a single-song project there's only
+  // ever one possible song for it to mean, so this is just musicPlayingBit
+  // directly - same "nothing to distinguish" shortcut music_song_stopped_by_
+  // id's own generator already takes. Otherwise ANDed with a comparison
+  // against musicSongIndexVarName - set by every song's own reset
+  // subroutine (see its own comment) and left untouched by Stop/Pause, so it
+  // still correctly names the last song actually played even after that
+  // song stops (musicPlayingBit alone rules that stale case out). A stale
+  // dropdown (song deleted, or never actually included - e.g. only ever
+  // referenced here, never by an actual "Play song" block) has no runtime
+  // songIndex to compare against at all, so it permanently reads false,
+  // same leniency generateMusicEventCheck's own "target is null" case uses
+  // elsewhere in this file.
+  Blockly.BBasic['music_song_playing'] = function(block) {
+    const music = Blockly.BBasic.projectMusic;
+    if (!music) return ['0', Blockly.BBasic.ORDER_ATOMIC];
+    const playingBit = `${resolveVar(musicFlagsVarName())}{${musicPlayingBit}}`;
+    if (music.songs.length <= 1) return [playingBit, Blockly.BBasic.ORDER_ATOMIC];
+    const songId = Number(block.getFieldValue('SONG'));
+    const target = music.songs.find((s) => s.songId === songId);
+    if (!target) return ['0', Blockly.BBasic.ORDER_ATOMIC];
+    const songIndexVar = resolveVar(musicSongIndexVarName());
+    return [`${playingBit} && ${songIndexVar} = ${target.songIndex}`, Blockly.BBasic.ORDER_LOGICAL_AND];
+  };
+
+  // Same check as music_song_playing above, but the target song is a
+  // runtime VALUE (a variable or computed expression), not a fixed
+  // dropdown - there's no single compile-time songIndex to compare
+  // musicSongIndexVarName() against directly. Dispatches the other way
+  // instead, same shape music_song_stopped_by_number already uses for the
+  // identical problem: for whichever song musicSongIndexVarName() says is
+  // CURRENTLY LOADED, compares THAT song's own real id against the runtime
+  // value.
+  //
+  // Unlike music_song_stopped_by_number (an event-watch STATEMENT, free to
+  // "goto" straight into an if-chain), this is a plain VALUE block - a
+  // value block can't inject a preceding "goto" of its own (same
+  // constraint data_get_bit_by_id's own dynamic path hits, see its comment
+  // in generators/bbasic/data.js), so the dispatch instead builds its
+  // result into a var across several ordinary "if...then" lines, newline-
+  // joined ahead of that var's own name as the real value - same preamble
+  // convention background_get_pixel/data_get_bit_by_id already use, which
+  // controls_if already knows how to hoist in front of an "if". Reuses
+  // functionCallDiscardVarName's own scratch var (see musicSongPlayingByNumberUsed's
+  // own comment in generators/bbasic.js) rather than a dedicated one - same
+  // "written and immediately consumed on the very next few lines, never
+  // held across anything else" lifetime as every other use of that var.
+  Blockly.BBasic['music_song_playing_by_number'] = function(block) {
+    const music = Blockly.BBasic.projectMusic;
+    if (!music) return ['0', Blockly.BBasic.ORDER_ATOMIC];
+    const playingBit = `${resolveVar(musicFlagsVarName())}{${musicPlayingBit}}`;
+    if (music.songs.length <= 1) return [playingBit, Blockly.BBasic.ORDER_ATOMIC];
+    if (!block.getInputTargetBlock('SONG_ID')) return ['0', Blockly.BBasic.ORDER_ATOMIC];
+    const targetId = Blockly.BBasic.valueToCode(block, 'SONG_ID', Blockly.BBasic.ORDER_NONE) || '0';
+    const songIndexVar = resolveVar(musicSongIndexVarName());
+    // functionCallDiscardVarName now routes through reserveDevVarRW
+    // (generators/bbasic.js's own init()) - every occurrence below except
+    // the very last (the bare value this whole expression evaluates to)
+    // is a plain "resultVar = ..." write; only that trailing reference is
+    // a read.
+    const resultPair = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    const dispatch = music.songs.map((song) =>
+      `if ${songIndexVar} = ${song.songIndex} then if ${targetId} = ${song.songId} then ${resultPair.write} = 1`);
+    const lines = [
+      `${resultPair.write} = 0`,
+      ...dispatch,
+      `if !${playingBit} then ${resultPair.write} = 0`,
+      resultPair.read,
+    ];
+    return [lines.join('\n'), Blockly.BBasic.ORDER_ATOMIC];
+  };
 
   Blockly.BBasic['music_stop_song'] = function() {
     const music = Blockly.BBasic.projectMusic;

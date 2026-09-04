@@ -2,6 +2,24 @@
   <div>
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Sound</v-card-title>
+      <v-card-actions class="soundfx-bank-actions">
+        <v-btn
+          icon
+          class="soundfx-bank-btn"
+          title="Save every sound effect/instrument in this project to a single .JSON sound bank file"
+          @click="handleExportSoundBank"
+        >
+          <v-icon>mdi-export</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          class="soundfx-bank-btn"
+          title="Load a .JSON sound bank file - a sound effect whose name matches one already here has its parameters replaced; every other sound effect in the file is added as a new card"
+          @click="handleImportSoundBank"
+        >
+          <v-icon>mdi-import</v-icon>
+        </v-btn>
+      </v-card-actions>
       <v-card-text>
         <div class="dim-controls">
           <v-switch
@@ -687,6 +705,65 @@ export default defineComponent({
           .catch((e) => console.error('Failed to import sound effect', e));
     };
 
+    // Every sound effect/instrument in this project as one standalone .json
+    // "sound bank" file - same per-card export shape as handleExportSoundEffect
+    // above (id stripped, since it only ever meant anything within this one
+    // project's own storage), just the whole array at once instead of a
+    // single card. "type" is a lightweight self-description (not read back
+    // on import, matching Project.vue's own convention of tagging a saved
+    // file's kind) purely so a stray .json opened outside this app is
+    // recognizable at a glance.
+    const handleExportSoundBank = () => {
+      const soundEffects = state.value.soundEffects.map(({id, ...rest}) => rest); // eslint-disable-line no-unused-vars
+      const blob = new Blob(
+          [JSON.stringify({type: 'VCS Game Maker Sound Bank', soundEffects}, null, 2)],
+          {type: 'application/json'});
+      saveAs(blob, `SoundBank-${getDateInfix()}.json`);
+    };
+
+    // Imports a previously exported sound bank - unlike a single sound
+    // effect's own import (handleImportSoundEffect, which always overwrites
+    // ONE already-selected card), this has no single target card to
+    // overwrite, so it matches by NAME instead: a bank entry whose name
+    // matches an existing card here replaces that card's own parameters
+    // (keeping its id, same reasoning as handleImportSoundEffect - every
+    // soundfx_play block/Music tab track already pointing at that id keeps
+    // working), and a bank entry with no name match becomes a brand new
+    // card instead. Matches MusicEditor.vue's own importSoundEffects in
+    // shape (name-keyed, id remapped), but that function keeps the
+    // EXISTING card untouched on a name match (it's importing songs, which
+    // reference sound effects by id and just need SOME matching id to point
+    // at) - this imports the sound effects themselves, so a name match has
+    // to actually overwrite the existing card's parameters instead.
+    const handleImportSoundBank = () => {
+      openFileDialog('.json,application/json')
+          .then((file) => file.text())
+          .then((text) => {
+            const bankData = JSON.parse(text);
+            if (!bankData || !Array.isArray(bankData.soundEffects)) {
+              throw new Error('File does not contain valid sound bank data');
+            }
+            const soundEffects = state.value.soundEffects;
+            let maxId = max(soundEffects.map((o) => o.id)) || 0;
+            bankData.soundEffects.forEach((imported) => {
+              // eslint-disable-next-line no-unused-vars
+              const {id, ...importedData} = imported;
+              const existing = imported.name && soundEffects.find((o) => o.name === imported.name);
+              if (existing) {
+                Object.assign(existing, importedData, {id: existing.id});
+                handleAudcChange(existing);
+              } else {
+                maxId += 1;
+                const newSoundEffect = {...importedData, id: maxId, name: imported.name || `Sound effect ${maxId}`};
+                soundEffects.push(newSoundEffect);
+                handleAudcChange(newSoundEffect);
+              }
+            });
+            instance.proxy.$forceUpdate();
+          })
+          .catch((e) => console.error('Failed to import sound bank', e));
+    };
+
     const handlePlaySoundEffect = (soundEffect) => {
       // Matches what actually plays in the compiled ROM (see soundfx_play in
       // generators/bbasic/soundfx.js) - previewing at the un-dimmed volume
@@ -746,6 +823,7 @@ export default defineComponent({
       selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddSoundEffect, handleDeleteSoundEffect, handlePlaySoundEffect,
       handleExportSoundEffect, handleImportSoundEffect,
+      handleExportSoundBank, handleImportSoundBank,
       canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, handleResetEnvelope,
       handleStopPreview, handleSetSoundEffectColor, handleToggleInstrument, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
@@ -879,6 +957,54 @@ export default defineComponent({
   flex: 0 0 auto;
   margin-top: 8px !important;
   padding-top: 0 !important;
+}
+
+/* Same placement/spacing as Project.vue's own .project-actions (the exact
+   row this mirrors - a v-card-actions directly under the tab's own title,
+   same as Save/Save As/Open sit under "Project") - padding-left matches
+   that row's icons' own left inset, padding-top: 0 removes v-card-actions'
+   own default top gap under the title (same "Generated tab's own flush
+   title-to-icon-row spacing" reasoning as .project-actions' own comment),
+   gap: 0 for the same reason too (a v-btn immediately following another
+   v-btn gets its own Vuetify-injected margin-left, which .soundfx-bank-btn
+   below zeroes out, matching .project-flat-icon-btn's own identical fix). */
+.soundfx-bank-actions {
+  padding-left: 8px;
+  padding-top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Full default Vuetify icon-button size (40px, 24px glyph - no "small"
+   prop), matching Project.vue's own .project-flat-icon-btn exactly - same
+   flat, transparent background (no default hover circle), same fade-in-on-
+   hover/blue-on-press icon colour transitions - rather than this card's
+   own smaller, darker .soundfx-icon-btn-size treatment used inside each
+   sound effect card, since these sit in the tab's own top-level toolbar
+   row instead. margin-left forced to 0 - see this rule's own comment on
+   .soundfx-bank-actions for why. */
+.soundfx-bank-btn {
+  margin-left: 0 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.soundfx-bank-btn::before {
+  display: none;
+}
+
+.soundfx-bank-btn >>> .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.soundfx-bank-btn:hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.soundfx-bank-btn:active >>> .v-icon {
+  color: #1976d2 !important;
 }
 
 /* Single full-width column instead of the grid .soundfx-list defaults to

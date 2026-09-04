@@ -654,13 +654,29 @@ export default (Blockly) => {
     const preamble = [];
     let readX = argumentX;
     let readY = argumentY;
+    // backgroundGetPixelXVarName/YVarName now route through reserveDevVarRW
+    // (generators/bbasic.js's own init()) when useDevVars is true - .write
+    // for the capture line just below, .read for the actual pfread(...)
+    // call further down.
     if (!isSimple(argumentX)) {
-      readX = useDevVars ? resolveVar(backgroundGetPixelXVarName()) : 'temp1';
-      preamble.push(`${readX} = ${argumentX}`);
+      if (useDevVars) {
+        const pair = Blockly.BBasic.superchipRwPairs[backgroundGetPixelXVarName()];
+        preamble.push(`${pair.write} = ${argumentX}`);
+        readX = pair.read;
+      } else {
+        readX = 'temp1';
+        preamble.push(`${readX} = ${argumentX}`);
+      }
     }
     if (!isSimple(argumentY)) {
-      readY = useDevVars ? resolveVar(backgroundGetPixelYVarName()) : 'temp2';
-      preamble.push(`${readY} = ${argumentY}`);
+      if (useDevVars) {
+        const pair = Blockly.BBasic.superchipRwPairs[backgroundGetPixelYVarName()];
+        preamble.push(`${pair.write} = ${argumentY}`);
+        readY = pair.read;
+      } else {
+        readY = 'temp2';
+        preamble.push(`${readY} = ${argumentY}`);
+      }
     }
 
     const code = `pfread(${readX}, ${readY})`;

@@ -1,6 +1,7 @@
 'use strict';
 
 import {findDataTableById, dataTableSymbolName, processDataTablesStorageDefaults} from '../../blocks/data';
+import {functionCallDiscardVarName} from '../../blocks/function';
 import {useDataTablesStorage} from '../../hooks/project';
 
 // Auto-generated bB function name (see registerDataDispatchFunction below) -
@@ -152,14 +153,26 @@ const registerDataBitDispatchFunction = (Blockly) => {
   // code here regardless, same as it would be for any function whose own
   // blocks already guarantee a return.
   Blockly.BBasic.functions[name] = [
+    // temp3 (this function's own 3rd argument, the bit index) has to survive
+    // PAST the call below to be usable by the shift loop afterward - but
+    // temp1-temp6 aren't preserved across a nested function call (confirmed
+    // as a real reported bug elsewhere: createScene's own "Function
+    // argument" reads, similarly read straight out of a raw temp slot,
+    // silently went bad after the first of several nested data-table calls
+    // - see functionParamVarName's own comment in blocks/function.js for the
+    // full story). Snapshotted into temp6 (untouched by anything else in
+    // this function until the very end, well after the last read of it
+    // here) before the call has any chance to clobber it, same fix shape.
+    ` temp6 = temp3`,
     ` temp4 = ${elementDispatchName}(temp1, temp2)`,
-    // Shift temp4 right by temp3 places - "if temp3 = 0" (not "<> 0") so a
-    // bit-0 request (the common case) skips the loop body entirely rather
-    // than looping zero times the long way round.
+    // Shift temp4 right by temp6 (the bit index, snapshotted above) places -
+    // "if temp6 = 0" (not "<> 0") so a bit-0 request (the common case) skips
+    // the loop body entirely rather than looping zero times the long way
+    // round.
     `@_dbd_shift`,
-    ` if temp3 = 0 then goto _dbd_shift_done`,
+    ` if temp6 = 0 then goto _dbd_shift_done`,
     ` temp4 = temp4 / 2`,
-    ` temp3 = temp3 - 1`,
+    ` temp6 = temp6 - 1`,
     ` goto _dbd_shift`,
     `@_dbd_shift_done`,
     ` temp5 = (temp4 / 2) * 2`,
@@ -259,10 +272,23 @@ export default (Blockly) => {
     return `((${element} / ${divisorLow}) - ((${element} / ${divisorHigh}) * 2))`;
   };
 
+  // The BIT dropdown numbers bits left-to-right as a human reads a "%"
+  // binary literal in the Data tab (0 = the first/leftmost digit, 7 = the
+  // last/rightmost) - confirmed as a real reported mismatch: bitCode/
+  // registerDataBitDispatchFunction both extract bits counting up from the
+  // LEAST significant (rightmost) bit, the standard convention for "bit N"
+  // in code, but the OPPOSITE of how someone reads the digits of a literal
+  // like "%10010000" they just typed into a table cell. Flipped once here,
+  // at the one spot every data_get_bit*/BIT read funnels through, rather
+  // than in the arithmetic itself, so bitCode and the dispatch function's
+  // own shift count both stay in their natural "counts up from the LSB"
+  // shape.
+  const humanBitIndex = (block) => 7 - Number(block.getFieldValue('BIT'));
+
   Blockly.BBasic['data_get_bit'] = function(block) {
     const element = elementCode(block, block.getFieldValue('TABLE'));
     if (!element) return ['0', Blockly.BBasic.ORDER_ATOMIC];
-    return [bitCode(element, Number(block.getFieldValue('BIT'))), Blockly.BBasic.ORDER_ATOMIC];
+    return [bitCode(element, humanBitIndex(block)), Blockly.BBasic.ORDER_ATOMIC];
   };
 
   // Same bit-check as data_get_bit above, just keyed off TABLE_ID instead of
@@ -275,7 +301,7 @@ export default (Blockly) => {
   // bare function call, never a compound expression built around one.
   Blockly.BBasic['data_get_bit_by_id'] = function(block) {
     const literalId = resolveTableIdLiteral(block);
-    const bit = Number(block.getFieldValue('BIT'));
+    const bit = humanBitIndex(block);
     if (literalId != null) {
       const element = elementCode(block, literalId);
       if (!element) return ['0', Blockly.BBasic.ORDER_ATOMIC];
@@ -289,6 +315,29 @@ export default (Blockly) => {
     const dispatchName = registerDataBitDispatchFunction(Blockly);
     const tableIdCode = Blockly.BBasic.valueToCode(block, 'TABLE_ID', Blockly.BBasic.ORDER_NONE) || '0';
     const indexCode = Blockly.BBasic.valueToCode(block, 'INDEX', Blockly.BBasic.ORDER_NONE) || '0';
-    return [`${dispatchName}(${tableIdCode}, ${indexCode}, ${bit})`, Blockly.BBasic.ORDER_FUNCTION_CALL];
+    // A bare function call reads back fine as the right-hand side of a
+    // plain assignment, but batari Basic's own "if" statement only accepts
+    // a bare variable or a plain comparison as its condition - confirmed as
+    // a real reported bug: "if <this block> then ..." never branched
+    // correctly, even with the exact same call working right when
+    // assigned to a variable a few lines earlier in the same function.
+    // Captured into a var first, as a newline-joined preamble ahead of the
+    // real value - the same convention background_get_pixel already uses
+    // for its own "if"-only case (see its own comment in generators/bbasic/
+    // background.js), which controls_if (generators/bbasic/logic.js)
+    // already hoists out onto its own line(s) automatically. Reuses
+    // function_call_statement's own discarded-result var
+    // (functionCallDiscardVarName, see its comment in blocks/function.js)
+    // rather than reserving a second dedicated one - both hold nothing but
+    // a just-returned function value, written and then immediately
+    // consumed on the very next line, so there's no lifetime conflict
+    // sharing the one slot between them.
+    // functionCallDiscardVarName now routes through reserveDevVarRW
+    // (generators/bbasic.js's own init(), Superchip's own r/w pool when
+    // available) - write the call's result, then read it back on the very
+    // next (and only other) line, so .write/.read here matches exactly.
+    const resultPair = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    return [`${resultPair.write} = ${dispatchName}(${tableIdCode}, ${indexCode}, ${bit})\n${resultPair.read}`,
+      Blockly.BBasic.ORDER_ATOMIC];
   };
 };

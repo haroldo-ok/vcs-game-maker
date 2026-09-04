@@ -1,10 +1,18 @@
 'use strict';
 
-import {MAX_FUNCTION_ARGS, functionCallDiscardVarName, functionCallArgVarName} from '../../blocks/function';
+import {MAX_FUNCTION_ARGS, functionCallDiscardVarName, functionCallArgVarName,
+  functionParamVarName} from '../../blocks/function';
 
 export default (Blockly) => {
-  const resolveVar = (canonicalName) =>
-    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  // functionCallDiscardVarName/functionCallArgVarName/functionParamVarName
+  // all route through reserveDevVarRW (generators/bbasic.js's own init()) -
+  // Superchip's own r/w pool when available, the ordinary letter/var12-43
+  // pool otherwise (see that function's own comment) - so every use of one
+  // of these three has to pick .read or .write explicitly instead of a
+  // single resolveVar() name. Already reserved by the time any generator
+  // here runs (init() always runs first), so this is a plain lookup, not a
+  // fresh reservation.
+  const resolveRW = (canonicalName) => Blockly.BBasic.superchipRwPairs[canonicalName];
 
   // Lazily builds (once per compile, per distinct target function) a tiny bB
   // subroutine that does nothing but forward function_call_statement's own
@@ -29,9 +37,9 @@ export default (Blockly) => {
         `_call_${targetName}`, Blockly.PROCEDURE_CATEGORY_NAME);
     if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
     const args = Array.from(
-        {length: MAX_FUNCTION_ARGS}, (_, i) => resolveVar(functionCallArgVarName(i + 1)));
+        {length: MAX_FUNCTION_ARGS}, (_, i) => resolveRW(functionCallArgVarName(i + 1)).read);
     Blockly.BBasic.subroutines[wrapperName] =
-      `${resolveVar(functionCallDiscardVarName())} = ${targetName}(${args.join(', ')})`;
+      `${resolveRW(functionCallDiscardVarName()).write} = ${targetName}(${args.join(', ')})`;
     // Tracked so hooks/rom.js's computeFunctionFamilies can recognize this
     // subroutine as a function-call wrapper (its own body is a plain
     // value-form function call, so it has to join that function's own
@@ -58,20 +66,44 @@ export default (Blockly) => {
         block.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME);
     const previousEventName = Blockly.BBasic.currentEventName;
     Blockly.BBasic.currentEventName = `function_${name}`;
+
+    // Snapshots every temp1-temp6 slot this function's own body actually
+    // reads (via function_param_get) into a dedicated var BEFORE any of that
+    // body runs - see functionParamVarName's own comment in blocks/
+    // function.js for the real bug this prevents: temp1-temp6 are shared,
+    // unprotected scratch space, so any OTHER function call this body goes
+    // on to make (a nested "Call function", a dynamic data table read's own
+    // dispatch helper, ...) can freely clobber them, silently corrupting an
+    // argument this function still needs to read again later. Scanning the
+    // DO block's own descendants (rather than unconditionally snapshotting
+    // all 6) keeps a function that never re-reads an argument after its
+    // first use - the common case - from paying for dev vars it doesn't
+    // need.
+    const doBlock = block.getInputTargetBlock('DO');
+    const usedIndices = doBlock ?
+      [...new Set(doBlock.getDescendants(false)
+          .filter((b) => b.type === 'function_param_get')
+          .map((b) => Number(b.getFieldValue('INDEX'))))].sort((a, b) => a - b) :
+      [];
+    const snapshot = usedIndices
+        .map((i) => `${resolveRW(functionParamVarName(i)).write} = temp${i}`)
+        .join('\n');
+
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
     Blockly.BBasic.currentEventName = previousEventName;
-    Blockly.BBasic.functions[name] = code;
+    Blockly.BBasic.functions[name] = snapshot ? `${snapshot}\n${code}` : code;
     return '';
   };
 
-  // temp1..temp6 are batari Basic's own fixed calling convention for a
-  // function's arguments (confirmed directly against the language
-  // reference) - not a name this app invents or reserves, so this needs no
-  // nameDB_/dev-var involvement at all, just the literal text for whichever
-  // slot the dropdown picked.
+  // Reads back this function's own argument from the dedicated snapshot var
+  // function_define's own generator above copies it into at function entry -
+  // NOT the raw temp1-temp6 slot batari Basic's calling convention actually
+  // delivers it in, which any OTHER function call made later in this same
+  // function's body is free to clobber (see functionParamVarName's own
+  // comment in blocks/function.js).
   Blockly.BBasic['function_param_get'] = function(block) {
     const index = block.getFieldValue('INDEX');
-    return [`temp${index}`, Blockly.BBasic.ORDER_ATOMIC];
+    return [resolveRW(functionParamVarName(index)).read, Blockly.BBasic.ORDER_ATOMIC];
   };
 
   // "return <value>" only accepts a SIMPLE value (a literal, a variable, a
@@ -157,7 +189,7 @@ export default (Blockly) => {
     const {name, args} = resolveFunctionCallTarget(block);
     const wrapperName = registerFunctionCallWrapper(name);
     const assignments = args
-        .map((argCode, i) => `${resolveVar(functionCallArgVarName(i + 1))} = ${argCode}`)
+        .map((argCode, i) => `${resolveRW(functionCallArgVarName(i + 1)).write} = ${argCode}`)
         .join('\n');
     const suffix = Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(wrapperName));

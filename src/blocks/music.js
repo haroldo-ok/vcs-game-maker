@@ -332,6 +332,50 @@ Blockly.Blocks['music_play_song_by_id'] = {
   },
 };
 
+// Reports whether the NAMED song specifically is the one currently playing
+// (started by music_play_song/music_play_song_by_id, and not yet stopped or
+// naturally finished) - true even while paused (see music_pause_song: a
+// paused song is still "the one playing," just frozen, the same way this
+// app's own musicPlayingBit already treats it). On a single-song project
+// this is just "is anything playing at all" (see the generator's own
+// comment) - there's only ever one possible song to mean.
+Blockly.Blocks['music_song_playing'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Song`)
+        .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG')
+        .appendField('is playing');
+    this.setOutput(true, 'Boolean');
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('True while the named song specifically is the one currently playing (including ' +
+      'while paused) - false if it was never started, already stopped, or a DIFFERENT song is playing ' +
+      'instead.');
+  },
+};
+
+// Same check as music_song_playing above, but picks the song by a runtime
+// VALUE (a variable or computed expression) instead of a fixed dropdown
+// choice - same relationship music_song_stopped_by_number has to music_
+// song_stopped_by_id. Using this anywhere in the project pulls EVERY song
+// into the compiled ROM (see music_play_song_by_id's own comment) so
+// whatever ID it's given at runtime always has real data to compare
+// against.
+Blockly.Blocks['music_song_playing_by_number'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Song ID`);
+    this.appendValueInput('SONG_ID');
+    this.appendDummyInput()
+        .appendField('is playing');
+    this.setInputsInline(true);
+    this.setOutput(true, 'Boolean');
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Same as "Song ... is playing", but picks the song by ID (a variable or computed ' +
+      'value, not a fixed choice) - using this anywhere in the project makes every song count toward ' +
+      'this check.');
+  },
+};
+
 // Immediately silences whatever song is currently playing (started by
 // music_play_song) and marks it as stopped - a subsequent music_play_song
 // restarts it from the beginning. Does not trigger music_song_stopped below

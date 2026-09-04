@@ -1,5 +1,7 @@
 'use strict';
 
+import Vue from 'vue';
+
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 
 // Matches text12b.asm's TextPointersLoop, which always reads exactly 12
@@ -10,23 +12,6 @@ import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 // narrower setting only blanks out the unused tail, it never shrinks
 // storage - see encodeTextMessage in generators/bbasic/text-minikernel.js).
 export const TEXT_MESSAGE_LENGTH = 12;
-
-// Scratch storage for "Show text with ID"'s own VALUE input, captured once
-// before multiplying it by TEXT_MESSAGE_LENGTH (see generators/bbasic/
-// text-minikernel.js's own text_minikernel_show_by_id) - temp1 looks like
-// the obvious spot (used exactly that way throughout this codebase, and
-// genuinely fine for a call made OUTSIDE any function), but is NOT safe for
-// a "Show text with ID" placed INSIDE a function's own body whose own
-// argument also happens to be read via temp1 (see function_param_get's own
-// comment in blocks/function.js for the identical reasoning
-// functionCallDiscardVarName already documents for the same class of risk):
-// "temp1 = someValue" would clobber that function's own live argument the
-// moment this ran, confirmed as a real reported build failure ("Syntax
-// Error '#,'" from a mangled immediate load, inside a function whose own
-// argument was read again later in its body). A dedicated dev var sidesteps
-// that possibility entirely, at the cost of reserving it only for a project
-// that actually uses "Show text with ID" at all.
-export const textShowByIdArgVarName = () => '_textShowByIdArg';
 
 // How many of TEXT_MESSAGE_LENGTH's own 12 positions a project actually
 // wants to USE at once - a project-wide, compile-time-only setting (see
@@ -95,6 +80,7 @@ export const DEFAULT_TEXT_STRINGS = {
       name: 'Example message',
       text: 'HELLO WORLD!',
       justify: DEFAULT_TEXT_JUSTIFY,
+      wrapToLine2: false,
     },
   ],
 };
@@ -109,6 +95,23 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
   // which never shipped as a release so isn't worth its own migration path.
   textStrings.textStrings.forEach((entry) => {
     if (!TEXT_JUSTIFY_OPTIONS.includes(entry.justify)) entry.justify = DEFAULT_TEXT_JUSTIFY;
+    // Entries saved before "Wrap to line 2" existed won't have this field -
+    // defaults to off, matching every message's own pre-existing single-row
+    // behavior exactly (see encodeTextMessageLines in
+    // generators/bbasic/text-minikernel.js). Vue.set, not a plain
+    // assignment: `entry` here is very often the SAME object useLocalStorage
+    // has already made reactive (see hooks/storage.js's shared, memoized
+    // ref) from an EXISTING saved project's JSON, which never had this key
+    // at all - Vue 2's reactivity can't detect a brand new property added to
+    // an already-observed object via plain assignment (the classic "Vue
+    // cannot detect property addition" caveat), so TextEditor.vue's own
+    // ":counter" binding (which reads entry.wrapToLine2) silently never
+    // updated on toggle - confirmed as a real reported bug ("it should
+    // update the character count without selecting another text card").
+    // Vue.set is safe here even when `entry` isn't reactive yet (a brand
+    // new project's freshly-cloned DEFAULT_TEXT_STRINGS, still plain JS at
+    // this point) - it just falls back to a plain assignment in that case.
+    if (typeof entry.wrapToLine2 !== 'boolean') Vue.set(entry, 'wrapToLine2', false);
   });
   return textStrings;
 };

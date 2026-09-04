@@ -3,13 +3,30 @@
 import {chunk} from 'lodash';
 
 import {useConfigurationStorage} from '../../hooks/project';
-import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth,
-  textShowByIdArgVarName} from '../../blocks/text-strings';
+import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings,
+  resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {functionCallDiscardVarName} from '../../blocks/function';
 import {getNamedScrollLayout, registerFreeTypedScrollMessage, buildTextScrollSetupLines,
   trackTextByIdScrollUsage, textScrollFarEndVarName,
   textScrollBaseVarName, textScrollStateVarName,
   textScrollPauseDurationVarName, textScrollTimerVarName,
   TEXT_SCROLL_DIR_MASK} from './text-scroll';
+import {getStaticMessageLayout, staticMessageRegionEnd, splitMessageLines} from './text-minikernel-layout';
+
+// Canonical dev var names for "Scroll text lines up/down" (see their own
+// generators below) - a message with more than 2 lines (see
+// splitMessageLines in text-minikernel-layout.js) only ever shows 2 of them
+// at once (TextIndex/TextIndex+TEXT_MESSAGE_LENGTH, same as any other
+// wrapping message), these track the CURRENTLY shown message's own valid
+// TextIndex range so the up/down blocks can clamp against it directly
+// (comparing TextIndex itself, not a separate 0-based "which page" counter)
+// rather than needing a multiply to convert a page number back into a byte
+// offset. Plain dev-var-pool names (unlike TextIndex/TextDataPtr/
+// TextRow2Active) - only ever read/written from generated bBasic, never
+// from the raw text12a.asm/text12b.asm kernel files, so they don't need a
+// fixed var slot.
+export const textLinesBaseVarName = () => '_textLinesBase';
+export const textLinesMaxVarName = () => '_textLinesMax';
 
 // The standard kernel's own code calls "jsr minikernel" as a plain,
 // same-bank call (never a bankswitched "BS_jsr") - so on a bankswitched ROM,
@@ -78,6 +95,70 @@ export const encodeTextMessage = (text, justify = 'left', maxWidth = resolveText
   return fullRow.split('').map((char) => CHAR_TO_GLYPH[char] || '_sp');
 };
 
+// Same as encodeTextMessage, but for a "Wrap to line 2" entry - returns one
+// glyph row per line splitMessageLines (text-minikernel-layout.js) split
+// the text into, each independently justified/padded exactly the way a
+// plain single-row message already is (see encodeTextMessage's own
+// comment). Only the first two of these are ever shown at once - "Scroll
+// text lines up/down" (see their own generators below) move TextIndex to
+// bring the rest into view.
+export const encodeTextMessageLines = (text, justify = 'left', maxWidth = resolveTextMaxDisplayWidth()) =>
+  splitMessageLines(text, maxWidth).map((line) => encodeTextMessage(line, justify, maxWidth));
+
+// "Show text with ID" (the plain, non-scrolling block) doesn't know which
+// entry it's showing until runtime, so it normally computes the static
+// row's own byte offset with a cheap "id * TEXT_MESSAGE_LENGTH" multiply -
+// correct ONLY when every entry is exactly one row wide. The moment any one
+// entry in the project has "Wrap to line 2" on, that uniform-stride
+// assumption breaks (a wrapping entry earlier in id order pushes every
+// later entry's own offset further out than a flat multiply would land on),
+// so that block falls back to a real runtime table lookup instead - same
+// "small parallel tables, one byte per Text tab entry (including the
+// reserved blank guard row)" shape as text-scroll.js's own text_offsets/
+// text_scroll_max tables, and the same per-bank-copy scheme (a table can
+// only be read correctly from the bank it's declared in - see
+// dataTableSymbolName/trackDataTableBank in generators/bbasic.js). Only
+// ever generated at all when isTextRow2Used() is true (see
+// generateTextStaticOffsetTables below), matching TextRow2Active's own dim
+// gate:
+//   text_static_offsets - that entry's own row 1 byte offset (also doubles
+//     as its own lowest valid TextIndex, for "Scroll text lines up").
+//   text_has_row2 (0 or 1) - tells the kernel whether to also draw row 2 at
+//     all (see text12b.asm's own "textkernel2ndrow" block) - true for
+//     every entry with 2+ lines, regardless of current scroll position.
+//   text_lines_max - that entry's own HIGHEST valid TextIndex (its own row
+//     1 offset when it has only 1 line, i.e. no scroll room at all) - for
+//     "Scroll text lines down"'s own clamp.
+const TEXT_STATIC_OFFSET_TABLE_ID = '__text_static_offsets';
+const TEXT_HAS_ROW2_TABLE_ID = '__text_has_row2';
+const TEXT_LINES_MAX_TABLE_ID = '__text_lines_max';
+
+export const trackTextStaticOffsetUsage = (Blockly, bank) => {
+  Blockly.BBasic.trackDataTableBank(TEXT_STATIC_OFFSET_TABLE_ID, bank);
+  Blockly.BBasic.trackDataTableBank(TEXT_HAS_ROW2_TABLE_ID, bank);
+  Blockly.BBasic.trackDataTableBank(TEXT_LINES_MAX_TABLE_ID, bank);
+};
+
+// Spliced into bbasic.bb.hbs right alongside generatedTextOffsetTables (see
+// generators/bbasic.js's own finish() for bank 1's own copy and
+// generateRelocatedSections for each relocated bank's own copy) - same
+// "nothing ever read it, no bank 1 copy either" behavior as
+// generateTextOffsetTables when isTextRow2Used() is false (the common
+// case), so a project that never uses "Wrap to line 2" pays nothing for
+// this at all.
+export const generateTextStaticOffsetTables = (Blockly, bank) => {
+  if (!Blockly.BBasic.isTextRow2Used()) return '';
+  const usage = Blockly.BBasic.dataTableBankUsage[TEXT_STATIC_OFFSET_TABLE_ID];
+  if (!(usage ? usage.has(bank) : bank === 1)) return '';
+  const layout = getStaticMessageLayout();
+  const offsets = layout.map((entry) => `${entry.offset}`).join(', ');
+  const hasRow2Bytes = layout.map((entry) => (entry.lineCount >= 2 ? 1 : 0)).join(', ');
+  const linesMax = layout.map((entry) =>
+    `${entry.offset + Math.max(0, entry.lineCount - 2) * TEXT_MESSAGE_LENGTH}`).join(', ');
+  return ` data text_static_offsets\n  ${offsets}\nend\n\n data text_has_row2\n  ${hasRow2Bytes}\nend\n\n` +
+    ` data text_lines_max\n  ${linesMax}\nend`;
+};
+
 export default (Blockly) => {
   const markTextMinikernelUsed = () => {
     Blockly.BBasic.textMinikernelUsed = true;
@@ -100,15 +181,22 @@ export default (Blockly) => {
     const index = entries.findIndex((entry) => `${entry.id}` === `${id}`);
     return index === -1 ? 0 : index + 1;
   };
+  // This entry's own byte offset/line count within the static region - see
+  // getStaticMessageLayout's own comment above for why these can no longer
+  // be a flat position*TEXT_MESSAGE_LENGTH computation.
+  const namedMessageOffset = (id) => getStaticMessageLayout()[namedMessagePosition(id)].offset;
+  const namedMessageLineCount = (id) => getStaticMessageLayout()[namedMessagePosition(id)].lineCount;
 
   // Free-typed messages ("Show text: <literal>") have no Text tab entry to
   // number them by, so they keep the old lazy, dedup-by-content scheme,
-  // appended after every Text tab entry's own fixed-width row (see
-  // generateTextMinikernel()) - always TEXT_MESSAGE_LENGTH wide and always
-  // truncated to maxWidth (see encodeTextMessage), same as every named row,
-  // since maxWidth is a hard cap every "Show text" block respects,
-  // scrolling variants included (see getNamedScrollLayout's own comment in
-  // text-scroll.js).
+  // appended after every Text tab entry's own static row(s) (see
+  // staticMessageRegionEnd/generateTextMinikernel()) - always
+  // TEXT_MESSAGE_LENGTH wide and always truncated to maxWidth (see
+  // encodeTextMessage), same as every named row, since maxWidth is a hard
+  // cap every "Show text" block respects, scrolling variants included (see
+  // getNamedScrollLayout's own comment in text-scroll.js). Free-typed
+  // messages never wrap - no Text tab entry means no "Wrap to line 2"
+  // toggle to read.
   const registerFreeTypedMessage = (text) => {
     Blockly.BBasic.freeTypedMessages = Blockly.BBasic.freeTypedMessages || [];
     const messages = Blockly.BBasic.freeTypedMessages;
@@ -117,8 +205,39 @@ export default (Blockly) => {
       index = messages.length;
       messages.push(text);
     }
-    const offset = (listTextStrings().length + 1 + index) * TEXT_MESSAGE_LENGTH;
+    const offset = staticMessageRegionEnd() + index * TEXT_MESSAGE_LENGTH;
     return {offset, maxOffset: 0};
+  };
+
+  // Emits the write every "Show text"/"Show text with ID"/"Clear text" code
+  // path needs, telling the kernel whether TextIndex's own message (just
+  // set above/below) also has a wrapped second line - see text12b.asm's own
+  // "textkernel2ndrow" block. Only emitted when TextRow2Active is actually
+  // dimmed (isTextRow2Used(), gated the same way in
+  // generateTextMinikernelDims) - a project with no wrapping entries at all
+  // never reserves the var, so writing to it unconditionally here would
+  // reference an undeclared symbol.
+  const setTextRow2ActiveCode = (active) => {
+    if (!Blockly.BBasic.isTextRow2Used()) return '';
+    return `TextRow2Active = ${active ? 1 : 0}\n`;
+  };
+
+  // Emits the write "Show text"/"Show text with ID"/"Clear text" need for
+  // "Scroll text lines up/down" (see their own generators below) to know
+  // the CURRENTLY shown message's own valid TextIndex range - baseExpr is
+  // its row 1 offset (the lowest valid TextIndex, same value "Scroll text
+  // lines up" clamps against), maxOffsetExpr is its highest (row 1's own
+  // offset again, unchanged, for a message with only 1 line - i.e. no room
+  // to scroll at all). Only emitted when isTextLineScrollUsed() is true - a
+  // project with no "Scroll text lines" block anywhere never reserves
+  // these, so writing to them unconditionally here would reference
+  // undeclared symbols.
+  const setTextLinesRangeCode = (baseExpr, maxOffsetExpr) => {
+    if (!Blockly.BBasic.isTextLineScrollUsed()) return '';
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return `${resolveVar(textLinesBaseVarName())} = ${baseExpr}\n` +
+      `${resolveVar(textLinesMaxVarName())} = ${maxOffsetExpr}\n`;
   };
 
   // Every "Show text" generator ends by calling this with the offset/
@@ -151,46 +270,61 @@ export default (Blockly) => {
     Blockly.BBasic.valueToCode(block, 'SCROLL_PAUSE', Blockly.BBasic.ORDER_ASSIGNMENT) || DEFAULT_SCROLL_PAUSE,
   ];
 
-  // Plain named block: always the ordinary, single, maxWidth-truncated
-  // static row (position*TEXT_MESSAGE_LENGTH), maxOffset always 0 - never
-  // touches the scroll append region at all.
+  // Plain named block: always the ordinary static row(s) (namedMessageOffset -
+  // one row, or as many as splitMessageLines needed if this entry has "Wrap
+  // to line 2" on), maxOffset always 0 - never touches the scroll append
+  // region at all.
   Blockly.BBasic['text_minikernel_show_named'] = function(block) {
     markTextMinikernelUsed();
-    const offset = namedMessagePosition(block.getFieldValue('TEXT_ID')) * TEXT_MESSAGE_LENGTH;
-    return emitScrollSetup(offset, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
+    const id = block.getFieldValue('TEXT_ID');
+    const offset = namedMessageOffset(id);
+    const lineCount = namedMessageLineCount(id);
+    const maxOffset = offset + Math.max(0, lineCount - 2) * TEXT_MESSAGE_LENGTH;
+    return emitScrollSetup(offset, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE) +
+      setTextRow2ActiveCode(lineCount >= 2) +
+      setTextLinesRangeCode(offset, maxOffset);
   };
   // Scroll named block: uses the SAME position to look up that entry's own
   // page-0 offset/maxOffset in the scroll append region (see
   // getNamedScrollLayout in text-scroll.js) - naturally maxOffset = 0 for a
   // message with only one page (fits within maxWidth already), same
-  // end-to-end effect as the plain block above for that message.
+  // end-to-end effect as the plain block above for that message. Scrolling
+  // messages never wrap (always a single line - see setTextRow2ActiveCode's
+  // own comment on its "active" parameter), regardless of whether this
+  // entry's own "Wrap to line 2" toggle happens to be on - that toggle only
+  // means anything to the plain block above. setTextLinesRangeCode(entry.offset,
+  // entry.offset) pins the "Scroll text lines" range to a single point (no
+  // room to move) so those blocks become harmless no-ops if used together
+  // with a horizontally-scrolling message, rather than acting on a stale
+  // range left over from some earlier wrapping message.
   Blockly.BBasic['text_minikernel_show_named_scroll'] = function(block) {
     markTextMinikernelUsed();
     const position = namedMessagePosition(block.getFieldValue('TEXT_ID'));
     const layout = getNamedScrollLayout();
     const entry = layout[position] || layout[0];
-    return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
+    return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block)) +
+      setTextRow2ActiveCode(false) +
+      setTextLinesRangeCode(entry.offset, entry.offset);
   };
 
   Blockly.BBasic['text_minikernel_show'] = function(block) {
     markTextMinikernelUsed();
     const entry = registerFreeTypedMessage(block.getFieldValue('TEXT'));
-    return emitScrollSetup(entry.offset, entry.maxOffset, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
+    return emitScrollSetup(entry.offset, entry.maxOffset, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE) +
+      setTextRow2ActiveCode(false) +
+      setTextLinesRangeCode(entry.offset, entry.offset);
   };
   Blockly.BBasic['text_minikernel_show_scroll'] = function(block) {
     markTextMinikernelUsed();
     const entry = registerFreeTypedScrollMessage(Blockly, block.getFieldValue('TEXT'));
-    return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
+    return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block)) +
+      setTextRow2ActiveCode(false) +
+      setTextLinesRangeCode(entry.offset, entry.offset);
   };
 
   Blockly.BBasic['text_minikernel_show_by_id'] = function(block) {
     markTextMinikernelUsed();
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
-    // Hand-written "*" rather than routing through the math_arithmetic
-    // block generator - see Blockly.BBasic.usesDivMul's own comment
-    // elsewhere in this codebase: any multiply/divide has to flag
-    // usesDivMul itself so generateDivMul() knows to pull in div_mul.asm.
-    Blockly.BBasic.usesDivMul = true;
     // argument0 captured into a dedicated dev var first, rather than
     // embedded directly into "(argument0) * TEXT_MESSAGE_LENGTH" - VALUE can
     // be a genuine bB function call now (e.g. a dynamic-TABLE_ID "Data table
@@ -207,12 +341,37 @@ export default (Blockly) => {
     // function's own argument 1 - confirmed as a second real build failure,
     // clobbering that argument the moment this ran, same class of bug
     // functionCallDiscardVarName already exists to avoid in
-    // generators/bbasic/function.js. textShowByIdArgVarName's own dedicated
-    // dev var sidesteps that possibility entirely.
-    const argVar = Blockly.BBasic.nameDB_.getName(
-        textShowByIdArgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    return `${argVar} = ${argument0}\n` +
-      emitScrollSetup(`${argVar} * ${TEXT_MESSAGE_LENGTH}`, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE);
+    // generators/bbasic/function.js - reused directly here rather than a
+    // second dedicated var of its own, same "written once, read back
+    // immediately after, never held across another Function call" lifetime.
+    // functionCallDiscardVarName now routes through reserveDevVarRW
+    // (generators/bbasic.js's own init()) - captured with .write here,
+    // then read back (.read, possibly more than once - emitScrollSetup
+    // embeds it in up to 3 separate lines) on the lines right after.
+    const argPair = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    const captureArg = `${argPair.write} = ${argument0}\n`;
+    // Fast path: no entry in the project can ever have a second row, so the
+    // static region really is a uniform TEXT_MESSAGE_LENGTH stride - the
+    // plain multiply (needing div_mul.asm - see Blockly.BBasic.usesDivMul's
+    // own comment elsewhere in this codebase) is cheaper than a table read
+    // and stays exactly correct.
+    if (!Blockly.BBasic.isTextRow2Used()) {
+      Blockly.BBasic.usesDivMul = true;
+      const offsetExpr = `${argPair.read} * ${TEXT_MESSAGE_LENGTH}`;
+      return captureArg +
+        emitScrollSetup(offsetExpr, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE) +
+        setTextLinesRangeCode(offsetExpr, offsetExpr);
+    }
+    // Slow path: some entry DOES wrap, so row widths aren't uniform any
+    // more - the offset, whether row 2 applies, and the valid scroll range
+    // all have to come from a real runtime table lookup instead (see
+    // text_static_offsets/text_has_row2/text_lines_max's own comment
+    // above).
+    trackTextStaticOffsetUsage(Blockly, Blockly.BBasic.getCurrentBank());
+    return captureArg +
+      emitScrollSetup(`text_static_offsets[${argPair.read}]`, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE) +
+      `TextRow2Active = text_has_row2[${argPair.read}]\n` +
+      setTextLinesRangeCode(`text_static_offsets[${argPair.read}]`, `text_lines_max[${argPair.read}]`);
   };
   // Scroll by-id block: normally WHICH entry gets shown isn't known until
   // runtime, so the offset needs the real "text_offsets[id]" table lookup -
@@ -247,7 +406,9 @@ export default (Blockly) => {
       // skips that table read, the same way the plain named blocks above
       // never touch text_offsets at all.
       const entry = layout[literalId] || layout[0];
-      return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block));
+      return emitScrollSetup(entry.offset, entry.maxOffset, ...scrollFieldCodes(block)) +
+        setTextRow2ActiveCode(false) +
+        setTextLinesRangeCode(entry.offset, entry.offset);
     }
 
     // argument0 is only ever a compile-time literal on the branch above (the
@@ -275,17 +436,24 @@ export default (Blockly) => {
     // text_minikernel_show_by_id's own identical comment just above, and
     // functionCallDiscardVarName's in blocks/function.js for the same class
     // of risk) - confirmed as a real build failure, clobbering that
-    // function's own live argument.
-    const argVar = Blockly.BBasic.nameDB_.getName(
-        textShowByIdArgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const captureArg = `${argVar} = ${argument0}\n`;
+    // function's own live argument. Reuses that same shared var directly
+    // rather than a second dedicated one of its own (see its own comment).
+    // functionCallDiscardVarName now routes through reserveDevVarRW (see
+    // this file's own identical comment on text_minikernel_show_by_id
+    // above) - .write to capture, .read for every use after.
+    const argPair = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    const captureArg = `${argPair.write} = ${argument0}\n`;
     if (!layout.some((entry) => entry.maxOffset > 0)) {
-      return captureArg + emitScrollSetup(`text_offsets[${argVar}]`, 0, ...scrollFieldCodes(block));
+      return captureArg + emitScrollSetup(`text_offsets[${argPair.read}]`, 0, ...scrollFieldCodes(block)) +
+        setTextRow2ActiveCode(false) +
+        setTextLinesRangeCode(`text_offsets[${argPair.read}]`, `text_offsets[${argPair.read}]`);
     }
 
     trackTextByIdScrollUsage(Blockly, Blockly.BBasic.getCurrentBank());
     return captureArg + emitScrollSetup(
-        `text_offsets[${argVar}]`, `text_scroll_max[${argVar}]`, ...scrollFieldCodes(block));
+        `text_offsets[${argPair.read}]`, `text_scroll_max[${argPair.read}]`, ...scrollFieldCodes(block)) +
+      setTextRow2ActiveCode(false) +
+      setTextLinesRangeCode(`text_offsets[${argPair.read}]`, `text_offsets[${argPair.read}]`);
   };
 
   Blockly.BBasic['text_minikernel_clear'] = function(block) {
@@ -314,7 +482,9 @@ export default (Blockly) => {
     // buildTextScrollSetupLines' own comment in text-scroll.js - only
     // resolved (and only written) when the project actually has some other
     // scroll-related block that could ever read base/farEnd/state at all.
-    if (!Blockly.BBasic.isTextScrollActive()) return `TextIndex = 0\n`;
+    if (!Blockly.BBasic.isTextScrollActive()) {
+      return `TextIndex = 0\n` + setTextRow2ActiveCode(false) + setTextLinesRangeCode(0, 0);
+    }
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const base = resolveVar(textScrollBaseVarName());
@@ -323,7 +493,9 @@ export default (Blockly) => {
     return `TextIndex = 0\n` +
       `${base} = 0\n` +
       `${farEnd} = 0\n` +
-      `${state} = 2\n`;
+      `${state} = 2\n` +
+      setTextRow2ActiveCode(false) +
+      setTextLinesRangeCode(0, 0);
   };
 
   Blockly.BBasic['text_minikernel_set_color'] = function(block) {
@@ -414,6 +586,33 @@ export default (Blockly) => {
     return resetToStart + `${state} = 0\n` + `${timer} = ${pauseDuration}\n`;
   };
 
+  // Moves the CURRENTLY shown message up/down by one line (TextIndex +/-
+  // TEXT_MESSAGE_LENGTH) when it has more than 2 lines (see splitMessageLines
+  // in text-minikernel-layout.js) - only the first 2 of any message's own
+  // lines are ever drawn at once (text12b.asm's own "textkernel2ndrow"
+  // block always reads row 2 from TextIndex+TEXT_MESSAGE_LENGTH), so this is
+  // how the rest come into view. Clamped directly against TextIndex itself,
+  // via _textLinesBase/_textLinesMax (see setTextLinesRangeCode's own
+  // comment above, set by whichever "Show text" call most recently pointed
+  // at the message currently showing) - a message with 2 or fewer lines has
+  // base = max, so both blocks are harmless no-ops for it. No multiply
+  // needed either way: every line is exactly TEXT_MESSAGE_LENGTH bytes
+  // apart, so moving one line at a time is just a plain add/subtract.
+  Blockly.BBasic['text_minikernel_line_scroll_up'] = function(block) {
+    markTextMinikernelUsed();
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const base = resolveVar(textLinesBaseVarName());
+    return `if TextIndex > ${base} then TextIndex = TextIndex - ${TEXT_MESSAGE_LENGTH}\n`;
+  };
+  Blockly.BBasic['text_minikernel_line_scroll_down'] = function(block) {
+    markTextMinikernelUsed();
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const max = resolveVar(textLinesMaxVarName());
+    return `if TextIndex < ${max} then TextIndex = TextIndex + ${TEXT_MESSAGE_LENGTH}\n`;
+  };
+
   // Drives generateSystemDims()'s TextIndex/TextDataPtr dims below - needs to
   // know this well before any block's own generator runs.
   Blockly.BBasic.isTextMinikernelActive = function() {
@@ -430,6 +629,31 @@ export default (Blockly) => {
     return !!this.textScrollUsed;
   };
 
+  // Whether ANY Text tab entry has "Wrap to line 2" on - purely a Text tab
+  // data check (not a workspace-block pre-scan), since the toggle lives on
+  // the entry itself, not on any block. Drives text12b.asm's own
+  // "textkernel2ndrow" ifconst gate (see generateConfiguration in
+  // generators/bbasic.js) and TextRow2Active's own dim just below - both
+  // only pay for this feature once a project actually uses it. The
+  // "(scrolling)" Show text blocks never wrap (per their own generators
+  // below, which always force TextRow2Active to 0), so this only reflects
+  // what the PLAIN Show text blocks can ever act on.
+  Blockly.BBasic.isTextRow2Used = function() {
+    return this.isTextMinikernelActive() && listTextStrings().some((entry) => entry.wrapToLine2);
+  };
+
+  // Whether the project uses "Scroll text lines up/down" anywhere - a real
+  // workspace-block pre-scan (see textLineScrollUsed in generators/
+  // bbasic.js), unlike isTextRow2Used just above, since these blocks (not
+  // Text tab data) are what actually read _textLinesBase/_textLinesMax.
+  // Gates reserving those two dev vars (bbasic.js's own init()) and every
+  // "Show text" code path's own setTextLinesRangeCode call above - a
+  // project that never uses these blocks never pays for the range tracking
+  // at all, even if some Text tab entry does wrap.
+  Blockly.BBasic.isTextLineScrollUsed = function() {
+    return !!this.textLineScrollUsed;
+  };
+
   // TextIndex/TextDataPtr sit in var44/var46 (2 bytes: var46+var47) - scratch
   // RAM this app never otherwise touches, and safely free regardless of
   // Superchip or the standard kernel's own playfield buffer (var0-var43),
@@ -444,6 +668,17 @@ export default (Blockly) => {
   // gone by the time generateSystemDims() runs) - text12a.asm already falls
   // back to reusing pfscore1's own storage for TextDataPtr otherwise, so
   // dimming it ourselves in that case would just double-define the symbol.
+  //
+  // TextRow2Active is the third and last member of this fixed-symbol-name
+  // family (text12b.asm needs a literal, unchanging name to hardcode, the
+  // same reason TextIndex/TextDataPtr aren't just ordinary auto-lettered
+  // dev vars) - var45, the one byte of the documented "var44-47 always
+  // free" pool (see reserveDevVarRW's own comment in generators/bbasic.js)
+  // neither TextIndex (44) nor TextDataPtr (46-47) ever claims. Only
+  // dimmed when isTextRow2Used() is true - the exact same condition that
+  // gates text12b.asm's own "textkernel2ndrow" ifconst block in the first
+  // place (see generateConfiguration in generators/bbasic.js), so a
+  // project that never turns on "Wrap to line 2" never reserves it.
   Blockly.BBasic.generateTextMinikernelDims = function() {
     if (!this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
@@ -452,10 +687,14 @@ export default (Blockly) => {
     const textIndexComment = showVariableComments ?
       '  ; which message/character is currently shown, and the scroll position tracker (see text-scroll.js)' : '';
     const textDataPtrComment = showVariableComments ? '  ; Text Minikernel\'s own message-table pointer' : '';
+    const textRow2ActiveComment = showVariableComments ?
+      '  ; whether the currently shown message also draws a wrapped second line' : '';
     const textIndexDim = `\n dim TextIndex = var44${textIndexComment}`;
     const textDataPtrDim = this.pfscoreEnabledForTextMinikernel ?
       `\n dim TextDataPtr = var46${textDataPtrComment}` : '';
-    return textIndexDim + textDataPtrDim;
+    const textRow2ActiveDim = this.isTextRow2Used() ?
+      `\n dim TextRow2Active = var45${textRow2ActiveComment}` : '';
+    return textIndexDim + textDataPtrDim + textRow2ActiveDim;
   };
 
   // Spliced into bbasic.bb.hbs's Setup section, alongside the other system
@@ -497,12 +736,21 @@ export default (Blockly) => {
     // assigns it, so this is what shows (nothing) before that happens,
     // rather than whichever message happened to be defined first. Rows
     // 1..N: every Text tab entry, in that same order (position N's own byte
-    // offset = N * TEXT_MESSAGE_LENGTH - see namedMessagePosition() above
-    // and "Show text with ID"'s own generator). Next: free-typed messages,
-    // in first-referenced order (see registerFreeTypedMessage above). Every
-    // row so far is always exactly TEXT_MESSAGE_LENGTH wide and always
-    // truncated to maxWidth via encodeTextMessage - this is the region the
-    // PLAIN "Show text" blocks exclusively read from.
+    // offset - see getStaticMessageLayout() above and "Show text with ID"'s
+    // own generator - no longer a flat N*TEXT_MESSAGE_LENGTH stride once any
+    // entry wraps). An entry with "Wrap to line 2" on gets one row per line
+    // splitMessageLines (text-minikernel-layout.js) split its own text
+    // into - explicit line breaks first, falling back to word-wrap only
+    // when there isn't one - all stored back to back (see text12b.asm's own
+    // "textkernel2ndrow" block, which always reads row 2 from TextIndex+
+    // TEXT_MESSAGE_LENGTH - this adjacency is what makes that fixed offset
+    // correct, and what lets "Scroll text lines up/down" move through the
+    // rest just by adding/subtracting TEXT_MESSAGE_LENGTH from TextIndex).
+    // Next: free-typed messages, in first-referenced order (see
+    // registerFreeTypedMessage above) - never wrapped, always a single row.
+    // Every row so far is always exactly TEXT_MESSAGE_LENGTH wide and
+    // always truncated to maxWidth via encodeTextMessage - this is the
+    // region the PLAIN "Show text" blocks exclusively read from.
     //
     // After that: the scroll append region (see getNamedScrollLayout/
     // registerFreeTypedScrollMessage's own comments in text-scroll.js) - one
@@ -522,9 +770,11 @@ export default (Blockly) => {
     const glyphRows = (glyphs) => chunk(glyphs, 16).map((row) => '  ' + row.join(', '));
 
     const maxWidth = resolveTextMaxDisplayWidth();
-    const staticEntries = [{text: '', justify: 'left'}, ...listTextStrings()];
-    const namedRows = staticEntries.flatMap(({text, justify}) =>
-      glyphRows(encodeTextMessage(text, justify, maxWidth)));
+    const staticEntries = [{text: '', justify: 'left', wrapToLine2: false}, ...listTextStrings()];
+    const namedRows = staticEntries.flatMap(({text, justify, wrapToLine2}) => {
+      if (!wrapToLine2) return glyphRows(encodeTextMessage(text, justify, maxWidth));
+      return encodeTextMessageLines(text, justify, maxWidth).flatMap((glyphs) => glyphRows(glyphs));
+    });
     const freeTypedRows = (this.freeTypedMessages || []).flatMap((text) =>
       glyphRows(encodeTextMessage(text, 'left', maxWidth)));
     const namedScrollRows = getNamedScrollLayout()

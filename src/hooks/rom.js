@@ -329,6 +329,20 @@ const computeVariableUsage = () => {
       used: (BlocklyBB.superchipVarsUsed || 0) + (config.enableSuperchip ? systemVarCount : 0),
       available: config.enableSuperchip ? (BlocklyBB.superchipVarsAvailable || 0) + systemVarCount : 0,
     },
+    // Superchip RAM's own SEPARATE read/write pool (r000-r127/w000-w127 -
+    // see reserveDevVarRW's own comment in generators/bbasic.js) - a
+    // completely different resource from the "letters"/"superchip" pools
+    // above (those two compete for the SAME 48-byte-freed-playfield-plus-
+    // 26-letter budget; this one is its own distinct 128-byte region, only
+    // ever used for a small, hand-picked set of internal vars, never
+    // offered to the user). available is 0 whenever Superchip itself is
+    // off, or once pfres claims the whole 128 bytes (pfres=32) - same
+    // "0 means not applicable, not broken" convention as superchip.available
+    // above.
+    superchipRw: {
+      used: BlocklyBB.superchipRwUsed || 0,
+      available: BlocklyBB.superchipRwAvailable || 0,
+    },
     // System variables (player0frame, newbackground, etc. - see
     // SYSTEM_VARIABLES' own comment in generators/bbasic.js) are a SEPARATE,
     // always-unconditional set of "dim" lines - never routed through
@@ -347,6 +361,12 @@ const computeVariableUsage = () => {
     // display's own expandable list.
     letterAssignments: BlocklyBB.letterVarAssignments || [],
     superchipAssignments: BlocklyBB.superchipVarAssignments || [],
+    // Same per-slot breakdown, for Superchip's own separate r/w pool (see
+    // reserveDevVarRW's own comment in generators/bbasic.js) - every entry
+    // here always has isUserVariable: false (this pool is never offered to
+    // the user), so it only ever shows up under the block/system list, not
+    // the user-variable one.
+    superchipRwAssignments: BlocklyBB.superchipRwAssignments || [],
   };
 };
 

@@ -130,14 +130,18 @@ export default (Blockly) => {
     '\n';
   };
 
-  // "rem" runs to the end of the line, so a newline (shouldn't be reachable
-  // through a single-line text field, but nothing stops a pasted value)
-  // would otherwise let whatever's after it escape the comment and
-  // potentially assemble as code.
-  const sanitizeCommentText = (text) => text.replace(/[\r\n]+/g, ' ');
+  // "rem" runs to the end of the line, so each of TEXT's own lines (the
+  // field is a real multi-line editor - Shift+Enter isn't needed, plain
+  // Enter already inserts one, same as any other Blockly multi-line field)
+  // needs its own leading "rem", not just one covering the first line - a
+  // naive single "rem" would let every line after the first escape the
+  // comment and potentially assemble as code. A stray \r (pasted Windows
+  // text) is stripped rather than starting an empty extra line for it.
+  const sanitizeCommentText = (text) => text.replace(/\r/g, '').split('\n')
+      .map((line) => ` rem ${line}`).join('\n');
 
   Blockly.BBasic['event_comment'] = function(block) {
-    return ` rem ${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
+    return `${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
   };
 
   // Wrapper version - purely a label around whatever's connected inside
@@ -146,7 +150,7 @@ export default (Blockly) => {
   // unlike event_block, this doesn't represent a new event, just a labeled
   // section of an existing one).
   Blockly.BBasic['event_comment_wrapper'] = function(block) {
-    const comment = ` rem ${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
+    const comment = `${sanitizeCommentText(block.getFieldValue('TEXT'))}\n`;
     const code = Blockly.BBasic.statementToCode(block, 'DO');
     return comment + code;
   };

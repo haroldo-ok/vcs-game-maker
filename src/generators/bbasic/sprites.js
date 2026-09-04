@@ -682,6 +682,29 @@ export default (Blockly) => {
         return `temp1 = (${argument0}) * 16\n` +
             `${shadowVar} = (${shadowVar} & 207) + temp1\n` +
             `CTRLPF = ${shadowVar}\n`;
+      } else if (varName.endsWith('width')) {
+        // Missile width packs into NUSIZ's own bits 4-5 as a 2-bit code
+        // (0-3), not the pixel width itself - unlike ballwidth's own CTRLPF
+        // branch just above (which exposes that raw 0-3 code directly),
+        // this block takes the actual pixel width (1/2/4/8, the only values
+        // real hardware supports) and converts it here, since typing the
+        // real width a project actually wants is more intuitive than
+        // remembering the code that produces it. Captured into temp1 first
+        // (argument0 might be an arbitrary expression, not just a bare
+        // literal) and compared against each of the 4 valid widths in turn -
+        // temp2 starts at 0 (matching width 1, the code's own natural
+        // "nothing set" value) and only needs updating for the other three;
+        // any other width the project might pass in (not 1/2/4/8) falls
+        // back to that same 0/1-pixel code rather than producing an
+        // invalid NUSIZ pattern.
+        const sizeVarName = varName.replace('width', 'size').replace('missile', 'player');
+        return `temp1 = ${argument0}\n` +
+            `temp2 = 0\n` +
+            `if temp1 = 2 then temp2 = 1\n` +
+            `if temp1 = 4 then temp2 = 2\n` +
+            `if temp1 = 8 then temp2 = 3\n` +
+            `temp2 = temp2 * 16\n` +
+            `${sizeVarName} = (${sizeVarName} & $0F) + temp2\n`;
       } else if (varName.endsWith('visibility')) {
         const blockNumber = Blockly.BBasic.blockNumbers.next();
         const baseLabel = `_visibility_${blockNumber}`;

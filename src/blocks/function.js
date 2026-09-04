@@ -44,6 +44,23 @@ export const functionCallDiscardVarName = () => '_functionCallResult';
 // pre-scan in generators/bbasic.js).
 export const functionCallArgVarName = (index) => `_fnCallArg${index}`;
 
+// Snapshot storage for function_param_get's own reads (see
+// generators/bbasic/function.js's function_define generator) - a function's
+// arguments arrive in temp1..temp6 (batari Basic's own fixed calling
+// convention, same registers function_param_get itself used to read
+// directly), but those same registers are ALSO used as scratch/argument
+// storage by any OTHER function call made from within this function's own
+// body (confirmed as a real reported bug: a data table read keyed off
+// "Function argument 1" came back correct for the first couple of reads,
+// then silently wrong for every one after, once the function's own body
+// started calling other functions - e.g. the dynamic-table-id dispatch
+// helpers in generators/bbasic/data.js - that reuse temp1/temp2 internally
+// and never restore the caller's original value). Copied into one of these
+// dedicated vars once, at function entry, so a later nested call can safely
+// clobber temp1-temp6 without corrupting an argument this function still
+// needs to read again.
+export const functionParamVarName = (index) => `_fnParam${index}`;
+
 // Block for defining a native batari Basic "function" - a real,
 // value-returning callable (see generators/bbasic/function.js for the exact
 // "function <name> ... return <expr>" syntax this compiles to), distinct

@@ -639,6 +639,9 @@ buildSpriteBlocks({
   icon: MISSILE_ICON,
   colour: 'red',
   options: buildMissileOptions('missile0'),
+  writeOnlyOptions: [
+    [HEIGHT_ICON + ' Width', 'missile0width'],
+  ],
 });
 
 buildMissileSizeBlock({
@@ -668,6 +671,9 @@ buildSpriteBlocks({
   icon: MISSILE_ICON,
   colour: 'blue',
   options: buildMissileOptions('missile1'),
+  writeOnlyOptions: [
+    [HEIGHT_ICON + ' Width', 'missile1width'],
+  ],
 });
 
 buildMissileSizeBlock({

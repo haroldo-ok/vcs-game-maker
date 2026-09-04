@@ -8,6 +8,7 @@
 // runtime check, that the "Show text" block generators just call into.
 
 import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {getStaticMessageLayout, staticMessageRegionEnd} from './text-minikernel-layout';
 
 // One shared copy of this runtime state project-wide, reconfigured by
 // whichever "Show text" block most recently triggered a message - the Text
@@ -156,25 +157,28 @@ const encodeScrollableMessage = (text) => {
 // scrollable append region of the "data text_strings" table (see
 // generateTextMinikernel in text-minikernel.js, which emits each entry's
 // own `glyphs` as a single extra row right after every entry's own
-// ordinary static row - see registerFreeTypedMessage's own comment in
+// ordinary static row(s) - see registerFreeTypedMessage's own comment in
 // text-minikernel.js for why the plain, non-scrolling rows stay completely
 // separate from this). An entry short enough to not need scrolling at all
-// just reuses its own static row (offset = position*TEXT_MESSAGE_LENGTH,
-// maxOffset = 0) rather than getting a second, redundant copy here.
+// just reuses its own static row (offset = its own entry in
+// getStaticMessageLayout(), maxOffset = 0) rather than getting a second,
+// redundant copy here - scrolling never wraps (see this file's own
+// isScrollable comment), so it's always that entry's row 1 offset, even for
+// an entry that separately has "Wrap to line 2" on for the PLAIN block.
 // Position 0 is the reserved blank guard entry (see namedMessagePosition's
 // own comment in text-minikernel.js).
 export const getNamedScrollLayout = () => {
   const entries = listTextStrings();
-  const staticRegionEnd = (entries.length + 1) * TEXT_MESSAGE_LENGTH;
+  const staticLayout = getStaticMessageLayout();
   // glyphs: null here too - the guard entry's own offset (0) already points
   // at its static row, same as any other non-scrollable entry, so it never
   // needs (or gets) a second copy in the append region.
   const layout = [{offset: 0, maxOffset: 0, glyphs: null, text: '', justify: 'left'}];
-  let appendOffset = staticRegionEnd;
+  let appendOffset = staticMessageRegionEnd();
   entries.forEach(({text, justify}, i) => {
     const position = i + 1;
     if (!isScrollable(text)) {
-      layout.push({offset: position * TEXT_MESSAGE_LENGTH, maxOffset: 0, glyphs: null, text, justify});
+      layout.push({offset: staticLayout[position].offset, maxOffset: 0, glyphs: null, text, justify});
       return;
     }
     const glyphs = encodeScrollableMessage(text);
@@ -199,15 +203,15 @@ export const getNamedScrollLayout = () => {
 // static row when the text already fits).
 const namedScrollRegionEnd = () => {
   const layout = getNamedScrollLayout();
-  // The static region is always exactly layout.length rows wide (guard +
-  // one row per Text tab entry); summed on top of that is only the
-  // append-region space entries with a real `glyphs` row actually used -
-  // computed this way (rather than reading the last layout entry's own
-  // offset) so it stays correct regardless of whether the LAST Text tab
-  // entry happens to be one of the ones that needed an append row at all.
-  const staticRegionEnd = layout.length * TEXT_MESSAGE_LENGTH;
+  // staticMessageRegionEnd() (not layout.length*TEXT_MESSAGE_LENGTH - the
+  // static region isn't a uniform stride any more once an entry wraps, see
+  // getStaticMessageLayout's own comment) plus only the append-region space
+  // entries with a real `glyphs` row actually used - computed this way
+  // (rather than reading the last layout entry's own offset) so it stays
+  // correct regardless of whether the LAST Text tab entry happens to be one
+  // of the ones that needed an append row at all.
   const appendTotal = layout.reduce((sum, entry) => sum + (entry.glyphs ? entry.glyphs.length : 0), 0);
-  return staticRegionEnd + appendTotal;
+  return staticMessageRegionEnd() + appendTotal;
 };
 
 export const registerFreeTypedScrollMessage = (Blockly, text) => {
