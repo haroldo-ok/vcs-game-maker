@@ -7,7 +7,7 @@ import Blockly from 'blockly';
 import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from './bb-compiler';
 
 import '../blocks';
-import BlocklyBB, {RELOCATABLE_EVENT_NAMES} from '../generators/bbasic';
+import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
 import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
 import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../generators/bbasic/text-minikernel-files';
 import {processBackgroundStorageDefaults} from '../blocks/background';
@@ -18,7 +18,8 @@ import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from './project';
-import {getRelocationBanks, resetRelocationBanks, setRelocationBank} from './relocation-banks';
+import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
+  recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
 import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom} from './rom-status';
 import {setRomCapacity, useRomCapacity} from './rom-capacity';
 
@@ -74,6 +75,36 @@ const forceJavatariNtsc = () => {
   setTimeout(() => videoOutput.setVideoStandard(jt.VideoStandard.NTSC), 2000);
 };
 
+// Turns Javatari's own Keyboard/Keypad Controller emulation on or off (see
+// AtariConsole.setKeypadMode in the vendored public/js/javatari.js - a fork
+// of ppeccin/javatari.js with that peripheral newly implemented, since
+// upstream doesn't support it at all: https://github.com/ppeccin/javatari.js/issues/17).
+// Same "Javatari's own startup is async, independent of our compile
+// pipeline" retry reasoning as forceJavatariNtsc above. Called on every
+// build (not just ones that use keypad blocks) so a project that USED to
+// use the keypad and just removed the last block correctly turns it back
+// off too, rather than leaving a stale prior build's setting stuck on.
+const setJavatariKeypadMode = (enabled) => {
+  const room = window.Javatari && window.Javatari.room;
+  const console_ = room && room.console;
+  const consoleControls = room && room.consoleControls;
+  if (!console_ || typeof console_.setKeypadMode !== 'function' ||
+      !consoleControls || typeof consoleControls.setKeypadMode !== 'function') {
+    setTimeout(() => setJavatariKeypadMode(enabled), 250);
+    return;
+  }
+  // Two independent switches: console_.setKeypadMode covers the TIA/PIA
+  // emulation itself (real hardware protocol) plus the physical-keyboard
+  // key mapping; consoleControls.setKeypadMode covers a gamepad-shaped
+  // Keyboard/Keypad Controller USB adapter, whose 12 raw buttons would
+  // otherwise collide with Javatari's own default gamepad button
+  // assignments (see GamepadConsoleControls' own setKeypadMode comment in
+  // the vendored fork) - both need to be on together for the peripheral to
+  // work regardless of which physical form it takes.
+  console_.setKeypadMode(enabled);
+  consoleControls.setKeypadMode(enabled);
+};
+
 // Loads the stored workspace headlessly (so this works from any tab, not
 // just the editor) and runs it through the given callback, disposing it
 // afterwards either way.
@@ -95,26 +126,47 @@ const withHeadlessWorkspace = (callback) => {
 // time; a graphics edit alone would otherwise leave the cached code stale.
 const regenerateCode = () => withHeadlessWorkspace((workspace) => BlocklyBB.workspaceToCode(workspace));
 
-// How many user-created variables the current project actually uses - needed
-// to check whether disabling Superchip RAM would leave too few letters free
-// for them (see Configuration.vue).
+// How many letter-pool slots the current project would actually need if
+// Superchip RAM were off - used by Configuration.vue to check whether
+// disabling it would leave too few letters free. Deliberately NOT just
+// Blockly.Variables.allUsedVarModels(workspace).length (pure user-created
+// variables) - with Superchip on, every app-internal dev var (missile fire's
+// own fired-direction/speed, seek's own target/throttle state, background
+// fade timers, etc. - see generators/bbasic.js's own routeDevVar) is ALSO
+// routed through the very same 26-letter pool the instant Superchip goes
+// off, competing with user variables for the exact same slots. Counting only
+// user variables against the FULL letter pool undercounted real pressure
+// whenever a project leaned on dev-var-heavy features but few explicit
+// variables - letting "disable Superchip" through here even though the real
+// build (bbasic.js's own "Too many variables" throw) would then fail. A real
+// headless compile (same as regenerateCode above) is run so
+// letterVarsUsed/superchipVarsUsed reflect this exact project's actual
+// dev-var + user-var total (see bbasic.js's own routeDevVar/init() comments
+// on how those two fields get set) - their SUM is exactly what would need to
+// fit in the letter pool alone once Superchip stops splitting that load with
+// the Superchip var pool.
 export const countUsedVariables = () =>
-  withHeadlessWorkspace((workspace) => Blockly.Variables.allUsedVarModels(workspace).length);
+  withHeadlessWorkspace((workspace) => {
+    BlocklyBB.workspaceToCode(workspace);
+    return (BlocklyBB.letterVarsUsed || 0) + (BlocklyBB.superchipVarsUsed || 0);
+  });
 
 // Whether the project needs "playercolors" (player0's own per-row sprite
 // color kernel option) - either a real sprite_player0_rainbow_colors block
-// on the canvas, or the standing "enable per-row sprite colors" toggle (see
-// useSpriteColors in generators/bbasic.js) - needed by Configuration.vue to
-// force "Show blank lines" back on (and disable the toggle) whenever either
-// is active. See generators/bbasic.js's effectiveShowBlankLines for why:
-// batari Basic's own kernel_options combination table never pairs
-// "playercolors" with "no_blank_lines" in any valid row, confirmed by a
-// real "Invalid combination of options" build failure when both were
-// emitted together.
+// on the canvas, or the standing "Enable per-row Player 0 sprite colors"
+// toggle (see useSpriteColorsFor in generators/bbasic.js) - needed by
+// Configuration.vue to force "Show blank lines" AND the Player 1 sprite
+// colors toggle back on (disabling both) whenever either is active. See
+// generators/bbasic.js's effectiveShowBlankLines for the "Show blank lines"
+// half of that: batari Basic's own kernel_options combination table never
+// pairs "playercolors" with "no_blank_lines" in any valid row, confirmed by
+// a real "Invalid combination of options" build failure when both were
+// emitted together - and generateConfiguration's own comment for the
+// "player1colors" half: playercolors is never valid without it either.
 export const usesPlayer0RainbowColors = () => {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  if (config.enableSpriteColors) return true;
+  if (config.enablePlayer0SpriteColors) return true;
   return withHeadlessWorkspace((workspace) =>
     workspace.getAllBlocks(false).some((block) =>
       block.type === 'sprite_player0_rainbow_colors' && block.isEnabled()));
@@ -255,10 +307,68 @@ const resolveMusicSongLabels = () => {
 // anything itself. superchip.available is 0 (not the full 29-slot budget)
 // when Superchip RAM is off, matching how routeDevVar itself never touches
 // that pool in that case either.
-const computeVariableUsage = () => ({
-  letters: {used: BlocklyBB.letterVarsUsed || 0, available: BlocklyBB.letterVarsAvailable || 0},
-  superchip: {used: BlocklyBB.superchipVarsUsed || 0, available: BlocklyBB.superchipVarsAvailable || 0},
-});
+const computeVariableUsage = () => {
+  const config = useConfigurationStorage().value || {};
+  // The 12 SYSTEM_VARIABLES (player0frame, framecounter, etc. - see their own
+  // comment in generators/bbasic.js) are always dimmed, but land on a
+  // DIFFERENT pool depending on Superchip: real letters when it's off, or
+  // var0-var11 (a fixed region OUTSIDE letterVarsAvailable/
+  // superchipVarsAvailable's own 26-letter/32-slot totals, which only ever
+  // described the competitive dev/user pool) when it's on. "Total Variables"
+  // is meant to read as everything actually reserved out of whichever pool
+  // it really lives in, so this folds systemVarCount into whichever side
+  // System reserved is ACTUALLY occupying this build, rather than leaving it
+  // out of both (the previous, confusing behavior this replaces).
+  const systemVarCount = SYSTEM_VARIABLES.length;
+  return {
+    letters: {
+      used: (BlocklyBB.letterVarsUsed || 0) + (config.enableSuperchip ? 0 : systemVarCount),
+      available: BlocklyBB.letterVarsAvailable || 0,
+    },
+    superchip: {
+      used: (BlocklyBB.superchipVarsUsed || 0) + (config.enableSuperchip ? systemVarCount : 0),
+      available: config.enableSuperchip ? (BlocklyBB.superchipVarsAvailable || 0) + systemVarCount : 0,
+    },
+    // Superchip RAM's own SEPARATE read/write pool (r000-r127/w000-w127 -
+    // see reserveDevVarRW's own comment in generators/bbasic.js) - a
+    // completely different resource from the "letters"/"superchip" pools
+    // above (those two compete for the SAME 48-byte-freed-playfield-plus-
+    // 26-letter budget; this one is its own distinct 128-byte region, only
+    // ever used for a small, hand-picked set of internal vars, never
+    // offered to the user). available is 0 whenever Superchip itself is
+    // off, or once pfres claims the whole 128 bytes (pfres=32) - same
+    // "0 means not applicable, not broken" convention as superchip.available
+    // above.
+    superchipRw: {
+      used: BlocklyBB.superchipRwUsed || 0,
+      available: BlocklyBB.superchipRwAvailable || 0,
+    },
+    // System variables (player0frame, newbackground, etc. - see
+    // SYSTEM_VARIABLES' own comment in generators/bbasic.js) are a SEPARATE,
+    // always-unconditional set of "dim" lines - never routed through
+    // routeDevVar/letterVarAssignments/superchipVarAssignments at all, since
+    // they're not part of that competitive pool (every one of them exists on
+    // every build, dev/user var count or not). Computed directly here, the
+    // same "var${i}"-with-Superchip/literal-letter-otherwise rule
+    // generateSystemDims itself uses, rather than threading a third array
+    // through BlocklyBB, since it needs nothing from an actual compile -
+    // just the current Superchip toggle.
+    systemAssignments: SYSTEM_VARIABLES.map(([name, letter], i) =>
+      ({name, slot: config.enableSuperchip ? `var${i}` : letter})),
+    // Per-slot breakdown for the dynamic dev/user var pool (see bbasic.js's
+    // own letterVarAssignments/superchipVarAssignments comment) - which
+    // actual name landed on which letter/var slot, for the ROM capacity
+    // display's own expandable list.
+    letterAssignments: BlocklyBB.letterVarAssignments || [],
+    superchipAssignments: BlocklyBB.superchipVarAssignments || [],
+    // Same per-slot breakdown, for Superchip's own separate r/w pool (see
+    // reserveDevVarRW's own comment in generators/bbasic.js) - every entry
+    // here always has isUserVariable: false (this pool is never offered to
+    // the user), so it only ever shows up under the block/system list, not
+    // the user-variable one.
+    superchipRwAssignments: BlocklyBB.superchipRwAssignments || [],
+  };
+};
 
 // Every graphics/event/music/subroutine unit's own current bank, grouped by
 // bank instead of by unit (the shape getRelocationBanks/pickRelocationCandidate
@@ -271,13 +381,13 @@ const computeVariableUsage = () => ({
 // bank number too (see KERNEL_BANK_BY_ROMSIZE's identical values and
 // duplicated-on-purpose comment in generators/bbasic/text-minikernel.js) -
 // always the single highest-numbered bank for the ROM's size.
-const computeBankContents = (maxBanks) => {
+const computeBankContents = (maxBanks, textMinikernelActive) => {
   const banks = getRelocationBanks();
   const contents = {};
   for (let bank = 1; bank <= maxBanks; bank++) {
     contents[bank] = {
       events: [], backgrounds: [], player0Sprites: [], player1Sprites: [], music: [], subroutines: [],
-      dataTables: [], textMinikernel: false,
+      functions: [], dataTables: [], soundEffects: [], textMinikernel: false, bankOverhead: false,
     };
   }
   const place = (list, names, bankMap, labelFn) => {
@@ -302,6 +412,14 @@ const computeBankContents = (maxBanks) => {
       banks.graphicsBanks || {}, resolveGraphicsUnitLabel);
   place('player1Sprites', graphicsKeys.filter((key) => key.startsWith('player1')),
       banks.graphicsBanks || {}, resolveGraphicsUnitLabel);
+  // Sound FX envelope-check asm + its own data tables (see
+  // wrapRelocatableGraphics' own call site at the end of generateEnvelopeChecks
+  // in generators/bbasic/soundfx.js) - shares the same graphics pool/bank map
+  // as backgrounds/player sprites above (not a dedicated pool the way music
+  // gets one), just filtered out into its own labeled list here for the same
+  // "different enough kinds of content" reason those are split out too.
+  place('soundEffects', graphicsKeys.filter((key) => key === 'soundfxEnvelopeChecks'),
+      banks.graphicsBanks || {}, () => 'Sound envelope checks');
   BlocklyBB.getMusicUnitKeys().forEach((unitKey) => {
     const bank = (banks.musicBanks || {})[unitKey] || 1;
     if (!contents[bank]) return;
@@ -309,6 +427,16 @@ const computeBankContents = (maxBanks) => {
     contents[bank].music.push(...(labels.length ? labels : [unitKey]));
   });
   place('subroutines', BlocklyBB.getSubroutineNames(), banks.subroutineBanks || {});
+  // A function relocates as part of its own "family" (see
+  // computeFunctionFamilies) rather than entirely independently, but still
+  // ends up with a real per-function entry in banks.functionBanks either
+  // way (see setRelocationBank's own call sites in buildRom(), which iterate
+  // every family member individually). Listed under its own label (not
+  // lumped into Subroutines) so it's visible at a glance which bank a
+  // function ended up in relative to whatever calls it - relevant since a
+  // caller outside its family can't safely call a function pinned here
+  // (function calls don't get a bank-jump tag the way gosub/goto do).
+  place('functions', Object.keys(BlocklyBB.functions), banks.functionBanks || {});
   // Each table's own bank usage (see trackDataTableBank/generateDataTables in
   // generators/bbasic.js) - a table can end up with a physical copy in
   // several banks at once (every bank it's actually read from), unlike the
@@ -327,21 +455,131 @@ const computeBankContents = (maxBanks) => {
           if (contents[bank]) contents[bank].dataTables.push(table.name || `Unnamed ${table.id}`);
         });
       });
-  if (BlocklyBB.isTextMinikernelActive() && contents[maxBanks]) {
+  // textMinikernelActive is passed in by the caller (captured at the exact
+  // moment THIS build's own regenerateCode() ran) rather than read fresh off
+  // BlocklyBB.isTextMinikernelActive() here - this function runs well after
+  // that, following the real async compile/assemble steps, and BlocklyBB is
+  // a shared singleton reused across every workspaceToCode() call (see its
+  // own comment in generators/bbasic.js) - anything else touching it in the
+  // meantime (e.g. the Actions tab's own live code preview,
+  // ActionEditor.vue's own workspaceToCode call) can flip textMinikernelUsed
+  // back before this ever reads it, silently dropping the Text Minikernel's
+  // own real bank-8-ish usage from the display - a real reported bug (the
+  // top bank showing real used bytes with no "Text Minikernel" entry to
+  // account for them).
+  if (textMinikernelActive && contents[maxBanks]) {
     contents[maxBanks].textMinikernel = true;
+  }
+  // generateRelocatedSections (generators/bbasic.js) always declares this
+  // exact top bank on a bankswitched, non-Text-Minikernel build, even with
+  // nothing relocated into it, so DASM pads it to full size instead of
+  // truncating the assembled binary - that costs real bytes (bB's own
+  // per-bank bankswitch entry code), but none of the categories above ever
+  // account for it, so the top bank showed used space with an empty content
+  // list whenever nothing else happened to be relocated there.
+  if (!textMinikernelActive && maxBanks > 1 && contents[maxBanks]) {
+    contents[maxBanks].bankOverhead = true;
   }
   return contents;
 };
+
+// Builds the "family" grouping every function (see function_define in
+// generators/bbasic/function.js) and every function_call_statement wrapper
+// subroutine (registerFunctionCallWrapper there) needs before either can be
+// relocated safely: a bB function-call expression ("name(args)") has no
+// bank-tag syntax of its own (see codeReferencesAnyFunction's own comment in
+// generators/bbasic.js), so a function and everything that reaches it
+// through a plain VALUE-form call - another function's own body, or a
+// wrapper subroutine's own body, both scanned here the same way
+// codeReferencesAnyFunction does - must always land in the exact same bank
+// as each other, whichever bank that turns out to be. Anything reaching a
+// function through a wrapper's own "gosub" (bank-taggable) is deliberately
+// NOT part of this - only the wrapper itself joins the family, not whatever
+// calls the wrapper, which stays free to relocate independently.
+//
+// Returns every function/wrapper in the project grouped into families, each
+// {members: [{kind, name}, ...]} - kind is always 'functionBanks' (a real
+// function) or 'subroutineBanks' (a wrapper subroutine, which physically
+// lives in the same subroutines map/bucket as an ordinary user-authored one,
+// see registerFunctionCallWrapper). Every function/wrapper appears in
+// EXACTLY one family, even one nothing else calls and that calls nothing
+// else itself (a size-1 family, trivially relocatable alone) - a plain
+// connected-components pass (union-find) over the "calls" graph, not just
+// direct pairs, so a chain (event-callable wrapper -> function A -> function
+// B) still lands all three in one family together.
+const computeFunctionFamilies = () => {
+  const functionNames = BlocklyBB.getFunctionNames();
+  const wrapperNames = [...(BlocklyBB.functionCallWrapperNames || [])];
+  const nodeKind = new Map([
+    ...functionNames.map((name) => [name, 'functionBanks']),
+    ...wrapperNames.map((name) => [name, 'subroutineBanks']),
+  ]);
+  const codeOf = (name) => nodeKind.get(name) === 'functionBanks' ?
+    (BlocklyBB.functions[name] || '') : (BlocklyBB.subroutines[name] || '');
+
+  const parent = new Map([...nodeKind.keys()].map((name) => [name, name]));
+  const find = (name) => {
+    let root = name;
+    while (parent.get(root) !== root) root = parent.get(root);
+    let cur = name;
+    while (parent.get(cur) !== root) {
+      const next = parent.get(cur);
+      parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  };
+  const union = (a, b) => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent.set(rootA, rootB);
+  };
+
+  nodeKind.forEach((kind, name) => {
+    const code = codeOf(name);
+    functionNames.forEach((otherName) => {
+      if (otherName === name) return;
+      if (code.includes(`${otherName}(`)) union(name, otherName);
+    });
+  });
+
+  const families = new Map();
+  nodeKind.forEach((kind, name) => {
+    const root = find(name);
+    if (!families.has(root)) families.set(root, []);
+    families.get(root).push({kind, name});
+  });
+  return [...families.values()].map((members) => ({members}));
+};
+
+// A function family's own combined estimated size - the sum of every
+// member's own size estimate, since the whole family always relocates (or
+// stays) together as one atomic unit.
+const estimateFamilySize = (members) => members.reduce((sum, {kind, name}) =>
+  sum + (kind === 'functionBanks' ?
+    BlocklyBB.estimateFunctionSize(name) : BlocklyBB.estimateSubroutineSize(name)), 0);
+
+// True only if EVERY member of the family is still at bank 1 in the given
+// banks snapshot - a family only ever moves as a whole, so it's only a
+// relocation candidate while none of its members have already been moved
+// elsewhere (which, given every relocation always moves a whole family at
+// once, really means none of them have - this is written per-member anyway
+// so a family whose members haven't been touched yet, the common case,
+// still reads correctly as bank 1 by the same "no entry defaults to 1"
+// convention every other bank map in this file already uses).
+const familyStillInBank1 = (members, banks) =>
+  members.every(({kind, name}) => ((banks[kind] || {})[name] || 1) === 1);
 
 // Largest-first, across every relocatable kind: relocating the biggest
 // still-inline unit (event, graphics - a background, a player's default
 // frame, or a single named animation, see wrapRelocatableGraphics - a
 // user-defined subroutine, see getSubroutineBank in generators/bbasic.js -
-// or music, see wrapRelocatableMusic, kept in its own separate pool/config
-// key from graphics) frees the most bank 1 space per attempt, minimizing how
-// many rebuild cycles are needed. Must run right after a regenerateCode()
-// call, while every kind's size estimate is still current - graphics/music
-// unit keys and subroutine names are only known after that call too, since
+// music, see wrapRelocatableMusic, kept in its own separate pool/config key
+// from graphics - or a function "family", see computeFunctionFamilies)
+// frees the most bank 1 space per attempt, minimizing how many rebuild
+// cycles are needed. Must run right after a regenerateCode() call, while
+// every kind's size estimate is still current - graphics/music unit keys
+// and subroutine/function names are only known after that call too, since
 // they're generated from the project's own content rather than fixed like
 // the event names.
 const pickRelocationCandidate = (banks, hasReservedMusicBank) => {
@@ -367,8 +605,20 @@ const pickRelocationCandidate = (banks, hasReservedMusicBank) => {
     return musicCandidates.sort((a, b) => b.size - a.size)[0];
   }
   const candidates = [
+    // Excludes anything that calls a bB function via a plain value-form
+    // call (see codeReferencesAnyFunction's own comment in
+    // generators/bbasic.js) - an ordinary event or user-authored subroutine
+    // matching this stays pinned to bank 1 (the minimal fix for the exact
+    // same "no bank-tag syntax" reason function families themselves need
+    // to move together, confirmed directly: a real project's title_start
+    // crashed in the emulator the moment it called ANY function while
+    // relocated off bank 1). A function_call_statement WRAPPER subroutine
+    // also matches this same check, but is deliberately NOT excluded here
+    // for a different reason - it's picked up by the family-based
+    // candidates below instead, never as an ordinary standalone subroutine.
     ...RELOCATABLE_EVENT_NAMES
         .filter((name) => (eventBanks[name] || 1) === 1)
+        .filter((name) => !BlocklyBB.codeReferencesAnyFunction((BlocklyBB.gameEvents[name] || []).join('\n')))
         .map((name) => ({kind: 'eventBanks', name, size: BlocklyBB.estimateEventSize(name)})),
     ...BlocklyBB.getGraphicsUnitKeys()
         .filter((name) => (graphicsBanks[name] || 1) === 1)
@@ -376,19 +626,33 @@ const pickRelocationCandidate = (banks, hasReservedMusicBank) => {
     ...musicCandidates,
     ...BlocklyBB.getSubroutineNames()
         .filter((name) => (subroutineBanks[name] || 1) === 1)
+        .filter((name) => !BlocklyBB.codeReferencesAnyFunction(BlocklyBB.subroutines[name] || ''))
         .map((name) => ({kind: 'subroutineBanks', name, size: BlocklyBB.estimateSubroutineSize(name)})),
+    // Every function/wrapper "family" still entirely at bank 1 - relocated
+    // as one atomic unit (see setRelocationBank's own call sites in
+    // buildRom() below, which iterate candidate.members instead of a single
+    // kind/name whenever this is present), sized as the sum of every
+    // member's own estimate.
+    ...computeFunctionFamilies()
+        .filter(({members}) => familyStillInBank1(members, banks))
+        .map(({members}) => ({
+          kind: 'family',
+          name: members.map((m) => m.name).join(', '),
+          size: estimateFamilySize(members),
+          members,
+        })),
   ];
   if (!candidates.length) return null;
   return candidates.sort((a, b) => b.size - a.size)[0];
 };
 
 // Summed estimated size of every relocatable unit (of every kind, including
-// music - unlike pickRelocationCandidate above, this isn't picking a single
-// winner, it wants the true total) still sitting in bank 1 - used only by
-// buildRom()'s own proactive relocation pre-pass, to compare against a real,
-// previously-measured bank 1 capacity before that pre-pass ever moves
-// anything. Same "must run right after regenerateCode()" requirement as
-// pickRelocationCandidate.
+// music and function families - unlike pickRelocationCandidate above, this
+// isn't picking a single winner, it wants the true total) still sitting in
+// bank 1 - used only by buildRom()'s own proactive relocation pre-pass, to
+// compare against a real, previously-measured bank 1 capacity before that
+// pre-pass ever moves anything. Same "must run right after
+// regenerateCode()" requirement as pickRelocationCandidate.
 const estimateBank1Total = (banks) => {
   const inBank1 = (bankMap, name) => (bankMap[name] || 1) === 1;
   const eventTotal = RELOCATABLE_EVENT_NAMES
@@ -400,10 +664,18 @@ const estimateBank1Total = (banks) => {
   const musicTotal = BlocklyBB.getMusicUnitKeys()
       .filter((name) => inBank1(banks.musicBanks || {}, name))
       .reduce((sum, name) => sum + BlocklyBB.estimateMusicUnitSize(name), 0);
+  // Excludes function_call_statement wrapper subroutines (see
+  // codeReferencesAnyFunction's own comment) - counted once, below, as part
+  // of their own function family's total instead, so they're not double-
+  // counted here too.
   const subroutineTotal = BlocklyBB.getSubroutineNames()
       .filter((name) => inBank1(banks.subroutineBanks || {}, name))
+      .filter((name) => !BlocklyBB.codeReferencesAnyFunction(BlocklyBB.subroutines[name] || ''))
       .reduce((sum, name) => sum + BlocklyBB.estimateSubroutineSize(name), 0);
-  return eventTotal + graphicsTotal + musicTotal + subroutineTotal;
+  const functionFamilyTotal = computeFunctionFamilies()
+      .filter(({members}) => familyStillInBank1(members, banks))
+      .reduce((sum, {members}) => sum + estimateFamilySize(members), 0);
+  return eventTotal + graphicsTotal + musicTotal + subroutineTotal + functionFamilyTotal;
 };
 
 // The single highest-numbered available bank (excluding the Text
@@ -486,6 +758,7 @@ const pickNextBank = (banks, maxBanks, textMinikernelActive, excludeBanks) => {
   tally(banks.eventBanks);
   tally(banks.graphicsBanks);
   tally(banks.subroutineBanks);
+  tally(banks.functionBanks);
   return Object.keys(counts).map(Number).reduce((best, bank) => counts[bank] < counts[best] ? bank : best);
 };
 
@@ -536,13 +809,21 @@ export const buildRom = async () => {
   // Every relocatable unit (events, graphics, music, subroutines - see
   // hooks/relocation-banks.js) starts this build fresh, back at bank 1,
   // rather than carrying over wherever a PREVIOUS build happened to leave
-  // it. Bank assignments deliberately aren't persisted across builds at
-  // all (see relocation-banks.js's own comment for why) - a relocation
-  // decision is cheap enough to remake from scratch every time that there's
-  // no real cost, only the upside of every build reflecting exactly the
-  // project as it stands right now.
+  // it. Bank assignments aren't PERSISTED across builds (see relocation-
+  // banks.js's own comment for why that was tried and reverted), but the
+  // last SUCCESSFUL build's own layout is kept in memory for this session as
+  // a first-attempt hint (seedRelocationBanksFromLastSuccess, below) -
+  // abandoned immediately, via the exact same resetRelocationBanks() this
+  // always called, the moment that first attempt doesn't compile clean (see
+  // the catch block below), so every attempt from #2 onward behaves
+  // identically to how this has always worked.
   resetRelocationBanks();
+  const seededFromLastSuccess = seedRelocationBanksFromLastSuccess(
+      (configurationStorage.value || {}).romSize);
   clearCompileLog();
+  if (seededFromLastSuccess) {
+    appendCompileLog('Trying the last successful bank layout first...', 'stage');
+  }
   const buildStartedAt = performance.now();
 
   // An earlier version of this also relocated graphics out of bank 1
@@ -605,7 +886,12 @@ export const buildRom = async () => {
           pickNextBank(banks, proactiveMaxBanks, textMinikernelActive,
               reservedMusicBank ? new Set([reservedMusicBank]) : null);
         if (!bank) break;
-        setRelocationBank(candidate.kind, candidate.name, bank);
+        // A "family" candidate (see computeFunctionFamilies) carries several
+        // members that must all land in the SAME bank together - every
+        // other candidate kind is really just a family of one, expressed
+        // here as the same fallback the reactive retry loop below uses.
+        (candidate.members || [{kind: candidate.kind, name: candidate.name}])
+            .forEach(({kind, name}) => setRelocationBank(kind, name, bank));
         appendCompileLog(
             `Proactively relocating ${candidate.kind.replace('Banks', '')} "${candidate.name}" to bank ${bank} ` +
             '(estimated bank 1 content exceeds last known capacity).');
@@ -699,6 +985,7 @@ export const buildRom = async () => {
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
       forceJavatariNtsc();
+      setJavatariKeypadMode(!!(BlocklyBB.keypad0Used || BlocklyBB.keypad1Used));
 
       // TODO: Implement this without a global variable
       Javatari.compiledResult = compiledResult;
@@ -715,15 +1002,30 @@ export const buildRom = async () => {
       // measurement from a since-changed ROM size would misinform rather
       // than help.
       setRomCapacity(capacity ?
-        {...capacity, romSize: config.romSize, bankContents: maxBanks ? computeBankContents(maxBanks) : undefined,
+        {...capacity, romSize: config.romSize,
+          bankContents: maxBanks ? computeBankContents(maxBanks, textMinikernelActive) : undefined,
           variableUsage: computeVariableUsage()} :
         capacity);
+      // Remembers THIS build's own final layout as the next build's own
+      // first-attempt hint (see seedRelocationBanksFromLastSuccess's own
+      // comment in relocation-banks.js) - recorded on every success, not
+      // just ones that needed relocation at all, so a project that fits in
+      // bank 1 alone keeps skipping straight to a real compile too (an empty
+      // banks object is itself a perfectly valid, useful "hint").
+      recordSuccessfulRelocationBanks(config.romSize);
       appendCompileLog('Build succeeded.', 'stage');
       appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
       return true;
     } catch (e) {
       lastCode = code;
       lastFailure = e;
+      // The seeded first attempt (see seedRelocationBanksFromLastSuccess
+      // above) didn't pan out - abandon it completely rather than patching
+      // further on top of it, so every attempt from here on behaves
+      // identically to how this retry loop has always worked (see this
+      // block's own git history/comments below), starting from true
+      // scratch exactly like a never-seeded build's own first failure would.
+      if (attempt === 0 && seededFromLastSuccess) resetRelocationBanks();
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
       if (isOverflowError(e) && maxBanks) {
         // Diagnostic-only for now (see bb-compiler.js's own comment on
@@ -807,21 +1109,57 @@ export const buildRom = async () => {
             kind === 'eventBanks' ? BlocklyBB.estimateEventSize(name) :
             kind === 'graphicsBanks' ? BlocklyBB.estimateGraphicsUnitSize(name) :
             kind === 'musicBanks' ? BlocklyBB.estimateMusicUnitSize(name) :
+            kind === 'functionBanks' ? BlocklyBB.estimateFunctionSize(name) :
             BlocklyBB.estimateSubroutineSize(name)
           );
+          // A function or function_call_statement wrapper subroutine can
+          // never be picked as a co-resident on its own here - see
+          // computeFunctionFamilies' own comment: it has no bank-tag syntax
+          // of its own, so it can only ever move together with the rest of
+          // its family. Resolved once per rederive (not per member found
+          // below) since it's cheap and this fallback path is already rare.
+          const wrapperNames = BlocklyBB.functionCallWrapperNames || new Set();
+          const functionFamilies = computeFunctionFamilies();
+          const familyForMember = (kind, name) => functionFamilies.find(
+              ({members}) => members.some((m) => m.kind === kind && m.name === name));
+          const familyUnitKey = (members) =>
+            `family:${members.map((m) => `${m.kind}:${m.name}`).sort().join('|')}`;
+
           for (let rederive = 0; !candidate && rederive < maxBanks; rederive++) {
             if (stuckBank === null) {
-              const last = relocatedThisBuild[relocatedThisBuild.length - 1];
-              stuckBank = (banks[last.kind] || {})[last.name];
+              // The bank a relocation actually landed in is already recorded
+              // directly on its own relocatedThisBuild entry - no need to
+              // look it back up through banks[kind][name], which (unlike
+              // "bank" here) has no sensible meaning for a multi-member
+              // family's own synthetic "family" kind.
+              stuckBank = relocatedThisBuild[relocatedThisBuild.length - 1].bank;
             }
             if (!stuckBank || stuckBank === 1) break;
 
             const coResidents = [];
-            ['eventBanks', 'graphicsBanks', 'musicBanks', 'subroutineBanks'].forEach((kind) => {
+            const addedFamilyKeys = new Set();
+            ['eventBanks', 'graphicsBanks', 'musicBanks', 'subroutineBanks', 'functionBanks'].forEach((kind) => {
               Object.entries(banks[kind] || {}).forEach(([name, unitBank]) => {
+                if (unitBank !== stuckBank) return;
+                const isWrapper = kind === 'subroutineBanks' && wrapperNames.has(name);
+                if (kind === 'functionBanks' || isWrapper) {
+                  const family = familyForMember(kind, name);
+                  const members = family ? family.members : [{kind, name}];
+                  const unitKey2 = familyUnitKey(members);
+                  if (stuckBankTriedUnits.has(unitKey2) || addedFamilyKeys.has(unitKey2)) return;
+                  addedFamilyKeys.add(unitKey2);
+                  coResidents.push({
+                    kind: 'family',
+                    name: members.map((m) => m.name).join(', '),
+                    size: estimateFamilySize(members),
+                    members,
+                    unitKey: unitKey2,
+                  });
+                  return;
+                }
                 const unitKey2 = `${kind}:${name}`;
-                if (unitBank === stuckBank && !stuckBankTriedUnits.has(unitKey2)) {
-                  coResidents.push({kind, name, size: estimateSize(kind, name)});
+                if (!stuckBankTriedUnits.has(unitKey2)) {
+                  coResidents.push({kind, name, size: estimateSize(kind, name), unitKey: unitKey2});
                 }
               });
             });
@@ -837,8 +1175,8 @@ export const buildRom = async () => {
               continue;
             }
 
-            stuckBankTriedUnits.add(`${next.kind}:${next.name}`);
-            const unitKey = `${next.kind}:${next.name}`;
+            stuckBankTriedUnits.add(next.unitKey);
+            const unitKey = next.unitKey;
             if (!retriedBanksByUnit.has(unitKey)) retriedBanksByUnit.set(unitKey, new Set());
             const triedBanks = retriedBanksByUnit.get(unitKey);
             triedBanks.add(stuckBank);
@@ -891,7 +1229,7 @@ export const buildRom = async () => {
                     new Set([reservedMusicBank, stuckBank].filter(Boolean)));
               }
               if (nextBank) {
-                candidate = {kind: next.kind, name: next.name};
+                candidate = {kind: next.kind, name: next.name, members: next.members};
                 bank = nextBank;
               }
             }
@@ -899,8 +1237,11 @@ export const buildRom = async () => {
         }
 
         if (candidate && bank) {
-          setRelocationBank(candidate.kind, candidate.name, bank);
-          relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank});
+          // Same "family moves as one unit" expansion as the proactive
+          // pre-pass above.
+          (candidate.members || [{kind: candidate.kind, name: candidate.name}])
+              .forEach(({kind, name}) => setRelocationBank(kind, name, bank));
+          relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank, members: candidate.members});
           // Not an 'error'-level entry - an overflow here is an expected,
           // automatically-handled part of the relocation retry loop, not a
           // real problem the user needs to act on (see isOverflowError's own
@@ -930,6 +1271,7 @@ export const buildRom = async () => {
           graphics: BlocklyBB.getGraphicsUnitKeys(),
           music: BlocklyBB.getMusicUnitKeys(),
           subroutines: BlocklyBB.getSubroutineNames(),
+          functions: BlocklyBB.getFunctionNames(),
         },
       };
       const annotatedError = new Error(

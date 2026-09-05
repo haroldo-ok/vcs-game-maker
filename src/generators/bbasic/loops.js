@@ -62,6 +62,48 @@ export const REPEAT_COUNTER_VAR_NAME = 'repeatcounter';
 // properly-declared dev var, not nameDB_.getDistinctName.
 export const WAIT_FRAMES_COUNTER_VAR_NAME = '_waitFramesCounter';
 
+// Whether a given "repeat N times" block's own TIMES input would actually
+// need REPEAT_BOUND_VAR_NAME once controls_repeat_ext's own generator runs
+// (see its own "endVar" logic below) - used by generators/bbasic.js's own
+// early pre-scan (before reserveDevVar hands out letters) to reserve
+// REPEAT_BOUND_VAR_NAME only for a project where at least one repeat block's
+// own count genuinely needs it, rather than for every project with ANY
+// repeat block at all (the previous, simpler-but-wasteful gate - see that
+// pre-scan's own comment for the one-byte tradeoff this replaces).
+// Deliberately conservative: anything this can't positively PROVE simple
+// (a bare math_number literal, or a bare variable getter) is treated as
+// needing the var, same as the real generator would for anything else -
+// this can only ever reserve one byte MORE than strictly necessary, never
+// fewer, so it can't introduce the "reserveDevVar skipped, but generator
+// referenced it anyway" class of bug a false negative here would cause.
+export const repeatBoundVarNeeded = (block, Blockly) => {
+  // controls_repeat (the older block, not in this app's own toolbox but
+  // still valid in an existing saved project) uses a plain inline NUMBER
+  // FIELD for TIMES, not a value input to plug expressions into - see the
+  // generator's own "if (block.getField('TIMES'))" branch, which always
+  // produces a clean decimal string from it, never anything complex.
+  if (block.getField('TIMES')) return false;
+  const target = block.getInputTargetBlock('TIMES');
+  if (!target) return true;
+  if (target.type === 'variables_get') return false;
+  if (target.type !== 'math_number') return true;
+  // Mirrors math_number's own generator (generators/bbasic/math.js) exactly -
+  // has to reproduce that same hex/binary/decimal parsing here rather than
+  // just checking the raw field text, since a hex ("$1F") or binary
+  // ("%1010") literal produces a CODE string ("$1F"/"%1010") that neither
+  // matches /^\w+$/ nor Blockly.isNumber() - the exact same "needs the bound
+  // var" case a genuinely complex expression hits, even though the block
+  // itself is a plain literal.
+  const raw = String(target.getFieldValue('NUM')).trim();
+  let code;
+  if (/^\$[0-9a-fA-F]+$/.test(raw)) code = raw;
+  else if (/^0[xX][0-9a-fA-F]+$/.test(raw)) code = '$' + raw.slice(2);
+  else if (/^%[01]+$/.test(raw)) code = raw;
+  else if (/^0[bB][01]+$/.test(raw)) code = '%' + raw.slice(2);
+  else code = String(Number(raw));
+  return !(/^\w+$/.test(code)) && !Blockly.isNumber(code);
+};
+
 export default (Blockly) => {
   Blockly.BBasic['controls_repeat_ext'] = function(block) {
   // Repeat n times.

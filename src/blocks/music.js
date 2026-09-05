@@ -332,6 +332,50 @@ Blockly.Blocks['music_play_song_by_id'] = {
   },
 };
 
+// Reports whether the NAMED song specifically is the one currently playing
+// (started by music_play_song/music_play_song_by_id, and not yet stopped or
+// naturally finished) - true even while paused (see music_pause_song: a
+// paused song is still "the one playing," just frozen, the same way this
+// app's own musicPlayingBit already treats it). On a single-song project
+// this is just "is anything playing at all" (see the generator's own
+// comment) - there's only ever one possible song to mean.
+Blockly.Blocks['music_song_playing'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Song`)
+        .appendField(new Blockly.FieldDropdown(buildSongOptions), 'SONG')
+        .appendField('is playing');
+    this.setOutput(true, 'Boolean');
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('True while the named song specifically is the one currently playing (including ' +
+      'while paused) - false if it was never started, already stopped, or a DIFFERENT song is playing ' +
+      'instead.');
+  },
+};
+
+// Same check as music_song_playing above, but picks the song by a runtime
+// VALUE (a variable or computed expression) instead of a fixed dropdown
+// choice - same relationship music_song_stopped_by_number has to music_
+// song_stopped_by_id. Using this anywhere in the project pulls EVERY song
+// into the compiled ROM (see music_play_song_by_id's own comment) so
+// whatever ID it's given at runtime always has real data to compare
+// against.
+Blockly.Blocks['music_song_playing_by_number'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${MUSIC_ICON} Song ID`);
+    this.appendValueInput('SONG_ID');
+    this.appendDummyInput()
+        .appendField('is playing');
+    this.setInputsInline(true);
+    this.setOutput(true, 'Boolean');
+    this.setColour(MUSIC_COLOR);
+    this.setTooltip('Same as "Song ... is playing", but picks the song by ID (a variable or computed ' +
+      'value, not a fixed choice) - using this anywhere in the project makes every song count toward ' +
+      'this check.');
+  },
+};
+
 // Immediately silences whatever song is currently playing (started by
 // music_play_song) and marks it as stopped - a subsequent music_play_song
 // restarts it from the beginning. Does not trigger music_song_stopped below
@@ -401,15 +445,14 @@ Blockly.Blocks['music_song_stopped'] = {
   },
 };
 
-// Same trigger as music_song_stopped above (both fire off the exact same
-// shared "just stopped" flag - see generateMusicChecks in
-// generators/bbasic/music.js), just with an explicit SONG dropdown, for
-// projects that want to name which song they mean at the call site - this
-// dropdown is purely for readability, it isn't actually checked at runtime.
-// Deliberately kept simple even with multi-song support (see
-// resolveProjectMusic): "song stopped" fires whenever whichever song is
-// CURRENTLY playing reaches its own end, regardless of which song that is -
-// distinguishing which song actually stopped isn't implemented. A separate
+// Same underlying "just stopped" flag as music_song_stopped above (see
+// generateMusicChecks in generators/bbasic/music.js), but filtered to only
+// fire for THIS SPECIFIC song (see musicJustStoppedSongVarName's own
+// comment there, and music_song_stopped_by_id's generator) - the SONG
+// dropdown used to be purely cosmetic, firing for whichever song happened
+// to stop regardless of which one was actually named here, a real reported
+// bug. On a single-song project there's nothing to distinguish it from
+// music_song_stopped anyway, so it behaves identically there. A separate
 // block (not an added field on music_song_stopped) so existing projects
 // using that one aren't disturbed.
 Blockly.Blocks['music_song_stopped_by_id'] = {
@@ -421,20 +464,17 @@ Blockly.Blocks['music_song_stopped_by_id'] = {
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
-    this.setTooltip('Same as "When song has stopped playing", but names which song for readability - ' +
-      'it isn\'t actually checked, this fires whenever whichever song is currently playing reaches ' +
-      'its own end, regardless of which song that is.');
+    this.setTooltip('Same as "When song has stopped playing", but only fires when the NAMED song ' +
+      'specifically is the one that stopped, not any other song.');
   },
 };
 
-// Same trigger again (see music_song_stopped_by_id's own comment - all
-// three share one generator, generateSongStopped, in generators/bbasic/
-// music.js), but picks the song by a runtime VALUE (a variable or computed
+// Same filtered trigger as music_song_stopped_by_id above (see its own
+// comment), but picks the song by a runtime VALUE (a variable or computed
 // ID) instead of a fixed dropdown choice - same reasoning as
-// music_play_song_by_id vs music_play_song, and not checked at runtime for
-// the same reason music_song_stopped_by_id's own dropdown isn't. A separate
-// block (not an added input on music_song_stopped_by_id) so existing
-// projects using that one aren't disturbed.
+// music_play_song_by_id vs music_play_song. A separate block (not an added
+// input on music_song_stopped_by_id) so existing projects using that one
+// aren't disturbed.
 Blockly.Blocks['music_song_stopped_by_number'] = {
   init: function() {
     this.appendDummyInput()
@@ -446,9 +486,8 @@ Blockly.Blocks['music_song_stopped_by_number'] = {
     this.setNextStatement(true);
     this.setColour(MUSIC_COLOR);
     this.setTooltip('Same as "When song has stopped playing", but picks the song by ID (a variable or ' +
-      'computed value, not a fixed choice) for readability - it isn\'t actually checked, this fires ' +
-      'whenever whichever song is currently playing reaches its own end, regardless of which song ' +
-      'that is.');
+      'computed value, not a fixed choice), and only fires when that specific song is the one that ' +
+      'stopped, not any other song.');
   },
 };
 

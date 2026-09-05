@@ -53,6 +53,32 @@ export const anySoundEffectHasEnvelope = () => {
   }
 };
 
+// Same idea, but for one SPECIFIC channel - unlike anySoundEffectHasEnvelope
+// above (deliberately "any preset, anywhere," since that's what decides
+// whether the shared envelopeConfig byte/per-frame check/data tables need to
+// exist in the ROM AT ALL), this is for generators/bbasic.js's own
+// envelopeStage0/envelopeStage1 reservation, which needs to know PER CHANNEL
+// whether it's actually needed. CHANNEL is a fixed dropdown field on
+// soundfx_play (not a runtime expression - see blocks/soundfx.js), so which
+// channel each trigger targets is fully known at compile time, the same way
+// resolveProjectMusic's own per-channel channelHasEnvelope already is for
+// Music tracks - this only differs by also requiring the block to actually
+// reference a preset with Envelope on, not just exist.
+export const soundEffectChannelHasEnvelope = (workspace, channel) => {
+  try {
+    const configurationStorage = useConfigurationStorage();
+    if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return false;
+    const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
+    return workspace.getAllBlocks(false).some((block) =>
+      block.type === 'soundfx_play' && block.isEnabled() &&
+      `${block.getFieldValue('CHANNEL')}` === `${channel}` &&
+      data.soundEffects.some((soundEffect) =>
+        `${soundEffect.id}` === `${block.getFieldValue('SOUNDFX')}` && !!soundEffect.envelope));
+  } catch (e) {
+    return false;
+  }
+};
+
 // Whether any Music-tab channel actually plays an envelope-enabled
 // instrument note - reads this.projectMusic (set once in
 // generators/bbasic.js's own init(), before any of the functions below ever
@@ -205,7 +231,17 @@ export default (Blockly) => {
     let envelopeLines = '';
     if (anySoundEffectHasEnvelope()) {
       Blockly.BBasic.usesDivMul = true;
-      const stageVar = this.nameDB_.getName(
+      // Blockly.BBasic.nameDB_, not this.nameDB_ - a block generator like
+      // this one is invoked as "func.call(block, block)" by Blockly's own
+      // blockToCode (see node_modules/blockly/core/generator.js), so `this`
+      // here is the BLOCK being visited, not the generator instance - it has
+      // no nameDB_ of its own. durationVar just below already resolves
+      // through the correct Blockly.BBasic.nameDB_ path; this one didn't,
+      // a real reported crash ("Cannot read properties of undefined
+      // (reading 'getName')") the moment a project actually had an
+      // envelope-enabled Sound FX preset - the only case that reaches this
+      // branch at all.
+      const stageVar = Blockly.BBasic.nameDB_.getName(
           `envelopeStage${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       if (envelope) {
         const {attack, decay, release} = clampEnvelopeStages({
@@ -261,10 +297,16 @@ export default (Blockly) => {
   };
 
   // Every distinct envelope config's own attack+decay/release data tables
-  // (see registerEnvelopeConfig) - always bank 1 (same reasoning as
-  // generateEnvelopeChecks below), spliced into bbasic.bb.hbs right
-  // alongside the data tables Data-tab tables use.
-  Blockly.BBasic.generateEnvelopeDataTables = function() {
+  // (see registerEnvelopeConfig) - folded directly into generateEnvelopeChecks'
+  // own relocatable payload below (see that function's own comment on why),
+  // not spliced separately into bbasic.bb.hbs's fixed data-tables section
+  // the way Data-tab tables are - these are read via absolute addressing
+  // ("lda _envelopeAd0,y") from the check code itself, so they have to
+  // physically travel wherever that code ends up, exactly the same
+  // "own data table follows its own relocatable code" reasoning
+  // generateMusicChecks' own _envelopeAdLen table already establishes (see
+  // its own comment in generators/bbasic/music.js).
+  const buildEnvelopeDataTables = () => {
     const configs = [...envelopeConfigs.values()];
     if (!configs.length) return '';
     const configurationStorage = useConfigurationStorage();
@@ -284,11 +326,20 @@ export default (Blockly) => {
   // Spliced into commongamelogic right after the existing per-frame sound
   // duration handling (see bbasic.bb.hbs) - channel 0's envelope-config
   // index lives in the low nibble, channel 1's in the high nibble (see
-  // soundfx_play above). Always fixed in bank 1 (unlike musicEngine's own
-  // per-channel checks - see generateMusicChecks' own comment on why a raw
-  // "asm...end" block broke there once relocated), so there's no far-branch/
-  // relocation risk to worry about here - every branch target below is only
-  // a few instructions away regardless.
+  // soundfx_play above). The per-frame TRIGGER here has to stay bank-1-fixed
+  // (commongamelogic runs every frame via plain fallthrough, not goto/gosub,
+  // so it can't itself move) - but the asm BODY below (plus its own data
+  // tables, see buildEnvelopeDataTables above) is wrapped via
+  // wrapRelocatableGraphics at the very end of this function, the exact same
+  // "code + its own data table, one combined payload" pattern
+  // generateMusicChecks/wrapRelocatableMusic already use for the music
+  // engine - a goto-entry/return-bank1 trampoline replaces this whole block
+  // in commongamelogic once it's actually relocated, same as any other
+  // graphics/music unit. Every branch target inside this asm block is
+  // private to it (confirmed directly: nothing anywhere else in this
+  // codebase goto/gosub/jmps into any label it defines), so relocating the
+  // whole thing as one contiguous unit is safe - only cross-unit jumps ever
+  // needed the far-branch/trampoline treatment to begin with.
   //
   // Hand-written 6502, following generateSoundFadeChecks' own retired
   // dispatch shape (X register holds the unpacked index; a compare-chain
@@ -306,8 +357,15 @@ export default (Blockly) => {
     if (!configs.length) return '';
     const channel0 = this.nameDB_.getName('channnel0duration', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const channel1 = this.nameDB_.getName('channnel1duration', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const stage0 = this.nameDB_.getName('envelopeStage0', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const stage1 = this.nameDB_.getName('envelopeStage1', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // Lazy (not resolved up front) - resolveVar/nameDB_.getName allocates a
+    // real letter the first time it's called, independent of whether
+    // generators/bbasic.js's own reservation gate (envelopeStage0Used/
+    // envelopeStage1Used) actually reserved it, so these can only be called
+    // from inside each channel's own section below, guarded by that exact
+    // same flag - same hazard/fix shape as buildTextScrollSetupLines' own
+    // comment in text-scroll.js.
+    const stage0 = () => this.nameDB_.getName('envelopeStage0', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const stage1 = () => this.nameDB_.getName('envelopeStage1', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const channelHasMusicEnvelope = (this.projectMusic || {}).channelHasEnvelope || {};
 
     // A channel's own remaining-frames-until-the-note-ends source is
@@ -381,36 +439,62 @@ export default (Blockly) => {
       return lines;
     };
 
-    const remaining0 = buildRemainingVar('0', channel0);
-    const remaining1 = buildRemainingVar('1', channel1);
+    // Each channel's own section (the runtime "is this channel's own nibble
+    // actually a real config, or NO_ENVELOPE_SENTINEL" guard, plus its own
+    // dispatch) is only built at all - and so only ever resolves that
+    // channel's own stage var - when generators/bbasic.js's own pre-scan
+    // (envelopeStage0Used/envelopeStage1Used) found it genuinely needed;
+    // omitted entirely otherwise, so a project using envelope on only one
+    // channel never references (or reserves) the other channel's own var.
+    const channel0Section = (() => {
+      if (!this.envelopeStage0Used) return [];
+      const remaining0 = buildRemainingVar('0', channel0);
+      return [
+        '       lda envelopeConfig',
+        '       and #$0F',
+        '       cmp #' + NO_ENVELOPE_SENTINEL,
+        '       beq _envelope0_done',
+        ...remaining0.lines,
+        '       lda envelopeConfig',
+        '       and #$0F',
+        '       tax',
+        ...buildChannelDispatch('0', '0', remaining0.remainingVar, stage0()),
+      ];
+    })();
+    const channel1Section = (() => {
+      if (!this.envelopeStage1Used) return [];
+      const remaining1 = buildRemainingVar('1', channel1);
+      return [
+        '       lda envelopeConfig',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       cmp #' + NO_ENVELOPE_SENTINEL,
+        '       beq _envelope1_done',
+        ...remaining1.lines,
+        '       lda envelopeConfig',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       lsr',
+        '       tax',
+        ...buildChannelDispatch('1', '1', remaining1.remainingVar, stage1()),
+      ];
+    })();
 
-    return [
+    const asmBlock = [
       ' asm',
-      '       lda envelopeConfig',
-      '       and #$0F',
-      '       cmp #' + NO_ENVELOPE_SENTINEL,
-      '       beq _envelope0_done',
-      ...remaining0.lines,
-      '       lda envelopeConfig',
-      '       and #$0F',
-      '       tax',
-      ...buildChannelDispatch('0', '0', remaining0.remainingVar, stage0),
-      '       lda envelopeConfig',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       cmp #' + NO_ENVELOPE_SENTINEL,
-      '       beq _envelope1_done',
-      ...remaining1.lines,
-      '       lda envelopeConfig',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       lsr',
-      '       tax',
-      ...buildChannelDispatch('1', '1', remaining1.remainingVar, stage1),
+      ...channel0Section,
+      ...channel1Section,
       'end',
     ].join('\n');
+    // One combined payload (code + its own data tables) wrapped as a single
+    // relocatable unit - see this function's own top comment for why. Reuses
+    // the graphics pool (not a new one, and not music's own separate pool -
+    // this is a single small unit, not something that needs its own
+    // reserved bank the way music's own per-project engine does).
+    const payload = [asmBlock, buildEnvelopeDataTables()].filter(Boolean).join('\n\n');
+    return Blockly.BBasic.wrapRelocatableGraphics('soundfxEnvelopeChecks', payload);
   };
 };

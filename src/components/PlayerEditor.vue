@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text>
         <div class="editor-toolbar-row">
@@ -17,9 +17,11 @@
             <v-list-item-content>
               <v-card
                 outlined
+                :ripple="false"
                 class="animation-card"
-                :class="dragCardClass(index)"
+                :class="[dragCardClass(index), {'animation-card-selected': animation.id === selectedCardId}]"
                 v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(animation.id)"
               >
                 <div
                   class="animation-drag-handle"
@@ -40,7 +42,7 @@
                   >
                     <v-icon>{{ isCollapsed(animation) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                   </v-btn>
-                  <div class="animation-id-badge">ID: {{ animation.id }}</div>
+                  <div class="animation-id-badge">ID:{{ animation.id }}</div>
                   <v-text-field
                     class="animation-name-field"
                     label="Animation name"
@@ -156,7 +158,7 @@
                           />
                         </template>
                         <template v-slot:badge>
-                          <div class="frame-number-badge">FRAME: {{ frameIndex + 1 }}</div>
+                          <div class="frame-number-badge">ID:{{ frameIndex + 1 }}</div>
                           <div class="frame-corner-toolbar">
                             <v-btn
                               icon
@@ -340,15 +342,18 @@ export default defineComponent({
     };
 
     const configurationStorage = useConfigurationStorage();
-    // Per-row SPRITE colors (batari Basic playercolors/player1colors) are an
-    // all-or-nothing, project-wide setting (see the Options tab's "enable
-    // per-row sprite colors" toggle) - same reasoning as BackgroundEditor's
-    // own pfColorsEnabled, and shared between BOTH players since this
-    // component is instantiated once per player (see PlayerEditor's own
-    // "name" prop) but the underlying kernel_options line is a single
-    // project-wide setting either way.
+    // Per-row SPRITE colors (batari Basic playercolors/player1colors) - see
+    // the Options tab's own "Enable per-row Player 0/1 sprite colors"
+    // toggles (one per player, since player1colors is valid on its own but
+    // playercolors isn't - see generateConfiguration's own comment in
+    // generators/bbasic.js) - same reasoning as BackgroundEditor's own
+    // pfColorsEnabled. props.name ('player0'/'player1') picks the matching
+    // toggle for whichever player THIS instance is editing (see
+    // PlayerEditor's own "name" prop - this component is instantiated once
+    // per player).
+    const configKey = props.name === 'player0' ? 'enablePlayer0SpriteColors' : 'enablePlayer1SpriteColors';
     const spriteColorsEnabled = computed(() =>
-      (configurationStorage && configurationStorage.value && configurationStorage.value.enableSpriteColors) ??
+      (configurationStorage && configurationStorage.value && configurationStorage.value[configKey]) ??
         false);
 
     // Read-only here - components/QuickColorPalette.vue (mounted above)
@@ -382,6 +387,22 @@ export default defineComponent({
       const next = existing.slice(0, rows);
       while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
       frame.rowColors = next;
+    };
+
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards and the other tabs' own entry cards (see
+    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // component state, not persisted, not wired into anything else. Shared
+    // between Player 0 and Player 1 (both just PlayerEditor with different
+    // props), each with its own independent selection since they're
+    // separate component instances.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
     };
 
     const playerStorage = props.storageFactory();
@@ -635,7 +656,8 @@ export default defineComponent({
       });
     };
 
-    return {state, handleChildChange,
+    return {selectedCardId, selectCard, deselectCard,
+      state, handleChildChange,
       handleAddFrame, handleDeleteFrame, handleResizeAllFrames,
       handleAddAnimation, handleDeleteAnimation, handleSetPreviewScale,
       handleRowColorsInput, editorRowColors, spriteColorsEnabled,
@@ -686,8 +708,16 @@ export default defineComponent({
   margin-top: 12px;
 }
 
+/* overflow: visible added alongside the padding reset (see MusicEditor.vue's
+   own identical fix) - stops this element's default "overflow: hidden" from
+   clipping a selected card's own 2px outline - min-width: 0 has to come
+   with it (same comment there for the full explanation): overflow: visible
+   silently undoes a flex item's own default 0 min-width, letting it refuse
+   to shrink below its own widest content instead of the tab's width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 /* Same rounded, thin-bordered look as the Sound/Data/Text/Music tabs' own

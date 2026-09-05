@@ -92,24 +92,28 @@ const APP_BLOCKLY_THEME = Blockly.Theme.defineTheme('app', {
   },
 });
 
-// Re-run whenever "Enable per-row sprite colors" (see Configuration.vue)
-// changes, not just once at mount - both here (the initial options.toolbox)
-// and via updateToolbox() in the enableSpriteColors watcher below, so the
-// rainbow colors blocks (gated on {{#if enableSpriteColors}} in
-// blockly-toolbox.xml.hbs) appear/disappear from the toolbox live as the
-// toggle changes, without needing a page reload. Only gates whether the
-// blocks are OFFERED in the toolbox - a block already placed on the canvas
-// before the toggle was turned off keeps working exactly as it did (see
-// generators/bbasic.js's own isEnabled()-based pre-scan, unaffected by
-// this), same as any other toolbox-only restriction in this app.
-const buildToolboxXml = (enableSpriteColors) => Handlebars.compile(blocklyToolboxTemplate)({
-  blocklyToolboxPlayer0Movement,
-  blocklyToolboxPlayer1Movement,
-  blocklyToolboxBallMovement,
-  blocklyToolboxBackground,
-  blocklyToolboxExampleEvent,
-  enableSpriteColors,
-});
+// Re-run whenever "Enable per-row Player 0/1 sprite colors" (see
+// Configuration.vue) changes, not just once at mount - both here (the
+// initial options.toolbox) and via updateToolbox() in the
+// player0SpriteColorsEnabled/player1SpriteColorsEnabled watchers below, so
+// the rainbow colors blocks (gated on {{#if enablePlayer0SpriteColors}}/
+// {{#if enablePlayer1SpriteColors}} in blockly-toolbox.xml.hbs) appear/
+// disappear from the toolbox live as either toggle changes, without needing
+// a page reload. Only gates whether the blocks are OFFERED in the toolbox -
+// a block already placed on the canvas before the toggle was turned off
+// keeps working exactly as it did (see generators/bbasic.js's own
+// isEnabled()-based pre-scan, unaffected by this), same as any other
+// toolbox-only restriction in this app.
+const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors) =>
+  Handlebars.compile(blocklyToolboxTemplate)({
+    blocklyToolboxPlayer0Movement,
+    blocklyToolboxPlayer1Movement,
+    blocklyToolboxBallMovement,
+    blocklyToolboxBackground,
+    blocklyToolboxExampleEvent,
+    enablePlayer0SpriteColors,
+    enablePlayer1SpriteColors,
+  });
 
 export default {
   components: {BlocklyComponent},
@@ -190,7 +194,8 @@ export default {
           minScale: 0.3,
           scaleSpeed: 1.2,
         },
-        toolbox: buildToolboxXml((configurationStorage.value || {}).enableSpriteColors),
+        toolbox: buildToolboxXml((configurationStorage.value || {}).enablePlayer0SpriteColors,
+            (configurationStorage.value || {}).enablePlayer1SpriteColors),
       },
       workspaceStorage: useWorkspaceStorage(),
       errorStorage: useErrorStorage(),
@@ -361,8 +366,11 @@ export default {
     blocklySoundsEnabled() {
       return !this.muteBlocklySoundsStorage.value;
     },
-    spriteColorsEnabled() {
-      return !!(this.configurationStorage.value || {}).enableSpriteColors;
+    player0SpriteColorsEnabled() {
+      return !!(this.configurationStorage.value || {}).enablePlayer0SpriteColors;
+    },
+    player1SpriteColorsEnabled() {
+      return !!(this.configurationStorage.value || {}).enablePlayer1SpriteColors;
     },
     workspaceData: {
       get() {
@@ -387,10 +395,15 @@ export default {
     // itself is only ever read once, at Blockly.inject() time (see
     // BlocklyComponent.vue's own mounted()), so just reassigning it
     // wouldn't do anything after the fact.
-    spriteColorsEnabled(newVal) {
+    player0SpriteColorsEnabled() {
       const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
       if (!workspace) return;
-      workspace.updateToolbox(buildToolboxXml(newVal));
+      workspace.updateToolbox(buildToolboxXml(this.player0SpriteColorsEnabled, this.player1SpriteColorsEnabled));
+    },
+    player1SpriteColorsEnabled() {
+      const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
+      if (!workspace) return;
+      workspace.updateToolbox(buildToolboxXml(this.player0SpriteColorsEnabled, this.player1SpriteColorsEnabled));
     },
   },
   mounted() {

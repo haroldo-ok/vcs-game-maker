@@ -319,6 +319,168 @@ export const generateJoystickDirection8Checks = (Blockly) => {
   return lines.join('\n');
 };
 
+// Fire-button press-pattern tracking (tap/hold/released/double-tap - see
+// blocks/input.js's own comment on why these are Fire-only). Four dev vars
+// per joystick that actually uses ANY of these blocks, all reserved
+// together (same "reserve the whole bundle even if only one block needs
+// part of it" simplification reserveMissileFireDevVars/reserveSeekDevVars
+// already use) rather than trying to gate each one individually:
+//   held             - frames Fire has been continuously down (0 while up),
+//                       saturates at 255 rather than wrapping so "held for
+//                       N frames or more" stays true indefinitely past N,
+//                       however long Fire is actually held.
+//   prev             - was Fire down last frame (0/1) - internal only, not
+//                       exposed to any block; lets generateJoystickButtonChecks
+//                       detect the down-to-up transition.
+//   justReleased     - 1 for exactly the frame Fire is released, else 0 -
+//                       read directly by "Fire released", and by "Fire
+//                       tapped"'s own inline comparison against
+//                       lastPressFrames below.
+//   lastPressFrames  - a snapshot of "held" taken the instant a release is
+//                       detected (meaningless any other frame) - "Fire
+//                       tapped" compares this against its own MAX_FRAMES
+//                       field inline, so any number of tap blocks with
+//                       different thresholds can share these same four vars
+//                       with no per-instance state of their own needed.
+export const joyButtonHeldVarName = (name) => `_${name}FireHeld`;
+export const joyButtonPrevVarName = (name) => `_${name}FirePrev`;
+export const joyButtonJustReleasedVarName = (name) => `_${name}FireJustReleased`;
+export const joyButtonLastPressFramesVarName = (name) => `_${name}FireLastPressFrames`;
+
+// Reserves the four dev vars above - called from bbasic.js's init() with a
+// pre-scanned Set of which joysticks actually have a tap/hold/released/
+// double-tap block used anywhere in the project (has to be known before
+// reserveDevVar hands out user variable letters, well before this feature's
+// own generator would otherwise run).
+export const reserveJoystickButtonDevVars = (reserveDevVar, usedFor) => {
+  if (!usedFor || !usedFor.size) return;
+  usedFor.forEach((name) => {
+    reserveDevVar(joyButtonHeldVarName(name), undefined,
+        'this joystick\'s Fire button: frames continuously held (saturates at 255)');
+    reserveDevVar(joyButtonPrevVarName(name), undefined,
+        'this joystick\'s Fire button: was it down last frame (0/1)');
+    reserveDevVar(joyButtonJustReleasedVarName(name), undefined,
+        'this joystick\'s Fire button: released this exact frame (0/1)');
+    reserveDevVar(joyButtonLastPressFramesVarName(name), undefined,
+        'this joystick\'s Fire button: how long the press that just ended lasted');
+  });
+};
+
+// Spliced into commongamelogic right alongside generateJoystickDirection8Checks
+// (same region, same "precompute per-frame input state into hidden vars"
+// reasoning) - one check per joystick that actually has a tap/hold/released/
+// double-tap block used anywhere. Structured as one flat down/up branch (via
+// goto, not nested "if...then") for the same reason generateJoystickDirection8Checks
+// and every other per-frame check in this codebase already is: "if X then A"
+// only conditions the single statement right after "then". joyNfire is only
+// ever tested in a branch ("if joyNfire then goto ..."), never read as a
+// plain numeric/assignable value, for the same reason generateJoystickDirection8Checks'
+// own comment documents (a real, reproduced build failure using one as a
+// plain operand).
+export const generateJoystickButtonChecks = (Blockly) => {
+  const used = Blockly.BBasic.joyButtonUsedFor;
+  if (!used || !used.size) return '';
+  const resolveSystemVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.VARIABLE_CATEGORY_NAME);
+  const resolveDevVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const lines = [];
+  ['joy0', 'joy1'].forEach((name) => {
+    if (!used.has(name)) return;
+    const fireVar = resolveSystemVar(`${name}fire`);
+    const heldVar = resolveDevVar(joyButtonHeldVarName(name));
+    const prevVar = resolveDevVar(joyButtonPrevVarName(name));
+    const justReleasedVar = resolveDevVar(joyButtonJustReleasedVarName(name));
+    const lastPressFramesVar = resolveDevVar(joyButtonLastPressFramesVarName(name));
+    lines.push(
+        ` if ${fireVar} then goto _${name}btn_down`,
+        ` if ${prevVar} = 0 then goto _${name}btn_up_done`,
+        // Was down last frame, up now - the release transition.
+        ` ${justReleasedVar} = 1`,
+        ` ${lastPressFramesVar} = ${heldVar}`,
+        ` ${heldVar} = 0`,
+        ` ${prevVar} = 0`,
+        ` goto _${name}btn_done`,
+        `_${name}btn_up_done`,
+        // Already up last frame too - nothing changed.
+        ` ${justReleasedVar} = 0`,
+        ` ${heldVar} = 0`,
+        ` goto _${name}btn_done`,
+        `_${name}btn_down`,
+        ` ${justReleasedVar} = 0`,
+        ` if ${heldVar} <> 255 then ${heldVar} = ${heldVar} + 1`,
+        ` ${prevVar} = 1`,
+        `_${name}btn_done`,
+    );
+  });
+  return lines.join('\n');
+};
+
+// One result + one countdown timer dev var PER "Fire double-tapped" block
+// instance (not shared per-joystick the way held/prev/justReleased/
+// lastPressFrames above are) - same "each instance gets its own hidden
+// state" reasoning distancePointChecks already uses (see that pre-scan's own
+// comment in bbasic.js), needed here specifically because different
+// double-tap blocks on the same joystick can each have their own WINDOW
+// field value, so the countdown itself can't be shared the way a plain
+// comparison-only value (like "Fire held") can.
+export const joyDoubleTapResultVarName = (index) => `_joyDoubleTap${index}`;
+export const joyDoubleTapTimerVarName = (index) => `_joyDoubleTap${index}Timer`;
+
+// Reserves the two dev vars above for every "Fire double-tapped" block
+// instance bbasic.js's own pre-scan (joyDoubleTapChecks) found - same early
+// "before reserveDevVar hands out user variable letters" timing as
+// reserveJoystickButtonDevVars.
+export const reserveJoystickDoubleTapDevVars = (reserveDevVar, checks) => {
+  if (!checks || !checks.size) return;
+  checks.forEach(({index}) => {
+    reserveDevVar(joyDoubleTapResultVarName(index), undefined,
+        'this "Fire double-tapped" block\'s own result (0/1, true for one frame)');
+    reserveDevVar(joyDoubleTapTimerVarName(index), undefined,
+        'this "Fire double-tapped" block\'s own window countdown');
+  });
+};
+
+// Spliced into commongamelogic right after generateJoystickButtonChecks (has
+// to run AFTER it every frame - this reads justReleasedVar, which that
+// function is what actually computes each frame). One check per "Fire
+// double-tapped" block instance: on every release, if this instance's own
+// timer is still counting down from an EARLIER release, that's the second
+// tap - fire the result (for one frame) and clear the timer; otherwise this
+// is the first tap of a potential pair, so (re)start the timer at this
+// instance's own WINDOW. Any frame that isn't a release just counts the
+// timer down toward 0 (once it reaches 0, the window has expired, and the
+// next release starts a fresh one instead of completing a pair).
+export const generateJoystickDoubleTapChecks = (Blockly) => {
+  const checks = Blockly.BBasic.joyDoubleTapChecks;
+  if (!checks || !checks.size) return '';
+  const resolveDevVar = (canonicalName) =>
+    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const lines = [];
+  checks.forEach(({name, window, index}) => {
+    const justReleasedVar = resolveDevVar(joyButtonJustReleasedVarName(name));
+    const resultVar = resolveDevVar(joyDoubleTapResultVarName(index));
+    const timerVar = resolveDevVar(joyDoubleTapTimerVarName(index));
+    const tag = `dt${index}`;
+    lines.push(
+        ` ${resultVar} = 0`,
+        ` if ${justReleasedVar} = 0 then goto _${tag}_decr`,
+        ` if ${timerVar} = 0 then goto _${tag}_first`,
+        ` ${resultVar} = 1`,
+        ` ${timerVar} = 0`,
+        ` goto _${tag}_done`,
+        `_${tag}_first`,
+        ` ${timerVar} = ${window}`,
+        ` goto _${tag}_done`,
+        `_${tag}_decr`,
+        ` if ${timerVar} = 0 then goto _${tag}_done`,
+        ` ${timerVar} = ${timerVar} - 1`,
+        `_${tag}_done`,
+    );
+  });
+  return lines.join('\n');
+};
+
 export default (Blockly) => {
   const createGeneratorForJoystick = (name) => {
     Blockly.BBasic[`input_${name}_get`] = function(block) {
@@ -345,6 +507,58 @@ export default (Blockly) => {
 
   ['joy0', 'joy1'].forEach(createGeneratorForJoystickDirection8);
 
+  // "Fire [tapped/held/released/double-tapped]" - one combined block per
+  // joystick (see blocks/input.js's own MODE dropdown comment), dispatching
+  // on that field at compile time (this.getFieldValue, same as e.g.
+  // input_console_switch_get's own SWITCH dropdown just reading a different
+  // system var per option - here the CODE shape itself differs per mode,
+  // not just which var gets read). All four modes just read back (or, for
+  // tap, inline-compare) whatever generateJoystickButtonChecks already
+  // precomputed into this joystick's own shared button-state dev vars this
+  // frame (see that function's own comment). "tapped" needs no per-instance
+  // state of its own even though several tapped-mode blocks on the same
+  // joystick can each have a different FRAMES value - it's a pure
+  // comparison against the shared lastPressFrames snapshot, so every
+  // instance can safely read the same two vars with its own compile-time
+  // threshold plugged in. Composed the exact same way logic_operation's own
+  // "&&" case is (see logic.js) - both sides are ORDER_EQUALITY/
+  // ORDER_RELATIONAL, both strictly tighter-binding than ORDER_LOGICAL_AND,
+  // so no parentheses are needed around either side. "double-tapped" is the
+  // one mode that DOES need per-instance state (its own window can differ
+  // per block) - looked up by this block's own id in bbasic.js's
+  // joyDoubleTapChecks pre-scan, same lookup-by-block.id shape
+  // getDistancePointVarName below already uses for "Distance to point".
+  const createGeneratorForJoystickButton = (name) => {
+    Blockly.BBasic[`input_${name}_fire_pattern`] = function(block) {
+      const mode = block.getFieldValue('MODE');
+      const frames = Math.max(1, Math.min(255, Math.round(Number(block.getFieldValue('FRAMES')) || 20)));
+      if (mode === 'RELEASED') {
+        const justReleasedVar = Blockly.BBasic.nameDB_.getName(
+            joyButtonJustReleasedVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return [`${justReleasedVar} = 1`, Blockly.BBasic.ORDER_EQUALITY];
+      }
+      if (mode === 'HOLD') {
+        const heldVar = Blockly.BBasic.nameDB_.getName(
+            joyButtonHeldVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return [`${heldVar} >= ${frames}`, Blockly.BBasic.ORDER_RELATIONAL];
+      }
+      if (mode === 'DOUBLE_TAP') {
+        const entry = Blockly.BBasic.joyDoubleTapChecks && Blockly.BBasic.joyDoubleTapChecks.get(block.id);
+        const resultVar = Blockly.BBasic.nameDB_.getName(
+            joyDoubleTapResultVarName(entry.index), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return [`${resultVar} = 1`, Blockly.BBasic.ORDER_EQUALITY];
+      }
+      // TAP (also the fallback for a stale/unrecognized MODE value).
+      const justReleasedVar = Blockly.BBasic.nameDB_.getName(
+          joyButtonJustReleasedVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const lastPressFramesVar = Blockly.BBasic.nameDB_.getName(
+          joyButtonLastPressFramesVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [`${justReleasedVar} = 1 && ${lastPressFramesVar} <= ${frames}`, Blockly.BBasic.ORDER_LOGICAL_AND];
+    };
+  };
+
+  ['joy0', 'joy1'].forEach(createGeneratorForJoystickButton);
+
   // "Keypad N: key X is pressed" - a plain equality check against the
   // hidden byte generateKeypadPollAsm's own poll routine writes each frame
   // (see keypadKeyVarName) - routed through nameDB_.getName the same way
@@ -358,6 +572,23 @@ export default (Blockly) => {
           keypadKeyVarName(port), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const key = block.getFieldValue('KEY');
       return [`${varName} = ${key}`, Blockly.BBasic.ORDER_EQUALITY];
+    };
+
+    // "Any key is pressed" - same poll byte, compared against 0 (no key
+    // currently held - see KEYPAD_KEY_OPTIONS' own comment in blocks/
+    // input.js) instead of one specific key.
+    Blockly.BBasic[`input_keypad${port}_any_pressed`] = function(block) {
+      const varName = Blockly.BBasic.nameDB_.getName(
+          keypadKeyVarName(port), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [`${varName} <> 0`, Blockly.BBasic.ORDER_EQUALITY];
+    };
+
+    // "Key ID pressed" - the poll byte itself, exposed as a plain Number
+    // rather than compared against anything.
+    Blockly.BBasic[`input_keypad${port}_id_get`] = function(block) {
+      const varName = Blockly.BBasic.nameDB_.getName(
+          keypadKeyVarName(port), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [varName, Blockly.BBasic.ORDER_ATOMIC];
     };
   };
 

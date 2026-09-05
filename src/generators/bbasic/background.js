@@ -5,6 +5,7 @@ import {effectiveBackgroundRows, backgroundFadeTimerVarName, backgroundFadePaceV
   backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS,
   backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName} from '../../blocks/background';
+import {pfRowDivisorFor} from '../../utils/playfield-coords';
 
 // FADE_STEPS (4) is fixed rather than user-choosable - see its own comment
 // in blocks/background.js. floor(14 / 4) = 3, rounded down to the nearest
@@ -13,6 +14,46 @@ import {effectiveBackgroundRows, backgroundFadeTimerVarName, backgroundFadePaceV
 // finest brightness step this hardware can do, so it's just a literal here
 // rather than restating the general formula for a single fixed input.
 const FADE_INCREMENT = 2;
+
+// Walks up from a block through plain parent connections (not just statement
+// nesting - background_get_pixel can sit inside an "if" condition socket, a
+// value input) looking for an enclosing function_define. Module-scope (not
+// inside the default export closure below) so generators/bbasic.js's own
+// early pre-scan can use it too, ahead of reserveDevVar handing out letters.
+const isInsideFunctionDefine = (block) => {
+  let ancestor = block.getParent();
+  while (ancestor) {
+    if (ancestor.type === 'function_define') return true;
+    ancestor = ancestor.getParent();
+  }
+  return false;
+};
+
+// Whether a background_get_pixel block's own X or Y argument is a bare,
+// always-space-free value once generated - an unplugged socket falls back
+// to the literal '0', and a bare math_number/variables_get block's own
+// generated code is always a single token - everything else (arithmetic,
+// another getter block, etc.) is conservatively treated as possibly
+// producing a whitespace-containing expression, matching this block's own
+// generator's real isSimple check (background_get_pixel below) without
+// running actual codegen this early (see reserveDevVar's own "known before
+// any generator runs" pre-scan timing constraint) - erring toward "still
+// reserve it" for anything this can't positively classify as simple, never
+// the other way around.
+const argumentIsSimple = (block, inputName) => {
+  const target = block.getInputTargetBlock(inputName);
+  return !target || target.type === 'math_number' || target.type === 'variables_get';
+};
+
+// Whether background_get_pixel's own X/Y scratch dev vars
+// (backgroundGetPixelXVarName/YVarName) are genuinely needed for this
+// specific block instance - both the "inside a function" nesting AND at
+// least one non-simple argument have to hold, matching exactly what the
+// generator itself falls back to these vars for (see its own useDevVars/
+// isSimple checks) rather than the coarser "inside a function at all" check
+// generators/bbasic.js's own pre-scan used to make do with.
+export const backgroundGetPixelDevVarsNeeded = (block) =>
+  isInsideFunctionDefine(block) && (!argumentIsSimple(block, 'X') || !argumentIsSimple(block, 'Y'));
 
 // Per-register label tag for generateBackgroundFadeChecks below - has to be
 // distinct per register (unlike a shared "bg" for everything) now that
@@ -35,6 +76,67 @@ export default (Blockly) => {
     return [`${rows}`, Blockly.BBasic.ORDER_ATOMIC];
   };
 
+
+  // Playfield-pixel <-> sprite coordinate conversions, from real batari
+  // Basic's own documented formulas, cross-checked directly against a real
+  // working example program (a Superchip pfres=32 project using "z =
+  // (player0y - 14) / 3" to track its player's playfield row):
+  // - The playfield only uses its 32 CENTER pixels of the 40 across the
+  //   160-color-clock-wide screen (4 blank on each side), each 4 color
+  //   clocks wide - so X always scales by a flat 4, regardless of
+  //   pfres/Superchip (confirmed by the reference documentation directly;
+  //   the example program doesn't touch X at all).
+  // - X also has a fixed offset to the first usable playfield pixel's own
+  //   leftmost color clock: 17 for a single-wide sprite, 16 for a
+  //   double/quad-wide one (their own left edges start 1 color clock
+  //   earlier at 2x/4x pixel width) - see the WIDTH dropdown.
+  // - Y scales by pfRowDivisorFor(config) - 8 for the standard (non-
+  //   Superchip) kernel's own implicit pfres=12 (96/12, matching the docs'
+  //   own "8 scanlines tall" and player0y's documented 1-88 range: 11
+  //   VISIBLE rows * 8 = 88), and round(96/pfres) once Superchip's own pfres
+  //   is active - round(96/32) = 3 for the pfres=32 Superchip example above,
+  //   an exact match for that program's own divisor. See pfRowDivisorFor's
+  //   own comment in utils/playfield-coords.js for why this can't just
+  //   divide by effectiveBackgroundRows(config) directly (that's the
+  //   VISIBLE row count, 11 by default - one less than the kernel's own
+  //   true pfres=12 - only Superchip's own pfres has no such gap). The +1
+  //   offset (player Y is measured from a sprite's own BOTTOM row, whose
+  //   first usable value is 1, not 0) is independent of pfres and applies
+  //   either way - the example's own "14" isn't that offset, just its own
+  //   unrelated arbitrary starting position for that demo.
+  // Y's divisor is a real per-project value, not always a power of 2, so
+  // (unlike X's fixed /4, always a shift) it needs usesDivMul/div_mul.asm -
+  // set unconditionally on both blocks for simplicity, same as
+  // emitColorFadeTrigger above does even for its own power-of-2 case.
+  const spriteXOffset = (width) => (width === 'SINGLE' ? 17 : 16);
+
+  Blockly.BBasic[`background_pixel_to_sprite`] = function(block) {
+    const axis = block.getFieldValue('AXIS');
+    if (axis === 'Y') {
+      const y = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
+      const configurationStorage = useConfigurationStorage();
+      const config = (configurationStorage && configurationStorage.value) || {};
+      Blockly.BBasic.usesDivMul = true;
+      return [`${pfRowDivisorFor(config)} * ${y} + 1`, Blockly.BBasic.ORDER_ADDITION];
+    }
+    const x = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
+    const xOffset = spriteXOffset(block.getFieldValue('WIDTH'));
+    return [`4 * ${x} + ${xOffset}`, Blockly.BBasic.ORDER_ADDITION];
+  };
+
+  Blockly.BBasic[`background_sprite_to_pixel`] = function(block) {
+    const axis = block.getFieldValue('AXIS');
+    if (axis === 'Y') {
+      const y = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_SUBTRACTION) || '0';
+      const configurationStorage = useConfigurationStorage();
+      const config = (configurationStorage && configurationStorage.value) || {};
+      Blockly.BBasic.usesDivMul = true;
+      return [`(${y} - 1) / ${pfRowDivisorFor(config)}`, Blockly.BBasic.ORDER_DIVISION];
+    }
+    const x = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_SUBTRACTION) || '0';
+    const xOffset = spriteXOffset(block.getFieldValue('WIDTH'));
+    return [`(${x} - ${xOffset}) / 4`, Blockly.BBasic.ORDER_DIVISION];
+  };
 
   Blockly.BBasic[`background_select`] = function(block) {
     const code = block.getFieldValue('VAR') || 0;
@@ -95,11 +197,33 @@ export default (Blockly) => {
   // (generateBackgroundFadeChecks below reads that bit every frame from
   // then on and does the actual stepping; see backgroundFadeTimerVarName's
   // own comment in blocks/background.js for why this is a one-shot trigger
-  // rather than a "call every frame yourself" block). Retriggering an
-  // already-active fade (e.g. the user's own code calls this again before
-  // the previous one finished) simply overwrites the target/pace and
-  // re-primes the timer - the new fade just continues from wherever the
-  // color currently is, same as a fresh trigger would.
+  // rather than a "call every frame yourself" block).
+  //
+  // The actual RESET (timer/pace/active all snapping back to a fresh fade)
+  // only happens when color differs from the target this fade was last
+  // triggered for - guarded by a real "if targetVar = color then skip"
+  // rather than unconditional, because a "Fade to color" block placed in a
+  // per-frame event (title_update, say) calls this every single frame for
+  // the SAME target color: unconditionally re-priming the timer every time
+  // that happens meant the per-frame step (generateBackgroundFadeChecks,
+  // which runs earlier in commongamelogic, so its own progress got
+  // immediately overwritten right after) could never actually count down to
+  // 0 - a real reported bug ("fade finished never seems to trigger"; the
+  // fade itself never finishes, since it's perpetually reset before it can),
+  // same class of bug (and same fix) as buildTextScrollSetupLines' own
+  // "same message, don't re-reset" guard in text-scroll.js. Retriggering
+  // with a genuinely DIFFERENT target color still restarts the fade toward
+  // that new target from wherever the color currently sits, same as a fresh
+  // trigger would - this only skips the reset when the request is a no-op
+  // repeat of whatever's already in flight (or already reached).
+  //
+  // color is captured into temp1 exactly once, before the comparison,
+  // rather than embedded directly into both the "if" and the assignment -
+  // it can be an arbitrary expression (not necessarily side-effect-free,
+  // e.g. a Random block), and evaluating it twice could disagree with
+  // itself between the guard check and the actual reset (same reasoning
+  // random_between_set's own "rand" capture uses in generators/bbasic/
+  // random.js).
   //
   // Shared by background_fade_to below and score.js's own score_fade_to /
   // text-minikernel.js's own text_minikernel_fade_to - the trigger body is
@@ -125,19 +249,23 @@ export default (Blockly) => {
 
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const paceReadyLabel = `_bgfade_${blockNumber}_paceready`;
+    const skipLabel = `_bgfade_${blockNumber}_skip`;
 
     // Guards frames < FADE_STEPS the same way the old inline version did:
     // the division alone would floor to 0, which would otherwise underflow
     // the very next decrement (in the per-frame check) into a huge wrapped
     // byte instead of counting down from 0 the way a signed timer would.
     return [
-      `${targetVar} = ${color}`,
+      `temp1 = ${color}`,
+      `if ${targetVar} = temp1 then goto ${skipLabel}`,
+      `${targetVar} = temp1`,
       `${paceVar} = (${frames}) / ${FADE_STEPS}`,
       `if ${paceVar} <> 0 then goto ${paceReadyLabel}`,
       ` ${paceVar} = 1`,
       `@ ${paceReadyLabel}`,
       `${timerVar} = ${paceVar}`,
       `${activeBit} = 1`,
+      `@ ${skipLabel}`,
     ].join('\n') + '\n';
   };
 
@@ -410,6 +538,31 @@ export default (Blockly) => {
     return [...fadeVarsUsed].map(checksForVar).flat().join('\n');
   };
 
+  // One-time Setup-section initialization (see bbasic.bb.hbs's own
+  // generatedBackgroundFadeSetup splice, right alongside
+  // generatedCtrlpfShadowSetup/generatedKeypadSetup) - every fade's own
+  // targetVar (see emitColorFadeTrigger's own "if targetVar = requested
+  // color then skip the reset" guard) needs to start at a value NO real
+  // requested color can ever equal, or that guard's very first real trigger
+  // could spuriously match on whatever targetVar happens to already hold.
+  // Confirmed as a real, reported bug: zeroed RAM (this codebase's own dev
+  // vars have no other default) leaves targetVar starting at plain 0, and 0
+  // is itself a perfectly ordinary, plausible requested color (pure black -
+  // hue 0, luminance 0) - a project's very first "fade to black" call would
+  // see targetVar(0) already "equal" to the requested color(0) and skip the
+  // reset entirely, never actually starting the fade. 255 is guaranteed
+  // safe: every real color byte a "Color" picker can ever produce is even
+  // (the 2600 ignores a color register's own low bit - see
+  // utils/palette.js's own "byte is (index << 1)" comment), so an odd
+  // sentinel can never collide with a genuine request.
+  Blockly.BBasic.generateBackgroundFadeSetup = function() {
+    const fadeVarsUsed = this.backgroundFadeVarsUsed || new Set();
+    if (!fadeVarsUsed.size) return '';
+    return [...fadeVarsUsed]
+        .map((rawVar) => ` ${resolveVar(backgroundFadeTargetVarName(rawVar))} = 255`)
+        .join('\n');
+  };
+
   // Shared by background_fade_finished below and score.js's own
   // score_fade_finished / text-minikernel.js's own
   // text_minikernel_fade_finished - the check-and-clear body is identical
@@ -454,20 +607,6 @@ export default (Blockly) => {
     const rawVar = block.getFieldValue('VAR');
     const activeBit = `${resolveVar(fadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
     return [activeBit, Blockly.BBasic.ORDER_ATOMIC];
-  };
-
-  // True if this block is nested (through any number of statement/value
-  // connections) inside a function_define block's own body - walking
-  // getParent() repeatedly rather than getSurroundParent() specifically
-  // because this needs to follow value-input connections too (this block
-  // sits in an "if" condition socket), not just statement nesting.
-  const isInsideFunctionDefine = (block) => {
-    let ancestor = block.getParent();
-    while (ancestor) {
-      if (ancestor.type === 'function_define') return true;
-      ancestor = ancestor.getParent();
-    }
-    return false;
   };
 
   Blockly.BBasic[`background_get_pixel`] = function(block) {
@@ -515,13 +654,29 @@ export default (Blockly) => {
     const preamble = [];
     let readX = argumentX;
     let readY = argumentY;
+    // backgroundGetPixelXVarName/YVarName now route through reserveDevVarRW
+    // (generators/bbasic.js's own init()) when useDevVars is true - .write
+    // for the capture line just below, .read for the actual pfread(...)
+    // call further down.
     if (!isSimple(argumentX)) {
-      readX = useDevVars ? resolveVar(backgroundGetPixelXVarName()) : 'temp1';
-      preamble.push(`${readX} = ${argumentX}`);
+      if (useDevVars) {
+        const pair = Blockly.BBasic.superchipRwPairs[backgroundGetPixelXVarName()];
+        preamble.push(`${pair.write} = ${argumentX}`);
+        readX = pair.read;
+      } else {
+        readX = 'temp1';
+        preamble.push(`${readX} = ${argumentX}`);
+      }
     }
     if (!isSimple(argumentY)) {
-      readY = useDevVars ? resolveVar(backgroundGetPixelYVarName()) : 'temp2';
-      preamble.push(`${readY} = ${argumentY}`);
+      if (useDevVars) {
+        const pair = Blockly.BBasic.superchipRwPairs[backgroundGetPixelYVarName()];
+        preamble.push(`${pair.write} = ${argumentY}`);
+        readY = pair.read;
+      } else {
+        readY = 'temp2';
+        preamble.push(`${readY} = ${argumentY}`);
+      }
     }
 
     const code = `pfread(${readX}, ${readY})`;

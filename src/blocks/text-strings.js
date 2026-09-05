@@ -1,5 +1,7 @@
 'use strict';
 
+import Vue from 'vue';
+
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 
 // Matches text12b.asm's TextPointersLoop, which always reads exactly 12
@@ -78,6 +80,7 @@ export const DEFAULT_TEXT_STRINGS = {
       name: 'Example message',
       text: 'HELLO WORLD!',
       justify: DEFAULT_TEXT_JUSTIFY,
+      wrapToLine2: false,
     },
   ],
 };
@@ -92,6 +95,23 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
   // which never shipped as a release so isn't worth its own migration path.
   textStrings.textStrings.forEach((entry) => {
     if (!TEXT_JUSTIFY_OPTIONS.includes(entry.justify)) entry.justify = DEFAULT_TEXT_JUSTIFY;
+    // Entries saved before "Wrap to line 2" existed won't have this field -
+    // defaults to off, matching every message's own pre-existing single-row
+    // behavior exactly (see encodeTextMessageLines in
+    // generators/bbasic/text-minikernel.js). Vue.set, not a plain
+    // assignment: `entry` here is very often the SAME object useLocalStorage
+    // has already made reactive (see hooks/storage.js's shared, memoized
+    // ref) from an EXISTING saved project's JSON, which never had this key
+    // at all - Vue 2's reactivity can't detect a brand new property added to
+    // an already-observed object via plain assignment (the classic "Vue
+    // cannot detect property addition" caveat), so TextEditor.vue's own
+    // ":counter" binding (which reads entry.wrapToLine2) silently never
+    // updated on toggle - confirmed as a real reported bug ("it should
+    // update the character count without selecting another text card").
+    // Vue.set is safe here even when `entry` isn't reactive yet (a brand
+    // new project's freshly-cloned DEFAULT_TEXT_STRINGS, still plain JS at
+    // this point) - it just falls back to a plain assignment in that case.
+    if (typeof entry.wrapToLine2 !== 'boolean') Vue.set(entry, 'wrapToLine2', false);
   });
   return textStrings;
 };

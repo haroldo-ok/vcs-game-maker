@@ -541,26 +541,50 @@ export default {
     this.workspace.addChangeListener(debounce(() => this.handleChange()));
     this.loadWorkspace(this.value);
 
-    // IBM Plex Mono (--blockly-font-family, see App.vue) loads asynchronously
-    // via a <link> in public/index.html, same as any web font - if it's
-    // still downloading when Blockly.inject() above first measures every
-    // block's own text to size its shape, blocks get sized against the
-    // fallback ("monospace") font's metrics instead. The font then swaps in
-    // visually once it finishes loading, but Blockly never re-measures
-    // existing blocks on its own, so they stay the WRONG size (sized for the
-    // fallback font, now showing the real font's glyphs) until something
-    // forces a re-render - confirmed as a real reported bug ("blocks aren't
-    // sized correctly when first created, a page refresh fixes it" - refresh
-    // just means the font is already cached the second time, so this race
-    // never happens then). document.fonts.ready resolves once every font
-    // requested so far has actually finished loading (immediately, if none
-    // were still pending) - re-rendering every block at that point re-runs
-    // Blockly's own text measurement against the NOW-correct font, fixing
-    // the sizing without needing a manual refresh.
-    if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(() => {
+    // IBM Plex Mono (--blockly-font-family, see App.vue, and
+    // ActionEditor.vue's own matching "normal 11px" fontStyle) loads
+    // asynchronously via a <link> in public/index.html, same as any web
+    // font - browsers fetch that stylesheet eagerly, but LAZILY defer
+    // actually downloading the font FILE it references until something on
+    // the page needs to render text in it. If Blockly.inject() above is the
+    // very first thing that needs it, every block's initial text
+    // measurement (which sizes its shape) runs against the fallback
+    // ("monospace") font instead - the font then swaps in visually once it
+    // finishes loading, but Blockly never re-measures existing blocks on
+    // its own, so they stay the WRONG size until something forces a
+    // re-render.
+    //
+    // document.fonts.ready (tried first) is NOT the right signal for this:
+    // it resolves once every font ALREADY SCHEDULED to load has finished -
+    // but if the lazy download above hasn't been scheduled yet at the
+    // moment this code runs (a real race - confirmed as why that first
+    // attempt still needed a page refresh), it can resolve before the real
+    // font ever starts loading, let alone finishes. document.fonts.load()
+    // instead actively requests this exact font (deduped by the browser if
+    // it's already loading/cached) and its own returned promise only
+    // resolves once THAT specific load genuinely completes - a real signal,
+    // not an ambient one. Once it resolves, re-rendering every block
+    // re-runs Blockly's own text measurement (a live DOM
+    // getComputedTextLength() call, not something Blockly caches across
+    // renders) against the now-correct font.
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('normal 11px "IBM Plex Mono"').catch(() => {}).then(() => {
         if (!this.workspace) return;
         this.workspace.getAllBlocks(false).forEach((block) => block.render());
+        // The toolbox flyout is a genuinely separate sub-workspace (its own
+        // blocks, its own earlier text measurement race) - getAllBlocks
+        // above only walks the MAIN workspace, so a category open at the
+        // moment the font finishes loading still stayed the wrong size
+        // until it was closed and reopened, a real reported recurrence of
+        // this same bug. getFlyout() returns null whenever no category is
+        // currently open (nothing to fix yet - the flyout measures fresh,
+        // correctly, the next time one IS opened, by which point the font
+        // load below has long since resolved).
+        const flyout = this.workspace.getFlyout && this.workspace.getFlyout();
+        const flyoutWorkspace = flyout && flyout.getWorkspace && flyout.getWorkspace();
+        if (flyoutWorkspace) {
+          flyoutWorkspace.getAllBlocks(false).forEach((block) => block.render());
+        }
       });
     }
 

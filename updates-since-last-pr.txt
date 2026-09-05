@@ -1,0 +1,73 @@
+Updates since last pull request (#227, head bab7f6a, 2026-08-25)
+========================================================================
+
+Uncommitted work in progress (not yet committed/pushed)
+--------------------------------------------------------
+
+Bug fixes:
+  - Fixed ball-width setter scrambling unrelated CTRLPF bits (reported as
+    "setting ball width flips half the playfield to player1's color"). Root
+    cause: CTRLPF's write address is hardware-aliased with INPT2 (paddle
+    input) on reads, so "CTRLPF & 207" was reading live paddle-port garbage,
+    not the last-written value. Fixed by routing ball width/priority through
+    a proper RAM shadow variable instead of reading the hardware register
+    back.
+  - Fixed a Vuetify dialog bug where the modal backdrop (scrim) could render
+    above the dialog's own buttons after a long session, making them
+    unclickable (reported as "Create New Project" doing nothing when
+    clicked) - the dialog's own forced z-index was too low relative to how
+    high Vuetify's internal overlay counter can drift.
+  - Fixed the emulator preview drawer auto-switching into "temporary" (with
+    a dark backdrop) at narrow viewport widths - now always renders as a
+    permanent panel.
+  - Fixed newly-created Blockly blocks being sized against the fallback font
+    instead of the real one (IBM Plex Mono loads asynchronously; blocks
+    used to need a page refresh to resize correctly).
+  - Fixed save filename not using the browser's local timezone.
+  - Fixed auto-increment version not updating the save filename after
+    navigating away and back.
+
+Envelope (ADSR) graph editor polish:
+  - Release dot now drags vertically to adjust Sustain, matching the Decay
+    dot.
+  - Added Y-axis (0/25/50/75/100) value labels inside the graph, correctly
+    stacked behind the curve/dots with a white outline for legibility,
+    matching the X-axis stage labels' color.
+  - Spacing/divider adjustments around the reset/undo/redo toolbar and
+    between Arpeggio/Envelope rows on the Sound FX cards.
+
+Sound FX / Text tab layout:
+  - Added a "Columns" toggle (persistent app preference) to switch each
+    tab's card list between a multi-column grid and a single full-width
+    column.
+  - Various wrapped-row spacing fixes on the Sound FX card (Arpeggio/
+    Envelope fields).
+
+Investigated and NOT shipped (reverted):
+  - A software (pfread-based) playfield collision system for players,
+    intended to let a diagonal move slide along a wall instead of stopping
+    dead. Went through several designs (reactive axis-aware backtrack,
+    predictive per-direction "move if clear") - each hit a different real
+    bug (ROM lockup, ROM reset on contact, screen roll on any joystick
+    input). Removed for now; the plain hardware-collision "Undo last move"
+    block is unaffected. See generators/bbasic/collision.js's own
+    top-of-file comment for the full history if revisiting this.
+
+06db8cd  2026-08-25  bump version to 0.50.23
+    Add ADSR volume envelopes (with a visual curve editor) replacing the old
+    single-stage Fade, re-enable Arpeggio, honor Music-tab mute/solo in the
+    generated ROM, add 8-direction missile firing (with a joystick 8-way
+    direction getter), simplify background/score/text fade-finished watches,
+    add a hide-sidebar option, switch Blockly to the modern Zelos renderer,
+    and fix a score-literal compile crash and a mis-worded collision block.
+
+bab7f6a  2026-08-25  bump version to 0.50.24
+    Fix envelope-off-by-default rendering bug, expand envelope Attack/Release
+    range to 32 frames, gate the Score Font editor's digit grid to
+    Custom/Squish Custom fonts only, default the score row's background
+    color to the live background color when never explicitly set, add a
+    Background-tab toggle for the grid overlay's X,Y cell labels, switch
+    Blockly's block outline colour to a darker auto-derived shade, revert
+    the Blockly renderer to classic puzzle shapes, fix a project-load crash
+    on an empty/invalid file, and fix the save filename not tracking further
+    auto-incremented versions after navigating away and back.

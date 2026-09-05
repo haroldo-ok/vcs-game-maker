@@ -242,7 +242,7 @@ export const DEFAULT_BACKGROUNDS = {
   backgrounds: [
     {
       id: 1,
-      name: 'Test 1',
+      name: 'Background',
       pixels: playfieldToMatrix(
           'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n' +
         'X..............................X\n' +
@@ -511,6 +511,83 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `The playfield's vertical resolution in rows - the Superchip RAM pfres setting ` +
       `if that's turned on (Options tab), otherwise the standard 11-row default.`,
+  },
+  // Blocks for converting between playfield pixel coordinates (columns
+  // 0-31, rows 0-10/pfres-1 - the same space background_get_pixel/
+  // background_change_pixel already read/write) and sprite coordinates (the
+  // raw X/Y a Player/Missile/Ball's own X/Y setter blocks use) - see the
+  // real batari Basic formulas in generators/bbasic/background.js's own
+  // comment. One value-returning block per DIRECTION (two total, not one
+  // per axis), with an AXIS dropdown - same shape as background_get_
+  // resolution above for the no-variable-required part, and the same "one
+  // dropdown instead of two near-identical blocks" convention background_
+  // get_color/background_set_color already use for Background vs Playfield.
+  // WIDTH only actually affects the X formula (see its own generator
+  // comment) - still shown for a Y conversion for simplicity, just unused
+  // by it.
+  {
+    'type': `background_pixel_to_sprite`,
+    'message0': `${BACKGROUND_ICON} Convert playfield %1 %2 to %3`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'AXIS',
+        'options': [
+          ['X', 'X'],
+          ['Y', 'Y'],
+        ],
+      },
+      {
+        'type': 'input_value',
+        'name': 'COORD',
+        'check': 'Number',
+      },
+      {
+        'type': 'field_dropdown',
+        'name': 'WIDTH',
+        'options': [
+          ['single-wide sprite', 'SINGLE'],
+          ['double/quad-wide sprite', 'WIDE'],
+        ],
+      },
+    ],
+    'inputsInline': true,
+    'output': 'Number',
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Converts a playfield pixel column (0-31) or row to the matching Player/Missile/Ball X or ` +
+      `Y coordinate.`,
+  },
+  {
+    'type': `background_sprite_to_pixel`,
+    'message0': `${BACKGROUND_ICON} Convert %3 %1 %2 to playfield`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'AXIS',
+        'options': [
+          ['X', 'X'],
+          ['Y', 'Y'],
+        ],
+      },
+      {
+        'type': 'input_value',
+        'name': 'COORD',
+        'check': 'Number',
+      },
+      {
+        'type': 'field_dropdown',
+        'name': 'WIDTH',
+        'options': [
+          ['single-wide sprite', 'SINGLE'],
+          ['double/quad-wide sprite', 'WIDE'],
+        ],
+      },
+    ],
+    'inputsInline': true,
+    'output': 'Number',
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Converts a Player/Missile/Ball X or Y coordinate to the matching playfield pixel column ` +
+      `(0-31) or row.`,
   },
   // Block for clearing every playfield pixel at once
   {

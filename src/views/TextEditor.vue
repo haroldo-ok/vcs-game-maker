@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Text</v-card-title>
       <v-card-text>
         <p class="v-messages theme--light v-messages__message">
@@ -9,7 +9,9 @@
           for choosing a message from a variable). A-Z, 0-9, and basic punctuation only -
           unsupported characters and shorter text are padded with spaces. Use the "(scrolling)"
           versions of the "Show text" blocks to reveal a message longer than 12 characters by
-          scrolling through it - the max display width below does not apply to those.
+          scrolling through it, or turn on a message's own "Wrap to line 2" below to word-wrap
+          it onto a second static line instead - the max display width below does not apply to
+          either.
         </p>
 
         <div class="text-bkcolor-row">
@@ -50,9 +52,11 @@
             <v-list-item-content>
               <v-card
                 outlined
+                :ripple="false"
                 class="text-card"
-                :class="dragCardClass(index)"
+                :class="[dragCardClass(index), {'text-card-selected': entry.id === selectedCardId}]"
                 v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(entry.id)"
               >
                 <div
                   class="text-drag-handle"
@@ -124,10 +128,14 @@
                 </v-card-text>
 
                 <v-card-text v-if="!isCollapsed(entry)" class="text-message-section">
-                  <v-text-field
+                  <v-textarea
                     label="Text"
                     v-model="entry.text"
-                    counter="12"
+                    :counter="entry.wrapToLine2 ? 24 : 12"
+                    outlined
+                    rows="2"
+                    hint="Press Enter for a line break - only takes effect with &quot;Wrap to line 2&quot; on below; otherwise it's treated as a space. More than 2 lines: use the &quot;Scroll text lines&quot; blocks to move through them at runtime."
+                    persistent-hint
                     @change="() => handleTextChange(entry)"
                   />
                   <v-btn-toggle
@@ -147,6 +155,15 @@
                       <v-icon small>mdi-format-align-right</v-icon>
                     </v-btn>
                   </v-btn-toggle>
+                  <v-switch
+                    v-model="entry.wrapToLine2"
+                    label="Wrap to line 2"
+                    title="When this message is longer than 12 characters, word-wrap the overflow onto a second 12-character line underneath, instead of cutting it off. Only the plain &quot;Show text&quot; blocks support this - the &quot;(scrolling)&quot; blocks always scroll a single line and ignore it."
+                    hide-details
+                    dense
+                    class="text-wrap-switch"
+                    @change="handleChildChange"
+                  />
                 </v-card-text>
               </v-card>
             </v-list-item-content>
@@ -238,6 +255,19 @@ export default defineComponent({
         };
       },
     });
+
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards and SoundFXEditor.vue's own sound effect cards (see
+    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // component state, not persisted, not wired into anything else.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
+    };
 
     const state = computed({
       get() {
@@ -349,6 +379,7 @@ export default defineComponent({
         name: `Message ${maxId + 1}`,
         text: '',
         justify: DEFAULT_TEXT_JUSTIFY,
+        wrapToLine2: false,
       };
 
       state.value.textStrings.push(newEntry);
@@ -377,6 +408,7 @@ export default defineComponent({
     };
 
     return {
+      selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
       isCollapsed, toggleCollapsed, textBkColor, textMaxDisplayWidth, TEXT_MAX_DISPLAY_WIDTH_OPTIONS,
       textColumns,
@@ -411,6 +443,11 @@ export default defineComponent({
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+/* Matches the Score tab's own .score-bkcolor-label size (ScoreFontEditor.vue). */
+.text-bkcolor-label {
+  font-size: 1rem;
 }
 
 .text-max-width-row {
@@ -480,9 +517,17 @@ export default defineComponent({
    BackgroundEditor.vue's own .background-list, see its comment there),
    without anything similar between columns - zeroing it here keeps this
    grid's own gap as the only source of spacing, matching the Background
-   tab's spacing exactly. */
+   tab's spacing exactly. overflow: visible (see MusicEditor.vue's own
+   identical fix) stops this same element's default "overflow: hidden"
+   from clipping a selected card's own 2px outline - min-width: 0 has to
+   come with it (same comment there for the full explanation): overflow:
+   visible silently undoes a flex item's own default 0 min-width, letting
+   it refuse to shrink below its own widest content instead of the tab's
+   width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 .text-card {
@@ -590,6 +635,10 @@ export default defineComponent({
 
 .text-justify-toggle {
   margin-top: 8px;
+}
+
+.text-wrap-switch {
+  margin-top: 4px;
 }
 
 .add-text-button {

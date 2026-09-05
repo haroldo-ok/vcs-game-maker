@@ -1,7 +1,7 @@
 <template>
   <div>
-    <v-card flat class="editor-container">
-      <v-card-title>Music (alpha 0.35)</v-card-title>
+    <v-card flat :ripple="false" class="editor-container" @click="deselectCard">
+      <v-card-title>Music (alpha 0.4)</v-card-title>
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
         This feature is in early alpha. Things may change or break. In fact, it's guaranteed. You've been warned!
       </v-alert>
@@ -41,7 +41,14 @@
             :data-song-id="song.id"
           >
             <v-list-item-content>
-              <v-card outlined class="song-card" :class="dragCardClass(index)" v-on="dragTargetListeners(index)">
+              <v-card
+                outlined
+                :ripple="false"
+                class="song-card"
+                :class="[dragCardClass(index), {'song-card-selected': song.id === selectedCardId}]"
+                v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(song.id)"
+              >
                 <div
                   class="song-drag-handle"
                   title="Drag to reorder"
@@ -940,6 +947,31 @@ export default defineComponent({
     const handleFitZoom = (song, pattern) => {
       recalculateFitBaseWidth(song, pattern);
       pianoRollZoom.value = 1;
+    };
+
+    // Purely a visual "which card am I looking at" marker - named generically
+    // (selectCard/selectedCardId, not selectSong/selectedSongId) since this
+    // same click-to-outline pattern is meant to be reused on other tabs'
+    // cards later (Background/Player0/Player1/Data/etc), not just the Music
+    // tab's own song cards. Plain local component state, NOT persisted
+    // (unlike activePatternId/activeTrackId in hooks/music-editor-state.js,
+    // which drive real playback/editing targets and survive a reload) and
+    // not wired into anything else. Clicking anywhere in a song's own card
+    // (the card body, its Song name/Tempo fields, its buttons - see the
+    // card's own @click below) just changes which card gets the selected
+    // outline; nothing about this affects which song plays, which pattern
+    // is being edited, or any other existing behavior.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    // Clicking anywhere outside a card (empty page space, or any other
+    // control that isn't itself a card) clears the selection - bound on
+    // this tab's own outer container below, while each card's own @click
+    // (see selectCard above) stops propagation so selecting a card doesn't
+    // immediately deselect itself via this same handler bubbling up to it.
+    const deselectCard = () => {
+      selectedCardId.value = null;
     };
 
     const state = computed({
@@ -3054,6 +3086,7 @@ export default defineComponent({
       subdivisionOptionItems: DURATION_SUBDIVISION_OPTIONS.map((n) => ({text: `${n}`, value: n})),
       maxPatternSteps: MAX_PATTERN_STEPS,
       pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
+      selectedCardId, selectCard, deselectCard,
       sharedNoteRows: [...CANONICAL_NOTE_ROWS, ...HIT_ROW],
       isSongCollapsed, toggleSongCollapsed,
       isPatternCollapsed, togglePatternCollapsed, isInstrumentsCollapsed, toggleInstrumentsCollapsed,
@@ -3154,8 +3187,25 @@ export default defineComponent({
   margin-top: 12px;
 }
 
+/* overflow: visible added alongside the existing padding reset - Vuetify's
+   own default "overflow: hidden" here (normally there to ellipsis-truncate
+   long list-item text, not relevant to a card filling this whole slot) was
+   clipping the selected card's own 2px outline (see .song-card-selected -
+   an outline draws outside the border edge, in the few pixels of this
+   parent's own box the card doesn't otherwise use), a real reported bug.
+   min-width: 0 is needed ALONGSIDE that change, not just cosmetic - a flex
+   item's own min-width defaults to "auto" (its content's own intrinsic
+   width) UNLESS overflow is something other than visible, in which case the
+   default is 0 instead (real CSS flexbox behavior, not a bug in either
+   direction alone). Switching this to overflow: visible silently undid that
+   automatic 0-min-width, so this card started refusing to shrink below the
+   piano roll grid's own full, un-clipped width - a real reported regression
+   (song cards suddenly far wider than the tab, spilling past the window)
+   traced directly to this exact interaction. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 /* Narrow - the options themselves (1/2/4/8/16) are at most 2 characters,
@@ -3233,6 +3283,12 @@ export default defineComponent({
   position: relative;
   width: 100%;
 }
+
+/* Card-level click-to-select styling (cursor/ripple/hover suppression on
+   .song-card.v-card--link/.editor-container.v-card--link, and the actual
+   .song-card-selected outline) lives in App.vue's own global stylesheet
+   now, shared with SoundFXEditor.vue's identical .soundfx-card treatment
+   rather than duplicated per-tab - see its own comment there. */
 
 /* Same reasoning/placement as TextEditor.vue's .text-drag-handle (see
    hooks/drag-reorder.js's own comment) - only this top strip is actually

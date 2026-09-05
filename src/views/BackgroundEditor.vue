@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container">
+    <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Backgrounds</v-card-title>
       <v-card-text>
         <div class="editor-toolbar-row">
@@ -12,6 +12,8 @@
             label="XY"
             title-on="Hide pixel coordinates"
             title-off="Show pixel coordinates"
+            :disabled="!showPixelGrid"
+            disabled-title="Turn on the pixel grid to show coordinates"
           />
         </div>
         <quick-color-palette v-if="pfColorsEnabled" v-model="selectedQuickColor" />
@@ -27,9 +29,11 @@
             <v-list-item-content>
               <v-card
                 outlined
+                :ripple="false"
                 class="background-card"
-                :class="dragCardClass(index)"
+                :class="[dragCardClass(index), {'background-card-selected': background.id === selectedCardId}]"
                 v-on="dragTargetListeners(index)"
+                @click.stop="selectCard(background.id)"
               >
                 <div
                   class="background-drag-handle"
@@ -276,6 +280,19 @@ export default defineComponent({
       background.rowColors = next;
     };
 
+    // Purely a visual "which card am I looking at" marker - same
+    // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
+    // own song cards and the other tabs' own entry cards (see
+    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // component state, not persisted, not wired into anything else.
+    const selectedCardId = ref(null);
+    const selectCard = (id) => {
+      selectedCardId.value = id;
+    };
+    const deselectCard = () => {
+      selectedCardId.value = null;
+    };
+
     const state = computed({
       get() {
         try {
@@ -428,7 +445,7 @@ export default defineComponent({
       const maxId = max(backgrounds.map((o) => o.id)) || 0;
       const newBackground = {
         id: maxId + 1,
-        name: `Background ${maxId + 1}`,
+        name: 'Background',
         pixels: buildDefaultBackgroundPixels(backgroundRows.value),
       };
 
@@ -445,7 +462,8 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    return {state, handleChildChange, handleAddBackground, handleDeleteBackground,
+    return {selectedCardId, selectCard, deselectCard,
+      state, handleChildChange, handleAddBackground, handleDeleteBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
       zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled,
@@ -496,8 +514,16 @@ export default defineComponent({
    carries its own default 12px top/bottom padding - on top of the grid's
    own row gap AND .background-card's own 12px padding, this was adding a
    third, easy-to-miss source of extra space above/below each card. */
+/* overflow: visible added alongside the padding reset (see MusicEditor.vue's
+   own identical fix) - stops this element's default "overflow: hidden" from
+   clipping a selected card's own 2px outline - min-width: 0 has to come
+   with it (same comment there for the full explanation): overflow: visible
+   silently undoes a flex item's own default 0 min-width, letting it refuse
+   to shrink below its own widest content instead of the tab's width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
+  overflow: visible;
+  min-width: 0;
 }
 
 /* Same grid layout as TextEditor.vue's .text-list - lets more than one

@@ -56,10 +56,32 @@
           type="number"
           min="1"
           max="32"
+          :disabled="!configurationState.enableSuperchip"
           label="Playfield vertical resolution (pfres)"
-          hint="Up to 32 rows. Values that don't evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal."
+          :hint="configurationState.enableSuperchip ?
+            'Up to 32 rows. Values that don\'t evenly divide 96 (3, 4, 6, 8, 12, 16, 24, 32) may leave the screen slightly shorter than normal.' :
+            'Only takes effect with Superchip RAM on above - the standard kernel always uses its own fixed 11-row default otherwise.'"
           persistent-hint
           class="pfres-field"
+        />
+        <v-switch
+          v-model="configurationState.enablePfRowHeight"
+          @change="handleChangeConfiguration"
+          label="Override playfield row height (pfrowheight)"
+          hint="Advanced: overrides the row height (in scanlines) the kernel derives from pfres above. Doesn't change how many rows the playfield has, only how tall each one is drawn."
+          persistent-hint
+          class="option-switch pfrowheight-switch"
+        />
+        <v-text-field
+          v-model.number="configurationState.pfrowheight"
+          @change="handleChangePfRowHeight"
+          type="number"
+          min="1"
+          :disabled="!configurationState.enablePfRowHeight"
+          label="Playfield row height (pfrowheight)"
+          hint="The sprite/playfield coordinate conversion blocks on the Actions tab use this value too, so they stay accurate."
+          persistent-hint
+          class="pfrowheight-field"
         />
       </div>
 
@@ -92,10 +114,22 @@
           class="option-switch"
         />
         <v-switch
-          v-model="configurationState.enableSpriteColors"
+          v-model="configurationState.enablePlayer0SpriteColors"
           @change="handleChangeConfiguration"
-          label="Enable per-row sprite colors (playercolors player1colors)"
-          hint="Lets player sprites show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on."
+          label="Enable per-row Player 0 sprite colors (playercolors)"
+          hint="Lets Player 0 show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on. Costs missile0 (can't be used as a sprite anywhere in the project once this is on) and paddle input. batari Basic requires player1colors alongside playercolors, so turning this on also turns on (and locks on) Player 1 sprite colors below, costing missile1 too."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="configurationState.enablePlayer1SpriteColors"
+          @change="handleChangeConfiguration"
+          :disabled="player0RainbowColorsActive"
+          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
+          label="Enable per-row Player 1 sprite colors (player1colors)"
+          :hint="player0RainbowColorsActive ?
+            'Forced on: batari Basic requires player1colors whenever playercolors (Player 0 sprite colors, above) is on.' :
+            'Lets Player 1 show a different color on every row, the same way backgrounds can. Unlike per-row playfield colors below, this works fine with Superchip RAM on. Costs missile1 (can\'t be used as a sprite anywhere in the project once this is on) - unlike Player 0 sprite colors, this works on its own with no other cost.'"
           persistent-hint
           class="option-switch"
         />
@@ -210,6 +244,20 @@
           persistent-hint
           class="option-switch"
         />
+        <v-text-field
+          v-if="isElectron"
+          v-model="stellaPathStorage"
+          label="Stella installation location"
+          hint="Path to the Stella executable, used by the emulator preview's own 'Test in Stella' button. You need to install Stella yourself first - this only points the app at it."
+          persistent-hint
+          class="stella-path-field"
+        >
+          <template v-slot:append>
+            <v-btn text small @click="handleBrowseForStella">
+              Browse...
+            </v-btn>
+          </template>
+        </v-text-field>
       </div>
     </v-card-text>
     </v-card>
@@ -221,7 +269,7 @@ import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
 import {useBackgroundsStorage, useBlocklyControlsHorizontalStorage, useConfigurationStorage,
   useDesaturateBlocklyColorsStorage, useErrorStorage,
   useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage, useMuteBlocklySoundsStorage,
-  useProjectAutoIncrementVersionStorage} from '../hooks/project';
+  useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 import {effectiveBackgroundRows, reflowBackgroundsToHeight} from '../blocks/background';
 
@@ -272,8 +320,10 @@ const collapsedSections = ref(loadCollapsedSections());
 // default in sync by hand.
 const DEFAULT_CONFIGURATION = {
   showScore: true,
+  enableScoreFade: false,
   showBlankLines: true,
-  enableSpriteColors: false,
+  enablePlayer0SpriteColors: false,
+  enablePlayer1SpriteColors: false,
   enablePfColors: false,
   enableSuperchip: false,
   enableOptimizationSpeed: false,
@@ -281,6 +331,8 @@ const DEFAULT_CONFIGURATION = {
   enableRand16: true,
   enableCycleScore: false,
   pfres: 24,
+  enablePfRowHeight: false,
+  pfrowheight: 8,
   romSize: '4k',
   scoreFont: '',
   muteAllAudio: false,
@@ -305,6 +357,19 @@ export default defineComponent({
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
+    const stellaPathStorage = useStellaPathStorage();
+    // window.electronAPI only exists inside the desktop (Electron) build's
+    // own preload script (see preload.js) - a plain web-served copy of this
+    // same app has no such thing, so this is what tells the two apart at
+    // runtime rather than any build-time flag.
+    const isElectron = computed(() => !!window.electronAPI);
+    const handleBrowseForStella = async () => {
+      const picked = await window.electronAPI.pickStellaPath();
+      // null specifically means the user cancelled the dialog (see
+      // background.js's own "stella:pick-path" handler) - leaves whatever
+      // was already saved untouched rather than clearing it.
+      if (picked) stellaPathStorage.value = picked;
+    };
 
     // Which sections are collapsed - a Set of section keys, matching the
     // collapse pattern already used by the other tabs' own cards (a plain
@@ -365,12 +430,20 @@ export default defineComponent({
     // already has it) even when the user never touches this switch directly
     // themselves - not just the handleChangeConfiguration path below, which
     // only runs when some OTHER switch on this page is what triggered the
-    // change.
+    // change. Also forces Player 1 sprite colors on: batari Basic's own
+    // kernel_options combination table never has a valid row with
+    // "playercolors" alone, it always needs "player1colors" too (see
+    // generateConfiguration's own comment in generators/bbasic.js) - so
+    // whenever playercolors is needed (a player0 rainbow-colors block, OR
+    // the "Enable per-row Player 0 sprite colors" toggle), player1colors has
+    // to come along with it, same reasoning/pattern as showBlankLines just
+    // below.
     watch(player0RainbowColorsActive, (active) => {
       if (!active) return;
       const state = configurationState.value;
-      if (state.showBlankLines) return;
+      if (state.showBlankLines && state.enablePlayer1SpriteColors) return;
       state.showBlankLines = true;
+      state.enablePlayer1SpriteColors = true;
       configurationState.value = state;
     }, {immediate: true});
 
@@ -431,6 +504,23 @@ export default defineComponent({
       reflowBackgroundsToHeight(backgroundsStorage, effectiveBackgroundRows(state));
     };
 
+    // Unlike pfres above, this doesn't change how many rows the playfield
+    // has (no reflow needed) - it only overrides the row HEIGHT the kernel
+    // draws each one at (see pfRowDivisorFor in utils/playfield-coords.js,
+    // which prefers this value over its own round(96/pfres) calculation
+    // whenever the "Override playfield row height" switch above is on), so
+    // background pixel data stays exactly as-is. Whether the override is
+    // APPLIED is entirely the switch's own job (enablePfRowHeight) - this
+    // field's own stored number is just clamped to a sane positive integer
+    // here, same as pfres's own handleChangeResolution just above, so an
+    // invalid/emptied field can't leave a NaN or 0 behind for whenever the
+    // switch gets turned back on.
+    const handleChangePfRowHeight = () => {
+      const state = configurationState.value;
+      state.pfrowheight = Math.max(1, Math.round(Number(state.pfrowheight) || DEFAULT_CONFIGURATION.pfrowheight));
+      configurationState.value = state;
+    };
+
     // With Superchip off, the app's own bookkeeping variables have to live on
     // letters, leaving only USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP free for
     // user-created ones (see bbasic.js's SYSTEM_VARIABLES comment) - turning
@@ -461,8 +551,10 @@ export default defineComponent({
     const handleResetToDefaults = () => {
       const state = configurationState.value;
       state.showScore = DEFAULT_CONFIGURATION.showScore;
+      state.enableScoreFade = DEFAULT_CONFIGURATION.enableScoreFade;
       state.showBlankLines = DEFAULT_CONFIGURATION.showBlankLines;
-      state.enableSpriteColors = DEFAULT_CONFIGURATION.enableSpriteColors;
+      state.enablePlayer0SpriteColors = DEFAULT_CONFIGURATION.enablePlayer0SpriteColors;
+      state.enablePlayer1SpriteColors = DEFAULT_CONFIGURATION.enablePlayer1SpriteColors;
       state.enablePfColors = DEFAULT_CONFIGURATION.enablePfColors;
       state.enableSuperchip = DEFAULT_CONFIGURATION.enableSuperchip;
       state.enableOptimizationSpeed = DEFAULT_CONFIGURATION.enableOptimizationSpeed;
@@ -484,6 +576,7 @@ export default defineComponent({
       configurationState,
       handleChangeConfiguration,
       handleChangeResolution,
+      handleChangePfRowHeight,
       handleToggleSuperchip,
       handleResetToDefaults,
       romSizeOptions,
@@ -492,6 +585,7 @@ export default defineComponent({
       loadLastProject,
       muteBlocklySounds, hideSidebar, blocklyControlsHorizontal, desaturateBlocklyColors,
       hideDescriptionText, projectAutoIncrementVersion,
+      stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,
       toggleSection,
     };
@@ -596,5 +690,30 @@ export default defineComponent({
    switch itself again. */
 .hide-description-text .pfres-field {
   margin-top: 0;
+}
+
+/* Same reasoning as .pfres-field above, one level further down - it reads
+   as a sub-option of the "Override playfield row height" switch right
+   above it. */
+.pfrowheight-field {
+  margin-left: 46px;
+  margin-top: 12px;
+  max-width: calc(100% - 46px);
+}
+
+.hide-description-text .pfrowheight-field {
+  margin-top: 0;
+}
+
+/* The "Override playfield row height" switch reads as belonging with
+   Superchip's own switch (it's the next "advanced ROM knob" down the
+   list), even though .pfres-field now sits between them in the DOM - the
+   generic ".option-switch + .option-switch" rule above only tightens
+   switches that are immediate DOM siblings, which this one no longer is,
+   so it needs its own explicit override to get the same tighter spacing
+   once Expert mode's hint text is gone. Left alone (Vuetify's own default
+   spacing) while Expert mode is off. */
+.hide-description-text .pfrowheight-switch {
+  margin-top: 2px;
 }
 </style>

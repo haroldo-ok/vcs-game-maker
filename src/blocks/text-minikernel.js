@@ -47,9 +47,11 @@ Blockly.Blocks['text_minikernel_show_named'] = {
     this.setNextStatement(true, null);
     this.setColour(TEXT_COLOR);
     this.setTooltip('Displays a message defined on the Text tab, in place of the score, ' +
-      'using the Text Minikernel. Automatically scrolls back and forth if the message is ' +
-      'longer than the Text tab\'s own max display width - see "Scroll text" for ' +
-      'a version with its own tunable scroll speed/pause.');
+      'using the Text Minikernel. If the message is longer than the Text tab\'s own max ' +
+      'display width, it word-wraps onto a second line when that entry\'s own "Wrap to ' +
+      'line 2" is on, otherwise it automatically scrolls back and forth - see "Scroll ' +
+      'text" for a version with its own tunable scroll speed/pause (which always scrolls ' +
+      'on a single line, ignoring "Wrap to line 2").');
   },
 };
 
@@ -71,7 +73,9 @@ Blockly.Blocks['text_minikernel_show_named_scroll'] = {
     this.setColour(TEXT_COLOR);
     this.setTooltip('Displays a message defined on the Text tab, in place of the score, ' +
       'using the Text Minikernel, with its own scroll speed/pause. Only takes effect if the ' +
-      'message is longer than the Text tab\'s own max display width - ignored otherwise.');
+      'message is longer than the Text tab\'s own max display width - ignored otherwise. ' +
+      'Always scrolls on a single line, even if that entry\'s own "Wrap to line 2" is on - ' +
+      'use "Show text" instead for that.');
   },
 };
 
@@ -120,8 +124,9 @@ Blockly.defineBlocksWithJsonArray([
     'colour': TEXT_COLOR,
     'tooltip': 'Displays the message at this position on the Text tab (1 = the first message ' +
       'listed there, 2 = the second, and so on) - the number can be a variable or computed ' +
-      'value, so the message shown can be picked at runtime. Automatically scrolls if that ' +
-      'message is longer than the Text tab\'s own max display width.',
+      'value, so the message shown can be picked at runtime. If that message is longer than ' +
+      'the Text tab\'s own max display width, it word-wraps onto a second line when that ' +
+      'entry\'s own "Wrap to line 2" is on, otherwise it automatically scrolls.',
   },
   // Clears whatever message is currently shown, without displaying a new
   // one - equivalent to "Show text" with an empty message, but reads clearer
@@ -244,6 +249,33 @@ Blockly.defineBlocksWithJsonArray([
       'chosen end of its scroll range (always true for "Left" on a message that never ' +
       'needed to scroll at all).',
   },
+  // Moves the currently shown message up/down one line at a time when its
+  // own "Wrap to line 2" text (see the Text tab's own multi-line field) has
+  // more than 2 lines - only the first 2 are ever shown at once, same as
+  // any other wrapping message. Distinct from the "Text scroll" blocks
+  // above (which move a single line horizontally, character by character) -
+  // these move vertically, whole lines at a time. Harmless no-ops on a
+  // message with 2 or fewer lines, or one shown via a "(scrolling)" block.
+  {
+    'type': 'text_minikernel_line_scroll_up',
+    'message0': `${TEXT_ICON} Scroll text lines up`,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Moves the currently shown message up by one line, revealing an earlier line ' +
+      'of a "Wrap to line 2" message with more than 2 lines. Has no effect once already at ' +
+      'the first line, or on a message with 2 or fewer lines.',
+  },
+  {
+    'type': 'text_minikernel_line_scroll_down',
+    'message0': `${TEXT_ICON} Scroll text lines down`,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Moves the currently shown message down by one line, revealing a later line ' +
+      'of a "Wrap to line 2" message with more than 2 lines. Has no effect once already at ' +
+      'the last line, or on a message with 2 or fewer lines.',
+  },
 ]);
 
 // Free-typed version of text_minikernel_show_named_scroll above - see
@@ -284,7 +316,9 @@ Blockly.Blocks['text_minikernel_show_by_id_scroll'] = {
     this.setTooltip('Displays the message at this position on the Text tab, with its own ' +
       'scroll speed/pause - the number can be a variable or computed value, so the message ' +
       'shown can be picked at runtime. Only takes effect if that message is longer than the ' +
-      'Text tab\'s own max display width - ignored otherwise.');
+      'Text tab\'s own max display width - ignored otherwise. Always scrolls on a single ' +
+      'line, even if that entry\'s own "Wrap to line 2" is on - use "Show text ID" instead ' +
+      'for that.');
   },
 };
 

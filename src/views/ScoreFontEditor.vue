@@ -16,6 +16,13 @@
           @input="(byte) => (scoreBkColor = byte === null ? 'background' : byte)"
         />
         <span class="score-bkcolor-label">Score background color</span>
+        <v-switch
+          v-model="scoreFadeEnabled"
+          label="Score fade shading (scorefade)"
+          title="Adds shading to the score digits. Set the score's color (or keep changing it, e.g. every frame) with the Score category's own color blocks on the Actions tab to see the effect - incrementing it continuously produces the classic Atari color-bar look."
+          hide-details
+          class="score-fade-switch"
+        />
       </div>
       <p v-if="isEditableFontSelected" class="v-messages theme--light v-messages__message">
         Draw the ten score digits below. They are used when the score font is
@@ -185,6 +192,27 @@ export default defineComponent({
       },
     });
 
+    // Adds shading to the score digits (const scorefade = 1 - see
+    // generateConfiguration in generators/bbasic.js) - a plain boolean
+    // config field, same computed get/set shape as scoreBkColor above.
+    const scoreFadeEnabled = computed({
+      get() {
+        try {
+          return !!(configurationStorage.value || {}).enableScoreFade;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return false;
+        }
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          enableScoreFade: value,
+        };
+      },
+    });
+
     // 'background' has no palette swatch of its own to highlight - the
     // picker only understands a byte or null (its own "nothing selected"
     // state), so that sentinel is translated to/from null here rather than
@@ -307,6 +335,7 @@ export default defineComponent({
       selectedFont,
       scoreBkColor,
       scoreBkColorSwatchValue,
+      scoreFadeEnabled,
       backgroundPreviewColor,
       scoreFontOptions,
       activeDigitHeight,
@@ -343,6 +372,29 @@ export default defineComponent({
   gap: 8px;
   margin-top: 8px;
   margin-bottom: 16px;
+}
+
+/* Vuetify's own switch margin-top (meant for stacking below other fields)
+   otherwise pushes this out of line with the swatch/label sharing this same
+   row - same override TextEditor.vue's own .text-columns-switch uses for
+   an identical inline-row switch. margin-left separates it from the label
+   text right before it. */
+.score-fade-switch {
+  margin-top: 0 !important;
+  margin-left: 16px;
+  padding-top: 0 !important;
+  flex: 0 0 auto;
+}
+
+/* Matches .score-bkcolor-label's own explicit size below - Vuetify's switch
+   label otherwise renders at its own default size, which read visibly
+   smaller/larger than the plain-text label sharing this same row. */
+.score-fade-switch >>> .v-label {
+  font-size: 1rem;
+}
+
+.score-bkcolor-label {
+  font-size: 1rem;
 }
 
 .digit-list {

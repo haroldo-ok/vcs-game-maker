@@ -156,7 +156,7 @@ Blockly.defineBlocksWithJsonArray([
     'message0': `${COMMENT_ICON} %1`,
     'args0': [
       {
-        'type': 'field_input',
+        'type': 'field_multilinetext',
         'name': 'TEXT',
         'text': 'Add Comment',
       },
@@ -177,7 +177,7 @@ Blockly.defineBlocksWithJsonArray([
     'message0': `${COMMENT_ICON} %1`,
     'args0': [
       {
-        'type': 'field_input',
+        'type': 'field_multilinetext',
         'name': 'TEXT',
         'text': 'Add Comment',
       },

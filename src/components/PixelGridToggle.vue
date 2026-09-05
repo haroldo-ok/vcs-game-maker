@@ -2,7 +2,8 @@
   <v-btn
     icon
     small
-    :title="value ? titleOn : titleOff"
+    :disabled="disabled"
+    :title="disabled ? (disabledTitle || titleOff) : (value ? titleOn : titleOff)"
     class="pixel-grid-toggle-btn"
     :class="{'pixel-grid-toggle-btn-active': value}"
     @click="$emit('input', !value)"
@@ -35,6 +36,13 @@ export default {
     label: {type: String, default: null},
     titleOn: {type: String, default: 'Hide pixel grid'},
     titleOff: {type: String, default: 'Show pixel grid'},
+    // Lets a caller gate this toggle behind some OTHER condition (see
+    // BackgroundEditor.vue's own XY-label toggle, disabled unless the grid
+    // overlay itself is on - the labels have no visible effect without it,
+    // since PixelEditor.vue's grid overlay canvas that draws them doesn't
+    // even exist in the DOM while showGrid is false).
+    disabled: {type: Boolean, default: false},
+    disabledTitle: {type: String, default: null},
   },
 };
 </script>

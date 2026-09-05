@@ -49,7 +49,7 @@
                 Do you really want to start a new project?
               </v-card-title>
 
-              <v-card-text>
+              <v-card-text class="mt-4">
                 This will create a new project, clearing all the blocks on the actions tab,
                 all the graphics and animations on the player 0 and player 1 tab, all of the
                 backgrounds on the backgrounds tab and replace all the options with default
@@ -59,20 +59,20 @@
               <v-divider></v-divider>
 
               <v-card-actions>
-                <v-spacer></v-spacer>
                 <v-btn
                   color="primary"
                   text
                   @click="handleNewProject"
                 >
-                  Yes, recreate the project
+                  Create new project
                 </v-btn>
+                <v-spacer></v-spacer>
                 <v-btn
                   color="secondary"
                   text
                   @click="data.newProjectDialog = false"
                 >
-                  No, nevermind
+                  Nevermind
                 </v-btn>
               </v-card-actions>
             </v-card>
@@ -149,6 +149,7 @@ import {getDateInfix} from '../utils/date';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
 import {persistActiveFileHandle, loadPersistedFileHandle, ensureWritePermission} from '../utils/file-handle-storage';
+import {version as appVersion} from '../../package.json';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
 const FORMAT_VERSION = 1.0;
@@ -329,6 +330,14 @@ export default defineComponent({
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
+        // The actual VCS Game Maker release that wrote this file (package.json's
+        // own version, e.g. "0.50.28") - distinct from format-version above,
+        // which is this .vcsgm SCHEMA's own version and only bumps when the
+        // save shape itself changes. Purely informational (nothing reads this
+        // back on load) - lets a saved file's own history/support requests
+        // say which app build produced it, same reasoning generation-time
+        // already does for when.
+        'app-version': appVersion,
         'generation-time': new Date(),
         configuration,
         'blockly-workspace': this.workspaceStorage,

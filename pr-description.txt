@@ -1,0 +1,32 @@
+Added:
+- 16-glyph custom score fonts
+- Set random seed block
+- Score digit change block
+- Native bB function blocks
+- Atari Keypad controller support
+- Pixel grid overlay for Player Sprite/Background editors
+- Score background color block
+- Background/Playfield color getter
+- Horizontal Blockly controls
+- Background, Score, and Text "color fade" blocks
+- "Expert mode" - hides instructional text throughout
+- Project tab Project info: Title/Developer/Version/Website/Email/Description
+- New option on Options tab: auto-increment version
+- Data tables cell type - set which type of data each cell is storing so you don't have to remember
+
+Changes:
+- Rework Project save/save-as/open with File System Access persistence
+- Cleaned up Blockly block wording
+- Delta-encode music instrument data
+- Gave Wait N frames block its own loop counter
+- Persist Blockly grid snap
+- Lots of UI updates
+
+Fixes:
+- Pixel editor mouse-leave
+- Console/scrollbar CSS
+- Bank-relocation dead-end
+- Score-font RORG bugs
+- Elseif/ball-width/reserved-word bugs
+- Text Minikernel clear/scroll interaction
+- Repeat-block label corruption and subroutine dropdown value loss

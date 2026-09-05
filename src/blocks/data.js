@@ -96,24 +96,33 @@ Blockly.Blocks['data_get_element'] = {
   },
 };
 
-// Same table lookup as data_get_element above, just chosen by typing its ID
-// number directly (see the ID badge shown on each table card on the Data
-// tab) instead of picking it from a name dropdown - lets a project with
-// many similarly-structured tables be built generically (e.g. a formula
-// elsewhere computing which table's own ID to read) rather than hardcoding
-// one specific table by name at edit time.
+// Same table lookup as data_get_element above, just chosen by its ID number
+// (see the ID badge shown on each table card on the Data tab) instead of
+// picking it from a name dropdown - lets a project with many similarly-
+// structured tables be built generically (e.g. a formula elsewhere
+// computing which table's own ID to read) rather than hardcoding one
+// specific table by name at edit time. TABLE_ID is a plain "Number" value
+// SOCKET (a math_number shadow, like every other numeric input in this
+// app), not a typed-in field - still has to resolve to a real, compile-time
+// literal though (see resolveTableIdLiteral in generators/bbasic/data.js):
+// which physical data table gets read is baked into the generated code at
+// compile time, the same way TABLE's own dropdown choice already is, so
+// only a plain number actually plugged in here (not a variable or computed
+// expression) can resolve to a table at all.
 Blockly.Blocks['data_get_element_by_id'] = {
   init: function() {
+    this.appendValueInput('TABLE_ID')
+        .setCheck('Number')
+        .appendField(`${DATA_ICON} Data table ID`);
     this.appendValueInput('INDEX')
         .setCheck('Number')
-        .appendField(`${DATA_ICON} Data table ID`)
-        .appendField(new Blockly.FieldNumber(1, 1), 'TABLE_ID')
         .appendField('at index');
+    this.setInputsInline(true);
     this.setOutput(true, 'Number');
     this.setColour(DATA_COLOR);
-    this.setTooltip('Reads a value out of a read-only data table, chosen by typing its own ID ' +
-      'number (see the ID badge on its card on the Data tab) instead of picking it from a ' +
-      'dropdown. The table can only be read, not written to.');
+    this.setTooltip('Reads a value out of a read-only data table, chosen by its own ID number ' +
+      '(see the ID badge on its card on the Data tab, plugged in as a plain number here) instead ' +
+      'of picking it from a dropdown. The table can only be read, not written to.');
   },
 };
 
@@ -141,23 +150,28 @@ Blockly.Blocks['data_get_bit'] = {
   },
 };
 
-// Same bit-check as data_get_bit above, just choosing its table by typing
-// its own ID number (see the ID badge on its card on the Data tab) instead
-// of picking it from a name dropdown - same relationship
-// data_get_element_by_id has to data_get_element.
+// Same bit-check as data_get_bit above, just choosing its table by ID
+// number (see the ID badge on its card on the Data tab) instead of picking
+// it from a name dropdown - same relationship data_get_element_by_id has to
+// data_get_element, including TABLE_ID being a plain Number value socket
+// (see its own comment on data_get_element_by_id above) rather than a
+// typed-in field.
 Blockly.Blocks['data_get_bit_by_id'] = {
   init: function() {
+    this.appendValueInput('TABLE_ID')
+        .setCheck('Number')
+        .appendField(`${DATA_ICON} Data table ID`);
+    this.appendDummyInput()
+        .appendField(`${BIT_ICON} bit`)
+        .appendField(new Blockly.FieldDropdown(BIT_OPTIONS), 'BIT');
     this.appendValueInput('INDEX')
         .setCheck('Number')
-        .appendField(`${DATA_ICON} Data table ID`)
-        .appendField(new Blockly.FieldNumber(1, 1), 'TABLE_ID')
-        .appendField(`${BIT_ICON} bit`)
-        .appendField(new Blockly.FieldDropdown(BIT_OPTIONS), 'BIT')
         .appendField('at index');
+    this.setInputsInline(true);
     this.setOutput(true, 'Boolean');
     this.setColour(DATA_COLOR);
     this.setTooltip('Checks a single bit (0-7) of a value read out of a read-only data table, ' +
-      'chosen by typing its own ID number (see the ID badge on its card on the Data tab) ' +
-      'instead of picking it from a dropdown.');
+      'chosen by its own ID number (see the ID badge on its card on the Data tab, plugged in as ' +
+      'a plain number here) instead of picking it from a dropdown.');
   },
 };

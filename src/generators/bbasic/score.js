@@ -80,20 +80,9 @@ export default (Blockly) => {
     // byte's own hex NIBBLES happen to spell out, not the actual number -
     // confirmed as a real reported bug this way ("loopcounter" showing a
     // fixed "60", "framecounter" a fixed "54", neither ever changing:
-    // exactly what byte 0x60/0x54 read as packed BCD would show).
-    //
-    // Converted here via real binary-to-decimal digit extraction instead -
-    // repeated subtraction (100s, then 10s), not division: a real,
-    // reproducible compiler bug ruled out combining division with
-    // multiplication in one expression for exactly this kind of conversion
-    // (see RAND_OPTIONS' old "1 to 24" comment history in blocks/
-    // random.js), and repeated subtraction needs neither.
-    //
-    // The three computed digits (temp1 = ones, temp2 = hundreds, temp3 =
-    // tens after the loops below) are copied to temp4/temp5/temp6 before
-    // any poke happens - buildDigitPokeLines' own inline asm always uses
-    // temp1/temp2 as ITS OWN scratch space internally, which would
-    // otherwise stomp these before every one of them has been read.
+    // exactly what byte 0x60/0x54 read as packed BCD would show). See below
+    // for how a literal VALUE (known at compile time) and a runtime
+    // expression (only ever a single byte, 0-255) are each handled.
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const blockNumber = Blockly.BBasic.blockNumbers.next('scoreSet');
@@ -101,22 +90,35 @@ export default (Blockly) => {
     const hDone = `_score_set_hdone_${blockNumber}`;
     const tLoop = `_score_set_tloop_${blockNumber}`;
     const tDone = `_score_set_tdone_${blockNumber}`;
-    // "(${argument0}) & 255" clamps a RUNTIME expression (variable,
-    // framecounter, ...) to a byte fine at runtime - but a plain literal
-    // (e.g. a Math Number block reading "111110", well over 255) compiles
-    // this same mask into "LDA #111110 : AND #255" instead, and DASM
-    // rejects that outright ("Value in 'lda #111110' must be <$100" - a
-    // real, reproduced build failure): an immediate load's own operand has
-    // to already fit in a byte, this app's own "complex statement" handling
-    // never constant-folds "(bignum) & 255" down to a small number first.
-    // Folding it here in JS instead, whenever argument0 is recognizably a
-    // plain integer literal, sidesteps the invalid immediate entirely - a
-    // runtime expression (anything else) still gets the normal masked
-    // expression, unchanged.
+    // A plain integer literal (e.g. a Math Number block) is known at compile
+    // time, so it's poked directly as a full 6-digit BCD value here in JS -
+    // no byte clamp, no runtime conversion needed. This used to run every
+    // literal through the same "clamp to a byte, then convert that byte back
+    // to decimal" path built for RUNTIME expressions below, which silently
+    // wrapped anything over 255 (confirmed as a real reported bug: typing
+    // 111110 displayed "000006", since 111110 mod 256 is 6) - a literal
+    // never needed that conversion at all, it can just be split into its own
+    // six decimal digits directly.
     const literalMatch = /^-?\d+$/.test(argument0.trim());
-    const maskedValue = literalMatch ?
-      String(((parseInt(argument0, 10) % 256) + 256) % 256) :
-      `(${argument0}) & 255`;
+    if (literalMatch) {
+      const clamped = Math.max(0, Math.min(999999, parseInt(argument0, 10)));
+      const digits = String(clamped).padStart(6, '0').split('');
+      const lines = digits.map((digitChar, i) => {
+        const {address, high} = scoreDigitTarget(String(i + 1));
+        return buildDigitPokeLines(address, high, digitChar);
+      });
+      return lines.join('\n') + '\n';
+    }
+    // A RUNTIME expression (a variable, "framecounter", "loopcounter", ...)
+    // only ever holds a single byte (0-255), so at most its last three
+    // decimal digits are meaningful - converted here via real
+    // binary-to-decimal digit extraction (repeated subtraction of 100s, then
+    // 10s, not division: a real, reproduced compiler bug ruled out combining
+    // division with multiplication in one expression for exactly this kind
+    // of conversion, see RAND_OPTIONS' old "1 to 24" comment history in
+    // blocks/random.js), with the leading three digits zeroed since a byte
+    // can't represent them.
+    const maskedValue = `(${argument0}) & 255`;
     const lines = [
       `temp1 = ${maskedValue}`,
       `temp2 = 0`,

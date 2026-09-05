@@ -190,6 +190,17 @@ export const useProjectAutoIncrementVersionStorage = () =>
   useBooleanAppSetting('vcs-game-maker.projectAutoIncrementVersion');
 
 // Same "standing app preference, not a project setting" reasoning as the
+// others above - the desktop (Electron) build's own "Test in Stella" button
+// (App.vue) needs to know where the user installed Stella locally, a plain
+// path string rather than a boolean, so this goes through useLocalStorage
+// directly (raw string, like useLoadLastProjectStorage's own "false"
+// convention) rather than useBooleanAppSetting. Meaningless in the browser
+// build (no filesystem access to launch anything with it), but harmless to
+// keep around there too - Configuration.vue's own Stella field is only
+// shown/enabled when window.electronAPI exists in the first place.
+export const useStellaPathStorage = () => useLocalStorage('vcs-game-maker.stellaPath');
+
+// Same "standing app preference, not a project setting" reasoning as the
 // others above - a real reported correction. Unlike those, DIM also gets
 // read by the real bBasic generators (generators/bbasic/music.js,
 // soundfx.js, sound.js) and baked into the compiled ROM's own audio
