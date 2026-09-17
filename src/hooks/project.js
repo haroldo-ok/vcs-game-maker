@@ -49,6 +49,8 @@ export const useDataTablesStorage = () =>
   withRomInvalidation(useJsonProjectStorage('dataTables'));
 export const useTextStringsStorage = () =>
   withRomInvalidation(useJsonProjectStorage('textStrings'));
+export const useTextFontStorage = () =>
+  withRomInvalidation(useJsonProjectStorage('textFont'));
 export const useSongsStorage = () =>
   withRomInvalidation(useJsonProjectStorage('songs'));
 

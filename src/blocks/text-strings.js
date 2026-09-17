@@ -13,6 +13,21 @@ import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 // storage - see encodeTextMessage in generators/bbasic/text-minikernel.js).
 export const TEXT_MESSAGE_LENGTH = 12;
 
+// A hard per-card cap on raw typed length (before word-wrap/justify), not
+// just a recommendation - the Text Minikernel's own static "data text_strings"
+// table (see getStaticMessageLayout in generators/bbasic/text-minikernel-
+// layout.js) packs every card's own row offset into a single BYTE (0-255)
+// throughout the generator/asm chain, so the table as a whole can never
+// exceed 256 bytes - a real assembler failure ("Value must be <$100") once
+// it does, confirmed directly against a real project. 240 characters (20
+// wrapped rows of TEXT_MESSAGE_LENGTH each = 240 bytes) leaves the 12-byte
+// reserved guard row still comfortably inside that 256-byte ceiling for a
+// SINGLE card at this cap; a project with multiple such maxed-out cards can
+// still overflow the table as a whole (this only bounds one card at a time,
+// not the project's full total), but it turns an unbounded, silently-failing
+// paragraph into a visible, enforced limit instead.
+export const TEXT_CARD_MAX_LENGTH = 240;
+
 // How many of TEXT_MESSAGE_LENGTH's own 12 positions a project actually
 // wants to USE at once - a project-wide, compile-time-only setting (see
 // TextEditor.vue's own dropdown), never runtime-adjustable: letting it

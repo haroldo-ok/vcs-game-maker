@@ -19,7 +19,7 @@ import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, us
 import {getRelocationBanks} from '../hooks/relocation-banks';
 import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
   backgroundFadeTimerVarName, backgroundFadePaceVarName, backgroundFadeTargetVarName,
-  fadeFlagsVarName, backgroundGetPixelXVarName, backgroundGetPixelYVarName,
+  fadeFlagsVarName, FADE_FLAGS_REGISTER_GROUPS, backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks} from '../blocks/background';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS} from '../blocks/function';
@@ -49,7 +49,8 @@ import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
   resolveNotePlayedInstruments, reserveMusicDevVars} from './bbasic/music';
 import {reserveTextScrollDevVars, generateTextScrollAdvance, generateTextOffsetTables} from './bbasic/text-scroll';
-import {generateTextStaticOffsetTables, textLinesBaseVarName, textLinesMaxVarName} from './bbasic/text-minikernel';
+import {generateTextStaticOffsetTables, textLinesBaseVarName, textLinesMaxVarName,
+  textRow2ColorVarName, textScrollCursorColorVarName, textEndIconColorVarName} from './bbasic/text-minikernel';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -397,9 +398,30 @@ Blockly.BBasic.init = function(workspace) {
   // text-minikernel.js) - a project using only plain "Show text" blocks
   // (even ones with "Wrap to line 2" on) has no use for either, since
   // nothing ever reads them without one of these two blocks present.
-  const TEXT_LINE_SCROLL_BLOCK_TYPES = ['text_minikernel_line_scroll_up', 'text_minikernel_line_scroll_down'];
+  const TEXT_LINE_SCROLL_BLOCK_TYPES = ['text_minikernel_line_scroll_up', 'text_minikernel_line_scroll_down',
+    'text_minikernel_end_icon_visible'];
+  // The "more below" scroll cursor (see text12b.asm's own "textScrollCursor"
+  // ifconst block) reads _textLinesMax/TextRow2Active directly in
+  // hand-written asm, for WHATEVER message is currently shown - not just
+  // ones a "Scroll text lines" block happens to act on - so it needs this
+  // same tracking kept live from every "Show text" call too, same as if
+  // such a block existed (see needsTextRow2ActiveDim's own comment in
+  // generators/bbasic/text-minikernel.js for the TextRow2Active half of
+  // this).
+  // Whether any "Text: set color" block actually targets row 2 (its ROW
+  // dropdown set to "2" or "both") - unlike isTextRow2Used() (which checks
+  // Text tab data), this is a real block-field pre-scan, since row 1 is
+  // that dropdown's own default and the common case doesn't touch row 2's
+  // var at all. Used below to reserve _textRow2Color only when something
+  // could actually write to it - a project using only row-1 color blocks
+  // (or none at all) pays nothing for it.
+  this.textRow2ColorBlockUsed = workspace.getAllBlocks(false).some((block) =>
+    block.type === 'text_minikernel_set_color' && block.getFieldValue('ROW') === '2');
+  const textScrollCursorConfig = (useConfigurationStorage().value || {});
+  this.textScrollCursorUsed = !!textScrollCursorConfig.enableTextScrollCursor;
   this.textLineScrollUsed =
-    workspace.getAllBlocks(false).some((block) => TEXT_LINE_SCROLL_BLOCK_TYPES.includes(block.type));
+    workspace.getAllBlocks(false).some((block) => TEXT_LINE_SCROLL_BLOCK_TYPES.includes(block.type)) ||
+    this.textScrollCursorUsed;
 
   // Same early block-type pre-scan reasoning as textScrollUsed just above,
   // for "Show text with ID"/"Scroll text ID"'s own captured-argument var
@@ -1109,6 +1131,24 @@ Blockly.BBasic.init = function(workspace) {
         'currently shown message: highest TextIndex "Scroll text lines down" can reach');
   }
 
+  // Same bucket again, for row 2's own color (settable via the merged
+  // "Text: set color" block's own ROW dropdown - row 1 is the default, so
+  // this only needs reserving when something actually targets row 2, see
+  // textRow2ColorBlockUsed's own pre-scan above) and the scroll cursor's own
+  // color ("Text: set scroll cursor color") - see textRow2ColorVarName/
+  // textScrollCursorColorVarName's own comment in generators/bbasic/
+  // text-minikernel.js for why these need real dev vars, unlike TextColor.
+  if (this.isTextRow2Used() || this.textRow2ColorBlockUsed) {
+    reserveDevVar(textRow2ColorVarName(), undefined,
+        'wrapped messages: row 2\'s own color ("Text: set color" block\'s ROW dropdown)');
+  }
+  if (this.textScrollCursorUsed) {
+    reserveDevVar(textScrollCursorColorVarName(), undefined,
+        'the blinking scroll cursor\'s own color ("Text: set scroll cursor color" block)');
+    reserveDevVar(textEndIconColorVarName(), undefined,
+        'the "end of message" icon\'s own color ("Text: set end icon color" block)');
+  }
+
   // Same bucket again, for the ROM noise feature's own per-player state (see
   // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) - a
   // no-op unless romNoiseUsedFor's own early pre-scan (above) found it used.
@@ -1257,15 +1297,16 @@ Blockly.BBasic.init = function(workspace) {
   // on the instance (not a local) so generateBackgroundFadeChecks, which
   // runs later during the final generation pass, knows which registers to
   // emit a per-frame check for.
-  // score_fade_to/text_minikernel_fade_to (Score/Text tab equivalents of
-  // background_fade_to - see generators/bbasic/score.js and
-  // generators/bbasic/text-minikernel.js) share this exact same mechanism,
-  // just always targeting their own fixed register rather than offering a
-  // VAR dropdown (there's only ever one possible score color or text color
-  // register, unlike background/playfield).
+  // score_fade_to/text_minikernel_fade_to/sprite_player_fade_to (Score/Text/
+  // Player tab equivalents of background_fade_to - see generators/bbasic/
+  // score.js, generators/bbasic/text-minikernel.js, and generators/bbasic/
+  // sprites.js) share this exact same mechanism, just always targeting
+  // their own fixed register (score_fade_to/text_minikernel_fade_to) or a
+  // Player 0/1-only dropdown (sprite_player_fade_to) rather than offering
+  // background_fade_to's own Background/Playfield choice.
   this.backgroundFadeVarsUsed = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
-    if (block.type === 'background_fade_to') {
+    if (block.type === 'background_fade_to' || block.type === 'sprite_player_fade_to') {
       this.backgroundFadeVarsUsed.add(block.getFieldValue('VAR'));
     } else if (block.type === 'score_fade_to') {
       this.backgroundFadeVarsUsed.add('scorecolor');
@@ -1278,16 +1319,26 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(backgroundFadePaceVarName(rawVar), undefined, 'this register\'s fade: frames per step');
     reserveDevVar(backgroundFadeTargetVarName(rawVar), undefined, 'this register\'s fade: color it\'s fading toward');
   });
-  // One shared byte for every background_fade_finished watch bit AND every
-  // background_fade_to "active" bit (see fadeFlagsVarName's own
-  // comment) - reserved as soon as any of the three is needed, since the
-  // "active" bits alone (with no finished watch and, via
-  // background_fade_active, not even a matching fade_to block on that same
-  // register) still need this byte to exist for the read to be valid.
-  if (this.backgroundFadeFinishedWatches.size || this.backgroundFadeVarsUsed.size ||
-      hasBackgroundFadeActiveChecks(workspace)) {
-    reserveDevVar(fadeFlagsVarName(), undefined, 'shared active/finished bit-flags byte for every fadeable register');
-  }
+  // One shared byte per group of up to 4 fadeable registers (see
+  // FADE_FLAGS_REGISTER_GROUPS' own comment in blocks/background.js - a 5th+
+  // register, like sprite_player_fade_to's own player0realcolor/
+  // player1realcolor, gets its own second byte, since the first one's 8 bits
+  // are already spoken for by Background/Playfield/Score/Text) - reserved
+  // per GROUP as soon as any of that group's own registers needs it (a
+  // "finished" watch, a fade_to trigger, or an "is active" check), since the
+  // "active" bits alone (with no finished watch and, via background_fade_
+  // active/sprite_player_fade_active, not even a matching fade_to block on
+  // that same register) still need their own byte to exist for the read to
+  // be valid.
+  const fadeActiveCheckVars = hasBackgroundFadeActiveChecks(workspace);
+  const allFadeVarsNeedingAByte = new Set([
+    ...this.backgroundFadeFinishedWatches, ...this.backgroundFadeVarsUsed, ...fadeActiveCheckVars,
+  ]);
+  FADE_FLAGS_REGISTER_GROUPS.forEach((group) => {
+    if (!group.some((rawVar) => allFadeVarsNeedingAByte.has(rawVar))) return;
+    reserveDevVar(fadeFlagsVarName(group[0]), undefined,
+        'shared active/finished bit-flags byte for this group of fadeable registers');
+  });
 
   // Add user variables, but only ones that are being used. Their own FINAL
   // routed names are tracked separately (userVarNames) so the ROM capacity
@@ -2927,6 +2978,15 @@ Blockly.BBasic.generateConfiguration = function() {
   // this const at all, so it has no effect (and no conflict) while the Text
   // Minikernel is active.
   const scoreFadeConfigurationCode = config.enableScoreFade ? 'const scorefade = 1' : '';
+  // "scorepaddinglines" (the Score tab's own "Add score padding" dropdown,
+  // config.scorePaddingLines, 0/1/2) - text12a.asm's own "if
+  // scorepaddinglines >= N" checks (right after the score digit loop) read
+  // this directly. Emitted unconditionally (defaulting to 0) since that
+  // file's own compile-time "if" expression needs the symbol to exist at
+  // all, unlike an ifconst check - text12a.asm has its own "ifnconst
+  // scorepaddinglines" fallback too, but emitting it explicitly here keeps
+  // the actual configured value visible in the generated source.
+  const scorePaddingConfigurationCode = `const scorepaddinglines = ${config.scorePaddingLines || 0}`;
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that
@@ -3050,6 +3110,7 @@ Blockly.BBasic.generateConfiguration = function() {
     kernelOptionsConfigurationCode,
     scoreConfigurationCode,
     scoreFadeConfigurationCode,
+    scorePaddingConfigurationCode,
     scoreFontConfigurationCode,
     textFontConfigurationCode,
     scoreFontExtraGlyphsConfigurationCode,

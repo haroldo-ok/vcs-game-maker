@@ -18,41 +18,58 @@ import {TEXT_MESSAGE_LENGTH, listTextStrings, resolveTextMaxDisplayWidth} from '
 // truncation still caps any one line at maxWidth, same as a plain message).
 // Only when the text has NO explicit break at all does this fall back to
 // ordinary word-wrap (breaking at the last space that still fits, or hard
-// at maxWidth if there's no space to break on), producing at most 2 lines -
-// matching a plain, non-wrapping message's own single-row behavior for
-// anything that already fits on one line. Exported (not local to
-// text-minikernel.js) so getStaticMessageLayout below can size each entry
-// by its own real line count, not just "1 or 2".
+// at maxWidth if there's no space to break on) - repeated until the whole
+// remainder fits, so a message needing 3+ lines (revealed via "Scroll text
+// lines up/down", not just "Wrap to line 2"'s own 2-line display) gets a
+// real row per wrapped line instead of everything past the first break
+// getting dumped, unwrapped, into one oversized final line - a real
+// reported gap ("auto line-break works without scrolling, not with it").
+// Exported (not local to text-minikernel.js) so getStaticMessageLayout below
+// can size each entry by its own real line count, not just "1 or 2".
 export const splitMessageLines = (text, maxWidth) => {
   const raw = String(text || '');
   if (raw.includes('\n')) return raw.split('\n').map((line) => line.toUpperCase());
-  const upper = raw.toUpperCase();
-  if (upper.length <= maxWidth) return [upper];
-  const window = upper.slice(0, maxWidth + 1);
-  const lastSpace = window.lastIndexOf(' ');
-  if (lastSpace <= 0) return [upper.slice(0, maxWidth), upper.slice(maxWidth).trimStart()];
-  return [upper.slice(0, lastSpace), upper.slice(lastSpace + 1)];
+  let remaining = raw.toUpperCase();
+  const lines = [];
+  while (remaining.length > maxWidth) {
+    const window = remaining.slice(0, maxWidth + 1);
+    const lastSpace = window.lastIndexOf(' ');
+    if (lastSpace <= 0) {
+      lines.push(remaining.slice(0, maxWidth));
+      remaining = remaining.slice(maxWidth).trimStart();
+    } else {
+      lines.push(remaining.slice(0, lastSpace));
+      remaining = remaining.slice(lastSpace + 1);
+    }
+  }
+  lines.push(remaining);
+  return lines;
 };
 
-// Every Text tab entry's own byte offset (and row count - always 1 for a
-// non-wrapping entry; for a "Wrap to line 2" entry, however many lines its
-// own text actually splits into via splitMessageLines above) within the
-// STATIC region of the "data text_strings" table (see generateTextMinikernel
-// in text-minikernel.js) - position 0 is the reserved blank guard row,
-// always exactly TEXT_MESSAGE_LENGTH bytes. Only the first two of a
-// wrapping entry's own rows are ever drawn at once (see text12b.asm's own
-// "textkernel2ndrow" block, which always reads row 2 from TextIndex+
-// TEXT_MESSAGE_LENGTH, with no separate pointer of its own) - "Scroll text
-// lines up/down" (see generators/bbasic/text-minikernel.js) moves TextIndex
-// by a whole row at a time to bring the rest into view.
+// Every Text tab entry's own byte offset, row count, and "Wrap to line 2"
+// flag within the STATIC region of the "data text_strings" table (see
+// generateTextMinikernel in text-minikernel.js) - position 0 is the reserved
+// blank guard row, always exactly TEXT_MESSAGE_LENGTH bytes. Row count comes
+// from splitMessageLines UNCONDITIONALLY now, regardless of "Wrap to line
+// 2" - a message longer than maxWidth always gets split into real, separate
+// rows (an explicit line break always splits, and even a plain overlong
+// message word-wraps into a second row) rather than silently truncating
+// its overflow the moment "Wrap to line 2" happens to be off. That toggle's
+// own remaining, narrower job (see namedMessageWrapToLine2's own comment in
+// text-minikernel.js) is only "does row 2 draw automatically, alongside row
+// 1, with no scrolling needed" - "Scroll text lines up/down" can reveal a
+// message's 2nd+ rows one at a time either way, moving TextIndex a whole row
+// at a time (only the FIRST row is ever on screen for a non-wrapping entry,
+// same as text12b.asm's own "textkernel2ndrow" block only ever draws row 2
+// from TextIndex+TEXT_MESSAGE_LENGTH when told to).
 export const getStaticMessageLayout = () => {
   const entries = listTextStrings();
   const maxWidth = resolveTextMaxDisplayWidth();
-  const layout = [{offset: 0, lineCount: 1}];
+  const layout = [{offset: 0, lineCount: 1, wrapToLine2: false}];
   let offset = TEXT_MESSAGE_LENGTH;
   entries.forEach(({text, wrapToLine2}) => {
-    const lineCount = wrapToLine2 ? Math.max(1, splitMessageLines(text, maxWidth).length) : 1;
-    layout.push({offset, lineCount});
+    const lineCount = Math.max(1, splitMessageLines(text, maxWidth).length);
+    layout.push({offset, lineCount, wrapToLine2: !!wrapToLine2});
     offset += lineCount * TEXT_MESSAGE_LENGTH;
   });
   return layout;

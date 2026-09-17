@@ -13,11 +13,15 @@ import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../genera
 import {processBackgroundStorageDefaults} from '../blocks/background';
 import {findSongById} from '../blocks/music';
 import {buildScoreFontOverride, SQUISH_SCORE_FONT} from '../utils/score-font';
+import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2ColorOverride,
+  packCursorGlyphByte, processCursorGlyphDefaults, resolveBlinkMask} from '../utils/text-font';
+import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
+  textScrollCursorColorVarName, textEndIconColorVarName} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
-  usePlayer0Storage, usePlayer1Storage, useWorkspaceStorage} from './project';
+  usePlayer0Storage, usePlayer1Storage, useTextFontStorage, useWorkspaceStorage} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
   recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
 import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom} from './rom-status';
@@ -970,6 +974,50 @@ export const buildRom = async () => {
       } else {
         const scoreFontOverride = await buildScoreFontOverride(config.scoreFont);
         if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
+      }
+      // Same override mechanism, for the Text Minikernel's own drawn
+      // character set (see utils/text-font.js) - only reachable when the
+      // Text Minikernel is active at all (siblingFiles only carries
+      // text12b.asm in the first place then), and only actually returns an
+      // override once the Text Font Editor has ever written to storage.
+      if (textMinikernelActive) {
+        const textFontOverride = await buildTextFontOverride();
+        if (textFontOverride) siblingFiles['text12b.asm'] = textFontOverride;
+        // Row 2's own color ("Text: set row 2 color" block) - see
+        // buildTextRow2ColorOverride's own doc comment in utils/text-font.js.
+        // Real resolved name read off BlocklyBB.nameDB_ the same way
+        // linesMaxVarName/linesBaseVarName are below.
+        if (BlocklyBB.isTextRow2Used()) {
+          const colorVarName = BlocklyBB.nameDB_.getName(
+              textRow2ColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          siblingFiles['text12b.asm'] = buildTextRow2ColorOverride(
+              siblingFiles['text12b.asm'], {colorVarName});
+        }
+        // The "more below" scroll cursor (see utils/text-font.js's own
+        // buildTextScrollCursorOverride) splices its own drawing code into
+        // WHATEVER text12b.asm content is already staged above (the font
+        // override, if any, otherwise the sibling file's own pristine
+        // copy) - applied on top, not instead of, so a project customizing
+        // both its glyphs AND the cursor gets both at once. _textLinesMax's
+        // own real resolved name is read directly off BlocklyBB.nameDB_
+        // here, right after this same build's regenerateCode() call
+        // already resolved it the same way for the actual generated source
+        // (see that function's own doc comment in utils/text-font.js for
+        // why a standalone util module can't resolve this on its own).
+        if (config.enableTextScrollCursor) {
+          const glyphByte = packCursorGlyphByte(processCursorGlyphDefaults(useTextFontStorage()));
+          const linesMaxVarName = BlocklyBB.nameDB_.getName(
+              textLinesMaxVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          const linesBaseVarName = BlocklyBB.nameDB_.getName(
+              textLinesBaseVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          const colorVarName = BlocklyBB.nameDB_.getName(
+              textScrollCursorColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          const endColorVarName = BlocklyBB.nameDB_.getName(
+              textEndIconColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          const blinkMask = resolveBlinkMask(config.textScrollCursorBlinkSpeed);
+          siblingFiles['text12b.asm'] = buildTextScrollCursorOverride(siblingFiles['text12b.asm'],
+              {glyphByte, linesMaxVarName, linesBaseVarName, colorVarName, endColorVarName, blinkMask});
+        }
       }
       // Passed to every stage below so each one's own real CLI invocation
       // (and, once it finishes, how long it took) appears live in the error

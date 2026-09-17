@@ -58,7 +58,18 @@ const BACKGROUND_COLOR = '#ffa500';
 // generators/bbasic/background.js) - nothing else overwrites scorecolor or
 // TextColor every frame the way the score/text drawing routines overwrite
 // COLUBK/COLUPF, so the real variable itself doubles as its own shadow.
-const FADE_TAG_BY_VAR = {COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text'};
+// player0realcolor/player1realcolor (sprites.js's own sprite_player_fade_to)
+// share this same mechanism too, feeding COLUP0/COLUP1 - see
+// generateBackgroundFadeChecks' own isShadowedRegister check for why these
+// two DO need nameDB_ resolution (like COLUBK/COLUPF), unlike scorecolor/
+// TextColor. Fading either one also fades that player's own missile
+// (missile0/missile1) for free: real 2600 hardware has no separate missile
+// color register at all - missile0 always draws in COLUP0, missile1 in
+// COLUP1, the exact same registers Player 0/1's own color already lives in.
+const FADE_TAG_BY_VAR = {
+  COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text',
+  player0realcolor: 'p0', player1realcolor: 'p1',
+};
 const fadeTag = (rawVar) => FADE_TAG_BY_VAR[rawVar] || rawVar;
 export const backgroundFadeTimerVarName = (rawVar) => `_${fadeTag(rawVar)}FadeTimer`;
 export const backgroundFadePaceVarName = (rawVar) => `_${fadeTag(rawVar)}FadePace`;
@@ -83,11 +94,16 @@ export const backgroundFadeTargetVarName = (rawVar) => `_${fadeTag(rawVar)}FadeT
 export const FADE_STEPS = 4;
 
 // One shared byte covers both the "fade finished" watch flags AND the "fade
-// currently active" flags for all four fadeable registers - exactly 8 bits
-// total (4 registers x 1 for "finished", plus 4 registers x 1 for
-// "active"), filling the byte exactly, so fixed bits are simpler than the
+// currently active" flags for up to four fadeable registers at once - 8 bits
+// total (up to 4 registers x 1 for "finished", plus up to 4 registers x 1
+// for "active"), filling a byte exactly, so fixed bits are simpler than the
 // Music tab's own pooled/overflow allocation (built for open-ended,
-// user-defined watch counts) and never need more than this one byte.
+// user-defined watch counts) and never need more logic than a second byte
+// once a 5th+ register needs the same machinery. COLUBK/COLUPF/scorecolor/
+// TextColor fill the first byte exactly; player0realcolor/player1realcolor
+// (sprites.js's own sprite_player_fade_to) get their own second byte
+// (FADE_FLAGS_BYTE_BY_VAR/FADE_FLAGS_REGISTER_GROUPS below), since the first
+// one has no bits left to spare.
 // "Finished" fires regardless of which way the fade was moving (brightening
 // or dimming) - background_fade_finished used to have its own DIRECTION
 // dropdown splitting this by direction, but that meant a project reacting
@@ -98,9 +114,21 @@ export const FADE_STEPS = 4;
 // (generateBackgroundFadeChecks) reads to know whether a register has an
 // in-progress fade to keep stepping at all - set once by the matching
 // trigger block's own code (background_fade_to/score_fade_to/
-// text_minikernel_fade_to), cleared once the check steps the color onto its
-// exact target.
-export const fadeFlagsVarName = () => '_fadeFlags';
+// text_minikernel_fade_to/sprite_player_fade_to), cleared once the check
+// steps the color onto its exact target.
+const FADE_FLAGS_BYTE_BY_VAR = {
+  COLUBK: 1, COLUPF: 1, scorecolor: 1, TextColor: 1,
+  player0realcolor: 2, player1realcolor: 2,
+};
+export const fadeFlagsVarName = (rawVar) => FADE_FLAGS_BYTE_BY_VAR[rawVar] === 2 ? '_fadeFlags2' : '_fadeFlags';
+// Which registers share each of fadeFlagsVarName's own two possible bytes -
+// read by bbasic.js's own init() to decide which byte(s) actually need
+// reserving for a given project (a project fading only Player colors never
+// pays for the Background/Score/Text byte, and vice versa).
+export const FADE_FLAGS_REGISTER_GROUPS = [
+  ['COLUBK', 'COLUPF', 'scorecolor', 'TextColor'],
+  ['player0realcolor', 'player1realcolor'],
+];
 // Scratch storage for background_get_pixel's own X/Y, ONLY when a non-bare
 // expression (e.g. "xCycle - 1") is plugged into one of its sockets (see
 // generators/bbasic/background.js) - pfread()'s own arguments can't contain
@@ -124,8 +152,14 @@ export const backgroundGetPixelYVarName = () => '_bgGetPixelY';
 // comment). Bits 4-7: the matching "active" bit for that same register
 // (FADE_ACTIVE_BIT_BY_VAR below) - always exactly 4 apart from its own
 // "finished" bit, which is what backgroundFadeFinishedBit derives from
-// rather than keeping a second, parallel map in sync by hand.
-const FADE_ACTIVE_BIT_BY_VAR = {COLUBK: 4, COLUPF: 5, scorecolor: 6, TextColor: 7};
+// rather than keeping a second, parallel map in sync by hand. Player0/
+// player1 reuse the exact same 0-3/4-7 layout, just within their OWN byte
+// (fadeFlagsVarName('player0realcolor') !== fadeFlagsVarName('COLUBK')) -
+// bit numbers can safely repeat across the two bytes.
+const FADE_ACTIVE_BIT_BY_VAR = {
+  COLUBK: 4, COLUPF: 5, scorecolor: 6, TextColor: 7,
+  player0realcolor: 4, player1realcolor: 5,
+};
 export const fadeActiveBit = (rawVar) => FADE_ACTIVE_BIT_BY_VAR[rawVar];
 export const backgroundFadeFinishedBit = (rawVar) => FADE_ACTIVE_BIT_BY_VAR[rawVar] - 4;
 
@@ -144,12 +178,13 @@ export const backgroundFadeWatchKey = (rawVar) => rawVar;
 // score_fade_finished/text_minikernel_fade_finished have no VAR dropdown of
 // their own (same reasoning as score_fade_to/text_minikernel_fade_to - see
 // their own comments: there's only one possible score/text color register,
-// so offering a choice would be pointless) - only background_fade_finished
-// actually reads one.
+// so offering a choice would be pointless) - only background_fade_finished/
+// sprite_player_fade_finished (Player 0/Player 1) actually read one.
 const FADE_FINISHED_RAW_VAR_BY_TYPE = {
   background_fade_finished: (block) => block.getFieldValue('VAR'),
   score_fade_finished: () => 'scorecolor',
   text_minikernel_fade_finished: () => 'TextColor',
+  sprite_player_fade_finished: (block) => block.getFieldValue('VAR'),
 };
 export const resolveBackgroundFadeFinishedWatches = (workspace) => {
   const watched = new Set();
@@ -161,15 +196,28 @@ export const resolveBackgroundFadeFinishedWatches = (workspace) => {
   return watched;
 };
 
-// Whether any background_fade_active block exists anywhere in the project -
-// that block reads fadeFlagsVarName's own active bit directly (see
-// its generator in generators/bbasic/background.js), so the shared byte it
-// lives in needs to be reserved even in the (unusual, but valid) case of a
-// project checking "is this fade active" on a register that has no
-// background_fade_to block of its own - the check just always reads false
-// then, same as a fade that was never triggered.
-export const hasBackgroundFadeActiveChecks = (workspace) =>
-  workspace.getAllBlocks(false).some((block) => block.type === 'background_fade_active');
+// Every register some "is this fade active" block (background_fade_active
+// OR sprite_player_fade_active) actually reads - either block reads
+// fadeFlagsVarName's own active bit directly (see their generators in
+// generators/bbasic/background.js and generators/bbasic/sprites.js), so
+// whichever byte a given register lives in needs to be reserved even in the
+// (unusual, but valid) case of a project checking "is this fade active" on
+// a register that has no matching fade_to block of its own - the check just
+// always reads false then, same as a fade that was never triggered. Returns
+// a Set of raw var names (not a plain boolean) so bbasic.js's own init() can
+// tell which of fadeFlagsVarName's own two possible bytes each one needs.
+const FADE_ACTIVE_CHECK_RAW_VAR_BY_TYPE = {
+  background_fade_active: (block) => block.getFieldValue('VAR'),
+  sprite_player_fade_active: (block) => block.getFieldValue('VAR'),
+};
+export const hasBackgroundFadeActiveChecks = (workspace) => {
+  const found = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    const rawVarFor = FADE_ACTIVE_CHECK_RAW_VAR_BY_TYPE[block.type];
+    if (rawVarFor) found.add(rawVarFor(block));
+  });
+  return found;
+};
 
 // Default color byte for a playfield row when per-row colors (pfcolors) are
 // enabled: $0E, the same light grey the playfield uses by default, so switching

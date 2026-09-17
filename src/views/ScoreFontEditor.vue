@@ -34,14 +34,24 @@
         to edit here.
       </p>
       <template v-if="isEditableFontSelected">
-        <v-switch
-          v-if="showExtraGlyphs"
-          v-model="extraGlyphsEnabled"
-          label="Use extra glyphs (10-15)"
-          hint="Costs 48 extra bytes of ROM space."
-          persistent-hint
-          class="option-switch"
-        />
+        <div class="score-extras-row">
+          <v-switch
+            v-if="showExtraGlyphs"
+            v-model="extraGlyphsEnabled"
+            label="Use extra glyphs (10-15)"
+            hint="Costs 48 extra bytes of ROM space."
+            persistent-hint
+            class="option-switch"
+          />
+          <v-select
+            v-model="scorePaddingLines"
+            :items="[0, 1, 2]"
+            label="Add score padding"
+            title="How many extra scanlines of the score row's own background color to draw right after the score digits finish, before whatever draws next."
+            hide-details
+            class="score-padding-field"
+          />
+        </div>
         <editor-zoom v-model="zoom" class="score-editor-zoom" />
         <div class="digit-list">
           <div
@@ -284,6 +294,30 @@ export default defineComponent({
         };
       },
     });
+    // How many extra blank scanlines (0, 1, or 2) the score row draws of its
+    // own background color right after the digits finish (see
+    // generators/bbasic.js's own scorePaddingConfigurationCode, which emits
+    // "const scorepaddinglines = N" - text12a.asm's own
+    // "if scorepaddinglines >= N" checks read that). 0 by default - a
+    // project that's never visited this dropdown keeps its existing frame
+    // timing unchanged.
+    const scorePaddingLines = computed({
+      get() {
+        try {
+          const value = (configurationStorage.value || {}).scorePaddingLines;
+          return value == null ? 0 : value;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return 0;
+        }
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          scorePaddingLines: value,
+        };
+      },
+    });
     const activeScoreFontStorage = computed(() =>
       isSquishCustomSelected.value ? squishCustomScoreFontStorage : scoreFontStorage);
     const activeDefaultFont = computed(() =>
@@ -345,6 +379,7 @@ export default defineComponent({
       digitWidth,
       showExtraGlyphs,
       extraGlyphsEnabled,
+      scorePaddingLines,
       isEditableFontSelected,
       DECIMAL_DIGIT_COUNT,
     };
@@ -357,6 +392,16 @@ export default defineComponent({
    under the label text instead, matching the toggle's own width. */
 .option-switch >>> .v-messages {
   margin-left: 46px;
+}
+
+.score-extras-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.score-padding-field {
+  max-width: 200px;
 }
 
 /* Breathing room from the "Use extra glyphs" switch's own hint text

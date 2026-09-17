@@ -23,6 +23,15 @@ scorecount = 7
 textbkcolor=0
  endif
 
+ ; vcs-game-maker: 0/1/2 - the Score tab's own "Add score padding" dropdown
+ ; (generators/bbasic.js's own scorePaddingConfigurationCode). Always
+ ; defined so "if scorepaddinglines >= N" (a plain compile-time expression,
+ ; not an ifconst) is always valid, even for a project that's never visited
+ ; that dropdown.
+ ifnconst scorepaddinglines
+scorepaddinglines = 0
+ endif
+
 
  
 minikernel
@@ -158,6 +167,66 @@ begintextscore
          sty GRP0                   ; 3     (56)
          dey                        ; 2     (58)
          bpl textscoreloop          ; 3     (61)
+         ; vcs-game-maker: scorepaddinglines (0, 1, or 2 - the Score tab's
+         ; own "Add score padding" dropdown, generators/bbasic.js's own
+         ; scorePaddingConfigurationCode) extra scanlines of the score's own
+         ; background color, between the digits finishing and whatever draws
+         ; next (the text minikernel) - inside this same "ifnconst
+         ; noscoretxt" block, so they only exist for a project that actually
+         ; shows the numeric score. Always defined (defaulting to 0), so
+         ; "if scorepaddinglines >= N" below is always a valid compile-time
+         ; check, not an ifconst.
+         if scorepaddinglines >= 1
+             ; GRP0/GRP1 still hold the last digit row's own pixels here
+             ; (nothing clears them when the loop exits) - blanked the same
+             ; 3-write way "textrowsdone"/"textkernel2ndrow" already do
+             ; elsewhere in this kernel (the double GRP0 write flushes
+             ; VDELP's own old-value latch too, not just the top write) -
+             ; without this, the new scanline below started out by visibly
+             ; repeating the last digit row instead of showing a plain
+             ; background fill (confirmed directly against a real build).
+             lda #0
+             sta GRP0
+             sta GRP1
+             sta GRP0
+             ; The loop above ends mid-scanline (no WSYNC of its own after
+             ; the last iteration, see the cycle annotations) - this WSYNC
+             ; closes out whatever's left of that scanline (now blanked, not
+             ; a stale digit row) and starts a fresh one for the background
+             ; fill below.
+             sta WSYNC
+             ifconst scorebkcolor
+                 lda scorebkcolor
+                 sta COLUBK
+             endif
+         endif
+         if scorepaddinglines >= 2
+             ; A second line of the same fill - same reasoning as the first.
+             sta WSYNC
+             ifconst scorebkcolor
+                 lda scorebkcolor
+                 sta COLUBK
+             endif
+         endif
+         if scorepaddinglines >= 1
+             ; Without this, the cleanup code right after this block
+             ; (eventually setting COLUBK to textbkcolor) runs on this SAME
+             ; scanline with no WSYNC of its own in between - splitting this
+             ; line into two colors partway across instead of the solid,
+             ; full-width fill intended (confirmed directly against a real
+             ; build).
+             sta WSYNC
+             ; textbkcolor doesn't otherwise get set until partway into the
+             ; cleanup code below (~24 cycles into this scanline) - without
+             ; setting it immediately here too, scorebkcolor's own fill
+             ; bleeds into the start of this next scanline until that later
+             ; write catches up (confirmed directly against a real build).
+             ; The cleanup code's own later "lda #textbkcolor / sta COLUBK"
+             ; becomes redundant once this runs, but harmless - same value
+             ; either way.
+             lda #textbkcolor
+             sta COLUBK
+         endif
     endif
 
 score_loop_height = * - textscoreloop
@@ -169,8 +238,22 @@ score_loop_height = * - textscoreloop
 	sty GRP0                ; 3     (73)
 	sty GRP1                ; 3     (76/0)
 	sty GRP0                ; 3     (3)
-	lda #textbkcolor
-	sta COLUBK              ; 3     (6)
+	; vcs-game-maker: when noscoretxt is unset (score digits shown) AND
+	; scorepaddinglines is at least 1, the "ifnconst noscoretxt" block above
+	; (right after the score loop) already set COLUBK to textbkcolor
+	; immediately after its own extra scanline(s) - this one would just be a
+	; harmless but redundant repeat in that case, so it's skipped. Otherwise
+	; (pure text mode, or score padding off) this remains the only place
+	; that sets it.
+	ifconst noscoretxt
+	    lda #textbkcolor
+	    sta COLUBK              ; 3     (6)
+	else
+	    if scorepaddinglines < 1
+	        lda #textbkcolor
+	        sta COLUBK              ; 3     (6)
+	    endif
+	endif
 
     ifconst extendedtxt
     sty TextDataPtr+1              ; 3     (9)

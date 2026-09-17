@@ -60,7 +60,10 @@ export const backgroundGetPixelDevVarsNeeded = (block) =>
 // scorecolor/TextColor share this same check-generating function alongside
 // COLUBK/COLUPF, or two registers' own labels would collide into the exact
 // same names and only the first would ever compile correctly.
-const FADE_LABEL_TAG_BY_VAR = {COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text'};
+const FADE_LABEL_TAG_BY_VAR = {
+  COLUBK: 'bg', COLUPF: 'pf', scorecolor: 'score', TextColor: 'text',
+  player0realcolor: 'p0', player1realcolor: 'p1',
+};
 
 export default (Blockly) => {
   // A compile-time constant, not runtime state - the playfield's vertical
@@ -233,7 +236,7 @@ export default (Blockly) => {
     const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
     const paceVar = resolveVar(backgroundFadePaceVarName(rawVar));
     const targetVar = resolveVar(backgroundFadeTargetVarName(rawVar));
-    const activeBit = `${resolveVar(fadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
+    const activeBit = `${resolveVar(fadeFlagsVarName(rawVar))}{${fadeActiveBit(rawVar)}}`;
     // frames/FADE_STEPS is still a genuine runtime division (frames isn't
     // known at compile time) - needs the shared div8 routine UNLESS the
     // divisor is a compile-time constant power of 2, in which case the
@@ -500,34 +503,45 @@ export default (Blockly) => {
       // color's own comment above) since the score/text drawing routines
       // overwrite the real register every frame - scorecolor/TextColor have
       // no such override, so the real variable doubles as its own shadow.
-      const isShadowedRegister = rawVar === 'COLUPF' || rawVar === 'COLUBK';
+      // player0realcolor/player1realcolor have no separate shadow ALIAS
+      // either (nothing renames them the way COLUBK/COLUPF rename to
+      // backgroundrealcolor/playfieldrealcolor), but - unlike scorecolor/
+      // TextColor - they're still app-internal dev vars needing nameDB_
+      // resolution (sprite_${name}_get/set already resolve this same VAR
+      // through nameDB_/VARIABLE_CATEGORY_NAME - see generators/bbasic/
+      // sprites.js), so they're grouped with COLUBK/COLUPF below, not
+      // scorecolor/TextColor.
+      const needsNameDbResolution = rawVar === 'COLUPF' || rawVar === 'COLUBK' ||
+        rawVar === 'player0realcolor' || rawVar === 'player1realcolor';
       const targetShadowVar = rawVar === 'COLUPF' ? 'playfieldrealcolor' :
         rawVar === 'COLUBK' ? 'backgroundrealcolor' : rawVar;
       // scorecolor/TextColor are real batari Basic identifiers already
       // (score.js's own score_color_get/set and text-minikernel.js's own
       // TextColor blocks both reference them as plain literals, never
-      // through nameDB_) - only COLUBK/COLUPF's own shadow vars are
-      // app-internal dev vars that actually need letter resolution.
-      const colorVarName = isShadowedRegister ?
+      // through nameDB_) - only COLUBK/COLUPF's own shadow vars and
+      // player0realcolor/player1realcolor are app-internal dev vars that
+      // actually need letter resolution.
+      const colorVarName = needsNameDbResolution ?
         Blockly.BBasic.nameDB_.getName(targetShadowVar, Blockly.VARIABLE_CATEGORY_NAME) : targetShadowVar;
       const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
       const paceVar = resolveVar(backgroundFadePaceVarName(rawVar));
       const targetVar = resolveVar(backgroundFadeTargetVarName(rawVar));
       const tag = FADE_LABEL_TAG_BY_VAR[rawVar] || rawVar;
 
-      // Every register (background/playfield AND score/text) routes through
-      // a hand-written asm version instead (see buildFadeCheckAsm's own
-      // comment) - real cycle savings over the bB if/goto chain this used to
-      // be. buildFadeCheckAsm itself doesn't care whether colorVarName came
-      // from a resolved dev var (COLUBK/COLUPF's own shadow vars) or a bare
-      // literal identifier (scorecolor/TextColor) - either way it's already
-      // just a plain string by the time it gets here.
+      // Every register (background/playfield, score/text, AND player) routes
+      // through a hand-written asm version instead (see buildFadeCheckAsm's
+      // own comment) - real cycle savings over the bB if/goto chain this
+      // used to be. buildFadeCheckAsm itself doesn't care whether
+      // colorVarName came from a resolved dev var (COLUBK/COLUPF/player0/
+      // player1's own shadow vars) or a bare literal identifier (scorecolor/
+      // TextColor) - either way it's already just a plain string by the time
+      // it gets here.
       return buildFadeCheckAsm({
         colorVar: colorVarName,
         targetVar,
         timerVar,
         paceVar,
-        flagsVar: resolveVar(fadeFlagsVarName()),
+        flagsVar: resolveVar(fadeFlagsVarName(rawVar)),
         activeBit: fadeActiveBit(rawVar),
         finishedBit: backgroundFadeFinishedBit(rawVar),
         tag,
@@ -580,7 +594,7 @@ export default (Blockly) => {
     // resolveMusicEventFlags is the shipped instance of the exact same
     // handling).
     if (!watches.has(backgroundFadeWatchKey(rawVar))) return '';
-    const flagBit = `${resolveVar(fadeFlagsVarName())}{${backgroundFadeFinishedBit(rawVar)}}`;
+    const flagBit = `${resolveVar(fadeFlagsVarName(rawVar))}{${backgroundFadeFinishedBit(rawVar)}}`;
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const labelEnd = `_bgfadefin_${blockNumber}_end`;
     return '\n' +
@@ -605,7 +619,7 @@ export default (Blockly) => {
   // the bit is always safe to read here even if it will only ever hold 0.
   Blockly.BBasic[`background_fade_active`] = function(block) {
     const rawVar = block.getFieldValue('VAR');
-    const activeBit = `${resolveVar(fadeFlagsVarName())}{${fadeActiveBit(rawVar)}}`;
+    const activeBit = `${resolveVar(fadeFlagsVarName(rawVar))}{${fadeActiveBit(rawVar)}}`;
     return [activeBit, Blockly.BBasic.ORDER_ATOMIC];
   };
 

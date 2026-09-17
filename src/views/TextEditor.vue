@@ -3,15 +3,13 @@
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Text</v-card-title>
       <v-card-text>
-        <p class="v-messages theme--light v-messages__message">
-          Define named messages here, then display one at runtime with either the "Show text"
-          block (pick from a list) or "Show text ID" (pick by the number shown below - useful
-          for choosing a message from a variable). A-Z, 0-9, and basic punctuation only -
-          unsupported characters and shorter text are padded with spaces. Use the "(scrolling)"
-          versions of the "Show text" blocks to reveal a message longer than 12 characters by
-          scrolling through it, or turn on a message's own "Wrap to line 2" below to word-wrap
-          it onto a second static line instead - the max display width below does not apply to
-          either.
+        <p class="v-messages theme--light v-messages__message text-intro-paragraph">
+          Define text blocks here, then display them at runtime with either the "Show text"
+          block (pick from a list) or "Show text ID" - useful for choosing a message from a
+          variable. A-Z, 0-9, and basic punctuation only. Unsupported characters and shorter
+          text are padded with spaces. Use the "(scrolling)" versions of the "Show text" blocks
+          to reveal a message longer than 12 characters by scrolling through it, or turn on a
+          message's "Multiline" for word-wrap onto a second static line instead.
         </p>
 
         <div class="text-bkcolor-row">
@@ -23,6 +21,29 @@
           />
           <span class="text-bkcolor-label">Text background color</span>
         </div>
+
+        <div class="text-bkcolor-row">
+          <v-switch
+            v-model="enableTextScrollCursor"
+            label="Show a scroll cursor"
+            title="Shows a small indicator (edit its shape in the Text Minikernel Font card below) right after whichever row is currently the last one visible, but only while there's more of the message left to reveal with &quot;Scroll text lines down&quot;. Costs a few extra scanlines whenever this is on, regardless of whether any particular message actually needs it."
+            hide-details
+            class="text-scroll-cursor-switch"
+          />
+          <v-select
+            v-if="enableTextScrollCursor"
+            v-model="textScrollCursorBlinkSpeed"
+            :items="BLINK_SPEED_OPTIONS"
+            item-text="text"
+            item-value="value"
+            title="How often the cursor blinks off - always a power of 2 number of frames (a single framecounter bit), or Never for a steady, non-blinking cursor"
+            label="Blink speed"
+            hide-details
+            class="text-blink-speed-field"
+          />
+        </div>
+
+        <text-font-editor />
 
         <div class="text-max-width-row">
           <v-select
@@ -40,7 +61,7 @@
             class="text-columns-switch"
           />
         </div>
-        <p class="v-messages theme--light v-messages__message">
+        <p class="v-messages theme--light v-messages__message text-max-width-help">
           For static (non-scrolling) text only. Only the first this-many of the 12 available character
           slots are ever used - the rest always stay blank, regardless of message length or justify. The
           "Scroll text" blocks ignore this and always scroll through the full message using
@@ -131,10 +152,11 @@
                   <v-textarea
                     label="Text"
                     v-model="entry.text"
-                    :counter="entry.wrapToLine2 ? 24 : 12"
+                    :counter="entry.wrapToLine2 ? TEXT_CARD_MAX_LENGTH : 12"
+                    :maxlength="TEXT_CARD_MAX_LENGTH"
                     outlined
                     rows="2"
-                    hint="Press Enter for a line break - only takes effect with &quot;Wrap to line 2&quot; on below; otherwise it's treated as a space. More than 2 lines: use the &quot;Scroll text lines&quot; blocks to move through them at runtime."
+                    :hint="`Press Enter for a line break. More than 2 lines (or no room for a 2nd - see &quot;Multiline&quot; below): use the &quot;Scroll text lines&quot; blocks to move through them at runtime. ${TEXT_CARD_MAX_LENGTH} characters max.`"
                     persistent-hint
                     @change="() => handleTextChange(entry)"
                   />
@@ -157,8 +179,8 @@
                   </v-btn-toggle>
                   <v-switch
                     v-model="entry.wrapToLine2"
-                    label="Wrap to line 2"
-                    title="When this message is longer than 12 characters, word-wrap the overflow onto a second 12-character line underneath, instead of cutting it off. Only the plain &quot;Show text&quot; blocks support this - the &quot;(scrolling)&quot; blocks always scroll a single line and ignore it."
+                    label="Multiline"
+                    title="When this message is longer than 12 characters, shows its second line automatically underneath the first, with no scrolling needed. Off (or for a message with more than 2 lines), only the first line shows until a &quot;Scroll text lines&quot; block is used to reveal the rest. Only the plain &quot;Show text&quot; blocks support this - the &quot;(scrolling)&quot; blocks always scroll a single line and ignore it."
                     hide-details
                     dense
                     class="text-wrap-switch"
@@ -191,14 +213,17 @@ import {computed, defineComponent, getCurrentInstance, ref} from '@vue/compositi
 import {max} from 'lodash';
 
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
+import TextFontEditor from '../components/TextFontEditor.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import {useConfigurationStorage, useTextStringsStorage, useTextColumnsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WIDTH,
-  TEXT_MAX_DISPLAY_WIDTH_OPTIONS, processTextStringsStorageDefaults} from '../blocks/text-strings';
+  TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH,
+  processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {BLINK_SPEED_OPTIONS, DEFAULT_BLINK_SPEED} from '../utils/text-font';
 
 export default defineComponent({
-  components: {ColorSwatchPicker},
+  components: {ColorSwatchPicker, TextFontEditor},
   setup() {
     const textStringsStorage = useTextStringsStorage();
     const configurationStorage = useConfigurationStorage();
@@ -225,6 +250,51 @@ export default defineComponent({
         configurationStorage.value = {
           ...(configurationStorage.value || {}),
           textBkColor: value,
+        };
+      },
+    });
+
+    // Whether text12b.asm's own "more below" scroll cursor is compiled in at
+    // all (see generators/bbasic.js's own buildRom-time
+    // buildTextScrollCursorOverride splice, gated on this same field) - a
+    // single project-wide toggle, same reasoning/pattern as textBkColor
+    // just above.
+    const enableTextScrollCursor = computed({
+      get() {
+        try {
+          return !!(configurationStorage.value || {}).enableTextScrollCursor;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return false;
+        }
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          enableTextScrollCursor: value,
+        };
+      },
+    });
+
+    // The scroll cursor's own blink speed (see BLINK_SPEED_OPTIONS/
+    // resolveBlinkMask in utils/text-font.js) - only meaningful (and only
+    // shown, see the template above) while enableTextScrollCursor is on.
+    const textScrollCursorBlinkSpeed = computed({
+      get() {
+        try {
+          const value = (configurationStorage.value || {}).textScrollCursorBlinkSpeed;
+          return value == null ? DEFAULT_BLINK_SPEED : value;
+        } catch (e) {
+          console.error('Error loading configuration from local storage', e);
+          return DEFAULT_BLINK_SPEED;
+        }
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          textScrollCursorBlinkSpeed: value,
         };
       },
     });
@@ -410,8 +480,9 @@ export default defineComponent({
     return {
       selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
-      isCollapsed, toggleCollapsed, textBkColor, textMaxDisplayWidth, TEXT_MAX_DISPLAY_WIDTH_OPTIONS,
-      textColumns,
+      isCollapsed, toggleCollapsed, textBkColor, enableTextScrollCursor,
+      textScrollCursorBlinkSpeed, BLINK_SPEED_OPTIONS, textMaxDisplayWidth,
+      TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH, textColumns,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
     };
   },
@@ -438,6 +509,17 @@ export default defineComponent({
   padding-right: 0;
 }
 
+/* Pulls this intro paragraph up 5px - confirmed directly (measured from the
+   "Text" title's own text glyphs down to this paragraph's own top: 20px,
+   vs. only 15px between the Text Minikernel Font subcard's own header and
+   ITS description right below it - TextFontEditor.vue's own custom header
+   has less bottom padding than Vuetify's default v-card-title). Matches
+   that tighter subcard spacing instead of the wider gap Vuetify's own
+   v-card-title default padding otherwise leaves here. */
+.text-intro-paragraph {
+  margin-top: -5px;
+}
+
 .text-bkcolor-row {
   display: flex;
   align-items: center;
@@ -445,15 +527,41 @@ export default defineComponent({
   margin-bottom: 16px;
 }
 
+/* Same margin-top/padding-top override as .text-columns-switch below -
+   Vuetify's own selection-control margin-top (meant for stacking below
+   other fields) otherwise leaves extra space above this switch. Sits inline
+   in .text-bkcolor-row now, to the right of the color picker, so no
+   margin-bottom is needed either. */
+.text-scroll-cursor-switch {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  margin-bottom: 0;
+  margin-left: 16px;
+}
+
 /* Matches the Score tab's own .score-bkcolor-label size (ScoreFontEditor.vue). */
 .text-bkcolor-label {
   font-size: 1rem;
+}
+
+/* Vuetify's own v-select reserves space above the input for its label,
+   sitting lower than .text-scroll-cursor-switch's own centered toggle+label
+   row right next to it - nudged up to bring its own input line back onto
+   the same baseline. */
+.text-blink-speed-field {
+  max-width: 160px;
+  margin-top: -6px;
+  margin-left: 16px;
 }
 
 .text-max-width-row {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.text-max-width-help {
+  margin-top: 8px;
 }
 
 .text-max-width-field {

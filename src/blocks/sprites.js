@@ -747,3 +747,100 @@ Blockly.defineBlocksWithJsonArray([
       `per-sprite - but it can be changed at any time during the game.`,
   },
 ]);
+
+// Fading Player 0/Player 1's color - same shared mechanism as Background's
+// own "Fade color to" (see emitColorFadeTrigger in generators/bbasic/
+// background.js, generalized past just COLUBK/COLUPF/scorecolor/TextColor
+// to cover player0realcolor/player1realcolor too - see blocks/background.js's
+// own FADE_TAG_BY_VAR/FADE_FLAGS_BYTE_BY_VAR). One combined VAR dropdown
+// covering both players (same "one combined block instead of one per
+// player/missile/ball" convention as object_seek_to/object_seek_arrived
+// above), targeting the exact same player0realcolor/player1realcolor system
+// variables the "Color" option on sprite_player0_get/sprite_player0_set
+// already reads/writes (buildPlayerOptions above).
+//
+// Also fades the matching missile (missile0 for Player 0, missile1 for
+// Player 1) with no extra code needed: real 2600 hardware has no separate
+// missile color register at all - missile0 always draws using COLUP0 (the
+// exact same register Player 0's own color lives in), missile1 uses COLUP1 -
+// so fading player0realcolor/player1realcolor (which feed COLUP0/COLUP1
+// every frame - see bbasic.bb.hbs's own "COLUP0 = player0realcolor") already
+// fades whichever missile is paired with that player too.
+const PLAYER_FADE_VAR_OPTIONS = [
+  [`${PLAYER_ICON} Player 0`, 'player0realcolor'],
+  [`${PLAYER_ICON} Player 1`, 'player1realcolor'],
+];
+const PLAYER_FADE_COLOUR = 'purple';
+
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': `sprite_player_fade_to`,
+    'message0': `${PLAYER_ICON} Fade %1 ${COLOR_ICON} color to %2 over %3 frames`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': PLAYER_FADE_VAR_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+      {
+        'type': 'input_value',
+        'name': 'FRAMES',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': PLAYER_FADE_COLOUR,
+    'tooltip': 'Starts fading Player 0 or Player 1\'s color toward the given color over roughly ' +
+      'this many frames - same hue as the target, brightness automatically climbing or dropping ' +
+      'from wherever it currently is, whichever direction actually gets closer. Only needs to be ' +
+      'triggered once - the fade keeps running by itself every frame afterward, even from inside ' +
+      'an "if" block that only briefly becomes true, until it reaches the target and stops. Also ' +
+      'fades that player\'s own missile (missile0 for Player 0, missile1 for Player 1) for free - ' +
+      'on real Atari 2600 hardware, a missile always shares its player\'s own color register, so ' +
+      'there\'s no separate missile color to fade.',
+  },
+]);
+
+// Works exactly like background_fade_finished (see blocks/background.js's
+// own comment - same shared bit/flag machinery, same "fires once, regardless
+// of fade direction, never late" behavior), just choosing between Player 0/
+// Player 1 instead of Background/Playfield.
+Blockly.Blocks['sprite_player_fade_finished'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${PLAYER_ICON} When`)
+        .appendField(new Blockly.FieldDropdown(PLAYER_FADE_VAR_OPTIONS), 'VAR')
+        .appendField(`${COLOR_ICON} color has finished fading`);
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(PLAYER_FADE_COLOUR);
+    this.setTooltip('Runs the connected blocks once, the moment a matching "Fade" block (same ' +
+      'Player 0/Player 1 choice) reaches its own target color. Does nothing if no matching fade ' +
+      'ever runs anywhere in the project.');
+  },
+};
+
+// Plain, always-current boolean read of the active bit - same shape as
+// background_fade_active's own generator (see blocks/background.js's own
+// comment), just choosing between Player 0/Player 1 instead of Background/
+// Playfield.
+Blockly.Blocks['sprite_player_fade_active'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${PLAYER_ICON} Is`)
+        .appendField(new Blockly.FieldDropdown(PLAYER_FADE_VAR_OPTIONS), 'VAR')
+        .appendField(`${COLOR_ICON} color fade active?`);
+    this.setOutput(true, 'Boolean');
+    this.setColour(PLAYER_FADE_COLOUR);
+    this.setTooltip('True while Player 0 or Player 1\'s color is in the middle of a "Fade" - from ' +
+      'the moment a "Fade" block triggers it until it reaches its own target color, false the ' +
+      'rest of the time.');
+  },
+};

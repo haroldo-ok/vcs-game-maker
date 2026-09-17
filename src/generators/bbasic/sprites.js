@@ -2,6 +2,7 @@
 
 import {playfieldToMatrix} from '../../utils/pixels';
 import {useConfigurationStorage} from '../../hooks/project';
+import {fadeFlagsVarName, fadeActiveBit} from '../../blocks/background';
 
 
 export const DEFAULT_SPRITES={
@@ -1026,5 +1027,36 @@ export default (Blockly) => {
         Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return `${shadowVar}{2} = ${value}\n` +
         `CTRLPF = ${shadowVar}\n`;
+  };
+
+  // Player 0/1's color fade trigger - same shared mechanism as Background's
+  // own "Fade color to" (see emitColorFadeTrigger in generators/bbasic/
+  // background.js), just targeting player0realcolor/player1realcolor
+  // (whichever the VAR dropdown picked) instead of COLUBK/COLUPF. This is
+  // set up by background.js's own init(), which always runs before this file's
+  // (see the registration order in generators/bbasic.js), so
+  // Blockly.BBasic.emitColorFadeTrigger already exists by the time this runs.
+  Blockly.BBasic['sprite_player_fade_to'] = function(block) {
+    const rawVar = block.getFieldValue('VAR');
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    return Blockly.BBasic.emitColorFadeTrigger(rawVar, color, frames);
+  };
+
+  // Player 0/1's own fade-finished watch - same shared mechanism as
+  // Background's own "When ... color has finished fading" (see
+  // emitFadeFinishedWatch in generators/bbasic/background.js).
+  Blockly.BBasic['sprite_player_fade_finished'] = function(block) {
+    return Blockly.BBasic.emitFadeFinishedWatch(block, block.getFieldValue('VAR'));
+  };
+
+  // Plain boolean read of the active bit - same shape as background_fade_
+  // active's own generator (see generators/bbasic/background.js).
+  Blockly.BBasic['sprite_player_fade_active'] = function(block) {
+    const rawVar = block.getFieldValue('VAR');
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const activeBit = `${resolveVar(fadeFlagsVarName(rawVar))}{${fadeActiveBit(rawVar)}}`;
+    return [activeBit, Blockly.BBasic.ORDER_ATOMIC];
   };
 };

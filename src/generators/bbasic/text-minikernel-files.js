@@ -22,12 +22,29 @@ export const getExtendedScoreGraphics = () => {
   return scoreGraphicsPromise;
 };
 
+// The pristine, unmodified text12b.asm - fetched once and cached, same
+// reasoning as getExtendedScoreGraphics above. Exposed separately (not just
+// folded into getTextMinikernelSiblingFiles below) so utils/text-font.js can
+// fetch this same content on its own: once to parse the built-in glyph
+// shapes for a fresh Text Font Editor (getDefaultTextFont), and again to
+// build a byte-for-byte override splicing the user's own edited glyphs in
+// (buildTextFontOverride) - both need the real pristine bytes as their
+// starting point, the same way score font's own buildScoreFontOverride
+// starts from getPristineScoreGraphics (utils/score-font.js).
+let pristineText12bPromise = null;
+export const getPristineText12b = () => {
+  if (!pristineText12bPromise) {
+    pristineText12bPromise = fetchText('bb19/text-minikernel/text12b.asm');
+  }
+  return pristineText12bPromise;
+};
+
 let filesPromise = null;
 export const getTextMinikernelSiblingFiles = () => {
   if (!filesPromise) {
     filesPromise = Promise.all([
       fetchText('bb19/text-minikernel/text12a.asm'),
-      fetchText('bb19/text-minikernel/text12b.asm'),
+      getPristineText12b(),
       getExtendedScoreGraphics(),
     ]).then(([text12a, text12b, scoreGraphics]) => ({
       'text12a.asm': text12a,

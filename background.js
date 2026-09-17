@@ -104,6 +104,65 @@ ipcMain.handle('stella:launch', async (event, {stellaPath, romBytes}) => {
   });
 });
 
+// Project.vue's own "Save"/"Save As"/"Open Project" - the renderer's
+// SUPPORTS_FILE_SYSTEM_ACCESS check (window.showSaveFilePicker/
+// showOpenFilePicker) is always false in this Electron build (that API
+// isn't exposed to Electron renderers the way it is in Chrome), so without
+// these, "Save" silently fell all the way back to "Save As..." behavior
+// (a picker on every click) - a real reported bug, not the intended
+// browsers-only fallback that check's own comment describes. These give
+// the desktop build its own equivalent: a real native save/open dialog
+// backed by Node's fs, with the resulting absolute path handed back to the
+// renderer to remember for later silent "Save" calls (see
+// utils/file-handle-storage.js's own persistActiveFilePath).
+ipcMain.handle('project:save-as', async (event, {content, suggestedName}) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Save VCS Game Maker Project',
+    defaultPath: suggestedName,
+    filters: [{name: 'VCS Game Maker Project', extensions: ['vcsgm']}],
+  });
+  if (result.canceled || !result.filePath) return null;
+  fs.writeFileSync(result.filePath, content, 'utf8');
+  return {path: result.filePath, name: path.basename(result.filePath)};
+});
+
+ipcMain.handle('project:save', async (event, {filePath, content}) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf8');
+    return true;
+  } catch (err) {
+    console.error('Error while saving project file', err);
+    return false;
+  }
+});
+
+ipcMain.handle('project:open', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Open VCS Game Maker Project',
+    properties: ['openFile'],
+    filters: [{name: 'VCS Game Maker Project', extensions: ['vcsgm']}],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  const filePath = result.filePaths[0];
+  const content = fs.readFileSync(filePath, 'utf8');
+  return {path: filePath, name: path.basename(filePath), content};
+});
+
+// Used to double-check a path restored from a previous session (see
+// utils/file-handle-storage.js's own loadPersistedFilePath) still points
+// at a real file before trusting it as a silent "Save" target - the file
+// may have been moved/deleted since, the Electron-side equivalent of the
+// browser path's own queryPermission() === 'denied' check.
+ipcMain.handle('project:path-exists', async (event, filePath) => {
+  try {
+    return fs.existsSync(filePath);
+  } catch (err) {
+    return false;
+  }
+});
+
 // Explicit Edit menu (rather than relying on Electron's implicit default
 // menu) so Ctrl+C/Cut/Paste/Select All accelerators are guaranteed to be
 // wired up - covers plain selectable text (e.g. the error console) as well

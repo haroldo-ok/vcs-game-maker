@@ -1,0 +1,14 @@
+0.50.27
+- Score fade shading (scorefade) on the Score tab
+- Disabled the Background tab's XY toggle unless the pixel grid is on
+- Player tab frame/animation ID badge tweaks
+- Aligned the Score/Text background-color label sizes
+
+0.50.29
+- Added: 16-glyph custom score fonts, a random seed block, a score digit change block, native bB function blocks, Atari Keypad controller support, a pixel grid overlay for the Player Sprite/Background editors, score background color and background/playfield color getter blocks, horizontal Blockly controls, background/score/text color fade blocks, Expert mode, Project tab info fields (Title/Developer/Version/Website/Email/Description), an auto-increment version option, and Data table cell types
+
+0.50.30
+- Multiline Text-card fields with newline-aware word wrap
+- New "Scroll text lines up/down" runtime blocks for the Text Minikernel (supports messages longer than 2 lines)
+- Manual pfrowheight override field on the Options tab
+- Fixed a missing rts in the Text Minikernel's row-drawing routine that was causing glyph corruption and screen rolling

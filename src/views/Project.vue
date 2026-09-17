@@ -144,11 +144,11 @@ import {defineComponent, reactive, computed, onMounted} from '@vue/composition-a
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useProjectAutoIncrementVersionStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
+import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useProjectAutoIncrementVersionStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
 import {getDateInfix} from '../utils/date';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
-import {persistActiveFileHandle, loadPersistedFileHandle, ensureWritePermission} from '../utils/file-handle-storage';
+import {persistActiveFileHandle, loadPersistedFileHandle, ensureWritePermission, persistActiveFilePath, loadPersistedFilePath} from '../utils/file-handle-storage';
 import {version as appVersion} from '../../package.json';
 
 const FORMAT_TYPE = 'VCS Game Maker Project';
@@ -167,6 +167,17 @@ const SUPPORTS_FILE_SYSTEM_ACCESS =
   typeof window !== 'undefined' &&
   typeof window.showSaveFilePicker === 'function' &&
   typeof window.showOpenFilePicker === 'function';
+
+// window.electronAPI only exists inside the desktop build's preload script
+// (see preload.js) - never true in a browser. Checked BEFORE
+// SUPPORTS_FILE_SYSTEM_ACCESS in every save/open handler below: Electron
+// never exposes window.showSaveFilePicker/showOpenFilePicker (that API
+// isn't wired up in Electron the way it is in Chrome), so without this,
+// SUPPORTS_FILE_SYSTEM_ACCESS was always false there and "Save" silently
+// fell all the way back to "Save As..." - a picker on every single click,
+// even for the same already-saved file (a real reported bug: "Save" acting
+// like "Save As" in the desktop build).
+const IS_ELECTRON = typeof window !== 'undefined' && !!window.electronAPI;
 
 const FILE_PICKER_TYPES = [{
   description: 'VCS Game Maker Project',
@@ -195,6 +206,13 @@ export default defineComponent({
       // even with the exact same project still open, since a
       // FileSystemFileHandle used to live in memory only.
       activeFileHandle: null,
+      // The Electron build's own equivalent of activeFileHandle above - a
+      // plain absolute path (see background.js's project:save-as/
+      // project:open handlers) rather than a FileSystemFileHandle, since
+      // Electron never exposes the File System Access API SUPPORTS_FILE_
+      // SYSTEM_ACCESS checks for. Restored from localStorage on mount (see
+      // onMounted below), same reasoning as activeFileHandle's own restore.
+      activeFilePath: null,
     });
     const router = context.root.$router;
 
@@ -207,6 +225,7 @@ export default defineComponent({
     const squishCustomScoreFontStorage = useSquishCustomScoreFontStorage();
     const dataTablesStorage = useDataTablesStorage();
     const textStringsStorage = useTextStringsStorage();
+    const textFontStorage = useTextFontStorage();
     const soundEffectsStorage = useSoundEffectsStorage();
     const songsStorage = useSongsStorage();
 
@@ -268,9 +287,26 @@ export default defineComponent({
       });
     }
 
+    // Electron's own restore - the file may have been moved/deleted since
+    // the path was persisted, so this double-checks via project:path-exists
+    // (the Electron-side equivalent of the browser restore's own
+    // queryPermission() === 'denied' check above) rather than trusting a
+    // stale path and only finding out on the next failed Save.
+    if (IS_ELECTRON) {
+      onMounted(async () => {
+        const filePath = loadPersistedFilePath();
+        if (!filePath) return;
+        try {
+          if (await window.electronAPI.projectPathExists(filePath)) data.activeFilePath = filePath;
+        } catch (e) {
+          console.error('Error while checking the restored project file path', e);
+        }
+      });
+    }
+
     return {data, router, backgroundsStorage, player0Storage, player1Storage,
       workspaceStorage, configurationStorage, scoreFontStorage, squishCustomScoreFontStorage, dataTablesStorage,
-      textStringsStorage, soundEffectsStorage, songsStorage, projectTitle, projectDescription,
+      textStringsStorage, textFontStorage, soundEffectsStorage, songsStorage, projectTitle, projectDescription,
       projectDeveloper, projectVersion, projectAutoIncrementVersion, projectWebsite, projectEmail};
   },
   methods: {
@@ -327,6 +363,17 @@ export default defineComponent({
         digits: this.squishCustomScoreFontStorage.digits.map(matrixToPlayfield),
       };
 
+      const textFont = !this.textFontStorage ? null : {
+        ...this.textFontStorage,
+        glyphs: this.textFontStorage.glyphs.map(matrixToPlayfield),
+        // The scroll cursor's own shape (see components/TextFontEditor.vue) -
+        // optional: an older saved project (or one that's never opened the
+        // Text Font Editor card at all) has no cursor of its own yet, and
+        // processCursorGlyphDefaults already falls back to a sensible
+        // default whenever this key is missing on load.
+        cursor: this.textFontStorage.cursor ? matrixToPlayfield(this.textFontStorage.cursor) : undefined,
+      };
+
       const projectYaml = YAML.stringify({
         'type': FORMAT_TYPE,
         'format-version': FORMAT_VERSION,
@@ -348,6 +395,7 @@ export default defineComponent({
         'squish-custom-score-font': squishCustomScoreFont,
         'data-tables': this.dataTablesStorage,
         'text-strings': this.textStringsStorage,
+        'text-font': textFont,
         'sound-effects': this.soundEffectsStorage,
         // Songs, sequences, patterns, instruments (tracks) and their notes -
         // all live in this one storage object (see hooks/project.js's
@@ -396,6 +444,15 @@ export default defineComponent({
       const projectYaml = this.buildProjectYaml();
       const filename = this.buildSaveFilename();
 
+      if (IS_ELECTRON) {
+        const result = await window.electronAPI.saveProjectAs(projectYaml, filename);
+        if (!result) return; // The user cancelled the native dialog.
+        this.data.activeFilePath = result.path;
+        persistActiveFilePath(result.path);
+        appendCompileLog(`Game saved to ${result.path}`, 'stage');
+        return;
+      }
+
       if (SUPPORTS_FILE_SYSTEM_ACCESS) {
         let handle;
         try {
@@ -407,18 +464,31 @@ export default defineComponent({
           // The user closing/cancelling the picker throws AbortError -
           // not a real failure, nothing to report or recover from.
           if (e && e.name === 'AbortError') return;
-          console.error('Error while saving project', e);
+          // Chrome throws this SecurityError unconditionally when the app
+          // is embedded in a cross-origin iframe - the spec disallows the
+          // picker there outright, with no permissions-policy/allow
+          // attribute able to override it (confirmed as the actual
+          // reported bug: "Save"/"Save As" silently doing nothing when
+          // embedded that way). Falls through to the same download-based
+          // fallback used on a browser that never had the File System
+          // Access API at all, rather than leaving the user with no way
+          // to save.
+          if (!(e && e.name === 'SecurityError')) {
+            console.error('Error while saving project', e);
+            return;
+          }
+        }
+        if (handle) {
+          const writable = await handle.createWritable();
+          await writable.write(projectYaml);
+          await writable.close();
+          this.data.activeFileHandle = handle;
+          // So "Save" keeps working as "Save" after a reload too - see
+          // utils/file-handle-storage.js's own comment.
+          persistActiveFileHandle(handle);
+          appendCompileLog(`Game saved to ${handle.name}`, 'stage');
           return;
         }
-        const writable = await handle.createWritable();
-        await writable.write(projectYaml);
-        await writable.close();
-        this.data.activeFileHandle = handle;
-        // So "Save" keeps working as "Save" after a reload too - see
-        // utils/file-handle-storage.js's own comment.
-        persistActiveFileHandle(handle);
-        appendCompileLog(`Game saved to ${handle.name}`, 'stage');
-        return;
       }
 
       const projectBlob = new Blob([projectYaml], {type: 'text/yaml'});
@@ -435,6 +505,24 @@ export default defineComponent({
     // meaning Save always does SOMETHING useful, and every save after that
     // first one goes straight back to the same file with no prompt.
     async handleSaveProject() {
+      if (IS_ELECTRON) {
+        if (!this.data.activeFilePath) {
+          await this.handleSaveProjectAs();
+          return;
+        }
+        if (this.projectAutoIncrementVersion) {
+          this.projectVersion = this.incrementVersion(this.projectVersion);
+        }
+        const projectYaml = this.buildProjectYaml();
+        const ok = await window.electronAPI.saveProject(this.data.activeFilePath, projectYaml);
+        if (!ok) {
+          console.error('Could not save the project file.');
+          return;
+        }
+        appendCompileLog(`Game saved to ${this.data.activeFilePath}`, 'stage');
+        return;
+      }
+
       if (!SUPPORTS_FILE_SYSTEM_ACCESS || !this.data.activeFileHandle) {
         await this.handleSaveProjectAs();
         return;
@@ -501,13 +589,29 @@ export default defineComponent({
     // that way, since there's no way to silently write back to a file
     // picked through a plain <input type="file">.
     async handleOpenProjectClick() {
+      if (IS_ELECTRON) {
+        const result = await window.electronAPI.openProject();
+        if (!result) return; // The user cancelled the native dialog.
+        this.data.activeFilePath = result.path;
+        persistActiveFilePath(result.path);
+        this.applyProjectYaml(result.content, result.name);
+        return;
+      }
+
       if (SUPPORTS_FILE_SYSTEM_ACCESS) {
         let handles;
         try {
           handles = await window.showOpenFilePicker({types: FILE_PICKER_TYPES});
         } catch (e) {
           if (e && e.name === 'AbortError') return;
-          console.error('Error while opening project', e);
+          // Same cross-origin-iframe SecurityError as handleSaveProjectAs
+          // above - falls through to the plain file input below instead of
+          // leaving "Open Project" dead in that context.
+          if (!(e && e.name === 'SecurityError')) {
+            console.error('Error while opening project', e);
+            return;
+          }
+          this.$refs.importFileInput.click();
           return;
         }
         const [handle] = handles;
@@ -545,112 +649,126 @@ export default defineComponent({
 
       const reader = new FileReader();
       reader.readAsText(file, 'UTF-8');
-      reader.onload = (evt) => {
-        const projectYaml = evt.target.result;
-        console.info('YAML', projectYaml);
-        // YAML.parse returns null (not a parse error) for an empty document
-        // - an empty/blank file, or one that's otherwise valid YAML but
-        // just isn't an object (e.g. a bare "null"/"~" or a single scalar
-        // value) - confirmed as a real reported crash this way: unguarded,
-        // "project.type" below threw "Cannot read properties of null
-        // (reading 'type')", a confusing raw TypeError instead of this same
-        // file's own clear "not a valid project" message every OTHER
-        // malformed-file case already gets.
-        const project = YAML.parse(projectYaml);
-        if (!project || typeof project !== 'object') {
-          throw new Error('This file does not seem to be a valid project.');
-        }
-
-        if (project.type !== FORMAT_TYPE) {
-          throw new Error('This file does not seem to be a valid project.');
-        }
-
-        if (project['format-version'] > FORMAT_VERSION) {
-          throw new Error(
-              `This project's version (${project['format-version']}) is newer than the supported version (${FORMAT_VERSION})`);
-        }
-
-        this.workspaceStorage = project['blockly-workspace'];
-
-        const preparePlayerLoad = (playerData) => playerData && {
-          ...playerData,
-          animations: playerData.animations.map((animation) => ({
-            ...animation,
-            frames: animation.frames.map((frame) => ({
-              ...frame,
-              pixels: playfieldToMatrix(frame.pixels),
-            })),
-          })),
-        };
-
-        const player0 = preparePlayerLoad(project['player-0']);
-        if (player0) {
-          this.player0Storage = player0;
-        }
-
-        const player1 = preparePlayerLoad(project['player-1']);
-        if (player1) {
-          this.player1Storage = player1;
-        }
-
-        if (project['score-font']) {
-          this.scoreFontStorage = {
-            ...project['score-font'],
-            digits: project['score-font'].digits.map(playfieldToMatrix),
-          };
-        }
-
-        if (project['squish-custom-score-font']) {
-          this.squishCustomScoreFontStorage = {
-            ...project['squish-custom-score-font'],
-            digits: project['squish-custom-score-font'].digits.map(playfieldToMatrix),
-          };
-        }
-
-        if (project.backgrounds) {
-          const backgrounds = {
-            ...project.backgrounds,
-            backgrounds: project.backgrounds.backgrounds
-                .map((bkg) => ({...bkg, pixels: playfieldToMatrix(bkg.pixels)})),
-          };
-          this.backgroundsStorage = backgrounds;
-        }
-
-        if (project.configuration) {
-          this.configurationStorage = project.configuration;
-        }
-
-        if (project['data-tables']) {
-          this.dataTablesStorage = project['data-tables'];
-        }
-
-        if (project['text-strings']) {
-          this.textStringsStorage = project['text-strings'];
-        }
-
-        if (project['sound-effects']) {
-          this.soundEffectsStorage = project['sound-effects'];
-        }
-
-        if (project.songs) {
-          this.songsStorage = project.songs;
-        }
-
-        // Song/pattern/track IDs in the loaded project collide with
-        // whatever the previous project used (both start counting from 1) -
-        // without this, the Music tab's own active pattern/track selection
-        // (see hooks/music-editor-state.js) would keep pointing at IDs left
-        // over from before, showing the piano roll against the wrong
-        // pattern/track, or one that doesn't exist in this project at all.
-        resetMusicEditorActiveState();
-        // Unlike an earlier version of this, deliberately stays on this tab
-        // rather than navigating to Actions - same reasoning as
-        // handleNewProject's own identical change: the user may still want
-        // to check/adjust the imported project's own Title/Developer/
-        // Version/Description right here first.
-        appendCompileLog(`Imported project ${file.name}`, 'stage');
-      };
+      reader.onload = (evt) => this.applyProjectYaml(evt.target.result, file.name);
       reader.onerror = (evt) => console.error('Error while loading project', evt);
+    },
+
+    // Shared by loadProjectFromFile (FileReader-based, used by the browser
+    // build's own File System Access/plain-input paths) and Electron's
+    // handleOpenProjectClick above, which already has the file's content as
+    // a plain string via IPC (fs.readFileSync in the main process) with no
+    // File/FileReader involved at all.
+    applyProjectYaml(projectYaml, sourceName) {
+      console.info('YAML', projectYaml);
+      // YAML.parse returns null (not a parse error) for an empty document
+      // - an empty/blank file, or one that's otherwise valid YAML but
+      // just isn't an object (e.g. a bare "null"/"~" or a single scalar
+      // value) - confirmed as a real reported crash this way: unguarded,
+      // "project.type" below threw "Cannot read properties of null
+      // (reading 'type')", a confusing raw TypeError instead of this same
+      // file's own clear "not a valid project" message every OTHER
+      // malformed-file case already gets.
+      const project = YAML.parse(projectYaml);
+      if (!project || typeof project !== 'object') {
+        throw new Error('This file does not seem to be a valid project.');
+      }
+
+      if (project.type !== FORMAT_TYPE) {
+        throw new Error('This file does not seem to be a valid project.');
+      }
+
+      if (project['format-version'] > FORMAT_VERSION) {
+        throw new Error(
+            `This project's version (${project['format-version']}) is newer than the supported version (${FORMAT_VERSION})`);
+      }
+
+      this.workspaceStorage = project['blockly-workspace'];
+
+      const preparePlayerLoad = (playerData) => playerData && {
+        ...playerData,
+        animations: playerData.animations.map((animation) => ({
+          ...animation,
+          frames: animation.frames.map((frame) => ({
+            ...frame,
+            pixels: playfieldToMatrix(frame.pixels),
+          })),
+        })),
+      };
+
+      const player0 = preparePlayerLoad(project['player-0']);
+      if (player0) {
+        this.player0Storage = player0;
+      }
+
+      const player1 = preparePlayerLoad(project['player-1']);
+      if (player1) {
+        this.player1Storage = player1;
+      }
+
+      if (project['score-font']) {
+        this.scoreFontStorage = {
+          ...project['score-font'],
+          digits: project['score-font'].digits.map(playfieldToMatrix),
+        };
+      }
+
+      if (project['squish-custom-score-font']) {
+        this.squishCustomScoreFontStorage = {
+          ...project['squish-custom-score-font'],
+          digits: project['squish-custom-score-font'].digits.map(playfieldToMatrix),
+        };
+      }
+
+      if (project.backgrounds) {
+        const backgrounds = {
+          ...project.backgrounds,
+          backgrounds: project.backgrounds.backgrounds
+              .map((bkg) => ({...bkg, pixels: playfieldToMatrix(bkg.pixels)})),
+        };
+        this.backgroundsStorage = backgrounds;
+      }
+
+      if (project.configuration) {
+        this.configurationStorage = project.configuration;
+      }
+
+      if (project['data-tables']) {
+        this.dataTablesStorage = project['data-tables'];
+      }
+
+      if (project['text-strings']) {
+        this.textStringsStorage = project['text-strings'];
+      }
+
+      if (project['text-font']) {
+        this.textFontStorage = {
+          ...project['text-font'],
+          glyphs: project['text-font'].glyphs.map(playfieldToMatrix),
+          cursor: project['text-font'].cursor ? playfieldToMatrix(project['text-font'].cursor) : undefined,
+        };
+      }
+
+      if (project['sound-effects']) {
+        this.soundEffectsStorage = project['sound-effects'];
+      }
+
+      if (project.songs) {
+        this.songsStorage = project.songs;
+      }
+
+      // Song/pattern/track IDs in the loaded project collide with
+      // whatever the previous project used (both start counting from 1) -
+      // without this, the Music tab's own active pattern/track selection
+      // (see hooks/music-editor-state.js) would keep pointing at IDs left
+      // over from before, showing the piano roll against the wrong
+      // pattern/track, or one that doesn't exist in this project at all.
+      resetMusicEditorActiveState();
+      // Unlike an earlier version of this, deliberately stays on this tab
+      // rather than navigating to Actions - same reasoning as
+      // handleNewProject's own identical change: the user may still want
+      // to check/adjust the imported project's own Title/Developer/
+      // Version/Description right here first.
+      appendCompileLog(`Imported project ${sourceName}`, 'stage');
     },
 
     handleNewProject() {
@@ -668,7 +786,12 @@ export default defineComponent({
       // the old project's handle right back onto this new, unrelated one.
       this.data.activeFileHandle = null;
       persistActiveFileHandle(null);
+      // The Electron build's own equivalent of the above - see
+      // data.activeFilePath's own comment in setup().
+      this.data.activeFilePath = null;
+      persistActiveFilePath(null);
       this.textStringsStorage = null;
+      this.textFontStorage = null;
       this.soundEffectsStorage = null;
       this.songsStorage = null;
 

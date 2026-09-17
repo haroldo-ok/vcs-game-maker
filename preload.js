@@ -13,4 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // cloned across the IPC boundary automatically, no manual serialization
   // needed.
   launchStella: (stellaPath, romBytes) => ipcRenderer.invoke('stella:launch', {stellaPath, romBytes}),
+  saveProjectAs: (content, suggestedName) => ipcRenderer.invoke('project:save-as', {content, suggestedName}),
+  saveProject: (filePath, content) => ipcRenderer.invoke('project:save', {filePath, content}),
+  openProject: () => ipcRenderer.invoke('project:open'),
+  projectPathExists: (filePath) => ipcRenderer.invoke('project:path-exists', filePath),
 });

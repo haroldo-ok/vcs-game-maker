@@ -76,3 +76,31 @@ export const ensureWritePermission = async (handle) => {
   if ((await handle.requestPermission(options)) === 'granted') return true;
   return false;
 };
+
+// The Electron build's own equivalent of the above, for the active
+// project's absolute file path (see background.js's own project:save-as/
+// project:open handlers) rather than a FileSystemFileHandle - a plain
+// string, so localStorage (not IndexedDB) is enough to persist it across
+// a reload.
+const ACTIVE_PATH_KEY = 'vcs-game-maker-active-project-path';
+
+export const persistActiveFilePath = (filePath) => {
+  try {
+    if (filePath) {
+      localStorage.setItem(ACTIVE_PATH_KEY, filePath);
+    } else {
+      localStorage.removeItem(ACTIVE_PATH_KEY);
+    }
+  } catch (e) {
+    console.error('Error while persisting the active project file path', e);
+  }
+};
+
+export const loadPersistedFilePath = () => {
+  try {
+    return localStorage.getItem(ACTIVE_PATH_KEY);
+  } catch (e) {
+    console.error('Error while loading the persisted active project file path', e);
+    return null;
+  }
+};

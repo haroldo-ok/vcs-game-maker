@@ -77,6 +77,21 @@ userealrow2
         clc
         adc #12
 gotrow2base
+        ; vcs-game-maker row2-color hook - utils/text-font.js's own
+        ; buildTextRow2ColorOverride splices a "pha/lda <resolved var>/sta
+        ; COLUP0/sta COLUP1/pla" sequence right after this comment when row
+        ; 2 is actually used (never touched otherwise). Row 2's own color is
+        ; a real dev var (settable via the "Text: set row 2 color" block),
+        ; not a compile-time const like textbkcolor - its real resolved name
+        ; isn't known when this vendored file is written, so it can't be
+        ; hardcoded here the way TextColor/TextIndex/TextRow2Active are (see
+        ; hooks/rom.js). A holds row 2's own base offset into text_strings
+        ; on entry here (from either path above) - showtextrow needs it
+        ; untouched, so the spliced code saves/restores it around the color
+        ; set rather than clobbering it (an earlier version did just that,
+        ; corrupting row 2's own offset and reading garbage bytes from
+        ; wherever that clobbered value pointed instead - visibly, scrambled
+        ; row 2 text).
         jsr showtextrow
     endif
     jmp textrowsdone
@@ -87,17 +102,57 @@ gotrow2base
 ; "textkernel2ndrow" above) and reading downward from base+11 to base, then
 ; draws the row. A tail call (not a nested jsr) into drawtextrow below -
 ; its own rts returns straight to showtextrow's caller.
+;
+; Unrolled (originally a dey/dex/bpl loop) - vcs-game-maker: this runs with
+; no WSYNC of its own between row 1's own drawing and row 2's (see
+; "textkernel2ndrow" in textkernel above), so its own cost IS the visible
+; gap between the two text rows. The loop form cost ~192 cycles here every
+; time a row is filled; this unrolled form costs ~118 - close enough to one
+; scanline's worth (~76 cycles) less that row 2 now starts one scanline
+; earlier. Row 1's own call site has slack before its first WSYNC (nothing
+; upstream of it overflows a scanline boundary the loop form didn't already
+; fit inside), so only row 2's start position actually moves - larger in
+; ROM bytes than the loop form, but this file has no per-project runtime
+; state to preserve here, so that's a fixed, one-time cost.
 showtextrow
     clc
     adc #11
     tay
-    ldx #11
-TextPointersLoop
     lda (TextDataPtr),y
-    sta scorepointers,x
+    sta scorepointers+11
     dey
-    dex
-    bpl TextPointersLoop
+    lda (TextDataPtr),y
+    sta scorepointers+10
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+9
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+8
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+7
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+6
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+5
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+4
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+3
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+2
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+1
+    dey
+    lda (TextDataPtr),y
+    sta scorepointers+0
     jmp drawtextrow
 
 ; One row's own cycle-exact 5-line (10-scanline) draw, reading whatever
@@ -443,6 +498,13 @@ textrowsdone
     sta NUSIZ1
     sta VDELP0
     sta VDELP1
+
+    ; vcs-game-maker scroll-cursor hook - utils/text-font.js's own
+    ; buildTextScrollCursorOverride splices a per-project "more below"
+    ; indicator right after this comment when that feature is on (never
+    ; touched at all otherwise). Player0/GRP0 (used there) is free here for
+    ; the exact same reason the rest of this kernel already reuses it -
+    ; nothing after this point needs it again before the return below.
 
     ifconst textbank
         sta temp7

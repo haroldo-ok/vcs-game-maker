@@ -141,7 +141,29 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': 'text_minikernel_set_color',
-    'message0': `${COLOR_ICON} Text set color to %1`,
+    'message0': `${COLOR_ICON} Text set %1 color to %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'ROW',
+        'options': [['row 1', '1'], ['row 2', '2'], ['both', 'both']],
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Sets the color of Text Minikernel messages - "row 2" only matters for a wrapped ' +
+      'message\'s second line (a message with "Wrap to line 2" on, or one long enough to ' +
+      'word-wrap that far on its own). Defaults to "row 1", matching this block\'s own old, ' +
+      'row-1-only behavior before this dropdown existed.',
+  },
+  {
+    'type': 'text_minikernel_set_cursor_color',
+    'message0': `${COLOR_ICON} Text set scroll cursor color to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -151,7 +173,23 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': TEXT_COLOR,
-    'tooltip': 'Sets the color of Text Minikernel messages.',
+    'tooltip': 'Sets the color of the blinking scroll cursor (Text tab\'s "Show a blinking scroll ' +
+      'cursor" switch).',
+  },
+  {
+    'type': 'text_minikernel_set_end_icon_color',
+    'message0': `${COLOR_ICON} Text set end icon color to %1`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Sets the color of the "end of message" icon that appears once there\'s nothing ' +
+      'left to scroll down to.',
   },
   // Fades TextColor toward a target - same shared mechanism as Background's
   // own "Fade color to" (see blocks/background.js's own fade var-name
@@ -249,32 +287,63 @@ Blockly.defineBlocksWithJsonArray([
       'chosen end of its scroll range (always true for "Left" on a message that never ' +
       'needed to scroll at all).',
   },
-  // Moves the currently shown message up/down one line at a time when its
-  // own "Wrap to line 2" text (see the Text tab's own multi-line field) has
-  // more than 2 lines - only the first 2 are ever shown at once, same as
-  // any other wrapping message. Distinct from the "Text scroll" blocks
-  // above (which move a single line horizontally, character by character) -
-  // these move vertically, whole lines at a time. Harmless no-ops on a
-  // message with 2 or fewer lines, or one shown via a "(scrolling)" block.
+  {
+    'type': 'text_minikernel_end_icon_visible',
+    'message0': `${TEXT_ICON} End of text?`,
+    'output': 'Boolean',
+    'colour': TEXT_COLOR,
+    'tooltip': 'True whenever the "end of message" icon would currently be showing - ' +
+      'i.e. there\'s nothing left below the currently shown message to scroll down to.',
+  },
+  // Moves the currently shown message up/down one or two lines at a time
+  // whenever its own text (the Text tab's own multi-line field) is more than
+  // 2 lines - works regardless of whether "Wrap to line 2" is on: that
+  // toggle only decides whether line 2 draws automatically without
+  // scrolling, not whether a message's own overflow text is split into real,
+  // separate lines at all (a long message always word-wraps into more than
+  // one line, on or off). Distinct from the "Text scroll" blocks above
+  // (which move a single line horizontally, character by character) - these
+  // move vertically, whole lines at a time. Harmless no-ops on a message
+  // with 2 or fewer lines, or one shown via a "(scrolling)" block.
   {
     'type': 'text_minikernel_line_scroll_up',
-    'message0': `${TEXT_ICON} Scroll text lines up`,
+    'message0': `${TEXT_ICON} Scroll text lines up %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'LINES',
+        'options': [['1 line', '1'], ['2 lines', '2']],
+      },
+    ],
+    'inputsInline': true,
     'previousStatement': null,
     'nextStatement': null,
     'colour': TEXT_COLOR,
-    'tooltip': 'Moves the currently shown message up by one line, revealing an earlier line ' +
-      'of a "Wrap to line 2" message with more than 2 lines. Has no effect once already at ' +
-      'the first line, or on a message with 2 or fewer lines.',
+    'tooltip': 'Moves the currently shown message up by one or two lines (your choice above), ' +
+      'revealing an earlier line of a message with more than 2 lines - works whether or not ' +
+      '"Wrap to line 2" is on for it. Never moves earlier than the first line, even if that ' +
+      'means moving by less than the chosen amount - and has no effect at all on a message ' +
+      'with 2 or fewer lines.',
   },
   {
     'type': 'text_minikernel_line_scroll_down',
-    'message0': `${TEXT_ICON} Scroll text lines down`,
+    'message0': `${TEXT_ICON} Scroll text lines down %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'LINES',
+        'options': [['1 line', '1'], ['2 lines', '2']],
+      },
+    ],
+    'inputsInline': true,
     'previousStatement': null,
     'nextStatement': null,
     'colour': TEXT_COLOR,
-    'tooltip': 'Moves the currently shown message down by one line, revealing a later line ' +
-      'of a "Wrap to line 2" message with more than 2 lines. Has no effect once already at ' +
-      'the last line, or on a message with 2 or fewer lines.',
+    'tooltip': 'Moves the currently shown message down by one or two lines (your choice above), ' +
+      'revealing a later line of a message with more than 2 lines - works whether or not ' +
+      '"Wrap to line 2" is on for it. Never moves past the last line, even if that means ' +
+      'moving by less than the chosen amount - and has no effect at all on a message with ' +
+      '2 or fewer lines.',
   },
 ]);
 
