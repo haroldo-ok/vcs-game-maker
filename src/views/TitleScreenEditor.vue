@@ -195,11 +195,11 @@
 
                             <template v-else-if="card.type === 'score'">
                               <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
-                                Shows the game's own score (6 digits), using the same font currently selected
+                                Shows the game's score (6 digits), using the same font currently selected
                                 on the Score tab and colored via the Score category's "Score set color to"
                                 block (Actions tab) - nothing to configure here. The Options tab's "Show
                                 remaining CPU cycles as the score" has no effect here - it only overlays the
-                                standard game kernel's own score drawing, which a title screen never calls.
+                                standard game kernel's score drawing, which a title screen never calls.
                               </p>
                             </template>
 
