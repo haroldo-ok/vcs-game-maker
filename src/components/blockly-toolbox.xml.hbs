@@ -5,8 +5,30 @@
             <mutation else="1"></mutation>
         </block>
 
-        <block type="logic_compare"></block>
-        <block type="logic_operation"></block>
+        <block type="logic_compare">
+            <value name="A">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="B">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="logic_operation">
+            <value name="A">
+                <shadow type="logic_boolean">
+                    <field name="BOOL">TRUE</field>
+                </shadow>
+            </value>
+            <value name="B">
+                <shadow type="logic_boolean">
+                    <field name="BOOL">TRUE</field>
+                </shadow>
+            </value>
+        </block>
         <block type="logic_negate"></block>
         <block type="logic_boolean"></block>
         <block type="logic_boolean">
@@ -40,7 +62,7 @@
             <statement name="DO">
                 <block type="draw_screen">
                     <next>
-                        <block type="sprite_player0_change">
+                        <block type="sprite_player_change">
                             <field name="VAR">player0x</field>
                             <value name="DELTA">
                                 <shadow type="math_number">
@@ -62,27 +84,110 @@
     </category>
     <category name="Variables" custom="VARIABLE" colour="%{BKY_VARIABLES_HUE}">
     </category>
+    <category name="Input" colour="green">
+        <block type="input_joy0_get"></block>
+        <block type="input_joy1_get"></block>
+        <block type="input_joy0_direction8"></block>
+        <block type="input_joy1_direction8"></block>
+        <block type="input_joy0_fire_pattern"></block>
+        <block type="input_joy1_fire_pattern"></block>
+        <block type="input_keypad0_get"></block>
+        <block type="input_keypad1_get"></block>
+        <block type="input_keypad0_any_pressed"></block>
+        <block type="input_keypad1_any_pressed"></block>
+        <block type="input_keypad0_id_get"></block>
+        <block type="input_keypad1_id_get"></block>
+        <block type="collision_get"></block>
+        <block type="collision_check_position"></block>
+        <block type="input_console_switch_get"></block>
+        <block type="color_get"></block>
+        <block type="distance_x_get"></block>
+        <block type="distance_y_get"></block>
+        <block type="distance_x_to_point_get">
+            <value name="POINT">
+                <shadow type="math_number">
+                <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="distance_y_to_point_get">
+            <value name="POINT">
+                <shadow type="math_number">
+                <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="random_seed_set">
+            <value name="SEED">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="random_get"></block>
+        <block type="random_range_get"></block>
+        <block type="sprite_player_set">
+            <field name="VAR">player0x</field>
+            <value name="VALUE">
+                <shadow type="math_number">
+                <field name="NUM">1</field>
+                </shadow>
+                <block type="random_range_get">
+                <field name="RAND_CODE">(rand/4) + 1</field>
+                </block>
+            </value>
+        </block>
+        <block type="sprite_player_set">
+            <field name="PLAYER">1</field>
+            <field name="VAR">player1y</field>
+            <value name="VALUE">
+                <shadow type="math_number">
+                <field name="NUM">1</field>
+                </shadow>
+                <block type="random_range_get">
+                <field name="RAND_CODE">(rand/8)</field>
+                </block>
+            </value>
+        </block>
+    </category>
+    <category name="Title" colour="rgb(233, 30, 99)">
+        <block type="titlescreen_draw"></block>
+        <block type="titlescreen_scroll_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_player_frame_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+    </category>
     <category name="Sprites" colour="red">
 
-        <block type="sprite_player0_get"></block>
-        <block type="sprite_player0_set">
+        <block type="sprite_player_get"></block>
+        <block type="sprite_player_set">
             <value name="VALUE">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_player0_change">
+        <block type="sprite_player_change">
             <value name="DELTA">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_player0_size" />
-        <block type="sprite_player0_animation_select"></block>
-        <block type="sprite_player0_animation_playback"></block>
-        <block type="sprite_player0_rom_noise">
+        <block type="sprite_player_size" />
+        <block type="sprite_player_animation_select"></block>
+        <block type="sprite_player_animation_playback"></block>
+        <block type="sprite_player_rom_noise">
             <value name="OFFSET">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
@@ -94,87 +199,61 @@
                 </shadow>
             </value>
         </block>
-        <block type="sprite_player0_rom_noise_stop"></block>
+        <block type="sprite_player_rom_noise_stop"></block>
         {{#if enablePlayer0SpriteColors}}
-        <block type="sprite_player0_rainbow_colors">
+        <block type="sprite_player_rainbow_colors">
             <value name="OFFSET">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_player0_rainbow_colors_stop"></block>
-        {{/if}}
-        <block type="sprite_player0_set">
-            <field name="VAR">player0realcolor</field>
-            <value name="VALUE">
-                <shadow type="color_get">
-                    <field name="COLOR">212</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="sprite_player_fade_to">
-            <field name="VAR">player0realcolor</field>
-            <value name="VALUE">
-                <shadow type="color_get">
-                    <field name="COLOR">212</field>
-                </shadow>
-            </value>
-            <value name="FRAMES">
-                <shadow type="math_number">
-                    <field name="NUM">30</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="sprite_player_fade_finished">
-            <field name="VAR">player0realcolor</field>
-        </block>
-        <block type="sprite_player_fade_active">
-            <field name="VAR">player0realcolor</field>
-        </block>
-
-        <block type="sprite_player1_get"></block>
-        <block type="sprite_player1_set">
-            <value name="VALUE">
-                <shadow type="math_number">
-                    <field name="NUM">1</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="sprite_player1_change">
-            <value name="DELTA">
-                <shadow type="math_number">
-                    <field name="NUM">1</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="sprite_player1_size" />
-        <block type="sprite_player1_animation_select"></block>
-        <block type="sprite_player1_animation_playback"></block>
-        <block type="sprite_player1_rom_noise">
-            <value name="OFFSET">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-            <value name="HEIGHT">
-                <shadow type="math_number">
-                    <field name="NUM">8</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="sprite_player1_rom_noise_stop"></block>
+        <block type="sprite_player_rainbow_colors_stop"></block>
+        {{else}}
         {{#if enablePlayer1SpriteColors}}
-        <block type="sprite_player1_rainbow_colors">
+        <block type="sprite_player_rainbow_colors">
+            <field name="PLAYER">1</field>
             <value name="OFFSET">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_player1_rainbow_colors_stop"></block>
+        <block type="sprite_player_rainbow_colors_stop">
+            <field name="PLAYER">1</field>
+        </block>
         {{/if}}
-        <block type="sprite_player1_set">
+        {{/if}}
+        <block type="sprite_player_set">
+            <field name="VAR">player0realcolor</field>
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">212</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player_fade_to">
+            <field name="VAR">player0realcolor</field>
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">212</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player_fade_finished">
+            <field name="VAR">player0realcolor</field>
+        </block>
+        <block type="sprite_player_fade_active">
+            <field name="VAR">player0realcolor</field>
+        </block>
+
+        <block type="sprite_player_set">
+            <field name="PLAYER">1</field>
             <field name="VAR">player1realcolor</field>
             <value name="VALUE">
                 <shadow type="color_get">
@@ -202,23 +281,23 @@
             <field name="VAR">player1realcolor</field>
         </block>
 
-        <block type="sprite_missile0_get"></block>
-        <block type="sprite_missile0_set">
+        <block type="sprite_missile_get"></block>
+        <block type="sprite_missile_set">
             <value name="VALUE">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile0_change">
+        <block type="sprite_missile_change">
             <value name="DELTA">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile0_size" />
-        <block type="sprite_missile0_set">
+        <block type="sprite_missile_size" />
+        <block type="sprite_missile_set">
             <field name="VAR">missile0width</field>
             <value name="VALUE">
                 <shadow type="math_number">
@@ -226,7 +305,7 @@
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile0_fire">
+        <block type="sprite_missile_fire">
             <value name="X">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
@@ -243,25 +322,32 @@
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile0_bounce"></block>
+        <block type="sprite_missile_bounce"></block>
 
-        <block type="sprite_missile1_get"></block>
-        <block type="sprite_missile1_set">
+        <block type="sprite_missile_get">
+            <field name="MISSILE">1</field>
+        </block>
+        <block type="sprite_missile_set">
+            <field name="MISSILE">1</field>
             <value name="VALUE">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile1_change">
+        <block type="sprite_missile_change">
+            <field name="MISSILE">1</field>
             <value name="DELTA">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile1_size" />
-        <block type="sprite_missile1_set">
+        <block type="sprite_missile_size">
+            <field name="MISSILE">1</field>
+        </block>
+        <block type="sprite_missile_set">
+            <field name="MISSILE">1</field>
             <field name="VAR">missile1width</field>
             <value name="VALUE">
                 <shadow type="math_number">
@@ -269,7 +355,8 @@
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile1_fire">
+        <block type="sprite_missile_fire">
+            <field name="MISSILE">1</field>
             <value name="X">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
@@ -286,7 +373,9 @@
                 </shadow>
             </value>
         </block>
-        <block type="sprite_missile1_bounce"></block>
+        <block type="sprite_missile_bounce">
+            <field name="MISSILE">1</field>
+        </block>
 
         <block type="sprite_ball_get"></block>
         <block type="sprite_ball_set">
@@ -342,90 +431,9 @@
 
         <block type="object_seek_arrived"></block>
 
-        <block type="sprite_priority_set"></block>
-
-    </category>
-    <category name="Input" colour="green">
-        <block type="input_joy0_get"></block>
-        <block type="input_joy1_get"></block>
-        <block type="input_joy0_direction8"></block>
-        <block type="input_joy1_direction8"></block>
-        <block type="input_joy0_fire_pattern"></block>
-        <block type="input_joy1_fire_pattern"></block>
-        <block type="input_keypad0_get"></block>
-        <block type="input_keypad1_get"></block>
-        <block type="input_keypad0_any_pressed"></block>
-        <block type="input_keypad1_any_pressed"></block>
-        <block type="input_keypad0_id_get"></block>
-        <block type="input_keypad1_id_get"></block>
-
-        <block type="collision_get"></block>
-        <block type="collision_check_position"></block>
-        <block type="input_console_switch_get"></block>
-        <block type="color_get"></block>
-
-        <block type="distance_x_get"></block>
-        <block type="distance_y_get"></block>
-        <block type="distance_x_to_point_get">
-            <value name="POINT">
-                <shadow type="math_number">
-                <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="distance_y_to_point_get">
-            <value name="POINT">
-                <shadow type="math_number">
-                <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-
-        <block type="random_seed_set">
-            <value name="SEED">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="random_get"></block>
-        <block type="random_range_get"></block>
-
-        <block type="bit_get"></block>
-        <block type="bit_set">
-            <value name="VALUE">
-                <shadow type="logic_boolean">
-                    <field name="BOOL">TRUE</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="system_variable_get"></block>
-
-        <block type="sprite_player0_set">
-            <field name="VAR">player0x</field>
-            <value name="VALUE">
-                <shadow type="math_number">
-                <field name="NUM">1</field>
-                </shadow>
-                <block type="random_range_get">
-                <field name="RAND_CODE">(rand/4) + 1</field>
-                </block>
-            </value>
-        </block>
-
-        <block type="sprite_player1_set">
-            <field name="VAR">player1y</field>
-            <value name="VALUE">
-                <shadow type="math_number">
-                <field name="NUM">1</field>
-                </shadow>
-                <block type="random_range_get">
-                <field name="RAND_CODE">(rand/8)</field>
-                </block>
-            </value>
-        </block>
     </category>
     <category name="Background" colour="#ffa500">
+        <block type="sprite_priority_set"></block>
         <block type="background_select"></block>
         <block type="background_set">
             <value name="VALUE">
@@ -507,6 +515,28 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_draw_line">
+            <value name="X1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="X2">
+                <shadow type="math_number">
+                    <field name="NUM">4</field>
+                </shadow>
+            </value>
+            <value name="Y2">
+                <shadow type="math_number">
+                    <field name="NUM">4</field>
+                </shadow>
+            </value>
+        </block>
         <block type="background_scroll">
         </block>
         <block type="background_get_resolution"></block>
@@ -526,6 +556,52 @@
         </block>
         <block type="background_clear"></block>
         <block type="draw_screen"></block>
+        <block type="screen_shake">
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">20</field>
+                </shadow>
+            </value>
+        </block>
+    </category>
+    <category name="Sound" colour="rgb(156, 39, 176)">
+        <block type="simple_sound_set"></block>
+        <block type="soundfx_play"></block>
+    </category>
+    <category name="Music" colour="rgb(255, 87, 34)">
+        <block type="music_play_song"></block>
+        <block type="music_play_song_by_id">
+            <value name="SONG_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="music_stop_song"></block>
+        <block type="music_pause_song"></block>
+        <block type="music_unpause_song"></block>
+        <block type="music_song_stopped"></block>
+        <block type="music_song_stopped_by_id"></block>
+        <block type="music_song_stopped_by_number">
+            <value name="SONG_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="music_song_playing"></block>
+        <block type="music_song_playing_by_number">
+            <value name="SONG_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="music_sequence_chip_finished"></block>
+        <block type="music_sequence_chip_finished_by_id"></block>
+        <block type="music_sequence_chip_finished_current_song"></block>
+        <block type="music_note_played"></block>
+        <block type="music_note_played_by_id"></block>
     </category>
     <category name="Score" colour="#f2691e">
         <block type="score_get"></block>
@@ -640,49 +716,18 @@
             </value>
         </block>
     </category>
-    <category name="Data" colour="rgb(121, 85, 72)">
-        <block type="data_get_element">
-            <value name="INDEX">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="data_get_bit">
-            <value name="INDEX">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="data_get_element_by_id">
-            <value name="TABLE_ID">
-                <shadow type="math_number">
-                    <field name="NUM">1</field>
-                </shadow>
-            </value>
-            <value name="INDEX">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-        <block type="data_get_bit_by_id">
-            <value name="TABLE_ID">
-                <shadow type="math_number">
-                    <field name="NUM">1</field>
-                </shadow>
-            </value>
-            <value name="INDEX">
-                <shadow type="math_number">
-                    <field name="NUM">0</field>
-                </shadow>
-            </value>
-        </block>
-    </category>
     <category name="Text" colour="#3F51B5">
         <block type="text_minikernel_show"></block>
+        <block type="text_minikernel_show_row"></block>
         <block type="text_minikernel_show_named"></block>
+        <block type="text_minikernel_show_named_row"></block>
+        <block type="text_minikernel_show_by_id_row">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="text_minikernel_show_by_id">
             <value name="VALUE">
                 <shadow type="math_number">
@@ -752,6 +797,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="text_minikernel_scroll_cursor_visible"></block>
         <block type="text_minikernel_fade_to">
             <value name="VALUE">
                 <shadow type="color_get">
@@ -772,44 +818,45 @@
         <block type="text_minikernel_line_scroll_down"></block>
         <block type="text_minikernel_clear"></block>
     </category>
-    <category name="Sound" colour="rgb(156, 39, 176)">
-        <block type="simple_sound_set"></block>
-        <block type="soundfx_play"></block>
-    </category>
-    <category name="Music" colour="rgb(255, 87, 34)">
-        <block type="music_play_song"></block>
-        <block type="music_play_song_by_id">
-            <value name="SONG_ID">
+    <category name="Data" colour="rgb(121, 85, 72)">
+        <block type="data_get_element">
+            <value name="INDEX">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="data_get_bit">
+            <value name="INDEX">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="data_get_element_by_id">
+            <value name="TABLE_ID">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
+            <value name="INDEX">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
         </block>
-        <block type="music_stop_song"></block>
-        <block type="music_pause_song"></block>
-        <block type="music_unpause_song"></block>
-        <block type="music_song_stopped"></block>
-        <block type="music_song_stopped_by_id"></block>
-        <block type="music_song_stopped_by_number">
-            <value name="SONG_ID">
+        <block type="data_get_bit_by_id">
+            <value name="TABLE_ID">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
                 </shadow>
             </value>
-        </block>
-        <block type="music_song_playing"></block>
-        <block type="music_song_playing_by_number">
-            <value name="SONG_ID">
+            <value name="INDEX">
                 <shadow type="math_number">
-                    <field name="NUM">1</field>
+                    <field name="NUM">0</field>
                 </shadow>
             </value>
         </block>
-        <block type="music_sequence_chip_finished"></block>
-        <block type="music_sequence_chip_finished_by_id"></block>
-        <block type="music_sequence_chip_finished_current_song"></block>
-        <block type="music_note_played"></block>
-        <block type="music_note_played_by_id"></block>
     </category>
     <category name="Event" colour="rgb(39, 176, 176)">
 

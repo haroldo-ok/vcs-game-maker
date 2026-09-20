@@ -16,13 +16,10 @@
           <color-swatch-picker
             :value="textBkColor"
             :allow-clear="false"
-            title="Click to set the Text Minikernel's own message background color"
+            title="Click to set the Text Minikernel's message background color"
             @input="(byte) => (textBkColor = byte)"
           />
           <span class="text-bkcolor-label">Text background color</span>
-        </div>
-
-        <div class="text-bkcolor-row">
           <v-switch
             v-model="enableTextScrollCursor"
             label="Show a scroll cursor"
@@ -144,22 +141,12 @@
                     class="text-name-field"
                     label="Name"
                     v-model="entry.name"
+                    hide-details
                     @change="handleChildChange"
                   />
                 </v-card-text>
 
                 <v-card-text v-if="!isCollapsed(entry)" class="text-message-section">
-                  <v-textarea
-                    label="Text"
-                    v-model="entry.text"
-                    :counter="entry.wrapToLine2 ? TEXT_CARD_MAX_LENGTH : 12"
-                    :maxlength="TEXT_CARD_MAX_LENGTH"
-                    outlined
-                    rows="2"
-                    :hint="`Press Enter for a line break. More than 2 lines (or no room for a 2nd - see &quot;Multiline&quot; below): use the &quot;Scroll text lines&quot; blocks to move through them at runtime. ${TEXT_CARD_MAX_LENGTH} characters max.`"
-                    persistent-hint
-                    @change="() => handleTextChange(entry)"
-                  />
                   <v-btn-toggle
                     v-model="entry.justify"
                     mandatory
@@ -177,6 +164,17 @@
                       <v-icon small>mdi-format-align-right</v-icon>
                     </v-btn>
                   </v-btn-toggle>
+                  <v-textarea
+                    label="Text"
+                    v-model="entry.text"
+                    :counter="entry.wrapToLine2 ? TEXT_CARD_MAX_LENGTH : 12"
+                    :maxlength="TEXT_CARD_MAX_LENGTH"
+                    outlined
+                    rows="2"
+                    :hint="`Press Enter for a line break. More than 2 lines (or no room for a 2nd - see &quot;Multiline&quot; below): use the &quot;Scroll text lines&quot; blocks to move through them at runtime. ${TEXT_CARD_MAX_LENGTH} characters max.`"
+                    persistent-hint
+                    @change="() => handleTextChange(entry)"
+                  />
                   <v-switch
                     v-model="entry.wrapToLine2"
                     label="Multiline"
@@ -358,7 +356,11 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    const {isCollapsed, toggleCollapsed, ensureExpanded} = useCollapsedIds('text');
+    // Every card starts collapsed on every visit to this tab (see
+    // collapseAll's own comment in hooks/collapse.js), not just ones never
+    // expanded before.
+    const {isCollapsed, toggleCollapsed, ensureExpanded, collapseAll} = useCollapsedIds('text', true);
+    collapseAll();
 
     // Card reordering - NOT built on hooks/drag-reorder.js's own
     // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
@@ -550,7 +552,7 @@ export default defineComponent({
    the same baseline. */
 .text-blink-speed-field {
   max-width: 160px;
-  margin-top: -6px;
+  margin-top: -12px;
   margin-left: 16px;
 }
 
@@ -741,8 +743,19 @@ export default defineComponent({
   padding-top: 0;
 }
 
+/* Vuetify's own v-text-field__details reserves a 12px left padding by
+   default (tuned for the non-outlined variant's underline, which is inset
+   from the field's own edge) - the outlined Text field's hint sat 12px
+   further right than the field's own left border because of it, confirmed
+   directly via each element's own getBoundingClientRect. Zeroed here so the
+   hint lines up with the outline above it instead. */
+.text-message-section >>> .v-textarea .v-text-field__details {
+  padding-left: 0;
+}
+
 .text-justify-toggle {
-  margin-top: 8px;
+  margin-top: 12px;
+  margin-bottom: 12px;
 }
 
 .text-wrap-switch {

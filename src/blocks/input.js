@@ -171,8 +171,8 @@ const buildJoystickButtonBlock = (name, description, colour) => ({
     'released.\n' +
     '• double-tapped - true for exactly one frame, the instant Fire is released for the ' +
     'SECOND time within "frames" of the first release. Every release starts (or restarts) its ' +
-    'own window; a release that doesn\'t land inside a still-open window from an earlier release ' +
-    'just opens a new window of its own instead of triggering this. Doesn\'t care how long either ' +
+    'new window; a release that doesn\'t land inside a still-open window from an earlier release ' +
+    'just opens another window instead of triggering this. Doesn\'t care how long either ' +
     'individual press was held, only the gap between the two releases.',
 });
 
@@ -231,7 +231,7 @@ const buildKeypadIdBlock = (name, description, colour) => ({
   'message0': `${KEYPAD_ICON} Key ID pressed on ${description}`,
   'output': 'Number',
   colour,
-  'tooltip': `The ID (1-12: 1-9, then *, 0, # - see the "key is pressed" block's own dropdown ` +
+  'tooltip': `The ID (1-12: 1-9, then *, 0, # - see the "key is pressed" block's dropdown ` +
     `order) of whichever key is currently held on ${description} (the Atari Keypad/Kids ` +
     'Controller peripheral), or 0 the instant no key is held. Recomputed automatically once ' +
     'per frame.',

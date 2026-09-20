@@ -15,7 +15,7 @@ import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 import {sumBy, chunk} from 'lodash';
 
-import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage} from '../hooks/project';
+import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage} from '../hooks/project';
 import {getRelocationBanks} from '../hooks/relocation-banks';
 import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
   backgroundFadeTimerVarName, backgroundFadePaceVarName, backgroundFadeTargetVarName,
@@ -31,16 +31,17 @@ import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {superchipRwFreeCount} from '../utils/playfield-coords';
 import {keypadKeyVarName} from '../utils/keypad';
+import {registerTitleScreenSubroutine} from './bbasic/titlescreen';
 import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickDirection8DevVars, generateJoystickDirection8Checks,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
   generateJoystickButtonChecks, generateJoystickDoubleTapChecks} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
-import {scoreBkColorVarName} from './bbasic/score';
-import {processPlayerStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
+import {scoreBkColorVarName, generateScanlinesDebugScoreCode} from './bbasic/score';
+import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
   reserveRomNoiseDevVars, reserveRainbowColorDevVars,
-  generateMissileFireChecks, reserveMissileFireDevVars,
+  generateMissileFireChecks, reserveMissileFireDevVars, reserveMissileBounceDevVars,
   generateSeekChecks, reserveSeekDevVars, reserveSeekArrivedDevVars,
   reserveCtrlpfShadowDevVar, generateCtrlpfShadowSetup} from './bbasic/sprites';
 import {resolveSeekArrivedWatches} from '../blocks/sprites';
@@ -49,7 +50,7 @@ import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
   resolveNotePlayedInstruments, reserveMusicDevVars} from './bbasic/music';
 import {reserveTextScrollDevVars, generateTextScrollAdvance, generateTextOffsetTables} from './bbasic/text-scroll';
-import {generateTextStaticOffsetTables, textLinesBaseVarName, textLinesMaxVarName,
+import {generateTextStaticOffsetTables, generateTextRow2OffsetsTable, textLinesBaseVarName, textLinesMaxVarName,
   textRow2ColorVarName, textScrollCursorColorVarName, textEndIconColorVarName} from './bbasic/text-minikernel';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
@@ -358,6 +359,12 @@ Blockly.BBasic.init = function(workspace) {
   // inflating that table's size on every single build until the page was
   // hard-reloaded.
   this.freeTypedMessages = [];
+  // Same reset reasoning as freeTypedMessages just below - ensureTextRow2Pairs
+  // (generators/bbasic/text-minikernel.js) caches its own one-time-per-build
+  // computation here; without resetting it, a later build would keep
+  // reusing a stale set of offsets (and never even recompute them if the
+  // Text tab's own entries changed).
+  this.textRow2PairOffsets = null;
   // Same reset reasoning as freeTypedMessages above, for free-typed "Show
   // text (scrolling): <literal>" messages (see registerFreeTypedScrollMessage
   // in generators/bbasic/text-scroll.js).
@@ -417,6 +424,32 @@ Blockly.BBasic.init = function(workspace) {
   // (or none at all) pays nothing for it.
   this.textRow2ColorBlockUsed = workspace.getAllBlocks(false).some((block) =>
     block.type === 'text_minikernel_set_color' && block.getFieldValue('ROW') === '2');
+  // "Show text row 1/2" (text_minikernel_show_row) always compiles in a real
+  // 2-row entry, regardless of which single row it's actually setting (see
+  // registerFreeTypedRowMessage's own comment in generators/bbasic/
+  // text-minikernel.js) - a real block-type pre-scan, since (unlike "Wrap to
+  // line 2") nothing on the Text tab itself reflects this block's own
+  // existence. Folded into isTextRow2Used() below so a project using ONLY
+  // this block (no Text tab entry ever wraps) still gets the real
+  // textkernel2ndrow row-2-drawing kernel feature turned on.
+  // Same "always compiles in a real 2-row entry" reasoning as
+  // text_minikernel_show_row just above, for its named-dropdown and
+  // runtime-id counterparts (text_minikernel_show_named_row/
+  // text_minikernel_show_by_id_row) - any of the three needs TextRow2Active
+  // real and dimmed.
+  const TEXT_SHOW_ROW_BLOCK_TYPES = ['text_minikernel_show_row', 'text_minikernel_show_named_row',
+    'text_minikernel_show_by_id_row'];
+  this.textRowSetUsed = workspace.getAllBlocks(false).some((block) => TEXT_SHOW_ROW_BLOCK_TYPES.includes(block.type));
+  // Whether a "Show text row ID" block's own ROW dropdown is specifically
+  // set to "2" - unlike ROW=1 (which reuses text_static_offsets[id]
+  // unmodified, since an entry's row 1 already IS its own first line), ROW=2
+  // needs its own separate, purpose-built text_row2_offsets[id] table (see
+  // generateTextRow2OffsetsTable's own comment in generators/bbasic/
+  // text-minikernel.js) - a project using only ROW=1 by-id blocks never
+  // pays for that second, parallel copy of every Text tab entry's own first
+  // line.
+  this.textShowByIdRow2Used = workspace.getAllBlocks(false).some((block) =>
+    block.type === 'text_minikernel_show_by_id_row' && block.getFieldValue('ROW') === '2');
   const textScrollCursorConfig = (useConfigurationStorage().value || {});
   this.textScrollCursorUsed = !!textScrollCursorConfig.enableTextScrollCursor;
   this.textLineScrollUsed =
@@ -432,7 +465,8 @@ Blockly.BBasic.init = function(workspace) {
       .some((block) => block.type === 'text_minikernel_show_by_id' || block.type === 'text_minikernel_show_by_id_scroll');
 
   // Same early block-type pre-scan reasoning as textMinikernelUsed just
-  // above, for sprite_player0_rom_noise/sprite_player1_rom_noise (see
+  // above, for sprite_player_rom_noise (Player 0/1 share this combined
+  // block type - see PLAYER_OPTIONS' own comment in blocks/sprites.js; see
   // reserveRomNoiseDevVars' own comment in generators/bbasic/sprites.js) -
   // has to be known before reserveDevVar hands out user variable letters
   // below, well before either block's own generator would otherwise run.
@@ -451,34 +485,100 @@ Blockly.BBasic.init = function(workspace) {
   // "player1colors"), the pfcolors table, and the blank-lines override on
   // for a feature that was actually inert, a real reported bug ("the
   // rainbow block is being exported even when disabled").
+  // sprite_player_rom_noise/rainbow_colors (and their _stop counterparts)
+  // are single combined block types now (Player 0/Player 1 share them, see
+  // PLAYER_OPTIONS' own comment in blocks/sprites.js), so which player a
+  // given block counts for comes from its own PLAYER field, not the block
+  // type string - same pattern seekUsedFor below already uses for
+  // object_seek_to's own OBJECT dropdown.
   ['player0', 'player1'].forEach((name) => {
+    const player = name === 'player1' ? '1' : '0';
     if (workspace.getAllBlocks(false).some((block) =>
-      (block.type === `sprite_${name}_rom_noise` || block.type === `sprite_${name}_rom_noise_stop`) &&
-      block.isEnabled())) {
+      (block.type === 'sprite_player_rom_noise' || block.type === 'sprite_player_rom_noise_stop') &&
+      block.getFieldValue('PLAYER') === player && block.isEnabled())) {
       this.romNoiseUsedFor.add(name);
     }
     if (workspace.getAllBlocks(false).some((block) =>
-      (block.type === `sprite_${name}_rainbow_colors` || block.type === `sprite_${name}_rainbow_colors_stop`) &&
-      block.isEnabled())) {
+      (block.type === 'sprite_player_rainbow_colors' || block.type === 'sprite_player_rainbow_colors_stop') &&
+      block.getFieldValue('PLAYER') === player && block.isEnabled())) {
       this.rainbowColorUsedFor.add(name);
     }
   });
 
+  // Missile 0/1 share combined sprite_missile_fire/sprite_missile_bounce
+  // block types now (see MISSILE_OPTIONS' own comment in blocks/
+  // sprites.js), so which object a given block counts for comes from its
+  // own MISSILE field for those two names - Ball never had a twin to
+  // combine with, so sprite_ball_fire/sprite_ball_bounce stay matched by
+  // type string alone, same as before.
+  const fireOrBounceBlockMatchesName = (block, name) => {
+    if (name === 'ball') {
+      return block.type === 'sprite_ball_fire' || block.type === 'sprite_ball_bounce';
+    }
+    return (block.type === 'sprite_missile_fire' || block.type === 'sprite_missile_bounce') &&
+      block.getFieldValue('MISSILE') === (name === 'missile1' ? '1' : '0');
+  };
+
   // Same early block-type pre-scan reasoning as romNoiseUsedFor above, for
-  // sprite_missile0_fire/sprite_missile1_fire/sprite_ball_fire (see
-  // reserveMissileFireDevVars' own comment in generators/bbasic/sprites.js)
-  // - has to be known before reserveDevVar hands out user variable letters
-  // below. sprite_${name}_bounce counts too, not just _fire - it reads/
-  // writes the exact same dirVar (see its own generator's comment), so a
-  // project using Bounce without ever placing a matching Fire block still
-  // needs dirVar reserved.
+  // sprite_missile_fire/sprite_ball_fire (see reserveMissileFireDevVars' own
+  // comment in generators/bbasic/sprites.js) - has to be known before
+  // reserveDevVar hands out user variable letters below. The matching
+  // bounce block counts too, not just fire - it reads/writes the exact same
+  // dirVar (see its own generator's comment), so a project using Bounce
+  // without ever placing a matching Fire block still needs dirVar reserved.
   this.missileFireUsedFor = new Set();
   ['missile0', 'missile1', 'ball'].forEach((name) => {
     if (workspace.getAllBlocks(false).some((block) =>
-      (block.type === `sprite_${name}_fire` || block.type === `sprite_${name}_bounce`) && block.isEnabled())) {
+      fireOrBounceBlockMatchesName(block, name) && block.isEnabled())) {
       this.missileFireUsedFor.add(name);
     }
   });
+
+  // Whether ANY Fire block for this object has the "16 directions" checkbox
+  // on (see generateMissileFireChecks' comment in generators/bbasic/
+  // sprites.js for the two dispatch tables this picks between) - a
+  // compile-time, per-OBJECT decision, same reasoning as every other "used
+  // for" pre-scan here: the per-frame movement check is only ever spliced
+  // in once per object, not once per block, so if any one Fire block for a
+  // given missile/ball wants the finer 16-step angle scale, that object's
+  // whole dispatch table has to be built for it - a project mixing an
+  // 8-way Fire and a 16-way Fire on the SAME object would have the second
+  // one silently reinterpreted on the 16-way scale too, since dirVar itself
+  // has no room to record which scale produced it.
+  this.missileFire16UsedFor = new Set();
+  ['missile0', 'missile1', 'ball'].forEach((name) => {
+    const fireType = name === 'ball' ? 'sprite_ball_fire' : 'sprite_missile_fire';
+    if (workspace.getAllBlocks(false).some((block) =>
+      block.type === fireType && block.isEnabled() && block.getFieldValue('DIRECTIONS16') === 'TRUE' &&
+      (name === 'ball' || block.getFieldValue('MISSILE') === (name === 'missile1' ? '1' : '0')))) {
+      this.missileFire16UsedFor.add(name);
+    }
+  });
+
+  // Same early block-type pre-scan reasoning as missileFireUsedFor above,
+  // for the Bounce block's own Combat-style state (see
+  // missileBounceStageVarName's own comment in generators/bbasic/sprites.js)
+  // - narrower than missileFireUsedFor above (Bounce actually placed, not
+  // just dirVar being needed), since this extra state is only ever touched
+  // by Bounce's own generator.
+  this.missileBounceUsedFor = new Set();
+  ['missile0', 'missile1', 'ball'].forEach((name) => {
+    const bounceType = name === 'ball' ? 'sprite_ball_bounce' : 'sprite_missile_bounce';
+    if (workspace.getAllBlocks(false).some((block) =>
+      block.type === bounceType && block.isEnabled() &&
+      (name === 'ball' || block.getFieldValue('MISSILE') === (name === 'missile1' ? '1' : '0')))) {
+      this.missileBounceUsedFor.add(name);
+    }
+  });
+
+  // Same early block-type pre-scan reasoning as missileFireUsedFor above,
+  // for screen_shake's own countdown dev var (see shakeScreenFramesVarName's
+  // own comment in generators/bbasic/background.js) - a single boolean, not
+  // a per-name Set, since there's only ever one screen. Also read directly
+  // by generateConfiguration() further down to gate emitting "const
+  // shakescreen = 1", the standard kernel's own switch for this feature.
+  this.screenShakeUsed = workspace.getAllBlocks(false).some((block) =>
+    block.type === 'screen_shake' && block.isEnabled());
 
   // Same early block-type pre-scan reasoning as missileFireUsedFor above,
   // for object_seek_to (see reserveSeekDevVars' own comment in
@@ -602,6 +702,27 @@ Blockly.BBasic.init = function(workspace) {
   this.keypad0Used = workspace.getAllBlocks(false).some((block) => KEYPAD_BLOCK_TYPES['0'].includes(block.type));
   this.keypad1Used = workspace.getAllBlocks(false).some((block) => KEYPAD_BLOCK_TYPES['1'].includes(block.type));
 
+  // Which OPERATION(s) "Background [Set/Clear/Flip] line from X/Y to X/Y"
+  // actually uses, project-wide - a real block-field pre-scan, since (unlike
+  // the fixed straight runs background_change_hv_line can pre-flatten at
+  // compile time) an arbitrary line's own endpoints can be variables, so
+  // this needs a real runtime Bresenham's-line-algorithm subroutine (see
+  // registerBackgroundLineSubroutine in generators/bbasic/background.js) -
+  // one PER operation actually used (a project using only "Set" line blocks
+  // never pays for a "Clear"/"Flip" copy), and a project using none of this
+  // block at all pays nothing for its own dev vars either.
+  this.backgroundLineOperationsUsed = new Set(
+      workspace.getAllBlocks(false)
+          .filter((block) => block.type === 'background_draw_line')
+          .map((block) => block.getFieldValue('OPERATION')));
+  this.backgroundLineUsed = this.backgroundLineOperationsUsed.size > 0;
+
+  // Whether any "Draw title screen" block exists at all - has to be known
+  // before reserveDevVar hands out user variable letters below (see
+  // titleScreenSelectedIdVarName's own reservation further down), same
+  // pattern as keypad0Used/keypad1Used just above.
+  this.titleScreenDrawUsed = workspace.getAllBlocks(false).some((block) => block.type === 'titlescreen_draw');
+
   // Same idea, for "Joystick N direction (8-way)" getter blocks (see
   // joyDir8ResultVarName's own comment in generators/bbasic/input.js for why
   // this has to be precomputed once per frame rather than read inline) -
@@ -619,9 +740,20 @@ Blockly.BBasic.init = function(workspace) {
   // comment) - one block type, any MODE counts, since all four modes read
   // from the same shared held/prev/justReleased/lastPressFrames dev vars for
   // a given joystick.
+  //
+  // isEnabled() (not just block.type) - same bug class, and same fix, as
+  // romNoiseUsedFor/rainbowColorUsedFor's own comment above: a disabled Fire-
+  // pattern block's own generator never runs, but this pre-scan used to
+  // count it anyway, forcing the whole "_joyNbtn_..." held/released state
+  // machine (generateJoystickButtonChecks in generators/bbasic/input.js) and
+  // its dev-var reservations into the build for a feature that was actually
+  // inert - a real reported build failure ("Unknown keyword: 0") once that
+  // dead weight combined with the rest of a real project's own variable/bank
+  // budget.
   this.joyButtonUsedFor = new Set();
   ['joy0', 'joy1'].forEach((name) => {
-    if (workspace.getAllBlocks(false).some((block) => block.type === `input_${name}_fire_pattern`)) {
+    if (workspace.getAllBlocks(false).some((block) =>
+      block.type === `input_${name}_fire_pattern` && block.isEnabled())) {
       this.joyButtonUsedFor.add(name);
     }
   });
@@ -631,11 +763,12 @@ Blockly.BBasic.init = function(workspace) {
   // joyDoubleTapResultVarName/joyDoubleTapTimerVarName comment) - each
   // instance gets its own hidden result+timer pair rather than sharing one,
   // since different instances on the same joystick can each have their own
-  // FRAMES field value.
+  // FRAMES field value. Same isEnabled() fix as joyButtonUsedFor just above.
   this.joyDoubleTapChecks = new Map();
   let joyDoubleTapIndex = 0;
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type !== 'input_joy0_fire_pattern' && block.type !== 'input_joy1_fire_pattern') return;
+    if (!block.isEnabled()) return;
     if (block.getFieldValue('MODE') !== 'DOUBLE_TAP') return;
     joyDoubleTapIndex++;
     const name = block.type === 'input_joy0_fire_pattern' ? 'joy0' : 'joy1';
@@ -677,6 +810,14 @@ Blockly.BBasic.init = function(workspace) {
   // would be the opposite of using fewer variables.
   this.dataBitDispatchByIdUsed = workspace.getAllBlocks(false)
       .some((block) => block.type === 'data_get_bit_by_id' && block.getInputTargetBlock('TABLE_ID'));
+
+  // Same idea, for data_get_element_by_id's own dynamic-TABLE_ID path (see
+  // generators/bbasic/data.js's own registerDataDispatchCallWrapper) - ALSO
+  // reuses functionCallDiscardVarName for its own result now that it's
+  // routed through a bank-tagged "gosub" wrapper instead of a bare function
+  // call, same reasoning as dataBitDispatchByIdUsed just above.
+  this.dataElementDispatchByIdUsed = workspace.getAllBlocks(false)
+      .some((block) => block.type === 'data_get_element_by_id' && block.getInputTargetBlock('TABLE_ID'));
 
   // Same idea again, for music_song_playing_by_number's own dynamic-SONG_ID
   // dispatch (see generators/bbasic/music.js) - also reuses
@@ -758,6 +899,16 @@ Blockly.BBasic.init = function(workspace) {
   // a shared singleton reused across every workspaceToCode() call - same
   // reasoning as textMinikernelUsed above.
   this.projectMusic = resolveProjectMusic(workspace, this.notePlayedInstruments);
+
+  // Reset fresh every compile - same reasoning as playerAnimAsmFiles's own
+  // reset in generateAnimations (see its comment): these are only ever SET
+  // by generators/bbasic/titlescreen.js's own "Draw title screen" block
+  // generator, so a project that HAD one and then removed it would
+  // otherwise leave hooks/rom.js's own titleScreenUsedKernelKeys check
+  // permanently truthy from a previous compile, still fetching/including
+  // Titlescreen Kernel files a project no longer uses at all.
+  this.titleScreenUsedKernelKeys = undefined;
+  this.titleScreenAsmFiles = {};
 
   // Whether channnel0duration/channnel1duration (see SYSTEM_VARIABLES'
   // own comment) are needed at all - two block types ever WRITE them:
@@ -1029,6 +1180,47 @@ Blockly.BBasic.init = function(workspace) {
   if (this.keypad0Used) this.keypadLeftVarName = reserveDevVar(keypadKeyVarName('0'), undefined, 'keypad 0 poll result');
   if (this.keypad1Used) this.keypadRightVarName = reserveDevVar(keypadKeyVarName('1'), undefined, 'keypad 1 poll result');
 
+  // Same bucket again, for the shared background line-drawing subroutine's
+  // own working variables (see registerBackgroundLineSubroutine in
+  // generators/bbasic/background.js) - resolved names captured on "this"
+  // (not just reserved) for the same reason as keypadLeftVarName/
+  // keypadRightVarName just above: registering the subroutine's own body
+  // needs them, but has to wait until "this.subroutines = {}" below runs
+  // first. 7 vars: the current point/target point/distances/error term -
+  // no separate loop counter (the current point already walking toward the
+  // target IS the loop's own stop condition) or operation selector (the
+  // operation is baked into which of the - up to 3 - subroutines gets
+  // called, not read at runtime). An earlier version tried to keep the
+  // current point/target point/distances in the shared temp1-temp6 scratch
+  // registers instead of dedicated vars entirely, which was wrong (see
+  // registerBackgroundLineSubroutine's own comment for the real, reported
+  // bug this caused: pfpixel's own implementation clobbers temp1/temp2
+  // internally, corrupting them the instant the first pixel was plotted).
+  if (this.backgroundLineUsed) {
+    this.backgroundLineVarNames = {
+      x1: reserveDevVar('lineX1', undefined, 'background line: current X position'),
+      y1: reserveDevVar('lineY1', undefined, 'background line: current Y position'),
+      x2: reserveDevVar('lineX2', undefined, 'background line: end X position'),
+      y2: reserveDevVar('lineY2', undefined, 'background line: end Y position'),
+      dx: reserveDevVar('lineDX', undefined, 'background line: X distance'),
+      dy: reserveDevVar('lineDY', undefined, 'background line: Y distance'),
+      err: reserveDevVar('lineErr', undefined, 'background line: Bresenham error term'),
+    };
+  }
+
+  // Which Title Screen page a "Draw title screen" block wants drawn next -
+  // written right before that block's own gosub into the one shared
+  // Titlescreen Kernel subroutine every page compiles into (see
+  // registerTitleScreenSubroutine in generators/bbasic/titlescreen.js),
+  // which reads it back at runtime to choose which page's own layout/color
+  // to draw. Captured on "this" for the same reason keypadLeftVarName/
+  // keypadRightVarName are: registerTitleScreenSubroutine needs it, but has
+  // to run AFTER "this.subroutines = {}" resets below.
+  if (this.titleScreenDrawUsed) {
+    this.titleScreenSelectedIdVarName = reserveDevVar(
+        'titleScreenSelectedId', undefined, 'Which Title Screen page to draw next');
+  }
+
   // Same bucket again, for "Background get pixel" blocks' own X/Y scratch
   // storage (see the backgroundGetPixelUsed pre-scan above and
   // generators/bbasic/background.js's own background_get_pixel). Routed
@@ -1063,11 +1255,28 @@ Blockly.BBasic.init = function(workspace) {
   // (see reserveDevVarRW's own comment for the full list) - never a
   // for/next counter, an on...goto target, or fixed-point/16-bit math.
   if (this.functionCallStatementUsed || this.dataBitDispatchByIdUsed ||
+      this.dataElementDispatchByIdUsed ||
       this.musicSongPlayingByNumberUsed || this.textShowByIdUsed) {
     reserveDevVarRW(functionCallDiscardVarName(),
-        'a just-called Function\'s return value (bare statement call, a Data table bit check, or ' +
-        '"Song ID is playing"), or "Show text with ID"/"Scroll text ID"\'s own captured argument - ' +
-        'each writes it once and reads it back immediately after, never across another Function call');
+        'a just-called Function\'s return value (bare statement call, a Data table element/bit ' +
+        'lookup by a runtime table id, or "Song ID is playing"), or "Show text with ID"/"Scroll ' +
+        'text ID"\'s own captured argument - each writes it once and reads it back immediately ' +
+        'after, never across another Function call');
+  }
+  // Same bucket again, for the Data table dispatch wrappers' own shared
+  // argument slots (see registerDataDispatchCallWrapper/
+  // registerDataBitDispatchCallWrapper in generators/bbasic/data.js) - the
+  // "table id"/"index" args are shared by BOTH the element and bit lookup,
+  // since only one such call is ever in flight at a time (same "written
+  // once, read back immediately, never held across another nested call"
+  // lifetime functionCallDiscardVarName's own comment documents); the "bit"
+  // arg only exists for data_get_bit_by_id's own dynamic path.
+  if (this.dataElementDispatchByIdUsed || this.dataBitDispatchByIdUsed) {
+    reserveDevVarRW(dataDispatchArg1VarName(), 'a Data table element/bit lookup by runtime id: the table id argument');
+    reserveDevVarRW(dataDispatchArg2VarName(), 'a Data table element/bit lookup by runtime id: the index argument');
+  }
+  if (this.dataBitDispatchByIdUsed) {
+    reserveDevVarRW(dataBitDispatchArg3VarName(), 'a Data table bit lookup by runtime id: the bit-index argument');
   }
   if (this.functionCallStatementUsed) {
     for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
@@ -1143,6 +1352,10 @@ Blockly.BBasic.init = function(workspace) {
         'wrapped messages: row 2\'s own color ("Text: set color" block\'s ROW dropdown)');
   }
   if (this.textScrollCursorUsed) {
+    // The scroll cursor's own runtime show/hide flag ("Text scroll cursor
+    // show or hide" block) rides in this same var's own bit 0 rather than
+    // needing a reservation of its own - see TEXT_SCROLL_CURSOR_HIDDEN_BIT's
+    // own comment in generators/bbasic/text-minikernel.js.
     reserveDevVar(textScrollCursorColorVarName(), undefined,
         'the blinking scroll cursor\'s own color ("Text: set scroll cursor color" block)');
     reserveDevVar(textEndIconColorVarName(), undefined,
@@ -1163,12 +1376,24 @@ Blockly.BBasic.init = function(workspace) {
   // speed state (see reserveMissileFireDevVars' own comment in generators/
   // bbasic/sprites.js) - a no-op unless missileFireUsedFor's own early
   // pre-scan (above) found it used.
-  reserveMissileFireDevVars(reserveDevVar, this.missileFireUsedFor);
+  reserveMissileFireDevVars(reserveDevVar, reserveDevVarRW, this.missileFireUsedFor);
+
+  // Same bucket again, for "Bounce"'s own Combat-style stage/original-
+  // direction/last-frame state (see reserveMissileBounceDevVars' own comment
+  // in generators/bbasic/sprites.js) - a no-op unless missileBounceUsedFor's
+  // own early pre-scan (above) found it used.
+  reserveMissileBounceDevVars(reserveDevVar, this.missileBounceUsedFor);
+
+  // Same bucket again, for "Shake screen"'s own countdown (see
+  // reserveShakeScreenDevVar's own comment in generators/bbasic/
+  // background.js) - a no-op unless screenShakeUsed's own early pre-scan
+  // (above) found it used.
+  reserveShakeScreenDevVar(reserveDevVar, this.screenShakeUsed);
 
   // Same bucket again, for "Seek to"'s own per-sprite target/speed state
   // (see reserveSeekDevVars' own comment in generators/bbasic/sprites.js) -
   // a no-op unless seekUsedFor's own early pre-scan (above) found it used.
-  reserveSeekDevVars(reserveDevVar, this.seekUsedFor);
+  reserveSeekDevVars(reserveDevVar, reserveDevVarRW, this.seekUsedFor);
 
   // Same bucket again, for "When ... arrives"'s own shared finished-bit byte
   // (see reserveSeekArrivedDevVars' own comment in generators/bbasic/
@@ -1465,6 +1690,14 @@ Blockly.BBasic.init = function(workspace) {
   this.currentEventName = null;
   this.dataTableBankUsage = {};
 
+  // See scrub_'s own top comment - the shared "preamble" queue a value
+  // block's own newline-embedded preamble gets pushed onto, drained by
+  // whichever statement block actually consumes that value. Reset fresh
+  // here (same "one clean slate per workspaceToCode() call" reasoning as
+  // dataTableBankUsage/subroutines/functions just above/below) so nothing
+  // can ever leak in from a previous build attempt.
+  this.pendingPreambleLines = [];
+
   // Bank-switching support for graphics (see wrapRelocatableGraphics below):
   // populated as generateBackgrounds()/generateAnimations() run during
   // finish(), keyed by a per-background/per-animation unit key.
@@ -1490,6 +1723,24 @@ Blockly.BBasic.init = function(workspace) {
       useLeft: this.keypad0Used, useRight: this.keypad1Used,
       leftVarName: this.keypadLeftVarName, rightVarName: this.keypadRightVarName,
     });
+  }
+
+  // Same timing/reasoning as registerKeypadPollSubroutine above - needs
+  // backgroundLineVarNames, already resolved earlier via reserveDevVar (see
+  // backgroundLineUsed's own pre-scan).
+  if (this.backgroundLineUsed) {
+    registerBackgroundLineSubroutine(Blockly, this.backgroundLineVarNames, this.backgroundLineOperationsUsed);
+  }
+
+  // Same timing/reasoning as registerKeypadPollSubroutine above - has to
+  // run after this reset but needs titleScreenSelectedIdVarName, already
+  // resolved earlier via reserveDevVar (see titleScreenDrawUsed's own
+  // pre-scan). Registers ONE shared subroutine covering every Title Screen
+  // page in the project (see registerTitleScreenSubroutine's own comment
+  // in generators/bbasic/titlescreen.js for why this can't be one
+  // subroutine per page).
+  if (this.titleScreenDrawUsed) {
+    registerTitleScreenSubroutine(Blockly, {selectedIdVarName: this.titleScreenSelectedIdVarName});
   }
 
   // User-defined native batari Basic "function"s (see generators/bbasic/
@@ -2053,6 +2304,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     const tablesForBank = Blockly.BBasic.generateDataTables(bank);
     const textOffsetTablesForBank = generateTextOffsetTables(Blockly, bank);
     const textStaticOffsetTablesForBank = generateTextStaticOffsetTables(Blockly, bank);
+    const textRow2OffsetsTableForBank = generateTextRow2OffsetsTable(Blockly, bank);
     return [
       ` bank ${bank}`,
       ...eventBodies,
@@ -2063,6 +2315,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
       tablesForBank,
       textOffsetTablesForBank,
       textStaticOffsetTablesForBank,
+      textRow2OffsetsTableForBank,
       ` bank 1`,
     ].filter(Boolean).join('\n\n');
   }).join('\n\n');
@@ -2094,6 +2347,17 @@ Blockly.BBasic.finish = function(code) {
   const gameplayUpdateEventCode = this.getGameEvent('gameplay_update').join('\n\n');
   if (gameplayUpdateEventCode.trim()) {
     code = code + '\n\n' + gameplayUpdateEventCode;
+  }
+
+  // Options tab's "Show NTSC scanlines used as the score (debug)" toggle -
+  // see generateScanlinesDebugScoreCode's comment in
+  // generators/bbasic/score.js for why this is prepended here (same timing/
+  // reasoning as gameplayUpdateEventCode just above) rather than hand-
+  // formatted into one of the template's raw Setup-section splices.
+  const scanlinesDebugScoreCode =
+    generateScanlinesDebugScoreCode((useConfigurationStorage().value || {}));
+  if (scanlinesDebugScoreCode) {
+    code = scanlinesDebugScoreCode + '\n\n' + code;
   }
 
   // Convert the definitions dictionary into a list.
@@ -2130,6 +2394,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
   const generatedMissileFireChecks = generateMissileFireChecks(Blockly);
   const generatedSeekChecks = generateSeekChecks(Blockly);
+  const generatedShakeScreenChecks = generateShakeScreenChecks(Blockly);
   // Bank 1's own copy of the Text Minikernel's "show by id" lookup tables
   // (see generateTextOffsetTables' own comment in bbasic/text-scroll.js) -
   // each relocated bank gets its own copy directly inside
@@ -2141,6 +2406,11 @@ Blockly.BBasic.finish = function(code) {
   // static-offset tables (see their own comment in
   // generators/bbasic/text-minikernel.js) instead of the scroll ones.
   const generatedTextStaticOffsetTables = generateTextStaticOffsetTables(Blockly, 1);
+  // Same "bank 1's own copy here, each relocated bank gets its own copy in
+  // generateRelocatedSections" reasoning, for "Show text row 2 ID"'s own
+  // parallel offset table (see generateTextRow2OffsetsTable's own comment in
+  // generators/bbasic/text-minikernel.js).
+  const generatedTextRow2OffsetsTable = generateTextRow2OffsetsTable(Blockly, 1);
   // Same "bank 1's own copy here, each relocated bank gets its own copy in
   // generateRelocatedSections" reasoning as generatedTextOffsetTables just
   // above.
@@ -2237,8 +2507,8 @@ Blockly.BBasic.finish = function(code) {
   return handlebarsTemplate({generatedBody, generatedBackgrounds,
     generatedAnimations, generatedDataTables, generatedRomNoiseChecks,
     generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
-    generatedSeekChecks,
-    generatedTextOffsetTables, generatedTextStaticOffsetTables, generatedJoyDir8Table,
+    generatedSeekChecks, generatedShakeScreenChecks,
+    generatedTextOffsetTables, generatedTextStaticOffsetTables, generatedTextRow2OffsetsTable, generatedJoyDir8Table,
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize,
@@ -2410,7 +2680,53 @@ Blockly.BBasic.multiline_quote_ = function(string) {
  * @return {string} JavaScript code with comments and subsequent blocks added.
  * @protected
  */
+// A value block can smuggle setup statements ahead of its real expression as
+// a newline-joined preamble - the ONLY way for a plain value-block generator
+// to inject lines before whatever consumes its return value, since there's
+// no other hook a value block (no previousStatement/nextStatement of its
+// own) can use to emit a statement of its own. This used to be a convention
+// each CONSUMER had to know about and manually split back out (see
+// controls_if's own comment in generators/bbasic/logic.js, and
+// background_get_pixel's in generators/bbasic/background.js) - workable only
+// for the handful of consumers that were actually taught it, and a real
+// reported bug otherwise: a plain "Set X to <value with a preamble>"
+// assignment (variables_set, background_set, sprite_*_set, ... - none of
+// which know this convention) compiled the preamble and the assignment onto
+// the same broken line ("X = arg1 = Y") instead of two separate ones.
+//
+// Handled HERE instead, centrally, in scrub_ - the one hook Blockly's own
+// blockToCode calls for EVERY block, value or statement, immediately after
+// that block's own generator function returns. A value block's own nested
+// value sockets are always resolved (via valueToCode, which itself goes
+// through blockToCode+scrub_) before ITS OWN generator function returns, so
+// by the time a value block's own code reaches scrub_ below, any preamble
+// ITS OWN children needed has already been queued - meaning this correctly
+// unwinds nesting depth-first, regardless of how deep a preamble-emitting
+// block sits inside another expression (a case the old, per-consumer
+// convention could never handle safely).
+//
+// pendingPreambleLines is reset fresh in init() (see its own comment there)
+// - a value block's own code gets checked for an embedded "\n" (never
+// present otherwise - see controls_if's own comment) and, if found, every
+// line but the last is pushed here and stripped out of the returned code,
+// leaving just the real expression for whatever consumes it; a statement
+// block drains and prepends whatever accumulated here while ITS OWN value
+// sockets were being resolved, a few lines below.
 Blockly.BBasic.scrub_ = function(block, code, optThisOnly) {
+  // Not every value block's generator returns a string (e.g. color_get's own
+  // "return [colorIndex, ORDER_ATOMIC]" in generators/bbasic/color.js returns
+  // a bare number) - confirmed as a real reported crash otherwise
+  // ("code.includes is not a function"). The embedded-"\n"-preamble
+  // convention this hoists is only ever produced by code that's already a
+  // built-up string (see this function's own top comment), so anything else
+  // can never contain one and is left untouched here.
+  if (block.outputConnection && typeof code === 'string') {
+    if (code.includes('\n')) {
+      const lines = code.split('\n');
+      this.pendingPreambleLines.push(...lines.slice(0, -1));
+      code = lines[lines.length - 1];
+    }
+  }
   let commentCode = '';
   // Only collect comments for blocks that aren't inline.
   if (!block.outputConnection || !block.outputConnection.targetConnection) {
@@ -2434,9 +2750,37 @@ Blockly.BBasic.scrub_ = function(block, code, optThisOnly) {
       }
     }
   }
+  // Drain whatever preamble accumulated above while THIS block's own value
+  // sockets were being resolved (see this function's own top comment) - only
+  // for a statement block (a value block's own preamble has to bubble up to
+  // whichever statement actually consumes it, not be swallowed here by the
+  // value block itself, which is why this sits after the `if
+  // (block.outputConnection)` branch above, not inside it). A no-op (empty
+  // string) for the overwhelming majority of statements, which never have a
+  // preamble-emitting value plugged into any of their own sockets.
+  //
+  // MUST happen before nextCode is resolved below, not after - confirmed as a
+  // real reported bug otherwise ("data pulled from the wrong table"):
+  // blockToCode(nextBlock) recurses all the way down the rest of THIS
+  // statement chain before returning (each subsequent statement's own scrub_
+  // call happens INSIDE that recursive call, not after it), so computing
+  // nextCode first meant whichever statement happened to bottom out that
+  // recursion first (the last one in the chain, or wherever optThisOnly/a
+  // null nextBlock ended it) drained the ENTIRE queue accumulated so far -
+  // including preamble that belonged to THIS block and any others still
+  // waiting - and got it prepended to some LATER statement's own code
+  // instead. That left this block's own code (returned below, un-prefixed)
+  // reading a dispatch result before its own write+gosub preamble had even
+  // been emitted yet, while the actual preamble surfaced too late, clumped
+  // in front of an unrelated later line.
+  let preambleCode = '';
+  if (!block.outputConnection && this.pendingPreambleLines.length) {
+    preambleCode = this.pendingPreambleLines.map((line) => line + '\n').join('');
+    this.pendingPreambleLines = [];
+  }
   const nextBlock = block.nextConnection && block.nextConnection.targetBlock();
   const nextCode = optThisOnly ? '' : this.blockToCode(nextBlock);
-  return commentCode + code + nextCode;
+  return preambleCode + commentCode + code + nextCode;
 };
 
 /**
@@ -2543,9 +2887,26 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
     const innerCode = eventCode.join('\n\n');
     if (!innerCode.trim()) return '';
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getEventBank(eventName), 1);
+    // A "Draw title screen" block anywhere in this event's own body (see
+    // generators/bbasic/titlescreen.js - its own gosub target, "_titlescreen_
+    // system", is a reliable textual signature to check for here rather than
+    // re-walking the workspace) means this loop owns the ENTIRE frame itself
+    // via the Titlescreen Kernel's own cycle-exact vsync/vblank/kernel/
+    // overscan routine. drawscreen() is bB's OWN separate full-frame
+    // routine, so calling both every iteration draws two competing frames
+    // per loop, visibly flickering between the regular game screen and the
+    // title screen - already skipped below. commongamelogic ALSO has to be
+    // skipped, not just drawscreen: it unconditionally restores
+    // COLUP0/1/COLUPF/COLUBK/NUSIZ0/1 and redraws the current background/
+    // animations - all prep for the drawscreen() call that no longer
+    // happens here, and confirmed as a real visible bug on its own: since
+    // it still runs every iteration, its own "COLUBK = backgroundrealcolor"
+    // briefly writes the REGULAR game's background color before the title
+    // kernel's own vsync/vblank even starts, showing as a stray scanline of
+    // the wrong color at the very top of the title screen.
+    const usesTitleScreenKernel = innerCode.includes('_titlescreen_system');
     return [
-      `gosub commongamelogic${suffix}`,
-      'drawscreen',
+      ...(usesTitleScreenKernel ? [] : [`gosub commongamelogic${suffix}`, 'drawscreen']),
       innerCode,
       `goto ${eventName}_begin`,
     ].join('\n');
@@ -2611,16 +2972,21 @@ Blockly.BBasic.backgroundRealColorRawTarget = function() {
 // background to have its own row color list, since the compiled kernel
 // always draws every background's playfield from the same color table.
 //
-// Off while Superchip RAM is enabled. buildRom's compiler-output patch (see
-// patchSuperchipPfColorsPointer in hooks/rom.js) fixes most of the pfcolors +
-// Superchip breakage, but the very last row still renders black, and with
-// more than one background the colors come out wrong and the black area
-// returns - not fully root-caused yet, so the combination is disabled again
-// until that's sorted out.
+// Previously forced off while Superchip RAM was enabled, based on an
+// earlier diagnosis (see git history around "patchSuperchipPfColorsPointer",
+// since removed) that the compiler hardcoded the pfcolors table pointer as
+// "pfcolorlabelN-84", wrong for any pfres other than 12. That diagnosis was
+// wrong: the compiler's own generated assembly already wraps that pointer
+// setup in a real "ifconst pfres ... else ... endif" (confirmed directly by
+// inspecting the compiled output before assembling) - the "-84" form only
+// ever sits in the untaken else branch once pfres is defined, so DASM
+// already resolves to the correct pfres-relative pointer on its own, no
+// patch needed. Retested directly (Superchip on, pfres=24, two backgrounds,
+// distinct row colors) and the playfield renders every row's own color
+// correctly, no black rows, nothing broken - so this is safe to allow.
 Blockly.BBasic.usePlayfieldRowColors = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  if (config.enableSuperchip) return false;
   return config.enablePfColors ?? false;
 };
 
@@ -2634,12 +3000,12 @@ Blockly.BBasic.usePlayfieldRowColors = function() {
 // on the canvas - unlike that block-presence check (rainbowColorUsedFor),
 // this is the user explicitly opting in ahead of time, the same way
 // enablePfColors is a standing toggle rather than being driven by which
-// backgrounds happen to have custom row colors set. Deliberately NOT
-// excluded while Superchip RAM is on (unlike usePlayfieldRowColors just
-// above) - per-row sprite colors reads through player0color/player1color
-// (aliased onto paddle/missile1y), a completely separate pointer from the
-// playfield's own pfcolortable, and testing confirms it renders correctly
-// with Superchip on. name is 'player0' or 'player1'.
+// backgrounds happen to have custom row colors set. Never excluded while
+// Superchip RAM is on - per-row sprite colors reads through
+// player0color/player1color (aliased onto paddle/missile1y), a completely
+// separate pointer from the playfield's own pfcolortable, and testing
+// confirms it renders correctly with Superchip on. name is 'player0' or
+// 'player1'.
 Blockly.BBasic.useSpriteColorsFor = function(name) {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
@@ -2879,7 +3245,22 @@ Blockly.BBasic.generateConfiguration = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
 
-  const {showScore, scoreFont, enableSuperchip, pfres, enablePfRowHeight, pfrowheight} = config;
+  const {showScore, enableSuperchip, pfres, enablePfRowHeight, pfrowheight} = config;
+  // "Show remaining CPU cycles as the score" (config.enableCycleScore, bB's
+  // own "set debug cyclescore") always forces the stock/Default font,
+  // regardless of the Score tab's own selection - same reasoning as hooks/
+  // rom.js's own identical effectiveScoreFont (which controls the ACTUAL
+  // score_graphics.asm digit bytes) - this one covers the SOURCE-level
+  // consts below it (fontstyle/fontcharsHEX), which independently control
+  // the score row's own physical height (Squish's "fontstyle = SQUISH" const
+  // shrinks it in the standard kernel) - left pointed at Squish while hooks/
+  // rom.js swaps in the Default, full-height digit graphics would shrink the
+  // row out from under graphics no longer sized to match it. "Show NTSC
+  // scanlines used as the score" (enableScanlinesDebug) forces the same
+  // thing, for the same reason - it also just pokes plain decimal digits
+  // straight into the score, not a real batari Basic value that would
+  // automatically adapt to a shorter Squish digit height.
+  const scoreFont = (config.enableCycleScore || config.enableScanlinesDebug) ? null : config.scoreFont;
 
   // batari Basic honours a single "set kernel_options" line, so every option
   // has to go on it together.
@@ -3545,7 +3926,7 @@ Blockly.BBasic.generateAnimations = function() {
   const processAnimations = (name, playerStorage) => {
     let playerData = null;
     try {
-      playerData = processPlayerStorageDefaults(playerStorage);
+      playerData = processPlayerAnimationsStorageDefaults(playerStorage);
     } catch (e) {
       console.error(`Failed to load ${name} data`, e);
     }
@@ -3593,16 +3974,27 @@ Blockly.BBasic.generateAnimations = function() {
       `\n\n${animationsEndLabel}`;
   };
 
-  const player0Code = processAnimations('player0', usePlayer0Storage());
-  const player1Code = processAnimations('player1', usePlayer1Storage());
+  // Both hardware players compile from the SAME shared animation pool now
+  // (see hooks/project.js's usePlayerAnimationsStorage) - each is still
+  // called separately (its own label prefix, its own relocatable unit per
+  // animation), so the compiled ROM still contains two independent copies
+  // of any animation both players use. True byte-level dedup would need a
+  // pointer-aliasing scheme (like sprite_*_rom_noise's own player0pointer/
+  // player1pointer trick) plus bank-pinning in the relocator - a separate,
+  // bigger change, not done here.
+  const playerAnimationsStorage = usePlayerAnimationsStorage();
+  const player0Code = processAnimations('player0', playerAnimationsStorage);
+  const player1Code = processAnimations('player1', playerAnimationsStorage);
   return player0Code + '\n\n\n' + player1Code;
 };
-import background, {backgroundGetPixelDevVarsNeeded} from './bbasic/background';
+import background, {backgroundGetPixelDevVarsNeeded, registerBackgroundLineSubroutine,
+  reserveShakeScreenDevVar, generateShakeScreenChecks} from './bbasic/background';
 import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';
 import colour from './bbasic/colour';
-import data from './bbasic/data';
+import data, {dataDispatchArg1VarName, dataDispatchArg2VarName,
+  dataBitDispatchArg3VarName} from './bbasic/data';
 import event from './bbasic/event';
 import functionGenerators from './bbasic/function';
 import input from './bbasic/input';
@@ -3619,10 +4011,11 @@ import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
 import textMinikernel from './bbasic/text-minikernel';
+import titlescreen from './bbasic/titlescreen';
 import variables from './bbasic/variables';
 
 [background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
-  random, score, sound, soundfx, sprites, subroutine, text, textMinikernel, variables]
+  random, score, sound, soundfx, sprites, subroutine, text, textMinikernel, titlescreen, variables]
     .forEach((init) => init(Blockly));
 
 export default Blockly.BBasic;

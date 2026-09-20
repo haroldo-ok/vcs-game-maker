@@ -19,11 +19,11 @@
           <v-icon>mdi-chart-scatter-plot</v-icon>
         </v-btn>
 
-        <v-btn to="/player0" link text class="player0-item" title="Player 0" elevation="0">
-          <v-icon>mdi-human-handsup</v-icon>
+        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title" elevation="0">
+          <v-icon>mdi-image-frame</v-icon>
         </v-btn>
 
-        <v-btn to="/player1" link text class="player1-item" title="Player 1" elevation="0">
+        <v-btn to="/player" link text class="player-item" title="Sprites" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
         </v-btn>
 
@@ -95,28 +95,28 @@
         </v-list-item>
 
         <v-list-item
-          to="/player0"
+          to="/titlescreen"
           link
-          class="player0-item"
+          class="titlescreen-item"
         >
           <v-list-item-icon>
-            <v-icon>mdi-human-handsup</v-icon>
+            <v-icon>mdi-image-frame</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Player 0</v-list-item-title>
+            <v-list-item-title>Title α</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item
-          to="/player1"
+          to="/player"
           link
-          class="player1-item"
+          class="player-item"
         >
           <v-list-item-icon>
             <v-icon>mdi-human-handsup</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Player 1</v-list-item-title>
+            <v-list-item-title>Sprites</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -1160,7 +1160,9 @@ export default {
 .data-card,
 .soundfx-card,
 .text-card,
-.song-card {
+.song-card,
+.titlescreen-card,
+.titlescreen-screen-card {
   border-color: rgba(0, 0, 0, 0.24) !important;
 }
 
@@ -1182,6 +1184,8 @@ export default {
 .data-card.v-card--link,
 .animation-card.v-card--link,
 .background-card.v-card--link,
+.titlescreen-card.v-card--link,
+.titlescreen-screen-card.v-card--link,
 .editor-container.v-card--link {
   cursor: default;
 }
@@ -1191,6 +1195,8 @@ export default {
 .data-card.v-card--link::before,
 .animation-card.v-card--link::before,
 .background-card.v-card--link::before,
+.titlescreen-card.v-card--link::before,
+.titlescreen-screen-card.v-card--link::before,
 .editor-container.v-card--link::before {
   display: none !important;
 }
@@ -1200,6 +1206,8 @@ export default {
 .data-card.v-card--link:hover,
 .animation-card.v-card--link:hover,
 .background-card.v-card--link:hover,
+.titlescreen-card.v-card--link:hover,
+.titlescreen-screen-card.v-card--link:hover,
 .editor-container.v-card--link:hover {
   box-shadow: none !important;
 }
@@ -1219,7 +1227,9 @@ export default {
 .text-card-selected,
 .data-card-selected,
 .animation-card-selected,
-.background-card-selected {
+.background-card-selected,
+.titlescreen-card-selected,
+.titlescreen-screen-card-selected {
   border-color: var(--v-primary-base, #1976d2) !important;
   outline: 2px solid var(--v-primary-base, #1976d2) !important;
 }
@@ -1585,6 +1595,46 @@ html {
 
 .v-input--switch__thumb {
   box-shadow: none !important;
+}
+
+/* Shrinks the handle to the same diameter as the track's own height (14px,
+   giving it the same 7px radius as the track/channel), instead of
+   Vuetify's default handle (20px) sticking out past both edges of the
+   track. top is re-centered to match (Vuetify's own rule computes it as
+   half the DEFAULT 20px handle - "calc(50% - 10px)" - which no longer
+   centers a 14px one). */
+.v-input--switch__thumb {
+  width: 18px !important;
+  height: 18px !important;
+  top: calc(50% - 9px) !important;
+  margin-left: 1px;
+}
+
+/* App-wide, every tab: Vuetify's default track width (36px, see
+   .v-input--switch__track in node_modules/vuetify/dist/vuetify.css) shrunk
+   to 32px - this used to be scoped to just the Options tab's own
+   .option-switch class, so every OTHER tab's switches (Sound's DIM/
+   Columns, Text/Data's own Columns, etc.) stayed at the wider default
+   instead of matching it (a real reported inconsistency). Made global,
+   here, instead of copy-pasting the same rule's scoped class onto every
+   other view. */
+.v-input--switch__track {
+  width: 32px !important;
+}
+
+/* Vuetify's own "on" position (translate(20px, 0), see its own
+   .v-input--switch.v-input--is-dirty rule) was tuned for the DEFAULT 20px
+   handle - shrinking the handle to 14px above (a 6px smaller diameter,
+   3px off each edge) left it 3px short of the track's own right edge once
+   turned on, reported as looking not far enough right. +3px restores the
+   same reach the original, larger handle had. Then shortened another 4px
+   (22px -> 18px), same reasoning as the track-width rule just above: this
+   value has to stay in sync with the 36px -> 32px track shrink (both now
+   app-wide, not just Options-tab-scoped), so the thumb still lands flush
+   against the track's own right edge instead of overshooting it once
+   checked. */
+.v-application--is-ltr .v-input--switch.v-input--is-dirty .v-input--switch__thumb {
+  transform: translate(18px, 0) !important;
 }
 
 /* App-wide: lighter underline for a text field (or a v-select/v-combobox,
@@ -2064,11 +2114,11 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    colors looking washed out compared to the top bar's for any tab that
    wasn't the current page - confirmed directly via computed style: both
    already resolved to the exact same "color: rgb(...)" (the shared
-   .actions-item/.player0-item/etc rules below already cover both bars
+   .actions-item/.player-item/etc rules below already cover both bars
    identically), it was purely this element-wide opacity multiplying that
    same color down for the sidebar alone. */
 
-/* The top v-app-bar's own tab buttons (.actions-item/.player0-item/etc,
+/* The top v-app-bar's own tab buttons (.actions-item/.player-item/etc,
    the exact same class names as the sidebar's own v-list-item entries just
    above - see the rules right below this one) used to render with
    Vuetify's own default v-btn appearance, a solid light grey fill
@@ -2114,16 +2164,20 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(76, 175, 80) !important;
 }
 
-.player0-item,
-.player0-item > .v-list-item__icon > .theme--light.v-icon,
-.player0-item > .v-list-item__content {
-  color: rgb(244, 67, 54) !important;
-  border-left-color: rgb(244, 67, 54) !important;
+/* Never had a color rule of its own - fell back to the same unstyled
+   default the About tab (also with no rule of its own) renders with,
+   making the two tabs look identically colored despite being unrelated.
+   Deep purple isn't used by any other tab. */
+.titlescreen-item,
+.titlescreen-item > .v-list-item__icon > .theme--light.v-icon,
+.titlescreen-item > .v-list-item__content {
+  color: rgb(103, 58, 183) !important;
+  border-left-color: rgb(103, 58, 183) !important;
 }
 
-.player1-item,
-.player1-item > .v-list-item__icon > .theme--light.v-icon,
-.player1-item > .v-list-item__content {
+.player-item,
+.player-item > .v-list-item__icon > .theme--light.v-icon,
+.player-item > .v-list-item__content {
   color: rgb(33, 150, 243) !important;
   border-left-color: rgb(33, 150, 243) !important;
 }

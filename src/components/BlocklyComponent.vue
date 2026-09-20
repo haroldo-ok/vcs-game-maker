@@ -249,17 +249,51 @@ Blockly.Scrollbar.scrollbarThickness = 13;
 // other block flyoutCategoryBlocks builds - math_change, variables_get -
 // are untouched; only the variables_set entry gets a VALUE child appended
 // after the fact.
-const originalFlyoutCategoryBlocks = Blockly.Variables.flyoutCategoryBlocks;
-Blockly.Variables.flyoutCategoryBlocks = function(workspace) {
-  const xmlList = originalFlyoutCategoryBlocks.call(this, workspace);
-  xmlList.forEach((element) => {
-    if (element.tagName !== 'block' || element.getAttribute('type') !== 'variables_set') return;
-    const value = Blockly.Xml.textToDom(
-        '<value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>');
-    element.appendChild(value);
-  });
-  return xmlList;
-};
+//
+// bit_get/bit_set/system_variable_get (see blocks/bit.js) are also spliced
+// in here, at the very front of whatever flyoutCategoryBlocks itself
+// returns - Blockly.Variables.flyoutCategory (the outer function a
+// "custom=VARIABLE" toolbox category actually calls - see
+// blockly-toolbox.xml.hbs) builds the "Create variable..." button ITSELF
+// and prepends it before ever calling this function (confirmed directly
+// against node_modules/blockly/core/variables.js), so flyoutCategoryBlocks
+// only ever returns the per-variable get/set/change blocks, never the
+// button - prepending here lands the three extra blocks right after the
+// button and before any of the user's variables, as intended. They belong
+// in the Variables category alongside the standard get/set/change blocks,
+// but a plain <block> listed as that category's XML child in the toolbox
+// is silently ignored (the "custom" attribute hands its entire flyout
+// content to flyoutCategory/flyoutCategoryBlocks instead) - this is the
+// only way to place a static block inside a dynamic category at all.
+//
+// Guarded (isExtraBlocksPatch) against re-wrapping itself, same reasoning
+// as the parseBlockColour/ToolboxCategory.parseColour_ guards below - this
+// one was originally left unguarded, which would re-append another VALUE
+// child and another copy of the three extra blocks on every dev-server
+// hot-reload of this file, compounding with each edit.
+if (!Blockly.Variables.flyoutCategoryBlocks.isExtraBlocksPatch) {
+  const originalFlyoutCategoryBlocks = Blockly.Variables.flyoutCategoryBlocks;
+  Blockly.Variables.flyoutCategoryBlocks = function(workspace) {
+    const xmlList = originalFlyoutCategoryBlocks.call(this, workspace);
+    xmlList.forEach((element) => {
+      if (element.tagName !== 'block' || element.getAttribute('type') !== 'variables_set') return;
+      const value = Blockly.Xml.textToDom(
+          '<value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>');
+      element.appendChild(value);
+    });
+    const extraBlocks = Blockly.Xml.textToDom(
+        '<xml>' +
+        '<block type="bit_get"></block>' +
+        '<block type="bit_set">' +
+        '<value name="VALUE"><shadow type="logic_boolean"><field name="BOOL">TRUE</field></shadow></value>' +
+        '</block>' +
+        '<block type="system_variable_get"></block>' +
+        '</xml>',
+    ).children;
+    return [...extraBlocks, ...xmlList];
+  };
+  Blockly.Variables.flyoutCategoryBlocks.isExtraBlocksPatch = true;
+}
 
 // See Configuration.vue's "Arrange Blockly zoom controls horizontally along
 // the bottom edge" switch - a live read (not cached at patch time, since
@@ -462,33 +496,27 @@ Blockly.Trashcan.prototype.getBoundingRectangle = function() {
   return new Blockly.utils.Rect(this.top_, bottom, this.left_, right);
 };
 
-// Live-snap-while-dragging: stock Blockly only ever snaps a block to the
-// grid once, at the very END of a drag (BlockSvg.prototype.snapToGrid,
-// reached via BlockDragger's own endDrag flow) - moveDuringDrag (called on
-// every single mousemove, with the block's live workspace-coordinate
-// target position) never consults the grid at all, so a dragged block's
-// on-screen position never visibly snaps until you let go, even with grid
-// snap turned on. Patched once here, at the shared prototype level (there's
-// no per-workspace hook Blockly itself offers for this - confirmed via its
-// own docs at https://docs.blockly.com/guides/configure/grid/, which only
-// documents the injection-time "snap" option, nothing for drag-time
-// behaviour) - rounds the live position to the nearest grid vertex on every
-// move too, using the exact same half-spacing formula
-// BlockSvg.prototype.snapToGrid itself uses (see node_modules/blockly/core/
-// block_svg.js), so what's shown while dragging always agrees with where
-// the block will actually land.
-const originalMoveDuringDrag = Blockly.BlockSvg.prototype.moveDuringDrag;
-Blockly.BlockSvg.prototype.moveDuringDrag = function(newLoc) {
-  const grid = this.workspace && this.workspace.getGrid && this.workspace.getGrid();
-  if (grid && grid.shouldSnap()) {
-    const spacing = grid.getSpacing();
-    const half = spacing / 2;
-    newLoc = new Blockly.utils.Coordinate(
-        Math.round((newLoc.x - half) / spacing) * spacing + half,
-        Math.round((newLoc.y - half) / spacing) * spacing + half);
-  }
-  originalMoveDuringDrag.call(this, newLoc);
-};
+// A "live-snap-while-dragging" patch (rounding a block's live position to
+// the nearest grid vertex on every mousemove, via BlockSvg.prototype.
+// moveDuringDrag) used to live here, and was removed after being confirmed
+// as the actual cause of a real, longstanding reported bug: dragging a group
+// of connected blocks made them visibly lose alignment/connection with each
+// other mid-drag, snapping back correctly only once the drag ended.
+// Root cause, confirmed directly against Blockly's own BlockDragger.
+// prototype.drag (node_modules/blockly/core/block_dragger.js): that method
+// calls moveDuringDrag(newLoc) to move the block(s) visually, then
+// SEPARATELY calls this.draggedConnectionManager_.update(delta, ...) - using
+// the ORIGINAL, un-rounded delta - to compute the insertion-marker/
+// connection-highlight ghost outline. The patch only rounded the position
+// inside moveDuringDrag, so the block rendered at its snapped spot while
+// Blockly's own connection-highlight system kept working from the real,
+// unsnapped mouse position - the two disagreed for the whole drag,
+// reconciling only at drop. Stock Blockly's own default (snap only at the
+// very end of a drag, via BlockSvg.prototype.snapToGrid, reached through
+// BlockDragger's own endDrag flow) doesn't have this problem, since nothing
+// about connection-highlighting happens after that point - reverting to it
+// entirely was the safer fix over trying to also patch BlockDragger.
+// prototype.drag itself to keep the two in sync.
 
 // No wheel-behavior patch needed here (an earlier version of this had one,
 // for a since-reverted shift-to-zoom scheme) - Ctrl+wheel to zoom, plain
@@ -569,22 +597,7 @@ export default {
     // renders) against the now-correct font.
     if (document.fonts && document.fonts.load) {
       document.fonts.load('normal 11px "IBM Plex Mono"').catch(() => {}).then(() => {
-        if (!this.workspace) return;
-        this.workspace.getAllBlocks(false).forEach((block) => block.render());
-        // The toolbox flyout is a genuinely separate sub-workspace (its own
-        // blocks, its own earlier text measurement race) - getAllBlocks
-        // above only walks the MAIN workspace, so a category open at the
-        // moment the font finishes loading still stayed the wrong size
-        // until it was closed and reopened, a real reported recurrence of
-        // this same bug. getFlyout() returns null whenever no category is
-        // currently open (nothing to fix yet - the flyout measures fresh,
-        // correctly, the next time one IS opened, by which point the font
-        // load below has long since resolved).
-        const flyout = this.workspace.getFlyout && this.workspace.getFlyout();
-        const flyoutWorkspace = flyout && flyout.getWorkspace && flyout.getWorkspace();
-        if (flyoutWorkspace) {
-          flyoutWorkspace.getAllBlocks(false).forEach((block) => block.render());
-        }
+        this.rerenderForFontLoad();
       });
     }
 
@@ -649,6 +662,57 @@ export default {
     clearTimeout(this.resizeSettleTimer);
   },
   methods: {
+    // Re-measures/re-renders every block once the real IBM Plex Mono font
+    // has actually finished loading (see mounted()'s own document.fonts.load
+    // comment for the full race this fixes) - deferred (not run immediately)
+    // whenever a drag gesture is in progress at the moment the font-load
+    // promise resolves. Confirmed as a real reported bug otherwise: a block
+    // currently being dragged lives on Blockly's own separate "drag surface"
+    // layer (see BlockSvg.prototype.moveToDragSurface in node_modules/
+    // blockly/core/block_svg.js), tracked there via that surface's own
+    // transform rather than the block's normal workspace-relative position -
+    // rendering it mid-gesture (which reads/writes that normal position)
+    // produced a large, arbitrary jump, not the small (half a grid-spacing)
+    // pop a grid-snap-on-drop would explain. Retries on a short poll (same
+    // "just check back shortly" shape as this file's own resize-settle timer
+    // just above) rather than a one-shot deferral, since a drag can easily
+    // still be in progress the first time this checks back too.
+    rerenderForFontLoad() {
+      if (!this.workspace) return;
+      if (this.workspace.isDragging && this.workspace.isDragging()) {
+        setTimeout(() => this.rerenderForFontLoad(), 100);
+        return;
+      }
+      // Blockly's own WorkspaceSvg.prototype.render() (node_modules/blockly/
+      // core/workspace_svg.js) - NOT a hand-rolled
+      // "getAllBlocks().forEach(block => block.render())" loop, which this
+      // used to be. That loop walks blocks in forward (parent-before-child)
+      // order; Blockly's own version deliberately renders in REVERSE
+      // (children/leaves first), since a parent with inline inputs sizes its
+      // own row layout from its children's already-rendered dimensions -
+      // render the parent first (while a child has just been measured with
+      // the new font but not yet re-rendered itself) and its inline fields
+      // get positioned against a child width that's about to change out from
+      // under them. Confirmed as a real reported recurrence of this same
+      // font-race bug, but with a NEW symptom ("fields overlapping" rather
+      // than plain wrong sizing) that only this ordering, not the font race
+      // itself, explains.
+      this.workspace.render();
+      // The toolbox flyout is a genuinely separate sub-workspace (its own
+      // blocks, its own earlier text measurement race) - workspace.render()
+      // above only walks the MAIN workspace, so a category open at the
+      // moment the font finishes loading still stayed the wrong size until
+      // it was closed and reopened, a real reported recurrence of this same
+      // bug. getFlyout() returns null whenever no category is currently open
+      // (nothing to fix yet - the flyout measures fresh, correctly, the next
+      // time one IS opened, by which point the font load has long since
+      // resolved).
+      const flyout = this.workspace.getFlyout && this.workspace.getFlyout();
+      const flyoutWorkspace = flyout && flyout.getWorkspace && flyout.getWorkspace();
+      if (flyoutWorkspace) {
+        flyoutWorkspace.render();
+      }
+    },
     setSoundsEnabled(enabled) {
       const audioMgr = this.workspace.getAudioManager();
       if (enabled) {
@@ -669,6 +733,27 @@ export default {
           value : '<xml xmlns="https://developers.google.com/blockly/xml"/>');
       Blockly.Xml.domToWorkspace(this.workspace, xml);
     },
+    // Entry point for the 'value' watch below - skipped outright (not
+    // deferred/retried) whenever a drag is in progress, so a v-model round
+    // trip triggered by the drag's own mid-drag 'move' event never rebuilds
+    // the workspace out from under it. Retrying a queued copy of THIS same
+    // stale snapshot once the drag ends was tried first and is wrong -
+    // Blockly.Xml.domToWorkspace (loadWorkspace's own call) never clears
+    // the workspace first, so replaying that now-stale snapshot on top of
+    // the already-correct post-drag workspace just duplicated every block.
+    // Dropping it here instead is safe: the drag's own final 'move' event
+    // fires its own handleChange/emit round trip right after, which lands
+    // as a genuinely fresh (not dragging) call to this same method with
+    // current data - and since that data was already captured into
+    // lastSavedWorkspace before being emitted, it's a no-op here anyway.
+    loadExternalWorkspace(newVal) {
+      if (this.workspace && this.workspace.isDragging && this.workspace.isDragging()) {
+        return;
+      }
+      if (newVal !== this.lastSavedWorkspace) {
+        this.loadWorkspace(newVal);
+      }
+    },
     handleChange() {
       const xml = Blockly.Xml.workspaceToDom(this.workspace);
       const text = Blockly.Xml.domToPrettyText(xml);
@@ -679,10 +764,19 @@ export default {
     },
   },
   watch: {
-    value(newVal, oldVal) {
-      if (newVal !== this.lastSavedWorkspace) {
-        this.loadWorkspace(newVal);
-      }
+    // Guarded against mid-drag reloads (see loadExternalWorkspace's own
+    // comment) - Blockly fires an abstract 'move' event partway through a
+    // drag gesture, not only at drop, so handleChange's v-model round trip
+    // (serialize -> emit -> parent's reactive storage -> this same 'value'
+    // prop) can deliver a snapshot of the workspace taken WHILE a block is
+    // still mid-drag. Rebuilding every block from that snapshot right then
+    // (loadWorkspace disposes and recreates the whole tree) is exactly the
+    // dragged group's own visible misalignment/detachment that was
+    // confirmed via screen recording - it self-corrects afterwards only
+    // because the drag's own final 'move' event repeats this same round
+    // trip once more with the real, settled position.
+    value(newVal) {
+      this.loadExternalWorkspace(newVal);
     },
     'options.sounds'(newVal) {
       if (this.workspace) {

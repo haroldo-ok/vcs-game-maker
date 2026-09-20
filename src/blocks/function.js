@@ -25,7 +25,7 @@ const MAX_FUNCTION_ARGS = 6;
 // dev var sidesteps that possibility entirely, at the cost of reserving it
 // only for a project that actually calls a function as a bare statement at
 // all.
-export const functionCallDiscardVarName = () => '_functionCallResult';
+export const functionCallDiscardVarName = () => 'functionCallResult';
 
 // Scratch storage for function_call_statement's own arguments, handed off to
 // a small per-function wrapper subroutine (see registerFunctionCallWrapper in
@@ -42,7 +42,7 @@ export const functionCallDiscardVarName = () => '_functionCallResult';
 // vars are that somewhere, reserved only for a project that actually calls a
 // function as a bare statement at all (see functionCallStatementUsed's own
 // pre-scan in generators/bbasic.js).
-export const functionCallArgVarName = (index) => `_fnCallArg${index}`;
+export const functionCallArgVarName = (index) => `fnCallArg${index}`;
 
 // Snapshot storage for function_param_get's own reads (see
 // generators/bbasic/function.js's function_define generator) - a function's
@@ -59,7 +59,7 @@ export const functionCallArgVarName = (index) => `_fnCallArg${index}`;
 // dedicated vars once, at function entry, so a later nested call can safely
 // clobber temp1-temp6 without corrupting an argument this function still
 // needs to read again.
-export const functionParamVarName = (index) => `_fnParam${index}`;
+export const functionParamVarName = (index) => `fnParam${index}`;
 
 // Block for defining a native batari Basic "function" - a real,
 // value-returning callable (see generators/bbasic/function.js for the exact

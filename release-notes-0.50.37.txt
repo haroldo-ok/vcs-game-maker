@@ -1,0 +1,39 @@
+0.50.31
+- Added a scroll cursor (up/down arrows plus an end-of-message icon) for the Text Minikernel, with independently settable colors and blink speed
+- Added row 2 text color (falls back to row 1's color automatically until explicitly set)
+- Added a score padding option (0-2 extra background scanlines after the score digits)
+- Fixed auto word-wrap to produce as many lines as a message needs instead of capping at 2
+- Fixed a scrambled-row-2 bug from a clobbered accumulator
+- Fixed the Text Font Editor's in-game preview/label layout for the cursor shape
+- Renamed "Wrap to line 2" to "Multiline" and added a 240-character hard cap per text card
+
+0.50.34
+- New Title tab for the Titlescreen Kernel: multi-page bitmap/space/player-sprite title screens with scrolling
+- Click-and-drag color painting, and Clear now resets colors, on the Player/Background/Title tabs
+- Fixed Save/Save As/Open Project silently doing nothing when the app is embedded in a cross-origin iframe (falls back to download/file-input)
+
+0.50.35
+- Player 0 and Player 1 merged into one shared animation pool with a single Sprite tab (any animation can be assigned to either hardware player); existing projects migrate automatically
+- Fixed pfcolors (per-row playfield colors) to work correctly with Superchip RAM
+- Added Player sprite and Score minikernel graphic types to the Title tab
+- New background toolbox block to draw lines on the playfield (Set/Clear/Flip pixels from a starting X/Y to an ending X/Y)
+- Fixed the 48x1 preview never showing its picked color
+- Fixed cyclescore forcing the Squish/Custom score font even when it shouldn't
+- Unified the graphic-preview color across all tabs
+
+0.50.36
+- Combined the Player 0/Player 1 and Missile 0/Missile 1 blocks into single blocks with a Player/Missile dropdown, recoloring red/blue to match the selection (also applied to Seek and the Player color-fade blocks); old projects migrate automatically
+- Added a 16-direction mode to the Fire block
+- Reworked Bounce to use Combat-style adaptive multi-frame reflection instead of a flat 180-degree flip
+- Moved the Sprite priority block to the Background toolbox category
+- Moved bit_get/bit_set/system_variable_get from the Input category to Variables
+- Added a Columns toggle to the Data tab, matching Sound/Text
+- Added a Shake Screen block (Background category)
+- Added a "Show NTSC scanlines used as the score" debug toggle on the Options tab
+- Unified the toggle switch style (track width/thumb travel) across every tab
+- Added default number/boolean shadow values to the "x = y" and "and/or" blocks
+- Changed the default missile size to 1x1
+- Fixed sprite resize discarding undo history
+
+0.50.37
+- Internal cleanup of dev-variable naming; no user-facing changes

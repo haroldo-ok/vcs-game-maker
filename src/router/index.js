@@ -20,14 +20,14 @@ const routes = [
         '../views/About.vue'),
   },
   {
-    path: '/player0',
-    name: 'Player 0',
-    component: () => import('../views/Player0Editor.vue'),
+    path: '/titlescreen',
+    name: 'Title',
+    component: () => import('../views/TitleScreenEditor.vue'),
   },
   {
-    path: '/player1',
-    name: 'Player 1',
-    component: () => import('../views/Player1Editor.vue'),
+    path: '/player',
+    name: 'Sprites',
+    component: () => import('../views/PlayerEditorView.vue'),
   },
   {
     path: '/background',

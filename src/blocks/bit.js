@@ -113,7 +113,10 @@ Blockly.Blocks['bit_get'] = {
         .appendField('of')
         .appendField(buildVariableField(), 'VAR');
     this.setOutput(true, 'Boolean');
-    this.setColour('purple');
+    // A theme style, not a raw colour - matches the stock variables_get/set/change
+    // blocks' own colour resolution exactly (see variables.js in Blockly core),
+    // instead of going through setColour's separate, compounding desaturation path.
+    this.setStyle('variable_blocks');
     this.setTooltip('Checks if a single bit of a variable is set (1) or clear (0).');
     if (this.workspace) ensureBitVariableRenameListener(this.workspace);
   },
@@ -137,7 +140,7 @@ Blockly.Blocks['bit_set'] = {
         .appendField('to');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
-    this.setColour('purple');
+    this.setStyle('variable_blocks');
     this.setTooltip('Sets a single bit of a variable. Accepts true/false or 1/0.');
     if (this.workspace) ensureBitVariableRenameListener(this.workspace);
   },
@@ -163,7 +166,7 @@ Blockly.defineBlocksWithJsonArray([
       },
     ],
     'output': 'Number',
-    'colour': 'purple',
+    'style': 'variable_blocks',
     'tooltip': 'Reads the current value of a built-in batari Basic variable, e.g. ' +
       '"framecounter" (how many frames have passed since power-on) - useful anywhere a ' +
       'real, changing value is needed, like seeding the random number generator.',

@@ -24,3 +24,4 @@ import './soundfx';
 import './sprites';
 import './subroutine';
 import './text-minikernel';
+import './titlescreen';

@@ -382,7 +382,7 @@ export default (Blockly) => {
     // channnel{N}duration directly, same as before, at zero extra cost.
     const buildRemainingVar = (channel, durationVar) => {
       if (!channelHasMusicEnvelope[channel]) return {lines: [], remainingVar: durationVar};
-      const musicTimerVar = this.nameDB_.getName(`_musicCh${channel}Timer`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const musicTimerVar = this.nameDB_.getName(`musicCh${channel}Timer`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const label = `_envelopeRemaining${channel}`;
       return {
         lines: [

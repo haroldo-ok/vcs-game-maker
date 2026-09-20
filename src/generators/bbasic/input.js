@@ -343,11 +343,20 @@ export const generateJoystickDirection8Checks = (Blockly) => {
 //                       different thresholds can share these same four vars
 //                       with no per-instance state of their own needed.
 export const joyButtonHeldVarName = (name) => `_${name}FireHeld`;
-export const joyButtonPrevVarName = (name) => `_${name}FirePrev`;
-export const joyButtonJustReleasedVarName = (name) => `_${name}FireJustReleased`;
+// "was it down last frame" and "released this exact frame" are both pure
+// 0/1 flags, never read as anything but a boolean (a bare "if X"/"X = 0"/
+// "X = 1") - packed into two bits of one shared byte instead of a dev var
+// each, via bB's own "{n}" single-bit read/write syntax (same pattern
+// fadeFlagsVarName/seekArrivedFlagsVarName already use in background.js/
+// sprites.js). Safe because the two bits are never read/written together
+// as a combined numeric value anywhere - every site below only ever
+// touches one bit at a time by name.
+export const joyButtonFlagsVarName = (name) => `_${name}FireFlags`;
+export const JOY_BUTTON_PREV_BIT = 0;
+export const JOY_BUTTON_JUST_RELEASED_BIT = 1;
 export const joyButtonLastPressFramesVarName = (name) => `_${name}FireLastPressFrames`;
 
-// Reserves the four dev vars above - called from bbasic.js's init() with a
+// Reserves the three dev vars above - called from bbasic.js's init() with a
 // pre-scanned Set of which joysticks actually have a tap/hold/released/
 // double-tap block used anywhere in the project (has to be known before
 // reserveDevVar hands out user variable letters, well before this feature's
@@ -357,10 +366,8 @@ export const reserveJoystickButtonDevVars = (reserveDevVar, usedFor) => {
   usedFor.forEach((name) => {
     reserveDevVar(joyButtonHeldVarName(name), undefined,
         'this joystick\'s Fire button: frames continuously held (saturates at 255)');
-    reserveDevVar(joyButtonPrevVarName(name), undefined,
-        'this joystick\'s Fire button: was it down last frame (0/1)');
-    reserveDevVar(joyButtonJustReleasedVarName(name), undefined,
-        'this joystick\'s Fire button: released this exact frame (0/1)');
+    reserveDevVar(joyButtonFlagsVarName(name), undefined,
+        'this joystick\'s Fire button: was it down last frame (bit 0), released this exact frame (bit 1)');
     reserveDevVar(joyButtonLastPressFramesVarName(name), undefined,
         'this joystick\'s Fire button: how long the press that just ended lasted');
   });
@@ -389,12 +396,21 @@ export const generateJoystickButtonChecks = (Blockly) => {
     if (!used.has(name)) return;
     const fireVar = resolveSystemVar(`${name}fire`);
     const heldVar = resolveDevVar(joyButtonHeldVarName(name));
-    const prevVar = resolveDevVar(joyButtonPrevVarName(name));
-    const justReleasedVar = resolveDevVar(joyButtonJustReleasedVarName(name));
+    const flagsVar = resolveDevVar(joyButtonFlagsVarName(name));
+    const prevVar = `${flagsVar}{${JOY_BUTTON_PREV_BIT}}`;
+    const justReleasedVar = `${flagsVar}{${JOY_BUTTON_JUST_RELEASED_BIT}}`;
     const lastPressFramesVar = resolveDevVar(joyButtonLastPressFramesVarName(name));
     lines.push(
         ` if ${fireVar} then goto _${name}btn_down`,
-        ` if ${prevVar} = 0 then goto _${name}btn_up_done`,
+        // A bit-indexed read ("VAR{n}") is only ever used bare or negated
+        // ("if X{n} then"/"if !X{n} then") throughout the rest of this
+        // codebase's own generated output - never compared with "= 0"/"= 1"
+        // the way a plain variable read is. Confirmed as a real reported
+        // build failure ("Unknown keyword: 0") once this was the only place
+        // doing that: real batari Basic's own grammar doesn't accept a
+        // bit-read as the left side of a "=" comparison, only as a bare
+        // boolean.
+        ` if !${prevVar} then goto _${name}btn_up_done`,
         // Was down last frame, up now - the release transition.
         ` ${justReleasedVar} = 1`,
         ` ${lastPressFramesVar} = ${heldVar}`,
@@ -424,8 +440,8 @@ export const generateJoystickButtonChecks = (Blockly) => {
 // double-tap blocks on the same joystick can each have their own WINDOW
 // field value, so the countdown itself can't be shared the way a plain
 // comparison-only value (like "Fire held") can.
-export const joyDoubleTapResultVarName = (index) => `_joyDoubleTap${index}`;
-export const joyDoubleTapTimerVarName = (index) => `_joyDoubleTap${index}Timer`;
+export const joyDoubleTapResultVarName = (index) => `joyDoubleTap${index}`;
+export const joyDoubleTapTimerVarName = (index) => `joyDoubleTap${index}Timer`;
 
 // Reserves the two dev vars above for every "Fire double-tapped" block
 // instance bbasic.js's own pre-scan (joyDoubleTapChecks) found - same early
@@ -458,7 +474,7 @@ export const generateJoystickDoubleTapChecks = (Blockly) => {
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const lines = [];
   checks.forEach(({name, window, index}) => {
-    const justReleasedVar = resolveDevVar(joyButtonJustReleasedVarName(name));
+    const justReleasedVar = `${resolveDevVar(joyButtonFlagsVarName(name))}{${JOY_BUTTON_JUST_RELEASED_BIT}}`;
     const resultVar = resolveDevVar(joyDoubleTapResultVarName(index));
     const timerVar = resolveDevVar(joyDoubleTapTimerVarName(index));
     const tag = `dt${index}`;
@@ -533,9 +549,15 @@ export default (Blockly) => {
       const mode = block.getFieldValue('MODE');
       const frames = Math.max(1, Math.min(255, Math.round(Number(block.getFieldValue('FRAMES')) || 20)));
       if (mode === 'RELEASED') {
-        const justReleasedVar = Blockly.BBasic.nameDB_.getName(
-            joyButtonJustReleasedVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-        return [`${justReleasedVar} = 1`, Blockly.BBasic.ORDER_EQUALITY];
+        const flagsVar = Blockly.BBasic.nameDB_.getName(
+            joyButtonFlagsVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        // Bare, not "= 1" - a bit-indexed read ("VAR{n}") already evaluates
+        // as a boolean on its own throughout the rest of this codebase (see
+        // generateJoystickButtonChecks' own identical fix), comparing it
+        // against 1 isn't valid real batari Basic syntax for a bit read -
+        // confirmed as a real reported build failure ("Unknown keyword: 0")
+        // once a project actually plugged this block into an "if".
+        return [`${flagsVar}{${JOY_BUTTON_JUST_RELEASED_BIT}}`, Blockly.BBasic.ORDER_ATOMIC];
       }
       if (mode === 'HOLD') {
         const heldVar = Blockly.BBasic.nameDB_.getName(
@@ -548,12 +570,14 @@ export default (Blockly) => {
             joyDoubleTapResultVarName(entry.index), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         return [`${resultVar} = 1`, Blockly.BBasic.ORDER_EQUALITY];
       }
-      // TAP (also the fallback for a stale/unrecognized MODE value).
-      const justReleasedVar = Blockly.BBasic.nameDB_.getName(
-          joyButtonJustReleasedVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      // TAP (also the fallback for a stale/unrecognized MODE value). Same
+      // bare-bit-read fix as RELEASED above - "{n} && ..." not "{n} = 1 &&
+      // ...".
+      const flagsVar = Blockly.BBasic.nameDB_.getName(
+          joyButtonFlagsVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const lastPressFramesVar = Blockly.BBasic.nameDB_.getName(
           joyButtonLastPressFramesVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-      return [`${justReleasedVar} = 1 && ${lastPressFramesVar} <= ${frames}`, Blockly.BBasic.ORDER_LOGICAL_AND];
+      return [`${flagsVar}{${JOY_BUTTON_JUST_RELEASED_BIT}} && ${lastPressFramesVar} <= ${frames}`, Blockly.BBasic.ORDER_LOGICAL_AND];
     };
   };
 

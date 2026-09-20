@@ -14,4 +14,4 @@ export const canonicalDistanceVarName = (axis, obj0, obj1) => `distance${axis}_$
 // dropdown-selectable object, so it can't be deduped by content the way two
 // object names can - each block instance gets its own hidden variable
 // instead, numbered in workspace order (see bbasic.js's own pre-scan).
-export const distancePointVarName = (axis, index) => `distance${axis}_point${index}`;
+export const distancePointVarName = (axis, index) => `distance${axis}point${index}`;

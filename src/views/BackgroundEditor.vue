@@ -156,6 +156,7 @@
                       :showGrid="showPixelGrid"
                       :showCellIds="showPixelGridLabels"
                       @input="handleChildChange"
+                      @clear="() => handleClearRowColors(background)"
                     >
                       <template v-if="pfColorsEnabled" v-slot:sidebar>
                         <playfield-color-strip
@@ -314,7 +315,11 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds('background');
+    // Every card starts collapsed on every visit to this tab (see
+    // collapseAll's own comment in hooks/collapse.js), not just ones never
+    // expanded before.
+    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('background', true);
+    collapseAll();
 
     // Card reordering - NOT built on hooks/drag-reorder.js's own
     // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
@@ -395,6 +400,17 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // Clearing a graphic (PixelEditor.vue's own "clear" event, separate from
+    // an ordinary pixel edit) resets its row colors back to the same default
+    // every row starts at, rather than leaving old per-row picks behind on
+    // an otherwise blank graphic.
+    const handleClearRowColors = (background) => {
+      if (!pfColorsEnabled.value || !background.rowColors) return;
+      background.rowColors = background.rowColors.map(() => DEFAULT_ROW_COLOR);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
     // CSS colors passed to the pixel editor so it can tint each row. Returns
     // null when per-row colors are off (uniform fgColor). A pure black row
     // ($00) is nudged to near-black so the editor still counts those pixels
@@ -465,7 +481,7 @@ export default defineComponent({
     return {selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddBackground, handleDeleteBackground,
       selectedQuickColor, quickColorPalette,
-      handleRowColorsInput, editorRowColors, isCollapsed, toggleCollapsed,
+      handleRowColorsInput, handleClearRowColors, editorRowColors, isCollapsed, toggleCollapsed,
       zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,

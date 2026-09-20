@@ -9,7 +9,7 @@
 // plain oscillator) so a buzzy/noisy instrument like a drum "Kick" actually
 // sounds buzzy here too, not like a clean tone.
 import {
-  AUDC_APPROXIMATIONS, buildBuzzBuffer, buildDiv31Buffer, buildGatedBuzzBuffer, shiftClockFor,
+  AUDC_APPROXIMATIONS, buildBuzzBuffer, buildDiv31Buffer, buildGatedBuzzBuffer, buildSquareBuffer, shiftClockFor,
 } from './sound-preview';
 import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
@@ -30,7 +30,6 @@ const getAudioContext = () => {
   return audioContext;
 };
 
-const SLOW_CLOCK_AUDCS = new Set(['12', '13']);
 // NTSC, matching the compiled ROM's own per-frame arpeggio timer (see
 // generators/bbasic/music.js) - arpeggioSpeed is a frame count there, so
 // previewing it here needs the same frames-to-seconds conversion to sound
@@ -78,46 +77,33 @@ const arpeggioPitchVariants = (audf, arpeggioInterval) => {
   };
 };
 
-// Schedules an oscillator's frequency to step through the current
-// Arpeggio's pitch sequence (see ARPEGGIO_PHASE_SEQUENCES), one step every
-// arpeggioSpeed frames, for the note's whole duration - same abrupt jump
-// (not a smooth slide) as the real per-frame register write in
-// generateMusicChecks. A no-op (single, steady frequency) when arpeggioSpeed
-// is falsy.
-const scheduleArpeggioFrequency = (oscillator, {
-  audf, slowClock, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime, seconds,
-}) => {
-  if (!arpeggioSpeed) {
-    oscillator.frequency.setValueAtTime(shiftClockFor(audf, {slowClock}) / 2, startTime);
-    return;
-  }
-  const variants = arpeggioPitchVariants(audf, arpeggioInterval);
-  const sequence = ARPEGGIO_PHASE_SEQUENCES[arpeggioRange] || ARPEGGIO_PHASE_SEQUENCES[0];
-  const frequencies = sequence.map((key) => shiftClockFor(variants[key], {slowClock}) / 2);
-  const flipSeconds = arpeggioSpeed / FRAMES_PER_SECOND;
-  let t = startTime;
-  let phase = 0;
-  while (t < startTime + seconds) {
-    oscillator.frequency.setValueAtTime(frequencies[phase % frequencies.length], t);
-    phase++;
-    t += flipSeconds;
-  }
-};
-
 // Matches the compiled ROM's own note envelope (see generators/bbasic/
 // music.js's own per-note envelope-config index) - steps through the exact
 // same per-frame AUDV curve (see utils/envelope.js's buildEnvelopeCurve),
 // scaled from AUDV's 0-15 range down into this preview's own 0-0.3 gain
 // range, rather than a continuous fade - a stepped preview actually sounds
 // like what plays in game instead of smoothing over the same discrete
-// jumps. releaseSeconds is a SEPARATE, always-applied short click-
-// prevention taper (not the user's own configurable Release stage) - see
-// its own call sites' comments; the trailing linearRampToValueAtTime below
-// still applies it in both branches, same as before this only had one
-// (Fade) shape to draw.
-const buildGain = (context, {peakGain, peakVolume, startTime, seconds, releaseSeconds, envelope, envelopeAttack,
+// jumps.
+//
+// Holds flat at peakGain for the whole note otherwise (no envelope) - real
+// AUDV hardware writes are just as abrupt, holding at whatever level they
+// were last set to with no anti-click smoothing of their own. This used to
+// hold-then-linearRampToValueAtTime(0, ...) over a chunk of the note's own
+// end specifically to avoid the click a hard stop produces, which made
+// every note sound smoother/cleaner than the real hardware does. A REAL
+// instant step (jumping from full amplitude straight to 0 in a single
+// sample) turned out to be more of a harsh POP than the same kind of click
+// real hardware's own output actually has, though - real hardware's analog
+// output stage still has some tiny natural rolloff from the circuit itself,
+// it's just far too short to sound like a fade. CLICK_GUARD_SECONDS below
+// is that same idea at a scale that's actually inaudible as a fade (a
+// couple milliseconds, not tens) while still rounding off the single
+// hardest edge of the waveform enough to not pop.
+const CLICK_GUARD_SECONDS = 0.002;
+const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope, envelopeAttack,
   envelopeDecay, envelopeSustain, envelopeRelease, destination = context.destination}) => {
   const gainNode = context.createGain();
+  let endValue;
   if (envelope) {
     const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
     const curve = buildEnvelopeCurve({
@@ -127,40 +113,59 @@ const buildGain = (context, {peakGain, peakVolume, startTime, seconds, releaseSe
     curve.forEach((step, i) => {
       gainNode.gain.setValueAtTime(step / 15 * 0.3, startTime + i / FRAMES_PER_SECOND);
     });
+    endValue = curve[curve.length - 1] / 15 * 0.3;
   } else {
-    // Holds at peakGain until releaseSeconds before the note's own end, so
-    // the trailing linearRampToValueAtTime below has real time to ramp
-    // through instead of colliding with this same setValueAtTime at the
-    // exact same instant (which Web Audio resolves by keeping whichever was
-    // scheduled last, producing an audible click instead of a ramp - the
-    // exact bug class this releaseSeconds taper exists to avoid).
-    const releaseStart = startTime + Math.max(0, seconds - releaseSeconds);
     gainNode.gain.setValueAtTime(peakGain, startTime);
-    gainNode.gain.setValueAtTime(peakGain, releaseStart);
+    endValue = peakGain;
   }
-  gainNode.gain.linearRampToValueAtTime(0, startTime + seconds);
+  // Re-anchors at whatever level the note ends on, right at the start of the
+  // guard window, so the ramp below only covers that last sliver instead of
+  // linearRampToValueAtTime interpolating all the way from the previous
+  // automation point (the envelope's last step, or this same note's own
+  // start) clear through to the end.
+  if (endValue > 0 && seconds > CLICK_GUARD_SECONDS) {
+    const guardStart = startTime + seconds - CLICK_GUARD_SECONDS;
+    gainNode.gain.setValueAtTime(endValue, guardStart);
+    gainNode.gain.linearRampToValueAtTime(0, startTime + seconds);
+  }
   gainNode.connect(destination);
   return gainNode;
 };
 
-// A plain square-wave tone at an EXACT pitch - only used for genuine pitched
-// notes (from a pure-tone instrument's own note grid), where audf is already
-// the specific note the user picked, not derived from the instrument's AUDC
-// approximation.
-const playTone = (context, {
-  audf, slowClock, arpeggioSpeed, arpeggioInterval, arpeggioRange, peakGain, startTime, seconds, releaseSeconds,
-  destination,
-}) => {
-  const gainNode = buildGain(context, {peakGain, startTime, seconds, releaseSeconds, destination});
-  const oscillator = context.createOscillator();
-  oscillator.type = 'square';
-  scheduleArpeggioFrequency(oscillator, {
-    audf, slowClock, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime, seconds,
-  });
-  oscillator.connect(gainNode);
-  oscillator.start(startTime);
-  oscillator.stop(startTime + seconds);
-  return oscillator;
+// Buffer-based waveforms (square/buzz/div31/gatedbuzz) are pure functions of
+// (type, chip clock, duration, bits/stepDivider) - the same drum hit playing
+// the same pitch for the same length, which a pattern does constantly (a
+// Snare on every backbeat, say), was re-running the whole LFSR/step loop
+// from scratch every single time instead of reusing the result. AudioBuffers
+// are immutable once built and Web Audio explicitly supports handing the
+// exact same one to any number of AudioBufferSourceNodes, so this just
+// remembers each one it's already built. Unbounded, but keys are a small
+// finite set in practice (a song only has so many distinct instrument/pitch/
+// duration combinations) - nowhere near large enough to worry about memory.
+const buzzBufferCache = new Map();
+const buildBufferCached = (context, approximation, chipClockHz, seconds) => {
+  // Rounded for the cache key only (not the actual synthesis call below) -
+  // two notes that are musically "the same" duration/pitch can still differ
+  // by float noise in the 1e-10 range from how they were derived, which
+  // would otherwise make this cache miss every time instead of the near-100%
+  // hit rate a real song's repeated hits should get.
+  const key = `${approximation.type}:${approximation.bits || ''}:${approximation.stepDivider || ''}:` +
+    `${chipClockHz.toFixed(3)}:${seconds.toFixed(5)}`;
+  let buffer = buzzBufferCache.get(key);
+  if (!buffer) {
+    if (approximation.type === 'square') {
+      buffer = buildSquareBuffer(context, chipClockHz, seconds);
+    } else if (approximation.type === 'div31') {
+      buffer = buildDiv31Buffer(context, chipClockHz, seconds);
+    } else if (approximation.type === 'gatedbuzz') {
+      buffer = buildGatedBuzzBuffer(context, chipClockHz, seconds);
+    } else {
+      buffer = buildBuzzBuffer(context, chipClockHz, seconds, approximation.bits,
+          {stepDivider: approximation.stepDivider});
+    }
+    buzzBufferCache.set(key, buffer);
+  }
+  return buffer;
 };
 
 // Synthesizes one AUDC/AUDF/AUDV instrument hit using the same per-AUDC
@@ -173,33 +178,17 @@ const playTone = (context, {
 //     arpeggiating buffer-based hit schedules several short back-to-back
 //     segments instead - see below).
 const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime,
-  seconds, releaseSeconds, envelope, envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease,
+  seconds, envelope, envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease,
   destination}) => {
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   if (!approximation) return [];
 
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
-  const gainNode = buildGain(context, {peakGain, peakVolume: audv, startTime, seconds, releaseSeconds, envelope,
+  const gainNode = buildGain(context, {peakGain, peakVolume: audv, startTime, seconds, envelope,
     envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease, destination});
 
-  if (approximation.type === 'square') {
-    const source = context.createOscillator();
-    source.type = 'square';
-    scheduleArpeggioFrequency(source, {
-      audf, slowClock: approximation.slowClock, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime, seconds,
-    });
-    source.connect(gainNode);
-    source.start(startTime);
-    source.stop(startTime + seconds);
-    return [source];
-  }
-
-  const buildBuffer = (chipClockHz, segmentSeconds) => {
-    if (approximation.type === 'div31') return buildDiv31Buffer(context, chipClockHz, segmentSeconds);
-    if (approximation.type === 'gatedbuzz') return buildGatedBuzzBuffer(context, chipClockHz, segmentSeconds);
-    return buildBuzzBuffer(context, chipClockHz, segmentSeconds, approximation.bits,
-        {stepDivider: approximation.stepDivider});
-  };
+  const buildBuffer = (chipClockHz, segmentSeconds) =>
+    buildBufferCached(context, approximation, chipClockHz, segmentSeconds);
 
   if (!arpeggioSpeed) {
     const source = context.createBufferSource();
@@ -352,17 +341,14 @@ export const getPlaybackHead = () => {
 export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
   tempo = DEFAULT_TEMPO}) => {
   const context = getAudioContext();
-  const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   // Same "Dim SFX volume" Options-tab setting applied everywhere else this
   // note could be heard (pattern/song playback, the compiled ROM) - without
   // this, a click-to-place preview would sound louder than the note
   // actually plays back everywhere else.
   const dimmedAudv = useDimSoundFxStorage().value ?
     dimVolume(audv, useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) : audv;
-  const peakGain = Math.min(1, Math.max(0, Number(dimmedAudv) || 0) / 15) * 0.3;
   const startTime = context.currentTime;
   const seconds = 0.18;
-  const releaseSeconds = 0.05;
 
   // Same tempo-relative-to-frames conversion playPattern/playSequence use
   // for the exact same fields (see their own comment on arpeggioSpeed) - a
@@ -375,25 +361,10 @@ export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision
   const resolvedArpeggioInterval = arpeggio ? Number(arpeggioInterval) || 0 : 0;
   const resolvedArpeggioRange = arpeggio ? Number(arpeggioRange) || 0 : 0;
 
-  if (approximation && approximation.type === 'square') {
-    const slowClock = SLOW_CLOCK_AUDCS.has(`${audc}`);
-    playTone(context, {
-      audf,
-      slowClock,
-      peakGain,
-      startTime,
-      seconds,
-      releaseSeconds,
-      arpeggioSpeed,
-      arpeggioInterval: resolvedArpeggioInterval,
-      arpeggioRange: resolvedArpeggioRange,
-    });
-  } else {
-    playInstrumentHit(context, {
-      audc, audf, audv: dimmedAudv, startTime, seconds, releaseSeconds,
-      arpeggioSpeed, arpeggioInterval: resolvedArpeggioInterval, arpeggioRange: resolvedArpeggioRange,
-    });
-  }
+  playInstrumentHit(context, {
+    audc, audf, audv: dimmedAudv, startTime, seconds,
+    arpeggioSpeed, arpeggioInterval: resolvedArpeggioInterval, arpeggioRange: resolvedArpeggioRange,
+  });
 };
 
 /**
@@ -456,10 +427,24 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     // scheduling entirely, so toggling mute mid-playback (see
     // setTrackMuted) can actually make an already-scheduled track audible
     // again, not just silence one that wasn't muted yet when this ran.
-    const trackGain = context.createGain();
+    //
+    // Reused across every repeat/chip that schedules this same pattern+
+    // track, rather than a fresh createGain() each call - a long song calls
+    // this once per repeat of every chip, and a discarded-but-still-
+    // connected GainNode isn't freed until every source feeding it has
+    // finished AND it's no longer referenced, so constantly abandoning one
+    // for a brand new one left a steadily growing number of live nodes in
+    // the graph for the browser to keep rendering, worse the further into a
+    // song playback got - confirmed as a real, worsening-over-time drain,
+    // not just a theoretical one.
+    const trackKey = trackMuteKey(pattern, track);
+    let trackGain = trackMuteGains.get(trackKey);
+    if (!trackGain) {
+      trackGain = context.createGain();
+      trackGain.connect(context.destination);
+      trackMuteGains.set(trackKey, trackGain);
+    }
     trackGain.gain.value = isTrackMuted(pattern, track) ? 0 : 1;
-    trackGain.connect(context.destination);
-    trackMuteGains.set(trackMuteKey(pattern, track), trackGain);
     // Whether THIS note gets its own chosen pitch or the instrument's fixed
     // hit-audf is decided from the instrument's own CURRENT Sound type
     // (audc), not from whatever was true when the note was originally
@@ -495,7 +480,6 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       const audibleStartUnits = Math.max(note.step, startUnits);
       const noteStart = startTime + (audibleStartUnits - startUnits) * unitSeconds;
       const heldSeconds = (note.step + note.length - audibleStartUnits) * unitSeconds;
-      const releaseSeconds = Math.min(heldSeconds * 0.2, 0.08);
       const audf = isTunable && note.midi !== 'hit' ? note.audf : soundEffect.audf;
       // Per-note override (see the Music tab's own piano-roll volume row),
       // falling back to the instrument's own preset - same DIM-scaling
@@ -513,7 +497,6 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
         arpeggioRange,
         startTime: noteStart,
         seconds: heldSeconds,
-        releaseSeconds,
         envelope: !!soundEffect.envelope,
         envelopeAttack: soundEffect.envelopeAttack,
         envelopeDecay: soundEffect.envelopeDecay,
@@ -575,7 +558,18 @@ export const playPattern = (song, pattern, soundEffects, {onDone, isTrackMuted, 
   // stopPatternPlayback and the final non-looping pass clear it) - the
   // previous pass's own tail can still be genuinely playing during that
   // early-scheduling window, and Stop needs to still catch it.
-  const LOOP_RESCHEDULE_LEAD_SECONDS = 0.2;
+  // Widened from an original 0.2s - confirmed as a real cause of dropped
+  // notes: this is JS-timer-scheduled (see the setTimeout below), so if the
+  // main thread is busy long enough when it's due to fire (e.g. several
+  // Music tab pattern cards expanded at once, each with its own large piano
+  // roll re-rendering), it can run late. A short note's entire start-to-end
+  // window can fall entirely in the past by the time a late-running call
+  // like that finally executes, so it never audibly plays at all - a long
+  // note surviving the exact same delay just fine, since most of its
+  // duration is still ahead of it either way. A wider margin doesn't fix
+  // main-thread jank itself, just gives this scheduler more room to
+  // tolerate it before a short note's window is at risk.
+  const LOOP_RESCHEDULE_LEAD_SECONDS = 0.5;
   const scheduleOnce = (startTime, passStartUnits) => {
     const tempo = effectiveTempo(song, pattern);
     const totalSeconds = schedulePattern(context, pattern, soundEffects, startTime, tempo, isTrackMuted,
@@ -663,7 +657,18 @@ export const playSequence = (song, soundEffects, {onDone, isTrackMuted, startInd
   // a real bug) - re-reading per chip instead means an edit takes effect
   // on the very next chip transition, same as a pattern/note edit already
   // does within schedulePattern itself.
-  const LOOP_RESCHEDULE_LEAD_SECONDS = 0.2;
+  // Widened from an original 0.2s - confirmed as a real cause of dropped
+  // notes: this is JS-timer-scheduled (see the setTimeout below), so if the
+  // main thread is busy long enough when it's due to fire (e.g. several
+  // Music tab pattern cards expanded at once, each with its own large piano
+  // roll re-rendering), it can run late. A short note's entire start-to-end
+  // window can fall entirely in the past by the time a late-running call
+  // like that finally executes, so it never audibly plays at all - a long
+  // note surviving the exact same delay just fine, since most of its
+  // duration is still ahead of it either way. A wider margin doesn't fix
+  // main-thread jank itself, just gives this scheduler more room to
+  // tolerate it before a short note's window is at risk.
+  const LOOP_RESCHEDULE_LEAD_SECONDS = 0.5;
   const scheduleGroup = (startTime, sequenceIndex, repIndex) => {
     const sequence = song.sequence || [];
     if (sequenceIndex >= sequence.length) {

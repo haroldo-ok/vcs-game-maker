@@ -109,8 +109,8 @@ const ARPEGGIO_PHASE_SEQUENCES = [
 // both when reserving a letter (see bbasic.js's pre-scan) and again at every
 // generation call site below, matching the established convention (see
 // collisionMoveOldXVar/canonicalDistanceVarName).
-export const musicIndexVarName = (channel) => `_musicCh${channel}Index`;
-export const musicTimerVarName = (channel) => `_musicCh${channel}Timer`;
+export const musicIndexVarName = (channel) => `musicCh${channel}Index`;
+export const musicTimerVarName = (channel) => `musicCh${channel}Timer`;
 // This channel's own CURRENT instrument byte (AUDC|arpeggioSpeed<<4) - kept
 // up to date only at an actual INSTRUMENT_CHANGE_SENTINEL marker (see
 // generateMusicChecks), not on every note fetch, now that AUDC is no longer
@@ -122,11 +122,11 @@ export const musicTimerVarName = (channel) => `_musicCh${channel}Timer`;
 // only worked because every record always had exactly one - a record with
 // no AUDC byte of its own at all has no such offset to re-read, so this
 // dev var is what resumeCheck copies from instead.
-export const musicLastAudcVarName = (channel) => `_musicCh${channel}LastAudc`;
+export const musicLastAudcVarName = (channel) => `musicCh${channel}LastAudc`;
 // Only reserved/used for a channel whose data spans more than one page (see
 // eventsToPages/MAX_DATA_TABLE_VALUES) - which table (of that channel's own
 // set) is currently being read.
-export const musicPageVarName = (channel) => `_musicCh${channel}Page`;
+export const musicPageVarName = (channel) => `musicCh${channel}Page`;
 // Only reserved/used for a song whose own sequence references more than one
 // pattern (see resolveProjectMusic) - which position in the SONG's own
 // sequence this channel is currently playing through. Each DISTINCT pattern
@@ -136,7 +136,7 @@ export const musicPageVarName = (channel) => `_musicCh${channel}Page`;
 // runs out - musicPageVarName alone can't tell "which occurrence" apart,
 // since the same pattern (and so the same starting page) can be reached from
 // more than one sequence position.
-export const musicSeqPosVarName = (channel) => `_musicCh${channel}SeqPos`;
+export const musicSeqPosVarName = (channel) => `musicCh${channel}SeqPos`;
 // Only reserved/used for a project where some included song's own Sequence
 // list actually repeats a pattern several times in a row (see
 // resolveProjectMusic's own groups/sequenceRepeatCount, and blocks/music.js's
@@ -161,7 +161,7 @@ export const musicSeqPosVarName = (channel) => `_musicCh${channel}SeqPos`;
 // here). The cost of packing: a repeat count is capped at 16 total plays
 // (a 4-bit nibble only reaches 15 repeats-remaining) - well past any
 // realistic use, and still adjustable per group independently either way.
-export const musicSeqRepeatVarName = () => '_musicRep';
+export const musicSeqRepeatVarName = () => 'musicRep';
 export const MAX_SEQ_REPEAT_COUNT = 16;
 // One shared byte (not a var per flag/channel) holding every boolean the
 // music player needs project-wide - dev vars are a hard-capped, only
@@ -171,7 +171,7 @@ export const MAX_SEQ_REPEAT_COUNT = 16;
 // musicChannelActiveBit below), each bit read/written individually via bB's
 // own var{n} bit syntax (already used elsewhere, e.g. sprites.js's
 // CTRLPF{2}) so setting one flag never disturbs the others.
-export const musicFlagsVarName = () => '_musicFlags';
+export const musicFlagsVarName = () => 'musicFlags';
 export const musicPlayingBit = 0;
 export const musicLoopBit = 1;
 export const musicJustStoppedBit = 2;
@@ -202,7 +202,7 @@ export const musicPausedBit = 5;
 // (one for chip-finished, a separate one/two for note-played), a project
 // mixing both watch types now only pays for as many TOTAL overflow bytes as
 // its TOTAL watch count actually needs, not one set per feature.
-export const musicEventFlagsOverflowVarName = (byteIndex) => `_musicEvtFlags${byteIndex}`;
+export const musicEventFlagsOverflowVarName = (byteIndex) => `musicEvtFlags${byteIndex}`;
 const MUSIC_FLAGS_SPARE_BITS = [6, 7];
 
 // Resolves every one-shot music event watch a project's own blocks
@@ -260,7 +260,7 @@ export const resolveMusicEventFlags = (workspace, music, notePlayedIndexById = n
   // gated behind this.projectMusic (null when muted), so nothing would
   // ever actually declare that dev var - confirmed as a real compile
   // failure (DASM: "Unknown Mnemonic" on the raw, never-aliased
-  // "_musicFlags" name leaking straight into the assembly).
+  // "musicFlags" name leaking straight into the assembly).
   const usesGeneral = !!music && workspace.getAllBlocks(false)
       .some((block) => block.type === 'music_sequence_chip_finished');
 
@@ -467,7 +467,7 @@ export const resolveNotePlayedInstruments = (workspace) => {
 // anything. Extracting just speed (packedVar & 15) or just range
 // (packedVar / 16, which cleanly drops the low nibble since speed never
 // exceeds 15) only happens on the rare frame a flip actually occurs.
-export const musicArpSpeedRangeVarName = (channel) => `_musicCh${channel}ArpSpeedRange`;
+export const musicArpSpeedRangeVarName = (channel) => `musicCh${channel}ArpSpeedRange`;
 // Counter (frame countdown, 0-MAX_ARPEGGIO_SPEED_FRAMES) and phase (which
 // note in the cycle, 0 - the longest ARPEGGIO_PHASE_SEQUENCES entry has 6
 // steps) used to be two separate dev vars - counter fits a nibble exactly
@@ -478,7 +478,7 @@ export const musicArpSpeedRangeVarName = (channel) => `_musicCh${channel}ArpSpee
 // hot-path checks, which only need a cheap "& 15"/no-shift-at-all), phase in
 // the HIGH nibble (only touched on the rare frame a flip actually happens,
 // so it can afford the "/16"/"*16" a nibble in that position needs).
-export const musicArpCounterPhaseVarName = (channel) => `_musicCh${channel}ArpCounterPhase`;
+export const musicArpCounterPhaseVarName = (channel) => `musicCh${channel}ArpCounterPhase`;
 // Base (0-31) and interval (0-7) merged into one shared byte - base |
 // (interval << 5) - the exact same layout the AUDF data byte itself already
 // uses (see eventsToPages), so this is literally just stored as-is straight
@@ -487,7 +487,7 @@ export const musicArpCounterPhaseVarName = (channel) => `_musicCh${channel}ArpCo
 // place that used to read the base or alt dev var directly now derives
 // whichever it needs from this one, only on the rare frame a flip actually
 // lands on it (see arpApply's computeLines).
-export const musicArpBaseIntervalVarName = (channel) => `_musicCh${channel}ArpBaseInterval`;
+export const musicArpBaseIntervalVarName = (channel) => `musicCh${channel}ArpBaseInterval`;
 const musicDataTableName = (channel, page) => `_musicCh${channel}Data${page}`;
 // The shared instrument lookup table (see resolveProjectMusic's own
 // instrumentBytes build pass and eventsToPages' own INSTRUMENT_CHANGE_SENTINEL
@@ -577,13 +577,13 @@ export const musicPlaySongResetName = (songIndex) => `_music_play_song${songInde
 // rather than erroring, the same leniency subroutine_call's own stale-value
 // fallback already uses elsewhere.
 export const MUSIC_PLAY_BY_ID_NAME = '_music_play_by_id';
-export const musicPlayByIdArgVarName = () => '_musicPlayByIdArg';
+export const musicPlayByIdArgVarName = () => 'musicPlayByIdArg';
 // Which song is currently active (that song's own 0-based songIndex, see
 // resolveProjectMusic) - set by every song's own reset subroutine. Only
 // read back at the (relatively rare) moment a channel's sequence position
 // advances, to pick which song's own Seq table (see musicSeqTableName) to
 // consult - see generateMusicChecks' own seqTableLookup comment.
-export const musicSongIndexVarName = () => '_musicSongIndex';
+export const musicSongIndexVarName = () => 'musicSongIndex';
 // Snapshots musicSongIndexVarName's own value at the exact moment a song
 // naturally finishes (see generateMusicChecks' own finishCheck, right
 // alongside where it sets musicJustStoppedBit) - lets music_song_stopped_by_
@@ -599,12 +599,12 @@ export const musicSongIndexVarName = () => '_musicSongIndex';
 // project actually has a music_song_stopped_by_id/_by_number block AND more
 // than one song (see usesFilteredSongStopped/multiSong in
 // reserveMusicDevVars) - a single-song project has nothing to distinguish.
-export const musicJustStoppedSongVarName = () => '_musicJustStoppedSong';
+export const musicJustStoppedSongVarName = () => 'musicJustStoppedSong';
 // Current song's own sequence.length - replaces the literal constant the
 // single-song version of generateMusicChecks' wrap check still uses
 // directly, since that number now varies by whichever song is playing. Set
 // by every song's own reset subroutine.
-export const musicSeqLenVarName = () => '_musicSeqLen';
+export const musicSeqLenVarName = () => 'musicSeqLen';
 
 // Builds a song's own reset subroutine body: resets every channel THAT SONG
 // uses (index/timer/page/sequence-position/arpeggio state, marked active),
@@ -1383,6 +1383,29 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     });
   });
 
+  // Whether a "Play sound" block (soundfx_play or simple_sound_set) exists
+  // anywhere in the project that could ever hand this SPECIFIC channel's
+  // hardware output back and forth with music - see generateMusicChecks'
+  // own resumeCheck/suppressibleWrite, which used to be generated for every
+  // music channel unconditionally as soon as ANY music existed at all,
+  // regardless of whether anything on that channel ever actually shared it
+  // with a sound effect. That cost 3 extra branch checks every single frame
+  // per channel (durationVar<>1/!activeBit/indexVar<3) plus an extra branch
+  // wrapping every register write during a note fetch, for a feature a
+  // project not actually interleaving sound effects with that channel's
+  // music never uses - channnel{channel}duration would just permanently
+  // read 0, so every one of those checks always took its own no-op branch.
+  // CHANNEL is a fixed dropdown field on both block types (not a runtime
+  // expression), so which channel each one targets is fully known here at
+  // compile time, same reasoning as soundEffectChannelHasEnvelope in
+  // soundfx.js.
+  const channelHasSoundEffectDuration = {};
+  channels.forEach((channel) => {
+    channelHasSoundEffectDuration[channel] = workspace.getAllBlocks(false).some((block) =>
+      (block.type === 'soundfx_play' || block.type === 'simple_sound_set') && block.isEnabled() &&
+      `${block.getFieldValue('CHANNEL')}` === `${channel}`);
+  });
+
   const channelPages = {};
   const channelHasEnvelope = {};
   const channelHasArpeggio = {};
@@ -1530,6 +1553,7 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     channelPageSongIds,
     channelHasEnvelope,
     channelHasArpeggio,
+    channelHasSoundEffectDuration,
     usesSongById,
     usesFilteredSongStopped,
     songSeqOffset,
@@ -2549,7 +2573,18 @@ export default (Blockly) => {
       // all" as one of its own trigger conditions - so this is always
       // safely resolvable whenever this function itself runs at all).
       const durationVar = resolveVar(`channnel${channel}duration`);
-      const suppressibleWrite = (tag, line) => [
+      // Only actually wraps writes in a suppression check when THIS channel
+      // has some "Play sound" block that could interleave with it (see
+      // channelHasSoundEffectDuration's own comment in resolveProjectMusic)
+      // - durationVar would otherwise permanently read 0 for this channel
+      // (nothing on it ever writes to it), making the check itself a
+      // guaranteed-always-false no-op paid on every wrapped write for
+      // nothing. The dev var itself still exists either way (reserved
+      // whenever music exists at all, regardless of per-channel use), so
+      // this only skips the wasted runtime branch, not anything that would
+      // leave durationVar unresolved.
+      const hasSoundEffectDuration = music.channelHasSoundEffectDuration[channel];
+      const suppressibleWrite = (tag, line) => !hasSoundEffectDuration ? [line] : [
         ` if ${durationVar} <> 0 then goto _musicsup${channel}_${tag}_skip`,
         line,
         `_musicsup${channel}_${tag}_skip`,
@@ -2882,8 +2917,13 @@ export default (Blockly) => {
           // same reasoning as suppressibleWrite's other callers, just gating
           // the whole tick rather than one write, since there's nothing
           // useful to advance while this channel's own AUDF is off-limits
-          // anyway.
-          ` if ${durationVar} <> 0 then goto _music${channel}_arp_skip`,
+          // anyway. Omitted outright (see hasSoundEffectDuration/
+          // suppressibleWrite's own identical gate above) when nothing on
+          // this channel could ever actually set durationVar nonzero in the
+          // first place - a raw check here, not routed through
+          // suppressibleWrite itself, so it needed its own explicit gate to
+          // stop paying for it too.
+          ...(hasSoundEffectDuration ? [` if ${durationVar} <> 0 then goto _music${channel}_arp_skip`] : []),
           // Only reaches the range/phase dispatch (which writes AUDF) on the
           // exact frame the flip actually happens - on every other frame
           // it's skipped outright rather than redundantly re-writing AUDF to
@@ -3037,7 +3077,15 @@ export default (Blockly) => {
         ...pagedReadLines(tables, pageVar, 'temp1', channel),
         ` ${targetVar} = temp1`,
       ];
-      const resumeCheck = [
+      // A pure no-op (nothing at all, not even the cheap-looking guard
+      // checks) when this channel never shares hardware with a "Play
+      // sound" block in the first place - see channelHasSoundEffectDuration
+      // above/suppressibleWrite's own identical gate. Without a sound
+      // effect ever able to set durationVar to 1 on this channel, every one
+      // of these three checks would run every single frame only to always
+      // take their own "skip" branch - real, paid-for cycles for a
+      // hand-off this channel can never actually receive.
+      const resumeCheck = !hasSoundEffectDuration ? [] : [
         ` if ${durationVar} <> 1 then goto _musicresume${channel}_skip`,
         ` if !${activeBit} then goto _musicresume${channel}_skip`,
         ` if ${indexVar} < 3 then goto _musicresume${channel}_skip`,

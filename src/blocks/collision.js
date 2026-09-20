@@ -87,12 +87,16 @@ Blockly.defineBlocksWithJsonArray([
   buildCollisionCheckBlock(),
 ]);
 
-// Software (pfread-based) playfield collision for players - taken out again
-// for now, on top of the two designs already documented above/in
-// generators/bbasic/collision.js's own top-of-file comment (a reactive
-// axis-aware backtrack: ROM lockup, then a hard crash on contact; a
-// predictive per-direction "move if clear" block, closely modeled on the
-// user's own reference example: moved correctly but caused a screen roll on
-// any joystick input, still unresolved). Revisit later - see git history on
-// this file and on generators/bbasic/collision.js for the full account of
-// every attempt so far before trying again.
+// A predictive (check-BEFORE-moving) software playfield collision block
+// (collision_check_playfield_move), adapted from Random Terrain's own
+// "Sprite With Collision Prevention" example (AtariAge), was tried here and
+// removed again - real testing found it reported collisions against pixels
+// the player wasn't actually near, even after fixing two earlier bugs found
+// along the way (a row-height formula that didn't scale with this project's
+// own Superchip pfres, and a compound "&&"-plus-nested-"if" condition never
+// actually proven to compile correctly). Root cause not isolated before the
+// approach was abandoned in favor of adapting this app's own already-working
+// built-in "background collision" example blocks (hardware collision_get,
+// checked one-frame-delayed - see collision_check_position above) instead of
+// continuing to chase custom pfread() box math. See git history on this file
+// and on generators/bbasic/collision.js for the full account.

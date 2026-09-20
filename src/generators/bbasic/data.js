@@ -15,6 +15,17 @@ import {useDataTablesStorage} from '../../hooks/project';
 // name safe from that same class of bug too, not a coincidence).
 const DATA_DISPATCH_FUNCTION_CANONICAL_NAME = '_dataElementDispatch';
 
+// Shared, dev-var-pool-routed argument slots for the bank-tagged call
+// wrappers below (registerDataDispatchCallWrapper/
+// registerDataBitDispatchCallWrapper) - written once immediately before
+// each "gosub", read back immediately inside the wrapper, never held across
+// another nested Function call, same lifetime functionCallDiscardVarName's
+// own comment already documents for the RESULT side of this exact pattern
+// (reused here rather than a dedicated result var of its own).
+export const dataDispatchArg1VarName = () => 'dataDispatchArg1';
+export const dataDispatchArg2VarName = () => 'dataDispatchArg2';
+export const dataBitDispatchArg3VarName = () => 'dataBitDispatchArg3';
+
 // Lazily builds (once per compile) a bB `function` that dispatches on a
 // runtime table-id argument (temp1) and index argument (temp2), returning
 // whichever table's own [index] element - the one bB construct that can
@@ -54,25 +65,35 @@ const registerDataDispatchFunction = (Blockly) => {
   if (Blockly.BBasic.functions[name]) return name;
   const data = processDataTablesStorageDefaults(useDataTablesStorage());
   // Whichever bank this dispatch function's OWN body ends up compiled into -
-  // NOT hardcoded to 1. This function is registered from wherever it's first
-  // referenced (a data_get_element_by_id/data_get_bit_by_id block with a
-  // dynamic TABLE_ID), always somewhere inside its own eventual relocation
-  // family (see computeFunctionFamilies in hooks/rom.js) - so getCurrentBank()
-  // here correctly reflects wherever that whole family, including THIS
-  // function, is actually going to land. Data tables must be read from the
-  // exact same bank they're declared in (confirmed directly against the
-  // language reference: "If you try to access data in another bank, there
-  // will be no errors, but the data you get will certainly be incorrect.") -
-  // hardcoding bank 1 here was correct back when every function was
-  // permanently pinned to bank 1, but silently wrong the moment functions
-  // became relocatable (see this codebase's own move to make functions
-  // relocatable): the dispatch function's compiled code could end up in a
-  // different bank than the one this had recorded/emitted the table's own
-  // copy into, reading real bytes at the right address but the WRONG bank's
-  // content - a real reported bug ("results being returned from the data
-  // table are incorrect"), not a crash, since the bank-switched hardware has
-  // no way to notice a stale cross-bank read on its own.
-  const bank = Blockly.BBasic.getCurrentBank();
+  // NOT hardcoded to 1, and NOT Blockly.BBasic.getCurrentBank() either (an
+  // earlier version of this used getCurrentBank(), on the assumption that
+  // WHICHEVER caller triggers this registration - a data_get_element_by_id/
+  // data_get_bit_by_id block with a dynamic TABLE_ID - is always somewhere
+  // inside this function's own eventual relocation family (see
+  // computeFunctionFamilies in hooks/rom.js), so the caller's own current
+  // bank would always match. That's true for a caller that's ITSELF a real
+  // bB function (joins the same family, forced to move together) or a
+  // function_call_statement wrapper subroutine - but false for an ordinary
+  // user-authored subroutine that just happens to bare-call this function
+  // directly: pickRelocationCandidate's own codeReferencesAnyFunction check
+  // keeps that subroutine pinned to bank 1 forever, WITHOUT pulling it into
+  // this function's own family, so it can easily end up calling from a
+  // different bank than wherever this function's family actually lands.
+  // Confirmed as a real reported bug this way: a project with a "Function"
+  // and a plain "Subroutine" both calling this same dispatch (the subroutine
+  // a near-duplicate of the function's own body, copy-pasted from one to the
+  // other), the subroutine visited first in some builds - baking THIS
+  // function's own table reads to bank 1 (the subroutine's home) while the
+  // function itself (and this dispatch, as part of its family) actually
+  // landed in bank 2, corrupting every real (function-side) call's own data
+  // reads. getFunctionBank(name) - name is this dispatch function's own
+  // already-resolved symbol, from just above - reads back its own ACTUAL
+  // relocation decision directly, unaffected by which caller happened to
+  // trigger registration first. Data tables must be read from the exact same
+  // bank they're declared in (confirmed directly against the language
+  // reference: "If you try to access data in another bank, there will be no
+  // errors, but the data you get will certainly be incorrect.").
+  const bank = Blockly.BBasic.getFunctionBank(name);
   const lines = [];
   (data.dataTables || []).filter((table) => table.values && table.values.length).forEach((table, i) => {
     Blockly.BBasic.trackDataTableBank(table.id, bank);
@@ -182,6 +203,66 @@ const registerDataBitDispatchFunction = (Blockly) => {
   return name;
 };
 
+// Wraps registerDataDispatchFunction's own bare call in a real gosub-able
+// subroutine, so ANY caller - not just one that's already guaranteed to be
+// part of _dataElementDispatch's own relocation family - can reach it
+// safely from any bank. A bB function-call expression ("name(args)") has no
+// bank-tag syntax of its own (see getFunctionBank's own comment above), so
+// a bare call only ever worked from code guaranteed to always land in the
+// exact same bank as the function itself (another real Function, or one of
+// these wrapper subroutines) - an ordinary user-authored subroutine had no
+// safe way to reach it at all once the function's own family relocated off
+// bank 1. Confirmed as a real reported bug this way: an ordinary subroutine
+// bare-calling this exact dispatch worked fine right up until its family
+// got relocated off bank 1 for unrelated reasons, then crashed the
+// emulator ("Auto: failed") the instant it ran, since the call jumped into
+// whatever happened to be paged in at the function's old address instead.
+//
+// The wrapper's own call site (data_get_element_by_id below) needs to
+// smuggle its "write args, gosub, read result" preamble ahead of its real
+// expression the same way data_get_bit_by_id already does just below - see
+// Blockly.BBasic.scrub_'s own top comment in generators/bbasic.js for how
+// that's now handled centrally for EVERY consumer (a plain assignment, an
+// if condition, deeply nested inside another expression, ...), not just
+// the handful that used to be taught this convention by hand.
+//
+// Registered into functionCallWrapperNames the same way
+// registerFunctionCallWrapper (generators/bbasic/function.js) already
+// registers _call_<FunctionName> for function_call_statement - that's what
+// makes computeFunctionFamilies' own union-find (hooks/rom.js) correctly
+// pull THIS wrapper into the exact same family as _dataElementDispatch
+// (its own body references it by name, the same "calls" edge any other
+// family member creates), so both always relocate together, keeping the
+// bare call inside safe no matter which bank that turns out to be.
+const registerDataDispatchCallWrapper = (Blockly) => {
+  const dispatchName = registerDataDispatchFunction(Blockly);
+  const wrapperName = Blockly.BBasic.nameDB_.getName('_call_dataElementDispatch', Blockly.PROCEDURE_CATEGORY_NAME);
+  if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
+  const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+  const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
+  const result = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+  Blockly.BBasic.subroutines[wrapperName] = `${result.write} = ${dispatchName}(${arg1.read}, ${arg2.read})`;
+  Blockly.BBasic.functionCallWrapperNames.add(wrapperName);
+  return wrapperName;
+};
+
+// Same idea, for registerDataBitDispatchFunction's own bare call - see
+// registerDataDispatchCallWrapper's own comment just above for why this
+// exists and how it ends up in the right relocation family.
+const registerDataBitDispatchCallWrapper = (Blockly) => {
+  const dispatchName = registerDataBitDispatchFunction(Blockly);
+  const wrapperName = Blockly.BBasic.nameDB_.getName('_call_dataBitDispatch', Blockly.PROCEDURE_CATEGORY_NAME);
+  if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
+  const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+  const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
+  const arg3 = Blockly.BBasic.superchipRwPairs[dataBitDispatchArg3VarName()];
+  const result = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+  Blockly.BBasic.subroutines[wrapperName] =
+    `${result.write} = ${dispatchName}(${arg1.read}, ${arg2.read}, ${arg3.read})`;
+  Blockly.BBasic.functionCallWrapperNames.add(wrapperName);
+  return wrapperName;
+};
+
 export default (Blockly) => {
   // data_get_element_by_id/data_get_bit_by_id's own TABLE_ID is a plain
   // Number value SOCKET (see its own comment in blocks/data.js), not a
@@ -229,11 +310,14 @@ export default (Blockly) => {
   // Same lookup as data_get_element above, just keyed off TABLE_ID instead
   // of a TABLE dropdown field. A literal still resolves the fast, zero-cost
   // way - direct table[index], no function-call overhead. Anything else (a
-  // variable, an expression) routes through registerDataDispatchFunction's
-  // own auto-generated bB function instead, called as a plain value
-  // expression (name(tableIdCode, indexCode)) - exactly the shape
-  // function_call's own buildFunctionCallExpression already uses in
-  // generators/bbasic/function.js.
+  // variable, an expression) routes through registerDataDispatchCallWrapper's
+  // own bank-tagged "gosub" instead - safe from any bank, unlike a bare
+  // function call (see that function's own comment for the real "Auto:
+  // failed" crash this fixes). Captured into shared args first, as a
+  // newline-joined preamble ahead of the real value - see
+  // Blockly.BBasic.scrub_'s own top comment in generators/bbasic.js for how
+  // that preamble reaches whichever statement actually consumes this value,
+  // however deeply nested this block itself ends up.
   Blockly.BBasic['data_get_element_by_id'] = function(block) {
     const literalId = resolveTableIdLiteral(block);
     if (literalId != null) {
@@ -241,10 +325,18 @@ export default (Blockly) => {
       return element ? [element, Blockly.BBasic.ORDER_MEMBER] : ['0', Blockly.BBasic.ORDER_ATOMIC];
     }
     if (!block.getInputTargetBlock('TABLE_ID')) return ['0', Blockly.BBasic.ORDER_ATOMIC];
-    const dispatchName = registerDataDispatchFunction(Blockly);
+    const wrapperName = registerDataDispatchCallWrapper(Blockly);
     const tableIdCode = Blockly.BBasic.valueToCode(block, 'TABLE_ID', Blockly.BBasic.ORDER_NONE) || '0';
     const indexCode = Blockly.BBasic.valueToCode(block, 'INDEX', Blockly.BBasic.ORDER_NONE) || '0';
-    return [`${dispatchName}(${tableIdCode}, ${indexCode})`, Blockly.BBasic.ORDER_FUNCTION_CALL];
+    const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+    const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
+    const result = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    const suffix = Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(wrapperName));
+    return [
+      `${arg1.write} = ${tableIdCode}\n${arg2.write} = ${indexCode}\ngosub ${wrapperName}${suffix}\n${result.read}`,
+      Blockly.BBasic.ORDER_ATOMIC,
+    ];
   };
 
   // batari Basic's own "{n}" bit-index syntax (same one bit_get uses, see
@@ -311,33 +403,34 @@ export default (Blockly) => {
     // One shared function regardless of which bit this specific block
     // checks - bit is passed as a genuine 3rd runtime argument, a plain
     // compile-time literal here (BIT is a fixed field, not a socket) but
-    // read back at runtime by the function's own shift loop either way.
-    const dispatchName = registerDataBitDispatchFunction(Blockly);
+    // read back at runtime by the dispatch function's own shift loop
+    // either way.
+    //
+    // Routed through registerDataBitDispatchCallWrapper's own bank-tagged
+    // "gosub" (see its own comment) instead of a bare function call - safe
+    // from any bank. Captured into shared args + a result var first, as a
+    // newline-joined preamble ahead of the real value - see
+    // Blockly.BBasic.scrub_'s own top comment in generators/bbasic.js for
+    // how that preamble reaches whichever statement actually consumes this
+    // value. The result reuses function_call_statement's own
+    // discarded-result var (functionCallDiscardVarName, see its comment in
+    // blocks/function.js) rather than reserving a second dedicated one -
+    // both hold nothing but a just-returned value, written and then
+    // immediately consumed, so there's no lifetime conflict sharing the one
+    // slot between them.
+    const wrapperName = registerDataBitDispatchCallWrapper(Blockly);
     const tableIdCode = Blockly.BBasic.valueToCode(block, 'TABLE_ID', Blockly.BBasic.ORDER_NONE) || '0';
     const indexCode = Blockly.BBasic.valueToCode(block, 'INDEX', Blockly.BBasic.ORDER_NONE) || '0';
-    // A bare function call reads back fine as the right-hand side of a
-    // plain assignment, but batari Basic's own "if" statement only accepts
-    // a bare variable or a plain comparison as its condition - confirmed as
-    // a real reported bug: "if <this block> then ..." never branched
-    // correctly, even with the exact same call working right when
-    // assigned to a variable a few lines earlier in the same function.
-    // Captured into a var first, as a newline-joined preamble ahead of the
-    // real value - the same convention background_get_pixel already uses
-    // for its own "if"-only case (see its own comment in generators/bbasic/
-    // background.js), which controls_if (generators/bbasic/logic.js)
-    // already hoists out onto its own line(s) automatically. Reuses
-    // function_call_statement's own discarded-result var
-    // (functionCallDiscardVarName, see its comment in blocks/function.js)
-    // rather than reserving a second dedicated one - both hold nothing but
-    // a just-returned function value, written and then immediately
-    // consumed on the very next line, so there's no lifetime conflict
-    // sharing the one slot between them.
-    // functionCallDiscardVarName now routes through reserveDevVarRW
-    // (generators/bbasic.js's own init(), Superchip's own r/w pool when
-    // available) - write the call's result, then read it back on the very
-    // next (and only other) line, so .write/.read here matches exactly.
+    const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+    const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
+    const arg3 = Blockly.BBasic.superchipRwPairs[dataBitDispatchArg3VarName()];
     const resultPair = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
-    return [`${resultPair.write} = ${dispatchName}(${tableIdCode}, ${indexCode}, ${bit})\n${resultPair.read}`,
-      Blockly.BBasic.ORDER_ATOMIC];
+    const suffix = Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(wrapperName));
+    return [
+      `${arg1.write} = ${tableIdCode}\n${arg2.write} = ${indexCode}\n${arg3.write} = ${bit}\n` +
+      `gosub ${wrapperName}${suffix}\n${resultPair.read}`,
+      Blockly.BBasic.ORDER_ATOMIC,
+    ];
   };
 };
