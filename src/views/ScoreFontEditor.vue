@@ -12,14 +12,14 @@
           :value="scoreBkColorSwatchValue"
           :fallback-color="backgroundPreviewColor"
           clear-label="Use background color"
-          title="Click to set the score row's own background color"
+          title="Click to set the score row's background color"
           @input="(byte) => (scoreBkColor = byte === null ? 'background' : byte)"
         />
         <span class="score-bkcolor-label">Score background color</span>
         <v-switch
           v-model="scoreFadeEnabled"
           label="Score fade shading (scorefade)"
-          title="Adds shading to the score digits. Set the score's color (or keep changing it, e.g. every frame) with the Score category's own color blocks on the Actions tab to see the effect - incrementing it continuously produces the classic Atari color-bar look."
+          title="Adds shading to the score digits. Set the score's color (or keep changing it, e.g. every frame) with the Score category's color blocks on the Actions tab to see the effect - incrementing it continuously produces the classic Atari color-bar look."
           hide-details
           class="score-fade-switch"
         />
@@ -29,7 +29,7 @@
         set to <strong>Custom</strong> or <strong>Squish Custom</strong>.
       </p>
       <p v-else class="v-messages theme--light v-messages__message">
-        Set the score font to <strong>Custom</strong> or <strong>Squish Custom</strong> above to draw your own
+        Set the score font to <strong>Custom</strong> or <strong>Squish Custom</strong> above to draw custom
         digits - {{ selectedFont ? 'the selected preset' : 'Default' }} is a fixed, built-in font with nothing
         to edit here.
       </p>
@@ -47,7 +47,7 @@
             v-model="scorePaddingLines"
             :items="[0, 1, 2]"
             label="Add score padding"
-            title="How many extra scanlines of the score row's own background color to draw right after the score digits finish, before whatever draws next."
+            title="How many extra scanlines of the score row's background color to draw right after the score digits finish, before whatever draws next."
             hide-details
             class="score-padding-field"
           />
@@ -69,7 +69,7 @@
                 :height="activeDigitHeight"
                 :aspectRatio="PIXEL_ASPECT"
                 v-model="state.digits[index]"
-                fgColor="#f2691e"
+                fgColor="orange"
                 :showClearButton="true"
                 :name="'score-font-digit-' + index"
                 :allowChangingHeight="false"

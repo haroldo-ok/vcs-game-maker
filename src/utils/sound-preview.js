@@ -43,6 +43,20 @@ const NTSC_SHIFT_CLOCK = 31440;
 export const shiftClockFor = (audf, {slowClock = false} = {}) =>
   (slowClock ? NTSC_SHIFT_CLOCK / 3 : NTSC_SHIFT_CLOCK) / (Number(audf) + 1);
 
+// Every buffer below is built at this rate instead of the AudioContext's own
+// (typically 44100/48000Hz) - Web Audio resamples an AudioBuffer to the
+// destination rate automatically on playback, so this doesn't lose any
+// audible range, but it does make chipSamples below always land on an EXACT
+// whole number of buffer samples (chipClockHz is always some integer
+// divisor of NTSC_SHIFT_CLOCK, so NTSC_SHIFT_CLOCK / chipClockHz always
+// is too), instead of Math.round()-ing to the nearest 44100Hz/48000Hz
+// sample and landing slightly sharp or flat depending on which pitch and
+// host sample rate happened to be in play. Real hardware's own shift
+// register genuinely only ever changes state this often, never in between -
+// matching that exactly, rather than a host-rate approximation of it, is
+// what actually gets closer to how it sounds on real hardware.
+const TIA_SAMPLE_RATE = NTSC_SHIFT_CLOCK;
+
 // Advances a Galois LFSR by one step, returning both the new state and the
 // bit that was shifted out (needed by AUDC 3's gated poly5->poly4 below).
 // The tap patterns aren't claimed to match the real TIA polynomials exactly,
@@ -68,7 +82,7 @@ const stepLfsr = (lfsr, bits) => stepLfsrWithBit(lfsr, bits).next;
 // 4-bit poly that only advances on a div31 transition, so it sounds like the
 // same buzz as AUDC 1 but roughly 31x slower rather than a different pattern.
 export const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivider = 1} = {}) => {
-  const sampleRate = context.sampleRate;
+  const sampleRate = TIA_SAMPLE_RATE;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -101,7 +115,7 @@ export const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivide
 const DIV31_HIGH_STEPS = 18;
 const DIV31_TOTAL_STEPS = 31;
 export const buildDiv31Buffer = (context, chipClockHz, seconds) => {
-  const sampleRate = context.sampleRate;
+  const sampleRate = TIA_SAMPLE_RATE;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -121,6 +135,36 @@ export const buildDiv31Buffer = (context, chipClockHz, seconds) => {
   return buffer;
 };
 
+// A genuine "pure tone" AUDC (4/5/12/13) was previously just an
+// OscillatorNode - clean and band-limited, unlike the real TIA, which has no
+// anti-aliasing at all: its shift register only ever drives the output pin
+// fully high or fully low, one hard toggle per chip clock, with no
+// smoothing whatsoever. Modeling it as the same kind of raw two-level
+// buffer as the buzzy/div31 waveforms above (rather than a synthesized
+// oscillator) is what actually gives it that harsher, more authentic edge
+// instead of a clean, sound-card-quality square wave. Takes the RAW shift
+// clock (not yet halved into a tone frequency, unlike frequencyForAudf) -
+// toggling once per chip, so a full high-low cycle is 2 chips, same
+// resulting pitch as before.
+export const buildSquareBuffer = (context, chipClockHz, seconds) => {
+  const sampleRate = TIA_SAMPLE_RATE;
+  const length = Math.max(1, Math.ceil(sampleRate * seconds));
+  const buffer = context.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+
+  const chipSamples = Math.max(1, Math.round(sampleRate / chipClockHz));
+  let output = 1;
+  let samplesUntilNextChip = chipSamples;
+  for (let i = 0; i < length; i++) {
+    if (--samplesUntilNextChip <= 0) {
+      output = -output;
+      samplesUntilNextChip = chipSamples;
+    }
+    data[i] = output;
+  }
+  return buffer;
+};
+
 // AUDC 3 ("5 bit poly -> 4 bit poly") is the most complex of the bunch: the
 // 5-bit poly steps every chip clock unconditionally, but the 4-bit poly (and
 // the actual sound output) only advances on chips where the poly5 bit just
@@ -128,7 +172,7 @@ export const buildDiv31Buffer = (context, chipClockHz, seconds) => {
 // genuinely different mechanism from a single gated/divided LFSR, not just a
 // different bit-width, so it gets its own dual-register builder.
 export const buildGatedBuzzBuffer = (context, chipClockHz, seconds) => {
-  const sampleRate = context.sampleRate;
+  const sampleRate = TIA_SAMPLE_RATE;
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -255,6 +299,11 @@ const arpeggioPitchVariants = (audf, arpeggioInterval) => {
 // avoid-a-circular-import reason as ARPEGGIO_PHASE_SEQUENCES above.
 const FRAMES_PER_SECOND = 60;
 const MAX_ARPEGGIO_SPEED_FRAMES = 15;
+// Same reasoning as music-playback.js's own identical constant: a real,
+// instant step from full amplitude to 0 pops harder than the real
+// hardware's own click, so this rounds off just that last sliver instead -
+// far too short to read as an actual fade.
+const CLICK_GUARD_SECONDS = 0.002;
 
 /** Stops whatever sound effect preview is currently playing, if any. */
 export const stopSoundEffectPreview = () => {
@@ -298,6 +347,7 @@ export const previewSoundEffect = ({
   // from AUDV's 0-15 range down into this preview's own 0-0.3 gain range,
   // rather than a continuous fade - a stepped preview actually sounds like
   // what plays in game instead of smoothing over the same discrete jumps.
+  let endValue;
   if (envelope) {
     const curve = buildEnvelopeCurve({
       attack: envelopeAttack, decay: envelopeDecay, sustainPercent: envelopeSustain, release: envelopeRelease,
@@ -306,11 +356,20 @@ export const previewSoundEffect = ({
     curve.forEach((step, i) => {
       gainNode.gain.setValueAtTime(step / 15 * 0.3, now + i / 60);
     });
+    endValue = curve[curve.length - 1] / 15 * 0.3;
   } else {
+    // Held flat for the note's whole duration - real AUDV hardware writes
+    // are just as abrupt, holding at whatever level they were last set to
+    // with no smoothing of their own. The guard-window ramp below (not a
+    // real fade - see CLICK_GUARD_SECONDS) is the only softening applied.
     gainNode.gain.setValueAtTime(peakGain, now);
-    gainNode.gain.setValueAtTime(peakGain, now + seconds * 0.8);
+    endValue = peakGain;
   }
-  gainNode.gain.linearRampToValueAtTime(0, now + seconds);
+  if (endValue > 0 && seconds > CLICK_GUARD_SECONDS) {
+    const guardStart = now + seconds - CLICK_GUARD_SECONDS;
+    gainNode.gain.setValueAtTime(endValue, guardStart);
+    gainNode.gain.linearRampToValueAtTime(0, now + seconds);
+  }
   gainNode.connect(context.destination);
 
   const stepSeconds = 30 / DEFAULT_TEMPO;
@@ -321,63 +380,41 @@ export const previewSoundEffect = ({
 
   const sources = [];
 
-  if (approximation.type === 'square') {
-    const oscillator = context.createOscillator();
-    oscillator.type = 'square';
-    if (!arpeggioSpeedFrames) {
-      oscillator.frequency.setValueAtTime(shiftClockFor(audf, {slowClock: approximation.slowClock}) / 2, now);
-    } else {
-      const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
-      const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
-      let t = now;
-      let phase = 0;
-      while (t < now + seconds) {
-        const pitchAudf = variants[sequence[phase % sequence.length]];
-        oscillator.frequency.setValueAtTime(shiftClockFor(pitchAudf, {slowClock: approximation.slowClock}) / 2, t);
-        phase++;
-        t += flipSeconds;
-      }
-    }
-    oscillator.connect(gainNode);
-    oscillator.start(now);
-    oscillator.stop(now + seconds);
-    sources.push(oscillator);
+  const buildBuffer = (chipClockHz, segmentSeconds) => {
+    if (approximation.type === 'square') return buildSquareBuffer(context, chipClockHz, segmentSeconds);
+    if (approximation.type === 'div31') return buildDiv31Buffer(context, chipClockHz, segmentSeconds);
+    if (approximation.type === 'gatedbuzz') return buildGatedBuzzBuffer(context, chipClockHz, segmentSeconds);
+    return buildBuzzBuffer(context, chipClockHz, segmentSeconds, approximation.bits,
+        {stepDivider: approximation.stepDivider});
+  };
+  if (!arpeggioSpeedFrames) {
+    const source = context.createBufferSource();
+    source.buffer = buildBuffer(shiftClockFor(audf, {slowClock: approximation.slowClock}), seconds);
+    source.connect(gainNode);
+    source.start(now);
+    source.stop(now + seconds);
+    sources.push(source);
   } else {
-    const buildBuffer = (chipClockHz, segmentSeconds) => {
-      if (approximation.type === 'div31') return buildDiv31Buffer(context, chipClockHz, segmentSeconds);
-      if (approximation.type === 'gatedbuzz') return buildGatedBuzzBuffer(context, chipClockHz, segmentSeconds);
-      return buildBuzzBuffer(context, chipClockHz, segmentSeconds, approximation.bits,
-          {stepDivider: approximation.stepDivider});
-    };
-    if (!arpeggioSpeedFrames) {
+    // A buffer is pre-rendered for one fixed clock, so its pitch can't be
+    // automated live like an oscillator's - scheduled as several short
+    // back-to-back buffers instead, one per flip, each built at that
+    // phase's own pitch (matches how music-playback.js's own
+    // playInstrumentHit previews a buzzy/noisy arpeggiating instrument).
+    const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
+    const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
+    let t = now;
+    let phase = 0;
+    while (t < now + seconds) {
+      const segmentSeconds = Math.min(flipSeconds, now + seconds - t);
+      const pitchAudf = variants[sequence[phase % sequence.length]];
       const source = context.createBufferSource();
-      source.buffer = buildBuffer(shiftClockFor(audf, {slowClock: approximation.slowClock}), seconds);
+      source.buffer = buildBuffer(shiftClockFor(pitchAudf, {slowClock: approximation.slowClock}), segmentSeconds);
       source.connect(gainNode);
-      source.start(now);
-      source.stop(now + seconds);
+      source.start(t);
+      source.stop(t + segmentSeconds);
       sources.push(source);
-    } else {
-      // A buffer is pre-rendered for one fixed clock, so its pitch can't be
-      // automated live like an oscillator's - scheduled as several short
-      // back-to-back buffers instead, one per flip, each built at that
-      // phase's own pitch (matches how music-playback.js's own
-      // playInstrumentHit previews a buzzy/noisy arpeggiating instrument).
-      const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
-      const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
-      let t = now;
-      let phase = 0;
-      while (t < now + seconds) {
-        const segmentSeconds = Math.min(flipSeconds, now + seconds - t);
-        const pitchAudf = variants[sequence[phase % sequence.length]];
-        const source = context.createBufferSource();
-        source.buffer = buildBuffer(shiftClockFor(pitchAudf, {slowClock: approximation.slowClock}), segmentSeconds);
-        source.connect(gainNode);
-        source.start(t);
-        source.stop(t + segmentSeconds);
-        sources.push(source);
-        phase++;
-        t += flipSeconds;
-      }
+      phase++;
+      t += flipSeconds;
     }
   }
 

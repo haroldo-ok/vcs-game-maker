@@ -2,6 +2,8 @@
 
 import {useConfigurationStorage} from '../../hooks/project';
 import {colorByteToBBasic} from '../../utils/palette';
+import {pfRowDivisorFor} from '../../utils/playfield-coords';
+import {effectiveBackgroundRows} from '../../blocks/background';
 
 // The literal bB identifier itself (not an internal "_xyz" bookkeeping
 // name), reserved directly through the normal dev var pool when the Text
@@ -41,35 +43,82 @@ const scoreDigitTarget = (digit) => {
   };
 };
 
+// Shared by score_set and score_digit_set below - pokes a single BCD
+// nibble into one of the score's three packed bytes without disturbing
+// its partner nibble. batari Basic special-cases any plain assignment
+// whose target is the score (or a dim alias of it) to parse a literal
+// BCD digit string instead of evaluating an expression, so writing a
+// single digit from a runtime value has to drop into inline asm instead.
+// temp1/temp2 are only clobbered by drawscreen, which can't run in the
+// middle of this. "end" has to sit at column 0, hence the "@" the indent
+// normaliser strips.
+const buildDigitPokeLines = (address, high, valueExpression) => [
+  `temp1 = ${valueExpression}`,
+  'asm',
+  'lda temp1',
+  'and #$0F',
+  ...(high ? ['asl', 'asl', 'asl', 'asl'] : []),
+  'sta temp2',
+  `lda ${address}`,
+  `and #${high ? '$0F' : '$F0'}`,
+  'ora temp2',
+  `sta ${address}`,
+  '@end',
+].join('\n');
+
+// Shared by score_set's literal-VALUE branch and
+// generateScanlinesDebugScoreCode below - a plain JS number, known at
+// compile time, split into six decimal digits and poked in directly (no
+// byte clamp/runtime conversion needed - see score_set's comment for why
+// that machinery exists at all, and why it's skipped here). Exported (not
+// local to the block-registration closure below) so non-block-triggered
+// code can reuse the exact same poke mechanism.
+export const pokeScoreLiteral = (value) => {
+  const clamped = Math.max(0, Math.min(999999, Math.round(value)));
+  const digits = String(clamped).padStart(6, '0').split('');
+  const lines = digits.map((digitChar, i) => {
+    const {address, high} = scoreDigitTarget(String(i + 1));
+    return buildDigitPokeLines(address, high, digitChar);
+  });
+  return lines.join('\n') + '\n';
+};
+
+// Options tab's "Show NTSC scanlines used as the score (debug)" toggle
+// (config.enableScanlinesDebug) - not a Blockly block at all, since there's
+// nothing to configure per-placement, just a project-wide debug switch.
+// Prepended to the top-level generated code in Blockly.BBasic.finish()
+// (generators/bbasic.js), BEFORE normalizeIndents() runs, the same as every
+// other block-generator return value - reusing pokeScoreLiteral's
+// "asm...end" digit-poke lines this way (rather than hand-formatting them
+// into one of the template's raw Setup-section splices, the "one leading
+// space per line, bare zero-indent labels" convention those use) means this
+// goes through the exact same indentation handling already proven correct
+// for "asm...end" blocks via score_set, instead of a second, unverified
+// formatting path. Costs re-poking the same six digits every frame rather
+// than once at Setup - harmless (nothing else ever touches these digits
+// while this is on) and not worth the extra complexity of a real one-time
+// Setup splice for a debug-only feature that's meant to be off before
+// shipping anyway. Computed the same way the sprite<->playfield coordinate
+// blocks already do (see pfRowDivisorFor's comment in
+// utils/playfield-coords.js for why the non-Superchip default has to be
+// treated as pfres=12, not the 11 VISIBLE rows effectiveBackgroundRows
+// itself returns there) - the kernel draws the playfield as two symmetric
+// 96-scanline halves (top then bottom, see that same file's
+// "96-scanline-tall half-screen" comment), so the real total is double one
+// half's row-height*rows.
+export const generateScanlinesDebugScoreCode = (config) => {
+  if (!config || !config.enableScanlinesDebug) return '';
+  const rows = config.enableSuperchip ? effectiveBackgroundRows(config) : 12;
+  const scanlines = 2 * pfRowDivisorFor(config) * rows;
+  return pokeScoreLiteral(scanlines);
+};
+
 export default (Blockly) => {
   Blockly.BBasic[`score_get`] = function(block) {
     // Score getter.
     const code = 'score';
     return [code, Blockly.BBasic.ORDER_ATOMIC];
   };
-
-  // Shared by score_set and score_digit_set below - pokes a single BCD
-  // nibble into one of the score's three packed bytes without disturbing
-  // its partner nibble. batari Basic special-cases any plain assignment
-  // whose target is the score (or a dim alias of it) to parse a literal
-  // BCD digit string instead of evaluating an expression, so writing a
-  // single digit from a runtime value has to drop into inline asm instead.
-  // temp1/temp2 are only clobbered by drawscreen, which can't run in the
-  // middle of this. "end" has to sit at column 0, hence the "@" the indent
-  // normaliser strips.
-  const buildDigitPokeLines = (address, high, valueExpression) => [
-    `temp1 = ${valueExpression}`,
-    'asm',
-    'lda temp1',
-    'and #$0F',
-    ...(high ? ['asl', 'asl', 'asl', 'asl'] : []),
-    'sta temp2',
-    `lda ${address}`,
-    `and #${high ? '$0F' : '$F0'}`,
-    'ora temp2',
-    `sta ${address}`,
-    '@end',
-  ].join('\n');
 
   Blockly.BBasic[`score_set`] = function(block) {
     // Score setter. batari Basic special-cases "score = <expr>" to parse a
@@ -101,13 +150,7 @@ export default (Blockly) => {
     // six decimal digits directly.
     const literalMatch = /^-?\d+$/.test(argument0.trim());
     if (literalMatch) {
-      const clamped = Math.max(0, Math.min(999999, parseInt(argument0, 10)));
-      const digits = String(clamped).padStart(6, '0').split('');
-      const lines = digits.map((digitChar, i) => {
-        const {address, high} = scoreDigitTarget(String(i + 1));
-        return buildDigitPokeLines(address, high, digitChar);
-      });
-      return lines.join('\n') + '\n';
+      return pokeScoreLiteral(parseInt(argument0, 10));
     }
     // A RUNTIME expression (a variable, "framecounter", "loopcounter", ...)
     // only ever holds a single byte (0-255), so at most its last three

@@ -8,8 +8,9 @@ import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} fro
 
 import '../blocks';
 import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
-import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
+import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles} from '../generators/bbasic/text-minikernel-files';
+import {getTitleScreenSiblingFiles} from '../generators/bbasic/titlescreen-files';
 import {processBackgroundStorageDefaults} from '../blocks/background';
 import {findSongById} from '../blocks/music';
 import {buildScoreFontOverride, SQUISH_SCORE_FONT} from '../utils/score-font';
@@ -21,7 +22,7 @@ import {showError} from '../utils/build-error';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
-  usePlayer0Storage, usePlayer1Storage, useTextFontStorage, useWorkspaceStorage} from './project';
+  usePlayerAnimationsStorage, useTextFontStorage, useWorkspaceStorage} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
   recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
 import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom} from './rom-status';
@@ -156,8 +157,9 @@ export const countUsedVariables = () =>
   });
 
 // Whether the project needs "playercolors" (player0's own per-row sprite
-// color kernel option) - either a real sprite_player0_rainbow_colors block
-// on the canvas, or the standing "Enable per-row Player 0 sprite colors"
+// color kernel option) - either a real sprite_player_rainbow_colors block
+// (PLAYER field set to Player 0) on the canvas, or the standing "Enable
+// per-row Player 0 sprite colors"
 // toggle (see useSpriteColorsFor in generators/bbasic.js) - needed by
 // Configuration.vue to force "Show blank lines" AND the Player 1 sprite
 // colors toggle back on (disabling both) whenever either is active. See
@@ -173,27 +175,10 @@ export const usesPlayer0RainbowColors = () => {
   if (config.enablePlayer0SpriteColors) return true;
   return withHeadlessWorkspace((workspace) =>
     workspace.getAllBlocks(false).some((block) =>
-      block.type === 'sprite_player0_rainbow_colors' && block.isEnabled()));
+      block.type === 'sprite_player_rainbow_colors' && block.getFieldValue('PLAYER') === '0' &&
+      block.isEnabled()));
 };
 
-
-// The compiler hardcodes the pfcolors table pointer as "pfcolorlabelN-84",
-// which only lands on the right byte when the kernel's own row index starts
-// at 84 - true for the standard (pfres-less) kernel, but Superchip's
-// explicit "const pfres" changes that starting index to 132-pfres*4, which
-// only equals 84 when pfres is exactly 12. For any other pfres this pointer
-// is simply wrong, misaligning every row's color read - confirmed by
-// comparing resolved ROM addresses and compiling with the offset corrected
-// by hand. Patched here, after compiling and before assembling, since nothing
-// in the source-level template controls this constant.
-//
-// This does NOT fully fix pfcolors+Superchip - the very last playfield row
-// still renders black regardless of pfres. Root cause not yet found.
-const patchSuperchipPfColorsPointer = ({mainAsm, workDir}, config) => {
-  if (!config.enableSuperchip || !config.pfres) return {mainAsm, workDir};
-  const correctOffset = 132 - config.pfres * 4;
-  return {mainAsm: mainAsm.replace(/pfcolorlabel(\d+)-84/g, `pfcolorlabel$1-${correctOffset}`), workDir};
-};
 
 // "segment overflow" is DASM's plain "ran out of room in this bank"
 // message. "Origin Reverse-indexed" is a second, differently-worded DASM
@@ -253,7 +238,6 @@ export const BANK_COUNT_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
 const BACKGROUND_UNIT_RE = /^background(\d+)$/;
 const PLAYER_ANIMATION_UNIT_RE = /^(player[01])animation(\d+)$/;
 const PLAYER_DEFAULT_UNIT_RE = /^(player[01])default$/;
-const PLAYER_STORAGE_FACTORIES = {player0: usePlayer0Storage, player1: usePlayer1Storage};
 const resolveGraphicsUnitLabel = (unitKey) => {
   const backgroundMatch = BACKGROUND_UNIT_RE.exec(unitKey);
   if (backgroundMatch) {
@@ -268,9 +252,9 @@ const resolveGraphicsUnitLabel = (unitKey) => {
   }
   const animationMatch = PLAYER_ANIMATION_UNIT_RE.exec(unitKey);
   if (animationMatch) {
-    const [, player, index] = animationMatch;
+    const [, , index] = animationMatch;
     try {
-      const data = processPlayerStorageDefaults(PLAYER_STORAGE_FACTORIES[player]());
+      const data = processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage());
       const animation = data.animations[Number(index)];
       return (animation && animation.name) || `Unnamed ${Number(index) + 1}`;
     } catch (e) {
@@ -574,6 +558,40 @@ const estimateFamilySize = (members) => members.reduce((sum, {kind, name}) =>
 const familyStillInBank1 = (members, banks) =>
   members.every(({kind, name}) => ((banks[kind] || {})[name] || 1) === 1);
 
+// True if ANYTHING outside this family bare-calls one of its own function
+// members directly - an ordinary user-authored subroutine (or an event)
+// that references a function this way, WITHOUT itself being pulled into
+// the family (computeFunctionFamilies only ever unions functions/wrapper
+// subroutines together - an ordinary subroutine bare-calling one of them is
+// invisible to it, on purpose: see pickRelocationCandidate's own comment on
+// why THAT subroutine stays excluded from independent relocation, pinned to
+// bank 1 forever). If such a caller exists, this family can never safely
+// relocate anywhere else: a bare function call has no bank-tag syntax (same
+// reason the family itself has to move as one atomic unit), so the moment
+// the family leaves bank 1, that external, bank-1-pinned caller's own calls
+// jump into whatever happens to be paged in at the family's old address
+// instead - a real reported bug this way ("Auto: failed" in the emulator,
+// confirmed directly: an ordinary subroutine bare-calling the exact same
+// auto-generated dispatch functions a real Function's own body also called
+// worked fine through the Function - itself a family member, always
+// reached via a bank-tagged wrapper - but crashed the moment those same
+// functions got relocated off bank 1 for unrelated reasons, since nothing
+// previously checked for this from the FUNCTION's own side). Checked
+// against every ordinary subroutine NOT already in this family, and every
+// event - the same two "bare-calls a function" pools pickRelocationCandidate
+// already excludes as STANDALONE candidates for the identical reason.
+const familyHasExternalBareCaller = (members) => {
+  const functionMemberNames = members.filter(({kind}) => kind === 'functionBanks').map(({name}) => name);
+  if (!functionMemberNames.length) return false;
+  const memberNames = new Set(members.map(({name}) => name));
+  const referencesAnyMember = (code) => functionMemberNames.some((name) => code.includes(`${name}(`));
+  const subroutineHit = BlocklyBB.getSubroutineNames()
+      .filter((name) => !memberNames.has(name))
+      .some((name) => referencesAnyMember(BlocklyBB.subroutines[name] || ''));
+  if (subroutineHit) return true;
+  return RELOCATABLE_EVENT_NAMES.some((name) => referencesAnyMember((BlocklyBB.gameEvents[name] || []).join('\n')));
+};
+
 // Largest-first, across every relocatable kind: relocating the biggest
 // still-inline unit (event, graphics - a background, a player's default
 // frame, or a single named animation, see wrapRelocatableGraphics - a
@@ -636,9 +654,14 @@ const pickRelocationCandidate = (banks, hasReservedMusicBank) => {
     // as one atomic unit (see setRelocationBank's own call sites in
     // buildRom() below, which iterate candidate.members instead of a single
     // kind/name whenever this is present), sized as the sum of every
-    // member's own estimate.
+    // member's own estimate. Excludes any family an ordinary subroutine or
+    // event bare-calls directly (see familyHasExternalBareCaller's own
+    // comment) - such a family can never safely leave bank 1 at all, so it's
+    // not a candidate here any more than an ordinary function-referencing
+    // subroutine/event is above.
     ...computeFunctionFamilies()
         .filter(({members}) => familyStillInBank1(members, banks))
+        .filter(({members}) => !familyHasExternalBareCaller(members))
         .map(({members}) => ({
           kind: 'family',
           name: members.map((m) => m.name).join(', '),
@@ -961,6 +984,19 @@ export const buildRom = async () => {
       // "inline"-a-real-file mechanism was confirmed to break once relocated
       // to a bank other than 1.
       Object.assign(siblingFiles, BlocklyBB.playerAnimAsmFiles || {});
+      // The Titlescreen Kernel's own static shared helper code (public/bb19/
+      // titlescreen/) plus this build's own generated titlescreen_layout_N.asm
+      // (one per title screen page) and combined titlescreen_data.asm (see
+      // registerTitleScreenSubroutine in generators/bbasic/titlescreen.js) -
+      // same "siblings throughout the whole compile pipeline" reasoning as
+      // the Text Minikernel above. Only set at all once at least one "Draw
+      // title screen" block exists on the workspace (titleScreenUsedKernelKeys
+      // stays undefined otherwise), and only fetches the specific per-copy
+      // kernel files the project's own cards (across every page) actually use.
+      if (BlocklyBB.titleScreenUsedKernelKeys) {
+        Object.assign(siblingFiles, await getTitleScreenSiblingFiles(BlocklyBB.titleScreenUsedKernelKeys));
+        Object.assign(siblingFiles, BlocklyBB.titleScreenAsmFiles || {});
+      }
       // The compiler has no font support of its own, so point its score
       // digits at the selected font by overriding score_graphics.asm.
       // Squish is special (see utils/score-font.js/SQUISH_SCORE_FONT): it's
@@ -969,10 +1005,22 @@ export const buildRom = async () => {
       // on its own too, independent of whether the Text Minikernel is used -
       // combining it with one of the byte-swappable preset/custom fonts
       // isn't supported, so those are skipped whenever Squish is picked.
-      if (config.scoreFont === SQUISH_SCORE_FONT) {
+      // "Show remaining CPU cycles as the score" (config.enableCycleScore,
+      // bB's own "set debug cyclescore") always forces the stock/Default
+      // font here regardless of the Score tab's own selection - it reuses
+      // the standard kernel's own digit-drawing routine to overlay its cycle
+      // count, and a Custom/Squish font's own digit shapes would otherwise
+      // still get swapped in underneath that debug overlay, which isn't
+      // what a font picked for the REAL score digits should also affect.
+      // "Show NTSC scanlines used as the score" (config.enableScanlinesDebug)
+      // forces the same thing, for the same reason - it pokes plain digits
+      // straight into the score too, sized for the standard kernel's own
+      // full-height digits, not Squish's shorter ones.
+      const effectiveScoreFont = (config.enableCycleScore || config.enableScanlinesDebug) ? null : config.scoreFont;
+      if (effectiveScoreFont === SQUISH_SCORE_FONT) {
         if (!textMinikernelActive) siblingFiles['score_graphics.asm'] = await getExtendedScoreGraphics();
       } else {
-        const scoreFontOverride = await buildScoreFontOverride(config.scoreFont);
+        const scoreFontOverride = await buildScoreFontOverride(effectiveScoreFont);
         if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
       }
       // Same override mechanism, for the Text Minikernel's own drawn
@@ -1027,8 +1075,7 @@ export const buildRom = async () => {
       appendCompileLog('Preprocessing...', 'stage');
       const preprocessed = await preprocessBatariBasic(code, log);
       appendCompileLog('Compiling to assembly...', 'stage');
-      const compiled = patchSuperchipPfColorsPointer(
-          await compileBatariBasicToAsm(preprocessed, siblingFiles, log), config);
+      const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       Javatari.fileLoader.loadFromContent('main.bin', compiledResult.output);
@@ -1040,6 +1087,30 @@ export const buildRom = async () => {
       markRomUpToDate();
       const capacity = computeRomCapacity(compiledResult);
       const maxBanks = BANK_COUNT_BY_ROMSIZE[config.romSize];
+      // Safety net for the "third overflow shape" isOverflowError's own
+      // comment documents (Superchip + a pfres above 12 + a bankswitched ROM
+      // above 8k): bank 1 can overflow its RORG'd segment without DASM
+      // raising ANY recognizable error at all - the assembly reports success,
+      // but the resulting binary is silently corrupt (confirmed directly: a
+      // real project matching that exact combination built with no errors,
+      // but showed garbled text and wrong scene graphics in the emulator,
+      // traced to bank 1 actually being over its real capacity - fixed by
+      // shrinking its content). computeRomCapacity's own bank1.freeBytes
+      // going negative is the same unambiguous "doesn't fit" signal a
+      // genuine assembler-caught overflow already gives the catch block
+      // below - thrown here (before this build is ever treated as a success,
+      // recorded as a relocation hint, or left loaded in the emulator) so
+      // it's caught by that exact same isOverflowError branch instead of
+      // duplicating the retry logic for this rare, quiet case. Scoped to
+      // bankswitched ROMs only (maxBanks truthy) - a 2k/4k ROM has no other
+      // bank to relocate into anyway, and DASM's own overflow detection
+      // there isn't masked by a bankswitch trampoline the way this specific
+      // failure mode requires.
+      if (maxBanks && capacity && capacity.bank1 && capacity.bank1.freeBytes < 0) {
+        throw new Error(
+            `segment overflow (bank 1 measured ${-capacity.bank1.freeBytes} bytes over capacity, ` +
+            'no assembler error raised)');
+      }
       // romSize is stored alongside the measurement (not just the bank
       // contents) so a LATER build's own proactive relocation pre-pass (see
       // its own comment near the top of this function) can confirm this

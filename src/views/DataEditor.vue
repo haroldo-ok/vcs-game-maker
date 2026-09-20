@@ -3,7 +3,26 @@
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Data</v-card-title>
       <v-card-text>
-        <v-list class="data-list">
+        <p class="v-messages theme--light v-messages__message data-intro-paragraph">
+          Define read-only lookup tables here (0-255 byte values each), then read them at
+          runtime with the "Data table ID at index" block - useful for anything indexed by a
+          runtime variable, like per-scene stats or animation lookups. Each value can be typed
+          as plain decimal, binary, or hex, or toggled to a color/background/animation/sound/
+          song/text picker instead for convenience - the byte actually stored is the same
+          either way.
+        </p>
+
+        <div class="data-filter-row">
+          <v-switch
+            v-model="dataColumns"
+            label="Columns"
+            title="Lay data table cards out in multiple columns when there's room, instead of one full-width column."
+            hide-details
+            class="data-columns-switch"
+          />
+        </div>
+
+        <v-list class="data-list" :class="{'data-list--single-column': !dataColumns}">
           <v-list-item class="entry-list-item" v-for="(table, index) in state.dataTables" v-bind:key="table.id">
             <v-list-item-content>
               <v-card
@@ -163,6 +182,19 @@
                   </div>
                 </v-card-text>
 
+                <v-card-text v-if="!isCollapsed(table)" class="data-notes-section">
+                  <v-textarea
+                    :value="table.notes"
+                    @input="(v) => handleNotesInput(table, v)"
+                    @change="handleChildChange"
+                    label="Notes"
+                    outlined
+                    rows="2"
+                    hide-details
+                    class="data-notes-field"
+                  />
+                </v-card-text>
+
                 <v-card-text v-if="!isCollapsed(table)" class="data-values-section">
                   <div class="data-caption-row">
                     <div class="data-caption">
@@ -297,12 +329,12 @@ import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder, CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
-import {useBackgroundsStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage,
-  useSoundEffectsStorage, useSongsStorage, useTextStringsStorage} from '../hooks/project';
+import {useBackgroundsStorage, useDataTablesStorage, usePlayerAnimationsStorage,
+  useSoundEffectsStorage, useSongsStorage, useTextStringsStorage, useDataColumnsStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, DEFAULT_DATA_TABLE_COLUMNS, MAX_DATA_TABLE_VALUES,
   processDataTablesStorageDefaults} from '../blocks/data';
 import {processBackgroundStorageDefaults} from '../blocks/background';
-import {processPlayerStorageDefaults} from '../generators/bbasic/sprites';
+import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {processSongsStorageDefaults} from '../blocks/music';
 import {processTextStringsStorageDefaults} from '../blocks/text-strings';
@@ -372,6 +404,7 @@ export default defineComponent({
   components: {ColorSwatchPicker},
   setup() {
     const dataTablesStorage = useDataTablesStorage();
+    const dataColumns = useDataColumnsStorage();
     const backgroundsStorage = useBackgroundsStorage();
     // {text, value} pairs for the 'background' format's dropdown (see
     // valueFormat/FORMAT_CYCLE below) - same {id, name} source
@@ -381,20 +414,25 @@ export default defineComponent({
     const backgroundOptions = computed(() =>
       processBackgroundStorageDefaults(backgroundsStorage).backgrounds
           .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
-    const player0Storage = usePlayer0Storage();
-    const player1Storage = usePlayer1Storage();
+    const playerAnimationsStorage = usePlayerAnimationsStorage();
     // Same {text, value} shape as backgroundOptions above, but the VALUE is
-    // each animation's own INDEX in the list, not an id - matching
+    // each animation's own INDEX in the shared pool, not an id - matching
     // blocks/sprites.js's own buildAnimationOptions exactly (see its
     // comment: the generated code dispatches on "player0animation = N"
     // against the animation's position in the list, not any stored id, so
     // that's what a data table value needs to hold too for this to mean
-    // anything once read back by a Data block).
-    const playerAnimationOptions = (playerStorage) => computed(() =>
-      processPlayerStorageDefaults(playerStorage).animations
+    // anything once read back by a Data block). Both hardware players share
+    // the exact same list now (see hooks/project.js's own
+    // usePlayerAnimationsStorage), so player0Options/player1Options below
+    // are identical - kept as two separate names since Data blocks still
+    // let a cell independently be formatted as "Player 0 animation" or
+    // "Player 1 animation" (see FORMAT_CYCLE below), not because the
+    // underlying options actually differ.
+    const playerOptions = computed(() =>
+      processPlayerAnimationsStorageDefaults(playerAnimationsStorage).animations
           .map((animation, index) => ({text: animation.name || `Unnamed ${index + 1}`, value: index})));
-    const player0Options = playerAnimationOptions(player0Storage);
-    const player1Options = playerAnimationOptions(player1Storage);
+    const player0Options = playerOptions;
+    const player1Options = playerOptions;
     // Same {id, name} -> {text, value} shape as backgroundOptions - sound
     // effects/songs/text strings are all referenced by their own stored id
     // (not a list position, unlike player animations above), matching
@@ -445,7 +483,11 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds('data');
+    // Every card starts collapsed on every visit to this tab (see
+    // collapseAll's own comment in hooks/collapse.js), not just ones never
+    // expanded before.
+    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('data', true);
+    collapseAll();
 
     // Undo/redo for a whole table's own content (name/columns/values/
     // valueFormats - everything but its id), one stack pair per table id -
@@ -456,7 +498,7 @@ export default defineComponent({
     // Attack/Decay/Sustain/Release) since every field on a table - a typo'd
     // name, an accidental Columns change, a batch CSV import gone wrong - is
     // equally easy to want to step back from here.
-    const DATA_HISTORY_KEYS = ['name', 'columns', 'values', 'valueFormats'];
+    const DATA_HISTORY_KEYS = ['name', 'columns', 'values', 'valueFormats', 'notes'];
     const snapshotTable = (table) => JSON.stringify(
         DATA_HISTORY_KEYS.reduce((acc, key) => {
           acc[key] = table[key]; return acc;
@@ -509,6 +551,8 @@ export default defineComponent({
       instance.proxy.$set(table, 'columns', data.columns);
       table.values = data.values;
       instance.proxy.$set(table, 'valueFormats', data.valueFormats);
+      // Same $set reasoning - a table snapshotted before this field existed.
+      instance.proxy.$set(table, 'notes', data.notes);
       // Written directly (not through the watcher above) so restoring a
       // snapshot is never itself mistaken for a new edit worth recording.
       tableLastSnapshot[table.id] = snapshotJson;
@@ -643,6 +687,13 @@ export default defineComponent({
     const handleColumnsInput = (table, rawValue) => {
       instance.proxy.$set(table, 'columns', rawValue);
       instance.proxy.$forceUpdate();
+    };
+
+    // $set - same reasoning as handleColumnsInput above: a table saved before
+    // this field existed can't pick up a brand new property through a plain
+    // assignment, Vue 2 never notices it.
+    const handleNotesInput = (table, rawValue) => {
+      instance.proxy.$set(table, 'notes', rawValue);
     };
 
     const handleColumnsChange = (table) => {
@@ -1020,6 +1071,7 @@ export default defineComponent({
     };
 
     return {
+      dataColumns,
       selectedCardId, selectCard, deselectCard,
       state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
       copiedTableData, handleCopyTable, handlePasteTable,
@@ -1028,7 +1080,7 @@ export default defineComponent({
       handleDropdownValueInput, dropdownOptionsFor,
       FORMAT_ICONS, FORMAT_TOGGLE_TITLES,
       handleExportCsv, handleImportCsv,
-      tableColumns, handleColumnsInput, handleColumnsChange,
+      tableColumns, handleColumnsInput, handleColumnsChange, handleNotesInput,
       isCollapsed, toggleCollapsed,
       canUndoTable, canRedoTable, handleUndoTable, handleRedoTable,
       maxValues: MAX_DATA_TABLE_VALUES,
@@ -1060,20 +1112,63 @@ export default defineComponent({
   padding-right: 0;
 }
 
+.data-filter-row {
+  display: flex;
+  align-items: center;
+}
+
+/* Same margin-top/padding-top override as SoundFXEditor.vue's own
+   .soundfx-columns-switch - Vuetify's own selection-control margin-top
+   (meant for stacking below other fields) otherwise pushes this out of
+   line with the intro paragraph above it. */
+.data-columns-switch {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
 /* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
    .background-list/.entry-list-item rules - v-list-item__content's default
    12px top/bottom padding was adding extra space between cards beyond
    anything explicitly set (there was no explicit gap here at all before),
    so this tab's own card spacing didn't match the Background tab's.
-   flex+gap plays the role .background-list's own CSS grid gap does (this
-   tab stays single-column); margin-top puts back the space above the FIRST
-   card that zeroing v-list-item__content's own padding would otherwise
-   have also removed. */
+   margin-top puts back the space above the FIRST card that zeroing
+   v-list-item__content's own padding would otherwise have also removed.
+   Multi-column grid by default now (see the "Columns" switch above, same
+   SoundFXEditor.vue/TextEditor.vue own .soundfx-list/.text-list pattern) -
+   .data-list--single-column below switches back to one full-width column,
+   for a table with enough columns of its own that squeezing it into a grid
+   cell would cramp it. */
 .data-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 8px;
   margin-top: 12px;
+  /* Grid items stretch to fill their row's height by default (same fix as
+     SoundFXEditor.vue's own .soundfx-list) - a collapsed card next to an
+     expanded one (or just a shorter table next to a longer one) in the
+     same row would otherwise stretch tall to match it, instead of sitting
+     flush at the top like its own content actually sizes to. */
+  align-items: start;
+}
+
+/* Single full-width column instead of the grid .data-list defaults to (see
+   that rule's own comment) - toggled via the "Columns" switch above. No
+   max-width on .data-card either way (see its own comment) - a table with
+   many columns needs the full width of whichever container it lands in,
+   single column or grid cell, to keep them all visible without shrinking
+   each one down too far. */
+.data-list--single-column {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Same reasoning as SoundFXEditor.vue's own identical rule - Vuetify's
+   v-list-item (.entry-list-item) doesn't stretch to its flex container's
+   full width on its own, leaving .data-card's own width: 100% only filling
+   100% of that un-stretched item instead of the whole row. */
+.data-list--single-column .entry-list-item {
+  width: 100%;
 }
 
 /* overflow: visible added alongside the padding reset (see MusicEditor.vue's
@@ -1170,6 +1265,24 @@ export default defineComponent({
   padding-bottom: 0;
 }
 
+/* Same top/bottom padding removal as .data-name-section/.data-values-section
+   above - without it, this section's own default v-card-text padding stacks
+   on top of .data-name-section's already-zeroed bottom, reopening the same
+   gap that fix closed. */
+.data-notes-section {
+  padding-top: 0;
+  padding-bottom: 8px;
+}
+
+/* No margin above/below the field itself (Vuetify's own default input
+   spacing) - lets the zeroed section padding above/below actually bring the
+   field close to the name row and the values grid instead of leaving its own
+   gaps on both sides. */
+.data-notes-field {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 .data-values-section {
   padding-top: 0;
 }
@@ -1227,8 +1340,8 @@ export default defineComponent({
   color: rgba(0, 0, 0, 0.87) !important;
 }
 
-/* Same red/blue/orange App.vue's own .player0-item/.player1-item/
-   .background-item sidebar tabs use for their identical icons - overrides
+/* Same red/blue/orange App.vue's own .player-item/.background-item
+   sidebar tabs use for their identical icons - overrides
    .data-flat-icon-btn's own dim grey above (both rest and hover) so this
    toggle button's icon reads as "Player 0"/"Player 1"/"Background" by color
    the same way the sidebar already does, not just by title text on hover.

@@ -144,7 +144,9 @@ import {defineComponent, reactive, computed, onMounted} from '@vue/composition-a
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayer0Storage, usePlayer1Storage, useProjectAutoIncrementVersionStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
+import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useWorkspaceStorage} from '../hooks/project';
+import {combineLegacyPlayerAnimations, remapPlayer1AnimationIndexesInWorkspaceXml} from '../hooks/migrate-player-animations';
+import {migrateLegacyPlayerBlocksInWorkspaceXml} from '../hooks/migrate-player-blocks';
 import {getDateInfix} from '../utils/date';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
 import {matrixToPlayfield, playfieldToMatrix} from '../utils/pixels';
@@ -217,8 +219,7 @@ export default defineComponent({
     const router = context.root.$router;
 
     const backgroundsStorage = useBackgroundsStorage();
-    const player0Storage = usePlayer0Storage();
-    const player1Storage = usePlayer1Storage();
+    const playerAnimationsStorage = usePlayerAnimationsStorage();
     const workspaceStorage = useWorkspaceStorage();
     const configurationStorage = useConfigurationStorage();
     const scoreFontStorage = useScoreFontStorage();
@@ -304,7 +305,7 @@ export default defineComponent({
       });
     }
 
-    return {data, router, backgroundsStorage, player0Storage, player1Storage,
+    return {data, router, backgroundsStorage, playerAnimationsStorage,
       workspaceStorage, configurationStorage, scoreFontStorage, squishCustomScoreFontStorage, dataTablesStorage,
       textStringsStorage, textFontStorage, soundEffectsStorage, songsStorage, projectTitle, projectDescription,
       projectDeveloper, projectVersion, projectAutoIncrementVersion, projectWebsite, projectEmail};
@@ -350,8 +351,7 @@ export default defineComponent({
           })),
         };
 
-      const player0 = preparePlayerSave(this.player0Storage);
-      const player1 = preparePlayerSave(this.player1Storage);
+      const playerAnimations = preparePlayerSave(this.playerAnimationsStorage);
 
       const scoreFont = !this.scoreFontStorage ? null : {
         ...this.scoreFontStorage,
@@ -388,8 +388,7 @@ export default defineComponent({
         'generation-time': new Date(),
         configuration,
         'blockly-workspace': this.workspaceStorage,
-        'player-0': player0,
-        'player-1': player1,
+        'player-animations': playerAnimations,
         backgrounds,
         'score-font': scoreFont,
         'squish-custom-score-font': squishCustomScoreFont,
@@ -695,15 +694,35 @@ export default defineComponent({
         })),
       };
 
-      const player0 = preparePlayerLoad(project['player-0']);
-      if (player0) {
-        this.player0Storage = player0;
+      const playerAnimations = preparePlayerLoad(project['player-animations']);
+      if (playerAnimations) {
+        this.playerAnimationsStorage = playerAnimations;
+      } else if (project['player-0'] || project['player-1']) {
+        // An older project saved before the two hardware players shared one
+        // pool of animations (see hooks/migrate-player-animations.js's own
+        // comment) - combines the two legacy lists into the shared shape,
+        // and remaps any sprite_player1_animation_select block's own stored
+        // dropdown index (already loaded into this.workspaceStorage just
+        // above) to match its animation's new position in the combined
+        // pool.
+        const legacyPlayer0 = preparePlayerLoad(project['player-0']);
+        const legacyPlayer1 = preparePlayerLoad(project['player-1']);
+        this.playerAnimationsStorage = combineLegacyPlayerAnimations(legacyPlayer0, legacyPlayer1);
+        const offset = (legacyPlayer0 && legacyPlayer0.animations.length) || 0;
+        if (offset) {
+          this.workspaceStorage =
+            remapPlayer1AnimationIndexesInWorkspaceXml(this.workspaceStorage, offset);
+        }
       }
 
-      const player1 = preparePlayerLoad(project['player-1']);
-      if (player1) {
-        this.player1Storage = player1;
-      }
+      // Rewrites any old sprite_player0_*/sprite_player1_* blocks a project
+      // saved before Player 0/1 shared one combined block type still has -
+      // see that function's own comment in hooks/migrate-player-blocks.js.
+      // Has to run AFTER remapPlayer1AnimationIndexesInWorkspaceXml just
+      // above, not before: that remap finds its target blocks by the OLD
+      // "sprite_player1_animation_select" type string, which this migration
+      // renames away.
+      this.workspaceStorage = migrateLegacyPlayerBlocksInWorkspaceXml(this.workspaceStorage);
 
       if (project['score-font']) {
         this.scoreFontStorage = {
@@ -774,8 +793,7 @@ export default defineComponent({
     handleNewProject() {
       this.configurationStorage = null;
       this.workspaceStorage = null;
-      this.player0Storage = null;
-      this.player1Storage = null;
+      this.playerAnimationsStorage = null;
       this.backgroundsStorage = null;
       this.scoreFontStorage = null;
       this.squishCustomScoreFontStorage = null;

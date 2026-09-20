@@ -8,6 +8,7 @@
 // runtime check, that the "Show text" block generators just call into.
 
 import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {bankSuffixedTableName} from '../../blocks/data';
 import {getStaticMessageLayout, staticMessageRegionEnd} from './text-minikernel-layout';
 
 // One shared copy of this runtime state project-wide, reconfigured by
@@ -19,7 +20,7 @@ import {getStaticMessageLayout, staticMessageRegionEnd} from './text-minikernel-
 // scroll - see buildTextScrollSetupLines' own comment for why every "Show
 // text" call always writes all of these, even for a message that fits
 // without scrolling.
-export const textScrollBaseVarName = () => '_textScrollStart';
+export const textScrollBaseVarName = () => 'textScrollStart';
 // The message's own far-end TextIndex bound (base + its own max scroll
 // offset), NOT a relative distance - deliberately absolute so
 // generateTextScrollAdvance below can compare it directly against
@@ -37,16 +38,16 @@ export const textScrollBaseVarName = () => '_textScrollStart';
 // this var" / "TextIndex <> base" - the same single comparison as before,
 // just against a variable instead of a literal 0. Net: one whole dev var
 // gone, no per-frame cost added (if anything, slightly less).
-export const textScrollFarEndVarName = () => '_textScrollEnd';
-export const textScrollTimerVarName = () => '_textScrollTimer';
-export const textScrollSpeedVarName = () => '_textScrollSpeed';
+export const textScrollFarEndVarName = () => 'textScrollEnd';
+export const textScrollTimerVarName = () => 'textScrollTimer';
+export const textScrollSpeedVarName = () => 'textScrollSpeed';
 // The "pause at limits" DURATION, in frames - how long to hold at each end
 // of the scroll before reversing. An arbitrary user-configurable frame
 // count (the "Show text (scrolling)" block's own "pause" field), not a
 // flag - kept as its own full-byte var, distinct from
 // textScrollStateVarName below despite the similar name (that one's a
 // flag/state byte, this one's a plain duration).
-export const textScrollPauseDurationVarName = () => '_textScrollPauseDuration';
+export const textScrollPauseDurationVarName = () => 'textScrollPauseDuration';
 // Set/cleared by the "Text scroll: Pause"/"Unpause" actions (see
 // text_minikernel_scroll_control's own generator in text-minikernel.js) -
 // checked first thing in generateTextScrollAdvance below, so a paused
@@ -79,7 +80,7 @@ export const textScrollPauseDurationVarName = () => '_textScrollPauseDuration';
 // bare overwrite specifically because of this (see
 // text_minikernel_scroll_control's own comment). Named "State", not
 // "Paused" (its old name), now that it holds more than just a pause flag.
-export const textScrollStateVarName = () => '_textScrollState';
+export const textScrollStateVarName = () => 'textScrollState';
 
 // Bit index (for the "{n}" single-bit read/write syntax) AND the matching
 // mask value (for "& "/"| " arithmetic that has to touch this bit while
@@ -496,5 +497,11 @@ export const generateTextOffsetTables = (Blockly, bank) => {
   const layout = getNamedScrollLayout();
   const offsets = layout.map((entry) => `${entry.offset}`).join(', ');
   const maxOffsets = layout.map((entry) => `${entry.maxOffset}`).join(', ');
-  return ` data text_offsets\n  ${offsets}\nend\n\n data text_scroll_max\n  ${maxOffsets}\nend`;
+  // Bank-suffixed (see bankSuffixedTableName's own comment in blocks/data.js)
+  // - a project reading these from more than one bank needs a distinctly
+  // named copy per bank, not a second copy sharing the same name (a real
+  // reported duplicate-label assembly failure).
+  const offsetsName = bankSuffixedTableName('text_offsets', bank);
+  const scrollMaxName = bankSuffixedTableName('text_scroll_max', bank);
+  return ` data ${offsetsName}\n  ${offsets}\nend\n\n data ${scrollMaxName}\n  ${maxOffsets}\nend`;
 };

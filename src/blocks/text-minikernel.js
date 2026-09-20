@@ -47,11 +47,34 @@ Blockly.Blocks['text_minikernel_show_named'] = {
     this.setNextStatement(true, null);
     this.setColour(TEXT_COLOR);
     this.setTooltip('Displays a message defined on the Text tab, in place of the score, ' +
-      'using the Text Minikernel. If the message is longer than the Text tab\'s own max ' +
-      'display width, it word-wraps onto a second line when that entry\'s own "Wrap to ' +
+      'using the Text Minikernel. If the message is longer than the Text tab\'s max ' +
+      'display width, it word-wraps onto a second line when that entry\'s "Wrap to ' +
       'line 2" is on, otherwise it automatically scrolls back and forth - see "Scroll ' +
-      'text" for a version with its own tunable scroll speed/pause (which always scrolls ' +
+      'text" for a version with a tunable scroll speed/pause (which always scrolls ' +
       'on a single line, ignoring "Wrap to line 2").');
+  },
+};
+
+// Same dropdown as text_minikernel_show_named above, but puts just that
+// entry's own FIRST line on the chosen row (1 or 2) - the OTHER row always
+// comes out blank, same "no way to update just one row" limitation as
+// text_minikernel_show_row (see its own comment). Only the first line is
+// ever used here (no word-wrap/"Wrap to line 2"/scrolling) - for an entry
+// that needs more than a single row's worth of text, use plain "Show text"
+// instead.
+Blockly.Blocks['text_minikernel_show_named_row'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${TEXT_ICON} Show text row`)
+        .appendField(new Blockly.FieldDropdown([['1', '1'], ['2', '2']]), 'ROW')
+        .appendField(new Blockly.FieldDropdown(buildTextStringOptions), 'TEXT_ID');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(TEXT_COLOR);
+    this.setTooltip('Displays a message defined on the Text tab on just one row (1 or 2) - the ' +
+      'OTHER row always comes out blank, since the two rows are always shown together. Only ' +
+      'that entry\'s FIRST line is used (no word-wrap or scrolling) - use "Show text" ' +
+      'instead for a message that needs more than one row.');
   },
 };
 
@@ -72,9 +95,9 @@ Blockly.Blocks['text_minikernel_show_named_scroll'] = {
     this.setNextStatement(true, null);
     this.setColour(TEXT_COLOR);
     this.setTooltip('Displays a message defined on the Text tab, in place of the score, ' +
-      'using the Text Minikernel, with its own scroll speed/pause. Only takes effect if the ' +
-      'message is longer than the Text tab\'s own max display width - ignored otherwise. ' +
-      'Always scrolls on a single line, even if that entry\'s own "Wrap to line 2" is on - ' +
+      'using the Text Minikernel, with a tunable scroll speed/pause. Only takes effect if the ' +
+      'message is longer than the Text tab\'s max display width - ignored otherwise. ' +
+      'Always scrolls on a single line, even if that entry\'s "Wrap to line 2" is on - ' +
       'use "Show text" instead for that.');
   },
 };
@@ -101,8 +124,39 @@ Blockly.defineBlocksWithJsonArray([
     'colour': TEXT_COLOR,
     'tooltip': 'Displays a message in place of the score, using the Text Minikernel ' +
       '(A-Z, 0-9, and basic punctuation). Automatically scrolls back and forth if longer ' +
-      'than the Text tab\'s own max display width - see "Scroll text" for a ' +
-      'version with its own tunable scroll speed/pause.',
+      'than the Text tab\'s max display width - see "Scroll text" for a ' +
+      'version with a tunable scroll speed/pause.',
+  },
+  // Sets ONE row directly (row 1 or row 2, picked from the dropdown) rather
+  // than a whole message - the OTHER row always comes out blank (see
+  // generators/bbasic/text-minikernel.js's own registerFreeTypedRowMessage):
+  // this always compiles in a real 2-row entry with the chosen row set to
+  // TEXT and the other row set to spaces, since the Text Minikernel's own
+  // row 2 is always read from a fixed offset right after row 1 (text12b.asm's
+  // own "textkernel2ndrow") - there's no way to update just one row while
+  // leaving whatever the OTHER row currently shows untouched.
+  {
+    'type': 'text_minikernel_show_row',
+    'message0': `${TEXT_ICON} Show text row %1 %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'ROW',
+        'options': [['1', '1'], ['2', '2']],
+      },
+      {
+        'type': 'field_input',
+        'name': 'TEXT',
+        'text': 'HELLO WORLD!',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Displays text on just one row (1 or 2) in place of the score, using the Text ' +
+      'Minikernel - the OTHER row always comes out blank, since the two rows are always shown ' +
+      'together. Use "Show text"/"Show text ID" instead for a message that fills both rows at ' +
+      'once (e.g. one you word-wrapped with "Multiline" on the Text tab).',
   },
   // Sets the displayed message from a number expression (a variable,
   // computed value, or literal) rather than a fixed choice - the number is
@@ -125,8 +179,39 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': 'Displays the message at this position on the Text tab (1 = the first message ' +
       'listed there, 2 = the second, and so on) - the number can be a variable or computed ' +
       'value, so the message shown can be picked at runtime. If that message is longer than ' +
-      'the Text tab\'s own max display width, it word-wraps onto a second line when that ' +
-      'entry\'s own "Wrap to line 2" is on, otherwise it automatically scrolls.',
+      'the Text tab\'s max display width, it word-wraps onto a second line when that ' +
+      'entry\'s "Wrap to line 2" is on, otherwise it automatically scrolls.',
+  },
+  // Same runtime id lookup as text_minikernel_show_by_id above, but shows
+  // only that entry's own first line, on just one row (1 or 2) - the OTHER
+  // row always comes out blank, same limitation every other "show row"
+  // block has (see text_minikernel_show_row's own comment). ROW=2 costs
+  // extra ROM (a second, parallel copy of every Text tab entry's own first
+  // line - see generateTextRow2OffsetsTable's own comment in generators/
+  // bbasic/text-minikernel.js) - ROW=1 doesn't, since an entry's row 1 IS
+  // its own first line already.
+  {
+    'type': 'text_minikernel_show_by_id_row',
+    'message0': `${TEXT_ICON} Show text row %1 ID %2`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'ROW',
+        'options': [['1', '1'], ['2', '2']],
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+        'check': 'Number',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Displays the FIRST line of the message at this position on the Text tab (1 = ' +
+      'the first message listed there, 2 = the second, and so on) on just one row (1 or 2) - ' +
+      'the OTHER row always comes out blank. The number can be a variable or computed value, ' +
+      'so the message shown can be picked at runtime.',
   },
   // Clears whatever message is currently shown, without displaying a new
   // one - equivalent to "Show text" with an empty message, but reads clearer
@@ -158,7 +243,7 @@ Blockly.defineBlocksWithJsonArray([
     'colour': TEXT_COLOR,
     'tooltip': 'Sets the color of Text Minikernel messages - "row 2" only matters for a wrapped ' +
       'message\'s second line (a message with "Wrap to line 2" on, or one long enough to ' +
-      'word-wrap that far on its own). Defaults to "row 1", matching this block\'s own old, ' +
+      'word-wrap that far by itself). Defaults to "row 1", matching this block\'s old, ' +
       'row-1-only behavior before this dropdown existed.',
   },
   {
@@ -191,6 +276,32 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': 'Sets the color of the "end of message" icon that appears once there\'s nothing ' +
       'left to scroll down to.',
   },
+  // Runtime on/off switch for the scroll cursor (Text tab's own "Show a
+  // scroll cursor" switch) - a single block with a dropdown, matching
+  // text_minikernel_scroll_control's own "one flag write, several named
+  // choices" shape below, rather than two separate "show"/"hide" blocks.
+  // Hidden means neither the up/down arrows nor the "end of message" icon
+  // ever draw, regardless of whether the currently shown message actually
+  // has more to scroll to - visible restores the normal behavior of each
+  // showing exactly when it otherwise would.
+  {
+    'type': 'text_minikernel_scroll_cursor_visible',
+    'message0': `${TEXT_ICON} Text scroll cursor %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'ACTION',
+        'options': [['show', 'show'], ['hide', 'hide']],
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Shows or hides the scroll cursor (up/down arrows and "end of message" icon) at ' +
+      'runtime. While hidden, neither ever draws, no matter how much of the message is left ' +
+      'to scroll to. Only has an effect if the Text tab\'s "Show a scroll cursor" switch ' +
+      'is on - visible by default.',
+  },
   // Fades TextColor toward a target - same shared mechanism as Background's
   // own "Fade color to" (see blocks/background.js's own fade var-name
   // helpers and generateBackgroundFadeChecks in generators/bbasic/
@@ -217,7 +328,7 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': TEXT_COLOR,
-    'tooltip': 'Starts fading the Text Minikernel\'s own message color toward the given color over ' +
+    'tooltip': 'Starts fading the Text Minikernel\'s message color toward the given color over ' +
       'roughly this many frames - same hue as the target, brightness automatically climbing or ' +
       'dropping from wherever it currently is. Only needs to be triggered once - the fade keeps ' +
       'running by itself every frame afterward, even from inside an "if" block that only briefly ' +
@@ -266,8 +377,8 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': TEXT_COLOR,
     'tooltip': 'Controls the currently shown scrolling text message. Start/Unpause resume it ' +
-      'from wherever it currently is. Pause freezes it in place. Stop resets it back to its ' +
-      'own beginning and freezes it there. Restart resets it back to its own beginning too, ' +
+      'from wherever it currently is. Pause freezes it in place. Stop resets it back to the ' +
+      'beginning and freezes it there. Restart resets it back to the beginning too, ' +
       'but keeps it scrolling. Has no visible effect on a message that never needed to scroll ' +
       'in the first place.',
   },
@@ -360,8 +471,8 @@ Blockly.Blocks['text_minikernel_show_scroll'] = {
     this.setNextStatement(true, null);
     this.setColour(TEXT_COLOR);
     this.setTooltip('Displays a message in place of the score, using the Text Minikernel, ' +
-      'with its own scroll speed/pause. Only takes effect if the message is longer than the ' +
-      'Text tab\'s own max display width - ignored otherwise.');
+      'with a tunable scroll speed/pause. Only takes effect if the message is longer than the ' +
+      'Text tab\'s max display width - ignored otherwise.');
   },
 };
 
@@ -382,11 +493,11 @@ Blockly.Blocks['text_minikernel_show_by_id_scroll'] = {
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(TEXT_COLOR);
-    this.setTooltip('Displays the message at this position on the Text tab, with its own ' +
+    this.setTooltip('Displays the message at this position on the Text tab, with a tunable ' +
       'scroll speed/pause - the number can be a variable or computed value, so the message ' +
       'shown can be picked at runtime. Only takes effect if that message is longer than the ' +
-      'Text tab\'s own max display width - ignored otherwise. Always scrolls on a single ' +
-      'line, even if that entry\'s own "Wrap to line 2" is on - use "Show text ID" instead ' +
+      'Text tab\'s max display width - ignored otherwise. Always scrolls on a single ' +
+      'line, even if that entry\'s "Wrap to line 2" is on - use "Show text ID" instead ' +
       'for that.');
   },
 };
@@ -406,6 +517,6 @@ Blockly.Blocks['text_minikernel_fade_finished'] = {
     this.setNextStatement(true);
     this.setColour(TEXT_COLOR);
     this.setTooltip('Runs the connected blocks once, the moment a matching "Fade Text color" block ' +
-      'reaches its own target color. Does nothing if no matching fade ever runs anywhere in the project.');
+      'reaches its target color. Does nothing if no matching fade ever runs anywhere in the project.');
   },
 };

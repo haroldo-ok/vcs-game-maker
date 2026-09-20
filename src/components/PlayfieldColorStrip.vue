@@ -12,10 +12,12 @@
           :class="{'row-swatch-armed': activeQuickColor != null}"
           :style="{backgroundColor: cssColor(colorByte)}"
           :title="activeQuickColor != null ?
-            `Click to fill row ${rowIndex + 1} with the selected quick color` :
-            `Row ${rowIndex + 1} color — click to change`"
+            `Click to fill row ${rowIndex + 1} with the selected quick color, or drag across rows to paint several at once` :
+            `Row ${rowIndex + 1} color — click to change, or drag across rows to copy this row's color onto them`"
           v-bind="attrs"
           v-on="activeQuickColor != null ? {click: () => handlePick(rowIndex, activeQuickColor)} : on"
+          @mousedown.left="() => handleDragStart(rowIndex, colorByte)"
+          @mouseenter="() => handleDragEnter(rowIndex)"
         />
       </template>
 
@@ -72,7 +74,28 @@ export default {
     return {
       palette: NTSC_COLORS,
       paletteColumns: PALETTE_COLUMNS,
+      // Click-and-drag row painting: mousedown on a row remembers which
+      // color to spread (the armed quick color if one's selected, else
+      // that row's own current color) without picking anything yet - a
+      // plain click still opens the popup/paints just that one row via the
+      // existing click handler below, since a real cross-element drag
+      // never fires a native "click" event at all (only mousedown+mouseup
+      // on the SAME element does), so the two behaviors don't collide.
+      // Every row entered afterward, while the button is still down, gets
+      // painted with that same remembered color.
+      isDragPainting: false,
+      dragColor: null,
     };
+  },
+  mounted() {
+    // Not just a per-swatch mouseup (the drag can end anywhere - outside
+    // the strip entirely, e.g. if the pointer leaves it before the button
+    // is released) - a window-level listener is the only way to reliably
+    // know the drag is over regardless of where the release happens.
+    window.addEventListener('mouseup', this.handleDragEnd);
+  },
+  beforeDestroy() {
+    window.removeEventListener('mouseup', this.handleDragEnd);
   },
   methods: {
     cssColor(byte) {
@@ -85,6 +108,17 @@ export default {
       const next = this.value.slice();
       next[rowIndex] = colorByte;
       this.$emit('input', next);
+    },
+    handleDragStart(rowIndex, colorByte) {
+      this.isDragPainting = true;
+      this.dragColor = this.activeQuickColor != null ? this.activeQuickColor : colorByte;
+    },
+    handleDragEnter(rowIndex) {
+      if (!this.isDragPainting) return;
+      this.handlePick(rowIndex, this.dragColor);
+    },
+    handleDragEnd() {
+      this.isDragPainting = false;
     },
   },
 };

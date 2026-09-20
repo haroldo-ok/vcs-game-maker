@@ -402,8 +402,12 @@ export const buildTextRow2ColorOverride = (text12b, {colorVarName}) => {
  *     colorVarName/endColorVarName are settable at runtime via the "Text:
  *     set scroll cursor color"/"Text: set end icon color" blocks, unlike
  *     glyphByte (fixed once compiled, from the Text Minikernel Font card).
- *     blinkMask is a "$XX" literal ANDed against framecounter to decide the
- *     blink phase (see BLINK_SPEED_MASKS below) - a single bit of
+ *     colorVarName's own bit 0 additionally doubles as the cursor's runtime
+ *     show/hide flag ("Text scroll cursor show or hide" block) - see
+ *     TEXT_SCROLL_CURSOR_HIDDEN_BIT's own comment in
+ *     generators/bbasic/text-minikernel.js for why that bit was free to
+ *     reuse. blinkMask is a "$XX" literal ANDed against framecounter to
+ *     decide the blink phase (see BLINK_SPEED_MASKS below) - a single bit of
  *     framecounter toggling every N frames, so a HIGHER bit (bigger mask
  *     value) means a SLOWER blink (each phase lasts longer).
  * @return {string}
@@ -555,6 +559,25 @@ export const buildTextScrollCursorOverride = (
     '    sleep 40',
     '    sta RESP1',
     '    sta WSYNC',
+    // Runtime show/hide ("Text scroll cursor show or hide" block) - rides in
+    // colorVarName's own otherwise-unused bit 0 (see
+    // TEXT_SCROLL_CURSOR_HIDDEN_BIT's own comment in generators/bbasic/
+    // text-minikernel.js) rather than a dedicated var. Forces the table
+    // index (X, still valid from scanline B - see its own comment above) to
+    // 0 ("neither shown") and the end icon's own structural flag
+    // (scorepointers+5) to 0 too, in one shared check, whenever that bit is
+    // set. Cheap on the common "visible" path (just the lda/and/beq below,
+    // falling straight through) - only the ldx/stx pair costs anything, and
+    // only while hidden - fits comfortably alongside the table lookups/end
+    // icon byte/colors below, same budget headroom that already covers all
+    // of those. The color itself is still loaded fresh into COLUP0 further
+    // down, bit 0 and all - harmless, since real hardware never decodes it.
+    `    lda ${colorVarName}`,
+    '    and #1',
+    '    beq _tsc_visible',
+    '    ldx #0',
+    '    stx scorepointers+5',
+    '_tsc_visible',
     // Both rows' table lookups (same index, still in X from before - see
     // its own comment above), the end icon's own byte, and both colors -
     // all still comfortably inside one scanline's budget now that the old

@@ -226,6 +226,39 @@ const customSquishFontBytes = () => {
   }
 };
 
+// Just the 10 real decimal digits (DECIMAL_DIGIT_COUNT*DIGIT_HEIGHT = 80
+// bytes), for whatever font is actually configured on the Score tab -
+// unlike buildScoreFontOverride (which returns null for the Default preset,
+// since the bundled compiler already ships with it and needs no override at
+// all), this always returns a real, usable array, since callers here (the
+// Title tab's own "score" minikernel - see generators/bbasic/titlescreen.js)
+// need SOME bytes regardless of which font is picked, not "no override
+// needed." Squish/Squish Custom get padded back out to 8 rows per digit
+// (padSquishDigitBytes) the same way buildScoreFontOverride's own Squish
+// Custom path does, even though nothing about "Squish" (shrinking the row
+// height) is meaningful to that minikernel's own fixed-height drawing
+// routine - it only cares about having 8 real bytes per digit to read,
+// wherever they came from.
+export const resolveScoreDigitBytes = (font) => {
+  const decimalByteCount = DECIMAL_DIGIT_COUNT * DIGIT_HEIGHT;
+  try {
+    if (font === SQUISH_CUSTOM_SCORE_FONT) {
+      const bytes = customSquishFontBytes();
+      if (bytes) return bytes.slice(0, decimalByteCount);
+    } else if (font === SQUISH_SCORE_FONT) {
+      return padSquishDigitBytes(SQUISH_DEFAULT_SCORE_FONT).slice(0, decimalByteCount);
+    } else if (font === CUSTOM_SCORE_FONT) {
+      const bytes = customFontBytes();
+      if (bytes) return bytes.slice(0, decimalByteCount);
+    } else if (font && SCORE_FONTS[font]) {
+      return SCORE_FONTS[font].slice(0, decimalByteCount);
+    }
+  } catch (e) {
+    console.error('Error resolving the score font for the Title tab\'s own score minikernel', e);
+  }
+  return DEFAULT_SCORE_FONT.slice(0, decimalByteCount);
+};
+
 // Used by generators/bbasic.js to decide whether to emit "const font = hex"
 // (plain Custom) or "const fontcharsHEX = 1" (Squish Custom) - both only
 // actually needed once customScoreFontExtraGlyphsEnabled's own toggle is on,

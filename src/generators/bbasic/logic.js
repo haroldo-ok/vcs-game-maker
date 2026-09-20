@@ -43,19 +43,27 @@ export default (Blockly) => {
 
     const lines = [];
     for (let n = 0; n < branchCount; n++) {
-      const conditionCode = Blockly.BBasic.valueToCode(block, `IF${n}`,
+      const finalCondition = Blockly.BBasic.valueToCode(block, `IF${n}`,
           Blockly.BBasic.ORDER_NONE) || '0';
-      // A condition value block (e.g. background_get_pixel, see its own
-      // comment) can smuggle setup statements ahead of its real expression
-      // as a newline-joined preamble, since there's no other way for a
-      // plain value-block generator to inject lines before whatever
-      // consumes its return value. Only the LAST line is the actual
-      // boolean condition; every line before it gets hoisted onto its own
-      // line(s) ahead of the "if" itself - a bare valueToCode result never
-      // contains a literal newline otherwise, so splitting on it is safe.
-      const conditionLines = conditionCode.split('\n');
-      const conditionPreamble = conditionLines.slice(0, -1);
-      const finalCondition = conditionLines[conditionLines.length - 1];
+      // A condition value block (e.g. a Data table lookup by runtime id,
+      // background_get_pixel, ...) can smuggle setup statements ahead of its
+      // real expression as a newline-joined preamble, hoisted onto
+      // Blockly.BBasic.pendingPreambleLines by Blockly.BBasic.scrub_ itself
+      // (see its own top comment) the instant valueToCode above resolves -
+      // drained HERE, immediately, rather than left for whatever statement
+      // happens to run next. Left for later was confirmed as a real
+      // reported bug ("wrong sprite graphics and xy"): statementToCode below
+      // resolves this branch's own BODY, whose first statement (if it also
+      // needed a preamble-emitting value, as makeScene's own body reliably
+      // does) would drain the queue itself first - stealing the CONDITION's
+      // own preamble along with its own, and positioning both AFTER the "if"
+      // line instead of before it. That left the "if" comparing a stale
+      // leftover value from whatever dispatch call happened to run before
+      // this one, while the real dispatch for THIS condition ended up
+      // duplicated inside the branch body next to the one that legitimately
+      // belonged there.
+      const conditionPreamble = Blockly.BBasic.pendingPreambleLines;
+      Blockly.BBasic.pendingPreambleLines = [];
       let branchCode = Blockly.BBasic.statementToCode(block, `DO${n}`).trim();
       if (!branchCode) branchCode = 'a = a';
 

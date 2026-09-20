@@ -38,20 +38,30 @@ export const processDataTablesStorageDefaults = (dataTablesStorage) => {
   return dataTables;
 };
 
-// The name the user types is free-form text for display, so it is never used
-// directly as the bBasic symbol: the id keeps the generated symbol unique and
-// stable even if two tables share a display name or one gets renamed.
-//
 // A table can only be read correctly from the same bank it's declared in
 // (see the bank-targeting feasibility notes), so a table read from more than
 // one bank needs a separate physical copy per bank - each copy needs its own
 // symbol name, hence the bank number baked in here. Bank 1 keeps the
 // original (suffix-less) name some existing generated projects may already
-// reference.
+// reference. Shared beyond just dataTableSymbolName below (see its own
+// callers) - the Text Minikernel's own fixed-name tables (text_offsets/
+// text_scroll_max/text_static_offsets/text_has_row2/text_lines_max in
+// generators/bbasic/text-scroll.js and text-minikernel.js) need this exact
+// same per-bank-copy scheme and previously didn't have it: a project reading
+// one of those tables from two different banks (e.g. a "Show text ID"
+// scroll block used both from ordinary code AND from inside a relocated
+// Function) got two data tables emitted with the SAME name, one per bank -
+// a duplicate-label EQU/assembly failure confirmed as a real reported build
+// break, root-caused to this same missing suffix.
+export const bankSuffixedTableName = (name, bank) => bank === 1 ? name : `${name}_b${bank}`;
+
+// The name the user types is free-form text for display, so it is never used
+// directly as the bBasic symbol: the id keeps the generated symbol unique and
+// stable even if two tables share a display name or one gets renamed.
 export const dataTableSymbolName = (table, bank = 1) => {
   const sanitized = (table.name || '').replace(/[^A-Za-z0-9]/g, '_');
   const base = `_dt_${table.id}_${sanitized}`.replace(/_+$/, '');
-  return bank === 1 ? base : `${base}_b${bank}`;
+  return bankSuffixedTableName(base, bank);
 };
 
 // Read the data tables afresh rather than through the module level storage:

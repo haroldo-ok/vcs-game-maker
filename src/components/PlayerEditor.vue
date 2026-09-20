@@ -77,44 +77,81 @@
                     <v-btn :value="4" x-small title="Preview at quadrupled (4x) width">4x</v-btn>
                   </v-btn-toggle>
 
-                  <v-menu
-                        top
-                        v-if="state.animations.length > 1"
-                      >
-                    <template v-slot:activator="{ on, attrs }">
-                      <v-btn
-                        title="Delete this animation"
-                        icon
-                        small
-                        absolute
-                        top
-                        right
-                        class="delete-btn-inset delete-icon-btn player-icon-btn-size"
-                        v-bind="attrs"
-                        v-on="on"
-                      >
-                        <v-icon>mdi-delete</v-icon>
-                      </v-btn>
-                    </template>
+                  <div class="animation-corner-toolbar">
+                    <v-menu
+                          top
+                          :close-on-content-click="false"
+                          :value="importMenuOpenAnimationId === animation.id"
+                          @input="(open) => { if (!open) importMenuOpenAnimationId = null; }"
+                        >
+                      <template v-slot:activator="{ attrs }">
+                        <v-btn
+                          title="Import animation frames from image files"
+                          icon
+                          small
+                          class="import-icon-btn player-icon-btn-size"
+                          v-bind="attrs"
+                          @click="importMenuOpenAnimationId = animation.id"
+                        >
+                          <v-icon>mdi-image-multiple</v-icon>
+                        </v-btn>
+                      </template>
 
-                    <v-card>
-                      <v-card-title>Delete this animation?</v-card-title>
-                      <v-list>
-                        <v-list-item @click="handleDeleteAnimation(animation)">
-                          <v-list-item-icon>
-                            <v-icon>mdi-check</v-icon>
-                          </v-list-item-icon>
-                          <v-list-item-title>Yes, delete</v-list-item-title>
-                        </v-list-item>
-                        <v-list-item>
-                          <v-list-item-icon>
-                            <v-icon>mdi-cancel</v-icon>
-                          </v-list-item-icon>
-                          <v-list-item-title>No, don't delete</v-list-item-title>
-                        </v-list-item>
-                      </v-list>
-                    </v-card>
-                  </v-menu>
+                      <v-card>
+                        <v-card-text class="import-animation-menu">
+                          <v-switch
+                            v-model="replaceFramesOnImport"
+                            label="Replace existing frames"
+                            hide-details
+                            dense
+                          />
+                          <v-btn
+                            color="primary"
+                            block
+                            @click="() => { importMenuOpenAnimationId = null; handleImportAnimationFrames(animation); }"
+                          >
+                            Choose images&hellip;
+                          </v-btn>
+                        </v-card-text>
+                      </v-card>
+                    </v-menu>
+
+                    <v-menu
+                          top
+                          v-if="state.animations.length > 1"
+                        >
+                      <template v-slot:activator="{ on, attrs }">
+                        <v-btn
+                          title="Delete this animation"
+                          icon
+                          small
+                          class="delete-icon-btn player-icon-btn-size"
+                          v-bind="attrs"
+                          v-on="on"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </template>
+
+                      <v-card>
+                        <v-card-title>Delete this animation?</v-card-title>
+                        <v-list>
+                          <v-list-item @click="handleDeleteAnimation(animation)">
+                            <v-list-item-icon>
+                              <v-icon>mdi-check</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>Yes, delete</v-list-item-title>
+                          </v-list-item>
+                          <v-list-item>
+                            <v-list-item-icon>
+                              <v-icon>mdi-cancel</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>No, don't delete</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-card>
+                    </v-menu>
+                  </div>
 
                 </v-list-item-title>
                 <v-list v-if="!isCollapsed(animation)">
@@ -147,6 +184,7 @@
                         :allowApplyToAllFrames="true"
                         :showGrid="showPixelGrid"
                         @input="handleChildChange"
+                        @clear="() => handleClearRowColors(frame)"
                         @resize-all-frames="(opts) => handleResizeAllFrames(animation, frame, opts)"
                       >
                         <template v-if="spriteColorsEnabled" v-slot:sidebar>
@@ -275,7 +313,7 @@
 </template>
 <script>
 import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
-import {max} from 'lodash';
+import {chunk, max} from 'lodash';
 
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelEditor from '../components/PixelEditor.vue';
@@ -285,24 +323,46 @@ import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {DEFAULT_ROW_COLOR} from '../blocks/background';
-import {DEFAULT_SPRITES, processPlayerStorageDefaults} from '../generators/bbasic/sprites';
+import {DEFAULT_SPRITES, processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {useColorPaletteStorage, useConfigurationStorage, usePixelGridOverlayStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {playfieldToMatrix, resizePixelMatrixHeight} from '../utils/pixels';
+import {loadImageFromFile, openFileDialogMultiple} from '../utils/file';
+import {createResizedCanvas} from '../utils/image';
 
 // Width of one frame editor at 100% zoom. The container is normally sized by
 // its own contents, so this pins it before the zoom factor is applied.
 const EDITOR_BASE_WIDTH = 275;
 
+// Orders a batch of imported image files into animation frame order - by
+// the number embedded in each filename (e.g. "walk1.png"/"walk2.png",
+// "frame_03.png") when EVERY file in the batch has one, since that's a
+// much more reliable signal of the intended frame order than however the
+// OS/browser's own file picker happened to report them. Falls back to
+// plain selection order (the array as given) the moment even one filename
+// has no extractable number at all - a partial/inconsistent numbering
+// scheme is more likely to produce a confusing, wrong-looking order than
+// just trusting the order the user actually clicked them in.
+const trailingNumberInFilename = (filename) => {
+  const match = filename.match(/(\d+)(?!.*\d)/);
+  return match ? parseInt(match[1], 10) : null;
+};
+export const sortImportedAnimationFrameFiles = (files) => {
+  const numbers = files.map((file) => trailingNumberInFilename(file.name));
+  if (numbers.some((n) => n === null)) return files;
+  return files
+      .map((file, i) => ({file, number: numbers[i]}))
+      .sort((a, b) => a.number - b.number)
+      .map(({file}) => file);
+};
+
 // Clipboard for one frame's whole row-color list (see handleCopyRowColors/
-// handlePasteRowColors) - module-scope, not a ref inside setup(), since
-// Player0Editor.vue/Player1Editor.vue each mount their own separate
-// PlayerEditor instance (see the zoom/collapsed-ids hooks' own per-player
-// comments just below); a plain instance ref would only let colors be
-// copied between frames of the SAME player, but a copied row-color set is
-// just as meaningful pasted onto the other player's own frame. null until
-// the first copy. Same "module-scope ref shared across instances" pattern
+// handlePasteRowColors) - module-scope, not a ref inside setup(), so a
+// copied row-color set survives navigating away from this tab and back
+// (this component is destroyed/recreated on navigation - see
+// hooks/collapse.js's own comment on that lifecycle). null until the first
+// copy. Same "module-scope ref shared across instances" pattern
 // Configuration.vue's own collapsedSections uses for the same reason.
 const copiedFrameRowColors = ref(null);
 
@@ -318,7 +378,6 @@ export default defineComponent({
   components: {EditorZoom, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
   props: ['storageFactory', 'title', 'fgColor', 'name'],
   setup(props) {
-    // Player 0 and Player 1 are separate instances, so each keeps its own zoom.
     const zoom = useEditorZoom(props.name);
     // Shared across Player 0/1 AND the Background tab (see
     // PixelGridToggle.vue's own comment) - not per-player like zoom above.
@@ -344,17 +403,19 @@ export default defineComponent({
     const configurationStorage = useConfigurationStorage();
     // Per-row SPRITE colors (batari Basic playercolors/player1colors) - see
     // the Options tab's own "Enable per-row Player 0/1 sprite colors"
-    // toggles (one per player, since player1colors is valid on its own but
-    // playercolors isn't - see generateConfiguration's own comment in
-    // generators/bbasic.js) - same reasoning as BackgroundEditor's own
-    // pfColorsEnabled. props.name ('player0'/'player1') picks the matching
-    // toggle for whichever player THIS instance is editing (see
-    // PlayerEditor's own "name" prop - this component is instantiated once
-    // per player).
-    const configKey = props.name === 'player0' ? 'enablePlayer0SpriteColors' : 'enablePlayer1SpriteColors';
-    const spriteColorsEnabled = computed(() =>
-      (configurationStorage && configurationStorage.value && configurationStorage.value[configKey]) ??
-        false);
+    // toggles (still two independent, per-hardware-player toggles - see
+    // generateConfiguration's own comment in generators/bbasic.js for why
+    // player1colors is valid on its own but playercolors isn't). This
+    // editor is now a SINGLE shared tab (one pool of animations either
+    // hardware player can use - see PlayerEditorView.vue), not one instance
+    // per player, so it has no "which player" context of its own anymore -
+    // the row-color painting UI shows if EITHER player's own toggle is on,
+    // since a shared animation's rowColors data is meaningful to show/edit
+    // as long as at least one hardware player would actually render it.
+    const spriteColorsEnabled = computed(() => {
+      const config = configurationStorage && configurationStorage.value;
+      return !!(config && (config.enablePlayer0SpriteColors || config.enablePlayer1SpriteColors));
+    });
 
     // Read-only here - components/QuickColorPalette.vue (mounted above)
     // owns writing to this same shared storage; this component only needs
@@ -393,10 +454,7 @@ export default defineComponent({
     // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
     // own song cards and the other tabs' own entry cards (see
     // MusicEditor.vue's own comment for the full reasoning): plain local
-    // component state, not persisted, not wired into anything else. Shared
-    // between Player 0 and Player 1 (both just PlayerEditor with different
-    // props), each with its own independent selection since they're
-    // separate component instances.
+    // component state, not persisted, not wired into anything else.
     const selectedCardId = ref(null);
     const selectCard = (id) => {
       selectedCardId.value = id;
@@ -409,7 +467,7 @@ export default defineComponent({
     const state = computed({
       get() {
         try {
-          const player = processPlayerStorageDefaults(playerStorage);
+          const player = processPlayerAnimationsStorageDefaults(playerStorage);
           // `!animation.id` (rather than == null) would also be true for
           // animation.id === 0 - a real, already-assigned id now that new
           // animations start there (see handleAddAnimation below), not a
@@ -442,7 +500,7 @@ export default defineComponent({
           });
           return player;
         } catch (e) {
-          console.error('Error loading player 0 from local storage', e);
+          console.error('Error loading player animations from local storage', e);
           return DEFAULT_SPRITES;
         }
       },
@@ -456,16 +514,14 @@ export default defineComponent({
       state.value = state.value;
     };
 
-    // Player 0 and Player 1 are separate instances, so each keeps its own
-    // set of collapsed animations - same reasoning as the zoom above.
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds(props.name);
+    // Every card starts collapsed on every visit to this tab (see
+    // collapseAll's own comment in hooks/collapse.js), not just ones never
+    // expanded before.
+    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds(props.name, true);
+    collapseAll();
 
     // Card reordering - same hook/pattern as Text/SoundFX/Data/Music/
-    // Background (see hooks/drag-reorder.js's own comment). No per-player
-    // key needed here, unlike useCollapsedIds/useEditorZoom above: Player0/
-    // Player1Editor.vue each mount their own separate PlayerEditor
-    // instance, so this setup() (and the fresh refs useDragReorder creates)
-    // already runs once per player with no shared state to collide.
+    // Background (see hooks/drag-reorder.js's own comment).
     const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
         () => state.value.animations,
         (items) => {
@@ -512,6 +568,71 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
+    // Whether "Import animation frames" replaces this animation's existing
+    // frames instead of appending after them - one shared toggle (not
+    // per-animation), read fresh at click time by handleImportAnimationFrames
+    // below, same "module-scope ref, not per-instance state" reasoning as
+    // copiedFrameData/copiedFrameRowColors above: there's only ever one
+    // import happening at a time, so a single shared preference is simpler
+    // than tracking it per animation card for no real benefit.
+    const replaceFramesOnImport = ref(false);
+
+    // Which animation's own "Import animation frames" popover is currently
+    // open, by id (null when none is) - drives the menu's own :value/@input
+    // below instead of leaving it to Vuetify's default click-toggle
+    // (activator slot's "on"), specifically so "Choose images..." can close
+    // it immediately, right as the OS file picker takes over, rather than
+    // leaving it sitting open (and now stale/pointless) behind that native
+    // dialog until the user clicks elsewhere afterward.
+    const importMenuOpenAnimationId = ref(null);
+
+    // Converts one loaded image into this animation's own frame pixel
+    // format - width is always forced to 8 (the fixed player-sprite width;
+    // see the pixel-editor's own :width="8" above, not something a frame
+    // can individually override), height auto-sized to the image's own
+    // resolution (clamped 1-64, same range/rounding as PixelEditor.vue's
+    // own handleImportImage, which this otherwise mirrors exactly -
+    // on/off threshold included, so a batch import looks the same as
+    // importing each frame one at a time through that existing button
+    // would have).
+    const imageToFramePixels = (img) => {
+      const targetHeight = Math.min(64, Math.max(1, Math.round(img.height)));
+      const canvas = createResizedCanvas(img, 8, targetHeight);
+      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      const imgPixels = imageData.data;
+      const pixelValues = [];
+      for (let i = 0, n = imgPixels.length; i < n; i += 4) {
+        const r = imgPixels[i];
+        const g = imgPixels[i + 1];
+        const b = imgPixels[i + 2];
+        pixelValues.push((r + g + b) / 3);
+      }
+      return chunk(pixelValues.map((v) => v > 32 ? 1 : 0), 8);
+    };
+
+    // Imports several image files at once as new animation frames, in one
+    // shot - one image per frame, ordered by sortImportedAnimationFrameFiles
+    // (numbered filenames first, else selection order). replaceFramesOnImport
+    // decides whether these land alongside this animation's existing frames
+    // or replace them outright - read fresh here (not captured earlier),
+    // matching how every other live toggle in this app is read at the
+    // moment it's actually used.
+    const handleImportAnimationFrames = (animation) => {
+      openFileDialogMultiple('image/*').then((files) => {
+        if (!files.length) return;
+        const orderedFiles = sortImportedAnimationFrameFiles(files);
+        return Promise.all(orderedFiles.map((file) => loadImageFromFile(file).then(imageToFramePixels)))
+            .then((pixelMatrices) => {
+              const keptFrames = replaceFramesOnImport.value ? [] : animation.frames;
+              let nextId = getMaxId(keptFrames) + 1;
+              const newFrames = pixelMatrices.map((pixels) => ({id: nextId++, duration: 10, pixels}));
+              animation.frames = [...keptFrames, ...newFrames];
+              handleChildChange();
+              instance.proxy.$forceUpdate();
+            });
+      });
+    };
+
     const handleDeleteFrame = (animation, frame) => {
       animation.frames = animation.frames.filter(({id}) => id != frame.id);
       console.info('Deleted ', frame);
@@ -546,7 +667,7 @@ export default defineComponent({
     // fallback uses, so a fresh animation's first frame looks the same
     // either way it was reached.
     const handleAddAnimation = () => {
-      state.value.animations.push({
+      const newAnimation = {
         // Starts at 0 (not getMaxId's own +1, which would start the very
         // first animation at 1) - only for the FIRST animation, where
         // getMaxId's own "no elements yet" fallback of 0 would otherwise
@@ -569,7 +690,21 @@ export default defineComponent({
               '........'),
           },
         ],
-      });
+      };
+      state.value.animations.push(newAnimation);
+      // Every card on this tab defaults to collapsed (see useCollapsedIds'
+      // own "true" default above), but a card the user just this moment
+      // created should still open right away, so they can see/start
+      // drawing its first frame immediately instead of having to expand it
+      // themselves first. ensureExpanded (used elsewhere purely to stop a
+      // brand new entry from inheriting a REUSED id's own stale override)
+      // isn't enough here on its own - it only clears an existing override,
+      // it doesn't fight the "true" default this tab now has, so a
+      // never-before-seen id would still read as collapsed. toggleCollapsed
+      // instead flips (and explicitly stores) this exact id's own state
+      // starting from whatever isCollapsed currently resolves to (the
+      // collapsed default, for a brand new id), landing on expanded.
+      toggleCollapsed(newAnimation);
 
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -601,6 +736,15 @@ export default defineComponent({
       // enough to repaint the preview - force a re-render so it receives the
       // updated row colors and recolors its canvas.
       instance.proxy.$forceUpdate();
+    };
+
+    // Clearing a frame (PixelEditor.vue's own "clear" event, separate from
+    // an ordinary pixel edit) resets its row colors back to the same
+    // default every row starts at, rather than leaving old per-row picks
+    // behind on an otherwise blank frame.
+    const handleClearRowColors = (frame) => {
+      if (!spriteColorsEnabled.value || !frame.rowColors) return;
+      handleRowColorsInput(frame, frame.rowColors.map(() => DEFAULT_ROW_COLOR));
     };
 
     // Copies/pastes a frame's ENTIRE row-color list at once (not one row at
@@ -659,8 +803,9 @@ export default defineComponent({
     return {selectedCardId, selectCard, deselectCard,
       state, handleChildChange,
       handleAddFrame, handleDeleteFrame, handleResizeAllFrames,
+      handleImportAnimationFrames, replaceFramesOnImport, importMenuOpenAnimationId,
       handleAddAnimation, handleDeleteAnimation, handleSetPreviewScale,
-      handleRowColorsInput, editorRowColors, spriteColorsEnabled,
+      handleRowColorsInput, handleClearRowColors, editorRowColors, spriteColorsEnabled,
       copiedFrameRowColors, handleCopyRowColors, handlePasteRowColors,
       copiedFrameData, handleCopyFrame, handlePasteFrame,
       spriteColorPalette, selectedQuickColor,
@@ -865,12 +1010,31 @@ export default defineComponent({
   color: #fff !important;
 }
 
-/* top/right match every other tab's own delete corner button (see
-   MusicEditor.vue's .music-toolbar-top-right) exactly, for a consistent
-   corner position across every card type. */
-.delete-btn-inset {
-  top: 8px !important;
-  right: 8px !important;
+/* Holds the animation card's own corner buttons (Import animation frames,
+   Delete) in one absolutely-positioned flex row, same shape/reasoning as
+   .frame-corner-toolbar below (added first, for the frame-level buttons) -
+   top/right match every other tab's own delete corner button (see
+   MusicEditor.vue's .music-toolbar-top-right) for a consistent corner
+   position across every card type. */
+.animation-corner-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+/* The "Replace existing frames" switch and "Choose images..." button inside
+   the Import animation frames popover - a fixed width so the popover reads
+   as a small, deliberate control rather than stretching to fit whatever
+   width v-menu's own default sizing would give it, and enough vertical gap
+   that the switch's own label doesn't crowd the button right below it. */
+.import-animation-menu {
+  width: 220px;
+}
+
+.import-animation-menu .v-btn {
+  margin-top: 8px;
 }
 
 /* Holds every frame-level corner button (copy/paste frame, copy/paste
@@ -956,6 +1120,30 @@ export default defineComponent({
    couple pixels so all three corner buttons read as the same size at a
    glance, not just the same CSS font-size. */
 .delete-icon-btn.player-icon-btn-size >>> .v-icon {
+  font-size: 21px !important;
+}
+
+/* Same rest/hover/no-filled-circle treatment as .delete-icon-btn (see
+   App.vue's own global rule - muted grey at rest, distinct color on hover,
+   Vuetify's default filled-circle hover overlay suppressed), just not red -
+   this button isn't destructive, so it darkens to near-black on hover
+   instead, the same neutral hover convention MusicEditor.vue's own
+   .music-flat-icon-btn uses for its non-destructive icon buttons. Same
+   21px icon bump as .delete-icon-btn too, so both corner buttons read as
+   the exact same size at a glance. */
+.import-icon-btn {
+  color: var(--editor-icon-rest-color) !important;
+}
+
+.import-icon-btn:hover {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.import-icon-btn::before {
+  background-color: transparent !important;
+}
+
+.import-icon-btn.player-icon-btn-size >>> .v-icon {
   font-size: 21px !important;
 }
 

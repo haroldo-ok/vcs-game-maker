@@ -21,7 +21,7 @@
         <v-switch
           v-model="showInGamePreview"
           label="Preview as in-game"
-          title="The kernel actually draws a blank scanline between each row of a glyph's own pixels - toggle this to see glyphs that way instead of as a plain, solid pixel grid. Read-only: switch back to Off to keep editing."
+          title="The kernel actually draws a blank scanline between each row of a glyph's pixels - toggle this to see glyphs that way instead of as a plain, solid pixel grid. Read-only: switch back to Off to keep editing."
           hide-details
           dense
           class="text-font-preview-switch"
@@ -50,7 +50,7 @@
                 :height="TEXT_CURSOR_HEIGHT"
                 :aspectRatio="PIXEL_ASPECT"
                 v-model="state.cursor"
-                fgColor="#f2691e"
+                fgColor="orange"
                 :showClearButton="true"
                 name="text-font-cursor"
                 :allowChangingHeight="false"
@@ -73,7 +73,7 @@
                         v-for="(pixel, colIndex) in row"
                         :key="colIndex"
                         class="glyph-preview-cell"
-                        :style="{backgroundColor: pixel ? '#f2691e' : '#000'}"
+                        :style="{backgroundColor: pixel ? '#FF9800' : '#000'}"
                       />
                     </div>
                   </div>
@@ -98,7 +98,7 @@
                 :height="TEXT_GLYPH_HEIGHT"
                 :aspectRatio="PIXEL_ASPECT"
                 v-model="state.glyphs[index]"
-                fgColor="#f2691e"
+                fgColor="orange"
                 :showClearButton="true"
                 :name="'text-font-glyph-' + index"
                 :allowChangingHeight="false"
@@ -133,7 +133,7 @@
                         v-for="(pixel, colIndex) in row"
                         :key="colIndex"
                         class="glyph-preview-cell"
-                        :style="{backgroundColor: pixel ? '#f2691e' : '#000'}"
+                        :style="{backgroundColor: pixel ? '#FF9800' : '#000'}"
                       />
                     </div>
                   </div>
@@ -209,7 +209,7 @@ export default defineComponent({
     // Same width, same per-pixel size as a real glyph tile - the cursor is
     // TEXT_CURSOR_WIDTH (4) pixels wide, identical to TEXT_GLYPH_WIDTH.
     const cursorGlyphWidth = computed(() => `${Math.round(GLYPH_BASE_WIDTH * zoom.value)}px`);
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds('text-font-card');
+    const {isCollapsed, toggleCollapsed} = useCollapsedIds('text-font-card', true);
 
     // Whether the Text tab's own "Show a blinking scroll cursor" switch is
     // on - read directly (not passed as a prop) since nothing else about

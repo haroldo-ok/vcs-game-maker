@@ -2,25 +2,7 @@
   <div>
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Sound</v-card-title>
-      <v-card-actions class="soundfx-bank-actions">
-        <v-btn
-          icon
-          class="soundfx-bank-btn"
-          title="Save every sound effect/instrument in this project to a single .JSON sound bank file"
-          @click="handleExportSoundBank"
-        >
-          <v-icon>mdi-export</v-icon>
-        </v-btn>
-        <v-btn
-          icon
-          class="soundfx-bank-btn"
-          title="Load a .JSON sound bank file - a sound effect whose name matches one already here has its parameters replaced; every other sound effect in the file is added as a new card"
-          @click="handleImportSoundBank"
-        >
-          <v-icon>mdi-import</v-icon>
-        </v-btn>
-      </v-card-actions>
-      <v-card-text>
+      <v-card-text class="soundfx-dim-section">
         <div class="dim-controls">
           <v-switch
             v-model="dimSoundFx"
@@ -43,8 +25,8 @@
         </div>
         <p class="dim-hint v-messages theme--light v-messages__message">
           When DIM is on, every sound effect plays at the volume above, as a
-          percentage of its own set volume. Off: sound effects play at their
-          own set volume.
+          percentage of its set volume. Off: sound effects play at their
+          set volume.
         </p>
         <div class="soundfx-filter-row">
           <v-select
@@ -62,6 +44,24 @@
             class="soundfx-columns-switch"
           />
         </div>
+        <v-card-actions class="soundfx-bank-actions">
+          <v-btn
+            icon
+            class="soundfx-bank-btn"
+            title="Save every sound effect/instrument in this project to a single .JSON sound bank file"
+            @click="handleExportSoundBank"
+          >
+            <v-icon>mdi-export</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            class="soundfx-bank-btn"
+            title="Load a .JSON sound bank file - a sound effect whose name matches one already here has its parameters replaced; every other sound effect in the file is added as a new card"
+            @click="handleImportSoundBank"
+          >
+            <v-icon>mdi-import</v-icon>
+          </v-btn>
+        </v-card-actions>
         <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
           <v-list-item
             v-for="(soundEffect, index) in state.soundEffects"
@@ -160,7 +160,7 @@
                       :title="(soundEffect.isInstrument ?
                         'Tagged as an instrument (click to untag) ' :
                         'Not tagged as an instrument (click to tag) ') +
-                        '- purely a tag for this tab\'s own \'Show\' filter above; every sound effect can ' +
+                        '- purely a tag for this tab\'s \'Show\' filter above; every sound effect can ' +
                         'already be used both as a soundfx_play trigger and as a Music tab instrument ' +
                         'regardless of this.'"
                       @click="() => handleToggleInstrument(soundEffect)"
@@ -223,7 +223,7 @@
                       <v-switch
                         v-model="soundEffect.arpeggio"
                         label="Arpeggio"
-                        title="Always on for every note played with this instrument on the Music tab - rapidly flips between the note's own pitch and a second nearby pitch (set below) to fake a chord."
+                        title="Always on for every note played with this instrument on the Music tab - rapidly flips between the note's pitch and a second nearby pitch (set below) to fake a chord."
                         hide-details
                         class="soundfx-arpeggio-switch"
                         @change="handleChildChange"
@@ -231,7 +231,7 @@
                       <template v-if="soundEffect.arpeggio">
                         <v-select
                           label="Speed"
-                          title="How often it flips pitch, relative to the song/pattern's own tempo - speeds up and slows down with the song."
+                          title="How often it flips pitch, relative to the song/pattern's tempo - speeds up and slows down with the song."
                           v-model="soundEffect.arpeggioDivision"
                           :items="arpeggioDivisionOptionItems"
                           hide-details
@@ -240,7 +240,7 @@
                         />
                         <v-text-field
                           label="Interval"
-                          title="Fixed pitch jump between the note's own pitch and the second alternating pitch."
+                          title="Fixed pitch jump between the note's pitch and the second alternating pitch."
                           v-model.number="soundEffect.arpeggioInterval"
                           type="number"
                           :min="MIN_ARPEGGIO_INTERVAL"
@@ -251,7 +251,7 @@
                         />
                         <v-select
                           label="Range"
-                          title="1 OCT: cycles only between the note's own pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
+                          title="1 OCT: cycles only between the note's pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
                           v-model="soundEffect.arpeggioRange"
                           :items="arpeggioRangeOptionItems"
                           hide-details
@@ -585,7 +585,12 @@ export default defineComponent({
       handleChildChange();
     };
 
-    const {isCollapsed, toggleCollapsed} = useCollapsedIds('soundfx');
+    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('soundfx', true);
+    // Every sound card starts collapsed on every visit to this tab, not just
+    // ones never expanded before (see collapseAll's own comment) - a
+    // deliberate request, unlike every other card list in the app, which
+    // remembers whichever ones a previous visit left expanded.
+    collapseAll();
 
     // Purely a display filter for this tab's own card list (see the
     // Instrument checkbox in the name row) - not persisted, and doesn't
@@ -871,7 +876,13 @@ export default defineComponent({
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 8px;
-  margin-top: 12px;
+  /* No margin-top - v-list's own default padding-top (8px, unlike e.g.
+     TitleScreenEditor.vue's own .titlescreen-card-list, which zeroes it
+     out) already supplies the gap here, stacking an 8px margin-top on top
+     of that made the gap under the import/export buttons visibly bigger
+     than the 8px gap above them (Show field to buttons) - a real reported
+     bug. */
+  margin-top: 0;
   /* Grid items stretch to fill their row's height by default - a collapsed
      card next to an expanded one in the same row would otherwise stretch
      tall to match it, instead of sitting flush at the top like its card
@@ -959,21 +970,34 @@ export default defineComponent({
   padding-top: 0 !important;
 }
 
-/* Same placement/spacing as Project.vue's own .project-actions (the exact
-   row this mirrors - a v-card-actions directly under the tab's own title,
-   same as Save/Save As/Open sit under "Project") - padding-left matches
-   that row's icons' own left inset, padding-top: 0 removes v-card-actions'
-   own default top gap under the title (same "Generated tab's own flush
-   title-to-icon-row spacing" reasoning as .project-actions' own comment),
-   gap: 0 for the same reason too (a v-btn immediately following another
-   v-btn gets its own Vuetify-injected margin-left, which .soundfx-bank-btn
-   below zeroes out, matching .project-flat-icon-btn's own identical fix). */
+/* Now sits under the Show/Columns filter row (not directly under the tab
+   title - see the template's own placement) - padding-left: 0 lines the
+   first icon's own left edge up with the Show field beside it above,
+   margin-top separates it from that row (it used to rely on
+   v-card-actions' own default top padding for spacing under the title,
+   which no longer applies here). No margin-bottom override - the sound
+   card list below (.soundfx-list) supplies its own margin-top, matching
+   this same 8px so the gap above the buttons (Show field to buttons) and
+   below them (buttons to cards) read as the same size. gap: 0 because a
+   v-btn immediately following another v-btn gets its own Vuetify-injected
+   margin-left, which .soundfx-bank-btn below zeroes out, matching
+   .project-flat-icon-btn's own identical fix. */
 .soundfx-bank-actions {
-  padding-left: 8px;
+  padding-left: 0;
   padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 8px;
   display: flex;
   align-items: center;
   gap: 0;
+}
+
+/* Closes the gap between the bank Export/Import row above and the DIM
+   controls below it - v-card-text's own default 16px top padding otherwise
+   left them further apart than the bank row's own now-zeroed bottom
+   padding. */
+.soundfx-dim-section {
+  padding-top: 8px;
 }
 
 /* Full default Vuetify icon-button size (40px, 24px glyph - no "small"

@@ -8,7 +8,7 @@
                 </block>
             </value>
             <statement name="DO0">
-                <block type="sprite_player0_change">
+                <block type="sprite_player_change">
                 <field name="VAR">player0x</field>
                 <value name="DELTA">
                     <shadow type="math_number">
@@ -25,7 +25,7 @@
                     </block>
                 </value>
                 <statement name="DO0">
-                    <block type="sprite_player0_change">
+                    <block type="sprite_player_change">
                     <field name="VAR">player0x</field>
                     <value name="DELTA">
                         <shadow type="math_number">
@@ -50,7 +50,7 @@
                         </block>
                     </value>
                     <statement name="DO0">
-                        <block type="sprite_player0_change">
+                        <block type="sprite_player_change">
                         <field name="VAR">player0x</field>
                         <value name="DELTA">
                             <shadow type="math_number">
@@ -67,7 +67,7 @@
                             </block>
                         </value>
                         <statement name="DO0">
-                            <block type="sprite_player0_change">
+                            <block type="sprite_player_change">
                             <field name="VAR">player0x</field>
                             <value name="DELTA">
                                 <shadow type="math_number">
@@ -84,7 +84,7 @@
                                 </block>
                             </value>
                             <statement name="DO0">
-                                <block type="sprite_player0_change">
+                                <block type="sprite_player_change">
                                 <field name="VAR">player0y</field>
                                 <value name="DELTA">
                                     <shadow type="math_number">
@@ -101,7 +101,7 @@
                                     </block>
                                 </value>
                                 <statement name="DO0">
-                                    <block type="sprite_player0_change">
+                                    <block type="sprite_player_change">
                                     <field name="VAR">player0y</field>
                                     <value name="DELTA">
                                         <shadow type="math_number">
@@ -153,7 +153,7 @@
                     </block>
                 </value>
                 <next>
-                    <block type="sprite_player0_change">
+                    <block type="sprite_player_change">
                     <field name="VAR">player0x</field>
                     <value name="DELTA">
                         <shadow type="math_number">
@@ -210,7 +210,7 @@
                             </block>
                         </statement>
                         <next>
-                            <block type="sprite_player0_change">
+                            <block type="sprite_player_change">
                             <field name="VAR">player0x</field>
                             <value name="DELTA">
                                 <shadow type="math_number">
@@ -263,7 +263,7 @@
                     </block>
                 </value>
                 <next>
-                    <block type="sprite_player0_change">
+                    <block type="sprite_player_change">
                     <field name="VAR">player0y</field>
                     <value name="DELTA">
                         <shadow xmlns="" type="math_number">
@@ -320,7 +320,7 @@
                             </block>
                         </statement>
                         <next>
-                            <block type="sprite_player0_change">
+                            <block type="sprite_player_change">
                             <field name="VAR">player0y</field>
                             <value name="DELTA">
                                 <shadow xmlns="" type="math_number">
@@ -364,7 +364,7 @@
                 </block>
             </value>
             <statement name="DO0">
-                <block type="sprite_missile0_set">
+                <block type="sprite_missile_set">
                 <field name="VAR">missile0x</field>
                 <value name="VALUE">
                     <shadow type="math_number">
@@ -373,7 +373,7 @@
                     <block type="math_arithmetic">
                     <field name="OP">ADD</field>
                     <value name="A">
-                        <block type="sprite_player0_get">
+                        <block type="sprite_player_get">
                         <field name="VAR">player0x</field>
                         </block>
                     </value>
@@ -385,18 +385,18 @@
                     </block>
                 </value>
                 <next>
-                    <block type="sprite_missile0_set">
+                    <block type="sprite_missile_set">
                     <field name="VAR">missile0y</field>
                     <value name="VALUE">
                         <shadow type="math_number">
                         <field name="NUM">1</field>
                         </shadow>
-                        <block type="sprite_player0_get">
+                        <block type="sprite_player_get">
                         <field name="VAR">player0y</field>
                         </block>
                     </value>
                     <next>
-                        <block type="sprite_missile0_set">
+                        <block type="sprite_missile_set">
                         <field name="VAR">missile0height</field>
                         <value name="VALUE">
                             <shadow type="math_number">
@@ -415,7 +415,7 @@
                     <block type="logic_compare">
                     <field name="OP">GT</field>
                     <value name="A">
-                        <block type="sprite_missile0_get">
+                        <block type="sprite_missile_get">
                         <field name="VAR">missile0y</field>
                         </block>
                     </value>
@@ -427,7 +427,7 @@
                     </block>
                 </value>
                 <statement name="DO0">
-                    <block type="sprite_missile0_change">
+                    <block type="sprite_missile_change">
                     <field name="VAR">missile0y</field>
                     <value name="DELTA">
                         <shadow type="math_number">
@@ -520,7 +520,7 @@
                             </block>
                             </value>
                             <next>
-                            <block type="sprite_player0_change">
+                            <block type="sprite_player_change">
                                 <field name="VAR">player0y</field>
                                 <value name="DELTA">
                                 <shadow type="math_number">
@@ -589,7 +589,7 @@
                                 </block>
                                 </statement>
                                 <next>
-                                <block type="sprite_player0_change">
+                                <block type="sprite_player_change">
                                     <field name="VAR">player0x</field>
                                     <value name="DELTA">
                                     <shadow type="math_number">
@@ -640,7 +640,7 @@
                         </block>
                         </value>
                         <next>
-                        <block type="sprite_player0_change">
+                        <block type="sprite_player_change">
                             <field name="VAR">player0x</field>
                             <value name="DELTA">
                             <shadow type="math_number">
@@ -748,7 +748,7 @@
                             </block>
                             </statement>
                             <next>
-                            <block type="sprite_player0_change">
+                            <block type="sprite_player_change">
                                 <field name="VAR">player0y</field>
                                 <value name="DELTA">
                                 <shadow type="math_number">
@@ -781,7 +781,7 @@
                 </block>
             </value>
             <statement name="DO0">
-                <block type="sprite_player0_set">
+                <block type="sprite_player_set">
                     <field name="VAR">player0realcolor</field>
                     <value name="VALUE">
                         <shadow type="color_get">
@@ -791,7 +791,7 @@
                 </block>
             </statement>
             <statement name="ELSE">
-                <block type="sprite_player0_set">
+                <block type="sprite_player_set">
                     <field name="VAR">player0realcolor</field>
                     <value name="VALUE">
                         <shadow type="color_get">
@@ -809,7 +809,8 @@
                         </block>
                     </value>
                     <statement name="DO0">
-                        <block type="sprite_player1_set">
+                        <block type="sprite_player_set">
+                            <field name="PLAYER">1</field>
                             <field name="VAR">player1realcolor</field>
                             <value name="VALUE">
                                 <shadow type="color_get">
@@ -819,7 +820,8 @@
                         </block>
                     </statement>
                     <statement name="ELSE">
-                        <block type="sprite_player1_set">
+                        <block type="sprite_player_set">
+                            <field name="PLAYER">1</field>
                             <field name="VAR">player1realcolor</field>
                             <value name="VALUE">
                                 <shadow type="color_get">
@@ -844,7 +846,7 @@
                 </block>
             </value>
             <statement name="DO0">
-                <block type="sprite_player0_set">
+                <block type="sprite_player_set">
                     <field name="VAR">player0visibility</field>
                     <value name="VALUE">
                         <shadow type="logic_boolean">
@@ -854,7 +856,7 @@
                 </block>
             </statement>
             <statement name="ELSE">
-                <block type="sprite_player0_set">
+                <block type="sprite_player_set">
                     <field name="VAR">player0visibility</field>
                     <value name="VALUE">
                         <shadow type="logic_boolean">
@@ -872,7 +874,8 @@
                         </block>
                     </value>
                     <statement name="DO0">
-                        <block type="sprite_player1_set">
+                        <block type="sprite_player_set">
+                            <field name="PLAYER">1</field>
                             <field name="VAR">player1visibility</field>
                             <value name="VALUE">
                                 <shadow type="logic_boolean">
@@ -882,7 +885,8 @@
                         </block>
                     </statement>
                     <statement name="ELSE">
-                        <block type="sprite_player1_set">
+                        <block type="sprite_player_set">
+                            <field name="PLAYER">1</field>
                             <field name="VAR">player1visibility</field>
                             <value name="VALUE">
                                 <shadow type="logic_boolean">

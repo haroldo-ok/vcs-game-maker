@@ -35,7 +35,7 @@ goog.require('Blockly.BBasic');
 // repeat loop: nested repeat blocks (a repeat whose own body contains
 // ANOTHER repeat block with a complex count) aren't safe with a single
 // shared var either way, an existing limitation this doesn't make any worse.
-export const REPEAT_BOUND_VAR_NAME = '_repeatBound';
+export const REPEAT_BOUND_VAR_NAME = 'repeatBound';
 
 // The "repeat X times" block's own "for X = 1 to <bound> : ... : next" loop
 // variable itself - used to be the literal, hardcoded bB identifier
@@ -60,7 +60,7 @@ export const REPEAT_COUNTER_VAR_NAME = 'repeatcounter';
 // many iterations the repeat had left. Reserved the same way
 // REPEAT_BOUND_VAR_NAME is (see its own comment just above) - a real,
 // properly-declared dev var, not nameDB_.getDistinctName.
-export const WAIT_FRAMES_COUNTER_VAR_NAME = '_waitFramesCounter';
+export const WAIT_FRAMES_COUNTER_VAR_NAME = 'waitFramesCounter';
 
 // Whether a given "repeat N times" block's own TIMES input would actually
 // need REPEAT_BOUND_VAR_NAME once controls_repeat_ext's own generator runs
@@ -177,22 +177,34 @@ export default (Blockly) => {
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), 1);
     const counter = Blockly.BBasic.nameDB_.getName(
         WAIT_FRAMES_COUNTER_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    // "for X = 1 to <bound>" is a whitespace-sensitive positional construct,
-    // same as "pfpixel X Y OPERATION" (see background_change_pixel's own
-    // comment in generators/bbasic/background.js) - a multi-token bound
-    // (e.g. a Random block's own "(rand / 4) + 1", which has spaces in it)
-    // breaks it, confirmed directly as a real build failure ("Syntax Error
-    // ''" from a malformed "CMP #(" with nothing after it). Assigning to
-    // temp1 first and using THAT (always a single plain token) as the
-    // bound sidesteps the whitespace-splitting entirely.
+    // NOT a "for X = 1 to <bound>" loop (what this used to be): that
+    // construct re-reads its own bound from memory every iteration rather
+    // than caching it once (see REPEAT_BOUND_VAR_NAME's own comment above),
+    // and this loop's own BODY unconditionally runs "gosub commongamelogic"
+    // every iteration, which itself always calls "gosub
+    // _run_once_edge_reset" first thing, whose own hand-written asm
+    // unconditionally does "STA temp1" - clobbering a temp1-held bound with
+    // unrelated "Run once" bookkeeping bits after the very first iteration,
+    // regardless of where the "Wait N frames" block itself is placed (a
+    // Function, a Subroutine, or plain top-level code - commongamelogic
+    // runs the exact same way every time either way). Confirmed as a real
+    // reported bug this way: a "Wait N frames" block waited far longer than
+    // the number actually entered, every single time.
     //
-    // Uses its own dedicated counter (see WAIT_FRAMES_COUNTER_VAR_NAME's own
-    // comment), not the shared "repeatcounter" a "Repeat X times" block's
-    // own "for" loop uses - so a "Wait N frames" block placed inside a
-    // repeat loop's body no longer clobbers the repeat's own in-progress
-    // count.
-    return `temp1 = ${argument0}\n` +
-      `for ${counter} = 1 to temp1 : gosub commongamelogic${suffix} : drawscreen : next\n`;
+    // Rewritten as a plain count-DOWN-to-zero loop instead, using only
+    // this block's own already-reserved counter (see
+    // WAIT_FRAMES_COUNTER_VAR_NAME's own comment) as both the starting
+    // count AND the live remaining-count - nothing else in the compiler
+    // ever touches this dedicated dev var, so there's no second "bound"
+    // variable to reserve or clobber: each iteration just decrements it and
+    // loops again until it hits 0, sidestepping the "for...to" bound-reread
+    // problem entirely rather than working around it.
+    const labelBase = `_wait_frames_${Blockly.BBasic.blockNumbers.next('waitFrames')}`;
+    return `${counter} = ${argument0}\n` +
+      `@${labelBase}\n` +
+      `gosub commongamelogic${suffix} : drawscreen\n` +
+      `${counter} = ${counter} - 1\n` +
+      `if ${counter} <> 0 then goto ${labelBase}\n`;
   };
 
   Blockly.BBasic['controls_whileUntil'] = function(block) {

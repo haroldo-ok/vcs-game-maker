@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container" @click="deselectCard">
-      <v-card-title>Music (alpha 0.4)</v-card-title>
+      <v-card-title>Music (alpha 0.43)</v-card-title>
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
         This feature is in early alpha. Things may change or break. In fact, it's guaranteed. You've been warned!
       </v-alert>
@@ -27,9 +27,9 @@
           <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
         </div>
         <p class="dim-hint v-messages theme--light v-messages__message">
-          When DIM is on, every note plays at the volume above, as a percentage of its own set volume - same
-          setting as the Sound tab's own DIM (changing it here changes it there too). Off: notes play at their
-          own set volume.
+          When DIM is on, every note plays at the volume above, as a percentage of its set volume - same
+          setting as the Sound tab's DIM (changing it here changes it there too). Off: notes play at their
+          set volume.
         </p>
       </v-card-text>
       <v-card-text class="song-list-section">
@@ -1132,7 +1132,17 @@ export default defineComponent({
       handleChildChange();
     };
 
-    const {isCollapsed: isSongCollapsed, toggleCollapsed: toggleSongCollapsed} = useCollapsedIds('music-song');
+    // Every Music tab card starts collapsed on every visit to this tab
+    // (see collapseAll's own comment in hooks/collapse.js), not just ones
+    // never expanded before - several piano rolls left expanded at once
+    // was confirmed as a real contributor to dropped/cut-off notes during
+    // playback (see music-playback.js's own LOOP_RESCHEDULE_LEAD_SECONDS
+    // comment): each is a large, reactive grid, and enough of them
+    // re-rendering at once can make the main thread busy enough to delay
+    // the JS-side scheduler past a short note's own window.
+    const {isCollapsed: isSongCollapsed, toggleCollapsed: toggleSongCollapsed, collapseAll: collapseAllSongs} =
+      useCollapsedIds('music-song', true);
+    collapseAllSongs();
 
     // Pattern ids are only unique WITHIN their own song (see
     // handleAddPattern/handleDuplicatePattern), not globally, unlike
@@ -1147,8 +1157,9 @@ export default defineComponent({
     // in, just the Instruments list on its own (collapsing that alone still
     // leaves the piano roll and zoom/playback controls visible).
     const patternCollapseEntry = (song, pattern) => ({id: `${song.id}:${pattern.id}`});
-    const {isCollapsed: isPatternCollapsedRaw, toggleCollapsed: togglePatternCollapsedRaw} =
-      useCollapsedIds('music-pattern');
+    const {isCollapsed: isPatternCollapsedRaw, toggleCollapsed: togglePatternCollapsedRaw,
+      collapseAll: collapseAllPatterns} = useCollapsedIds('music-pattern', true);
+    collapseAllPatterns();
     const isPatternCollapsed = (song, pattern) => isPatternCollapsedRaw(patternCollapseEntry(song, pattern));
     const togglePatternCollapsed = (song, pattern) => togglePatternCollapsedRaw(patternCollapseEntry(song, pattern));
     // Keyed by song alone (not song+pattern like patternCollapseEntry above)
@@ -1156,8 +1167,9 @@ export default defineComponent({
     // section, not a separate one remembered per pattern. song.id is
     // already globally unique (see toggleSequenceCollapsed's own comment
     // just below), so no synthetic compound entry is needed here either.
-    const {isCollapsed: isInstrumentsCollapsedRaw, toggleCollapsed: toggleInstrumentsCollapsedRaw} =
-      useCollapsedIds('music-instruments');
+    const {isCollapsed: isInstrumentsCollapsedRaw, toggleCollapsed: toggleInstrumentsCollapsedRaw,
+      collapseAll: collapseAllInstruments} = useCollapsedIds('music-instruments', true);
+    collapseAllInstruments();
     const isInstrumentsCollapsed = (song) => isInstrumentsCollapsedRaw(song);
     const toggleInstrumentsCollapsed = (song) => toggleInstrumentsCollapsedRaw(song);
 
@@ -1167,8 +1179,9 @@ export default defineComponent({
     // pattern.id - see patternCollapseEntry's own comment), so this can
     // key off the song object directly instead of needing a synthetic
     // compound entry.
-    const {isCollapsed: isSequenceCollapsed, toggleCollapsed: toggleSequenceCollapsed} =
-      useCollapsedIds('music-sequence');
+    const {isCollapsed: isSequenceCollapsed, toggleCollapsed: toggleSequenceCollapsed,
+      collapseAll: collapseAllSequences} = useCollapsedIds('music-sequence', true);
+    collapseAllSequences();
 
     // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
     // SoundFXEditor.vue's own uses of this same hook) - songs are already
