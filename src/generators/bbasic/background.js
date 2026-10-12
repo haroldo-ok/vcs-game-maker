@@ -1044,8 +1044,10 @@ export default (Blockly) => {
   // Reverse-indexed" build failure a raw asm block hit ONLY once relocated
   // to a non-bank-1 position - this check's  fixed position sidesteps
   // that class of bug entirely, not just avoids repeating the mistake).
+  // Without flagsVar the fade is active for as long as the color is not the target (no flag byte is kept): the title screen
+  // graphics' fades use this.
   const buildFadeCheckAsm = ({colorVar, targetVar, timerVar, paceVar, flagsVar, activeBit, finishedBit, tag, isWatched}) => {
-    const activeMask = 1 << activeBit;
+    const activeMask = flagsVar ? 1 << activeBit : 0;
     const finishedMask = isWatched ? (1 << finishedBit) : 0;
     const done = `_bgfadeasm_${tag}_done`;
     const skip = `_bgfadeasm_${tag}_skip`;
@@ -1094,15 +1096,17 @@ export default (Blockly) => {
       '       and #$F0',
       '       ora temp2',
       '       sta ' + colorVar,
-      '       lda ' + flagsVar,
-      '       and #' + (255 - activeMask),
-      '       sta ' + flagsVar,
-      // "sta" never touches A - still holds the masked value from the line
-      // just above, so isWatched's "ora finishedMask" can build on it
-      // directly instead of a redundant "lda flagsVar" reload.
-      ...(isWatched ? [
-        '       ora #' + finishedMask,
+      ...(flagsVar ? [
+        '       lda ' + flagsVar,
+        '       and #' + (255 - activeMask),
         '       sta ' + flagsVar,
+        // "sta" never touches A - still holds the masked value from the line
+        // just above, so isWatched's "ora finishedMask" can build on it
+        // directly instead of a redundant "lda flagsVar" reload.
+        ...(isWatched ? [
+          '       ora #' + finishedMask,
+          '       sta ' + flagsVar,
+        ] : []),
       ] : []),
       '       jmp ' + done,
     ];
@@ -1115,16 +1119,22 @@ export default (Blockly) => {
       // a redundant reload. finishedMask/activeMask are disjoint bits, so
       // "(flags & ~finishedMask) & activeMask" is exactly "flags &
       // activeMask" either way.
-      ...(isWatched ? [
-        '       lda ' + flagsVar,
-        '       and #' + (255 - finishedMask),
-        '       sta ' + flagsVar,
-        '       and #' + activeMask,
+      ...(!flagsVar ? [
+        '       lda ' + colorVar,
+        '       cmp ' + targetVar,
+        ...farBeq(skip),
       ] : [
-        '       lda ' + flagsVar,
-        '       and #' + activeMask,
+        ...(isWatched ? [
+          '       lda ' + flagsVar,
+          '       and #' + (255 - finishedMask),
+          '       sta ' + flagsVar,
+          '       and #' + activeMask,
+        ] : [
+          '       lda ' + flagsVar,
+          '       and #' + activeMask,
+        ]),
+        ...farBeq(skip),
       ]),
-      ...farBeq(skip),
       '       lda ' + targetVar,
       '       and #$0E',
       '       sta temp3',
@@ -1190,19 +1200,23 @@ export default (Blockly) => {
       '       and #$F0',
       '       ora temp2',
       '       sta ' + colorVar,
-      '       lda ' + flagsVar,
-      '       and #' + (255 - activeMask),
-      '       sta ' + flagsVar,
-      // Same "sta never touches A" reuse as landedLines above.
-      ...(isWatched ? [
-        '       ora #' + finishedMask,
+      ...(flagsVar ? [
+        '       lda ' + flagsVar,
+        '       and #' + (255 - activeMask),
         '       sta ' + flagsVar,
+        // Same "sta never touches A" reuse as landedLines above.
+        ...(isWatched ? [
+          '       ora #' + finishedMask,
+          '       sta ' + flagsVar,
+        ] : []),
       ] : []),
       done,
       skip,
       'end',
     ].join('\n');
   };
+
+  Blockly.BBasic.buildFadeCheckAsm = buildFadeCheckAsm;
 
   Blockly.BBasic.generateBackgroundFadeChecks = function() {
     const fadeVarsUsed = this.backgroundFadeVarsUsed || new Set();

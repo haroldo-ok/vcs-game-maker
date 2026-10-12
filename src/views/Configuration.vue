@@ -315,9 +315,10 @@
           class="option-switch"
         />
         <v-switch
+          v-if="emulatorSettings.backend === 'gopher2600'"
           v-model="adaptiveFrameSkip"
           label="Adaptive frame skipping"
-          hint="On a slower computer, the gopher2600 emulator draws only some of the frames it runs when it is close to falling behind, which leaves more time for emulating. Game speed and sound are unchanged. The default 6502.ts emulator is fast enough not to need it."
+          hint="On a slower computer, the gopher2600 emulator draws only some of the frames it runs when it is close to falling behind, which leaves more time for emulating. Game speed and sound are unchanged."
           persistent-hint
           class="option-switch"
         />
@@ -386,6 +387,7 @@ import {useConfigurationStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage,
   useMuteBlocklySoundsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
+import {useEmulatorSettings} from '../hooks/emulator-settings';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 
 // 64k compiles correctly (see generators/bbasic.js's  SUPPORTED_ROM_SIZES/
@@ -469,6 +471,8 @@ export default defineComponent({
     // every time you switched or started a new project.
     const muteBlocklySounds = useMuteBlocklySoundsStorage();
     const adaptiveFrameSkip = useAdaptiveFrameSkipStorage();
+    // Frame skipping belongs to the gopher2600 emulator, so its switch only shows with that one chosen.
+    const emulatorSettings = useEmulatorSettings();
     const hideSidebar = useHideSidebarStorage();
     const darkMode = useDarkModeStorage();
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
@@ -829,7 +833,7 @@ export default defineComponent({
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
       loadLastProject,
-      muteBlocklySounds, adaptiveFrameSkip, hideSidebar, darkMode, desaturateBlocklyColors,
+      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, darkMode, desaturateBlocklyColors,
       hideDescriptionText,
       stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,

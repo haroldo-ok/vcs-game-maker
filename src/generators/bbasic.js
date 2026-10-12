@@ -31,7 +31,7 @@ import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
   backgroundsWithOverflowRows, backgroundDataRows, effectiveBackgroundRows, backgroundPfresOf, dpcPlusPfresOf,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, resolveUsedBackgroundIds,
   ROW_FADE_IDLE_STEP, rowFadeStartColor, multicolorFadeVarName,
-  backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME} from '../blocks/background';
+  backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME, FADE_STEPS} from '../blocks/background';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
@@ -58,7 +58,7 @@ import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resol
   titleCardScrollOffsetVarName, resolveTitleScreenCardsNeedingIndexRefs,
   titleCardIndexVarName, titleCardColorIndexVarName, resolveColorSplitCardRefs,
   titleCardColorPageVarName, resolveColorPageCardRefs,
-  titleCardScrollEdgeFlagsVarName, titleCardColorVarName,
+  titleScrollEdgeFlagSlots, planTitleRowFade, setTitleRowFadePlans, padTitleCardFrames, TITLE_SCREEN_KERNEL_TYPES, titleCardColorVarName, titleCardFadeTargetVarName, titleCardFadeTimerVarName, titleCardFadePaceVarName,
   TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName} from '../blocks/titlescreen';
 import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
@@ -73,14 +73,14 @@ import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generate
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
   reserveRomNoiseDevVars, reserveRainbowColorDevVars, reserveBackgroundRainbowDevVars,
   ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, SEEK_FLAGS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
-  SPRITE_SCROLL_FLAGS_FAMILY, INERTIA_ACCEL_FLAGS_FAMILY, INERTIA_DECEL_FLAGS_FAMILY,
+  SPRITE_SCROLL_FLAGS_FAMILY, SPRITE_HIDDEN_FLAGS_FAMILY, hasHiddenFlag, hiddenFlagRef, INERTIA_ACCEL_FLAGS_FAMILY, INERTIA_DECEL_FLAGS_FAMILY,
   romNoiseOwnBit, rainbowColorOwnBit, BACKGROUND_RAINBOW_OWN_BIT, BACKGROUND_RAINBOW_LOADED_BIT, backgroundRainbowLoadedBit, romNoiseFlagsVarName, missileFireOwnBit, spriteOwnBit,
   backgroundColorTableLoVarName, backgroundColorTableHiVarName,
   missileFireDirVarName, generateMissileFireChecks, generateBounceStageChecks, reserveMissileFireDevVars, reserveMissileBounceDevVars,
   generateSeekChecks, reserveSeekDevVars, reserveSeekArrivedDevVars,
   reserveCtrlpfShadowDevVar, generateCtrlpfShadowSetup, missileWidthsVarName, reserveMissileWidthsDevVar, reserveDpcPlusShownDevVars, ctrlpfShadowVarName, resolveUsedPlayerAnimations,
   resolvePlayerAnimationFinishedWatches,
-  generateInertiaChecks, reserveInertiaDevVars, reserveSpriteScrollDevVars, reserveSizeSetDevVars, sizeSetVarName, ROM_NOISE_EXTRA_FAMILY, isRomNoiseExtra, romNoiseExtraOwnBit,
+  generateInertiaChecks, reserveInertiaDevVars, reserveSpriteScrollDevVars, reserveSpriteHiddenDevVars, reserveSizeSetDevVars, sizeSetVarName, ROM_NOISE_EXTRA_FAMILY, isRomNoiseExtra, romNoiseExtraOwnBit,
   playerNameOfValue} from './bbasic/sprites';
 import {resolveSeekArrivedWatches} from '../blocks/sprites';
 import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprite-lock';
@@ -845,6 +845,16 @@ Blockly.BBasic.init = function(workspace) {
   // _get (see reserveSpriteScrollDevVars' comment in generators/bbasic/
   // sprites.js) - both block types share one OBJECT dropdown, so either one
   // counts toward a name being "in use."
+  // The standard kernel's players that a visibility block names (set or get): each has a hidden flag, see
+  // SPRITE_HIDDEN_FLAGS_FAMILY in generators/bbasic/sprites.js.
+  this.spriteHiddenUsedFor = new Set();
+  if ((useConfigurationStorage().value || {}).kernel !== 'dpcplus') {
+    workspace.getAllBlocks(false).forEach((block) => {
+      const named = block.type === 'sprite_player_set' ? /^(player[01])visibility$/.exec(block.getFieldValue('VAR') || '') :
+        block.type === 'sprite_player_get' ? /^__(player[01])visible_$/.exec(block.getFieldValue('VAR') || '') : null;
+      if (named) this.spriteHiddenUsedFor.add(named[1]);
+    });
+  }
   this.spriteScrollUsedFor = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
     if ((block.type === 'sprite_scroll_with_playfield_set' ||
@@ -1074,7 +1084,43 @@ Blockly.BBasic.init = function(workspace) {
   const existingCards = new Set(resolveAllTitleScreenCardRefs());
   const targets = (type) => enabledBlocks(type).map((block) => block.getFieldValue('CARD'))
       .filter((ref) => ref && existingCards.has(ref));
-  this.titleCardColorRefs = new Set(this.titleScreenDrawUsed ? targets('titlescreen_card_color_set') : []);
+  // Graphics a "Fade title screen graphic color" block names: each keeps its color in a byte, a target and a timer, and the
+  // frames a step takes in a separate byte unless every fade of it has the same constant time.
+  // Only a fade block that is part of some event or routine counts (a loose one, or one under a disabled block, makes no code and so
+  // needs no tables, variables or subroutine).
+  const GENERATED_ROOTS = ['event_block', 'event_comment', 'subroutine_define', 'function_define'];
+  const fadeBlocks = enabledBlocks('titlescreen_card_color_fade').filter((block) => !block.getInheritedDisabled() &&
+    GENERATED_ROOTS.includes(block.getRootBlock().type) && existingCards.has(block.getFieldValue('CARD')));
+  const fadedRefs = this.titleScreenDrawUsed ? [...new Set(fadeBlocks.map((block) => block.getFieldValue('CARD')))] : [];
+  const cardOf = (ref) => processTitleScreenStorageDefaults(useTitleScreenStorage()).screens.flatMap((screen) =>
+    (screen.cards || []).map((card) => ({card, ref: `${screen.id}:${card.id}`}))).find((entry) => entry.ref === ref);
+  // A multicolor (48x2) graphic fades through color lists made ahead of time toward a color picked on the block, so that has to
+  // be a color from the color picker and the frames a number typed in: its plan (see planTitleRowFade) has the lists.
+  this.titleRowFadePlans = {};
+  fadedRefs.forEach((ref) => {
+    const entry = cardOf(ref);
+    if (!entry || entry.card.type !== '48x2' || this.titleRowFadePlans[ref]) return;
+    const block = fadeBlocks.find((candidate) => candidate.getFieldValue('CARD') === ref);
+    const colorBlock = block && block.getInputTargetBlock('VALUE');
+    const framesBlock = block && block.getInputTargetBlock('FRAMES');
+    if (!colorBlock || colorBlock.type !== 'color_get' || !framesBlock || framesBlock.type !== 'math_number') return;
+    const {paddedFrames} = padTitleCardFrames(entry.card, TITLE_SCREEN_KERNEL_TYPES['48x2']);
+    const plan = planTitleRowFade(paddedFrames[0].colorRows, Number(colorBlock.getFieldValue('COLOR')) & 0xff);
+    this.titleRowFadePlans[ref] = {...plan, target: Number(colorBlock.getFieldValue('COLOR')) & 0xff,
+      pace: Math.max(1, Math.floor(Number(framesBlock.getFieldValue('NUM')) / plan.stepCount))};
+  });
+  setTitleRowFadePlans(this.titleRowFadePlans);
+  this.titleFadeRefs = new Set(fadedRefs.filter((ref) => !this.titleRowFadePlans[ref] && (cardOf(ref) || {card: {}}).card.type === '48x1'));
+  this.titleFadeConstantPace = {};
+  this.titleFadeRefs.forEach((ref) => {
+    const paces = fadeBlocks.filter((block) => block.getFieldValue('CARD') === ref).map((block) => {
+      const frames = block.getInputTargetBlock('FRAMES');
+      return frames && frames.type === 'math_number' ? Math.max(1, Math.floor(Number(frames.getFieldValue('NUM')) / FADE_STEPS)) : null;
+    });
+    if (paces.every((pace) => pace !== null && pace === paces[0])) this.titleFadeConstantPace[ref] = paces[0];
+  });
+  this.titleCardColorRefs = new Set(this.titleScreenDrawUsed ?
+    [...targets('titlescreen_card_color_set'), ...this.titleFadeRefs] : []);
   // The Player sprites card's players: one that plays several frames by itself needs a frame counter, and
   // one that plays by itself or is set by a block needs a byte for the kernel's bmp_playerN_index.
   this.titlePlayerSlots = this.titleScreenDrawUsed ? resolveTitlePlayerSlots() : null;
@@ -1814,10 +1860,10 @@ Blockly.BBasic.init = function(workspace) {
         .filter((block) => block.type === 'titlescreen_scroll_edge_reached' &&
           existingCards.has(block.getFieldValue('CARD')))
         .map((block) => `${block.getFieldValue('CARD')}|${block.getFieldValue('EDGE')}`));
-    new Set([...this.titleScrollEdgeWatches].map((watch) => watch.split('|')[0])).forEach((ref) => {
-      if (!ref) return;
-      reserveTitleDevVar(titleCardScrollEdgeFlagsVarName(ref), undefined,
-          'bit 0 = title screen scroll reached the top, bit 1 = reached the bottom');
+    // One bit per watched card edge, packed eight to a byte.
+    this.titleScrollEdgeSlots = titleScrollEdgeFlagSlots(this.titleScrollEdgeWatches);
+    new Set([...this.titleScrollEdgeSlots.values()].map((slot) => slot.varName)).forEach((varName) => {
+      reserveTitleDevVar(varName, undefined, 'title screen scroll reached an edge, a bit for each "When title screen scroll reaches" block');
     });
     resolveAnimatedTitleScreenCardRefs().forEach((ref) => {
       reserveTitleDevVar(titleCardFrameCounterVarName(ref), undefined,
@@ -1832,23 +1878,73 @@ Blockly.BBasic.init = function(workspace) {
     // raw asm byte, so a runtime write to it actually lands in RAM - see
     // titleCardIndexVarName's comment. Reserved by ref, same timing
     // reasoning as the counter/scroll-offset vars just above.
+    // Some of these bytes (the picture's frame offset and the row color list's offset and page of an animated graphic that does not
+    // scroll) are worked out from the graphic's frame counter just before its page is drawn (see titlescreen_draw), so they only
+    // matter while that page shows. The ones of graphics on different pages can be the same byte: the first page's graphics' bytes
+    // are shared with the second's, and so on, one byte for each of the most any page needs.
+    const animatedRefs = new Set(resolveAnimatedTitleScreenCardRefs());
+    const derivedCandidates = [];
+    const addDerived = (refs, nameOf, rank, allowed) => refs.forEach((ref) => {
+      if (animatedRefs.has(ref) && !this.titleScreenScrollTargetRefs.has(ref) && allowed(ref)) {
+        derivedCandidates.push({name: nameOf(ref), page: ref.split(':')[0], rank});
+      }
+    });
+    addDerived(resolveTitleScreenCardsNeedingIndexRefs(), titleCardIndexVarName, 0, () => true);
+    addDerived(resolveColorSplitCardRefs(), titleCardColorIndexVarName, 1, (ref) => !this.titleRowFadePlans[ref]);
+    addDerived(resolveColorPageCardRefs(), titleCardColorPageVarName, 2, () => true);
+    const derivedByPage = new Map();
+    derivedCandidates.sort((a, b) => a.rank - b.rank || (a.name < b.name ? -1 : 1)).forEach((candidate) => {
+      if (!derivedByPage.has(candidate.page)) derivedByPage.set(candidate.page, []);
+      derivedByPage.get(candidate.page).push(candidate.name);
+    });
+    const derivedSlots = [];
+    derivedByPage.forEach((names) => names.forEach((name, index) => {
+      (derivedSlots[index] = derivedSlots[index] || []).push(name);
+    }));
+    this.titleDerivedVars = new Set();
+    const derivedAliasOf = {};
+    derivedSlots.filter((group) => group.length > 1).forEach((group) => {
+      group.forEach((name) => this.titleDerivedVars.add(name));
+      group.slice(1).forEach((name) => {
+        derivedAliasOf[name] = group[0];
+      });
+    });
+    this.titleAliasPairs = [];
+    const reserveCardVar = (canonicalName, description) => {
+      if (!derivedAliasOf[canonicalName]) {
+        reserveTitleDevVar(canonicalName, undefined, description);
+        return;
+      }
+      const name = this.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      if (!(name in this.devVarDescriptions)) this.devVarDescriptions[name] = description;
+      this.titleAliasPairs.push({alias: name,
+        rep: this.nameDB_.getName(derivedAliasOf[canonicalName], Blockly.Names.DEVELOPER_VARIABLE_TYPE)});
+    };
     resolveTitleScreenCardsNeedingIndexRefs().forEach((ref) => {
-      reserveTitleDevVar(titleCardIndexVarName(ref), undefined,
-          'title screen card: bmp_KEY_index storage (frame/scroll offset)');
+      reserveCardVar(titleCardIndexVarName(ref), 'title screen card: bmp_KEY_index storage (frame/scroll offset)');
     });
     // An animation that repeats a picture under different colors keeps its row color list's frame offset in a
     // separate byte (titleCardColorSplit).
     resolveColorSplitCardRefs().forEach((ref) => {
-      reserveTitleDevVar(titleCardColorIndexVarName(ref), undefined,
-          'title screen card: bmp_KEY_colorindex storage (row color list frame offset)');
+      reserveCardVar(titleCardColorIndexVarName(ref), 'title screen card: bmp_KEY_colorindex storage (row color list frame offset)');
     });
     resolveColorPageCardRefs().forEach((ref) => {
-      reserveTitleDevVar(titleCardColorPageVarName(ref), undefined,
-          'title screen card: bmp_KEY_colorpage storage (page of its row color lists)');
+      reserveCardVar(titleCardColorPageVarName(ref), 'title screen card: bmp_KEY_colorpage storage (page of its row color lists)');
     });
     this.titleCardColorRefs.forEach((ref) => {
       reserveTitleDevVar(titleCardColorVarName(ref), undefined,
           'title screen graphic: its color ("Set title screen graphic color" block)');
+    });
+    // A multicolor graphic's fade is the step it is on (its color list offset, which the kernel reads) and a timer.
+    Object.keys(this.titleRowFadePlans).forEach((ref) => {
+      reserveTitleDevVar(titleCardFadeTimerVarName(ref), undefined, 'title screen graphic color fade: frames until the next step');
+    });
+    this.titleFadeRefs.forEach((ref) => {
+      reserveTitleDevVar(titleCardFadeTargetVarName(ref), undefined, 'title screen graphic color fade: the color it fades to');
+      reserveTitleDevVar(titleCardFadeTimerVarName(ref), undefined, 'title screen graphic color fade: frames until the next step');
+      if (this.titleFadeConstantPace[ref] === undefined) {
+        reserveTitleDevVar(titleCardFadePaceVarName(ref), undefined, 'title screen graphic color fade: frames a step takes');
+      }
     });
     [0, 1].forEach((playerIndex) => {
       if (this.titlePlayerIndexUsed[playerIndex]) {
@@ -2055,6 +2151,7 @@ Blockly.BBasic.init = function(workspace) {
     {family: SEEK_FLAGS_FAMILY, bits: ownBits(this.seekUsedFor, spriteOwnBit)},
     {family: SEEK_ARRIVED_FLAGS_FAMILY, bits: ownBits(this.seekArrivedWatches, spriteOwnBit)},
     {family: SPRITE_SCROLL_FLAGS_FAMILY, bits: ownBits(this.spriteScrollUsedFor, spriteOwnBit)},
+    {family: SPRITE_HIDDEN_FLAGS_FAMILY, bits: ownBits(this.spriteHiddenUsedFor, spriteOwnBit)},
     {family: INERTIA_ACCEL_FLAGS_FAMILY, bits: ownBits(this.inertiaAccelUsedFor, spriteOwnBit)},
     {family: INERTIA_DECEL_FLAGS_FAMILY, bits: ownBits(this.inertiaDecelUsedFor, spriteOwnBit)},
     {family: TITLE_KERNEL_ENDED_FAMILY, bits: this.titleEndUsed ? [0] : []},
@@ -2631,6 +2728,7 @@ Blockly.BBasic.init = function(workspace) {
         'a requested starting scroll row + 1 (0 = none), applied by the next background load');
   }
   reserveSpriteScrollDevVars(reserveDevVar, this.spriteScrollUsedFor);
+  reserveSpriteHiddenDevVars(reserveDevVar, this.spriteHiddenUsedFor);
   // "Background scroll" with "scroll playfield colors" checked (needs the row
   // color table, see needsPlayfieldColorTable) - see
   // BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME in blocks/background.js.
@@ -2684,7 +2782,9 @@ Blockly.BBasic.init = function(workspace) {
   // Each Title Screen variable takes the slot of a variable only gameplay uses; the ones left over
   // (more title variables than such variables) take a slot just for themselves after all.
   this.titleSharedSlots = [];
-  const shareable = findGameplayOnlyVariables(workspace, variables).map((id) => userVarNameById[id]);
+  const gameplayOnlyIds = findGameplayOnlyVariables(workspace, variables);
+  const shareable = gameplayOnlyIds.map((id) => userVarNameById[id]);
+  const afterEndNames = new Set((gameplayOnlyIds.afterEnd || []).map((id) => userVarNameById[id]));
   if (pendingTitleVars.length > shareable.length) {
     // Past the user variables: the hidden direction byte of every fired object that only gameplay fires. Only
     // bytes in the ordinary pools can take a Title Screen variable's name.
@@ -2705,11 +2805,13 @@ Blockly.BBasic.init = function(workspace) {
   // Past those: whatever else the generated code of a first pass shows only gameplay touching (see title-liveness.js), the
   // system variables included. They start from their starting value again when gameplay starts.
   this.titleSharedInit = new Map();
-  if (pendingTitleVars.length > shareable.length && this.gameplayOnlyHints) {
+  // (Only when every Title Screen block is inside the events that run during the title screen: the checks below read the
+  // generated code, which cannot tell a title block run during gameplay.)
+  if (pendingTitleVars.length > shareable.length && this.gameplayOnlyHints && titlePhaseBlocks(workspace)) {
     const omitted = this.omittedSystemVars || new Set();
     const systemNames = SYSTEM_VARIABLES.map(([name]) => name).filter((name) => !omitted.has(name));
     const inPools = (name) => defvars.includes(name) || this.superchipVars.includes(name) || this.dpcPlusVars.includes(name);
-    [...this.gameplayOnlyHints.names].filter((name) => (inPools(name) || systemNames.includes(name)) &&
+    [...this.gameplayOnlyHints.names].filter((name) => (inPools(name) || systemNames.includes(name) || this.userVarNames.has(name)) &&
       !shareable.includes(name) && !runOnceByteNames.includes(name)).forEach((name) => {
       shareable.push(name);
       this.titleSharedInit.set(name, this.gameplayOnlyHints.initValues.get(name));
@@ -2721,6 +2823,14 @@ Blockly.BBasic.init = function(workspace) {
     else routeDevVar(titleVar);
   });
   this.titleUnhostedCount = pendingTitleVars.length - this.titleSharedSlots.length;
+  // "End title screen" sets back to zero the variables that only code running after it uses, which took a Title Screen variable's slot.
+  this.titleEndResets = [...new Set(this.titleSharedSlots.map(({target}) => target).filter((name) => afterEndNames.has(name)))]
+      .map((name) => `${name} = 0`);
+  // The bytes that are another page's graphics' as well take the same slot as the one they share it with.
+  (this.titleAliasPairs || []).forEach(({alias, rep}) => {
+    const hosted = this.titleSharedSlots.find(({titleVar}) => titleVar === rep);
+    this.titleSharedSlots.push({titleVar: alias, target: hosted ? hosted.target : rep});
+  });
   this.runOnceHostedBytes = new Set(this.titleSharedSlots.map(({target}) => target).filter((name) => runOnceByteNames.includes(name)));
 
   // Declare all of the variables. Without Superchip, the system variables
@@ -3697,11 +3807,8 @@ Blockly.BBasic.finish = function(code) {
     ...(Blockly.BBasic.backgroundScrollEdgeWatches.size ?
       [` ${Blockly.BBasic.nameDB_.getName(backgroundScrollEdgeFlagsVarName(),
           Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`] : []),
-    ...[...(Blockly.BBasic.titleScrollEdgeWatches || [])]
-        .map((watch) => watch.split('|')[0])
-        .filter((ref, index, refs) => ref && refs.indexOf(ref) === index)
-        .map((ref) => ` ${Blockly.BBasic.nameDB_.getName(titleCardScrollEdgeFlagsVarName(ref),
-            Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`),
+    ...[...new Set([...(Blockly.BBasic.titleScrollEdgeSlots || new Map()).values()].map((slot) => slot.varName))]
+        .map((varName) => ` ${Blockly.BBasic.nameDB_.getName(varName, Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`),
     ...['pf', 'bk'].filter((kind) => Blockly.BBasic.multicolorFade[kind].from.length || Blockly.BBasic.multicolorFade[kind].to.length)
         .map((kind) => ` ${Blockly.BBasic.nameDB_.getName(multicolorFadeVarName(kind, 'Step'),
             Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${ROW_FADE_IDLE_STEP}`),
@@ -3740,7 +3847,10 @@ Blockly.BBasic.finish = function(code) {
   // its neighbors, since it needs cardAnimationByRef (kernel slot keys,
   // frame heights/durations), which only exists in that function's
   // scope. Empty string when no Title Screen card is actually animated.
-  const generatedTitleScreenAnimationChecks = Blockly.BBasic.titleScreenAnimationChecks || '';
+  // The Title Screen loop carries a copy of these checks (see generateGameLoopEvent), and they write the Title Screen
+  // variables, which with shared slots would be gameplay variables then: so gameplay does not run them.
+  const generatedTitleScreenAnimationChecks = (Blockly.BBasic.titleSharedSlots && Blockly.BBasic.titleSharedSlots.length) ? '' :
+    (Blockly.BBasic.titleScreenAnimationChecks || '');
   // The Title Screen loop (see generateGameLoopEvent) runs the first half of commongamelogic, which
   // tracks the project's state: the frame counter, joystick presses and taps, sounds, music,
   // fades and text scrolling. The second half only prepares the regular screen for drawscreen,
@@ -4343,7 +4453,67 @@ const TITLE_PHASE_EVENTS = ['system_start', 'title_start', 'title_update'];
 const TITLE_KERNEL_LOOP_BIT = 'player0size{7}';
 // The blocks that can run while the title screen does (see above), or null when sharing is off altogether.
 const CALL_BLOCK_TYPES = ['subroutine_call', 'function_call', 'function_call_statement'];
-const titlePhaseBlocks = (workspace) => {
+// The blocks that only run once "End title screen" has: the body of an "if variable = number" in Title screen update, where
+// every block of the project that sets the variable to that number is followed by "End title screen" in its stack (so the
+// kernel has stopped by the time the variable holds it), and no other kind of block changes the variable. Title screen start
+// has to set the variable to some other number first, so a second pass through the title screen starts from a different value.
+const findTitleEndedBlocks = (workspace) => {
+  const result = new Set();
+  const allBlocks = workspace.getAllBlocks(false);
+  const isEnd = (block) => block.type === 'titlescreen_end' && block.isEnabled();
+  if (!allBlocks.some(isEnd)) return result;
+  const numberOf = (block) => (block && block.type === 'math_number' ? Number(block.getFieldValue('NUM')) : null);
+  const setsOf = (id) => allBlocks.filter((block) => block.type === 'variables_set' && block.getFieldValue('VAR') === id);
+  // The end block is in the same stack as the set block, before or after it, so it has run (this frame) by the time the variable
+  // holds the number and any code that checks for it runs.
+  const followedByEnd = (block) => {
+    for (let next = block.getNextBlock(); next; next = next.getNextBlock()) if (isEnd(next)) return true;
+    for (let previous = block.getPreviousBlock(); previous; previous = previous.getPreviousBlock()) if (isEnd(previous)) return true;
+    return false;
+  };
+  const eventBlocks = (name) => allBlocks.filter((block) => block.type === 'event_block' && block.getFieldValue('EVENT') === name);
+  const startsAtOtherValue = (id, value) => eventBlocks('title_start').some((top) =>
+    (() => {
+      for (let block = top.getInputTargetBlock('DO'); block; block = block.getNextBlock()) {
+        if (block.type === 'variables_set' && block.getFieldValue('VAR') === id) {
+          const set = numberOf(block.getInputTargetBlock('VALUE'));
+          return set !== null && set !== value;
+        }
+      }
+      return false;
+    })());
+  const guardOf = (condition) => {
+    if (!condition || condition.type !== 'logic_compare' || condition.getFieldValue('OP') !== 'EQ') return null;
+    const [a, b] = [condition.getInputTargetBlock('A'), condition.getInputTargetBlock('B')];
+    const variable = [a, b].find((block) => block && block.type === 'variables_get');
+    const number = [a, b].map(numberOf).find((value) => value !== null);
+    return variable && number !== undefined ? {id: variable.getFieldValue('VAR'), value: number} : null;
+  };
+  const validGuard = new Map();
+  const isValid = ({id, value}) => {
+    const key = `${id}=${value}`;
+    if (!validGuard.has(key)) {
+      const writers = allBlocks.filter((block) => block.type !== 'variables_get' && block.getVars().includes(id));
+      validGuard.set(key, writers.every((block) => block.type === 'variables_set' && numberOf(block.getInputTargetBlock('VALUE')) !== null &&
+          (numberOf(block.getInputTargetBlock('VALUE')) !== value || followedByEnd(block))) &&
+          setsOf(id).length > 0 && startsAtOtherValue(id, value));
+    }
+    return validGuard.get(key);
+  };
+  eventBlocks('title_update')
+      .forEach((top) => top.getInputTargetBlock('DO') && top.getInputTargetBlock('DO').getDescendants(false)
+          .filter((block) => block.type === 'controls_if').forEach((block) => {
+            for (let i = 0; block.getInput(`IF${i}`); i++) {
+              const guard = guardOf(block.getInputTargetBlock(`IF${i}`));
+              const body = block.getInputTargetBlock(`DO${i}`);
+              if (guard && body && isValid(guard)) {
+                for (let inner = body; inner; inner = inner.getNextBlock()) inner.getDescendants(false).forEach((d) => result.add(d));
+              }
+            }
+          }));
+  return result;
+};
+const titlePhaseBlocks = (workspace, ended = null) => {
   const phaseBlocks = [];
   const routines = new Map();
   let titleBlockOutside = false;
@@ -4368,16 +4538,28 @@ const titlePhaseBlocks = (workspace) => {
     phaseBlocks.push(...routines.get(key));
     callsFrom(routines.get(key));
   });
-  callsFrom([...phaseBlocks]);
-  return titleBlockOutside ? null : phaseBlocks;
+  callsFrom(ended ? phaseBlocks.filter((block) => !ended.has(block)) : [...phaseBlocks]);
+  return titleBlockOutside ? null : (ended ? phaseBlocks.filter((block) => !ended.has(block)) : phaseBlocks);
 };
+// The ids of the variables no block of the title phase touches. A variable only the blocks that run once "End title screen" has
+// (see findTitleEndedBlocks) touch counts too, and comes back in `afterEnd` as well: its slot holds a Title Screen variable until
+// then, so it is set back to zero (what it holds before anything sets it) as that block runs.
 const findGameplayOnlyVariables = (workspace, variables) => {
   const used = new Set(variables.map((variable) => variable.getId()));
+  const usedBy = (blocks) => {
+    const ids = new Set();
+    blocks.forEach((block) => block.getVars().forEach((id) => ids.add(id)));
+    return ids;
+  };
   const phaseBlocks = titlePhaseBlocks(workspace);
   if (!phaseBlocks) return [];
-  const excluded = new Set();
-  phaseBlocks.forEach((block) => block.getVars().forEach((id) => excluded.add(id)));
-  return [...used].filter((id) => !excluded.has(id));
+  const ended = findTitleEndedBlocks(workspace);
+  const endedPhaseBlocks = ended.size ? titlePhaseBlocks(workspace, ended) : phaseBlocks;
+  const excluded = usedBy(phaseBlocks);
+  const excludedAfterEnd = usedBy(endedPhaseBlocks);
+  const ids = [...used].filter((id) => !excludedAfterEnd.has(id));
+  ids.afterEnd = ids.filter((id) => excluded.has(id));
+  return ids;
 };
 // The fired objects whose Fire/Bounce direction byte only gameplay uses: the code that moves a fired object runs
 // after the Title Screen loop skips the rest of the frame, so only a Fire or Bounce block of the title phase
@@ -4397,6 +4579,7 @@ Blockly.BBasic.generateGameEvent = function(eventName,
   let eventCode = codeGenerator(eventName, this.getGameEvent(eventName));
   // Title screen start sets the title screen's runtime state back to what the Title tab says: the colors
   // of the graphics that blocks can recolor, the held frames and the background color override.
+  let titleResets = [];
   if (this.titleScreenDrawUsed && eventName === 'title_start') {
     const resets = [
       ...this.titleCardHoldRefs.map((ref, index) => `${titleCardHoldVar()}{${titleCardHoldBit(index)}} = 0`),
@@ -4411,6 +4594,7 @@ Blockly.BBasic.generateGameEvent = function(eventName,
       ...(this.titleScreenStartLines || []),
     ];
     if (resets.length) eventCode = resets.join('\n') + '\n' + eventCode;
+    titleResets = resets;
   }
   // Leaving the Title Screen loop: commongamelogic goes back to preparing the regular screen.
   if (this.titleScreenDrawUsed && ['title_start', 'gameplay_start', 'gameover_start'].includes(eventName)) {
@@ -4458,6 +4642,17 @@ Blockly.BBasic.generateGameEvent = function(eventName,
     }
     eventCode = clears.join('\n') + '\n' + eventCode;
   }
+  // A gameplay variable that shares a Title Screen variable's slot may be set by the code that runs as the title screen starts
+  // (a routine that resets the game, say), which would leave its value in the Title Screen variable. The Title Screen variables
+  // are set again as the event ends, from the same values the start of the event gave them.
+  const titleReinit = [];
+  if (eventName === 'title_start' && this.titleSharedSlots && this.titleSharedInit) {
+    this.titleSharedSlots.filter((shared) => this.titleSharedInit.has(shared.target) &&
+        this.gameplayOnlyHints && this.gameplayOnlyHints.startAssigned.has(shared.target)).forEach(({titleVar}) => {
+      const reset = titleResets.filter((line) => line.startsWith(`${titleVar} = `)).pop();
+      titleReinit.push(reset || `${titleVar} = 0`);
+    });
+  }
   return this.normalizeIndents([
     'rem **************************************************************************',
     `rem Event: ${eventName}.`,
@@ -4465,6 +4660,7 @@ Blockly.BBasic.generateGameEvent = function(eventName,
     `@${eventName}_begin`,
     eventCode,
     `@${eventName}_end`,
+    ...titleReinit,
   ].join('\n'));
 };
 
@@ -4516,7 +4712,9 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
     // player redraws, panel color restores) that caused the original stray-
     // scanline bug this skip exists to avoid.
     const titleScreenAnimationChecks = usesTitleScreenKernel ?
-      (Blockly.BBasic.titleScreenAnimationChecks || '') : '';
+      (Blockly.BBasic.titleScreenAnimationChecks || '') + (Blockly.BBasic.subroutines[TITLE_FADE_CHECKS_NAME] ?
+        `gosub ${TITLE_FADE_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(),
+            Blockly.BBasic.getSubroutineBank(TITLE_FADE_CHECKS_NAME))}\n` : '') : '';
     // With "End title screen" in the project the loop has two ways to draw: the kernel's, and once
     // that block has run, the regular game screen's, so the rest of the event goes on as gameplay.
     const hasEnd = usesTitleScreenKernel && this.titleEndUsed;
@@ -6826,7 +7024,9 @@ Blockly.BBasic.generateAnimations = function() {
     // animationsEndLabel" only ever needs a bank tag if the LABEL it targets
     // physically moves, and neither of these ever does.
     const hiddenPayload = [`  ${name}:`, `  %00000000`, `end`].join('\n');
-    const hiddenplayerHandler = [
+    // A player with a hidden flag runs its animation either way, and the flag then draws the blank picture over the animation's.
+    const hasFlag = hasHiddenFlag(Blockly, name);
+    const hiddenplayerHandler = hasFlag ? '' : [
       `  if ${name}frame <> 255 then goto ${animationsStartLabel}`,
       ...(isDpcPlus ? [`  ${name}size{7} = 0`] : []),
       Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload),
@@ -6856,7 +7056,9 @@ Blockly.BBasic.generateAnimations = function() {
           Blockly.BBasic.wrapRelocatableGraphics(unitKey, payload) +
           `\n  goto ${animationsEndLabel}`;
       }).join('\n\n') +
-      `\n\n${animationsEndLabel}`;
+      `\n\n${animationsEndLabel}` +
+      (hasFlag ? [`\n  if !${hiddenFlagRef(Blockly, name)} then goto ${name}hiddenDone`,
+        Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload), `${name}hiddenDone`].join('\n') : '');
   };
 
   // The sprite that shows the right half of a player's wide animations (see utils/wide-sprite.js). Every frame it takes over
@@ -6905,6 +7107,8 @@ Blockly.BBasic.generateAnimations = function() {
       `  temp1 = ${owner}size & $0F`,
       ...(isDpcPlus ? [`  temp2 = ${name}size & $80`, `  ${name}size = temp1 | temp2`] : [`  ${name}size = temp1`]),
       `  ${name}frame = ${owner}frame`,
+      // A hidden player's partner is hidden with it, though the frame of that player goes on.
+      ...(hasHiddenFlag(Blockly, owner) ? [`  if ${hiddenFlagRef(Blockly, owner)} then ${name}frame = 255`] : []),
       `${name}syncDone`,
     ]).join('\n');
     const hiddenPayload = [`  ${name}:`, `  %00000000`, `end`].join('\n');
@@ -6990,7 +7194,7 @@ import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
 import textMinikernel from './bbasic/text-minikernel';
-import titlescreen, {TITLE_SCREEN_SUBROUTINE_NAME} from './bbasic/titlescreen';
+import titlescreen, {TITLE_SCREEN_SUBROUTINE_NAME, TITLE_FADE_CHECKS_NAME} from './bbasic/titlescreen';
 import variables from './bbasic/variables';
 import {findGameplayOnlyNames} from '../utils/title-liveness';
 import {dpcTileMarker} from '../utils/dpc-tile';

@@ -135,12 +135,43 @@ export const padTitleCardFrames = (card, typeInfo) => {
   return {frames, frameHeight, paddedFrames};
 };
 
+// The multicolor (48x2) graphics a "Fade title screen graphic color" block fades, by "screenId:cardId" ref: where each fades to and the
+// color lists of its steps (see planTitleRowFade), set by the generator's init before the graphics are built.
+let rowFadePlans = {};
+export const setTitleRowFadePlans = (plans) => {
+  rowFadePlans = plans || {};
+};
+
+// The color lists of a multicolor graphic fading to a color: from the graphic's row colors toward the target a step at a time,
+// each row's brightness moving toward the target's the way the single-color fade does (the hue stays until the brightness lands, then
+// becomes the target's). At most as many steps as fit in the 255 rows the kernel's color offset can reach; with fewer steps each
+// moves further. The last list is every row on the target.
+export const planTitleRowFade = (rowColors, targetColor) => {
+  const height = rowColors.length || 1;
+  const brightness = (color) => color & 0x0E;
+  const steps = (color) => (color === targetColor ? 0 :
+    Math.max(1, Math.ceil(Math.abs(brightness(color) - brightness(targetColor)) / 2)));
+  const needed = Math.max(1, ...rowColors.map(steps));
+  const stepCount = Math.max(1, Math.min(needed, Math.floor(255 / height)));
+  const increment = 2 * Math.ceil(needed / stepCount);
+  const at = (color, step) => {
+    const from = brightness(color);
+    const to = brightness(targetColor);
+    const moved = from < to ? Math.min(from + increment * step, to) : Math.max(from - increment * step, to);
+    return moved === to ? ((targetColor & 0xF0) | to) : ((color & 0xF0) | moved);
+  };
+  const lists = Array.from({length: stepCount}, (_, index) => rowColors.map((color) => at(color, index + 1)));
+  return {lists, stepCount, height};
+};
+
 // How a card keeps its pictures and its row color lists apart ('' when it doesn't, 'offset' or 'page'): only the 48-wide two-line
 // kernels can (96x2 reads colors with the same row counter as the picture), and only when the
 // animation repeats a picture under different colors, so the picture takes less ROM stored once.
 // Everything else stores each frame whole, as before.
-export const titleCardColorSplit = (card) => {
+export const titleCardColorSplit = (card, ref) => {
   const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+  // A multicolor graphic that is faded has its color lists apart as well: the original one, and one for each step of the fade.
+  if (ref && rowFadePlans[ref] && typeInfo && typeInfo.width === 48 && typeInfo.hasRowColors) return 'offset';
   if (!typeInfo || typeInfo.width !== 48 || !typeInfo.hasRowColors || !isCardAnimated(card)) return '';
   const {frameHeight, paddedFrames} = padTitleCardFrames(card, typeInfo);
   const colorLists = new Set(paddedFrames.map(({colorRows}) => JSON.stringify(colorRows)));
@@ -164,7 +195,7 @@ export const resolveColorPageCardRefs = () => {
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
-      if (titleCardColorSplit(card) === 'page') refs.push(`${screen.id}:${card.id}`);
+      if (titleCardColorSplit(card, `${screen.id}:${card.id}`) === 'page') refs.push(`${screen.id}:${card.id}`);
     });
   });
   return refs;
@@ -176,7 +207,7 @@ export const resolveColorSplitCardRefs = () => {
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
-      if (titleCardColorSplit(card)) refs.push(`${screen.id}:${card.id}`);
+      if (titleCardColorSplit(card, `${screen.id}:${card.id}`)) refs.push(`${screen.id}:${card.id}`);
     });
   });
   return refs;
@@ -184,6 +215,11 @@ export const resolveColorSplitCardRefs = () => {
 // A single-color (48x1) graphic's color as a real RAM byte, for the "Set title screen graphic
 // color" block: bmp_KEY_color (see buildCardDataAsm) is aliased to it instead of a ROM byte.
 export const titleCardColorVarName = (ref) => `titleCardColor_${sanitizeCardRef(ref)}`;
+// A fade of that color (the "Fade title screen graphic color" block): the color it is going to, the frames left until the next
+// step and, unless every fade of the graphic takes the same time, the frames each step takes.
+export const titleCardFadeTargetVarName = (ref) => `titleCardFadeTarget_${sanitizeCardRef(ref)}`;
+export const titleCardFadeTimerVarName = (ref) => `titleCardFadeTimer_${sanitizeCardRef(ref)}`;
+export const titleCardFadePaceVarName = (ref) => `titleCardFadePace_${sanitizeCardRef(ref)}`;
 // The title screen player sprites' frame (bmp_playerN_index, a raw byte offset - see buildPlayerDataAsm) and,
 // for an animation with several frames that plays by itself, its duration counter.
 export const titlePlayerIndexVarName = (playerIndex) => `titlePlayerIndex${playerIndex}`;
@@ -199,8 +235,10 @@ export const TITLE_BG_COLOR_VAR_NAME = 'titleScreenBgColor';
 // One byte per scrolling card watched by a "When title screen scroll reaches"
 // block: bit 0 = the top was just reached, bit 1 = the bottom was. Set by
 // "Scroll title screen graphic" when it stops at an edge, cleared by the watch.
-export const titleCardScrollEdgeFlagsVarName = (ref) => `titleCardScrollEdge_${sanitizeCardRef(ref)}`;
-export const TITLE_SCROLL_EDGE_BITS = {top: 0, bottom: 1};
+// One bit for each watched "ref|edge", packed eight to a byte: the byte's variable name and the bit in it.
+export const titleScrollEdgeFlagsByteVarName = (byteIndex) => `titleScrollEdgeFlags_${byteIndex}`;
+export const titleScrollEdgeFlagSlots = (watches) => new Map([...watches].map((watch, index) =>
+  [watch, {varName: titleScrollEdgeFlagsByteVarName(index >> 3), bit: index & 7}]));
 
 // The Title tab's help text ("~85 rows of 48x2/96x2, ~170 rows of
 // 48x1") is a PER-PAGE, on-screen draw-time budget - how many TV scanlines
@@ -434,10 +472,11 @@ Blockly.Blocks['titlescreen_end'] = {
     this.appendDummyInput()
         .appendField(`${TITLE_ICON} End title screen`);
     this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
     this.setColour(TITLESCREEN_COLOR);
     this.setTooltip('Stops the Title Screen Kernel and shows the regular game screen from the next ' +
       'frame on, while staying in "Title screen update": the rest of the event keeps running every ' +
-      'frame, drawn the way gameplay is. Blocks after this one are skipped for the current frame, ' +
+      'frame, drawn the way gameplay is. Blocks after this one still run this frame, ' +
       '"Draw title screen" blocks do nothing once it has run, and "Title screen start" turns the ' +
       'kernel back on. Only works inside "Title screen update".');
   },
@@ -465,6 +504,8 @@ const buildCardOptions = (isWanted, emptyLabel) => () => {
 const buildBoxCardOptions = buildCardOptions(
     (card) => (TITLE_SCREEN_KERNEL_TYPES[card.type] || {}).width === 48, 'No 48-wide graphics');
 const buildColorCardOptions = buildCardOptions((card) => card.type === '48x1', 'No single-color (48x1) graphics');
+const buildFadeCardOptions = buildCardOptions((card) => card.type === '48x1' || card.type === '48x2',
+    'No single-color (48x1) or multicolor (48x2) graphics');
 const buildFrameCardOptions = buildCardOptions((card) => isCardAnimated(card), 'No graphics with more than one frame');
 
 // Changes a single-color (48x1) graphic's color while the title screen runs.
@@ -483,6 +524,30 @@ Blockly.Blocks['titlescreen_card_color_set'] = {
       'screen is showing, for text that blinks or cycles colors. "Title screen start" sets it back to ' +
       'the color chosen on the Title tab. Graphics with a color for every row (48x2, 96x2) keep ' +
       'the colors drawn on the Title tab.');
+  },
+};
+
+// Fades a single-color (48x1) graphic's color to another over some frames, the way the Score, Text and Background fades work.
+Blockly.Blocks['titlescreen_card_color_fade'] = {
+  init: function() {
+    this.appendValueInput('VALUE')
+        .setCheck('Number')
+        .appendField(`${TITLE_ICON} Fade title screen graphic`)
+        .appendField(new Blockly.FieldDropdown(buildFadeCardOptions), 'CARD')
+        .appendField('color to');
+    this.appendValueInput('FRAMES')
+        .setCheck('Number')
+        .appendField('over');
+    this.appendDummyInput().appendField('frames');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(TITLESCREEN_COLOR);
+    this.setTooltip('Starts fading the color of a Title Screen graphic toward the given color over roughly that many ' +
+      'frames: the same hue, with the brightness climbing or dropping from where it is. It only needs to run once, and ' +
+      'keeps going by itself while the title screen shows. "Title screen start" sets the color back to the one chosen on ' +
+      'the Title tab. A multicolor (48x2) graphic fades every frame of its animation from the row colors of its first ' +
+      'frame, and needs a color from the color picker block and a number of frames typed in.');
   },
 };
 

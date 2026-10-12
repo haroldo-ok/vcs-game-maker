@@ -60,7 +60,7 @@ minikernel
     ; the text below them is moved back (see after the digit loop).
     ifconst score5digits
         ifnconst noscoretxt
-    ldy #$C0                ; 2     (10)
+    ldy #$90                ; 2     (10)
         else
     ldy #$D0                ; 2     (10)
         endif
@@ -119,7 +119,7 @@ minikernel
     sta temp6               ; 3     (49)
     ifconst score5digits
         ifnconst noscoretxt
-	ldy #$D0                ; 2     (51)
+	ldy #$A0                ; 2     (51)
         else
 	ldy #$E0                ; 2     (51)
         endif
@@ -283,13 +283,20 @@ score_loop_height = * - textscoreloop
 	sty GRP0                ; 3     (73)
 	sty GRP1                ; 3     (76/0)
 	sty GRP0                ; 3     (3)
-    ; vcs-game-maker: back to where the text is centered, on a separate line (see the digits above).
+    ; vcs-game-maker: the sprites go back to where the text is centered (the digits were moved half a digit): the same strobes
+    ; at the same cycles and the same fine motion as the setup at the top, on a line by itself.
     ifconst score5digits
     sta WSYNC
-    lda #$10
-    sta HMP0
-    sta HMP1
-    sta HMOVE
+    ldy #$D0                ; 2     (2)
+    sty HMP0                ; 3     (5)
+    ldy #$E0                ; 2     (7)
+    sty HMP1                ; 3     (10)
+    sleep 30                ; 30    (40)
+    sta RESP0               ; 3     (43)
+    sta RESP1               ; 3     (46)
+    sleep 24                ; 24    (70)
+    sta HMOVE               ; 3     (73)
+    sleep 6                 ; 6     (79 = 3)
     endif
     endif
 	; vcs-game-maker: when noscoretxt is unset (score digits shown) AND
@@ -334,7 +341,7 @@ score_loop_height = * - textscoreloop
     
     ; vcs-game-maker: with the score hidden only the second row of text reads through the pointer; row 1 reads the
     ; messages directly (see showtextrowfast in text12b.asm).
-    ifnconst noscoretxt
+    ifnconst textfastrow1
     ifconst extendedtxt
         adc #>text_strings  ; carry already clear
     else

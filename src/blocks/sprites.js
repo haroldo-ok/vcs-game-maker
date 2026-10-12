@@ -43,12 +43,19 @@ const buildAnimationSelectBlock = ({icon, colour, storageFactory}) => {
       // No player to pick: every sprite shares the one pool of animations. Plugged into a block that has a player, it takes that
       // player's colour (red for Player 0, blue for Player 1, and so on); unplugged it keeps the plain one.
       const block = this;
+      // (Never while a block is being dragged, or on the insertion marker the drag shows: recoloring then rebuilds blocks Blockly is
+      // in the middle of connecting and disconnecting.)
       this.setOnChange(() => {
-        if (!block.workspace || block.workspace.isFlyout) return;
+        if (!block.workspace || block.workspace.isFlyout || block.isInsertionMarker() ||
+          (block.workspace.isDragging && block.workspace.isDragging())) return;
         const parentPlayer = block.getParent() && block.getParent().getFieldValue('PLAYER');
         const wanted = parentPlayer == null ? 'red' :
           parentPlayer === '1' ? 'blue' : /^[2-9]$/.test(parentPlayer) ? extraPlayerColour(parentPlayer) : 'red';
-        if (block.getColour() !== Blockly.utils.colour.parse(wanted)) block.setColour(wanted);
+        if (block.getColour() === Blockly.utils.colour.parse(wanted)) return;
+        setTimeout(() => {
+          if (block.disposed || !block.workspace || block.isInsertionMarker() || block.workspace.isDragging()) return;
+          block.setColour(wanted);
+        }, 0);
       });
       this.setTooltip('Selects one of the animations by name and reports its number');
     },

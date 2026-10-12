@@ -2010,6 +2010,8 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
       BlocklyBB.dpcPlusSpriteLines()) / 2))) :
     Math.min(191, Math.max(1, Math.round(middle + (height || 8) / 2)));
   const steps = [
+    // Playfield memory (Superchip RAM, say) holds whatever the emulator powered up with, which would show as lines.
+    `<block type="background_clear">`,
     `<block type="background_set_color"><field name="VAR">COLUBK</field>${num(0)}`,
     // 0 = no background: the game loop would otherwise load background 1 on its first pass.
     `<block type="background_set">${num(0)}`,

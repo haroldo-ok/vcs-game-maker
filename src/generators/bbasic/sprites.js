@@ -387,6 +387,15 @@ export const seekSpeedVarName = (name) => `${name}SeekSpeed`;
 // generator, generators/bbasic/background.js) reuses backgroundScrollRow
 // directly rather than keeping a second, per-sprite scroll offset of its
 // ; see backgroundScrollRowVarName's comment in blocks/background.js.
+// The standard kernel's two players are hidden by a flag kept for the purpose, so that a hidden player's animation goes on (a player on
+// frame 255, the way DPC+ hides one, does not run its animation). A bit for each player a visibility block names.
+export const SPRITE_HIDDEN_FLAGS_FAMILY = 'spriteHiddenFlags';
+export const spriteHiddenBit = (name) => flagPoolBit(SPRITE_HIDDEN_FLAGS_FAMILY, spriteOwnBit(name));
+// Whether the player has the flag: only on the standard kernel, and only for the players a visibility block names.
+export const hasHiddenFlag = (Blockly, name) => !!(Blockly.BBasic.spriteHiddenUsedFor && Blockly.BBasic.spriteHiddenUsedFor.has(name));
+// "var{bit}": the player's hidden flag as batari Basic reads and writes it.
+export const hiddenFlagRef = (Blockly, name) => `${Blockly.BBasic.nameDB_.getName(flagPoolVar(SPRITE_HIDDEN_FLAGS_FAMILY),
+    Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${spriteHiddenBit(name)}}`;
 export const SPRITE_SCROLL_FLAGS_FAMILY = 'spriteScrollFlags';
 export const spriteScrollFlagsVarName = () => flagPoolVar(SPRITE_SCROLL_FLAGS_FAMILY);
 export const spriteScrollActiveBit = (name) => flagPoolBit(SPRITE_SCROLL_FLAGS_FAMILY, spriteOwnBit(name));
@@ -773,6 +782,11 @@ export const reserveSeekDevVars = (reserveDevVar, reserveDevVarRW, usedFor) => {
 // "Background scroll" block present, since a "set/is scrolling with
 // playfield" block by itself still needs somewhere to read/nudge - see
 // bbasic.js's init().
+export const reserveSpriteHiddenDevVars = (reserveDevVar, usedFor) => {
+  if (!usedFor || !usedFor.size) return;
+  reserveDevVar(flagPoolVar(SPRITE_HIDDEN_FLAGS_FAMILY), undefined, 'shared byte of the players that are hidden (a bit for each)');
+};
+
 export const reserveSpriteScrollDevVars = (reserveDevVar, usedFor) => {
   if (!usedFor || !usedFor.size) return;
   reserveDevVar(spriteScrollFlagsVarName(), undefined,
@@ -1942,11 +1956,20 @@ export default (Blockly) => {
       // The width/quantity option reads the low 3 bits of the size variable.
       const widthOf = /^__(player\d)size_w_$/.exec(block.getFieldValue('VAR') || '');
       if (widthOf) return [`(${widthOf[1]}size & 7)`, Blockly.BBasic.ORDER_ATOMIC];
-      // Visibility: a hidden player is on frame 255, so frame / 255 is 1 for hidden and 0 for shown.
+      // Visibility: a hidden player is on frame 255, which is the one frame with every bit set. Anding the frame with itself
+      // shifted right by each of the 7 places leaves bit 0 set only then, and that is worked out with shifts alone, with no
+      // call to the divide routine.
       const visibleOf = /^__(player\d)visible_$/.exec(block.getFieldValue('VAR') || '');
+      if (visibleOf && hasHiddenFlag(Blockly, visibleOf[1])) {
+        // (A bit read inside a sum is not understood by batari Basic, so the bit is picked out with a shift and a mask.)
+        const flagByte = Blockly.BBasic.nameDB_.getName(flagPoolVar(SPRITE_HIDDEN_FLAGS_FAMILY), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        const bit = spriteHiddenBit(visibleOf[1]);
+        return [`(1 - ((${flagByte}${bit ? ` / ${2 ** bit}` : ''}) & 1))`, Blockly.BBasic.ORDER_ATOMIC];
+      }
       if (visibleOf) {
-        Blockly.BBasic.usesDivMul = true;
-        return [`(1 - ${visibleOf[1]}frame / 255)`, Blockly.BBasic.ORDER_ATOMIC];
+        const frame = `${visibleOf[1]}frame`;
+        const shifted = [2, 4, 8, 16, 32, 64, 128].map((by) => `(${frame} / ${by})`).join(' & ');
+        return [`(1 - (${frame} & ${shifted} & 1))`, Blockly.BBasic.ORDER_ATOMIC];
       }
       // Horizontal flip is bit 3 of the size variable.
       const flipOf = /^__(player\d)size_3_$/.exec(block.getFieldValue('VAR') || '');
@@ -2022,6 +2045,13 @@ export default (Blockly) => {
         const baseLabel = `_visibility_${blockNumber}`;
 
         const frameVarName = varName.replace('visibility', 'frame');
+        // The standard kernel's players: a flag, so a hidden player's animation goes on.
+        if (hasHiddenFlag(Blockly, varName.replace('visibility', ''))) {
+          const hidden = hiddenFlagRef(Blockly, varName.replace('visibility', ''));
+          if (argument0.trim() === 'true') return `${hidden} = 0\n`;
+          if (argument0.trim() === 'false') return `${hidden} = 1\n`;
+          return `if ${argument0} then ${hidden} = 0 else ${hidden} = 1\n`;
+        }
         // A constant Visible/Hidden needs no test at all.
         if (argument0.trim() === 'true') {
           return `if ${frameVarName} = 255 then ${frameVarName} = 0
@@ -3185,7 +3215,7 @@ export default (Blockly) => {
   // (unlike emitFadeFinishedWatch) - this IS the one and only watch block
   // for this bit, so if it exists in the workspace at all, it's watching.
   Blockly.BBasic['sprite_player_animation_finished'] = function(block) {
-    const name = resolvePlayerName(block);
+    const name = playerNameOfValue(block.getFieldValue('PLAYER'));
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
     const flagBit = `${name}size{5}`;
     const blockNumber = Blockly.BBasic.blockNumbers.next();

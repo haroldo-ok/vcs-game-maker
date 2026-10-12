@@ -22,6 +22,13 @@ export default (Blockly) => {
     const stateName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('STATE'),
         Blockly.VARIABLE_CATEGORY_NAME);
     const targetEvent = `${stateName}_start`;
+    // The start event of a state that changes to that state would start itself over and over, never getting to the state's
+    // update (a green screen on a title screen): the start event is already what leads there, so the block does nothing.
+    let owner = block.getParent();
+    while (owner && owner.type !== 'event_block') owner = owner.getParent();
+    if (owner && owner.getFieldValue('EVENT') === targetEvent) {
+      return `rem Change to ${stateName}: ${targetEvent} already leads there\n`;
+    }
     // A state's "_start" event might live in a different bank than wherever
     // this goto is - see getCurrentBank/bankJumpSuffix.
     const suffix = Blockly.BBasic.bankJumpSuffix(

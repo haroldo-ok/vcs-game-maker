@@ -506,13 +506,6 @@
                                     }"
                                     :style="{width: editorWidth(card), maxWidth: editorWidth(card)}"
                                   >
-                                    <div
-                                      v-if="card.frames.length > 1"
-                                      class="frame-drag-handle"
-                                      title="Drag anywhere on the frame except the drawing, fields and buttons to reorder it"
-                                    >
-                                      <v-icon small>mdi-drag-horizontal-variant</v-icon>
-                                    </div>
                                     <v-text-field
                                       v-if="card.frames.length > 1"
                                       label="Duration"
@@ -1372,20 +1365,29 @@ export default defineComponent({
         const cards = source.cards.map(migrateCardFrames);
         const unknown = cards.find((card) => !known.includes(card.type));
         if (unknown) throw new Error(`it has a card of an unknown kind (${escapeHtml(String(unknown.type))})`);
+        const name = source.name || 'Imported title screen';
+        // A title screen with the same name is replaced (it keeps its place and its number, so the blocks that name it still
+        // find it), and the cards of that page no longer count against the kinds the project has room for.
+        const replaced = state.value.screens.find((screen) => screen.name === name);
+        const replacedCount = (type) => (replaced ? (replaced.cards || []).filter((card) => card.type === type).length : 0);
         const kinds = [...new Set(cards.map((card) => card.type))].filter((type) => type !== 'space');
         const over = kinds.find((type) =>
-          countOfType(type) + cards.filter((card) => card.type === type).length > maxCopiesForType(type));
+          countOfType(type) - replacedCount(type) + cards.filter((card) => card.type === type).length > maxCopiesForType(type));
         if (over) {
           throw new Error(`there are not enough "${over}" cards left in the project for the ${
             cards.filter((card) => card.type === over).length} it has`);
         }
-        const newScreen = {
-          id: getMaxId(state.value.screens) + 1,
-          name: source.name || 'Imported title screen',
-          backgroundColor: Number(source.backgroundColor) || 0,
-          cards,
-        };
-        state.value.screens.push(newScreen);
+        if (replaced) {
+          replaced.backgroundColor = Number(source.backgroundColor) || 0;
+          replaced.cards = cards;
+        } else {
+          state.value.screens.push({
+            id: getMaxId(state.value.screens) + 1,
+            name,
+            backgroundColor: Number(source.backgroundColor) || 0,
+            cards,
+          });
+        }
         handleChildChange();
         instance.proxy.$forceUpdate();
       }).catch((e) => {
@@ -2396,28 +2398,6 @@ export default defineComponent({
 .pixel-editor-parent-container.drag-reorder-over.drag-reorder-over-after {
   border-left: none !important;
   border-right: 3px solid var(--v-primary-base, #1976d2) !important;
-}
-
-/* A strip across the top of a frame to grab for reordering. */
-.frame-drag-handle {
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px 4px 0 0;
-  cursor: grab;
-}
-
-.frame-drag-handle .v-icon {
-  color: rgba(128, 128, 128, 0.8);
-}
-
-.frame-drag-handle:hover {
-  background-color: rgba(128, 128, 128, 0.18);
-}
-
-.frame-drag-handle:active {
-  cursor: grabbing;
 }
 
 /* Same reasoning/placement as PlayerEditor.vue's .add-frame-list-item -

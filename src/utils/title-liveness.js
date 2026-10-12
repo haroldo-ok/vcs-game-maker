@@ -44,7 +44,7 @@ export const findGameplayOnlyNames = (code) => {
     if (event && EVENT_LABEL.test(label) && !TITLE_EVENTS.includes(event[1])) handover.add(label);
   });
   const mainLine = labelAt.get('main');
-  if (mainLine === undefined) return {names: new Set(), initValues: new Map()};
+  if (mainLine === undefined) return {names: new Set(), initValues: new Map(), startAssigned: new Set()};
   // The lines reachable from some starting ranges, never following a jump into a label in `blocked`.
   const reach = (ranges, blocked) => {
     const reached = new Array(lines.length).fill(false);
@@ -78,7 +78,20 @@ export const findGameplayOnlyNames = (code) => {
   const everyFrame = reach([...eventRange('title_update'), ...(labelAt.has('commongamelogic') && labelAt.has('commongamelogicdraw') ?
     [[labelAt.get('commongamelogic'), labelAt.get('commongamelogicdraw')]] : [])], handover);
   const onceBlocked = new Set([...handover, 'title_update_begin']);
-  const atStart = reach([[0, mainLine], ...eventRange('system_start'), ...eventRange('title_start')], onceBlocked);
+  // The start-up code is everything before the main loop except the events that only run once gameplay has started (those sit
+  // before the main loop too).
+  const gameplayEventSpans = [...handover].map((label) => /^(.+)_begin$/.exec(label)).filter(Boolean)
+      .map((match) => [labelAt.get(match[0]), labelAt.get(`${match[1]}_end`)])
+      .filter(([start, end]) => start !== undefined && end !== undefined && start < mainLine)
+      .sort((a, b) => a[0] - b[0]);
+  const startUpRanges = [];
+  let from = 0;
+  gameplayEventSpans.forEach(([start, end]) => {
+    if (start > from) startUpRanges.push([from, start]);
+    from = Math.max(from, end + 1);
+  });
+  if (from < mainLine) startUpRanges.push([from, mainLine]);
+  const atStart = reach([...startUpRanges, ...eventRange('system_start'), ...eventRange('title_start')], onceBlocked);
   const live = lines.map((line, index) => everyFrame[index] || atStart[index]);
 
   // The lines before the first event that give a variable its starting value are replayed when gameplay starts.
@@ -88,6 +101,7 @@ export const findGameplayOnlyNames = (code) => {
   const liveWords = new Set();
   const otherWords = new Set();
   const zeroedAtStart = new Set();
+  const startConstants = new Map();
   lines.forEach((line, index) => {
     if (/^\s*(?:rem|dim)\b/.test(line)) return;
     const init = index < firstEvent ? INIT_CONSTANT.exec(line) : null;
@@ -101,6 +115,15 @@ export const findGameplayOnlyNames = (code) => {
       zeroedAtStart.add(zeroed[1]);
       return;
     }
+    // A constant set only as the title screen starts (a routine that resets the game's variables, say) is set again when gameplay
+    // starts, so nothing needs it kept through the title screen. Two different constants for one variable cannot be replayed.
+    const startConstant = index >= firstEvent && live[index] && !everyFrame[index] ? INIT_CONSTANT.exec(line) : null;
+    if (startConstant) {
+      const [, name, value] = startConstant;
+      if (startConstants.has(name) && startConstants.get(name) !== value) liveWords.add(name);
+      else startConstants.set(name, value);
+      return;
+    }
     // COLUBK = backgroundrealcolor and the like only copy the starting value to a register.
     if (index < firstEvent && /^\s*COLU\w+\s*=\s*\w+\s*$/.test(line)) return;
     wordsOf(line).forEach((word) => (live[index] ? liveWords : otherWords).add(word));
@@ -108,14 +131,26 @@ export const findGameplayOnlyNames = (code) => {
   KERNEL_VARIABLES.forEach((name) => liveWords.add(name));
   // A variable the shared code outside the events sets (a background's loader sets its colors, an animation its frame) holds
   // state that outlives the title screen, and the starting value cannot bring it back.
+  // (A variable the title screen sets to a constant as it starts, or zeroes, is the exception: gameplay starts it from that
+  // value again, whatever the shared code does to it afterwards.)
+  const assignedOutside = new Set();
   let inEvent = false;
   lines.forEach((line, index) => {
     const label = /^([A-Za-z_]\w*)\s*$/.exec(line);
     if (label && EVENT_LABEL.test(label[1])) inEvent = label[1].endsWith('_begin');
     if (inEvent || index < firstEvent || live[index]) return;
     const assigned = /^\s*([A-Za-z_]\w*)\s*(?:\{\d+\})?\s*=[^=]/.exec(stripComment(line));
-    if (assigned) liveWords.add(assigned[1]);
+    if (assigned) assignedOutside.add(assigned[1]);
   });
-  const names = new Set([...otherWords, ...zeroedAtStart].filter((word) => !liveWords.has(word)));
-  return {names, initValues};
+  assignedOutside.forEach((name) => {
+    if (!startConstants.has(name) && !zeroedAtStart.has(name)) liveWords.add(name);
+  });
+  startConstants.forEach((value, name) => {
+    if (zeroedAtStart.has(name) || (initValues.has(name) && initValues.get(name) !== value)) liveWords.add(name);
+    else initValues.set(name, value);
+  });
+  const names = new Set([...otherWords, ...zeroedAtStart, ...startConstants.keys()].filter((word) => !liveWords.has(word)));
+  // The variables the code that runs as the title screen starts sets (to a constant or to zero).
+  const startAssigned = new Set([...startConstants.keys(), ...zeroedAtStart]);
+  return {names, initValues, startAssigned};
 };

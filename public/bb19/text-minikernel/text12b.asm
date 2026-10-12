@@ -1,3 +1,14 @@
+ ; vcs-game-maker: row 1 is filled straight from the message table (showtextrowfast below), which starts the text sooner, with the
+ ; score hidden and with 5 score digits (whose sprites need a separate line to move back, see text12a.asm). Said here, before the
+ ; first use: this file comes first in the program, and a symbol defined further on would make the assembler's passes disagree.
+ ifconst noscoretxt
+textfastrow1 = 1
+ else
+  ifconst score5digits
+textfastrow1 = 1
+  endif
+ endif
+
     ifconst bs_mask
         ifconst FASTFETCH ; using DPC+
 KERNELBANK = 1
@@ -16,8 +27,8 @@ textkernel
     else
         lda TextIndex
     endif
-    ; vcs-game-maker: with the score hidden row 1 starts without the pointer set up (see showtextrowfast).
-    ifconst noscoretxt
+    ; vcs-game-maker: with the score hidden row 1 starts without the pointer set up (see showtextrowfast); also with 5 score digits.
+    ifconst textfastrow1
     jsr showtextrowfast
     else
     jsr showtextrow
@@ -122,7 +133,7 @@ gotrow2base
 ; vcs-game-maker: the same fill as showtextrow, from the message table itself (absolute indexed by X, 4 cycles a byte instead of
 ; the 10 of the pointer and Y it takes below, and no pointer to set up first). Row 1 uses it when the score is hidden, to start
 ; the text sooner. A is the row's base offset in text_strings, as for showtextrow.
-    ifconst noscoretxt
+    ifconst textfastrow1
 showtextrowfast
     tax
     lda text_strings+11,x

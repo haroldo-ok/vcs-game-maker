@@ -4,9 +4,9 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
   processTitleScreenStorageDefaults, isCardAnimated, cardFrameHeight,
   titleCardFrameCounterVarName, titleCardScrollOffsetVarName,
   titleCardIndexVarName, titleCardColorIndexVarName, titleCardColorPageVarName, padTitleCardFrames, titleCardColorSplit,
-  titleCardScrollEdgeFlagsVarName, TITLE_SCROLL_EDGE_BITS,
   titleCardColorVarName, TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
-  titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, titleFrameBox} from '../../blocks/titlescreen';
+  titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, titleFrameBox, titleCardFadeTargetVarName, titleCardFadeTimerVarName,
+  titleCardFadePaceVarName} from '../../blocks/titlescreen';
 import {useTitleScreenStorage, usePlayerAnimationsStorage,
   useConfigurationStorage} from '../../hooks/project';
 import {processPlayerAnimationsStorageDefaults, ctrlpfShadowVarName} from './sprites';
@@ -53,7 +53,12 @@ const toColorHexByte = (n) => toHexByte(tvColorByte(n & 0xff));
 // read directly by the kernel's per-copy asm via "ifconst").
 const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
   const {blockCount, doubleLine, hasRowColors} = typeInfo;
-  const {frames, frameHeight, paddedFrames} = padTitleCardFrames(card, typeInfo);
+  const padded = padTitleCardFrames(card, typeInfo);
+  const {frames, frameHeight} = padded;
+  // A faded multicolor graphic uses the row colors of its first frame for every frame (the fade has one set of steps).
+  const fadePlan = (Blockly.BBasic.titleRowFadePlans || {})[ref];
+  const paddedFrames = fadePlan ? padded.paddedFrames.map((frame) => ({...frame, colorRows: padded.paddedFrames[0].colorRows})) :
+    padded.paddedFrames;
   // Frames are all the first frame's height (padTitleCardFrames pads or cuts them); the dedup pass right below
   // compares frames by exactly what would be written to ROM.
   // Animation frames are frequently repeated (a held pose, a blank/off
@@ -66,7 +71,7 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
   // each repeat. Purely a ROM-size optimization - the kernel has no idea
   // some frame numbers alias to the same physical rows, it just draws
   // whichever bmp_${key}_index it's handed.
-  const colorSplit = titleCardColorSplit(card);
+  const colorSplit = titleCardColorSplit(card, ref);
   // A card that repeats a picture under different colors stores each picture once and each color list once
   // (see titleCardColorSplit); the others store a frame whole.
   const uniquePictures = [];
@@ -88,6 +93,8 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
   const colorsPerPage = colorSplit === 'page' ? Math.max(1, Math.floor(255 / frameHeight)) : 0;
   const colorSlots = colorSplit ?
     paddedFrames.map((frame) => slotFor(uniqueColors, JSON.stringify(frame.colorRows), frame) / frameHeight) : null;
+  // The lists of the fade's steps come after the lists of the graphic: step n is found n lists down.
+  if (fadePlan) fadePlan.lists.forEach((rowsOfStep, index) => uniqueColors.push({colorRows: rowsOfStep, contentKey: `fade${index}`}));
   const colorOffsets = colorSlots ?
     colorSlots.map((slot) => (colorSplit === 'page' ? slot % colorsPerPage : slot) * frameHeight) : null;
   const colorPages = colorSplit === 'page' ? colorSlots.map((slot) => Math.floor(slot / colorsPerPage)) : null;
@@ -584,6 +591,11 @@ const assignKernelSlots = (screens, Blockly) => {
         const colorVar = Blockly.BBasic.nameDB_.getName(
             titleCardColorVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         Blockly.BBasic.titleScreenStartLines.push(`${colorVar} = ${toColorHexByte(card.color || 0)}`);
+        // A fade has nothing to do until a block gives it somewhere to go: it is at its target.
+        if ((Blockly.BBasic.titleFadeRefs || new Set()).has(ref)) {
+          Blockly.BBasic.titleScreenStartLines.push(`${Blockly.BBasic.nameDB_.getName(titleCardFadeTargetVarName(ref),
+              Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${toColorHexByte(card.color || 0)}`);
+        }
       }
       cardSlotsByRef[ref] = key;
       // "Play animation once": the title screen starts with the graphic's once bit set and its frame counter at
@@ -906,6 +918,9 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
 // the two ever needing to know about each other beyond this one shared sum.
 const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
   const refs = Object.keys(cardAnimationByRef);
+  // What is worked out just before a page is drawn, for each page (see titlescreen_draw).
+  const derivedLines = {};
+  Blockly.BBasic.titleDerivedLines = derivedLines;
   if (!refs.length) return '';
   const scrollTargetRefs = Blockly.BBasic.titleScreenScrollTargetRefs || new Set();
   const resolveVar = (canonicalName) =>
@@ -931,6 +946,8 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
     }
     const scrollTerm = scrollTargetRefs.has(ref) ? ` + ${resolveVar(titleCardScrollOffsetVarName(ref))}` : '';
     const colorScrollTerm = colorSplit === 'page' ? '' : scrollTerm;
+    // A faded graphic's color list is the one its fade is on, not what the frame says (the fade moves it, see below).
+    const isFaded = !!(Blockly.BBasic.titleRowFadePlans || {})[ref];
     // While a "Set title screen graphic frame" block holds the graphic, its frame counter stands still.
     const holdRefs = Blockly.BBasic.titleCardHoldRefs || [];
     const holdIndex = holdRefs.indexOf(ref);
@@ -982,20 +999,29 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
       ...reverseLines,
       ` if ${counterVar} >= ${totalDuration}${notReverse} then ${counterVar} = 0`,
       ...(finishedIndex === -1 ? [] : [` if ${counterVar} = 0${notReverse} then ${finishedLatch} = 0`]),
-      ` bmp_${key}_index = ${frameOffsets[0]}${scrollTerm}`,
-      // A card that keeps its colors apart (titleCardColorSplit) moves a second offset along with the picture's.
-      ...(colorOffsets ? [` bmp_${key}_colorindex = ${colorOffsets[0]}${colorScrollTerm}`] : []),
-      ...(colorPages ? [` bmp_${key}_colorpage = ${colorPages[0]}`] : []),
     ];
+    // The picture's frame offset and the row color list's offset and page are worked out from the counter, every pass; where those
+    // bytes are shared with another page's graphics they are worked out just before this page is drawn instead (see titlescreen_draw).
+    const derivedVars = Blockly.BBasic.titleDerivedVars || new Set();
+    const pageId = ref.split(':')[0];
+    const indexLines = derivedVars.has(titleCardIndexVarName(ref)) ? (derivedLines[pageId] = derivedLines[pageId] || []) : lines;
+    const colorIndexLines = derivedVars.has(titleCardColorIndexVarName(ref)) ?
+      (derivedLines[pageId] = derivedLines[pageId] || []) : lines;
+    const colorPageLines = derivedVars.has(titleCardColorPageVarName(ref)) ?
+      (derivedLines[pageId] = derivedLines[pageId] || []) : lines;
+    indexLines.push(` bmp_${key}_index = ${frameOffsets[0]}${scrollTerm}`);
+    // A card that keeps its colors apart (titleCardColorSplit) moves a second offset along with the picture's.
+    if (colorOffsets && !isFaded) colorIndexLines.push(` bmp_${key}_colorindex = ${colorOffsets[0]}${colorScrollTerm}`);
+    if (colorPages) colorPageLines.push(` bmp_${key}_colorpage = ${colorPages[0]}`);
     let cumulative = 0;
     frameDurations.forEach((duration, frameIndex) => {
       cumulative += duration;
       if (frameIndex === frameDurations.length - 1) return;
-      lines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_index = ${frameOffsets[frameIndex + 1]}${scrollTerm}`);
-      if (colorOffsets) {
-        lines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_colorindex = ${colorOffsets[frameIndex + 1]}${colorScrollTerm}`);
+      indexLines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_index = ${frameOffsets[frameIndex + 1]}${scrollTerm}`);
+      if (colorOffsets && !isFaded) {
+        colorIndexLines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_colorindex = ${colorOffsets[frameIndex + 1]}${colorScrollTerm}`);
         if (colorPages) {
-          lines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_colorpage = ${colorPages[frameIndex + 1]}`);
+          colorPageLines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_colorpage = ${colorPages[frameIndex + 1]}`);
         }
       }
     });
@@ -1016,6 +1042,41 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
     }
     return lines.join('\n');
   }).join('\n\n') + '\n';
+};
+
+// The steps of the "Fade title screen graphic color" fades, one check for each graphic a block fades: the same steps as the Score and
+// Background fades (see buildFadeCheckAsm in generators/bbasic/background.js), the fade running for as long as the color is not
+// the target.
+const generateTitleColorFadeChecks = (Blockly) => {
+  const refs = [...(Blockly.BBasic.titleFadeRefs || [])];
+  const resolve = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  // A multicolor graphic's fade: its color list offset (which the kernel reads) steps down the lists made ahead of time, a list
+  // every few frames, until it is on the last, and the timer says how long until the next step. Labels get their "@" in the
+  // subroutine (see TITLE_FADE_CHECKS_NAME).
+  const plans = Blockly.BBasic.titleRowFadePlans || {};
+  const rowChecks = Object.keys(plans).map((ref, index) => {
+    const {height, stepCount, pace} = plans[ref];
+    const timer = resolve(titleCardFadeTimerVarName(ref));
+    const colorIndex = resolve(titleCardColorIndexVarName(ref));
+    const skip = `_titlerowfade_${index}_skip`;
+    return [` if ${timer} = 0 then goto ${skip}`, ` ${timer} = ${timer} - 1`, ` if ${timer} <> 0 then goto ${skip}`,
+      ` ${colorIndex} = ${colorIndex} + ${height}`, ` if ${colorIndex} < ${stepCount * height} then ${timer} = ${pace}`, skip]
+        .join('\n');
+  }).join('\n');
+  if (!refs.length && !rowChecks) return '';
+  if (refs.length && !Blockly.BBasic.buildFadeCheckAsm) return '';
+  return refs.map((ref, index) => {
+    const constantPace = (Blockly.BBasic.titleFadeConstantPace || {})[ref];
+    const asmLines = Blockly.BBasic.buildFadeCheckAsm({
+      colorVar: resolve(titleCardColorVarName(ref)),
+      targetVar: resolve(titleCardFadeTargetVarName(ref)),
+      timerVar: resolve(titleCardFadeTimerVarName(ref)),
+      paceVar: constantPace === undefined ? resolve(titleCardFadePaceVarName(ref)) : `#${constantPace}`,
+      flagsVar: null,
+      tag: `titlecard${index}`,
+    });
+    return asmLines;
+  }).join('\n') + '\n' + (rowChecks ? rowChecks + '\n' : '');
 };
 
 // Each Player sprites animation with more than one frame plays by itself: the same duration counter the
@@ -1049,6 +1110,9 @@ const generateTitlePlayerChecks = (Blockly) => {
 };
 
 export const TITLE_SCREEN_SUBROUTINE_NAME = '_titlescreen_system';
+export const TITLE_FADE_CHECKS_NAME = '_title_fade_checks';
+// The frame offsets of a page's graphics that share their bytes with other pages' graphics, worked out right before that page is drawn.
+export const titleDeriveSubroutineName = (pageId) => `_title_derive_${pageId}`;
 
 // One bit that says "End title screen" has run: from then on Title screen update draws the regular
 // game screen instead of the kernel's. Set by the block, cleared by Title screen start.
@@ -1138,6 +1202,26 @@ export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
   ].join('\n')).join('\n') + ((Blockly.BBasic.titleAnimateBlockIds || []).length ? '\n' : '');
   Blockly.BBasic.titleScreenAnimationChecks = animateTriggerResets +
     generateTitleScreenAnimationChecks(Blockly, cardAnimationByRef) + generateTitlePlayerChecks(Blockly);
+  // The fade steps are assembly with labels, so they are in the title screen loop only, not copied into the common game logic too.
+  Object.keys(Blockly.BBasic.subroutines).filter((name) => name.startsWith('_title_derive_')).forEach((name) => {
+    delete Blockly.BBasic.subroutines[name];
+  });
+  Object.entries(Blockly.BBasic.titleDerivedLines || {}).forEach(([pageId, derived]) => {
+    if (derived.length) Blockly.BBasic.subroutines[titleDeriveSubroutineName(pageId)] = derived.join('\n');
+  });
+  // The fade steps are a separate subroutine, placed in whatever bank has room (see BG_FADE_CHECKS_NAME in generators/bbasic.js
+  // for the same routine of the Background and Score fades); as a subroutine the code goes through normalizeIndents, which wants
+  // labels marked with "@" and the closing "end" as "@end".
+  const fadeChecksAsm = generateTitleColorFadeChecks(Blockly);
+  delete Blockly.BBasic.subroutines[TITLE_FADE_CHECKS_NAME];
+  if (fadeChecksAsm) {
+    Blockly.BBasic.subroutines[TITLE_FADE_CHECKS_NAME] = fadeChecksAsm.split('\n').map((line) => {
+      const text = line.trim();
+      if (text === 'asm') return 'asm';
+      if (text === 'end') return '@end';
+      return /^[ ]/.test(line) ? text : '@' + text;
+    }).join('\n');
+  }
   // Read back by "Set title screen scroll position" (see titlescreen_scroll_set
   // below) - an animated card's index is owned by the per-frame check just
   // built above (frame base + scroll offset, recombined every frame), so
@@ -1180,7 +1264,11 @@ export default (Blockly) => {
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(TITLE_SCREEN_SUBROUTINE_NAME));
     // With a single page there is no page number variable to set (see bbasic.js).
     const selectPage = selectedIdVarName ? `${selectedIdVarName} = ${screenId}\n` : '';
-    let draw = `${selectPage} gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
+    // The frame offsets this page's graphics share with other pages are worked out now, from their frame counters.
+    const deriveName = titleDeriveSubroutineName(screenId);
+    const derive = Blockly.BBasic.subroutines[deriveName] ? ` gosub ${deriveName}${Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(deriveName))}\n` : '';
+    let draw = `${selectPage}${derive} gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
     if (Blockly.BBasic.titleBgUsed) {
       // The driver draws the background color in this variable: the page's color, unless "Set
       // title screen background color" has taken over.
@@ -1194,6 +1282,35 @@ export default (Blockly) => {
     if (!Blockly.BBasic.titleEndUsed) return draw;
     const skipLabel = `_titledraw_${Blockly.BBasic.blockNumbers.next('titledraw')}_skip`;
     return `if ${titleKernelEndedVar()}{${titleKernelEndedBit()}} then goto ${skipLabel}\n${draw}@ ${skipLabel}\n`;
+  };
+
+  // Starts a fade of a single-color graphic's color: where it is going and how long each step waits (see generateTitleColorFadeChecks).
+  Blockly.BBasic['titlescreen_card_color_fade'] = function(block) {
+    const ref = block.getFieldValue('CARD');
+    // A multicolor graphic: the step it is on is where it goes on from, and it is not started again while it fades or once it is done.
+    const rowPlan = ref && (Blockly.BBasic.titleRowFadePlans || {})[ref];
+    if (rowPlan) {
+      const timer = Blockly.BBasic.nameDB_.getName(titleCardFadeTimerVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const colorIndex = Blockly.BBasic.nameDB_.getName(titleCardColorIndexVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const skip = `_titlerowfade_${Blockly.BBasic.blockNumbers.next()}_skip`;
+      return [`if ${timer} <> 0 then goto ${skip}`, `if ${colorIndex} >= ${rowPlan.stepCount * rowPlan.height} then goto ${skip}`,
+        `${timer} = ${rowPlan.pace}`, `@ ${skip}`].join('\n') + '\n';
+    }
+    if (!ref || !(Blockly.BBasic.titleFadeRefs || new Set()).has(ref)) {
+      return 'rem This fade needs a single-color graphic, or a multicolor one with a color from the color picker and a number of frames\n';
+    }
+    const resolve = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    const target = resolve(titleCardFadeTargetVarName(ref));
+    const timer = resolve(titleCardFadeTimerVarName(ref));
+    const constantPace = (Blockly.BBasic.titleFadeConstantPace || {})[ref];
+    if (constantPace !== undefined) return `${target} = ${color}\n${timer} = ${constantPace}\n`;
+    // (frames / 4 is a shift, so no call to the divide routine.)
+    const pace = resolve(titleCardFadePaceVarName(ref));
+    const readyLabel = `_titlefade_${Blockly.BBasic.blockNumbers.next()}_paceready`;
+    return [`${target} = ${color}`, `${pace} = (${frames}) / ${FADE_STEPS}`, `if ${pace} <> 0 then goto ${readyLabel}`,
+      ` ${pace} = 1`, `@ ${readyLabel}`, `${timer} = ${pace}`].join('\n') + '\n';
   };
 
   Blockly.BBasic['titlescreen_card_color_set'] = function(block) {
@@ -1337,7 +1454,7 @@ export default (Blockly) => {
       'missile0height = 0\n' +
       'missile1height = 0\n' +
       (shadowVar ? `CTRLPF = ${shadowVar}\n` : '') +
-      'goto title_update_begin\n';
+      (Blockly.BBasic.titleEndResets || []).map((line) => `${line}\n`).join('');
   };
 
   Blockly.BBasic['titlescreen_scroll_set'] = function(block) {
@@ -1387,8 +1504,9 @@ export default (Blockly) => {
     }
     const watches = Blockly.BBasic.titleScrollEdgeWatches || new Set();
     const edge = down ? 'bottom' : 'top';
-    const flagLine = watches.has(`${ref}|${edge}`) ?
-      ` if temp1 >= temp2 then ${resolveVar(titleCardScrollEdgeFlagsVarName(ref))}{${TITLE_SCROLL_EDGE_BITS[edge]}} = 1\n` : '';
+    const edgeSlot = (Blockly.BBasic.titleScrollEdgeSlots || new Map()).get(`${ref}|${edge}`);
+    const flagLine = watches.has(`${ref}|${edge}`) && edgeSlot ?
+      ` if temp1 >= temp2 then ${resolveVar(edgeSlot.varName)}{${edgeSlot.bit}} = 1\n` : '';
     if (!down) {
       // temp2 = old position; clamp at 0 (bB bytes are unsigned, so compare
       // before subtracting).
@@ -1417,8 +1535,9 @@ export default (Blockly) => {
     const watches = Blockly.BBasic.titleScrollEdgeWatches || new Set();
     if (!ref || !watches.has(`${ref}|${edge}`)) return '';
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
-    const flag = `${Blockly.BBasic.nameDB_.getName(titleCardScrollEdgeFlagsVarName(ref),
-        Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${TITLE_SCROLL_EDGE_BITS[edge]}}`;
+    const edgeSlot = (Blockly.BBasic.titleScrollEdgeSlots || new Map()).get(`${ref}|${edge}`);
+    if (!edgeSlot) return '';
+    const flag = `${Blockly.BBasic.nameDB_.getName(edgeSlot.varName, Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${edgeSlot.bit}}`;
     const labelEnd = `_titlescrolledge_${Blockly.BBasic.blockNumbers.next()}_end`;
     return '\n' + [
       `if !${flag} then goto ${labelEnd}`,
