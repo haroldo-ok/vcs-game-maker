@@ -31,10 +31,7 @@
       </div>
 
       <p class="about-description">
-        VCS Game Maker is a no-code environment for building Atari 2600 games. Build your game's logic with
-        Blockly blocks, and behind the scenes VCSGM generates batari Basic source code (along with a bit of
-        assembly), compiles it into a real Atari 2600 ROM and runs that ROM in a built-in Gopher2600 emulator
-        preview.
+        VCS Game Maker is a visual environment for building Atari 2600 games. Build your game's logic with <a href="https://www.blockly.com/" target="_blank" rel="noopener">Blockly</a> blocks, and behind the scenes VCSGM generates <a href="https://github.com/batari-Basic/batari-Basic" target="_blank" rel="noopener">batari Basic</a> source code (along with a bit of assembly), compiles it into an Atari 2600 ROM, and runs that ROM in a built-in emulator preview, using either <a href="https://github.com/6502ts/6502.ts" target="_blank" rel="noopener">6502.ts</a> or <a href="https://github.com/jetsetilly/gopher2600" target="_blank" rel="noopener">Gopher2600</a>.
       </p>
 
       <span class="text-subtitle-1 about-label">Contributors</span>
@@ -42,14 +39,16 @@
         <v-list-item @click="openInNewWindow('https://github.com/haroldo-ok')">
           <v-list-item-content>
             <v-list-item-title>Haroldo de Oliveira Pinheiro</v-list-item-title>
-            <v-list-item-subtitle>Creator of VCS Game Maker &middot; github.com/haroldo-ok</v-list-item-subtitle>
+            <v-list-item-subtitle>Creator of VCS Game Maker</v-list-item-subtitle>
+            <v-list-item-subtitle>github.com/haroldo-ok</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item @click="openInNewWindow('https://abstractpolygon.com')">
           <v-list-item-content>
             <v-list-item-title>Nick R. / AbstractPolygon</v-list-item-title>
-            <v-list-item-subtitle>Contributor &middot; abstractpolygon.com</v-list-item-subtitle>
+            <v-list-item-subtitle>Contributor</v-list-item-subtitle>
+            <v-list-item-subtitle>abstractpolygon.com</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
       </v-list>
@@ -59,28 +58,32 @@
         <v-list-item @click="openInNewWindow('https://github.com/batari-Basic/batari-Basic')">
           <v-list-item-content>
             <v-list-item-title>Standard Kernel</v-list-item-title>
-            <v-list-item-subtitle>batari Basic's built-in playfield/sprite kernel &middot; github.com/batari-Basic/batari-Basic</v-list-item-subtitle>
+            <v-list-item-subtitle>batari Basic's built-in playfield/sprite kernel</v-list-item-subtitle>
+            <v-list-item-subtitle>github.com/batari-Basic/batari-Basic</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item @click="openInNewWindow('https://github.com/batari-Basic/batari-Basic')">
           <v-list-item-content>
             <v-list-item-title>DPC+ Kernel (Experimental)</v-list-item-title>
-            <v-list-item-subtitle>batari Basic's DPC+ kernel, for the Harmony/Melody cartridge format &middot; github.com/batari-Basic/batari-Basic</v-list-item-subtitle>
+            <v-list-item-subtitle>batari Basic's DPC+ kernel, for the Harmony/Melody cartridge format</v-list-item-subtitle>
+            <v-list-item-subtitle>github.com/batari-Basic/batari-Basic</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item @click="openInNewWindow('https://forums.atariage.com/topic/169819-the-titlescreen-kernel/')">
           <v-list-item-content>
             <v-list-item-title>Titlescreen Kernel</v-list-item-title>
-            <v-list-item-subtitle>By RevEng &middot; forums.atariage.com</v-list-item-subtitle>
+            <v-list-item-subtitle>By RevEng</v-list-item-subtitle>
+            <v-list-item-subtitle>forums.atariage.com</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
 
         <v-list-item @click="openInNewWindow('https://forums.atariage.com/topic/287652-text-minikernel/')">
           <v-list-item-content>
             <v-list-item-title>Text Minikernel</v-list-item-title>
-            <v-list-item-subtitle>Adapted from Karl G's Text Minikernel &middot; forums.atariage.com</v-list-item-subtitle>
+            <v-list-item-subtitle>Adapted from Karl G's Text Minikernel</v-list-item-subtitle>
+            <v-list-item-subtitle>forums.atariage.com</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
       </v-list>
