@@ -616,6 +616,37 @@ const assignKernelSlots = (screens, Blockly) => {
     hasPlayerCard, playerHeights, hasScoreCard};
 };
 
+// The text under a page's graphics (see titletextkernel in text12a.asm), when the project uses the Text Minikernel too: called
+// once the layout is done, if the page's timer has enough left for it. A bankswitched ROM calls into the kernel bank the way
+// batari Basic does (the return address, the target, then the registers, through the bank switch).
+const TEXT_KERNEL_BANK_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
+const buildTitleTextCall = (Blockly) => {
+  if (!Blockly.BBasic.isTitleTextUsed()) return [];
+  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+  const kernelBank = TEXT_KERNEL_BANK_BY_ROMSIZE[config.romSize] || 0;
+  return [
+    '\tlda INTIM',
+    `\tcmp #${Blockly.BBasic.titleTextTimerTicks()}`,
+    '\tbcc title_text_skip',
+    ...(kernelBank ? [
+      '\tlda #>(title_text_return-1)',
+      '\tpha',
+      '\tlda #<(title_text_return-1)',
+      '\tpha',
+      '\tlda #>(titletextkernel-1)',
+      '\tpha',
+      '\tlda #<(titletextkernel-1)',
+      '\tpha',
+      '\tpha ; *** save A (the text kernel does not use it)',
+      '\tpha ; *** save X (nor this)',
+      `\tldx #${kernelBank}`,
+      '\tjmp BS_jsr',
+      '@title_text_return',
+    ] : ['\tjsr titletextkernel']),
+    '@title_text_skip',
+  ];
+};
+
 // Every internal label the driver body below defines gets an "@" prefix -
 // required so Blockly.BBasic.normalizeIndents (applied to every
 // Blockly.BBasic.subroutines entry via generateSubroutineBody) doesn't
@@ -640,7 +671,7 @@ const assignKernelSlots = (screens, Blockly) => {
 // the SAME per-copy kernel files - 48x1_X_kernel.asm's  position48 calls
 // via plain same-bank "jsr" - being reachable from multiple different
 // banks, which they can't be without their  bank-switch trampolines).
-const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName) => {
+const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName, textCall) => {
   const lines = ['asm'];
 
   lines.push(
@@ -732,7 +763,8 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
   lines.push(
       '',
       '@title_playfield_done',
-      '\tjmp PFWAIT ; kernel is done. Finish off the screen',
+      // The text call is at the end of the driver: the kernels time their lines to the cycle, and more bytes up here would move them.
+      '\tjmp ' + (textCall && textCall.length ? 'title_text_draw' : 'PFWAIT') + ' ; kernel is done. Finish off the screen',
       '',
       '\tinclude "position48.asm"',
   );
@@ -828,6 +860,8 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
       '\t.byte 0',
       '',
       '\tinclude "titlescreen_data.asm"',
+      // After the graphics data, so nothing the kernels time to the cycle (their code, their tables) moves.
+      ...(textCall && textCall.length ? ['@title_text_draw', ...textCall, '\tjmp PFWAIT', ''] : []),
       '@end',
   );
 
@@ -1126,7 +1160,8 @@ export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
     '@end\n' +
     buildDriverAsm(selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard,
         Blockly.BBasic.titleBgUsed ?
-          Blockly.BBasic.nameDB_.getName(TITLE_BG_COLOR_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null);
+          Blockly.BBasic.nameDB_.getName(TITLE_BG_COLOR_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null,
+        buildTitleTextCall(Blockly));
 };
 
 export default (Blockly) => {

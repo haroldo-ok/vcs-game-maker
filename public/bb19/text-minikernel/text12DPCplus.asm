@@ -86,6 +86,9 @@ textkernel
     adc temp7               ; 3 - Use existing carry from last operation
     endif
     
+    ; vcs-game-maker: with the score hidden row 1 reads the messages directly (showtextrowfast below), so the pointer is only
+    ; set up for a second row.
+    ifnconst dpchidescore
     ifconst extendedtxt
         adc #>text_strings  ; carry already clear
     else
@@ -94,6 +97,18 @@ textkernel
     sta TextDataPtr+1
     lda #<text_strings
     sta TextDataPtr
+    else
+        ifconst textkernel2ndrow
+    ifconst extendedtxt
+        adc #>text_strings  ; carry already clear
+    else
+        lda #>text_strings
+    endif
+    sta TextDataPtr+1
+    lda #<text_strings
+    sta TextDataPtr
+        endif
+    endif
 
 	lda TextColor
 	sta COLUP0
@@ -102,7 +117,11 @@ textkernel
 	sta COLUBK
 	
     lda TextIndex
+    ifconst dpchidescore
+    jsr showtextrowfast
+    else
     jsr showtextrow
+    endif
 
     ; "textkernel2ndrow" is the app's switch for the wrapped second line (not the bB "extendedtxt" const).
     ; Row 2 is drawn every frame whenever this is compiled in, so the frame always has the same number of
@@ -129,6 +148,38 @@ gotrow2base
         jsr showtextrow
     endif
     jmp textrowsdone
+
+; vcs-game-maker: the same fill as showtextrow, read from the message table directly (absolute indexed by X, 4 cycles a byte
+; instead of the 10 of the pointer and Y, and no pointer to set up), then on to the drawing. A is the row's base offset.
+    ifconst dpchidescore
+showtextrowfast
+    tax
+    lda text_strings+11,x
+    sta textoffset11
+    lda text_strings+10,x
+    sta textoffset10
+    lda text_strings+9,x
+    sta textoffset9
+    lda text_strings+8,x
+    sta textoffset8
+    lda text_strings+7,x
+    sta textoffset7
+    lda text_strings+6,x
+    sta textoffset6
+    lda text_strings+5,x
+    sta textoffset5
+    lda text_strings+4,x
+    sta textoffset4
+    lda text_strings+3,x
+    sta textoffset3
+    lda text_strings+2,x
+    sta textoffset2
+    lda text_strings+1,x
+    sta textoffset1
+    lda text_strings+0,x
+    sta textoffset0
+    jmp showtextrowdraw
+    endif
 
 ; Reads 12 message bytes from (TextDataPtr) starting at the offset in A, then draws that row.
 showtextrow
@@ -172,6 +223,7 @@ TextPointersLoop2
     ifnconst extendedtxt
         sta WSYNC           ; 3
     endif
+showtextrowdraw
 
     ldx textoffset0
     lda left_text,x

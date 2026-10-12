@@ -664,6 +664,55 @@ export default {
       // or style change to hook a CSS rule onto - wrapped here (not
       // overwritten outright) so its swap-the-image-source behavior stays
       // untouched, this just also toggles a class App.vue's CSS can target.
+      // A rectangle drawn over blocks inside a wrapper (an event, a subroutine, a comment wrapper) also touches the wrapper's
+      // outline, which spans everything inside it, so the wrapper got selected with them (the plugin only drops such a
+      // parent in a few cases). A wrapper (the block whose statement input holds the others) is left out of the selection unless the rectangle reaches its top left corner, the
+      // header of the wrapper, so only the blocks inside and below it are selected.
+      const originalEnable = controls.enableMultiselect.bind(controls);
+      controls.enableMultiselect = function(byIcon) {
+        originalEnable(byIcon);
+        const selection = this.dragSelect_ && this.dragSelect_.Selection;
+        if (!selection || !selection.filterSelected) return;
+        const originalFilter = selection.filterSelected;
+        selection.filterSelected = (info) => {
+          const result = originalFilter(info) || info;
+          const {select, unselect} = result;
+          const rect = info.selectorRect || {};
+          const left = rect.left !== undefined ? rect.left : rect.x;
+          const top = rect.top !== undefined ? rect.top : rect.y;
+          const right = rect.right !== undefined ? rect.right : left + rect.width;
+          const bottom = rect.bottom !== undefined ? rect.bottom : top + rect.height;
+          const blockOf = (element) => {
+            const id = element.parentElement && element.parentElement.dataset && element.parentElement.dataset.id;
+            return id ? this.workspace_.getBlockById(id) : null;
+          };
+          const picked = new Map();
+          select.forEach((_, element) => {
+            const block = blockOf(element);
+            if (block) picked.set(block.id, {block, element});
+          });
+          picked.forEach(({block, element}) => {
+            let ancestor = block.getSurroundParent();
+            while (ancestor) {
+              const entry = picked.get(ancestor.id);
+              if (entry) {
+                const corner = select.get(entry.element);
+                const cornerX = corner && (corner.left !== undefined ? corner.left : corner.x);
+                const cornerY = corner && (corner.top !== undefined ? corner.top : corner.y);
+                const reached = corner && cornerX >= left && cornerX <= right && cornerY >= top && cornerY <= bottom;
+                if (!reached) {
+                  select.delete(entry.element);
+                  unselect.set(entry.element, corner);
+                  picked.delete(ancestor.id);
+                }
+              }
+              ancestor = ancestor.getSurroundParent();
+            }
+          });
+          return {select, unselect};
+        };
+      };
+
       const originalUpdateIcon = controls.updateMultiselectIcon.bind(controls);
       controls.updateMultiselectIcon = function(enable) {
         originalUpdateIcon(enable);

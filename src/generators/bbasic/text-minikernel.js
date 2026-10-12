@@ -988,6 +988,19 @@ export default (Blockly) => {
     return !!this.textMinikernelUsed;
   };
 
+  // The standard kernel's Title Screen pages draw the Text Minikernel's text under their graphics, when the project uses both
+  // (see titletextkernel in text12a.asm and buildDriverAsm in titlescreen.js).
+  Blockly.BBasic.isTitleTextUsed = function() {
+    const config = ((useConfigurationStorage() || {}).value) || {};
+    return config.kernel !== 'dpcplus' && !!this.titleScreenDrawUsed && this.isTextMinikernelActive();
+  };
+
+  // The timer ticks (64 cycles each) a page needs left after its graphics for the text: its lines, the setup lines and a margin;
+  // with a wrapped second row 16 more. A page that has less left shows no text.
+  Blockly.BBasic.titleTextTimerTicks = function() {
+    return 22 + (this.isTextRow2Used() ? 16 : 0);
+  };
+
   // Whether the project uses any block that can actually make a message
   // scroll or that reads/controls in-progress scroll state - see the
   // textScrollUsed pre-scan in bbasic.js for exactly which block types

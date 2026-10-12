@@ -57,6 +57,7 @@
 <script>
 import {NTSC_COLORS, PALETTE_COLUMNS, colorByteToCss, colorByteToBBasic} from '../utils/palette';
 import {usePixelTool, useDrawColor} from '../hooks/pixel-tool';
+import {DEFAULT_ROW_COLOR} from '../blocks/background';
 
 export default {
   name: 'PlayfieldColorStrip',
@@ -90,8 +91,10 @@ export default {
     eyedropperMode() {
       return usePixelTool().value === 'eyedropper';
     },
-    // The color a click paints a row with: with the Pencil or Fill selected, the toolbar's swatch color, else the armed quick color.
+    // The color a click paints a row with: white with the Eraser, the toolbar's swatch color with the Pencil or Fill, else the armed quick color.
     paintColor() {
+      // The Eraser puts a row back to white, whatever the swatch holds.
+      if (usePixelTool().value === 'eraser') return DEFAULT_ROW_COLOR;
       const swatch = useDrawColor().value;
       if (['pencil', 'fill'].includes(usePixelTool().value) && swatch !== null) return swatch;
       return this.activeQuickColor;

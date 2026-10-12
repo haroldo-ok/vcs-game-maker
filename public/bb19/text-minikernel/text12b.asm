@@ -16,7 +16,12 @@ textkernel
     else
         lda TextIndex
     endif
+    ; vcs-game-maker: with the score hidden row 1 starts without the pointer set up (see showtextrowfast).
+    ifconst noscoretxt
+    jsr showtextrowfast
+    else
     jsr showtextrow
+    endif
 
     ; "textkernel2ndrow" is unrelated to the real bB "extendedtxt" const
     ; (text12a.asm's own pointer-math option, unused by this app - see
@@ -114,6 +119,39 @@ gotrow2base
 ; fit inside), so only row 2's start position actually moves - larger in
 ; ROM bytes than the loop form, but this file has no per-project runtime
 ; state to preserve here, so that's a fixed, one-time cost.
+; vcs-game-maker: the same fill as showtextrow, from the message table itself (absolute indexed by X, 4 cycles a byte instead of
+; the 10 of the pointer and Y it takes below, and no pointer to set up first). Row 1 uses it when the score is hidden, to start
+; the text sooner. A is the row's base offset in text_strings, as for showtextrow.
+    ifconst noscoretxt
+showtextrowfast
+    tax
+    lda text_strings+11,x
+    sta scorepointers+11
+    lda text_strings+10,x
+    sta scorepointers+10
+    lda text_strings+9,x
+    sta scorepointers+9
+    lda text_strings+8,x
+    sta scorepointers+8
+    lda text_strings+7,x
+    sta scorepointers+7
+    lda text_strings+6,x
+    sta scorepointers+6
+    lda text_strings+5,x
+    sta scorepointers+5
+    lda text_strings+4,x
+    sta scorepointers+4
+    lda text_strings+3,x
+    sta scorepointers+3
+    lda text_strings+2,x
+    sta scorepointers+2
+    lda text_strings+1,x
+    sta scorepointers+1
+    lda text_strings+0,x
+    sta scorepointers+0
+    jmp drawtextrow
+    endif
+
 showtextrow
     clc
     adc #11

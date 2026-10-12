@@ -1994,6 +1994,11 @@ Blockly.BBasic.init = function(workspace) {
   // textMinikernelUsed - a project using only plain, static "Show text"
   // blocks needs none of these.
   reserveTextScrollDevVars(reserveDevVar, this.textScrollUsed, this.textScrollConstants);
+  // The text on a Title Screen page returns from the text kernel to the title kernel's bank by hand (see posttextkernel in text12a.asm):
+  // this byte says the call came from there.
+  if (this.isTitleTextUsed()) {
+    reserveDevVar('titleTextFlag', undefined, 'the text kernel was called by the Title Screen kernel: it returns to that bank');
+  }
 
   // Same bucket again, for "Scroll text lines up/down"'s  valid-range
   // tracking (see setTextLinesRangeCode's  comment in generators/bbasic/
@@ -5312,6 +5317,11 @@ Blockly.BBasic.generateConfiguration = function() {
   // same "only pay for what's used" gating as every other Text Minikernel
   // const here.
   const textRow2ConfigurationCode = this.isTextRow2Used() ? 'const textkernel2ndrow = 1' : '';
+  // titletextbank: the bank the Title Screen kernel runs from, which the text kernel hops back to (a bankswitched ROM only).
+  const titleTextBank = this.isTitleTextUsed() ? Blockly.BBasic.getSubroutineBank(TITLE_SCREEN_SUBROUTINE_NAME) : 0;
+  const titleTextConfigurationCode = this.isTitleTextUsed() ?
+    'const titletext = 1' + (titleTextBank > 1 ? `
+ const titletextbank = ${titleTextBank}` : '') : '';
   // pfres raises the playfield's vertical resolution above the standard
   // kernel's default; it requires the extra RAM Superchip provides (see
   // generateRomSize), and is a single ROM-wide setting, not per-background.
@@ -5361,6 +5371,7 @@ Blockly.BBasic.generateConfiguration = function() {
     textBkColorConfigurationCode,
     textBankConfigurationCode,
     textRow2ConfigurationCode,
+    titleTextConfigurationCode,
     pfresConfigurationCode,
     pfRowHeightConfigurationCode,
     optimizationConfigurationCode,
@@ -6973,7 +6984,7 @@ import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
 import textMinikernel from './bbasic/text-minikernel';
-import titlescreen from './bbasic/titlescreen';
+import titlescreen, {TITLE_SCREEN_SUBROUTINE_NAME} from './bbasic/titlescreen';
 import variables from './bbasic/variables';
 import {findGameplayOnlyNames} from '../utils/title-liveness';
 import {dpcTileMarker} from '../utils/dpc-tile';
