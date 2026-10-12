@@ -649,6 +649,8 @@ const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KE
 
 // The name the debug info gives to the player0size byte it reads to tell when the Title Screen Kernel runs.
 const TITLE_KERNEL_WATCH_NAME = '__titleKernelRunning';
+// The lines in a frame of both TV standards the project can use (NTSC and PAL60).
+const NTSC_FRAME_SCANLINES = 262;
 
 export default {
   components: {KeyMappingDialog, EmulatorSettingsDialog, DebugSettingsDialog},
@@ -777,7 +779,7 @@ export default {
           .map(([bit, letter]) => (info.flags & bit ? letter : '.')).join('');
       return `PC $${hex(info.pc, 4)}  A $${hex(info.a, 2)}  X $${hex(info.x, 2)}  Y $${hex(info.y, 2)}` +
         `  S $${hex(info.s, 2)}  ${flagLetters}\n` +
-        `Scanlines ${info.scanlines}  Frame ${info.frame}\n` +
+        `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}  Frame ${info.frame}\n` +
         (info.busyCycles === null ?
           `CPU cycles/frame ${info.cpuCycles}` :
           `CPU busy ${info.busyCycles} of ${info.cpuCycles} cycles/frame`);

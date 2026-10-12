@@ -63,6 +63,13 @@
           </v-list-item-content>
         </v-list-item>
 
+        <v-list-item @click="openInNewWindow('https://github.com/batari-Basic/batari-Basic')">
+          <v-list-item-content>
+            <v-list-item-title>DPC+ Kernel (Experimental)</v-list-item-title>
+            <v-list-item-subtitle>batari Basic's DPC+ kernel, for the Harmony/Melody cartridge format &middot; github.com/batari-Basic/batari-Basic</v-list-item-subtitle>
+          </v-list-item-content>
+        </v-list-item>
+
         <v-list-item @click="openInNewWindow('https://forums.atariage.com/topic/169819-the-titlescreen-kernel/')">
           <v-list-item-content>
             <v-list-item-title>Titlescreen Kernel</v-list-item-title>

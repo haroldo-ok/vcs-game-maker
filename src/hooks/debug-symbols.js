@@ -34,5 +34,6 @@ export const collectDebugVariables = (variableUsage, symbolmap) => {
     sharedWith.forEach((name) => add(name, 'block', {hostName: assignment.name}));
   });
   (variableUsage.systemAssignments || []).forEach((assignment) => add(assignment.name, 'system'));
-  return [...found.values()];
+  // In memory address order, which is the order the debug overlay and its variable list show them in.
+  return [...found.values()].sort((a, b) => a.address - b.address || a.name.localeCompare(b.name));
 };

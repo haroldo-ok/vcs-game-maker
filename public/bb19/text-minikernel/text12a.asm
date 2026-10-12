@@ -60,12 +60,12 @@ minikernel
     ; the text below them is moved back (see after the digit loop).
     ifconst score5digits
         ifnconst noscoretxt
-    ldy #$90                ; 2     (10)
+    ldy #DIGITHMP0                ; 2     (10)
         else
-    ldy #$D0                ; 2     (10)
+    ldy #TEXTHMP0                ; 2     (10)
         endif
     else
-    ldy #$D0                ; 2     (10)
+    ldy #TEXTHMP0                ; 2     (10)
     endif
     sty HMP0                ; 3     (13)
     lda scorepointers+1
@@ -97,7 +97,7 @@ minikernel
         endif
     endif
     else
-    ldy #$D0                ; 2     (2)
+    ldy #TEXTHMP0                ; 2     (2)
     sty HMP0                ; 3     (5)
     ldy #1                  ; 2     (7)
     sty VDELP0              ; 3     (10)
@@ -119,12 +119,12 @@ minikernel
     sta temp6               ; 3     (49)
     ifconst score5digits
         ifnconst noscoretxt
-	ldy #$A0                ; 2     (51)
+	ldy #DIGITHMP1                ; 2     (51)
         else
-	ldy #$E0                ; 2     (51)
+	ldy #TEXTHMP1                ; 2     (51)
         endif
     else
-	ldy #$E0                ; 2     (51)
+	ldy #TEXTHMP1                ; 2     (51)
     endif
 	sty HMP1                ; 3     (54)
     ; vcs-game-maker: with the score hidden (noscoretxt) there is no digit row to start, and nothing to put in PF1, so the
@@ -154,6 +154,12 @@ posthmove
    endif
 
 textscoreloop
+         ; vcs-game-maker: with 5 score digits the digits are drawn 2 cycles sooner (see below), so the loop waits these 2 at its start.
+         ifconst score5digits
+             ifnconst scorefade
+                 sleep 2
+             endif
+         endif
          lda (scorepointers),y      ; 5     (66)
          sta GRP0                   ; 3     (69)
          ifconst pfscore
@@ -179,7 +185,13 @@ begintextscore
          ifconst scorefade
              lda TextDataPtr+1             ; 3     (31)
          else
-             sleep 3                ; 3     (31)
+             ; vcs-game-maker: with 5 score digits the digits stand 6 clocks (2 cycles) further to the left (see DIGITHMP0 in
+             ; text12b.asm), so the writes that draw them come 2 cycles sooner: 1 here and 1 below.
+             ifconst score5digits
+                 sleep 2            ; 2     (30)
+             else
+                 sleep 3            ; 3     (31)
+             endif
          endif
 
          ifconst pfscore
@@ -198,7 +210,11 @@ begintextscore
          ; already hold the other five digits one place to the left (see std_overscan.asm).
          ifconst score5digits
              lda #0
-             sleep 3
+             ifconst scorefade
+                 sleep 3
+             else
+                 sleep 2
+             endif
          else
          lda (scorepointers+$A),y   ; 5     (42)
          endif
@@ -287,9 +303,9 @@ score_loop_height = * - textscoreloop
     ; at the same cycles and the same fine motion as the setup at the top, on a line by itself.
     ifconst score5digits
     sta WSYNC
-    ldy #$D0                ; 2     (2)
+    ldy #TEXTHMP0                ; 2     (2)
     sty HMP0                ; 3     (5)
-    ldy #$E0                ; 2     (7)
+    ldy #TEXTHMP1                ; 2     (7)
     sty HMP1                ; 3     (10)
     sleep 30                ; 30    (40)
     sta RESP0               ; 3     (43)
@@ -420,7 +436,7 @@ titletextkernel
     sta PF2
     sta HMCLR
     sta WSYNC               ; 3     (0)
-    ldy #$D0                ; 2     (2)
+    ldy #TEXTHMP0                ; 2     (2)
     sty HMP0                ; 3     (5)
     ldy #1                  ; 2     (7)
     sty VDELP0              ; 3     (10)
@@ -433,7 +449,7 @@ titletextkernel
     sta RESP0               ; 3     (43)
     sta RESP1               ; 3     (46)
     sleep 3                 ; 3     (49)
-    ldy #$E0                ; 2     (51)
+    ldy #TEXTHMP1                ; 2     (51)
     sty HMP1                ; 3     (54)
     sleep 16                ; 16    (70)
     sta HMOVE               ; 3     (73)

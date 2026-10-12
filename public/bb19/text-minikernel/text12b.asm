@@ -1,6 +1,24 @@
  ; vcs-game-maker: row 1 is filled straight from the message table (showtextrowfast below), which starts the text sooner, with the
  ; score hidden and with 5 score digits (whose sprites need a separate line to move back, see text12a.asm). Said here, before the
  ; first use: this file comes first in the program, and a symbol defined further on would make the assembler's passes disagree.
+; vcs-game-maker: the fine horizontal motion (HMP0/HMP1) that puts the text, and the 5 score digits above it, in the middle of the
+; playfield. With 5 score digits all of them are a further 6 clocks to the left (the middle of the playfield is x=79.5).
+ ifconst score5digits
+TEXTHMP0 = $30
+TEXTHMP1 = $40
+  ifconst scorefade
+DIGITHMP0 = $B0
+DIGITHMP1 = $C0
+  else
+DIGITHMP0 = $F0
+DIGITHMP1 = $00
+  endif
+ else
+TEXTHMP0 = $D0
+TEXTHMP1 = $E0
+DIGITHMP0 = $90
+DIGITHMP1 = $A0
+ endif
  ifconst noscoretxt
 textfastrow1 = 1
  else
@@ -277,7 +295,13 @@ firstbreak
     ; characters to make it visible). Unconditional now - both builds use
     ; the same cycle count here, same as every other non-noscoretxt-gated
     ; instruction in this file already does.
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
+    else
     sleep 5                 ; 7     (46)
+    endif
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (55) 5 -> [GRP1] ; 4 -> GRP0
@@ -338,7 +362,13 @@ endl1
     ldx B                   ; 3     (39) 4 in X
     ; vcs-game-maker: see the identical comment on this file's first
     ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
+    else
     sleep 5                 ; 7     (46)
+    endif
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (55) 5 -> [GRP1] ; 4 -> GRP0
@@ -399,7 +429,13 @@ endl2
     ldx B                   ; 3     (39) 4 in X
     ; vcs-game-maker: see the identical comment on this file's first
     ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
+    else
     sleep 5                 ; 7     (46)
+    endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
@@ -460,7 +496,13 @@ endl2
     ldx B                   ; 3     (39) 4 in X
     ; vcs-game-maker: see the identical comment on this file's first
     ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
+    else
     sleep 5                 ; 7     (46)
+    endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
@@ -521,7 +563,13 @@ endl2
     ldx B                   ; 3     (39) 4 in X
     ; vcs-game-maker: see the identical comment on this file's first
     ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
+    else
     sleep 5                 ; 7     (46)
+    endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0

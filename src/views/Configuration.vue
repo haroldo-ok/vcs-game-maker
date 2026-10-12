@@ -9,6 +9,104 @@
         Reset to Defaults
       </v-btn>
 
+      <div class="option-section-header" @click="() => toggleSection('kernel')">
+        <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
+          <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+        </v-btn>
+        <span class="text-subtitle-1">Kernel Options</span>
+      </div>
+      <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
+        <v-select
+          v-model="configurationState.kernel"
+          @change="handleChangeConfiguration"
+          :items="kernelOptions"
+          label="Kernel"
+          hint="DPC+ trades the standard kernel's playfield/missile/ball tricks (Superchip, per-row playfield colors, no_blank_lines) for an ARM co-processor with different capabilities (settable playfield row height, independent per-row playfield AND background colors) - see the options that appear below once selected."
+          persistent-hint
+        />
+        <v-switch
+          v-if="!kernelIsDpcPlus"
+          v-model="configurationState.enableRand16"
+          @change="handleChangeConfiguration"
+          label="Use 16-bit random number generator (rand16)"
+          hint="Widens the random number generator's cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
+          persistent-hint
+          class="option-switch"
+        />
+        <template v-if="!kernelIsDpcPlus">
+          <v-switch
+            v-model="enableMissile0BlankLines"
+            @change="handleChangeConfiguration"
+            :disabled="player0RainbowColorsActive"
+            :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
+            label="Fill blank lines between background rows with missile0 (no_blank_lines)"
+            :hint="player0RainbowColorsActive ?
+              'Forced off: the player0 rainbow colors block requires blank lines shown normally - batari Basic never allows player-colors and no_blank_lines together.' :
+              'Turning this on packs playfield rows tighter together, but uses missile0\'s graphics circuitry, so missile0 can no longer be used as a sprite.'"
+            persistent-hint
+            class="option-switch"
+          />
+        </template>
+        <template v-else>
+          <v-switch
+            v-model="configurationState.enablePfColors"
+            @change="handleChangeConfiguration"
+            label="Enable per-row playfield colors"
+            hint="Playfield show a different color on every row."
+            persistent-hint
+            class="option-switch"
+          />
+          <v-switch
+            v-model="configurationState.enableDpcPlusBkColors"
+            @change="handleChangeConfiguration"
+            label="Enable per-row background colors"
+            hint="An independent color per background row, on top of (not instead of) per-row playfield colors above."
+            persistent-hint
+            class="option-switch"
+          />
+          <v-switch
+            v-model="configurationState.enableDpcPlusAudio"
+            @change="handleChangeConfiguration"
+            label="Play sound and music with the DPC+ sound chip"
+            hint="Sounds and songs are played by the DPC+ chip: each sound has a waveform you draw on its Sound tab card instead of a sound type, and a note can be any piano key. It plays all three of the chip's voices (Ch0 voice 1 to 3 in the channel choices), and Ch1 stays on the TIA. The chip's sound stops for the part of each frame after the picture (a faint 60 Hz buzz). Turned off, the sounds use the TIA's two channels like the standard kernel."
+            persistent-hint
+            class="option-switch"
+          />
+        </template>
+        <v-switch
+          v-if="!kernelIsDpcPlus"
+          v-model="configurationState.enablePlayer0SpriteColors"
+          @change="handleChangeConfiguration"
+          :label="kernelIsDpcPlus ? 'Enable per-row Player 0 sprite colors' : 'Enable per-row Player 0 sprite colors (playercolors)'"
+          :hint="kernelIsDpcPlus ? 'Lets Player 0 show a different color on every row, the same way backgrounds can. The colors are the ones set on each sprite row in the Sprites tab.' : 'Lets Player 0 show a different color on every row, the same way backgrounds can. Costs missile0 (can\'t be used as a sprite anywhere in the project once this is on) and paddle input. batari Basic requires player1colors alongside playercolors, so turning this on also turns on (and locks on) Player 1 sprite colors below, costing missile1 too.'"
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-if="!kernelIsDpcPlus"
+          v-model="configurationState.enablePlayer1SpriteColors"
+          @change="handleChangeConfiguration"
+          :disabled="player0RainbowColorsActive"
+          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
+          :label="kernelIsDpcPlus ? 'Enable per-row Player 1 sprite colors' : 'Enable per-row Player 1 sprite colors (player1colors)'"
+          :hint="kernelIsDpcPlus ? 'Lets Player 1 and the other players show a different color on every row, the same way backgrounds can. The colors are the ones set on each sprite row in the Sprites tab.' : player0RainbowColorsActive ?
+            'Forced on: batari Basic requires player1colors whenever playercolors (Player 0 sprite colors, above) is on.' :
+            'Lets Player 1 show a different color on every row, the same way backgrounds can. Costs missile1 (can\'t be used as a sprite anywhere in the project once this is on) - unlike Player 0 sprite colors, this works alone with no other cost.'"
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-if="!kernelIsDpcPlus"
+          v-model="configurationState.enablePfColors"
+          @change="handleChangeConfiguration"
+          label="Enable per-row playfield colors (pfcolors)"
+          hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Works fine together with Superchip RAM."
+          persistent-hint
+          class="option-switch"
+        />
+      </div>
+
+      <v-divider class="my-2" />
       <div class="option-section-header" @click="() => toggleSection('rom')">
         <v-btn icon small :title="isSectionCollapsed('rom') ? 'Expand this section' : 'Collapse this section'">
           <v-icon>{{ isSectionCollapsed('rom') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
@@ -141,104 +239,6 @@
             class="pfrowheight-field"
           />
         </template>
-      </div>
-
-      <v-divider class="my-2" />
-      <div class="option-section-header" @click="() => toggleSection('kernel')">
-        <v-btn icon small :title="isSectionCollapsed('kernel') ? 'Expand this section' : 'Collapse this section'">
-          <v-icon>{{ isSectionCollapsed('kernel') ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
-        </v-btn>
-        <span class="text-subtitle-1">Kernel Options</span>
-      </div>
-      <div v-if="!isSectionCollapsed('kernel')" class="option-section-content">
-        <v-select
-          v-model="configurationState.kernel"
-          @change="handleChangeConfiguration"
-          :items="kernelOptions"
-          label="Kernel"
-          hint="DPC+ trades the standard kernel's playfield/missile/ball tricks (Superchip, per-row playfield colors, no_blank_lines) for an ARM co-processor with different capabilities (settable playfield row height, independent per-row playfield AND background colors) - see the options that appear below once selected."
-          persistent-hint
-        />
-        <v-switch
-          v-if="!kernelIsDpcPlus"
-          v-model="configurationState.enableRand16"
-          @change="handleChangeConfiguration"
-          label="Use 16-bit random number generator (rand16)"
-          hint="Widens the random number generator's cycle length before it starts visibly repeating - every Random block on the Actions tab still reads the same 'rand' either way, this only changes how long it takes before that sequence repeats. Costs one extra variable."
-          persistent-hint
-          class="option-switch"
-        />
-        <template v-if="!kernelIsDpcPlus">
-          <v-switch
-            v-model="enableMissile0BlankLines"
-            @change="handleChangeConfiguration"
-            :disabled="player0RainbowColorsActive"
-            :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
-            label="Fill blank lines between background rows with missile0 (no_blank_lines)"
-            :hint="player0RainbowColorsActive ?
-              'Forced off: the player0 rainbow colors block requires blank lines shown normally - batari Basic never allows player-colors and no_blank_lines together.' :
-              'Turning this on packs playfield rows tighter together, but uses missile0\'s graphics circuitry, so missile0 can no longer be used as a sprite.'"
-            persistent-hint
-            class="option-switch"
-          />
-        </template>
-        <template v-else>
-          <v-switch
-            v-model="configurationState.enablePfColors"
-            @change="handleChangeConfiguration"
-            label="Enable per-row playfield colors"
-            hint="Playfield show a different color on every row."
-            persistent-hint
-            class="option-switch"
-          />
-          <v-switch
-            v-model="configurationState.enableDpcPlusBkColors"
-            @change="handleChangeConfiguration"
-            label="Enable per-row background colors"
-            hint="An independent color per background row, on top of (not instead of) per-row playfield colors above."
-            persistent-hint
-            class="option-switch"
-          />
-          <v-switch
-            v-model="configurationState.enableDpcPlusAudio"
-            @change="handleChangeConfiguration"
-            label="Play sound and music with the DPC+ sound chip"
-            hint="Sounds and songs are played by the DPC+ chip: each sound has a waveform you draw on its Sound tab card instead of a sound type, and a note can be any piano key. It plays all three of the chip's voices (Ch0 voice 1 to 3 in the channel choices), and Ch1 stays on the TIA. The chip's sound stops for the part of each frame after the picture (a faint 60 Hz buzz). Turned off, the sounds use the TIA's two channels like the standard kernel."
-            persistent-hint
-            class="option-switch"
-          />
-        </template>
-        <v-switch
-          v-if="!kernelIsDpcPlus"
-          v-model="configurationState.enablePlayer0SpriteColors"
-          @change="handleChangeConfiguration"
-          :label="kernelIsDpcPlus ? 'Enable per-row Player 0 sprite colors' : 'Enable per-row Player 0 sprite colors (playercolors)'"
-          :hint="kernelIsDpcPlus ? 'Lets Player 0 show a different color on every row, the same way backgrounds can. The colors are the ones set on each sprite row in the Sprites tab.' : 'Lets Player 0 show a different color on every row, the same way backgrounds can. Costs missile0 (can\'t be used as a sprite anywhere in the project once this is on) and paddle input. batari Basic requires player1colors alongside playercolors, so turning this on also turns on (and locks on) Player 1 sprite colors below, costing missile1 too.'"
-          persistent-hint
-          class="option-switch"
-        />
-        <v-switch
-          v-if="!kernelIsDpcPlus"
-          v-model="configurationState.enablePlayer1SpriteColors"
-          @change="handleChangeConfiguration"
-          :disabled="player0RainbowColorsActive"
-          :color="player0RainbowColorsActive ? 'amber darken-2' : undefined"
-          :label="kernelIsDpcPlus ? 'Enable per-row Player 1 sprite colors' : 'Enable per-row Player 1 sprite colors (player1colors)'"
-          :hint="kernelIsDpcPlus ? 'Lets Player 1 and the other players show a different color on every row, the same way backgrounds can. The colors are the ones set on each sprite row in the Sprites tab.' : player0RainbowColorsActive ?
-            'Forced on: batari Basic requires player1colors whenever playercolors (Player 0 sprite colors, above) is on.' :
-            'Lets Player 1 show a different color on every row, the same way backgrounds can. Costs missile1 (can\'t be used as a sprite anywhere in the project once this is on) - unlike Player 0 sprite colors, this works alone with no other cost.'"
-          persistent-hint
-          class="option-switch"
-        />
-        <v-switch
-          v-if="!kernelIsDpcPlus"
-          v-model="configurationState.enablePfColors"
-          @change="handleChangeConfiguration"
-          label="Enable per-row playfield colors (pfcolors)"
-          hint="Backgrounds can still have row colors set while this is off; they just won't be included in the generated code. Works fine together with Superchip RAM."
-          persistent-hint
-          class="option-switch"
-        />
       </div>
 
       <v-divider class="my-2" />

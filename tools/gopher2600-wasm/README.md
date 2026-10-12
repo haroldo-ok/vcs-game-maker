@@ -35,6 +35,11 @@ be reapplied after a re-vendor (`git apply patches/*.patch`):
   harness prints a frame hash); about 2% faster natively, since Pixel was a smaller share
   than its profile suggested.
 
+- `0003-elf-reads-the-loaders-data.patch`: the ELF cartridge (which PXE ROMs use) reopened the
+  ROM by file name, and a ROM loaded from memory in the browser has no file, so it failed to
+  attach. It now reads the data the loader already holds and only opens the file when there is
+  none.
+
 The television's frame limiter is switched off in `main.go` (`tv.SetFPSLimit(false)`):
 left on, it padded every frame to a full 16.7 ms wait, and the page paces the
 emulator instead.
