@@ -893,7 +893,12 @@ noscoreloop
      else
 
      sta HMCLR
+     ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered.
+     ifconst score5digits
+     ldx #$e0
+     else
      ldx #$f0
+     endif
      stx HMP0
 
      ; set up fetchers 0-5 to handle score digits
@@ -901,18 +906,37 @@ noscoreloop
      stx DF6LOW
      ldx #(>(scoredata)) & $0F
      stx DF6HI
-     ldx #<(scoredata+8)
+     ; vcs-game-maker: the Score tab's "5 score digits" switch drops the leftmost digit: each place reads the digit to its right, and
+     ; the last place reads 8 bytes that hold zeros (set at startup, see generateDpcPlusBankPreamble), so the five digits sit where the
+     ; left five of six would, centered. (An immediate 0 can not be loaded instead: with fast fetch on, LDA #0 reads a data fetcher.)
+     ifconst score5digits
+SCOREBLANK = scoredata+80
+SCOREPLACE0 = scoredata+32
+SCOREPLACE1 = scoredata+8
+SCOREPLACE2 = scoredata+48
+SCOREPLACE3 = scoredata+24
+SCOREPLACE4 = SCOREBLANK
+SCOREPLACE5 = scoredata+40
+     else
+SCOREPLACE0 = scoredata+8
+SCOREPLACE1 = scoredata+16
+SCOREPLACE2 = scoredata+24
+SCOREPLACE3 = scoredata+32
+SCOREPLACE4 = scoredata+40
+SCOREPLACE5 = scoredata+48
+     endif
+     ldx #<(SCOREPLACE0)
      stx DF0LOW
-     ldx #(>(scoredata+8)) & $0F
+     ldx #(>(SCOREPLACE0)) & $0F
      stx DF0HI
-     ldx #<(scoredata+16)
+     ldx #<(SCOREPLACE1)
      stx DF1LOW
      ; cycle 0??
-     ldx #(>(scoredata+16)) & $0F
+     ldx #(>(SCOREPLACE1)) & $0F
      stx DF1HI
-     ldx #<(scoredata+24)
+     ldx #<(SCOREPLACE2)
      stx DF2LOW
-     ldx #(>(scoredata+24)) & $0F
+     ldx #(>(SCOREPLACE2)) & $0F
      stx DF2HI
 
      sta WSYNC
@@ -920,13 +944,13 @@ noscoreloop
      STx GRP0
      STx GRP1 ; seems to be needed because of vdel
 
-     ldx #<(scoredata+32)
+     ldx #<(SCOREPLACE3)
      stx DF3LOW
-     ldx #(>(scoredata+32)) & $0F
+     ldx #(>(SCOREPLACE3)) & $0F
      stx DF3HI
-     ldx #<(scoredata+40)
+     ldx #<(SCOREPLACE4)
      stx DF4LOW
-     ldx #(>(scoredata+40)) & $0F
+     ldx #(>(SCOREPLACE4)) & $0F
      stx DF4HI
 
      LDY #7
@@ -935,13 +959,17 @@ noscoreloop
      STA RESP0
      STA RESP1
      sty temp1
+     ifconst score5digits
+     ldy #$f0
+     sty HMP1
+     endif
 
      STx NUSIZ0
      STx NUSIZ1
      STx VDELP1
-     ldx #<(scoredata+48)
+     ldx #<(SCOREPLACE5)
      stx DF5LOW
-     ldx #(>(scoredata+48)) & $0F
+     ldx #(>(SCOREPLACE5)) & $0F
      stx DF5HI
      STA.w HMOVE ; cycle 73 ?
 scoreloop

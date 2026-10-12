@@ -4892,7 +4892,11 @@ Blockly.BBasic.generateDpcPlusBankPreamble = function() {
     ' j = 0 : k = 0 : l = 0 : m = 0 : n = 0 : o = 0 : p = 0 : q = 0 : r = 0\n' +
     ' s = 0 : t = 0 : u = 0 : v = 0 : w = 0 : x = 0 : y = 0 : z = 0\n' +
     ' var0 = 0 : var1 = 0 : var2 = 0 : var3 = 0 : var4 = 0\n' +
-    ' var5 = 0 : var6 = 0 : var7 = 0 : var8 = 0\n';
+    ' var5 = 0 : var6 = 0 : var7 = 0 : var8 = 0\n' +
+    // The Score tab's 5 digits option: the leftmost digit reads these 8 bytes of display memory, which have to hold zeros (see
+    // SCOREBLANK in DPCplus_kernel.asm; an immediate load of 0 would read a data fetcher in the kernel).
+    (config.scoreDigits === 5 ? [' asm', ' lda #<(scoredata+80)', ' sta DF0LOW', ' lda #(>(scoredata+80)) & $0F', ' sta DF0HI',
+      ' ldx #0', ...Array(8).fill(' stx DF0WRITE'), 'end'].join('\n') + '\n' : '');
 };
 
 // DPC+ only: the kernel calls a routine named "minikernel" while it draws the score row, and the routine sets the
@@ -5219,7 +5223,9 @@ Blockly.BBasic.generateConfiguration = function() {
   // all, unlike an ifconst check - text12a.asm has its "ifnconst
   // scorepaddinglines" fallback too, but emitting it explicitly here keeps
   // the actual configured value visible in the generated source.
-  const scorePaddingConfigurationCode = `const scorepaddinglines = ${config.scorePaddingLines || 0}`;
+  const scorePaddingConfigurationCode = `const scorepaddinglines = ${config.scorePaddingLines || 0}` +
+    // The Score tab's 5 digits option: the standard and DPC+ kernels leave the leftmost digit of the score blank.
+    (config.scoreDigits === 5 ? '\n const score5digits = 1' : '');
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that

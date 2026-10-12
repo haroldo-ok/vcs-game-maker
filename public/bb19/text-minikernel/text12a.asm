@@ -56,7 +56,17 @@ minikernel
     ldx #0                  ; 2     (2)
     stx GRP0                ; 3     (5)         
     stx GRP1                ; 3     (8)
+    ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered;
+    ; the text below them is moved back (see after the digit loop).
+    ifconst score5digits
+        ifnconst noscoretxt
+    ldy #$C0                ; 2     (10)
+        else
     ldy #$D0                ; 2     (10)
+        endif
+    else
+    ldy #$D0                ; 2     (10)
+    endif
     sty HMP0                ; 3     (13)
     lda scorepointers+1
     sta temp1
@@ -107,7 +117,15 @@ minikernel
     sta RESP0               ; 3     (43)
     sta RESP1               ; 3     (46)
     sta temp6               ; 3     (49)
+    ifconst score5digits
+        ifnconst noscoretxt
+	ldy #$D0                ; 2     (51)
+        else
 	ldy #$E0                ; 2     (51)
+        endif
+    else
+	ldy #$E0                ; 2     (51)
+    endif
 	sty HMP1                ; 3     (54)
     ; vcs-game-maker: with the score hidden (noscoretxt) there is no digit row to start, and nothing to put in PF1, so the
     ; same cycles are spent waiting and the registers stay as they are (see the cleanup after the digit loop below).
@@ -176,7 +194,14 @@ begintextscore
              endif
          endif
 
+         ; vcs-game-maker: the Score tab's "5 score digits" switch leaves the sixth place blank (same 5 cycles); the pointers
+         ; already hold the other five digits one place to the left (see std_overscan.asm).
+         ifconst score5digits
+             lda #0
+             sleep 3
+         else
          lda (scorepointers+$A),y   ; 5     (42)
+         endif
          stx GRP1                   ; 3     (45)
          tsx                        ; 2     (47)
          stx GRP0                   ; 3     (50)
@@ -258,6 +283,14 @@ score_loop_height = * - textscoreloop
 	sty GRP0                ; 3     (73)
 	sty GRP1                ; 3     (76/0)
 	sty GRP0                ; 3     (3)
+    ; vcs-game-maker: back to where the text is centered, on a line of its own (see the digits above).
+    ifconst score5digits
+    sta WSYNC
+    lda #$10
+    sta HMP0
+    sta HMP1
+    sta HMOVE
+    endif
     endif
 	; vcs-game-maker: when noscoretxt is unset (score digits shown) AND
 	; scorepaddinglines is at least 1, the "ifnconst noscoretxt" block above

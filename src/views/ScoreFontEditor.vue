@@ -54,6 +54,13 @@
           hide-details
           class="score-fade-switch"
         />
+        <v-switch
+          v-model="fiveScoreDigits"
+          label="5 score digits"
+          title="Draws the score with 5 digits instead of 6: the standard and DPC+ kernels, and the Text Minikernel's score digits, leave the leftmost digit out (a score of up to 99999 shows in full), centered."
+          hide-details
+          class="score-fade-switch"
+        />
       </div>
       <p class="v-messages theme--light v-messages__message">
         Draw the score digits below. Every font can be redrawn: what you draw is kept for the
@@ -378,6 +385,18 @@ export default defineComponent({
     // "if scorepaddinglines >= N" checks read that). 0 by default - a
     // project that's never visited this dropdown keeps its existing frame
     // timing unchanged.
+    // On: 5 digits, the standard and DPC+ kernels leave the leftmost digit blank (const score5digits); off (default): 6.
+    const fiveScoreDigits = computed({
+      get() {
+        return (configurationStorage.value || {}).scoreDigits === 5;
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          scoreDigits: value ? 5 : 6,
+        };
+      },
+    });
     const scorePaddingLines = computed({
       get() {
         try {
@@ -538,6 +557,7 @@ export default defineComponent({
       digitWidth,
       extraGlyphsEnabled,
       scorePaddingLines,
+      fiveScoreDigits,
       fontIsEdited,
       canReset,
       resetLabel,
