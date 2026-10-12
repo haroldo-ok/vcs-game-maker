@@ -35,21 +35,22 @@ const buildAnimationSelectBlock = ({icon, colour, storageFactory}) => {
   Blockly.Blocks['sprite_player_animation_select'] = {
     init: function() {
       this.appendDummyInput()
-          .appendField(`${icon} Player`)
-          .appendField(new Blockly.FieldDropdown(PLAYER_DROPDOWN_OPTIONS), 'PLAYER')
-          .appendField(`${ANIMATION_ICON} animation`)
+          .appendField(`${icon} ${ANIMATION_ICON} animation`)
           .appendField(
               new Blockly.FieldDropdown(buildAnimationOptions(storageFactory)), 'VAR');
       this.setOutput(true, 'Number');
       this.setColour(colour);
-      // sprite_player_field_sync's  colour-sync half applies fine here
-      // too (VAR is an animation-list index, never "player0..."-prefixed,
-      // so that extension's OTHER half - VAR translation - naturally never
-      // matches and no-ops) - applied directly (not via 'extensions', which
-      // only JSON-defined blocks support) since this block builds its
-      // fields by hand.
-      Blockly.Extensions.apply('sprite_player_field_sync', this, false);
-      this.setTooltip('Selects one of the chosen player\'s animations by name');
+      // No player to pick: every sprite shares the one pool of animations. Plugged into a block that has a player, it takes that
+      // player's colour (red for Player 0, blue for Player 1, and so on); on its own it keeps the plain one.
+      const block = this;
+      this.setOnChange(() => {
+        if (!block.workspace || block.workspace.isFlyout) return;
+        const parentPlayer = block.getParent() && block.getParent().getFieldValue('PLAYER');
+        const wanted = parentPlayer == null ? 'red' :
+          parentPlayer === '1' ? 'blue' : /^[2-9]$/.test(parentPlayer) ? extraPlayerColour(parentPlayer) : 'red';
+        if (block.getColour() !== Blockly.utils.colour.parse(wanted)) block.setColour(wanted);
+      });
+      this.setTooltip('Selects one of the animations by name and reports its number');
     },
   };
 };

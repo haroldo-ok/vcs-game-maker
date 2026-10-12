@@ -893,13 +893,17 @@ noscoreloop
      else
 
      sta HMCLR
-     ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered.
+     ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered (HMP1 is set here too: later, it would delay the HMOVE below).
      ifconst score5digits
-     ldx #$e0
+     ldx #$d0
      else
      ldx #$f0
      endif
      stx HMP0
+     ifconst score5digits
+     ldx #$e0
+     stx HMP1
+     endif
 
      ; set up fetchers 0-5 to handle score digits
      ldx #<(scoredata)
@@ -959,10 +963,6 @@ SCOREPLACE5 = scoredata+48
      STA RESP0
      STA RESP1
      sty temp1
-     ifconst score5digits
-     ldy #$f0
-     sty HMP1
-     endif
 
      STx NUSIZ0
      STx NUSIZ1

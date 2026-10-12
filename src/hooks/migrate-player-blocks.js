@@ -25,7 +25,7 @@ const OLD_TYPE_TO_NEW = {
   sprite_player0_set: {type: 'sprite_player_set', field: 'PLAYER', value: '0'},
   sprite_player0_change: {type: 'sprite_player_change', field: 'PLAYER', value: '0'},
   sprite_player0_size: {type: 'sprite_player_size', field: 'PLAYER', value: '0'},
-  sprite_player0_animation_select: {type: 'sprite_player_animation_select', field: 'PLAYER', value: '0'},
+  sprite_player0_animation_select: {type: 'sprite_player_animation_select', field: null},
   sprite_player0_animation_playback: {type: 'sprite_player_animation_playback', field: 'PLAYER', value: '0'},
   sprite_player0_rom_noise: {type: 'sprite_player_rom_noise', field: 'PLAYER', value: '0'},
   sprite_player0_rom_noise_stop: {type: 'sprite_player_rom_noise_stop', field: 'PLAYER', value: '0'},
@@ -35,7 +35,7 @@ const OLD_TYPE_TO_NEW = {
   sprite_player1_set: {type: 'sprite_player_set', field: 'PLAYER', value: '1'},
   sprite_player1_change: {type: 'sprite_player_change', field: 'PLAYER', value: '1'},
   sprite_player1_size: {type: 'sprite_player_size', field: 'PLAYER', value: '1'},
-  sprite_player1_animation_select: {type: 'sprite_player_animation_select', field: 'PLAYER', value: '1'},
+  sprite_player1_animation_select: {type: 'sprite_player_animation_select', field: null},
   sprite_player1_animation_playback: {type: 'sprite_player_animation_playback', field: 'PLAYER', value: '1'},
   sprite_player1_rom_noise: {type: 'sprite_player_rom_noise', field: 'PLAYER', value: '1'},
   sprite_player1_rom_noise_stop: {type: 'sprite_player_rom_noise_stop', field: 'PLAYER', value: '1'},
@@ -77,6 +77,8 @@ export const migrateLegacyPlayerBlocksInWorkspaceXml = (workspaceXml) => {
       if (!replacement) return;
       changed = true;
       block.setAttribute('type', replacement.type);
+      // An animation name block has no player to remember: every sprite shares the one pool of animations.
+      if (!replacement.field) return;
       const field = doc.createElement('field');
       field.setAttribute('name', replacement.field);
       field.textContent = replacement.value;
