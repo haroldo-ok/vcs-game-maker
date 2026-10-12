@@ -16,6 +16,24 @@ import {migrateLegacyJoystickBlocksInLocalStorage} from './hooks/migrate-joystic
 import {migrateLegacyKeypadBlocksInLocalStorage} from './hooks/migrate-keypad-blocks';
 import './registerServiceWorker';
 
+// Every link that leaves the app opens in a new tab, whatever markup it comes from, so following one never replaces the page the
+// project is open in. A link that already says target="_blank", a link to the app itself and anything that is not http(s) (a
+// download from a blob, say) is left to the browser.
+document.addEventListener('click', (event) => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+  if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+  let url;
+  try {
+    url = new URL(anchor.href, window.location.href);
+  } catch (error) {
+    return;
+  }
+  if (!/^https?:$/.test(url.protocol) || url.origin === window.location.origin) return;
+  event.preventDefault();
+  window.open(url.href, '_blank', 'noopener');
+});
+
 // Combines an existing project's  separate legacy Player 0/Player 1
 // animation storage into the single shared pool this app now uses - see
 // that function's  comment for why this has to run before the app is

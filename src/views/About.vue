@@ -36,7 +36,7 @@
 
       <span class="text-subtitle-1 about-label">Contributors</span>
       <v-list dense class="about-list">
-        <v-list-item @click="openInNewWindow('https://github.com/haroldo-ok')">
+        <v-list-item @click="openInNewTab('https://github.com/haroldo-ok')">
           <v-list-item-content>
             <v-list-item-title>Haroldo de Oliveira Pinheiro</v-list-item-title>
             <v-list-item-subtitle>Creator of VCS Game Maker</v-list-item-subtitle>
@@ -44,7 +44,7 @@
           </v-list-item-content>
         </v-list-item>
 
-        <v-list-item @click="openInNewWindow('https://abstractpolygon.com')">
+        <v-list-item @click="openInNewTab('https://abstractpolygon.com')">
           <v-list-item-content>
             <v-list-item-title>Nick R. / AbstractPolygon</v-list-item-title>
             <v-list-item-subtitle>Contributor</v-list-item-subtitle>
@@ -55,7 +55,7 @@
 
       <span class="text-subtitle-1 about-label">Supported Kernels/Minikernels</span>
       <v-list dense class="about-list">
-        <v-list-item @click="openInNewWindow('https://github.com/batari-Basic/batari-Basic')">
+        <v-list-item @click="openInNewTab('https://github.com/batari-Basic/batari-Basic')">
           <v-list-item-content>
             <v-list-item-title>Standard Kernel</v-list-item-title>
             <v-list-item-subtitle>batari Basic's built-in playfield/sprite kernel</v-list-item-subtitle>
@@ -63,7 +63,7 @@
           </v-list-item-content>
         </v-list-item>
 
-        <v-list-item @click="openInNewWindow('https://github.com/batari-Basic/batari-Basic')">
+        <v-list-item @click="openInNewTab('https://github.com/batari-Basic/batari-Basic')">
           <v-list-item-content>
             <v-list-item-title>DPC+ Kernel (Experimental)</v-list-item-title>
             <v-list-item-subtitle>batari Basic's DPC+ kernel, for the Harmony/Melody cartridge format</v-list-item-subtitle>
@@ -71,7 +71,7 @@
           </v-list-item-content>
         </v-list-item>
 
-        <v-list-item @click="openInNewWindow('https://forums.atariage.com/topic/169819-the-titlescreen-kernel/')">
+        <v-list-item @click="openInNewTab('https://forums.atariage.com/topic/169819-the-titlescreen-kernel/')">
           <v-list-item-content>
             <v-list-item-title>Titlescreen Kernel</v-list-item-title>
             <v-list-item-subtitle>By RevEng</v-list-item-subtitle>
@@ -79,7 +79,7 @@
           </v-list-item-content>
         </v-list-item>
 
-        <v-list-item @click="openInNewWindow('https://forums.atariage.com/topic/287652-text-minikernel/')">
+        <v-list-item @click="openInNewTab('https://forums.atariage.com/topic/287652-text-minikernel/')">
           <v-list-item-content>
             <v-list-item-title>Text Minikernel</v-list-item-title>
             <v-list-item-subtitle>Adapted from Karl G's Text Minikernel</v-list-item-subtitle>
@@ -100,16 +100,9 @@ export default {
     return {version};
   },
   methods: {
-    // A plain <a target="_blank"> just opens another TAB in most browsers
-    // (tab-vs-window is the browser's  tabbed-browsing preference, not
-    // something an anchor's target can force) - passing explicit window
-    // features (width/height/etc, same as any classic popup call) is what
-    // actually makes window.open() open a separate, real window instead.
-    // "noopener" still keeps the new window from getting a handle back to
-    // this one, matching the rel="noopener" every other outbound link in
-    // this app already uses.
-    openInNewWindow(url) {
-      window.open(url, '_blank', 'noopener,width=1024,height=768');
+    // Opens a link in a new tab (no window features, which would make the browser open a separate window instead).
+    openInNewTab(url) {
+      window.open(url, '_blank', 'noopener');
     },
   },
 };
