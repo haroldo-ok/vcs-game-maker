@@ -534,6 +534,24 @@
 
         <block type="object_seek_arrived"></block>
 
+        <block type="sprite_lock">
+            <field name="CHILD">player1</field>
+            <field name="PARENT">player0</field>
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_unlock">
+            <field name="CHILD">player1</field>
+        </block>
+
         <block type="sprite_scroll_with_playfield_set">
             <value name="VALUE">
                 <shadow type="logic_boolean">
@@ -1130,6 +1148,9 @@
 
         <block type="subroutine_define"></block>
         <block type="subroutine_call"></block>
+        <block type="subroutine_return"></block>
+        <block type="label_define"></block>
+        <block type="label_goto"></block>
 
         <block type="function_define"></block>
         <block type="function_param_get"></block>

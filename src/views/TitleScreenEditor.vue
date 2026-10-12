@@ -735,6 +735,7 @@
   </div>
 </template>
 <script>
+import {recordReorder} from '../hooks/reorder-history';
 import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {chunk, max} from 'lodash';
 
@@ -1220,6 +1221,7 @@ export default defineComponent({
 
     // Moving selected pixels with the Move tool takes the colors of their rows along
     // (PixelEditor.vue's 'move-rows' event - see utils/row-color-move.js).
+
     const handleMoveRows = (card, frame, move) => {
       if (!cardHasRowColors(card)) return;
       const colors = rowColorsForMove(frame, move);
@@ -1791,10 +1793,29 @@ export default defineComponent({
       openHeightMenu();
       heightMenuVisible.value = true;
     };
+    // Set height can be undone: every frame's rows and row colors as they were before and after.
+    const heightSnapshot = (card) => structuredClone(card.frames.map(({id, pixels, rowColors}) => ({id, pixels, rowColors})));
+    const findCard = (screenId, cardId) => {
+      const screen = state.value.screens.find((candidate) => candidate.id === screenId);
+      return screen ? screen.cards.find((candidate) => candidate.id === cardId) : undefined;
+    };
+    const restoreHeight = (screenId, cardId, snapshot) => {
+      const current = findCard(screenId, cardId);
+      if (!current || !current.frames) return;
+      structuredClone(snapshot).forEach((saved) => {
+        const frame = current.frames.find((candidate) => candidate.id === saved.id);
+        if (!frame) return;
+        frame.pixels = saved.pixels;
+        frame.rowColors = saved.rowColors;
+      });
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
     const handleUnifiedSetHeight = () => {
       const card = selectedGraphicCard.value;
       if (!card) return;
       heightMenuValue.value = Math.max(1, Math.min(64, heightMenuValue.value || 0));
+      const before = heightSnapshot(card);
       card.frames.forEach((frame) => {
         // Scaling the contents scales each row's color along with its pixels.
         if (heightMenuScaleContents.value && frame.rowColors) {
@@ -1802,6 +1823,13 @@ export default defineComponent({
         }
         frame.pixels = resizePixelMatrixHeight(frame.pixels, heightMenuValue.value, cardWidth(card), heightMenuScaleContents.value);
         ensureRowColors(card, frame);
+      });
+      const after = heightSnapshot(card);
+      const [screenId, cardId] = [selectedCardScreenId.value, card.id];
+      recordReorder({
+        undo: () => restoreHeight(screenId, cardId, before),
+        redo: () => restoreHeight(screenId, cardId, after),
+        isCurrent: () => !!findCard(screenId, cardId),
       });
       handleChildChange();
       instance.proxy.$forceUpdate();

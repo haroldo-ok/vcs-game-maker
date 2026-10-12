@@ -437,6 +437,20 @@ const buildSquishScoreFontOverride = async (digits) => {
     extended.slice(hexBytesEnd);
 };
 
+// A Squish font's rows as the DPC+ kernel's score table wants them: its coprocessor copies each digit's 8 bytes reversed and the
+// kernel draws the first 5 of what is copied, so the 5 rows (stored bottom row first, then 3 blank bytes) go after 3 blank
+// bytes instead.
+const dpcPlusSquishDigits = (font) => {
+  const padded = font === SQUISH_CUSTOM_SCORE_FONT ? customSquishFontBytes() :
+    (editedFontBytes(font) || padSquishDigitBytes(SQUISH_DEFAULT_SCORE_FONT));
+  if (!padded) return null;
+  const digits = [];
+  for (let at = 0; at + DIGIT_HEIGHT <= padded.length; at += DIGIT_HEIGHT) {
+    digits.push('%00000000', '%00000000', '%00000000', ...padded.slice(at, at + SQUISH_DIGIT_HEIGHT));
+  }
+  return digits;
+};
+
 /**
  * Builds a score_graphics.asm override with the given batari Basic font's
  * digits swapped in, for hooks/rom.js to place as a sibling of the compiled
@@ -447,26 +461,33 @@ const buildSquishScoreFontOverride = async (digits) => {
  *     value for the default.
  * @param {string=} secondaryFont The stored secondary font choice (see secondaryScoreFontName), whose ten
  *     digits are written right below the primary table so the two share one page.
+ * @param {boolean=} dpcPlus Whether the DPC+ kernel draws the score, which writes the Squish fonts as a plain table.
  * @return {!Promise<?string>} The override content, or null to use the
  *     stock score_graphics.asm unmodified.
  */
-export const buildScoreFontOverride = async (font, secondaryFont) => {
+export const buildScoreFontOverride = async (font, secondaryFont, dpcPlus = false) => {
   const secondary = secondaryScoreFontName(font, secondaryFont);
-  if (font === SQUISH_CUSTOM_SCORE_FONT) {
+  let squishDigits = null;
+  const isSquish = font === SQUISH_CUSTOM_SCORE_FONT || font === SQUISH_SCORE_FONT;
+  if (isSquish && dpcPlus) {
+    // The DPC+ kernel draws a plain table (see dpc-squish.js): 3 blank bytes, then the 5 rows of each digit.
+    squishDigits = dpcPlusSquishDigits(font);
+  }
+  if (font === SQUISH_CUSTOM_SCORE_FONT && !dpcPlus) {
     return buildSquishScoreFontOverride(customSquishFontBytes());
   }
 
   // Plain Squish only has an override once it has been edited (hooks/rom.js uses the extended
   // score_graphics.asm as it is until then): it splices into the same Squish block as Squish Custom.
-  if (font === SQUISH_SCORE_FONT) {
+  if (font === SQUISH_SCORE_FONT && !dpcPlus) {
     const edited = editedFontBytes(font);
     return edited ? buildSquishScoreFontOverride(edited) : null;
   }
 
   // With a secondary font the table is always written out, also for the default font.
-  let digits = font === CUSTOM_SCORE_FONT ?
+  let digits = squishDigits || (font === CUSTOM_SCORE_FONT ?
     customFontBytes() : (editedFontBytes(font) || (font && SCORE_FONTS[font]) ||
-      (secondary !== null ? DEFAULT_SCORE_FONT : null));
+      (secondary !== null ? DEFAULT_SCORE_FONT : null)));
   // Presets (SCORE_FONTS) are still exactly DECIMAL_DIGIT_COUNT*DIGIT_HEIGHT
   // bytes (80) - only 10 real digits, same as they've always been (see
   // generators/score-fonts.js's  comment) - only CUSTOM can actually be

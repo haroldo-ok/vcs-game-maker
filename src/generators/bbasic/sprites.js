@@ -80,6 +80,15 @@ export const processPlayerAnimationsStorageDefaults = (playerAnimationsStorage) 
 // reference by name to reach. It is also what both players start on:
 // bbasic.bb.hbs sets player0animation and player1animation to 0 at boot.
 // 'player0'..'player9' for a Player block's dropdown value (players 2 to 9 are the DPC+ kernel's virtual sprites).
+// The byte, per player, that remembers a "Player set width/quantity" block ran for it: 0 until then, else the size code it set plus
+// one. The player's animations apply a width every frame, and leave the player's size alone once a block set it.
+export const sizeSetVarName = (name) => `${name}sizeset`;
+export const reserveSizeSetDevVars = (reserveDevVar, players) => {
+  (players || new Set()).forEach((name) => {
+    reserveDevVar(sizeSetVarName(name), undefined, `0, or the width/quantity code a block set for ${name} plus 1`);
+  });
+};
+
 export const playerNameOfValue = (value) => `player${/^[0-9]$/.test(String(value)) ? value : '0'}`;
 
 export const resolveUsedPlayerAnimations = (workspace) => {
@@ -239,9 +248,15 @@ const romNoiseBaseHighByteHex = (config) => {
 // reasoning fadeFlagsVarName's  shared byte uses in
 // blocks/background.js.
 export const ROM_NOISE_FLAGS_FAMILY = 'romNoiseFlags';
-export const romNoiseFlagsVarName = () => flagPoolVar(ROM_NOISE_FLAGS_FAMILY);
+// Players 2 to 9 (DPC+) have a byte for this, one bit each, so the shared byte above keeps its room.
+export const ROM_NOISE_EXTRA_FAMILY = 'romNoiseExtraFlags';
+export const isRomNoiseExtra = (name) => /^player[2-9]$/.test(name);
+export const romNoiseExtraOwnBit = (name) => Number(name.slice(6)) - 2;
+export const romNoiseFlagsVarName = (name) =>
+  flagPoolVar(name && isRomNoiseExtra(name) ? ROM_NOISE_EXTRA_FAMILY : ROM_NOISE_FLAGS_FAMILY);
 export const romNoiseOwnBit = (name) => name === 'player1' ? 1 : 0;
-export const romNoiseActiveBit = (name) => flagPoolBit(ROM_NOISE_FLAGS_FAMILY, romNoiseOwnBit(name));
+export const romNoiseActiveBit = (name) => isRomNoiseExtra(name) ?
+  flagPoolBit(ROM_NOISE_EXTRA_FAMILY, romNoiseExtraOwnBit(name)) : flagPoolBit(ROM_NOISE_FLAGS_FAMILY, romNoiseOwnBit(name));
 export const romNoiseOffsetVarName = (name) => `${name}RomNoiseOffset`;
 export const romNoiseHeightVarName = (name) => `${name}RomNoiseHeight`;
 export const rainbowColorOwnBit = (name) => name === 'player1' ? 3 : 2;
@@ -281,14 +296,18 @@ export const ctrlpfShadowVarName = () => '_ctrlpf';
 export const missileWidthsVarName = () => '_missileWidths';
 // DPC+ only: which of a player's animation frames' graphics is in display RAM right now (0 = none), so a
 // frame already shown isn't copied in again every frame.
-export const reserveDpcPlusShownDevVars = (reserveDevVar, used, extraPlayers = []) => {
+// A sprite that shows the right half of a wide player (sharedPlayers) uses its player's animation, frame and color variables
+// (see the aliases in init of generators/bbasic.js), so it only needs a size byte.
+export const reserveDpcPlusShownDevVars = (reserveDevVar, used, extraPlayers = [], sharedPlayers = new Set()) => {
   if (!used) return;
   // Players 2 to 9 are plain kernel sprites with no such state: their animation, frame and size/flip
   // live in variables of the same names the first two players use.
   extraPlayers.forEach((n) => {
-    reserveDevVar(`player${n}animation`, undefined, `Which animation is playing on player${n} (DPC+)`);
-    reserveDevVar(`player${n}frame`, undefined, `Which frame player${n} shows; 255 hides it (DPC+)`);
-    reserveDevVar(`player${n}realcolor`, undefined, `player${n}'s color (DPC+)`);
+    if (!sharedPlayers.has(n)) {
+      reserveDevVar(`player${n}animation`, undefined, `Which animation is playing on player${n} (DPC+)`);
+      reserveDevVar(`player${n}frame`, undefined, `Which frame player${n} shows; 255 hides it (DPC+)`);
+      reserveDevVar(`player${n}realcolor`, undefined, `player${n}'s color (DPC+)`);
+    }
     reserveDevVar(`player${n}size`, undefined, `player${n}'s copies (bits 0-2), flip (bit 3) and animation flags (DPC+)`);
   });
 };
@@ -595,7 +614,12 @@ export const generatePlayerHeightLimitChecks = (Blockly) => {
 // generator would otherwise run).
 export const reserveRomNoiseDevVars = (reserveDevVar, usedFor) => {
   if (!usedFor || !usedFor.size) return;
-  reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
+  if ([...usedFor].some((name) => !isRomNoiseExtra(name))) {
+    reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
+  }
+  if ([...usedFor].some(isRomNoiseExtra)) {
+    reserveDevVar(romNoiseFlagsVarName('player2'), undefined, 'active bit of the ROM noise of each of Player 2 to 9');
+  }
   usedFor.forEach((name) => {
     reserveDevVar(romNoiseOffsetVarName(name), undefined, 'this player\'s ROM noise: pointer offset');
     reserveDevVar(romNoiseHeightVarName(name), undefined, 'this player\'s ROM noise: sprite height');
@@ -864,7 +888,6 @@ export const generateRomNoiseChecks = (Blockly) => {
   if (!used || !used.size) return '';
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-  const flagsVar = resolveVar(romNoiseFlagsVarName());
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
   // DPC+ reads graphics at an offset into the cartridge's data instead of at a 6507 address, and only Player 0's
@@ -872,8 +895,10 @@ export const generateRomNoiseChecks = (Blockly) => {
   const dpcPlus = config.kernel === 'dpcplus';
   const baseHigh = dpcPlus ? '$04' : romNoiseBaseHighByteHex(config);
   const lines = [];
-  (dpcPlus ? ['player0'] : ['player0', 'player1']).forEach((name) => {
+  (dpcPlus ? ['player0', 'player1', 'player2', 'player3', 'player4', 'player5', 'player6', 'player7', 'player8', 'player9'] :
+    ['player0', 'player1']).forEach((name) => {
     if (!used.has(name)) return;
+    const flagsVar = resolveVar(romNoiseFlagsVarName(name));
     const doneLabel = `_romnoise_${name}_done`;
     const offsetVar = resolveVar(romNoiseOffsetVarName(name));
     const heightVar = resolveVar(romNoiseHeightVarName(name));
@@ -916,8 +941,23 @@ export const generateRomNoiseChecks = (Blockly) => {
         // this reads real code starting from the very base of bank 1's
         // mapped ROM, offset by 0-255 bytes into it - genuine Yars'
         // Revenge-style "read whatever code is there", zero ROM cost.
-        ` ${name}pointerlo = temp2`,
-        ` ${name}pointerhi = ${baseHigh}`,
+        // Player 0's pointer is a pair of bytes; the other players' are two bytes of display memory, written through data fetcher 0
+        // (the same way a "player2:" graphic statement does).
+        ...(name === 'player0' ? [
+          ` ${name}pointerlo = temp2`,
+          ` ${name}pointerhi = ${baseHigh}`,
+        ] : [
+          ' asm',
+          `  lda #<(playerpointers+${2 * (Number(name.slice(6)) - 1)})`,
+          '  sta DF0LOW',
+          `  lda #(>(playerpointers+${2 * (Number(name.slice(6)) - 1)})) & $0F`,
+          '  sta DF0HI',
+          '  ldx temp2',
+          '  stx DF0WRITE',
+          `  lda #${baseHigh}`,
+          '  sta DF0WRITE',
+          'end',
+        ]),
         ` ${name}height = ${heightVar}`,
         `${doneLabel}`,
     );
@@ -1156,8 +1196,8 @@ const isHalfStep = (step, otherStep) => Math.abs(step) === 1 && Math.abs(otherSt
 const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, stepsVar}) => {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const maxRow = effectiveBackgroundRows(config) - 1;
-  const rowDivisor = pfRowDivisorFor(config);
+  const maxRow = Blockly.BBasic.maxRowText(config);
+  const rowDivisor = Blockly.BBasic.rowDivisorText(config);
   Blockly.BBasic.usesDivMul = true;
   const id = Blockly.BBasic.blockNumbers.next('fireStep');
   const label = (part) => `_missilefire_${name}_${id}_${part}`;
@@ -2052,6 +2092,10 @@ export default (Blockly) => {
   // of a closed-over name.
   const createGeneratorForPlayer = () => {
     const resolvePlayerName = (block) => playerNameOfValue(block.getFieldValue('PLAYER'));
+    // Players 2 to 9 (DPC+) are bytes the generator reserves itself, so their name is used as it is: asking the variable names for
+    // it handed back a renamed one (player2animation2) that nothing declares.
+    const animationVarOf = (player) => /^player[2-9]$/.test(player) ? `${player}animation` :
+      Blockly.BBasic.nameDB_.getName(`${player}animation`, Blockly.VARIABLE_CATEGORY_NAME);
 
     // The dropdown already holds the animation's position in the list, which is
     // what the generated animation dispatch compares against - player-
@@ -2069,8 +2113,7 @@ export default (Blockly) => {
     // with the sprite_player_animation_select value block above - including
     // the same LOOP checkbox/animationLoopBitsCode handling that branch has.
     Blockly.BBasic['sprite_player_set_animation'] = function(block) {
-      const varName = Blockly.BBasic.nameDB_.getName(
-          `${resolvePlayerName(block)}animation`, Blockly.VARIABLE_CATEGORY_NAME);
+      const varName = animationVarOf(resolvePlayerName(block));
       const index = block.getFieldValue('VAR') || '0';
       return assignAndReload(varName, index) + animationLoopBitsCode(block, varName);
     };
@@ -2078,8 +2121,7 @@ export default (Blockly) => {
     // Same assignment, for buildAnimationSetByIdBlock's VALUE-input sibling -
     // an arbitrary plugged expression instead of a fixed dropdown value.
     Blockly.BBasic['sprite_player_set_animation_id'] = function(block) {
-      const varName = Blockly.BBasic.nameDB_.getName(
-          `${resolvePlayerName(block)}animation`, Blockly.VARIABLE_CATEGORY_NAME);
+      const varName = animationVarOf(resolvePlayerName(block));
       const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
       return assignAndReload(varName, argument0) + animationLoopBitsCode(block, varName);
     };
@@ -2089,17 +2131,18 @@ export default (Blockly) => {
     // "Animation" (nameDB_.getName resolves straight to the real
     // player0animation/player1animation variable, same as there).
     Blockly.BBasic['sprite_player_animation_id_get'] = function(block) {
-      const code = Blockly.BBasic.nameDB_.getName(
-          `${resolvePlayerName(block)}animation`, Blockly.VARIABLE_CATEGORY_NAME);
-      return [code, Blockly.BBasic.ORDER_ATOMIC];
+      return [animationVarOf(resolvePlayerName(block)), Blockly.BBasic.ORDER_ATOMIC];
     };
 
     Blockly.BBasic['sprite_player_size'] = function(block) {
       const name = resolvePlayerName(block);
       const size = block.getFieldValue('SIZE') || '0';
       const varName = name + 'size';
+      const setVar = Blockly.BBasic.sizeSetPlayers && Blockly.BBasic.sizeSetPlayers.has(name) ?
+        Blockly.BBasic.nameDB_.getName(sizeSetVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
       return `${varName} = ${varName} & $F8\n` +
-        `${varName} = ${varName} | ${size}\n`;
+        `${varName} = ${varName} | ${size}\n` +
+        (setVar ? `${setVar} = ${size} + 1\n` : '');
     };
 
     // Bit 6 of the size variable pauses the animation: the frame counter is
@@ -2140,7 +2183,7 @@ export default (Blockly) => {
         Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const offsetVar = resolveVar(romNoiseOffsetVarName(name));
       const heightVar = resolveVar(romNoiseHeightVarName(name));
-      const flagsVar = resolveVar(romNoiseFlagsVarName());
+      const flagsVar = resolveVar(romNoiseFlagsVarName(name));
       // Defaults to framecounter (already ticking every frame regardless
       // of anything else in the project) rather than a plain "0" fallback
       // - the whole point of this block is a shimmering, ever-changing
@@ -2169,10 +2212,10 @@ export default (Blockly) => {
       const name = resolvePlayerName(block);
       const resolveVar = (canonicalName) =>
         Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-      const flagsVar = resolveVar(romNoiseFlagsVarName());
+      const flagsVar = resolveVar(romNoiseFlagsVarName(name));
       // On DPC+ the animation only loads a frame's graphic when it changes, so it has to be told to load it again.
       const dpcPlus = (useConfigurationStorage().value || {}).kernel === 'dpcplus';
-      const reload = dpcPlus && name === 'player0' ? `${name}size{7} = 0\n` : '';
+      const reload = dpcPlus ? `${name}size{7} = 0\n` : '';
       return `${flagsVar}{${romNoiseActiveBit(name)}} = 0\n${reload}`;
     };
 
@@ -2649,7 +2692,11 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const visibleRows = effectiveBackgroundRows(config) - (config.enableSuperchip ? 1 : 0);
-    const bottomY = 8 + visibleRows * pfRowDivisorFor(config);
+    // The backgrounds do not all have the same rows under DPC+ when they set a pfres: the bottom is worked out from the
+    // geometry of the one showing, into temp6.
+    const bottomVaries = !!Blockly.BBasic.dpcPlusRowMaxVar;
+    if (bottomVaries) Blockly.BBasic.usesDivMul = true;
+    const bottomY = bottomVaries ? 'temp6' : 8 + visibleRows * pfRowDivisorFor(config);
     const id = Blockly.BBasic.blockNumbers.next(`edgebounce_${name}`);
     const label = (part) => `_edgebounce_${name}_${id}_${part}`;
     const lines = [];
@@ -2697,6 +2744,8 @@ export default (Blockly) => {
         `@ ${label('flipx')}`,
         ...flipX,
         `@ ${label('xend')}`,
+        ...(bottomVaries ? [` temp6 = ${Blockly.BBasic.dpcPlusRowMaxVar} + 1`, ` temp6 = temp6 * ${Blockly.BBasic.dpcPlusRowDivVar}`,
+          ' temp6 = temp6 + 8'] : []),
         ` if ${name}y >= 240 then goto ${label('top')}`,
         ` if ${name}y < 8 then goto ${label('top')}`,
         ` if ${name}y > ${bottomY} then goto ${label('bottom')}`,
@@ -2731,8 +2780,8 @@ export default (Blockly) => {
   const buildPixelReflect = ({Blockly, name, resolveVar, hasFire, hasInertia, uid}) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const maxRow = effectiveBackgroundRows(config) - 1;
-    const rowDivisor = pfRowDivisorFor(config);
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
     Blockly.BBasic.usesDivMul = true;
     const label = (part) => `_bouncepix_${name}_${uid}_${part}`;
     const lab = (part) => `@ ${label(part)}`;

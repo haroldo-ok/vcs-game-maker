@@ -1097,11 +1097,11 @@ export default (Blockly) => {
     const textDataPtrComment = showVariableComments ? '  ; Text Minikernel\'s message-table pointer' : '';
     const textRow2ActiveComment = showVariableComments ?
       '  ; whether the currently shown message also draws a wrapped second line' : '';
-    const textIndexDim = `\n dim TextIndex = ${fixedFreeVariable(config, 44)}${textIndexComment}`;
+    const textIndexDim = `\n dim TextIndex = ${fixedFreeVariable(config, 44, Blockly.BBasic.dpcPlusSpriteMax)}${textIndexComment}`;
     const textDataPtrDim = this.pfscoreEnabledForTextMinikernel ?
-      `\n dim TextDataPtr = ${fixedFreeVariable(config, 46)}${textDataPtrComment}` : '';
+      `\n dim TextDataPtr = ${fixedFreeVariable(config, 46, Blockly.BBasic.dpcPlusSpriteMax)}${textDataPtrComment}` : '';
     const textRow2ActiveDim = this.needsTextRow2ActiveDim() ?
-      `\n dim TextRow2Active = ${fixedFreeVariable(config, 45)}${textRow2ActiveComment}` : '';
+      `\n dim TextRow2Active = ${fixedFreeVariable(config, 45, Blockly.BBasic.dpcPlusSpriteMax)}${textRow2ActiveComment}` : '';
     return textIndexDim + textDataPtrDim + textRow2ActiveDim;
   };
 

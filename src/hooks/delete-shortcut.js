@@ -17,13 +17,17 @@ const handleKeydown = (event) => {
   if (typingInto(event.target) || event.defaultPrevented) return;
   // Not while a popup (the confirmation itself, or any other menu or dialog) is open.
   if (document.querySelector('.v-menu__content.menuable__content__active, .v-dialog--active')) return;
-  const selected = [...menus].filter((menu) => menu.selected && menu.$el && menu.$el.isConnected !== false);
-  if (!selected.length) return;
-  const top = Math.max(...selected.map((menu) => menu.selectPriority));
-  const winners = selected.filter((menu) => menu.selectPriority === top);
-  if (winners.length !== 1) return;
-  event.preventDefault();
-  winners[0].openAtPointer(mouse);
+  // Once every other listener of the key has run: a graphic editor with pixels selected takes Delete to clear them (see
+  // GraphicEditorToolbar.vue), and then the key is not for the card.
+  setTimeout(() => {
+    if (event.defaultPrevented) return;
+    const selected = [...menus].filter((menu) => menu.selected && menu.$el && menu.$el.isConnected !== false);
+    if (!selected.length) return;
+    const top = Math.max(...selected.map((menu) => menu.selectPriority));
+    const winners = selected.filter((menu) => menu.selectPriority === top);
+    if (winners.length !== 1) return;
+    winners[0].openAtPointer(mouse);
+  }, 0);
 };
 
 export const registerDeleteMenu = (menu) => {

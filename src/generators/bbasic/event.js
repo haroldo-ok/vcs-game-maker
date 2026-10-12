@@ -1,4 +1,6 @@
 'use strict';
+import {runOnceEnterLines} from '../../utils/dpc-ram-flags';
+
 export default (Blockly) => {
   Blockly.BBasic['event_block'] = function(block) {
     // Event block
@@ -102,7 +104,7 @@ export default (Blockly) => {
     // Run once PER ACTIVATION of whatever condition contains this block
     // (e.g. once each time an enclosing "if BGScene = 2" becomes true,
     // again next time it does) - not just once ever. See bbasic.js's
-    // init() for where runOnceCounter/runOnceByteLetters come from (one
+    // init() for where runOnceGroupCounters/runOnceByteLetters come from (one
     // shared byte per 4 instances - low nibble bit p is instance p's
     // "touched" flag, high nibble bit p+4 is its "fired" flag), and
     // generateRunOnceEdgeReset for the other half of this: this block's
@@ -114,20 +116,24 @@ export default (Blockly) => {
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const labelEnd = `_run_once_${blockNumber}_end`;
 
-    const instanceIndex = Blockly.BBasic.runOnceCounter++;
+    const group = Blockly.BBasic.runOnceTitleBlocks.has(block) ? 'title' : 'other';
+    const instanceIndex = Blockly.BBasic.runOnceGroupCounters[group]++;
     const byteIndex = Math.floor(instanceIndex / 4);
     const pairInByte = instanceIndex % 4;
     const touchedBit = pairInByte;
     const firedBit = pairInByte + 4;
     const flagByte = Blockly.BBasic.runOnceByteLetters[byteIndex];
+    const inRam = !!Blockly.BBasic.runOnceRamBytes;
 
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
 
     return '\n' +
     [
-      `${flagByte}{${touchedBit}} = 1`,
-      `if ${flagByte}{${firedBit}} then goto ${labelEnd}`,
-      `${flagByte}{${firedBit}} = 1`,
+      ...(inRam ? [...runOnceEnterLines(byteIndex, touchedBit, firedBit), `if temp2 then goto ${labelEnd}`] : [
+        `${flagByte}{${touchedBit}} = 1`,
+        `if ${flagByte}{${firedBit}} then goto ${labelEnd}`,
+        `${flagByte}{${firedBit}} = 1`,
+      ]),
       code,
       `@ ${labelEnd}`,
     ].join('\n') +

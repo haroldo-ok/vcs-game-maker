@@ -20,10 +20,15 @@
           :items="secondaryFontOptions"
           label="Secondary score font"
           :disabled="secondaryUnavailable"
-          :hint="secondaryUnavailable ? 'Squish fonts cannot be paired with another font' :
-            'Switch to it with the \'Score set font to\' block (Actions tab)'"
-          persistent-hint
           class="score-font-select"
+        />
+        <v-select
+          v-model="scorePaddingLines"
+          :items="[0, 1, 2]"
+          label="Add score padding"
+          title="How many extra scanlines of the score row's background color to draw right after the score digits finish, before whatever draws next."
+          hide-details
+          class="score-padding-field"
         />
       </div>
       <div v-if="secondaryActive" class="score-font-role-row">
@@ -65,14 +70,6 @@
             :disabled="secondaryActive"
             persistent-hint
             class="option-switch"
-          />
-          <v-select
-            v-model="scorePaddingLines"
-            :items="[0, 1, 2]"
-            label="Add score padding"
-            title="How many extra scanlines of the score row's background color to draw right after the score digits finish, before whatever draws next."
-            hide-details
-            class="score-padding-field"
           />
         </div>
         <graphic-editor-toolbar class="score-editor-toolbar-row" :active-editor="activeEditor">
@@ -216,6 +213,8 @@ export default defineComponent({
     // since a smaller score font is a reasonable choice by itself.
     // A font with changes drawn for it is marked as edited (Custom and Squish Custom are all
     // drawing, so they are not).
+    // The DPC+ kernel has no secondary font yet.
+    const isDpcPlus = computed(() => ((configurationStorage.value || {}).kernel === 'dpcplus'));
     const scoreFontOptions = computed(() => [...BASE_SCORE_FONT_OPTIONS,
       {text: 'Squish (compact - shrinks the score row)', value: SQUISH_SCORE_FONT},
       {text: 'Squish Custom (compact - drawn below)', value: SQUISH_CUSTOM_SCORE_FONT},
@@ -257,7 +256,7 @@ export default defineComponent({
       },
     });
     const isSquishFont = (font) => font === SQUISH_SCORE_FONT || font === SQUISH_CUSTOM_SCORE_FONT;
-    const secondaryUnavailable = computed(() => isSquishFont(selectedFont.value));
+    const secondaryUnavailable = computed(() => isSquishFont(selectedFont.value) || isDpcPlus.value);
     const secondaryActive = computed(() => !!secondaryFont.value && !secondaryUnavailable.value);
     const secondaryFontOptions = computed(() => [
       {text: 'None', value: ''},
@@ -576,9 +575,6 @@ export default defineComponent({
 
 .score-extras-row {
   display: flex;
-  /* Top-aligned (not centered): the switch's hint line below it makes it
-     taller than the select, which centered the two on different lines. The
-     select is nudged down to put its field on the switch's line instead. */
   align-items: flex-start;
   gap: 16px;
   /* Closer to the text above it. */
@@ -586,11 +582,8 @@ export default defineComponent({
 }
 
 .score-padding-field {
-  max-width: 200px;
-  /* Its value text is already on the switch's line at 4px; 6px more drops the
-     whole field, floating label included, toward the switch's middle, since
-     the label above the value makes the field read as sitting higher. */
-  margin-top: 10px;
+  flex: 0 1 150px;
+  min-width: 0;
 }
 
 /* Breathing room from the "Use extra glyphs" switch's  hint text
@@ -637,10 +630,8 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 8px;
-  /* Negative: pulls the row up under the Score font select, whose reserved
-     (empty) hint line below its field otherwise leaves about 30px between
-     the two. */
-  margin-top: -10px;
+  /* Sits a little below the Score font selects. */
+  margin-top: 4px;
   margin-bottom: 16px;
 }
 

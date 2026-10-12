@@ -18,6 +18,7 @@
               'editor-canvas-tool-pencil': toggledTool === 'pencil',
               'editor-canvas-tool-eraser': toggledTool === 'eraser',
               'editor-canvas-tool-fill': toggledTool === 'fill',
+              'editor-canvas-tool-eyedropper': toggledTool === 'eyedropper',
               'editor-canvas-tool-line': toggledTool === 'line',
               'editor-canvas-tool-shape': toggledTool === 'rectangle' || toggledTool === 'oval' ||
                 toggledTool === 'rect-select' || toggledTool === 'circle-select' || toggledTool === 'polygon-select',
@@ -30,7 +31,7 @@
             @mousemove="(e) => { handleMouse(e); handleHover(e); }"
           />
           <canvas
-            v-if="columnBackdrop"
+            v-if="columnBackdrop || rowBackdrop"
             ref="backdropOverlay"
             class="editor-canvas backdrop-canvas"
           />
@@ -39,6 +40,9 @@
             ref="gridOverlay"
             class="grid-overlay-canvas"
           />
+        </div>
+        <div v-if="$slots['sidebar-right']" class="editor-sidebar">
+          <slot name="sidebar-right" />
         </div>
       </div>
       <!-- A row under the canvas, lined up with it: "below" sits under the canvas, "below-sidebar" under the
@@ -88,6 +92,7 @@ import {chunk, debounce} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import Bucket from '../utils/bucket-tool';
+import Eyedropper from '../utils/eyedropper-tool';
 import Line from '../utils/line-tool';
 import Rectangle from '../utils/rectangle-tool';
 import Oval from '../utils/oval-tool';
@@ -97,7 +102,8 @@ import {isMatrixEqual} from '../utils/array';
 import {getDateInfix} from '../utils/date';
 import {loadImageFromFile, openFileDialog} from '../utils/file';
 import {createResizedCanvas} from '../utils/image';
-import {usePixelTool, useMirrorDraw} from '../hooks/pixel-tool';
+import {usePixelTool, useMirrorDraw, useDrawColor} from '../hooks/pixel-tool';
+import {colorByteToCss} from '../utils/palette';
 import {noteEdit} from '../hooks/reorder-history';
 import {resizePixelMatrixHeight} from '../utils/pixels';
 
@@ -137,12 +143,17 @@ export default {
     // One CSS color per column, drawn over the cells that are off (a preview of what shows behind
     // the picture, such as the Title tab's picture background); null leaves the cells as they are.
     columnBackdrop: {type: Array, default: null},
+    // One CSS color per row, drawn over the cells that are off the same way (the background colors behind a DPC+ background).
+    rowBackdrop: {type: Array, default: null},
   },
   data() {
     return {
       pencil: new Pencil(this.fgColor),
       eraser: new Pencil(this.bgColor),
       fill: new Bucket(this.fgColor),
+      eyedropper: new Eyedropper((cell) => this.pickColorAt(cell)),
+      // No tool: the picture is left alone.
+      noTool: new Eyedropper(() => {}),
       line: new Line(this.fgColor),
       rectangle: new Rectangle(this.fgColor),
       oval: new Oval(this.fgColor),
@@ -190,6 +201,9 @@ export default {
     };
   },
   computed: {
+    rowBackdropKey() {
+      return this.rowBackdrop ? this.rowBackdrop.join() : '';
+    },
     // Changes whenever a mirror drawing switch is flipped, so the hover
     // highlight can be redrawn with or without the mirrored cells.
     mirrorKey() {
@@ -229,6 +243,9 @@ export default {
   },
   watch: {
     columnBackdrop() {
+      this.$nextTick(() => this.setupBackdrop());
+    },
+    rowBackdropKey() {
       this.$nextTick(() => this.setupBackdrop());
     },
     mirrorKey() {
@@ -350,6 +367,10 @@ export default {
       }
       this.$nextTick(() => this.drawGridOverlay());
     },
+    // A different row height (the pfres a background sets) reshapes the box the canvas is stretched into.
+    aspectRatio() {
+      this.$nextTick(() => this.drawGridOverlay());
+    },
     showCellIds() {
       this.drawGridOverlay();
     },
@@ -455,7 +476,8 @@ export default {
       this.editor.pixels.forEach((px) => {
         if (!px.color || px.y < 0 || px.y >= this.editor.height) return;
         const off = px.color === this.bgColor;
-        const color = (off && this.columnBackdrop && this.columnBackdrop[px.x]) || px.color;
+        const color = (off && ((this.rowBackdrop && this.rowBackdrop[px.y]) || (this.columnBackdrop && this.columnBackdrop[px.x]))) ||
+          px.color;
         ctx.fillStyle = color;
         // Edges rounded to whole pixels, so neighbouring cells meet without gaps or overlap.
         const left = Math.round(px.x * cellWidth);
@@ -766,6 +788,28 @@ export default {
       this.hoverCell = {x, y};
     },
 
+    // The Eyedropper: the color the clicked cell is drawn in on the canvas (the background colors behind the cells that
+    // are off included) becomes the color of the toolbar's swatch.
+    pickColorAt(cell) {
+      if (!this.editor) return;
+      const backdrop = this.columnBackdrop || this.rowBackdrop ? this.$refs.backdropOverlay : null;
+      const canvas = backdrop || this.$refs.editor;
+      if (!canvas || !canvas.width || !canvas.height) return;
+      const sample = canvas.getContext('2d').getImageData(
+          Math.min(canvas.width - 1, Math.floor((cell.x + 0.5) * canvas.width / this.editor.width)),
+          Math.min(canvas.height - 1, Math.floor((cell.y + 0.5) * canvas.height / this.editor.height)), 1, 1).data;
+      // A pure black row is drawn near black (see the editors' editorRowColors), so the nearest color is taken.
+      if (sample[3] === 0) return;
+      let best = null;
+      for (let byte = 0; byte < 256; byte += 2) {
+        const hex = colorByteToCss(byte);
+        const distance = [1, 3, 5].reduce((sum, i, channel) =>
+          sum + (parseInt(hex.slice(i, i + 2), 16) - sample[channel]) ** 2, 0);
+        if (!best || distance < best.distance) best = {byte, distance};
+      }
+      if (best) useDrawColor().value = best.byte;
+    },
+
     // Reports that this frame was just interacted with, so a caller driving
     // a single toolbar shared across many PixelEditor instances (see
     // GraphicEditorToolbar.vue) knows which one to act on next. Passes
@@ -783,6 +827,8 @@ export default {
     toolFor(toolName) {
       if (toolName === 'eraser') return this.eraser;
       if (toolName === 'fill') return this.fill;
+      if (toolName === 'eyedropper') return this.eyedropper;
+      if (toolName === 'none') return this.noTool;
       if (toolName === 'line') return this.line;
       if (toolName === 'rectangle') return this.rectangle;
       if (toolName === 'oval') return this.oval;
@@ -985,7 +1031,7 @@ export default {
         const inside = pixels.filter((pixel) =>
           pixel.x >= 0 && pixel.y >= 0 && pixel.x < width && pixel.y < height);
         const result = set(this.mirrorPixels(inside, logToHistory), logToHistory);
-        if (this.columnBackdrop) this.scheduleBackdrop();
+        if (this.columnBackdrop || this.rowBackdrop) this.scheduleBackdrop();
         return result;
       };
       // Not logged to the history: this is loading the image, not an edit, and as
@@ -1210,6 +1256,10 @@ export default {
 
 /* Hotspot at the bucket's spout (matching the pencil/eraser cursors'
    "point at the exact cell a click would affect" reasoning above). */
+.editor-canvas-tool-eyedropper {
+  cursor: crosshair;
+}
+
 .editor-canvas-tool-fill {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='white' stroke='black' stroke-width='1' d='M19,11.5C19,11.5 17,13.67 17,15A2,2 0 0,0 19,17A2,2 0 0,0 21,15C21,13.67 19,11.5 19,11.5M5.21,10L10,5.21L14.79,10M16.56,8.94L7.62,0L6.21,1.41L8.59,3.79L3.44,8.94C2.85,9.5 2.85,10.47 3.44,11.06L8.94,16.56C9.23,16.85 9.62,17 10,17C10.38,17 10.77,16.85 11.06,16.56L16.56,11.06C17.15,10.47 17.15,9.5 16.56,8.94Z'/></svg>") 4 20, crosshair;
 }

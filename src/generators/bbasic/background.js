@@ -3,7 +3,7 @@
 import {useConfigurationStorage} from '../../hooks/project';
 import {fireObjectName} from '../../utils/fire-object';
 import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
-  backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS, backgroundRowFadeVarName, rowFadeStartColor,
+  backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS, rowFadeStartColor, multicolorFadeVarName,
   backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName,
@@ -309,6 +309,8 @@ export default (Blockly) => {
   Blockly.BBasic[`background_get_resolution`] = function(block) {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
+    // The backgrounds do not all have the same number of rows under DPC+ when they set a pfres.
+    if (Blockly.BBasic.dpcPlusRowMaxVar) return [`${Blockly.BBasic.dpcPlusRowMaxVar} + 1`, Blockly.BBasic.ORDER_ADDITION];
     const rows = effectiveBackgroundRows(config);
     return [`${rows}`, Blockly.BBasic.ORDER_ATOMIC];
   };
@@ -352,7 +354,7 @@ export default (Blockly) => {
       const configurationStorage = useConfigurationStorage();
       const config = (configurationStorage && configurationStorage.value) || {};
       Blockly.BBasic.usesDivMul = true;
-      return [`${pfRowDivisorFor(config)} * ${y} + 1`, Blockly.BBasic.ORDER_ADDITION];
+      return [`${Blockly.BBasic.rowDivisorText(config)} * ${y} + 1`, Blockly.BBasic.ORDER_ADDITION];
     }
     const x = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
     const xOffset = spriteXOffset(block.getFieldValue('WIDTH'));
@@ -366,7 +368,7 @@ export default (Blockly) => {
       const configurationStorage = useConfigurationStorage();
       const config = (configurationStorage && configurationStorage.value) || {};
       Blockly.BBasic.usesDivMul = true;
-      return [`(${y} - 1) / ${pfRowDivisorFor(config)}`, Blockly.BBasic.ORDER_DIVISION];
+      return [`(${y} - 1) / ${Blockly.BBasic.rowDivisorText(config)}`, Blockly.BBasic.ORDER_DIVISION];
     }
     const x = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_SUBTRACTION) || '0';
     const xOffset = spriteXOffset(block.getFieldValue('WIDTH'));
@@ -437,8 +439,8 @@ export default (Blockly) => {
     const movingDown = Blockly.BBasic.valueToCode(block, 'MOVING_DOWN', Blockly.BBasic.ORDER_LOGICAL_AND) || '0';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const maxRow = effectiveBackgroundRows(config) - 1;
-    const rowDivisor = pfRowDivisorFor(config);
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
     Blockly.BBasic.usesDivMul = true;
 
     const col = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
@@ -649,8 +651,8 @@ export default (Blockly) => {
     const direction = Blockly.BBasic.valueToCode(block, 'DIRECTION', Blockly.BBasic.ORDER_NONE) || '255';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const maxRow = effectiveBackgroundRows(config) - 1;
-    const rowDivisor = pfRowDivisorFor(config);
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
     Blockly.BBasic.usesDivMul = true;
 
     const col = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
@@ -919,20 +921,47 @@ export default (Blockly) => {
 
   Blockly.BBasic[`background_fade_to`] = function(block) {
     const rawVar = block.getFieldValue('VAR');
+    // With per-row colors on for this register, every row fades to the color through tables built ahead of time (see
+    // generateRowFadeChecks): the color has to be a constant, from the color picker block.
+    const kind = Blockly.BBasic.multicolorFadeKindOf ? Blockly.BBasic.multicolorFadeKindOf(block) : null;
+    if (kind) {
+      const fade = Blockly.BBasic.multicolorFade[kind];
+      const toIndex = fade.to.indexOf(rowFadeStartColor(block));
+      const target = block.getInputTargetBlock('VALUE');
+      if (!target || target.type !== 'color_get' || toIndex < 0) {
+        return 'rem Fading per-row colors needs a color from the color picker block\n';
+      }
+      const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+      const paceVar = resolveVar(multicolorFadeVarName(kind, 'Pace'));
+      const paceReadyLabel = `_mcfade_${Blockly.BBasic.blockNumbers.next()}_paceready`;
+      const flags = resolveVar(fadeFlagsVarName(rawVar));
+      Blockly.BBasic.usesDivMul = true;
+      return [
+        `${paceVar} = (${frames}) / ${FADE_STEPS}`,
+        `if ${paceVar} <> 0 then goto ${paceReadyLabel}`,
+        ` ${paceVar} = 1`,
+        `@ ${paceReadyLabel}`,
+        `${resolveVar(multicolorFadeVarName(kind, 'Start'))} = ${fade.from.length + toIndex}`,
+        `${resolveVar(multicolorFadeVarName(kind, 'Timer'))} = ${paceVar}`,
+        `${resolveVar(multicolorFadeVarName(kind, 'Step'))} = 0`,
+        `${flags}{${fadeActiveBit(rawVar)}} = 1`,
+      ].join('\n') + '\n';
+    }
     const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
     const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
     return Blockly.BBasic.emitColorFadeTrigger(rawVar, color, frames);
   };
 
-  // Trigger for "Fade playfield rows from color to playfield colors" - only
+  // Trigger for "Fade playfield (or background) rows from color to row colors" - only
   // starts the fade (the per-frame steps are in generateRowFadeChecks in
-  // generators/bbasic.js). Does nothing without per-row playfield colors.
+  // generators/bbasic.js). Does nothing without per-row colors for those rows.
   Blockly.BBasic[`background_fade_rows_from`] = function(block) {
-    const startColors = Blockly.BBasic.rowFadeStartColors || [];
+    const kind = block.getFieldValue('VAR') === 'COLUBK' ? 'bk' : 'pf';
+    const startColors = ((Blockly.BBasic.multicolorFade || {})[kind] || {from: []}).from;
     const startIndex = startColors.indexOf(rowFadeStartColor(block));
-    if (startIndex < 0) return 'rem Playfield row fade needs per-row playfield colors enabled (Options tab)\n';
+    if (startIndex < 0) return 'rem Row fade needs per-row colors enabled for those rows (Options tab)\n';
     const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
-    const paceVar = resolveVar(backgroundRowFadeVarName('Pace'));
+    const paceVar = resolveVar(multicolorFadeVarName(kind, 'Pace'));
     const paceReadyLabel = `_rowfade_${Blockly.BBasic.blockNumbers.next()}_paceready`;
     Blockly.BBasic.usesDivMul = true;
     return [
@@ -940,9 +969,9 @@ export default (Blockly) => {
       `if ${paceVar} <> 0 then goto ${paceReadyLabel}`,
       ` ${paceVar} = 1`,
       `@ ${paceReadyLabel}`,
-      `${resolveVar(backgroundRowFadeVarName('Start'))} = ${startIndex}`,
-      `${resolveVar(backgroundRowFadeVarName('Timer'))} = ${paceVar}`,
-      `${resolveVar(backgroundRowFadeVarName('Step'))} = 0`,
+      `${resolveVar(multicolorFadeVarName(kind, 'Start'))} = ${startIndex}`,
+      `${resolveVar(multicolorFadeVarName(kind, 'Timer'))} = ${paceVar}`,
+      `${resolveVar(multicolorFadeVarName(kind, 'Step'))} = 0`,
     ].join('\n') + '\n';
   };
 
@@ -1330,7 +1359,7 @@ export default (Blockly) => {
   Blockly.BBasic['background_area_clear'] = function(block) {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const maxRow = effectiveBackgroundRows(config) - 1;
+    const maxRow = Blockly.BBasic.maxRowText(config);
     const left = Blockly.BBasic.superchipRwPairs[areaClearLeftVarName()];
     if (!left) return ['0', Blockly.BBasic.ORDER_ATOMIC];
     const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
@@ -1513,7 +1542,7 @@ export default (Blockly) => {
   // The block that scrolls only the colors runs the same code as Background scroll with its colors-only mode on.
   Blockly.BBasic['background_scroll_colors'] = function(block) {
     const fields = {DIRECTION: block.getFieldValue('DIRECTION'), STOPATEDGE: block.getFieldValue('STOPATEDGE'),
-      COLORS: 'FALSE', COLORS_ONLY: 'TRUE'};
+      COLORS: 'FALSE', COLORS_ONLY: 'TRUE', PFCOLORS: block.getFieldValue('PFCOLORS'), BKCOLORS: block.getFieldValue('BKCOLORS')};
     return Blockly.BBasic['background_scroll']({getFieldValue: (name) => fields[name]});
   };
 
@@ -1530,21 +1559,48 @@ export default (Blockly) => {
       const scroll = Blockly.BBasic.dpcPlusScroll;
       // The standard kernel's pfscroll moves two lines per call (four for the "2x" directions).
       const lineCount = Math.abs(BACKGROUND_SCROLL_ROW_DELTA[direction] || 1) * 2;
+      // The sprites that "scroll with the playfield" move by the lines the picture moved: a DPC+ sprite's y counts lines from
+      // the top, so the picture moving up (scrolling "down") takes y down.
+      const spriteScrollUsedFor = Blockly.BBasic.spriteScrollUsedFor || new Set();
+      const nudgeSprites = (lines) => {
+        if (!spriteScrollUsedFor.size) return [];
+        const flagsVar = Blockly.BBasic.nameDB_.getName(spriteScrollFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return [...spriteScrollUsedFor].map((name) =>
+          ` if ${flagsVar}{${spriteScrollActiveBit(name)}} then ${name}y = ${name}y ${delta > 0 ? '-' : '+'} ${lines}`);
+      };
+      const colorsOnlyBlock = block.getFieldValue('COLORS_ONLY') === 'TRUE';
       if (!scroll) {
-        return ` pfscroll ${DPC_PLUS_SCROLL_VALUE[direction]}${block.getFieldValue('COLORS_ONLY') === 'TRUE' ? ' 4 4' : ''}\n`;
+        return ` pfscroll ${DPC_PLUS_SCROLL_VALUE[direction]}${colorsOnlyBlock ? ' 4 4' : ''}\n` +
+          (colorsOnlyBlock ? '' : nudgeSprites(Math.abs(BACKGROUND_SCROLL_ROW_DELTA[direction])).map((line) => line + '\n').join(''));
       }
       // The playfield rows are cut thinner (see generateBackgrounds), so a step moves `fine` lines. The
       // standard kernel moves two lines per frame (four for the "2x" directions), so a step is taken every
       // fine / lines frames, or several steps every frame when the rows are single lines.
       const colorsOnly = block.getFieldValue('COLORS_ONLY') === 'TRUE';
-      const colorsMove = scroll.colors && (colorsOnly || block.getFieldValue('COLORS') === 'TRUE');
+      // The playfield colors and the background colors scroll separately: a block moves the kinds it has checked.
+      const pfMove = scroll.pfColors && (colorsOnly ? block.getFieldValue('PFCOLORS') !== 'FALSE' : block.getFieldValue('COLORS') === 'TRUE');
+      const bkMove = scroll.bkColors && (colorsOnly ? block.getFieldValue('BKCOLORS') !== 'FALSE' : block.getFieldValue('BKCOLORS') === 'TRUE');
       // The playfield columns are queues 0-3, the playfield colors queue 4 and the background colors queue 6.
-      const queueSets = Blockly.BBasic.dpcPlusScrollQueues(dpcPlusConfig, colorsMove, colorsOnly);
-      if (!queueSets.length) return ' rem Scrolling colors only needs playfield or background colors (Options tab)\n';
-      const scrollLines = (amount) => queueSets.map((queues) => ` pfscroll ${amount}${queues}`);
+      // A colors-only block moves each kind by a position kept for that kind; with the picture, they follow the picture's.
+      // Each kind of color queue has a single position variable for every block that moves it (a Background scroll colors block
+      // anywhere in the project gives it one): a queue moved by two kinds of block, each wrapping by a separate position, would
+      // drift out of the part of the playfield memory that holds the picture and show the unfilled row at the seam.
+      const colorOnlyUsed = Blockly.BBasic.dpcPlusColorOnlyScrollUsed || {};
+      const separate = {pf: !!pfMove && !!colorOnlyUsed.pf, bk: !!bkMove && !!colorOnlyUsed.bk};
+      const colorSequences = [[pfMove, false, '_dpcColorScrollOffset'], [bkMove, true, '_dpcBkColorScrollOffset']]
+          .filter(([move, bk]) => move && (colorsOnly || separate[bk ? 'bk' : 'pf']))
+          .map(([, bk, offsetName]) => ({queueSets: Blockly.BBasic.dpcPlusScrollQueues(dpcPlusConfig, !bk, bk, true), offsetName}));
+      const sequences = colorsOnly ? colorSequences : [
+        {queueSets: Blockly.BBasic.dpcPlusScrollQueues(dpcPlusConfig, !!pfMove && !separate.pf, !!bkMove && !separate.bk, false),
+          offsetName: '_dpcScrollOffset', main: true},
+        ...colorSequences];
+      if (!sequences.length || sequences.some(({queueSets}) => !queueSets.length)) {
+        return ' rem Scrolling colors only needs playfield or background colors (Options tab)\n';
+      }
+      // With backgrounds of different heights a background's rows are in a variable, which its load sets.
+      const rowsVar = Blockly.BBasic.dpcPlusScrollRowsVar;
       const rows = scroll.rows;
-      const offset = Blockly.BBasic.nameDB_.getName(colorsOnly ? '_dpcColorScrollOffset' : '_dpcScrollOffset',
-          Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const rowsText = rowsVar || rows;
       const stepRows = Math.max(1, Math.round(lineCount / scroll.fine));
       const divider = Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, scroll.fine / lineCount))));
       const value = delta > 0 ? 256 - stepRows : stepRows;
@@ -1554,19 +1610,31 @@ export default (Blockly) => {
       // a whole background-height further along, so the view jumps by that much and never runs out of picture.
       const uid = Blockly.BBasic.blockNumbers.next('dpcscroll');
       const lines = divider > 1 ? [` temp1 = framecounter & ${divider - 1}`, ` if temp1 <> 0 then goto _dpcscroll_${uid}_done`] : [];
-      // Stopping at the edge: the view is about to run past either end of the background.
-      if (block.getFieldValue('STOPATEDGE') === 'TRUE') {
-        lines.push(delta > 0 ? ` if ${offset} <= ${stepRows} then goto _dpcscroll_${uid}_done` :
-          ` if ${offset} > ${rows - stepRows} then goto _dpcscroll_${uid}_done`);
-      }
-      lines.push(...scrollLines(value));
-      if (delta > 0) {
-        lines.push(` if ${offset} > ${stepRows} then ${offset} = ${offset} - ${stepRows} : goto _dpcscroll_${uid}_done`,
-            ` ${offset} = ${offset} + ${rows}`, ` ${offset} = ${offset} - ${stepRows}`, ...scrollLines(rows));
-      } else {
-        lines.push(` if ${offset} <= ${rows - stepRows} then ${offset} = ${offset} + ${stepRows} : goto _dpcscroll_${uid}_done`,
-            ` ${offset} = ${offset} + ${stepRows}`, ` ${offset} = ${offset} - ${rows}`, ...scrollLines(256 - rows));
-      }
+      sequences.forEach(({queueSets, offsetName, main}, sequenceIndex) => {
+        const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        const scrollLines = (amount) => queueSets.map((queues) => ` pfscroll ${amount}${queues}`);
+        const stepDone = `_dpcscroll_${uid}_${sequenceIndex}_done`;
+        // Stopping at the edge: the view is about to run past either end of the background.
+        if (block.getFieldValue('STOPATEDGE') === 'TRUE') {
+          if (delta > 0) lines.push(` if ${offset} <= ${stepRows} then goto ${stepDone}`);
+          else if (rowsVar) lines.push(` temp1 = ${rowsVar} - ${stepRows}`, ` if ${offset} > temp1 then goto ${stepDone}`);
+          else lines.push(` if ${offset} > ${rows - stepRows} then goto ${stepDone}`);
+        }
+        lines.push(...scrollLines(value));
+        if (main) lines.push(...nudgeSprites(stepRows * scroll.fine));
+        if (delta > 0) {
+          lines.push(` if ${offset} > ${stepRows} then ${offset} = ${offset} - ${stepRows} : goto ${stepDone}`,
+              ` ${offset} = ${offset} + ${rowsText}`, ` ${offset} = ${offset} - ${stepRows}`, ...scrollLines(rowsText));
+        } else {
+          // The jump back is the number of rows the other way round (256 less them).
+          const back = rowsVar ? 'temp1' : 256 - rows;
+          lines.push(...(rowsVar ? [` temp1 = ${rowsVar} - ${stepRows}`] : []),
+              ` if ${offset} <= ${rowsVar ? 'temp1' : rows - stepRows} then ${offset} = ${offset} + ${stepRows} : goto ${stepDone}`,
+              ` ${offset} = ${offset} + ${stepRows}`, ` ${offset} = ${offset} - ${rowsText}`,
+              ...(rowsVar ? [` temp1 = 255 - ${rowsVar}`, ' temp1 = temp1 + 1'] : []), ...scrollLines(back));
+        }
+        lines.push(`@ ${stepDone}`);
+      });
       lines.push(`@ _dpcscroll_${uid}_done`);
       return lines.join('\n') + '\n';
     }
@@ -1602,6 +1670,8 @@ export default (Blockly) => {
     };
     // "colors only": the color rows step one row per block, and the pixels stay put.
     if (block.getFieldValue('COLORS_ONLY') === 'TRUE') {
+      // The standard kernel has only the playfield colors.
+      if (block.getFieldValue('PFCOLORS') === 'FALSE') return '';
       if (!colorsOn) return ' rem Scrolling colors only needs per-row playfield colors (Options tab) and Up/Down\n';
       return colorRotationLines(Blockly.BBasic.blockNumbers.next('bgscroll'), true,
           block.getFieldValue('STOPATEDGE') === 'TRUE').join('\n') + '\n';

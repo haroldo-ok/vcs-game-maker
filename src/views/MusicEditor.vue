@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container">
-      <v-card-title>Music (alpha 0.75)</v-card-title>
+      <v-card-title>Music (alpha 0.8)</v-card-title>
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
         This feature is in alpha. Things may change or break. You've been warned!
       </v-alert>

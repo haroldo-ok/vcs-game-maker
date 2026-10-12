@@ -14,6 +14,15 @@
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" :levels="playerZoomLevels" />
             <pixel-grid-toggle v-model="showPixelGrid" />
+            <pixel-grid-toggle
+              v-model="showPixelGridLabels"
+              :icon="null"
+              label="XY"
+              title-on="Hide pixel coordinates (Shift+')"
+              title-off="Show pixel coordinates (Shift+')"
+              :disabled="!showPixelGrid"
+              disabled-title="Turn on the pixel grid to show coordinates"
+            />
           </template>
           <template v-slot:after-tools>
             <div class="text-center">
@@ -211,6 +220,25 @@
                     <v-btn :value="4" x-small title="Quadrupled (4x) width">4x</v-btn>
                   </v-btn-toggle>
 
+                  <!-- A 16 pixel wide animation. Two sprites draw it, the player the left half and another sprite (a Player 2 to 9 picked
+                       automatically with DPC+, the other player otherwise) the right half, which follows the player's frame, position,
+                       width and flip. -->
+                  <v-btn-toggle
+                    v-if="!isCollapsed(animation)"
+                    :value="animation.wide ? 16 : 8"
+                    class="animation-preview-scale-toggle"
+                    dense
+                    mandatory
+                    @change="(width) => handleSetWide(animation, width === 16)"
+                  >
+                    <v-btn :value="8" x-small title="A sprite 8 pixels wide">8px</v-btn>
+                    <v-btn
+                      :value="16"
+                      x-small
+                      :title="isDpcPlus ? 'A sprite 16 pixels wide, drawn by two sprites: the right half is a Player 2 to 9 picked automatically that follows this player' : 'A sprite 16 pixels wide, drawn by two sprites: the right half is the other player (Player 1 when this is Player 0), which then cannot be used for anything else'"
+                    >16px</v-btn>
+                  </v-btn-toggle>
+
                   <div class="animation-corner-toolbar">
                     <v-btn
                       icon
@@ -248,6 +276,14 @@
                             @click="() => { importMenuOpenAnimationId = null; handleImportAnimationFrames(animation); }"
                           >
                             Choose images&hellip;
+                          </v-btn>
+                          <v-btn
+                            block
+                            class="mt-2"
+                            title="Frames from batari Basic sprite files (player0: rows of %01...), one file per frame; a file with 16 pixel rows makes the animation 16 pixels wide (DPC+)"
+                            @click="() => { importMenuOpenAnimationId = null; handleImportSpriteFiles(animation); }"
+                          >
+                            Choose .spr files&hellip;
                           </v-btn>
                           <v-switch
                             v-model="replaceFramesOnImport"
@@ -309,12 +345,6 @@
                       @mousedown="(event) => armFrameDrag(event, animation, frame)"
                       @mouseup="armedFrameKey = null"
                     >
-                      <div
-                        class="frame-drag-handle"
-                        title="Drag anywhere on the frame except the drawing, fields and buttons to reorder it"
-                      >
-                        <v-icon small>mdi-drag-horizontal-variant</v-icon>
-                      </div>
                       <v-text-field
                         label="Duration"
                         v-model.number="frame.duration"
@@ -326,15 +356,17 @@
                       />
                       <pixel-editor
                         :ref="pixelEditorRefKey(animation, frame)"
-                        :width="8"
+                        :key="widthOfAnimation(animation)"
+                        :width="widthOfAnimation(animation)"
                         :height="frame.pixels.length || 1"
-                        :aspectRatio="(8 / (frame.pixels.length || 1)) * (animation.previewWidthScale || 1)"
+                        :aspectRatio="(widthOfAnimation(animation) / (frame.pixels.length || 1)) * (animation.previewWidthScale || 1)"
                         v-model="frame.pixels"
                         :fgColor="fgColor"
                         :rowColors="editorRowColors(frame)"
                         :name="name"
                         :showClearButton="true"
                         :showGrid="showPixelGrid"
+                        :showCellIds="showPixelGrid && showPixelGridLabels"
                         :hideToolbar="true"
                         @input="handleChildChange"
                         @clear="() => handleClearRowColors(frame)"
@@ -446,6 +478,8 @@
   </div>
 </template>
 <script>
+import {recordReorder} from '../hooks/reorder-history';
+import Vue from 'vue';
 import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {chunk, max} from 'lodash';
 
@@ -462,7 +496,7 @@ import {useCardSelection} from '../hooks/card-selection';
 import {recordRowColorsChange} from '../utils/row-color-history';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
 import {DEFAULT_SPRITES, processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
-import {useColorPaletteStorage, useConfigurationStorage, useErrorStorage, usePixelGridOverlayStorage} from '../hooks/project';
+import {useColorPaletteStorage, useConfigurationStorage, useErrorStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage} from '../hooks/project';
 import {buildPlayerAnimationPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useEditorZoom, ZOOM_LEVELS} from '../hooks/zoom';
 
@@ -476,6 +510,7 @@ import {createCroppedResizedCanvas, createResizedCanvas} from '../utils/image';
 import {parseAsepriteSheet} from '../utils/aseprite';
 import {escapeHtml} from '../utils/build-error';
 import {clampFrameDuration} from '../utils/duration';
+import {parseSpriteFile, resizeRowsToWidth, setAnimationWide, widthOfAnimation} from '../utils/wide-sprite';
 
 // Width of one frame editor at 100% zoom. The container is normally sized by
 // its  contents, so this pins it before the zoom factor is applied.
@@ -510,6 +545,7 @@ export default defineComponent({
     // Shared across Player 0/1 AND the Background tab (see
     // PixelGridToggle.vue's  comment) - not per-player like zoom above.
     const showPixelGrid = usePixelGridOverlayStorage();
+    const showPixelGridLabels = usePixelGridLabelsStorage();
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
     // Widens the frame editor's  container by the SAME factor the
     // aspectRatio calculation below scales by, instead of just increasing
@@ -523,12 +559,13 @@ export default defineComponent({
     // numerator and denominator grow by the same factor, cancelling out),
     // so only the width actually changes as the toggle goes from 1x to 4x.
     const frameEditorWidth = (animation) =>
-      `${Math.round(EDITOR_BASE_WIDTH * zoom.value * (animation.previewWidthScale || 1))}px`;
+      `${Math.round(EDITOR_BASE_WIDTH * zoom.value * (animation.previewWidthScale || 1) * (widthOfAnimation(animation) / 8))}px`;
     const getMaxId = (elements) => {
       return max(elements.map((o) => o.id))||0;
     };
 
     const configurationStorage = useConfigurationStorage();
+    const isDpcPlus = computed(() => (configurationStorage.value || {}).kernel === 'dpcplus');
     // Per-row SPRITE colors (batari Basic playercolors/player1colors) - see
     // the Options tab's "Enable per-row Player 0/1 sprite colors"
     // toggles (still two independent, per-hardware-player toggles - see
@@ -542,7 +579,7 @@ export default defineComponent({
     // as long as at least one hardware player would actually render it.
     const spriteColorsEnabled = computed(() => {
       const config = configurationStorage && configurationStorage.value;
-      return !!(config && (config.enablePlayer0SpriteColors || config.enablePlayer1SpriteColors));
+      return !!(config && (config.kernel === 'dpcplus' || config.enablePlayer0SpriteColors || config.enablePlayer1SpriteColors));
     });
 
     // Read-only here - components/QuickColorPalette.vue (mounted above)
@@ -660,16 +697,38 @@ export default defineComponent({
       openHeightMenu();
       heightMenuVisible.value = true;
     };
+    // Set height can be undone: every frame's rows and row colors as they were before and after.
+    const heightSnapshot = (animation) => structuredClone(animation.frames.map(({id, pixels, rowColors}) => ({id, pixels, rowColors})));
+    const restoreHeight = (animationId, snapshot) => {
+      const current = state.value.animations.find((candidate) => candidate.id === animationId);
+      if (!current) return;
+      structuredClone(snapshot).forEach((saved) => {
+        const frame = current.frames.find((candidate) => candidate.id === saved.id);
+        if (!frame) return;
+        frame.pixels = saved.pixels;
+        frame.rowColors = saved.rowColors;
+      });
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
     const handleUnifiedSetHeight = () => {
       const animation = selectedAnimation.value;
       if (!animation) return;
       heightMenuValue.value = Math.max(1, Math.min(128, heightMenuValue.value || 0));
+      const before = heightSnapshot(animation);
       animation.frames.forEach((frame) => {
         // Scaling the contents scales each row's color along with its pixels.
         if (heightMenuScaleContents.value && frame.rowColors) {
           frame.rowColors = scaleRowColors(frame.rowColors, frame.pixels.length, heightMenuValue.value);
         }
-        frame.pixels = resizePixelMatrixHeight(frame.pixels, heightMenuValue.value, 8, heightMenuScaleContents.value);
+        frame.pixels = resizePixelMatrixHeight(frame.pixels, heightMenuValue.value, widthOfAnimation(animation), heightMenuScaleContents.value);
+      });
+      const after = heightSnapshot(animation);
+      const animationId = animation.id;
+      recordReorder({
+        undo: () => restoreHeight(animationId, before),
+        redo: () => restoreHeight(animationId, after),
+        isCurrent: () => state.value.animations.some((candidate) => candidate.id === animationId),
       });
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -810,9 +869,7 @@ export default defineComponent({
       return frameDragByAnimationId.get(animation.id);
     };
 
-    // The frame's drag handle: the hook's listeners, plus showing the whole frame
-    // as the thing being dragged (the browser would otherwise drag only the thin
-    // handle strip).
+    // The frame's drag listeners: the hook's, plus showing the whole frame as the thing being dragged.
     // Any part of a frame that isn't the drawing, a field, a button or the row
     // color strip starts a drag: the frame only becomes draggable while the
     // mouse is pressed on such a part (a draggable frame all the time would turn
@@ -857,15 +914,7 @@ export default defineComponent({
       const previousFrame = selectedIndex >= 0 ? frames[selectedIndex] : frames[frames.length - 1];
       const pixels = previousFrame ?
         structuredClone(previousFrame.pixels) :
-        playfieldToMatrix(
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........\n'+
-            '........');
+        Array.from({length: 8}, () => Array(widthOfAnimation(animation)).fill(0));
       const newFrame = {
         id: maxId+1,
         duration: selectedIndex >= 0 ? previousFrame.duration : 10,
@@ -883,6 +932,35 @@ export default defineComponent({
 
       handleChildChange();
       instance.proxy.$forceUpdate();
+    };
+
+    // Imports batari Basic sprite files (see parseSpriteFile) as frames, one per file, in file name order: appended after the
+    // animation's frames, or replacing them like the image import does. A file 16 pixels wide makes the animation wide.
+    const handleImportSpriteFiles = (animation) => {
+      openFileDialogMultiple('.spr,.txt,.bas').then((files) => {
+        if (!files.length) return;
+        const ordered = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+        return Promise.all(ordered.map((file) => file.text().then((text) => ({file, sprite: parseSpriteFile(text)}))))
+            .then((results) => {
+              const sprites = results.filter((result) => result.sprite);
+              if (!sprites.length) {
+                errorStorage.value = 'Import .spr files: no sprite rows (player0: %01...) found in the selected files.';
+                return;
+              }
+              if (sprites.some((result) => result.sprite.width === 16)) {
+                if (!('wide' in animation)) Vue.set(animation, 'wide', false);
+                setAnimationWide(animation, true);
+              }
+              const width = widthOfAnimation(animation);
+              const keptFrames = replaceFramesOnImport.value ? [] : animation.frames;
+              let nextId = getMaxId(keptFrames) + 1;
+              const newFrames = sprites.map(({sprite}) => ({
+                id: nextId++, duration: 10, pixels: resizeRowsToWidth(sprite.pixels, width)}));
+              animation.frames = [...keptFrames, ...newFrames];
+              handleChildChange();
+              instance.proxy.$forceUpdate();
+            });
+      });
     };
 
     // Whether "Import animation frames" replaces this animation's existing
@@ -918,7 +996,7 @@ export default defineComponent({
     // imageToFramePixels below so handleImportAsepriteSheet's per-frame
     // cropped canvases (see createCroppedResizedCanvas) can reuse the exact
     // same on/off threshold instead of duplicating it.
-    const canvasToFramePixels = (canvas) => {
+    const canvasToFramePixels = (canvas, width = 8) => {
       const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
       const imgPixels = imageData.data;
       const pixelValues = [];
@@ -928,13 +1006,13 @@ export default defineComponent({
         const b = imgPixels[i + 2];
         pixelValues.push((r + g + b) / 3);
       }
-      return chunk(pixelValues.map((v) => v > 32 ? 1 : 0), 8);
+      return chunk(pixelValues.map((v) => v > 32 ? 1 : 0), width);
     };
 
-    const imageToFramePixels = (img) => {
+    const imageToFramePixels = (img, width = 8) => {
       const targetHeight = Math.min(128, Math.max(1, Math.round(img.height)));
-      const canvas = createResizedCanvas(img, 8, targetHeight);
-      return canvasToFramePixels(canvas);
+      const canvas = createResizedCanvas(img, width, targetHeight);
+      return canvasToFramePixels(canvas, width);
     };
 
     // Imports several image files at once as new animation frames, in one
@@ -948,7 +1026,7 @@ export default defineComponent({
       openFileDialogMultiple('image/*').then((files) => {
         if (!files.length) return;
         const orderedFiles = sortImportedAnimationFrameFiles(files);
-        return Promise.all(orderedFiles.map((file) => loadImageFromFile(file).then(imageToFramePixels)))
+        return Promise.all(orderedFiles.map((file) => loadImageFromFile(file).then((img) => imageToFramePixels(img, widthOfAnimation(animation)))))
             .then((pixelMatrices) => {
               const keptFrames = replaceFramesOnImport.value ? [] : animation.frames;
               let nextId = getMaxId(keptFrames) + 1;
@@ -1121,14 +1199,14 @@ export default defineComponent({
         // drawing (not the 8 pixel wide box) is centered; vertically the middle
         // of the sprite's height (its tallest frame), so empty rows at the top
         // or bottom count and the sprite doesn't jump between frames.
-        let minX = 8; let maxX = -1;
+        let minX = widthOfAnimation(animation); let maxX = -1;
         animation.frames.forEach((frame) => (frame.pixels || []).forEach((row) => row.forEach((on, x) => {
           if (!on) return;
           minX = Math.min(minX, x); maxX = Math.max(maxX, x);
         })));
         const rows = Math.max(...animation.frames.map((frame) => (frame.pixels || []).length), 1);
         await buildPlayerAnimationPreviewRom(state.value.animations.indexOf(animation),
-            maxX < 0 ? 4 : (minX + maxX + 1) / 2, rows,
+            maxX < 0 ? widthOfAnimation(animation) / 2 : (minX + maxX + 1) / 2, rows,
             animation.previewWidthScale || 1,
             // The animation's row colors show even when the Options tab's per-row sprite colors are off.
             animation.frames.some((f) => f.rowColors && f.rowColors.some((c) => c != null && c !== DEFAULT_ROW_COLOR)),
@@ -1166,6 +1244,15 @@ export default defineComponent({
     // it's meant to persist with the project the same way every other
     // animation/frame property here already does, unlike the Player 0/1
     // zoom level, which deliberately resets every reload.
+    // Makes the animation 16 pixels wide or 8 again (DPC+): every frame's rows get 8 empty pixels on their right, or lose
+    // their right 8 pixels.
+    const handleSetWide = (animation, wide) => {
+      if (!('wide' in animation)) Vue.set(animation, 'wide', false);
+      setAnimationWide(animation, wide);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
     const handleSetPreviewScale = (animation, scale) => {
       animation.previewWidthScale = scale;
       handleChildChange();
@@ -1189,6 +1276,7 @@ export default defineComponent({
 
     // Moving selected pixels with the Move tool takes the colors of their rows along
     // (PixelEditor.vue's 'move-rows' event - see utils/row-color-move.js).
+
     const handleMoveRows = (frame, move) => {
       if (!spriteColorsEnabled.value) return;
       const colors = rowColorsForMove(frame, move);
@@ -1262,7 +1350,8 @@ export default defineComponent({
       handleAddFrame, handleDeleteFrame,
       handleImportAnimationFrames, replaceFramesOnImport, keepColorsOnImport, importMenuOpenAnimationId,
       handleImportAsepriteSheet, asepriteReplaceAnimations, asepriteImportMenuOpen,
-      handleAddAnimation, handleDeleteAnimation, handleDuplicateAnimation, handleSetPreviewScale,
+      handleAddAnimation, handleDeleteAnimation, handleDuplicateAnimation, handleSetPreviewScale, handleSetWide, handleImportSpriteFiles,
+      widthOfAnimation, isDpcPlus,
       testingId, buildInProgress, handleTestAnimation,
       handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, spriteColorsEnabled,
       copiedFrameRowColors, handleCopyRowColors, handlePasteRowColors,
@@ -1271,7 +1360,7 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, frameDrag, frameHandleListeners,
       armedFrameKey, frameKey, armFrameDrag,
-      zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, editorWidth, frameEditorWidth,
+      zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, editorWidth, frameEditorWidth,
       activeFrameEditor, setActiveFrame, isFrameActive, frameHighlightState, selectedAnimation,
       effectiveFrameEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents,
@@ -1333,8 +1422,7 @@ export default defineComponent({
 
 .pixel-editor-container {
   position: relative;
-  /* Room above the Duration field for the drag handle below. */
-  padding-top: 28px;
+  padding-top: 8px;
 }
 
 /* Frames sit side by side, so the drop mark is a bar on the near side (left
@@ -1350,36 +1438,9 @@ export default defineComponent({
   border-right: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
-/* A wide strip across the top of a frame to grab for reordering, with a grip
-   icon so it can be found; it tints on hover. */
+/* A frame is grabbed anywhere except the drawing, its fields and buttons. */
 .pixel-editor-container {
   cursor: grab;
-}
-
-.frame-drag-handle {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 32px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px 4px 0 0;
-  cursor: grab;
-}
-
-.frame-drag-handle .v-icon {
-  color: rgba(128, 128, 128, 0.8);
-}
-
-.frame-drag-handle:hover {
-  background-color: rgba(128, 128, 128, 0.18);
-}
-
-.frame-drag-handle:active {
-  cursor: grabbing;
 }
 
 /* overflow: visible added alongside the padding reset (see MusicEditor.vue's

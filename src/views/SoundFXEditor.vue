@@ -586,7 +586,7 @@ import {useCardSelection} from '../hooks/card-selection';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage,
   useSoundFxColumnsStorage} from '../hooks/project';
-import {frequencyForMidi, midiForPianoIndex, PIANO_KEY_COUNT} from '../utils/dpc-sound';
+import {frequencyForMidi, midiForPianoIndex, normalizeTiaShape, PIANO_KEY_COUNT} from '../utils/dpc-sound';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
   DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
@@ -922,6 +922,7 @@ export default defineComponent({
     };
 
     onMounted(() => {
+      state.value.soundEffects.forEach(normalizeTiaShape);
       soundFxToolbarScrollContainer = instance.proxy.$el.querySelector('.editor-container');
       if (soundFxToolbarScrollContainer) {
         soundFxToolbarScrollContainer.addEventListener('scroll', handleSoundFxToolbarScroll);

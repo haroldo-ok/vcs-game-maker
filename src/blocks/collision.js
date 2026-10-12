@@ -67,15 +67,11 @@ const playerOptions = function() {
 // category) in the same event - it only backs up and restores position, it
 // never moves the player itself.
 //
-// This checks X and Y together (both revert if either axis collided), not
-// separately - CXP0FB/CXP1FB is a single combined bit with no way to tell
-// which axis caused the overlap, so per-axis wall sliding isn't possible
-// with this technique by itself. A software (pfread-based) axis-aware
-// version of this was tried and reverted after causing two separate real
-// bugs on an actual project (a ROM lockup, then - even after fixing that - a
-// hard crash on contact) - see generators/bbasic/collision.js's
-// top-of-file comment for the full account. This version is simpler and
-// known-correct: it stops dead at a wall instead of sliding along it.
+// The hardware flag (CXP0FB/CXP1FB) is a single combined bit with no way to tell which axis caused the overlap, so the
+// generator tries the axes one at a time with the software box test of generators/bbasic/pf-box.js (checked against the
+// hardware flag over every position of a solid sprite): the move is kept in the axis that is clear, so the player slides along a
+// wall, and goes back to where it was only when neither is. See generators/bbasic/collision.js's top-of-file comment for the
+// earlier attempts at this.
 const buildCollisionCheckBlock = () => ({
   'type': 'collision_check_position',
   'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield`,
@@ -86,10 +82,12 @@ const buildCollisionCheckBlock = () => ({
   'nextStatement': null,
   'colour': 'purple',
   'tooltip': 'Checks last frame\'s collision result between the chosen player and the ' +
-    'Playfield (using real TIA hardware collision detection) and reverts to the position ' +
-    'from before that move if it collided. Place this before whatever block(s) actually move ' +
-    'the player each frame - it only backs up and restores position, it does not move the ' +
-    'player itself.',
+    'Playfield (the hardware collision flag, or for Players 2 to 9 a software test of the ' +
+    'sprite box) and, if it collided, takes back as much of that move as it needs: the ' +
+    'part of it along an axis that is clear is kept, so the player slides along a wall, and ' +
+    'it goes back to where it was only when neither axis is clear. Place this before ' +
+    'whatever block(s) actually move the player each frame - it only backs up and restores ' +
+    'position, it does not move the player itself.',
 });
 
 Blockly.defineBlocksWithJsonArray([

@@ -24,6 +24,30 @@ export default (Blockly) => {
     return '';
   };
 
+  // A named label, and a jump to it, inside one event, subroutine or function. The label's name gets a prefix, so it can
+  // never be the name of a subroutine or function.
+  const labelNameOf = (rawName) => Blockly.BBasic.nameDB_.getName(`label_${rawName}`, Blockly.PROCEDURE_CATEGORY_NAME);
+  Blockly.BBasic['label_define'] = function(block) {
+    // The label, then the blocks inside it, which the code carries on through to the blocks after the label.
+    return `@ ${labelNameOf(block.getFieldValue('NAME'))}\n` + Blockly.BBasic.statementToCode(block, 'DO');
+  };
+  Blockly.BBasic['label_goto'] = function(block) {
+    let name = block.getFieldValue('NAME');
+    // A Go to whose dropdown has not settled on a real label yet (see ensureGotoListener in blocks/label.js) takes the first
+    // one defined, rather than compile to a jump with no target.
+    if (block.workspace) {
+      const defined = [...new Set(block.workspace.getBlocksByType('label_define', false)
+          .map((defineBlock) => defineBlock.getFieldValue('NAME')).filter(Boolean))];
+      if (defined.length && !defined.includes(name)) name = defined[0];
+      if (!defined.length) return 'rem Go to label needs a Label block\n';
+    }
+    return `goto ${labelNameOf(name)}\n`;
+  };
+  // "return" never takes a bank tag (see subroutine_call below).
+  Blockly.BBasic['subroutine_return'] = function() {
+    return 'return\n';
+  };
+
   // A subroutine's label can live in any bank now (see getSubroutineBank),
   // so calling it needs the same explicit "bankN" tag any other cross-bank
   // goto/gosub does (see bankJumpSuffix) whenever the caller and the

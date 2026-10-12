@@ -1,5 +1,9 @@
 'use strict';
 
+import {shareIdenticalPlayerData} from '../utils/dpc-share-data';
+import {expandDpcPlusTiles} from '../utils/dpc-tile';
+import {shareDpcPlusPlayerSource, aliasSharedPlayerData} from '../utils/dpc-share-source';
+import {dpcPlusRamUsage} from '../utils/dpc-ram-usage';
 import Vue from 'vue';
 import VueCompositionApi, {ref} from '@vue/composition-api';
 
@@ -10,6 +14,9 @@ import '../blocks';
 import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {getFastMathSiblingFiles} from '../utils/fast-math';
+import {getDpcPlusProgramSiblingFile} from '../utils/dpc-program';
+import {getDpcPlusNoScoreSiblingFiles} from '../utils/dpc-noscore';
+import {getDpcPlusSquishSiblingFiles} from '../utils/dpc-squish';
 import {getDpcPlusAudioSiblingFiles} from '../generators/bbasic/dpcplus-audio';
 import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles, getDpcPlusTextMinikernelSiblingFiles,
   dpcPlusTextScreenLines} from '../generators/bbasic/text-minikernel-files';
@@ -19,7 +26,7 @@ import {titleScreenAnyPageOverRowBudget} from '../blocks/titlescreen';
 import {effectiveBackgroundRows, processBackgroundStorageDefaults} from '../blocks/background';
 import {pfRowDivisorFor} from '../utils/playfield-coords';
 import {findSongById} from '../blocks/music';
-import {buildScoreFontOverride, scoreFontIsEdited, SQUISH_SCORE_FONT} from '../utils/score-font';
+import {buildScoreFontOverride, scoreFontIsEdited, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2ColorOverride,
   packCursorGlyphByte, processCursorGlyphDefaults, resolveBlinkMask} from '../utils/text-font';
 import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
@@ -181,6 +188,30 @@ export const usesPlayer0RainbowColors = () => {
 const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown Mnemonic 'jmp BS_(jsr|return)'/i
     .test((e && e.message) || '');
 
+// Frames with the same rows, on any players, are stored once (see utils/dpc-share-data.js).
+const shareDpcPlusPlayerData = (compiled, config) => {
+  if (!config || config.kernel !== 'dpcplus') return;
+  // The scrolling backgrounds keep one repeat of their rows, and the rest is copied in when they load.
+  const tiles = expandDpcPlusTiles(compiled.mainAsm);
+  compiled.mainAsm = tiles.asm;
+  const markers = (compiled.mainAsm.match(/^\.?_dpctile_\d+_\d+_\d+_[pcb]+\s*$/gm) || []).length;
+  if (markers !== tiles.expanded) {
+    appendCompileLog('A scrolling background could not have its repeated rows filled in: its data statements were not found.', 'error');
+  }
+  // The repeats the source cut out are names for the first copy's data; any other identical block is shared too.
+  const aliases = aliasSharedPlayerData(compiled.mainAsm);
+  compiled.mainAsm = aliases.asm;
+  const {asm, saved} = shareIdenticalPlayerData(compiled.mainAsm);
+  compiled.mainAsm = asm;
+  if (saved || aliases.aliased) {
+    appendCompileLog(`Shared the sprite graphics and colors that repeat (${aliases.aliased} frames pointed at an earlier copy).`);
+  }
+};
+
+// The DPC+ kernel keeps every graphic of the project in a single bank (the player frames and their color rows, the playfield
+// rows and the row color tables), and nothing moves out of it, so relocating events or graphics to other banks cannot help.
+const isDpcPlusGraphicsOverflow = (e) => isOverflowError(e) && /DPC_graphics_end/.test((e && e.message) || '');
+
 // Appended to the end of a build-failure error whenever it's an overflow
 // (see isOverflowError above) that the relocation retry loop either had no
 // bank left to try, or burned through its whole MAX_RELOCATION_ATTEMPTS
@@ -192,6 +223,13 @@ const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown 
 // the Configuration tab themselves to find out what's even selected.
 const romSizeOverflowHint = (e, config) => {
   if (!isOverflowError(e)) return '';
+  if (isDpcPlusGraphicsOverflow(e)) {
+    return `
+
+The DPC+ graphics bank is full. It holds every player's frames and color rows (a frame costs twice its height in ` +
+      `bytes with colors), the playfield (a background that scrolls is stored as 255 rows, 4 bytes each) and the row color ` +
+      `tables, and a larger ROM size doesn't add to it. Use fewer or shorter frames and animations, or fewer players.`;
+  }
   return `\n\nThis project may be too large to fit in the configured ROM size ` +
     `(${(config && config.romSize) || '4k'}) - try a larger ROM size on the Configuration tab.`;
 };
@@ -1298,8 +1336,12 @@ const buildRomInner = async () => {
       // preset font once would leave that override stuck there forever,
       // masking the Text Minikernel's  extended file even after switching
       // back to Squish or to a different project).
+      // A Squish score font on DPC+ shortens the score's loop (see utils/dpc-squish.js); with the score hidden there is nothing to shorten.
+      const dpcPlusSquish = config.kernel === 'dpcplus' && (config.scoreFont === SQUISH_SCORE_FONT || config.scoreFont === SQUISH_CUSTOM_SCORE_FONT) &&
+        !config.enableCycleScore && !config.enableScanlinesDebug && ((configurationStorage.value || {}).showScore ?? true) !== false;
       const siblingFiles = textMinikernelActive ?
-        {...(config.kernel === 'dpcplus' ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed) : await getTextMinikernelSiblingFiles())} : {};
+        {...(config.kernel === 'dpcplus' ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed,
+            ((configurationStorage.value || {}).showScore ?? true) === false, dpcPlusSquish) : await getTextMinikernelSiblingFiles())} : {};
       // Hand-written .asm content generated during this same attempt's
       // regenerateCode() call above (player animation frame pointers, see
       // generateAnimations in generators/bbasic.js), added as sibling files
@@ -1344,17 +1386,17 @@ const buildRomInner = async () => {
       // forces the same thing, for the same reason - it pokes plain digits
       // straight into the score too, sized for the standard kernel's
       // full-height digits, not Squish's shorter ones.
-      // DPC+ keeps the score digits in a different place (the start of its first bank), where a swapped font file
-      // does not fit, so it always uses the stock digits.
-      const effectiveScoreFont = (config.enableCycleScore || config.enableScanlinesDebug || config.kernel === 'dpcplus') ?
-        null : config.scoreFont;
-      if (config.kernel === 'dpcplus') {
-        // no override
-      } else if (effectiveScoreFont === SQUISH_SCORE_FONT && !scoreFontIsEdited(SQUISH_SCORE_FONT)) {
+      // DPC+ draws the digits from the same table (scoretable) through its ARM code, so the primary font works there as it does
+      // with the standard kernel, extra glyphs included, and so do the Squish fonts (written as a plain table, with the kernel's score
+      // loop shortened to match, see utils/dpc-squish.js). A secondary font is not for DPC+ yet.
+      const dpcPlusScore = config.kernel === 'dpcplus';
+      const effectiveScoreFont = (config.enableCycleScore || config.enableScanlinesDebug) ? null : config.scoreFont;
+      if (!dpcPlusScore && effectiveScoreFont === SQUISH_SCORE_FONT && !scoreFontIsEdited(SQUISH_SCORE_FONT)) {
         if (!textMinikernelActive) siblingFiles['score_graphics.asm'] = await getExtendedScoreGraphics();
       } else {
         const scoreFontOverride = await buildScoreFontOverride(effectiveScoreFont,
-            (config.enableCycleScore || config.enableScanlinesDebug) ? undefined : config.secondaryScoreFont);
+            (config.enableCycleScore || config.enableScanlinesDebug || dpcPlusScore) ? undefined : config.secondaryScoreFont,
+            dpcPlusScore);
         if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
       }
       // Same override mechanism, for the Text Minikernel's  drawn
@@ -1410,10 +1452,26 @@ const buildRomInner = async () => {
       // batari Basic toolchain locally would print.
       const log = (text) => appendCompileLog(text);
       appendCompileLog('Preprocessing...', 'stage');
-      const preprocessed = await preprocessBatariBasic(code, log);
+      // Sprite frames that repeat are cut out of the source batari Basic compiles (see utils/dpc-share-source.js).
+      const sharedSource = (configurationStorage.value || {}).kernel === 'dpcplus' ? shareDpcPlusPlayerSource(code) : null;
+      const preprocessed = await preprocessBatariBasic(sharedSource ? sharedSource.code : code, log);
       appendCompileLog('Compiling to assembly...', 'stage');
       Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles));
+      // The text builds' kernels are made above, with the Squish loop in them.
+      if (dpcPlusSquish && !BlocklyBB.isTextMinikernelActive()) {
+        Object.assign(siblingFiles, await getDpcPlusSquishSiblingFiles(siblingFiles));
+      }
+      // A hidden score gives its scanlines to the picture (the Text Minikernel's score row stays, it draws the text).
+      if ((configurationStorage.value || {}).kernel === 'dpcplus' && ((configurationStorage.value || {}).showScore ?? true) === false &&
+        !BlocklyBB.isTextMinikernelActive()) {
+        Object.assign(siblingFiles, await getDpcPlusNoScoreSiblingFiles(siblingFiles));
+      }
+      Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
+        audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
+        math: !!(BlocklyBB.usesDivMulRoutine() && (configurationStorage.value || {}).enableFastMath),
+      }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      shareDpcPlusPlayerData(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       // The ROM itself is fully compiled and valid at this point - a failure
@@ -1475,8 +1533,15 @@ const buildRomInner = async () => {
       // measurement from a since-changed ROM size would misinform rather
       // than help.
       const variableUsage = computeVariableUsage();
+      // DPC+'s 4K of display RAM: the kernel's fixed buffers come first, and USERSTACK is where what is left starts (the
+      // same figure the kernel reports as "DPC free RAM").
+      const dpcPlusStack = compiledResult.symbolmap && compiledResult.symbolmap.USERSTACK;
+      const dpcPlusRam = config.kernel === 'dpcplus' && dpcPlusStack !== undefined ?
+        dpcPlusRamUsage(compiledResult.symbolmap) : undefined;
+      const dpcPlusRamFree = dpcPlusRam ? dpcPlusRam.free :
+        (config.kernel === 'dpcplus' && dpcPlusStack !== undefined ? 0x1000 - (dpcPlusStack & 0x0FFF) : undefined);
       setRomCapacity(capacity ?
-        {...capacity, romSize: bankSizeKey,
+        {...capacity, romSize: bankSizeKey, dpcPlusRamFree, dpcPlusRamItems: dpcPlusRam ? dpcPlusRam.items : undefined,
           bankContents: maxBanks ? computeBankContents(maxBanks, textMinikernelActive, titleScreenKernelActive) : undefined,
           variableUsage} :
         capacity);
@@ -1503,7 +1568,7 @@ const buildRomInner = async () => {
       // scratch exactly like a never-seeded build's  first failure would.
       if (attempt === 0 && seededFromLastSuccess) resetRelocationBanks();
       const maxBanks = BANK_COUNT_BY_ROMSIZE[bankSizeKeyFor(config)];
-      if (isOverflowError(e) && maxBanks) {
+      if (isOverflowError(e) && maxBanks && !isDpcPlusGraphicsOverflow(e)) {
         // Diagnostic-only for now (see bb-compiler.js's  comment on
         // partialOutput/partialSymbolmap) - not read by anything below yet.
         // DASM writes its symbol table incrementally as it assembles, so an
@@ -1941,7 +2006,7 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
   // centered on the shortened screen the text leaves (the preview always hides the score).
   const dpcPlus = config.kernel === 'dpcplus';
   const y = dpcPlus ?
-    Math.min(191, Math.max(1, Math.round((dpcPlusTextScreenLines(false, false) / 2 - (height || 8) +
+    Math.min(191, Math.max(1, Math.round((dpcPlusTextScreenLines(false, false, true) / 2 - (height || 8) +
       BlocklyBB.dpcPlusSpriteLines()) / 2))) :
     Math.min(191, Math.max(1, Math.round(middle + (height || 8) / 2)));
   const steps = [
@@ -1961,14 +2026,12 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
   const chain = steps.map((step) => step + '<next>').join('') + steps.map(() => '</next></block>').join('');
   return buildPreviewRom({
     name: `Player animation ${animationIndex}`,
-    configOverride: {...PREVIEW_TEXT_CONFIG, previewAnimationOnly: animationIndex,
+    // The score area is left out, as in the Background preview, so the text row sits in the same place on every kernel.
+    configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false, previewAnimationOnly: animationIndex,
       ...(spriteColors ? {enablePlayer0SpriteColors: true, enablePlayer1SpriteColors: true} : {})},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +
-      `<statement name="DO">${chain}</statement></block>` +
-      // Also clears every frame, in case anything has drawn pixels.
-      `<block type="event_block"><field name="EVENT">title_update</field>` +
-      `<statement name="DO"><block type="background_clear"></block></statement></block></xml>`,
+      `<statement name="DO">${chain}</statement></block></xml>`,
   });
 };
 
@@ -2116,7 +2179,8 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       // cached object is shared (see buildRomInner).
       const previewDpcPlus = (configurationStorage.value || {}).kernel === 'dpcplus';
       const siblingFiles = BlocklyBB.isTextMinikernelActive() ?
-        {...(previewDpcPlus ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed) : await getTextMinikernelSiblingFiles())} : {};
+        {...(previewDpcPlus ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed,
+            ((configurationStorage.value || {}).showScore ?? true) === false) : await getTextMinikernelSiblingFiles())} : {};
       Object.assign(siblingFiles, BlocklyBB.playerAnimAsmFiles || {});
       if (BlocklyBB.usesDivMulRoutine() && (configurationStorage.value || {}).enableFastMath) {
         Object.assign(siblingFiles, await getFastMathSiblingFiles((configurationStorage.value || {}).kernel));
@@ -2132,10 +2196,22 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       }
       const log = (text) => appendCompileLog(text);
       appendCompileLog('Preprocessing...', 'stage');
-      const preprocessed = await preprocessBatariBasic(code, log);
+      // Sprite frames that repeat are cut out of the source batari Basic compiles (see utils/dpc-share-source.js).
+      const sharedSource = (configurationStorage.value || {}).kernel === 'dpcplus' ? shareDpcPlusPlayerSource(code) : null;
+      const preprocessed = await preprocessBatariBasic(sharedSource ? sharedSource.code : code, log);
       appendCompileLog('Compiling to assembly...', 'stage');
       Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles));
+      // A hidden score gives its scanlines to the picture (the Text Minikernel's score row stays, it draws the text).
+      if ((configurationStorage.value || {}).kernel === 'dpcplus' && ((configurationStorage.value || {}).showScore ?? true) === false &&
+        !BlocklyBB.isTextMinikernelActive()) {
+        Object.assign(siblingFiles, await getDpcPlusNoScoreSiblingFiles(siblingFiles));
+      }
+      Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
+        audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
+        math: !!(BlocklyBB.usesDivMulRoutine() && (configurationStorage.value || {}).enableFastMath),
+      }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      shareDpcPlusPlayerData(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       try {

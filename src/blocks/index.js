@@ -15,6 +15,7 @@ import './data';
 import './display-ram';
 import './event';
 import './input';
+import './label';
 import './loops';
 import './math';
 import './music';

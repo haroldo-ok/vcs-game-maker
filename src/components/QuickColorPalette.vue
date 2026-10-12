@@ -71,6 +71,7 @@ import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {recordQuickColorDeletion} from '../hooks/quick-color-undo';
 import {useColorPaletteStorage} from '../hooks/project';
+import {useDrawColor} from '../hooks/pixel-tool';
 import {colorByteToBBasic, colorByteToCss, NTSC_COLORS} from '../utils/palette';
 
 // A single "entry" for useCollapsedIds'  per-list-item convention -
@@ -111,10 +112,15 @@ export default defineComponent({
   setup(props, {emit}) {
     const paletteStorage = useColorPaletteStorage();
     const palette = computed(() => paletteStorage.value || []);
+    // Selecting a quick color also puts it in the toolbar's swatch, which is what the Pencil and Fill paint rows with.
+    const selectColor = (byte) => {
+      useDrawColor().value = byte;
+      emit('input', byte);
+    };
     const handleAddColor = (byte) => {
       // A color already in the bar is selected there instead of added again.
       if (palette.value.includes(byte)) {
-        emit('input', byte);
+        selectColor(byte);
         return;
       }
       paletteStorage.value = [...palette.value, byte];
@@ -184,7 +190,8 @@ export default defineComponent({
         handleRemoveColor(byte);
         return;
       }
-      emit('input', props.value === byte ? null : byte);
+      if (props.value === byte) emit('input', null);
+      else selectColor(byte);
     };
 
     return {

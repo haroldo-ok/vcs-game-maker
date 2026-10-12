@@ -441,6 +441,10 @@
         <div class="rom-capacity-log">
           <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
           <div v-if="romVariablesSummary" class="rom-capacity-summary"><strong>Total Variables:</strong> {{ romVariablesSummary }}</div>
+          <div v-if="romDpcPlusRamText" class="rom-capacity-summary"><strong>DPC+ RAM:</strong> {{ romDpcPlusRamText }}</div>
+          <div v-if="romDpcPlusRamItems.length" class="rom-capacity-variables">
+            <div v-for="item in romDpcPlusRamItems" :key="item.name">{{ item.name }}: {{ item.bytes.toLocaleString() }} bytes</div>
+          </div>
           <div v-if="romSystemVariableAssignments.length" class="rom-capacity-summary"><strong>System reserved:</strong></div>
           <div v-if="romSystemVariableAssignments.length" class="rom-capacity-variables">
             <div v-for="assignment in romSystemVariableAssignments" :key="assignment.slot">
@@ -826,6 +830,14 @@ export default {
     // "low" warning still keys off bank 1 specifically - that's the one bank
     // that always holds the project's unrelocatable main body, so it's the
     // more actionable signal for "about to need relocation".
+    // The DPC+ kernel's display RAM that nothing in the project has taken, as text.
+    romDpcPlusRamItems() {
+      return (this.romCapacity && this.romCapacity.dpcPlusRamItems) || [];
+    },
+    romDpcPlusRamText() {
+      const free = this.romCapacity && this.romCapacity.dpcPlusRamFree;
+      return free === undefined || free === null ? '' : `${free.toLocaleString()} bytes free`;
+    },
     romCapacityText() {
       const capacity = this.romCapacity;
       if (!capacity) return '';
@@ -882,7 +894,7 @@ export default {
       // gate on, so this simply doesn't show for non-DPC+ builds (available
       // is 0 then), same convention as the Superchip clauses above.
       if (usage.dpcPlus.available) {
-        parts.push(`${usage.dpcPlus.used} of ${usage.dpcPlus.available} DPC+ bonus RAM`);
+        parts.push(`${usage.dpcPlus.used} of ${usage.dpcPlus.available} DPC+ bonus RAM (${usage.dpcPlus.available - usage.dpcPlus.used} bytes free)`);
       }
       return `${parts.join(', ')} used.`;
     },

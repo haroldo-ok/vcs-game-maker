@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayerAnimationsStorage, useConfigurationStorage} from '../hooks/project';
-import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
+import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, LOCK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
 
@@ -357,8 +357,13 @@ const FIRE_OBJECT_DROPDOWN_OPTIONS = function() {
   const players = Array.from({length: dpcPlus ? 10 : 2}, (_, i) => ['Player ' + i, 'player' + i]);
   return [...FIRE_OBJECT_OPTIONS, ...players];
 };
+// Players 2 to 9 (DPC+ virtual sprites) each get a different color on the blocks that pick one, Player 0 is red and Player 1 blue.
+const EXTRA_PLAYER_COLOURS = {
+  2: '#2e9e4f', 3: '#8a5ac2', 4: '#d4a017', 5: '#17a2b8', 6: '#d6338a', 7: '#7a8c2c', 8: '#8d5a3b', 9: '#607d8b',
+};
+const extraPlayerColour = (number) => EXTRA_PLAYER_COLOURS[number] || '#8a5ac2';
 const fireObjectColour = (value) => (value === 'ball' ? '#ff8800' : (value === '1' || value === 'player1') ? 'blue' :
-  /^player[2-9]$/.test(value) ? '#8a5ac2' : 'red');
+  /^player[2-9]$/.test(value) ? extraPlayerColour(value.slice(6)) : 'red');
 
 const missileNameFromField = (block) => `missile${block && block.getFieldValue('MISSILE') === '1' ? '1' : '0'}`;
 
@@ -449,7 +454,7 @@ const buildMissileVarOptionsFn = (extraOptionsFor) => function() {
 // directly (same "dropdown drives colour + optional VAR-prefix translate"
 // shape) rather than duplicating it.
 export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldName, namePrefixFor) => {
-  const colourFor = (value) => (value === '1' ? 'blue' : /^[2-9]$/.test(value) ? '#8a5ac2' : 'red');
+  const colourFor = (value) => (value === '1' ? 'blue' : /^[2-9]$/.test(value) ? extraPlayerColour(value) : 'red');
   Blockly.Extensions.register(extensionName, function() {
     // eslint-disable-next-line no-invalid-this
     const block = this;
@@ -1006,7 +1011,7 @@ const buildPlayerBlocks = ({icon, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'PLAYER',
-          'options': PLAYER_OPTIONS,
+          'options': PLAYER_DROPDOWN_OPTIONS,
         },
         {
           'type': 'input_value',
@@ -1052,7 +1057,7 @@ const buildPlayerBlocks = ({icon, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'PLAYER',
-          'options': PLAYER_OPTIONS,
+          'options': PLAYER_DROPDOWN_OPTIONS,
         },
       ],
       'previousStatement': null,
@@ -1178,7 +1183,7 @@ const SEEK_OBJECT_DROPDOWN_OPTIONS = function() {
 // this file) rather than inventing a new palette just for this dropdown.
 const SEEK_OBJECT_COLOURS = {
   player0: 'red', player1: 'blue', missile0: 'red', missile1: 'blue', ball: '#ff8800',
-  ...Object.fromEntries([2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`player${n}`, '#8a5ac2'])),
+  ...Object.fromEntries([2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`player${n}`, extraPlayerColour(n)])),
 };
 // Validator-based, not setOnChange - see registerDropdownFieldSyncExtension's
 // comment above for why: setOnChange only ever fires from a real
@@ -1256,6 +1261,58 @@ Blockly.Extensions.register('sprite_inertia_accelerate_action_sync', function() 
     return undefined;
   });
 });
+
+// Lock a sprite to another: it follows the other one, an offset away, until it is unlocked (see generators/bbasic/sprite-lock.js).
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'sprite_lock',
+    'message0': `${LOCK_ICON} Lock %1 to %2 at X offset %3 Y offset %4`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'CHILD',
+        'options': SEEK_OBJECT_DROPDOWN_OPTIONS,
+      },
+      {
+        'type': 'field_dropdown',
+        'name': 'PARENT',
+        'options': SEEK_OBJECT_DROPDOWN_OPTIONS,
+      },
+      {
+        'type': 'input_value',
+        'name': 'X',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'Y',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'purple',
+    'tooltip': 'Makes the first sprite follow the second one, the given number of pixels to the right (X) and down (Y) of ' +
+      'it (a negative number goes left or up), every frame until it is unlocked. When the second sprite is a player ' +
+      'facing left (flipped), the first one is put on the other side of it and flipped too, so a sword stays in the same hand.',
+  },
+  {
+    'type': 'sprite_unlock',
+    'message0': `${LOCK_ICON} Unlock %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'CHILD',
+        'options': SEEK_OBJECT_DROPDOWN_OPTIONS,
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'purple',
+    'tooltip': 'Lets a sprite locked to another one move freely again; it stays where it is.',
+  },
+]);
 
 Blockly.defineBlocksWithJsonArray([
   {
@@ -2009,9 +2066,13 @@ Blockly.Extensions.register('sprite_player_fade_colour_sync', function() {
   const block = this;
   const varField = block.getField('VAR');
   if (!varField) return;
-  block.setColour(varField.getValue() === 'player1realcolor' ? 'blue' : 'red');
+  const colourFor = (value) => {
+    const extra = /^player([2-9])realcolor$/.exec(value);
+    return value === 'player1realcolor' ? 'blue' : extra ? extraPlayerColour(extra[1]) : 'red';
+  };
+  block.setColour(colourFor(varField.getValue()));
   varField.setValidator((newValue) => {
-    block.setColour(newValue === 'player1realcolor' ? 'blue' : 'red');
+    block.setColour(colourFor(newValue));
     return newValue;
   });
 });

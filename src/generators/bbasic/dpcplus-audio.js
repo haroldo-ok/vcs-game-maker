@@ -37,9 +37,8 @@ export const CHIP_CHANNELS = [0, 2, 3];
 const VOICE_OF_CHANNEL = {0: 0, 2: 1, 3: 2};
 const VOICE_WAVE_SLOTS = ['SINE_WAVE', 'TRIANGLE_WAVE', 'SAWTOOTH_WAVE'];
 export const isChipChannel = (channel) => CHIP_CHANNELS.includes(Number(channel));
-// What the voices add up to goes to the TIA's volume register, which has 15 steps: shared out by how many voices a project
-// uses at once.
-const VOLUME_CAPS = {1: [15], 2: [8, 7], 3: [5, 5, 5]};
+// What the voices add up to goes to the TIA's volume register, which has 15 steps: voices that together are louder than that
+// are all turned down (see the volume mix in the routine).
 const CHIP_CLOCK = 20000;
 // A pitch this close (in cents) to a piano key or an earlier pitch is the same entry.
 const SAME_PITCH_CENTS = 3;
@@ -55,7 +54,6 @@ const distance = (a, b) => a.reduce((sum, value, i) => sum + Math.abs(value - b[
 // routine and the frequency table from them.
 // channels are the chip channels (see CHIP_CHANNELS) the project uses.
 export const createDpcPlusAudioPlan = (config, channels = [0]) => {
-  const caps = VOLUME_CAPS[channels.length] || VOLUME_CAPS[3];
   const waves = [];
   const waveIdByKey = new Map();
   const extraPitches = [];
@@ -111,7 +109,6 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
   };
   const pitchIdForTia = (audc, audf) => pitchIdFor(frequencyForTia(audc, audf, config));
 
-  const volumeTable = (cap) => Array.from({length: 16}, (_, v) => (v === 0 ? 0 : Math.max(1, Math.round(v * cap / 15))));
 
   const byteLines = (label, values) => {
     const lines = ['@' + label];
@@ -162,10 +159,43 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
     const lines = ['asm',
       ' lda #0',
       ' sta $15 ; AUDC0 = 0 holds the output high, so the volume register alone makes the sound'];
+    // The volume mix: the voices' volumes go to temp4 to temp6. The chip adds the voices up into the 15 steps of the TIA's
+    // volume register, so volumes that add up to more than 15 are scaled down together by the coprocessor (function 52).
+    channels.forEach((channel, position) => {
+      lines.push(` lda ${names[`dpcAudv${channel}`]}`, ' and #15', ` sta temp${4 + position}`);
+    });
+    if (channels.length > 1) {
+      lines.push(' lda temp4', ' clc', ' adc temp5');
+      if (channels.length > 2) lines.push(' adc temp6');
+      lines.push(
+          ' cmp #16',
+          ' bcc _dpcmixdone',
+          ' lda #<C_function',
+          ' sta DF0LOW',
+          ' lda #(>C_function) & $0F',
+          ' sta DF0HI',
+          ' lda #52',
+          ' sta DF0WRITE',
+          ' lda temp4',
+          ' sta DF0WRITE',
+          ' lda temp5',
+          ' sta DF0WRITE',
+          channels.length > 2 ? ' lda temp6' : ' lda #0',
+          ' sta DF0WRITE',
+          ' lda #255',
+          ' sta CALLFUNCTION',
+          ' lda #<(C_function+1)',
+          ' sta DF0LOW',
+          ' lda DF0DATA',
+          ' sta temp4',
+          ' lda DF0DATA',
+          ' sta temp5');
+      if (channels.length > 2) lines.push(' lda DF0DATA', ' sta temp6');
+      lines.push('@_dpcmixdone');
+    }
     channels.forEach((channel, position) => {
       const voice = VOICE_OF_CHANNEL[channel];
       const audc = names[`dpcAudc${channel}`];
-      const audv = names[`dpcAudv${channel}`];
       const wave = VOICE_WAVE_SLOTS[voice];
       const slotLow = `<((${wave}&$7f)*32)`;
       const slotHigh = `>((${wave}&$7f)*32)`;
@@ -180,14 +210,11 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
       lines.push(
           // The pitch (AUDF) goes straight to the chip's note register (see redirectSoundRegisters); this is the waveform
           // and its height, which have to be put together in the voice's 32 bytes of RAM.
-          ` lda ${audv}`,
-          ' and #15',
+          ` lda temp${4 + position}`,
           // The branches over the waveform code are inverted over a JMP: it is longer than a branch reaches.
           ` bne ${label('on')}`,
           ` jmp ${label('off')}`,
           '@' + label('on'),
-          ' tax',
-          ` lda _dpcvol${position},x`,
           ' sta temp2 ; waveform height',
           ` lda ${audc}`,
           ' and #7',
@@ -204,11 +231,11 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
           ' lsr',
           ' lsr',
           ' ora temp3',
-          ' sta temp4 ; waveform and height now in the RAM',
+          ' sta temp3 ; waveform and height now in the RAM',
           ' lda temp1',
           ...times(4, ' asl'),
           ' ora temp2',
-          ' cmp temp4',
+          ' cmp temp3',
           ` bne ${label('rebuild')}`,
           ` jmp ${label('same')}`,
           '@' + label('rebuild'),
@@ -248,13 +275,12 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
           '@' + label('next'));
     });
     lines.push(' RETURN',
-        ...caps.slice(0, channels.length).flatMap((cap, position) => byteLines(`_dpcvol${position}`, volumeTable(cap))),
         ...byteLines('_dpcwaves', waveBytes()),
         '@end');
     return lines.join('\n');
   };
 
-  return {channels, isChannel: (channel) => channels.includes(Number(channel)), caps,
+  return {channels, isChannel: (channel) => channels.includes(Number(channel)),
     waveIdForSound, pitchIdForSound, waveIdForTia, pitchIdFor, pitchIdForTia, frequencyFile, routine,
     get waveCount() {
       return waves.length;

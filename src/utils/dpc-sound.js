@@ -7,8 +7,9 @@
 // can hold any pitch). A DPC+ sound keeps its Standard settings (audc, audf) next to the DPC+ ones (dpcShape,
 // dpcFrequency), so switching a project between kernels and back gives the same sound it started as.
 //
-// dpcShape names the waveform: 'tia<N>' is the waveform the TIA makes for AUDC N, which is what a converted sound
-// uses and the only kind that can be turned back into a Standard sound.
+// dpcShape names the waveform: one of the Sound tab's presets (square, buzzy, rough, noise...), or 'tia<N>' for the
+// waveform the TIA makes for AUDC N. A converted Standard sound gets the preset that is the most direct match for its type
+// (see presetForAudc).
 
 import {tvAudioClockScale} from './tv-standard';
 
@@ -116,6 +117,15 @@ export const frequencyForTia = (audc, audf, config) => {
   return clockFor(config, slow) / (Number(audf) + 1) / shape.chipsPerCycle;
 };
 
+// The Sound tab's waveform preset that matches each Standard type the most directly: the 50% square types (4, 5, 12 and
+// 13), the buzzy one (1) and the rough one (6, 10 and 14) are the same waveform, and the noise types (3, 7, 8, 9 and 15)
+// are noise. Type 2, a slowly stepped 4-bit poly, is the nearest to the buzzy one.
+const PRESET_FOR_AUDC = {
+  1: 'buzzy', 2: 'buzzy', 3: 'noise', 4: 'square', 5: 'square', 6: 'rough', 7: 'noise', 8: 'noise', 9: 'noise',
+  10: 'rough', 12: 'square', 13: 'square', 14: 'rough', 15: 'noise',
+};
+export const presetForAudc = (audc) => PRESET_FOR_AUDC[Number(audc)] || null;
+
 export const isDpcPlusSound = (sound) => !!(sound && sound.dpcShape);
 
 // The DPC+ waveform's top value: samples go from 0 to this, and a note's volume scales the whole shape.
@@ -151,9 +161,20 @@ export const pianoIndexForMidi = (midi) => midi - 20;
 export const midiForPianoIndex = (index) => index + 20;
 export const frequencyForMidi = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
 
+// A sound converted before the presets were matched to Standard types has a 'tia<N>' shape: it gets the preset that is the
+// most direct match for that type instead. Returns true if the sound was changed.
+export const normalizeTiaShape = (sound) => {
+  const audc = isDpcPlusSound(sound) ? audcForShape(sound.dpcShape) : null;
+  if (!audc) return false;
+  sound.dpcShape = sound.isPercussion && audc !== '1' ? 'noise' : presetForAudc(audc);
+  sound.dpcWave = dpcWaveOf(sound);
+  return true;
+};
+
 // Adds the DPC+ settings to a Standard sound, in place. Returns true if the sound was changed.
 export const convertSoundToDpcPlus = (sound, config) => {
-  if (!sound || isDpcPlusSound(sound)) return false;
+  if (sound && isDpcPlusSound(sound)) return normalizeTiaShape(sound);
+  if (!sound) return false;
   const shape = shapeForAudc(sound.audc);
   if (!waveFor(shape)) {
     // AUDC 0 and 11 make no sound (the TIA holds the output high).
@@ -164,7 +185,7 @@ export const convertSoundToDpcPlus = (sound, config) => {
   }
   sound.dpcFrequency = Math.round(frequencyForTia(sound.audc, sound.audf, config) * 100) / 100;
   // Percussion becomes noise, unless it was buzzy already (AUDC 1), which stays the buzzy shape.
-  sound.dpcShape = sound.isPercussion && `${sound.audc}` !== '1' ? 'noise' : shape;
+  sound.dpcShape = sound.isPercussion && `${sound.audc}` !== '1' ? 'noise' : presetForAudc(sound.audc);
   sound.dpcWave = dpcWaveOf(sound);
   return true;
 };
@@ -172,7 +193,8 @@ export const convertSoundToDpcPlus = (sound, config) => {
 // A converted sound (one whose waveform is a TIA one) follows its Standard settings when they are edited: its DPC+
 // settings are worked out again from them.
 export const refreshDpcPlusFromStandard = (sound, config) => {
-  if (!isDpcPlusSound(sound) || !(sound.dpcShape === 'off' || audcForShape(sound.dpcShape))) return;
+  if (!isDpcPlusSound(sound) || !(sound.dpcShape === 'off' || audcForShape(sound.dpcShape) ||
+    sound.dpcShape === presetForAudc(sound.audc))) return;
   const before = `${sound.dpcShape}/${sound.dpcFrequency}`;
   delete sound.dpcShape;
   delete sound.dpcFrequency;
@@ -252,7 +274,8 @@ export const convertSoundToStandard = (sound, config) => {
   }
   // A sound keeps its Standard type and frequency (what channel 1 plays) when they were set by hand, when it came
   // from a Standard sound as it was (TIA waveforms), and when it is percussion that became noise.
-  if (sound.audc !== undefined && (sound.dpcTiaEdited || sound.dpcShape === 'noise' || audcForShape(sound.dpcShape))) {
+  if (sound.audc !== undefined && (sound.dpcTiaEdited || sound.dpcShape === 'noise' ||
+    sound.dpcShape === presetForAudc(sound.audc) || audcForShape(sound.dpcShape))) {
     clear();
     return {converted: true};
   }

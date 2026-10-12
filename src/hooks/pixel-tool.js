@@ -18,6 +18,12 @@ const toggledTool = ref('pencil');
 
 export const usePixelTool = () => toggledTool;
 
+// The color the swatch in the graphic editor toolbar holds (a color byte, or null for none yet): the Pencil and Fill paint the rows of
+// a row color bar with it, and the Eyedropper sets it to the color it is clicked on. Drawing on the picture itself only draws pixels.
+const drawColor = ref(null);
+
+export const useDrawColor = () => drawColor;
+
 // Mirror drawing: with horizontal and/or vertical on, whatever is drawn on one
 // side of a graphic is drawn flipped on the other side too (both on: all four
 // corners). Shared by every PixelEditor.vue instance like toggledTool above, and

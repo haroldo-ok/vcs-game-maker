@@ -33,6 +33,30 @@
           <v-icon>mdi-redo</v-icon>
         </v-btn>
         <v-divider class="get-inner-divider" vertical />
+        <v-menu offset-y :close-on-content-click="true">
+          <template v-slot:activator="{on, attrs}">
+            <div
+              class="get-color-swatch"
+              :class="{'get-color-swatch-empty': drawColor === null}"
+              :style="{backgroundColor: drawColor === null ? 'transparent' : swatchCss(drawColor)}"
+              title="Row color: what the Pencil and Fill paint onto the row color bars. Click to choose one."
+              v-bind="attrs"
+              v-on="on"
+            />
+          </template>
+          <v-card class="get-palette-card">
+            <div class="get-palette-grid">
+              <div
+                v-for="(hex, paletteIndex) in palette"
+                :key="paletteIndex"
+                class="get-palette-swatch"
+                :class="{selected: drawColor !== null && (drawColor >> 1) === paletteIndex}"
+                :style="{backgroundColor: `#${hex}`}"
+                @click="drawColor = paletteIndex << 1"
+              />
+            </div>
+          </v-card>
+        </v-menu>
         <v-btn-toggle :value="activeTool" borderless>
           <v-btn
             icon
@@ -40,7 +64,7 @@
             title="Move (V, hold-drag a selection to relocate it)"
             value="move"
             :disabled="!activeEditor"
-            @click="setTool('move')"
+            @click="toggleTool('move')"
           >
             <v-icon>mdi-cursor-move</v-icon>
           </v-btn>
@@ -50,7 +74,7 @@
             title="Eraser (E)"
             value="eraser"
             :disabled="!activeEditor"
-            @click="setTool('eraser')"
+            @click="toggleTool('eraser')"
           >
             <v-icon>mdi-eraser</v-icon>
           </v-btn>
@@ -60,7 +84,7 @@
             title="Pencil (B)"
             value="pencil"
             :disabled="!activeEditor"
-            @click="setTool('pencil')"
+            @click="toggleTool('pencil')"
           >
             <v-icon>mdi-pencil</v-icon>
           </v-btn>
@@ -71,9 +95,19 @@
             value="fill"
             class="get-fill-button"
             :disabled="!activeEditor"
-            @click="setTool('fill')"
+            @click="toggleTool('fill')"
           >
             <v-icon>mdi-format-color-fill</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            small
+            title="Eyedropper (I) - click a row of the graphic to take its color for the swatch"
+            value="eyedropper"
+            :disabled="!activeEditor"
+            @click="toggleTool('eyedropper')"
+          >
+            <v-icon>mdi-eyedropper</v-icon>
           </v-btn>
           <v-btn
             icon
@@ -81,7 +115,7 @@
             title="Line (L)"
             value="line"
             :disabled="!activeEditor"
-            @click="setTool('line')"
+            @click="toggleTool('line')"
           >
             <svg class="v-icon get-shape-icon" viewBox="0 0 24 24">
               <line x1="5" y1="19" x2="19" y2="5" />
@@ -93,7 +127,7 @@
             title="Rectangle (R, hold Shift for a square)"
             value="rectangle"
             :disabled="!activeEditor"
-            @click="setTool('rectangle')"
+            @click="toggleTool('rectangle')"
           >
             <svg class="v-icon get-shape-icon" viewBox="0 0 24 24">
               <rect x="3.5" y="3.5" width="17" height="17" />
@@ -105,7 +139,7 @@
             title="Oval (O, hold Shift for a circle)"
             value="oval"
             :disabled="!activeEditor"
-            @click="setTool('oval')"
+            @click="toggleTool('oval')"
           >
             <svg class="v-icon get-shape-icon" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="9.5" />
@@ -127,7 +161,7 @@
             title="Rectangle select (M, hold Shift to add to the selection)"
             value="rect-select"
             :disabled="!activeEditor"
-            @click="setTool('rect-select')"
+            @click="toggleTool('rect-select')"
           >
             <svg class="v-icon get-shape-icon get-marquee-icon" viewBox="0 0 24 24">
               <rect x="3.5" y="3.5" width="17" height="17" />
@@ -139,7 +173,7 @@
             title="Circle select (C, hold Shift to add to the selection)"
             value="circle-select"
             :disabled="!activeEditor"
-            @click="setTool('circle-select')"
+            @click="toggleTool('circle-select')"
           >
             <svg class="v-icon get-shape-icon get-marquee-icon" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="9.5" />
@@ -151,7 +185,7 @@
             title="Polygon select (P, click to place points, double-click to close, hold Shift to add to the selection)"
             value="polygon-select"
             :disabled="!activeEditor"
-            @click="setTool('polygon-select')"
+            @click="toggleTool('polygon-select')"
           >
             <svg class="v-icon get-shape-icon get-marquee-icon get-polygon-icon" viewBox="0 0 24 24">
               <path d="M4 17 L9 4 L20 9 L17 20 Z" />
@@ -209,7 +243,8 @@
 import {tryUndoQuickColorDeletion, usePendingQuickColorDeletion} from '../hooks/quick-color-undo';
 import {tryUndoCardDeletion, usePendingCardDeletion} from '../hooks/card-delete-undo';
 import {usePixelGridOverlayStorage, usePixelGridLabelsStorage} from '../hooks/project';
-import {useMirrorDraw} from '../hooks/pixel-tool';
+import {useMirrorDraw, useDrawColor} from '../hooks/pixel-tool';
+import {NTSC_COLORS, colorByteToCss} from '../utils/palette';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 import {canRedoReorder, canUndoReorder, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 
@@ -219,6 +254,7 @@ const TOOL_HOTKEYS = {
   b: 'pencil',
   e: 'eraser',
   g: 'fill',
+  i: 'eyedropper',
   l: 'line',
   r: 'rectangle',
   o: 'oval',
@@ -273,9 +309,18 @@ export default {
       UNDO_TITLE,
       REDO_TITLE,
       isScrolled: false,
+      palette: NTSC_COLORS,
     };
   },
   computed: {
+    drawColor: {
+      get() {
+        return useDrawColor().value;
+      },
+      set(value) {
+        useDrawColor().value = value;
+      },
+    },
     reorderCanUndo() {
       return canUndoReorder();
     },
@@ -342,6 +387,9 @@ export default {
     document.removeEventListener('mousedown', this.handleOutsideMouseDown, true);
   },
   methods: {
+    swatchCss(byte) {
+      return colorByteToCss(byte);
+    },
     setMirrorModes(modes) {
       const mirror = useMirrorDraw();
       mirror.horizontal = (modes || []).includes('horizontal');
@@ -482,6 +530,10 @@ export default {
     setTool(tool) {
       if (this.activeEditor) this.activeEditor.setTool(tool);
     },
+    // Clicking the tool that is on turns it off: no tool is active then, and the row color bars open their palette again.
+    toggleTool(tool) {
+      this.setTool(this.activeTool === tool ? 'none' : tool);
+    },
     // Tries the pending card deletion first (see hooks/card-delete-undo.js
     // - no staleness check, unlike quick color deletion below, since
     // nothing about a deleted card ties it to any particular frame's
@@ -508,6 +560,51 @@ export default {
 };
 </script>
 <style scoped>
+.get-color-swatch {
+  width: 24px;
+  height: 24px;
+  margin: 0 6px;
+  align-self: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+}
+
+/* Dark mode (the .dark-mode class on the app root): a light border, a dark one would vanish. */
+.dark-mode .get-color-swatch {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+/* No color chosen yet: a dashed empty box. */
+.get-color-swatch-empty {
+  border-style: dashed;
+}
+
+.get-palette-card {
+  padding: 4px;
+}
+
+.get-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 28px);
+  gap: 0;
+}
+
+.get-palette-swatch {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.get-palette-swatch:hover {
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45);
+}
+
+.get-palette-swatch.selected {
+  box-shadow: inset 0 0 0 2px #000;
+}
+
 /* Sticks to the top of the tab's scrolling ancestor (.editor-container
    - see mounted()'s comment) as everything below it scrolls past, same
    position: sticky pattern every consuming tab used to implement by hand.

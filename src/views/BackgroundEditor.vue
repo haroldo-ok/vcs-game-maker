@@ -154,12 +154,27 @@
                     <v-icon>{{ isCollapsed(background) ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
                   </v-btn>
                   <div class="background-id-badge">ID:{{ background.id }}</div>
-                  <v-text-field
-                    class="background-name-field"
-                    label="Background name"
-                    v-model="background.name"
-                    @change="handleChildChange"
-                  />
+                  <div class="background-name-row">
+                    <v-text-field
+                      class="background-name-field"
+                      label="Background name"
+                      v-model="background.name"
+                      @change="handleChildChange"
+                    />
+                    <v-text-field
+                      v-if="kernelIsDpcPlus"
+                      class="background-name-field background-pfres-field"
+                      label="pfres"
+                      type="number"
+                      min="1"
+                      max="192"
+                      :value="background.pfres || ''"
+                      :placeholder="String(defaultPfres)"
+                      persistent-placeholder
+                      :title="`How many rows this background has on screen, 1 to 192. Left empty it uses the project's pfres (${defaultPfres}, set in Options).`"
+                      @change="(value) => handleChangeBackgroundPfres(background, value)"
+                    />
+                  </div>
 
                   <div class="background-corner-toolbar">
                     <v-btn
@@ -253,6 +268,7 @@
                       :value="background.pixels"
                       fgColor="orange"
                       :rowColors="editorRowColors(background)"
+                      :rowBackdrop="editorBkRowColors(background)"
                       :allowChangingHeight="true"
                       :showClearButton="true"
                       :showGrid="showPixelGrid"
@@ -269,7 +285,18 @@
                           :value="background.rowColors"
                           :quickColors="quickColorPalette"
                           :activeQuickColor="selectedQuickColor"
+                          title="Playfield row colors"
                           @input="(colors) => handleRowColorsInput(background, colors)"
+                        />
+                      </template>
+                      <template v-if="bkColorsEnabled" v-slot:sidebar-right>
+                        <playfield-color-strip
+                          :value="background.bkRowColors"
+                          :quickColors="quickColorPalette"
+                          :activeQuickColor="selectedQuickColor"
+                          title="Background row colors"
+                          side="right"
+                          @input="(colors) => handleBkRowColorsInput(background, colors)"
                         />
                       </template>
                       <template v-slot:toolbar-end>
@@ -339,10 +366,10 @@ import {buildBackgroundPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useEditorZoom} from '../hooks/zoom';
 import {remapBackgroundReferences} from '../utils/background-refs';
 import {colorByteToCss} from '../utils/palette';
-import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor} from '../utils/playfield-coords';
+import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
 import {rowColorsForMove} from '../utils/row-color-move';
-import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, clearRowColors, backgroundDataRows,
+import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
   processBackgroundStorageDefaults} from '../blocks/background';
 
 // Width of one background editor at 100% zoom.
@@ -379,8 +406,12 @@ export default defineComponent({
     // background's real total height (its row count, not
     // necessarily pfres's - see customHeight - times that row count's real
     // scanline height).
-    const backgroundAspectRatio = (background) =>
-      (32 * PF_COLUMN_WIDTH_PX) / (background.pixels.length * pfRowDivisorFor(configurationStorage.value));
+    // Under DPC+ a background can set a pfres, which sets how tall its rows are.
+    const backgroundAspectRatio = (background) => {
+      const config = configurationStorage.value;
+      const rowHeight = (config && config.kernel === 'dpcplus') ? backgroundRowLinesFor(background, config) / 2 : pfRowDivisorFor(config);
+      return (32 * PF_COLUMN_WIDTH_PX) / (background.pixels.length * rowHeight);
+    };
     // Shared with PlayerEditor.vue's  Player 0/1 tabs (see
     // PixelGridToggle.vue's  comment).
     const showPixelGrid = usePixelGridOverlayStorage();
@@ -415,18 +446,32 @@ export default defineComponent({
     // draws every background's playfield from that color table.
     const pfColorsEnabled = computed(() =>
       (configurationStorage && configurationStorage.value && configurationStorage.value.enablePfColors) ?? false);
+    // DPC+ can also color every row of the background behind the playfield (Options tab), separately from the playfield's.
+    const bkColorsEnabled = computed(() => !!(configurationStorage && configurationStorage.value &&
+      configurationStorage.value.kernel === 'dpcplus' && configurationStorage.value.enableDpcPlusBkColors));
 
     // Fills in a missing/mismatched-length row color list so every background
     // has one whenever per-row colors are enabled, without clobbering colors
     // the user already picked. Left alone (not deleted) while the option is
     // off, so re-enabling it doesn't lose prior work.
     const ensureRowColors = (background, rows) => {
-      if (!pfColorsEnabled.value) return;
-      const existing = background.rowColors || [];
-      if (existing.length === rows) return;
-      const next = existing.slice(0, rows);
-      while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
-      background.rowColors = next;
+      if (pfColorsEnabled.value) {
+        const existing = background.rowColors || [];
+        if (existing.length !== rows) {
+          const next = existing.slice(0, rows);
+          while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
+          background.rowColors = next;
+        }
+      }
+      // The background rows start out with the playfield's colors, and are a separate list from then on.
+      if (bkColorsEnabled.value) {
+        const existing = background.bkRowColors || background.rowColors || [];
+        if (!background.bkRowColors || existing.length !== rows) {
+          const next = existing.slice(0, rows);
+          while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
+          background.bkRowColors = next;
+        }
+      }
     };
 
     // Purely a visual "which card am I looking at" marker - same
@@ -484,6 +529,17 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    // DPC+: a background can set the number of rows on screen (pfres); left empty it follows the project's (Options tab).
+    const kernelIsDpcPlus = computed(() => !!(configurationStorage.value && configurationStorage.value.kernel === 'dpcplus'));
+    const defaultPfres = computed(() => dpcPlusPfresOf(configurationStorage.value));
+    const handleChangeBackgroundPfres = (background, value) => {
+      const rows = Math.round(Number(value));
+      if (rows > 0) background.pfres = Math.min(192, rows);
+      else delete background.pfres;
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
     // The card the shared "Set height" tool acts on - null (and the tool
     // disabled) until a card is selected. Same reasoning as PlayerEditor.
     // vue's selectedAnimation: keyed off selectedCardId (the card the
@@ -533,10 +589,25 @@ export default defineComponent({
       openHeightMenu();
       heightMenuVisible.value = true;
     };
+    // Set height can be undone: the rows, their colors and the custom height flag as they were before and after.
+    const heightSnapshot = (background) => structuredClone({pixels: background.pixels, rowColors: background.rowColors,
+      bkRowColors: background.bkRowColors, customHeight: background.customHeight});
+    const restoreHeight = (id, snapshot) => {
+      const current = state.value.backgrounds.find((candidate) => candidate.id === id);
+      if (!current) return;
+      const copy = structuredClone(snapshot);
+      current.pixels = copy.pixels;
+      current.rowColors = copy.rowColors;
+      current.bkRowColors = copy.bkRowColors;
+      current.customHeight = copy.customHeight;
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
     const handleUnifiedSetHeight = () => {
       const background = selectedBackground.value;
       if (!background) return;
       heightMenuValue.value = Math.max(1, Math.min(64, heightMenuValue.value || 0));
+      const before = heightSnapshot(background);
       if (heightMenuValue.value !== background.pixels.length) {
         // Same customHeight flag handleBackgroundPixelsInput/
         // handlePasteBackground set on any other resize - opts this
@@ -549,8 +620,19 @@ export default defineComponent({
           background.rowColors = scaleRowColors(
               background.rowColors, background.pixels.length, heightMenuValue.value);
         }
+        if (heightMenuScaleContents.value && background.bkRowColors) {
+          background.bkRowColors = scaleRowColors(
+              background.bkRowColors, background.pixels.length, heightMenuValue.value);
+        }
         background.pixels = resizePixelMatrixHeight(
             background.pixels, heightMenuValue.value, 32, heightMenuScaleContents.value);
+        const after = heightSnapshot(background);
+        const id = background.id;
+        recordReorder({
+          undo: () => restoreHeight(id, before),
+          redo: () => restoreHeight(id, after),
+          isCurrent: () => state.value.backgrounds.some((candidate) => candidate.id === id),
+        });
       }
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -702,6 +784,13 @@ export default defineComponent({
       recordRowColorsChange(background, setRowColors, colors);
     };
 
+
+    const handleBkRowColorsInput = (background, colors) => {
+      background.bkRowColors = colors;
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
     // Moving selected pixels with the Move tool takes the colors of their rows along
     // (PixelEditor.vue's 'move-rows' event - see utils/row-color-move.js).
     const handleMoveRows = (background, move) => {
@@ -735,6 +824,12 @@ export default defineComponent({
       });
     };
 
+    // The background row colors, shown behind the cells that are off, when the DPC+ kernel colors them.
+    const editorBkRowColors = (background) => {
+      if (!bkColorsEnabled.value || !background.bkRowColors) return null;
+      return background.bkRowColors.map((byte) => colorByteToCss(byte));
+    };
+
     // Same "colors-only" pair as PlayerEditor.vue's
     // handleCopyRowColors/handlePasteRowColors, applied to a background's
     // rowColors instead of a frame's.
@@ -753,6 +848,8 @@ export default defineComponent({
         pixels: structuredClone(background.pixels),
         ...(pfColorsEnabled.value && background.rowColors ?
           {rowColors: structuredClone(background.rowColors)} : {}),
+        ...(bkColorsEnabled.value && background.bkRowColors ?
+          {bkRowColors: structuredClone(background.bkRowColors)} : {}),
       };
     };
     const handlePasteBackground = (background) => {
@@ -766,6 +863,9 @@ export default defineComponent({
       background.pixels = structuredClone(copiedBackgroundData.value.pixels);
       if (pfColorsEnabled.value && copiedBackgroundData.value.rowColors) {
         background.rowColors = structuredClone(copiedBackgroundData.value.rowColors);
+      }
+      if (bkColorsEnabled.value && copiedBackgroundData.value.bkRowColors) {
+        background.bkRowColors = structuredClone(copiedBackgroundData.value.bkRowColors);
       }
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -825,15 +925,15 @@ export default defineComponent({
       state, handleChildChange, handleBackgroundPixelsInput, handleAddBackground, handleDeleteBackground, handleDuplicateBackground,
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
-      handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, isCollapsed, toggleCollapsed,
-      zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled,
+      handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
+      zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
       activeEditor, setActiveEditor, selectedBackground,
       effectiveEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
-      handleSetHeightHotkey};
+      handleSetHeightHotkey, kernelIsDpcPlus, defaultPfres, handleChangeBackgroundPfres};
   },
 });
 </script>
@@ -1132,6 +1232,20 @@ export default defineComponent({
 .background-name-field {
   margin-top: 20px;
   margin-bottom: -12px;
+}
+
+/* The DPC+ pfres field sits beside the name, which takes the rest of the row. */
+.background-name-row {
+  display: flex;
+  gap: 16px;
+}
+
+.background-name-row .background-name-field:first-child {
+  flex: 1 1 auto;
+}
+
+.background-pfres-field {
+  flex: 0 0 96px;
 }
 
 .add-frame-buttom {

@@ -1,5 +1,5 @@
 <template>
-  <div class="playfield-color-strip">
+  <div class="playfield-color-strip" :class="{'playfield-color-strip-right': side === 'right'}" :title="title">
     <v-menu
       v-for="(colorByte, rowIndex) in value"
       :key="rowIndex"
@@ -9,17 +9,18 @@
       <template v-slot:activator="{ on, attrs }">
         <div
           class="row-swatch"
-          :class="{'row-swatch-armed': activeQuickColor != null, 'row-swatch-fill': fillMode}"
+          :class="{'row-swatch-armed': paintColor != null, 'row-swatch-fill': fillMode}"
           :style="{backgroundColor: cssColor(colorByte)}"
           :title="fillMode ?
-            (activeQuickColor != null ?
+            (paintColor != null ?
               `Click to fill the rows around row ${rowIndex + 1} that have its color with the selected quick color` :
               `Click to pick a color that fills the rows around row ${rowIndex + 1} that have its color`) :
-            activeQuickColor != null ?
+            paintColor != null ?
             `Click to fill row ${rowIndex + 1} with the selected quick color, or drag across rows to paint several at once` :
             `Row ${rowIndex + 1} color — click to change, or drag across rows to copy this row's color onto them`"
           v-bind="attrs"
-          v-on="activeQuickColor != null ? {click: () => handlePick(rowIndex, activeQuickColor)} : on"
+          v-on="eyedropperMode ? {click: () => handleTake(colorByte)} :
+            paintColor != null ? {click: () => handlePick(rowIndex, paintColor)} : on"
           @mousedown.left="() => handleDragStart(rowIndex, colorByte)"
           @mouseenter="() => handleDragEnter(rowIndex)"
         />
@@ -55,7 +56,7 @@
 </template>
 <script>
 import {NTSC_COLORS, PALETTE_COLUMNS, colorByteToCss, colorByteToBBasic} from '../utils/palette';
-import {usePixelTool} from '../hooks/pixel-tool';
+import {usePixelTool, useDrawColor} from '../hooks/pixel-tool';
 
 export default {
   name: 'PlayfieldColorStrip',
@@ -74,12 +75,26 @@ export default {
     // instead of opening the row's  popup - a faster paint-bucket-style
     // workflow than picking from the popup every single row.
     activeQuickColor: {type: Number, default: null},
+    // Hover text for the whole strip, when there is more than one beside the picture.
+    title: {type: String, default: undefined},
+    // Which side of the picture the strip is on; the gap to the picture is on that side.
+    side: {type: String, default: 'left'},
   },
   computed: {
     // With the graphic editor's Fill tool selected, picking a color for a row fills the whole run of
     // neighboring rows that have the same color, like Fill does on the picture.
     fillMode() {
       return usePixelTool().value === 'fill';
+    },
+    // The Eyedropper takes a row's color for the toolbar's swatch.
+    eyedropperMode() {
+      return usePixelTool().value === 'eyedropper';
+    },
+    // The color a click paints a row with: with the Pencil or Fill selected, the toolbar's swatch color, else the armed quick color.
+    paintColor() {
+      const swatch = useDrawColor().value;
+      if (['pencil', 'fill'].includes(usePixelTool().value) && swatch !== null) return swatch;
+      return this.activeQuickColor;
     },
   },
   data() {
@@ -131,11 +146,15 @@ export default {
       }
       this.$emit('input', next);
     },
+    handleTake(colorByte) {
+      useDrawColor().value = colorByte;
+    },
     handleDragStart(rowIndex, colorByte) {
-      // Fill is a click: a drag across rows doesn't paint them one by one.
-      if (this.fillMode) return;
+      // Without a color to paint with, Fill is a click that opens the color popup: a drag across rows doesn't paint them.
+      if (this.fillMode && this.paintColor == null) return;
       this.isDragPainting = true;
-      this.dragColor = this.activeQuickColor != null ? this.activeQuickColor : colorByte;
+      if (this.eyedropperMode) return;
+      this.dragColor = this.paintColor != null ? this.paintColor : colorByte;
     },
     handleDragEnter(rowIndex) {
       if (!this.isDragPainting) return;
@@ -156,6 +175,11 @@ export default {
   flex: 0 0 auto;
   margin-right: 4px;
   border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.playfield-color-strip-right {
+  margin-right: 0;
+  margin-left: 4px;
 }
 
 .row-swatch {

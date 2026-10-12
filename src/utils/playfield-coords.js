@@ -1,6 +1,6 @@
 'use strict';
 
-import {effectiveBackgroundRows, dpcPlusPfresOf} from '../blocks/background';
+import {effectiveBackgroundRows, dpcPlusPfresOf, backgroundPfresOf} from '../blocks/background';
 
 // Pixel-to-cell math for pfread()-based playfield lookups. Recreated for
 // collision_check_position_box (see generators/bbasic/collision.js) after
@@ -69,12 +69,14 @@ export const pfRowDivisorFor = (config) => {
 // kernel gives it with the project's standard-kernel settings (pfres with Superchip RAM, 12 rows without, or the
 // row height override), so a project looks the same on either kernel. The Superchip switch is kept aside while
 // DPC+ is selected (see Configuration.vue), where the real one is off.
-export const dpcPlusRowLinesFor = (config) => {
+// pfres: the rows of one background that sets a pfres (see backgroundPfresOf); the row height override of the project
+// does not apply to it.
+export const dpcPlusRowLinesFor = (config, pfres) => {
   const cfg = config || {};
-  if (cfg.enablePfRowHeight && cfg.pfrowheight) return Math.max(1, Math.min(255, 2 * Math.round(Number(cfg.pfrowheight))));
+  if (pfres === undefined && cfg.enablePfRowHeight && cfg.pfrowheight) return Math.max(1, Math.min(255, 2 * Math.round(Number(cfg.pfrowheight))));
   // Any number of rows from 1 to 192: the coprocessor steps through the rows by a fraction (DFxFRACINC), so a row
   // does not have to be a whole number of lines.
-  return Math.max(1, Math.min(255, Math.round(1000 * 192 / dpcPlusPfresOf(cfg)) / 1000));
+  return Math.max(1, Math.min(255, Math.round(1000 * 192 / (pfres || dpcPlusPfresOf(cfg))) / 1000));
 };
 
 // How many bytes of Superchip RAM's  read/write pool (r000-r127/w000-
@@ -94,3 +96,9 @@ export const superchipRwFreeCount = (config) => {
   if (!cfg.enableSuperchip) return 0;
   return Math.max(0, 128 - 4 * effectiveBackgroundRows(config));
 };
+
+// The height in lines of the rows of this background under DPC+: the pfres it sets, when it sets one (see backgroundPfresOf), else the
+// project's.
+export const backgroundRowLinesFor = (background, config) =>
+  (config && config.kernel === 'dpcplus' && Math.round(Number(background && background.pfres)) > 0) ?
+    dpcPlusRowLinesFor(config, backgroundPfresOf(background, config)) : dpcPlusRowLinesFor(config);

@@ -2,6 +2,9 @@
 TextDataPtr = pfscore1
  endif
 TextColor = statusbarlength
+ ifnconst textbkcolor
+textbkcolor = 0
+ endif
  ifnconst scorepointers
 scorepointers = temp1 ; the scroll cursor's scratch bytes, free once the text is drawn
  endif
@@ -95,6 +98,8 @@ textkernel
 	lda TextColor
 	sta COLUP0
 	sta COLUP1 
+	lda #textbkcolor
+	sta COLUBK
 	
     lda TextIndex
     jsr showtextrow
@@ -172,14 +177,15 @@ TextPointersLoop2
     lda left_text,x
     ldx textoffset1
     ora right_text,x
-	ldy #2
+	ldy #textbkcolor
 	
 firstbreak
     ; Text line 1 / 5
  
     ;line 1
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sty COLUP0              ; 3     (3)  vcs-game-maker: text sprites take the background color on this line
+    sty COLUP1              ; 3     (6)
     sta GRP0                ; 3     (6)
 
     ldx textoffset2     ; 3     (9)
@@ -199,11 +205,13 @@ firstbreak
     ldx textoffset7     ; 3     (50)
     ora right_text,x        ; 4     (54)
     
-    ldy #0                  ; 2     (56)
+    ldy TextColor           ; 3     (56) line 2 shows the text in its color
+    sty COLUP0              ; 3
+    sty COLUP1              ; 3
     
     ;line 2
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sleep 3                 ; (3) vcs-game-maker: was sty VBLANK, kept the same length
     tay                     ; 2     (5) 3 in Y
 
     ldx textoffset8     ; 3     (8) 4
@@ -224,7 +232,7 @@ firstbreak
     sta GRP1                ; 3     (55) 5 -> [GRP1] ; 4 -> GRP0
     sta GRP0                ; 3     (58) 5 -> GRP1
 
-    ldy #2                  ; 2     (60)
+    ldy #textbkcolor                  ; 2     (60)
     ldx textoffset0     ; 3     (63)
     lda left_text+1,x       ; 4     (67)
     ldx textoffset1     ; 3     (70)
@@ -235,7 +243,8 @@ firstbreak
 endl1 
     ;line 1
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sty COLUP0              ; 3     (3)  vcs-game-maker: text sprites take the background color on this line
+    sty COLUP1              ; 3     (6)
     sta GRP0                ; 3     (6)
 
     ldx textoffset2     ; 3     (9)
@@ -255,11 +264,13 @@ endl1
     ldx textoffset7     ; 3     (50)
     ora right_text+1,x        ; 4     (54)
     
-    ldy #0                  ; 2     (56)
+    ldy TextColor           ; 3     (56) line 2 shows the text in its color
+    sty COLUP0              ; 3
+    sty COLUP1              ; 3
     
     ;line 2
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sleep 3                 ; (3) vcs-game-maker: was sty VBLANK, kept the same length
     tay                     ; 2     (5) 3 in Y
 
     ldx textoffset8     ; 3     (8) 4
@@ -280,7 +291,7 @@ endl1
     sta GRP1                ; 3     (55) 5 -> [GRP1] ; 4 -> GRP0
     sta GRP0                ; 3     (58) 5 -> GRP1
 
-    ldy #2                  ; 2     (56)
+    ldy #textbkcolor                  ; 2     (56)
     ldx textoffset0     ; 3     (59)
     lda left_text+2,x         ; 4     (63)
     ldx textoffset1     ; 3     (66)
@@ -291,7 +302,8 @@ endl1
 endl2 
     ;line 1
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sty COLUP0              ; 3     (3)  vcs-game-maker: text sprites take the background color on this line
+    sty COLUP1              ; 3     (6)
     sta GRP0                ; 3     (6)
 
     ldx textoffset2     ; 3     (9)
@@ -311,11 +323,13 @@ endl2
     ldx textoffset7     ; 3     (50)
     ora right_text+2,x        ; 4     (54)
     
-    ldy #0                  ; 2     (56)
+    ldy TextColor           ; 3     (56) line 2 shows the text in its color
+    sty COLUP0              ; 3
+    sty COLUP1              ; 3
     
     ;line 2
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sleep 3                 ; (3) vcs-game-maker: was sty VBLANK, kept the same length
     tay                     ; 2     (5) 3 in Y
 
     ldx textoffset8     ; 3     (8) 4
@@ -336,7 +350,7 @@ endl2
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
     sta GRP0                ; 3     (54) 5 -> GRP1
 
-    ldy #2                  ; 2     (56)
+    ldy #textbkcolor                  ; 2     (56)
     ldx textoffset0     ; 3     (59)
     lda left_text+3,x         ; 4     (63)
     ldx textoffset1     ; 3     (66)
@@ -347,7 +361,8 @@ endl2
  
     ;line 1
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sty COLUP0              ; 3     (3)  vcs-game-maker: text sprites take the background color on this line
+    sty COLUP1              ; 3     (6)
     sta GRP0                ; 3     (6)
 
     ldx textoffset2     ; 3     (9)
@@ -367,11 +382,13 @@ endl2
     ldx textoffset7     ; 3     (50)
     ora right_text+3,x        ; 4     (54)
     
-    ldy #0                  ; 2     (56)
+    ldy TextColor           ; 3     (56) line 2 shows the text in its color
+    sty COLUP0              ; 3
+    sty COLUP1              ; 3
     
     ;line 2
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sleep 3                 ; (3) vcs-game-maker: was sty VBLANK, kept the same length
     tay                     ; 2     (5) 3 in Y
 
     ldx textoffset8     ; 3     (8) 4
@@ -392,7 +409,7 @@ endl2
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
     sta GRP0                ; 3     (54) 5 -> GRP1
 
-    ldy #2                  ; 2     (56)
+    ldy #textbkcolor                  ; 2     (56)
     ldx textoffset0     ; 3     (59)
     lda left_text+4,x         ; 4     (63)
     ldx textoffset1     ; 3     (66)
@@ -403,7 +420,8 @@ endl2
  
     ;line 1
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sty COLUP0              ; 3     (3)  vcs-game-maker: text sprites take the background color on this line
+    sty COLUP1              ; 3     (6)
     sta GRP0                ; 3     (6)
 
     ldx textoffset2     ; 3     (9)
@@ -423,11 +441,13 @@ endl2
     ldx textoffset7     ; 3     (50)
     ora right_text+4,x        ; 4     (54)
     
-    ldy #0                  ; 2     (56)
+    ldy TextColor           ; 3     (56) line 2 shows the text in its color
+    sty COLUP0              ; 3
+    sty COLUP1              ; 3
     
     ;line 2
     sta WSYNC               ; 3     (0)
-    sty VBLANK              ; 3     (3)
+    sleep 3                 ; (3) vcs-game-maker: was sty VBLANK, kept the same length
     tay                     ; 2     (5) 3 in Y
 
     ldx textoffset8     ; 3     (8) 4

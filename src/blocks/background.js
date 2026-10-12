@@ -80,6 +80,9 @@ export const backgroundFadeTargetVarName = (rawVar) => `${fadeTag(rawVar)}FadeTa
 // Timer/Pace count the frames per step, Start picks which fade-from color's
 // tables are used, Bg is the background currently loaded.
 export const backgroundRowFadeVarName = (part) => `bgRowFade${part}`;
+// The state of the multicolor fade of each kind of row colors: 'pf' (the playfield's, which also holds the fade of rows from a
+// color) and 'bk' (the background's, DPC+).
+export const multicolorFadeVarName = (kind, part) => kind === 'bk' ? `bgBkFade${part}` : backgroundRowFadeVarName(part);
 export const ROW_FADE_IDLE_STEP = 255;
 // The fade-from color has to be a plain color picker block (a constant), since
 // every step's row colors are built into the ROM ahead of time.
@@ -304,6 +307,14 @@ export const dpcPlusPfresOf = (config) => {
   // A project that never set it follows the standard kernel's settings it came from.
   const superchip = cfg.enableSuperchipStandard !== undefined ? cfg.enableSuperchipStandard : cfg.enableSuperchip;
   return superchip ? Math.max(1, Number(cfg.pfres) || 12) : 12;
+};
+
+// DPC+: a background can have its pfres set in the Background editor, the number of rows on screen; one that does not
+// keeps the project's.
+export const backgroundPfresOf = (background, config) => {
+  const rows = Math.round(Number(background && background.pfres));
+  if (config && config.kernel === 'dpcplus' && rows > 0) return Math.min(192, rows);
+  return dpcPlusPfresOf(config);
 };
 
 export const effectiveBackgroundRows = (config) => {
@@ -593,7 +604,10 @@ Blockly.Blocks['background_scroll'] = {
         .appendField('stop at top/bottom edge')
         .appendField(' ')
         .appendField(new Blockly.FieldCheckbox('FALSE'), 'COLORS')
-        .appendField('scroll playfield colors');
+        .appendField('scroll playfield colors')
+        .appendField(' ')
+        .appendField(new Blockly.FieldCheckbox('FALSE'), 'BKCOLORS')
+        .appendField('scroll background colors');
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(BACKGROUND_COLOR);
@@ -610,7 +624,8 @@ Blockly.Blocks['background_scroll'] = {
         `reflects where the current background actually is, even from a scroll block that doesn't stop at ` +
         `the edges itself. "scroll playfield colors", when checked (and per-row playfield colors are on in ` +
         `the Options tab), moves each row's color along with its pixels for Up/Down/Up (2x)/Down (2x), ` +
-        `instead of the colors staying where they are on the screen. Use it on every scroll block of a ` +
+        `instead of the colors staying where they are on the screen. "scroll background colors" does the same for ` +
+        `the background row colors (DPC+ with per-row background colors on). Use them on every scroll block of a ` +
         `project that scrolls colors. To scroll just the colors, use "Background scroll colors" instead.`);
   },
 };
@@ -625,15 +640,22 @@ Blockly.Blocks['background_scroll_colors'] = {
           value !== 'left' && value !== 'right')), 'DIRECTION')
         .appendField(' ')
         .appendField(new Blockly.FieldCheckbox('FALSE'), 'STOPATEDGE')
-        .appendField('stop at top/bottom edge');
+        .appendField('stop at top/bottom edge')
+        .appendField(' ')
+        .appendField(new Blockly.FieldCheckbox('TRUE'), 'PFCOLORS')
+        .appendField('playfield colors')
+        .appendField(' ')
+        .appendField(new Blockly.FieldCheckbox('TRUE'), 'BKCOLORS')
+        .appendField('background colors');
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(BACKGROUND_COLOR);
-    this.setTooltip('Scrolls just the playfield row colors in the given direction and leaves the playfield ' +
+    this.setTooltip('Scrolls just the row colors in the given direction and leaves the playfield ' +
         'pixels where they are, so it works without scrolling the playfield. It needs per-row ' +
         'playfield colors (the Options tab). The standard kernel moves the colors a whole playfield row at a ' +
-        'time; DPC+ moves them a scanline at a time. "stop at top/bottom edge", when checked, stops the colors ' +
-        'at the top or bottom of the background instead of wrapping around.');
+        'time; DPC+ moves them a scanline at a time. The playfield colors and the background colors (DPC+ with ' +
+        'per-row background colors) scroll separately: check the ones this block moves. "stop at top/bottom ' +
+        'edge", when checked, stops the colors at the top or bottom of the background instead of wrapping around.');
   },
 };
 
@@ -824,12 +846,22 @@ Blockly.defineBlocksWithJsonArray([
       'this many frames - same hue as the target, brightness automatically climbing or dropping from ' +
       'wherever it currently is, whichever direction actually gets closer. Only needs to be triggered ' +
       'once - the fade keeps running by itself every frame afterward, even from inside an "if" block ' +
-      'that only briefly becomes true, until it reaches the target and stops.',
+      'that only briefly becomes true, until it reaches the target and stops. With per-row playfield ' +
+      '(or, on DPC+, per-row background) colors on, every row fades from the color it has to the target, ' +
+      'which has to be a color from the color picker block, starting from the background\'s row colors.',
   },
   {
     'type': `background_fade_rows_from`,
-    'message0': `${BACKGROUND_ICON} Fade playfield rows from ${COLOR_ICON} color %1 up/down to playfield colors over %2 frames`,
+    'message0': `${BACKGROUND_ICON} Fade %1 rows from ${COLOR_ICON} color %2 up/down to row colors over %3 frames`,
     'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': [
+          ['Playfield', `COLUPF`],
+          ['Background', `COLUBK`],
+        ],
+      },
       {
         'type': 'input_value',
         'name': 'VALUE',
@@ -844,10 +876,11 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
-    'tooltip': 'Starts every playfield row at the brightness of the chosen color and fades each row ' +
-      'up or down to its real color from the Background editor, over roughly this many frames. Needs ' +
-      '"Enable per-row playfield colors" (Options tab) and a color from the color picker block. Only ' +
-      'needs to be triggered once. Switching backgrounds cancels it.',
+    'tooltip': 'Starts every playfield (or background) row at the brightness of the chosen color and fades each ' +
+      'row up or down to its real color from the Background editor, over roughly this many frames. Needs ' +
+      '"Enable per-row playfield colors" (Options tab; for the background rows, "Enable per-row background ' +
+      'colors" on DPC+) and a color from the color picker block. Only needs to be triggered once. Switching ' +
+      'backgrounds cancels it. "Fade color to" does the opposite, from the row colors down to a color.',
   },
   // Block for reading a playfield pixel
   {

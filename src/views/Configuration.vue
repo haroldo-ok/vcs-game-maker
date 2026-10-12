@@ -52,6 +52,50 @@
           persistent-hint
           class="option-switch"
         />
+        <template v-if="kernelIsDpcPlus">
+          <v-select
+            :value="dpcPlusPfresPreset"
+            :items="DPC_PLUS_PFRES_PRESETS"
+            @change="handleChangeDpcPlusPfresPreset"
+            label="Playfield resolution presets"
+            placeholder="Custom"
+            persistent-placeholder
+            hint="Common row heights: pick one to set the pfres below to match."
+            persistent-hint
+            dense
+            class="dpcplus-pfres-presets"
+          />
+          <div class="dpcplus-pfres-row">
+            <v-text-field
+              v-model.number="configurationState.dpcPlusPfres"
+              @change="handleChangeDpcPlusPfres"
+              type="number"
+              min="1"
+              max="192"
+              label="Playfield vertical resolution (pfres)"
+              hint="How many rows the playfield has on screen, from 1 to 192 (192 / pfres scanlines tall each, not necessarily a whole number). 12, the default, gives the same 16-scanline rows as the standard kernel without Superchip; 24 gives its Superchip 24-row look; 96 gives 2-scanline rows. A background can set a different pfres in the Backgrounds tab; the rest use this one."
+              persistent-hint
+              class="dpcplus-row-height-field"
+            />
+            <div class="dpcplus-sprites" :class="{'dpcplus-sprites-compact': hideDescriptionText}">
+              <div class="dpcplus-sprites-title">Virtual sprites (dpcspritemax)</div>
+              <div class="dpcplus-sprites-buttons">
+                <v-btn small depressed class="dpcplus-sprite-button" color="primary" disabled>1</v-btn>
+                <v-btn
+                  v-for="n in [2, 3, 4, 5, 6, 7, 8, 9]"
+                  :key="n"
+                  small
+                  depressed
+                  class="dpcplus-sprite-button"
+                  :color="n <= dpcPlusSpriteMax ? 'primary' : undefined"
+                  :title="n <= dpcPlusSpriteMax ? `Turn off Player ${n} and above` : `Turn on Players 2 to ${n}`"
+                  @click="() => handleToggleDpcPlusSprite(n)"
+                >{{ n }}</v-btn>
+              </div>
+              <div v-if="!hideDescriptionText" class="dpcplus-sprites-hint">Each virtual sprite that is on keeps memory for its x, y, height and NUSIZ; the ones that are off give that memory to variables ({{ dpcPlusSpriteVariableSlots }} variable slots from the sprites that are off now, 4 for each; the Text Minikernel keeps 4 of them). A player a block uses is always on.</div>
+            </div>
+          </div>
+        </template>
         <template v-if="!kernelIsDpcPlus">
           <v-switch
             v-model="configurationState.enableSuperchip"
@@ -63,6 +107,7 @@
           />
           <v-text-field
             v-model.number="configurationState.pfres"
+            @input="handleInputPfres"
             @change="handleChangeResolution"
             type="number"
             min="1"
@@ -77,14 +122,15 @@
           />
           <v-switch
             v-model="configurationState.enablePfRowHeight"
-            @change="handleChangeConfiguration"
+            @change="handleTogglePfRowHeight"
             label="Override playfield row height (pfrowheight)"
             hint="Advanced: overrides the row height (in scanlines) the kernel derives from pfres above. Doesn't change how many rows the playfield has, only how tall each one is drawn."
             persistent-hint
             class="option-switch pfrowheight-switch"
           />
           <v-text-field
-            v-model.number="configurationState.pfrowheight"
+            :value="pfRowHeightShown"
+            @input="handleInputPfRowHeight"
             @change="handleChangePfRowHeight"
             type="number"
             min="1"
@@ -137,34 +183,11 @@
           />
         </template>
         <template v-else>
-          <v-select
-            :value="dpcPlusPfresPreset"
-            :items="DPC_PLUS_PFRES_PRESETS"
-            @change="handleChangeDpcPlusPfresPreset"
-            label="Playfield resolution presets"
-            placeholder="Custom"
-            persistent-placeholder
-            hint="Common row heights: pick one to set the pfres below to match."
-            persistent-hint
-            dense
-            class="dpcplus-pfres-presets"
-          />
-          <v-text-field
-            v-model.number="configurationState.dpcPlusPfres"
-            @change="handleChangeDpcPlusPfres"
-            type="number"
-            min="1"
-            max="192"
-            label="Playfield vertical resolution (pfres)"
-            hint="How many rows the playfield has on screen, from 1 to 192 (192 / pfres scanlines tall each, not necessarily a whole number). 12, the default, gives the same 16-scanline rows as the standard kernel without Superchip; 24 gives its Superchip 24-row look; 96 gives 2-scanline rows."
-            persistent-hint
-            class="dpcplus-row-height-field"
-          />
           <v-switch
-            v-model="configurationState.enableDpcPlusPfColors"
+            v-model="configurationState.enablePfColors"
             @change="handleChangeConfiguration"
             label="Enable per-row playfield colors"
-            hint="Lets the playfield show a different color on every row, the same as the standard kernel's own pfcolors - but under DPC+ this can run independently of (and alongside) per-row background colors below, which the standard kernel can't do at all."
+            hint="Playfield show a different color on every row."
             persistent-hint
             class="option-switch"
           />
@@ -172,7 +195,7 @@
             v-model="configurationState.enableDpcPlusBkColors"
             @change="handleChangeConfiguration"
             label="Enable per-row background colors"
-            hint="A DPC+-only capability with no standard-kernel equivalent: an independent color per background row, on top of (not instead of) per-row playfield colors above."
+            hint="An independent color per background row, on top of (not instead of) per-row playfield colors above."
             persistent-hint
             class="option-switch"
           />
@@ -180,12 +203,13 @@
             v-model="configurationState.enableDpcPlusAudio"
             @change="handleChangeConfiguration"
             label="Play sound and music with the DPC+ sound chip"
-            hint="Sounds and songs are played by the DPC+ chip: each sound has a waveform you draw on its Sound tab card instead of a sound type, and a note can be any piano key. It plays two of the chip's three voices, and the sound stops for the part of each frame after the picture (a faint 60 Hz buzz). Turned off, the sounds use the TIA's two channels like the standard kernel."
+            hint="Sounds and songs are played by the DPC+ chip: each sound has a waveform you draw on its Sound tab card instead of a sound type, and a note can be any piano key. It plays all three of the chip's voices (Ch0 voice 1 to 3 in the channel choices), and Ch1 stays on the TIA. The chip's sound stops for the part of each frame after the picture (a faint 60 Hz buzz). Turned off, the sounds use the TIA's two channels like the standard kernel."
             persistent-hint
             class="option-switch"
           />
         </template>
         <v-switch
+          v-if="!kernelIsDpcPlus"
           v-model="configurationState.enablePlayer0SpriteColors"
           @change="handleChangeConfiguration"
           :label="kernelIsDpcPlus ? 'Enable per-row Player 0 sprite colors' : 'Enable per-row Player 0 sprite colors (playercolors)'"
@@ -194,6 +218,7 @@
           class="option-switch"
         />
         <v-switch
+          v-if="!kernelIsDpcPlus"
           v-model="configurationState.enablePlayer1SpriteColors"
           @change="handleChangeConfiguration"
           :disabled="player0RainbowColorsActive"
@@ -355,7 +380,7 @@
 import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 
-import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP} from '../generators/bbasic';
+import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
   useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage,
@@ -381,28 +406,11 @@ const MAX_PFRES = 32;
 // leaving pfres pointed at RAM that was never actually enabled.
 const MIN_SUPERCHIP_ROM_SIZE_INDEX = ROM_SIZE_OPTIONS.indexOf('8k');
 
-// A view preference, not part of the project itself - same "survives
-// navigating away and back" reasoning as hooks/collapse.js's
-// collapsedRefs (Vue Router destroys and recreates this whole component on
-// navigation, which would otherwise reset any state kept inside setup()
-// itself). Not reused straight from that hook: its isCollapsed/
-// toggleCollapsed take an {id} object and always default to "not
-// collapsed," whereas this page wants every section collapsed the FIRST
-// time (before the user has ever toggled anything) - a plain module-scope
-// ref, hydrated from localStorage once here, covers both without changing
-// that shared hook's  contract for its other callers.
-const OPTIONS_COLLAPSED_SECTIONS_KEY = 'vcs-game-maker.collapsed.options-sections';
-const DEFAULT_COLLAPSED_SECTIONS = ['rom', 'kernel', 'compiler', 'vcsgm'];
-const loadCollapsedSections = () => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(OPTIONS_COLLAPSED_SECTIONS_KEY));
-    if (Array.isArray(stored)) return new Set(stored);
-  } catch (e) {
-    // Fall through to the default below.
-  }
-  return new Set(DEFAULT_COLLAPSED_SECTIONS);
-};
-const collapsedSections = ref(loadCollapsedSections());
+// A view preference, not part of the project itself. Kept at module scope so it survives navigating to another
+// tab and back (Vue Router destroys and recreates this whole component on navigation, which would otherwise
+// reset any state kept inside setup()). It is not saved, so every section starts collapsed each time the
+// app is loaded.
+const collapsedSections = ref(new Set(['rom', 'kernel', 'compiler', 'vcsgm']));
 
 // Hoisted out of configurationState's  getter (module scope, like
 // collapsedSections above) so handleResetToDefaults can reuse the exact
@@ -412,6 +420,7 @@ const DEFAULT_CONFIGURATION = {
   kernel: 'standard',
   dpcPlusRowScanlines: 16,
   dpcPlusPfres: 12,
+  dpcPlusSpriteMax: 9,
   enableDpcPlusPfColors: false,
   enableDpcPlusBkColors: false,
   enableDpcPlusAudio: true,
@@ -500,7 +509,6 @@ export default defineComponent({
       const next = new Set(collapsedSections.value);
       if (next.has(key)) next.delete(key); else next.add(key);
       collapsedSections.value = next;
-      localStorage.setItem(OPTIONS_COLLAPSED_SECTIONS_KEY, JSON.stringify([...next]));
     };
 
     const configurationState = computed({
@@ -515,7 +523,13 @@ export default defineComponent({
           // auto-relocation system's  bank-assignment cache (see
           // hooks/rom.js) - pass through untouched instead of silently
           // vanishing the moment this getter runs.
-          return {...DEFAULT_CONFIGURATION, ...configuration};
+          // Per-row playfield colors is one setting for both kernels; a project from before that kept it apart for DPC+.
+          const merged = {...DEFAULT_CONFIGURATION, ...configuration};
+          if (merged.enableDpcPlusPfColors) {
+            merged.enablePfColors = true;
+            merged.enableDpcPlusPfColors = false;
+          }
+          return merged;
         } catch (e) {
           console.error('Error loading configuration from local storage', e);
           return structuredClone(DEFAULT_CONFIGURATION);
@@ -642,9 +656,48 @@ export default defineComponent({
     // The playfield's vertical resolution (pfres) is a single setting for the
     // whole ROM - batari Basic has no per-background override. Changing it
     // never resizes the backgrounds' pixel data.
+    // The row height the field shows: the override's number while the override is on, else the height the kernel takes from pfres.
+    const pfRowHeightShown = computed(() => {
+      const state = configurationState.value;
+      if (state.enablePfRowHeight) return state.pfrowheight;
+      // Without Superchip the standard kernel has 12 rows whatever pfres says.
+      const rows = state.enableSuperchip ? Number(state.pfres) : 12;
+      return rows >= MIN_PFRES ? Math.max(1, Math.floor(96 / Math.round(rows))) : state.pfrowheight;
+    });
+    const handleInputPfRowHeight = (value) => {
+      const state = configurationState.value;
+      const height = Number(value);
+      if (!(height >= 1)) return;
+      state.pfrowheight = Math.round(height);
+      configurationState.value = state;
+    };
+    // The row height follows pfres as it is typed or stepped, not only once the field is left (the override's number is the height
+    // that fits that many rows in the 96 steps of the screen, what the kernel itself would pick).
+    const handleInputPfres = () => {
+      const state = configurationState.value;
+      const rows = Number(state.pfres);
+      if (state.kernel === 'dpcplus') return;
+      if (!(rows >= MIN_PFRES && rows <= MAX_PFRES)) return;
+      state.pfrowheight = Math.max(1, Math.floor(96 / Math.round(rows)));
+      configurationState.value = state;
+    };
+    // Turning the override on starts it at the row height the current pfres gives.
+    const handleTogglePfRowHeight = () => {
+      const state = configurationState.value;
+      if (state.enablePfRowHeight && state.kernel !== 'dpcplus' && Number(state.pfres) >= MIN_PFRES) {
+        state.pfrowheight = Math.max(1, Math.floor(96 / Math.round(Number(state.pfres))));
+        configurationState.value = state;
+      }
+      handleChangeConfiguration();
+    };
     const handleChangeResolution = () => {
       const state = configurationState.value;
       state.pfres = Math.min(MAX_PFRES, Math.max(MIN_PFRES, Number(state.pfres) || MIN_PFRES));
+      // The row height follows the new pfres to the height that fits that many rows in the 96 steps of the screen (what the kernel
+      // itself would pick), so the rows keep filling it.
+      if (state.kernel !== 'dpcplus') {
+        state.pfrowheight = Math.max(1, Math.floor(96 / state.pfres));
+      }
       if (state.enableSuperchip && ROM_SIZE_OPTIONS.indexOf(state.romSize) < MIN_SUPERCHIP_ROM_SIZE_INDEX) {
         state.romSize = ROM_SIZE_OPTIONS[MIN_SUPERCHIP_ROM_SIZE_INDEX];
       }
@@ -655,6 +708,19 @@ export default defineComponent({
     const DPC_PLUS_PFRES_PRESETS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 192]
         .map((lines) => ({text: `${lines} scanline${lines === 1 ? '' : 's'} per row (${192 / lines} rows)`, value: 192 / lines}))
         .sort((a, b) => a.value - b.value);
+    // The highest virtual sprite that is on; the ones below it are on as well (the kernel keeps them in a row).
+    const dpcPlusSpriteMax = computed(() => {
+      const configured = configurationState.value.dpcPlusSpriteMax;
+      return configured === undefined || configured === null ? 9 : Math.min(9, Math.max(1, Number(configured) || 1));
+    });
+    // How many variable slots the virtual sprites that are off give to the project (see dpcPlusFreedSpriteRam).
+    const dpcPlusSpriteVariableSlots = computed(() => dpcPlusFreedSpriteRam(dpcPlusSpriteMax.value, false).length);
+    const handleToggleDpcPlusSprite = (number) => {
+      const state = configurationState.value;
+      state.dpcPlusSpriteMax = number <= dpcPlusSpriteMax.value ? number - 1 : number;
+      configurationState.value = state;
+      handleChangeConfiguration();
+    };
     const dpcPlusPfresPreset = computed(() => {
       const current = Number(configurationState.value.dpcPlusPfres);
       return DPC_PLUS_PFRES_PRESETS.some(({value}) => value === current) ? current : null;
@@ -719,6 +785,7 @@ export default defineComponent({
       const state = configurationState.value;
       state.kernel = DEFAULT_CONFIGURATION.kernel;
       state.dpcPlusRowScanlines = DEFAULT_CONFIGURATION.dpcPlusRowScanlines;
+      state.dpcPlusSpriteMax = DEFAULT_CONFIGURATION.dpcPlusSpriteMax;
       state.enableDpcPlusPfColors = DEFAULT_CONFIGURATION.enableDpcPlusPfColors;
       state.enableDpcPlusBkColors = DEFAULT_CONFIGURATION.enableDpcPlusBkColors;
       state.enableDpcPlusAudio = DEFAULT_CONFIGURATION.enableDpcPlusAudio;
@@ -749,7 +816,7 @@ export default defineComponent({
     return {
       configurationState,
       handleChangeConfiguration,
-      handleChangeResolution, handleChangeDpcPlusPfres, handleChangeDpcPlusPfresPreset, dpcPlusPfresPreset,
+      handleChangeResolution, handleInputPfres, handleTogglePfRowHeight, pfRowHeightShown, handleInputPfRowHeight, handleChangeDpcPlusPfres, handleChangeDpcPlusPfresPreset, dpcPlusPfresPreset, dpcPlusSpriteMax, dpcPlusSpriteVariableSlots, handleToggleDpcPlusSprite,
       DPC_PLUS_PFRES_PRESETS,
       handleChangePfRowHeight,
       handleToggleSuperchip,
@@ -913,6 +980,44 @@ export default defineComponent({
 
 .dpcplus-row-height-field >>> .v-input__slot {
   max-width: 110px;
+}
+
+/* The virtual sprite buttons sit right under the pfres box, labeled like its field. */
+.dpcplus-sprites {
+  margin-top: 4px;
+  max-width: 420px;
+}
+
+/* Without the hint under them, the buttons get the space the hint would have left. */
+.dpcplus-sprites-compact {
+  margin-bottom: 12px;
+}
+
+.dpcplus-sprites-title {
+  font-size: 12px;
+  line-height: 20px;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 4px;
+}
+
+.dark-mode .dpcplus-sprites-title {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dpcplus-sprites-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.dpcplus-sprite-button {
+  min-width: 28px !important;
+  padding: 0 !important;
+}
+
+.dpcplus-sprites-hint {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-top: 4px;
 }
 
 /* The presets list sits right under the pfres box, as wide as its longest entry. */

@@ -12,6 +12,8 @@
 // relationship they'd have as real files next to a .bas file on disk -
 // confirmed against the real local toolchain to be exactly what "inline
 // text12a.asm"/"inline text12b.asm" need.
+import {WORKING_KERNEL_TIMERS, squishKernelTimer, withDpcPlusSquishKernel} from '../../utils/dpc-squish';
+
 const fetchText = (path) => fetch(path).then((r) => r.text());
 
 let scoreGraphicsPromise = null;
@@ -79,18 +81,29 @@ const DPC_PLUS_TEXT_HOOK = [
   '    endif',
   '',
 ];
-const withDpcPlusTextHook = (kernel) => {
+// waits: lines to wait out after the score (a Squish font's, see dpc-squish.js).
+const withDpcPlusTextHook = (kernel, waits = 0) => {
   const lines = kernel.split('\n');
   const at = lines.findIndex((line) => /^\s*bpl scoreloop/.test(line));
   if (at < 0) throw new Error('The DPC+ kernel has no score loop to add the Text Minikernel to');
-  lines.splice(at + 1, 0, ...DPC_PLUS_TEXT_HOOK);
-  // A project that hides the score under the text still goes through the score code (the text kernel is called
-  // from inside it), but with its digits drawn in black. Not lda #0: with fast fetch on, an immediate load of a
-  // value that is a data fetcher's address reads that fetcher instead, so a luminance 0 color other than $00 it is.
-  const colorAt = lines.findIndex((line, index) => index > lines.findIndex((l) => /^scoreloop/.test(l)) &&
-    /^\s*lda #<DF6DATA/i.test(line));
-  if (colorAt < 0) throw new Error('The DPC+ kernel has no score color to hide the score with');
-  lines.splice(colorAt, 1, '    ifconst dpchidescore', '     lda #$20', '    else', lines[colorAt], '    endif');
+  // The last line of the score loop leaves the digits in the player registers and the second score bar's pattern in PF1, which would
+  // show on the next line until the text kernel clears them: cleared as soon as the loop ends (an ldx, as an immediate lda can read a
+  // data fetcher with fast fetch on).
+  lines.splice(at + 1, 0, '     ldx #0', '     stx GRP0', '     stx GRP1', '     stx GRP0', '    ifconst pfscore', '     stx PF1', '    endif',
+      ...Array(waits).fill('     sta WSYNC'),
+      'dpchiddentext', '    ifconst dpchidescore',
+      '     sta WSYNC', '    endif', ...DPC_PLUS_TEXT_HOOK);
+  // A project that hides the score under the text skips the score's loop (its digits are not drawn at all, so
+  // none show over the picture) and jumps to the text kernel, with the wait above in the line the loop would take.
+  const loopAt = lines.findIndex((line) => /^scoreloop\s*$/.test(line));
+  if (loopAt < 0) throw new Error('The DPC+ kernel has no score loop to skip for a hidden score');
+  lines.splice(loopAt, 0, '    ifconst dpchidescore', '     jmp dpchiddentext', '    endif');
+  // The kernel leaves its picture partway into a line, and the score code's first writes clear the playfield, which
+  // cut that last line short. A hidden score waits for the line to end first (that line is the one the picture gets
+  // back by the loop it does not run).
+  const clearAt = lines.findIndex((line, index) => /^\s*stx COLUP1\s*$/i.test(line) && /^\s*ldx #0\s*$/i.test(lines[index + 1]));
+  if (clearAt < 0) throw new Error('The DPC+ kernel has no score setup to line up with the end of the picture');
+  lines.splice(clearAt + 1, 0, '    ifconst dpchidescore', '     sta WSYNC', '    endif');
   return lines.join('\n');
 };
 
@@ -104,26 +117,36 @@ const DPC_PLUS_TEXT_CURSOR_LINES = 6;
 // The kernel ends its picture by checking the timer it started, and only some starting values end it right (192, 178
 // and 173 were measured to work, 194 and 168 do not; the stock 211 works too), so the screen height is the tallest
 // of those that is not taller than wanted.
-const DPC_PLUS_WORKING_KERNEL_TIMERS = [211, 192, 178, 173];
-const dpcPlusTextKernelTimer = (withRow2, withCursor) => {
+const DPC_PLUS_WORKING_KERNEL_TIMERS = WORKING_KERNEL_TIMERS;
+// A hidden score is not drawn: of the 8 lines of its loop 7 are cut, and 1 is waited out where the digits were, so the frame keeps
+// its 262 lines while the picture gets 6 more (measured: with the timers of the list above the frame is 255 lines at the
+// shortest picture and grows a line with each line of picture).
+const DPC_PLUS_HIDDEN_SCORE_LINES = 6;
+const dpcPlusTextKernelTimer = (withRow2, withCursor, hideScore) => {
   const wanted = DPC_PLUS_KERNEL_LINES - DPC_PLUS_TEXT_ROW_LINES - (withRow2 ? DPC_PLUS_TEXT_ROW2_LINES : 0) -
-    (withCursor ? DPC_PLUS_TEXT_CURSOR_LINES : 0);
+    (withCursor ? DPC_PLUS_TEXT_CURSOR_LINES : 0) + (hideScore ? DPC_PLUS_HIDDEN_SCORE_LINES : 0);
   const value = Math.floor(wanted * 76 / 64);
   return DPC_PLUS_WORKING_KERNEL_TIMERS.find((timer) => timer <= value) || DPC_PLUS_WORKING_KERNEL_TIMERS.slice(-1)[0];
 };
 // How many lines tall the main screen is with the text on.
-export const dpcPlusTextScreenLines = (withRow2, withCursor) =>
-  dpcPlusTextKernelTimer(withRow2, withCursor) * 64 / 76;
+export const dpcPlusTextScreenLines = (withRow2, withCursor, hideScore = false) =>
+  dpcPlusTextKernelTimer(withRow2, withCursor, hideScore) * 64 / 76;
 
-const withDpcPlusTextScreenHeight = (header, withRow2, withCursor) => {
-  const patched = header.replace(/KERNEL_LINES = 178\*76\/64/, `KERNEL_LINES = ${dpcPlusTextKernelTimer(withRow2, withCursor)}`);
+const squishTimerOf = (withRow2, withCursor, hideScore, squish) => {
+  const timer = dpcPlusTextKernelTimer(withRow2, withCursor, hideScore);
+  return squish && !hideScore ? squishKernelTimer(timer) : {timer, waits: 0};
+};
+
+const withDpcPlusTextScreenHeight = (header, withRow2, withCursor, hideScore, squish) => {
+  const patched = header.replace(/KERNEL_LINES = 178\*76\/64/,
+      `KERNEL_LINES = ${squishTimerOf(withRow2, withCursor, hideScore, squish).timer}`);
   if (patched === header) throw new Error('The DPC+ header has no screen height to shorten for the Text Minikernel');
   return patched;
 };
 
 const dpcPlusFilesPromises = {};
-export const getDpcPlusTextMinikernelSiblingFiles = (withRow2 = false, withCursor = false) => {
-  const key = `${withRow2 ? 'row2' : 'row1'}${withCursor ? 'cursor' : ''}`;
+export const getDpcPlusTextMinikernelSiblingFiles = (withRow2 = false, withCursor = false, hideScore = false, squish = false) => {
+  const key = `${withRow2 ? 'row2' : 'row1'}${withCursor ? 'cursor' : ''}${hideScore ? 'hidden' : ''}${squish && !hideScore ? 'squish' : ''}`;
   if (!dpcPlusFilesPromises[key]) {
     dpcPlusFilesPromises[key] = Promise.all([
       fetchText('bb19/text-minikernel/text12DPCplus.asm'),
@@ -131,8 +154,10 @@ export const getDpcPlusTextMinikernelSiblingFiles = (withRow2 = false, withCurso
       fetchText('bb19/includes/DPCplusbB.h'),
     ]).then(([text, kernel, header]) => ({
       'text12DPCplus.asm': text,
-      'DPCplus_kernel.asm': withDpcPlusTextHook(kernel),
-      'DPCplusbB.h': withDpcPlusTextScreenHeight(header, withRow2, withCursor),
+      'DPCplus_kernel.asm': squish && !hideScore ?
+        withDpcPlusSquishKernel(withDpcPlusTextHook(kernel, squishTimerOf(withRow2, withCursor, hideScore, squish).waits), 0, true) :
+        withDpcPlusTextHook(kernel),
+      'DPCplusbB.h': withDpcPlusTextScreenHeight(header, withRow2, withCursor, hideScore, squish),
     }));
   }
   return dpcPlusFilesPromises[key];
