@@ -283,7 +283,7 @@ score_loop_height = * - textscoreloop
 	sty GRP0                ; 3     (73)
 	sty GRP1                ; 3     (76/0)
 	sty GRP0                ; 3     (3)
-    ; vcs-game-maker: back to where the text is centered, on a line of its own (see the digits above).
+    ; vcs-game-maker: back to where the text is centered, on a separate line (see the digits above).
     ifconst score5digits
     sta WSYNC
     lda #$10
