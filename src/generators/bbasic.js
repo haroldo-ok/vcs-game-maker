@@ -217,9 +217,17 @@ export const DPCPLUS_VAR_COUNT = 9;
 // leave the others alone and their bytes become variable slots, taken once the letters and var0-var8 are used up.
 // Four bytes for each virtual sprite that is off (its x, y, height and NUSIZ). The Text Minikernel keeps its four fixed variables in the
 // last ones, so those are left out when it is in use (reserveFixed).
-export const dpcPlusFreedSpriteRam = (spriteMax, reserveFixed = true) => [2, 3, 4, 5, 6, 7, 8, 9].filter((n) => n > spriteMax)
+// The Titlescreen Kernel works in the same memory (titlescreen/dpcfix.asm points its pointers and scratch bytes there): aux2,
+// aux4, aux5 and aux6 are the x bytes of players 2, 4, 5 and 6, the pointers are players 2 and 3's y bytes and players 2 to 5's
+// heights, and the score pointers are twelve bytes from player 6's height (through players 7 to 9's heights, _NUSIZ1 and NUSIZ2 to NUSIZ8).
+// A project with a title screen leaves those bytes alone (titleKernel).
+const DPCPLUS_TITLE_KERNEL_BYTES = ['player2x', 'player4x', 'player5x', 'player6x', 'player2y', 'player3y',
+  ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `player${n}height`), ...[2, 3, 4, 5, 6, 7, 8].map((n) => `NUSIZ${n}`)];
+export const dpcPlusFreedSpriteRam = (spriteMax, reserveFixed = true, titleKernel = false) => [2, 3, 4, 5, 6, 7, 8, 9]
+    .filter((n) => n > spriteMax)
     .flatMap((n) => [`player${n}x`, `player${n}y`, `player${n}height`, `NUSIZ${n}`])
-    .filter((name) => !reserveFixed || !DPCPLUS_FIXED_VARIABLE_SLOTS.includes(name));
+    .filter((name) => !reserveFixed || !DPCPLUS_FIXED_VARIABLE_SLOTS.includes(name))
+    .filter((name) => !titleKernel || !DPCPLUS_TITLE_KERNEL_BYTES.includes(name));
 export const DPCPLUS_FREED_SPRITE_RAM = dpcPlusFreedSpriteRam(1);
 
 // text12b.asm (see generators/bbasic/text-minikernel.js) uses the bare
@@ -1069,9 +1077,7 @@ Blockly.BBasic.init = function(workspace) {
   // before reserveDevVar hands out user variable letters below (see
   // titleScreenSelectedIdVarName's  reservation further down), same
   // pattern as keypad0Used/keypad1Used just above.
-  // The Title Screen Kernel is standard-kernel assembly, so under DPC+ the title screen blocks do nothing.
-  this.titleScreenDrawUsed = (useConfigurationStorage().value || {}).kernel !== 'dpcplus' &&
-    workspace.getAllBlocks(false).some((block) => block.type === 'titlescreen_draw');
+  this.titleScreenDrawUsed = workspace.getAllBlocks(false).some((block) => block.type === 'titlescreen_draw');
   // Whether any block sets or changes where a sprite is (or fires a missile or ball from a spot).
   this.spritePositionBlocksUsed = workspace.getAllBlocks(false).some((block) => block.isEnabled() &&
     ((/^sprite_(player|missile|ball)_(set|change)$/.test(block.type) &&
@@ -2860,7 +2866,7 @@ Blockly.BBasic.init = function(workspace) {
   // 0, e.g. every dev var fit inside the Superchip pool alone) so the display
   // still has real numbers rather than needing its  fallback logic.
   // Past the letters, a DPC+ project's variables go in the memory the kernel leaves free (DPCPLUS_FREED_SPRITE_RAM).
-  const freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, this.isTextMinikernelActive());
+  const freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, this.isTextMinikernelActive(), this.titleScreenDrawUsed);
   this.dpcPlusSpriteVars = [];
   if (config.kernel === 'dpcplus' && defvars.length > availableLetters.length) {
     this.dpcPlusSpriteVars = defvars.splice(availableLetters.length, freedSpriteRam.length);

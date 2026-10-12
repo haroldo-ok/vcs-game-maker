@@ -1603,16 +1603,4 @@ export default (Blockly) => {
         titlePlayerIndexVarName(playerIndex), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return `${indexVar} = ${value} * ${height}\n`;
   };
-
-  // The Title Screen Kernel only exists for the standard kernel: under DPC+ every title screen block is skipped
-  // (a block that reports a value reports false), so the rest of the project still builds and runs.
-  Object.keys(Blockly.BBasic).filter((type) => type.startsWith('titlescreen_')).forEach((type) => {
-    const generate = Blockly.BBasic[type];
-    Blockly.BBasic[type] = function(block) {
-      const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
-      if (config.kernel !== 'dpcplus') return generate.call(this, block);
-      return block.outputConnection ? ['0', Blockly.BBasic.ORDER_ATOMIC] :
-        ' rem The title screen needs the standard kernel and is skipped with DPC+\n';
-    };
-  });
 };

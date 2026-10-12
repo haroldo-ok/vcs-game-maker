@@ -105,7 +105,7 @@
           :value="settings.cpuAccuracy"
           :items="accuracyItems"
           label="CPU accuracy"
-          hint="Changing the accuracy restarts the running ROM. Cycle exact models every bus access; Instruction is about 15% faster and is only known to differ on Pole Position."
+          hint="Changing the accuracy restarts the running ROM. Cycle exact models every bus access; Instruction is about 15% faster."
           persistent-hint
           :disabled="!stellerator"
           @change="(value) => update({cpuAccuracy: value})"
