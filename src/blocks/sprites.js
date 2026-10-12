@@ -41,7 +41,7 @@ const buildAnimationSelectBlock = ({icon, colour, storageFactory}) => {
       this.setOutput(true, 'Number');
       this.setColour(colour);
       // No player to pick: every sprite shares the one pool of animations. Plugged into a block that has a player, it takes that
-      // player's colour (red for Player 0, blue for Player 1, and so on); on its own it keeps the plain one.
+      // player's colour (red for Player 0, blue for Player 1, and so on); unplugged it keeps the plain one.
       const block = this;
       this.setOnChange(() => {
         if (!block.workspace || block.workspace.isFlyout) return;
