@@ -1,8 +1,8 @@
 # vcs-game-maker
 
-This online tool is a no-code environment designed to allow someone to create a game for Atari 2600 without knowing much about programming and without installing anything on their computer.
+VCS Game Maker is a visual environment for building Atari 2600 games. Build your game's logic with [Blockly](https://www.blockly.com/) blocks, and behind the scenes VCSGM generates [batari Basic](https://github.com/batari-Basic/batari-Basic) source code (along with a bit of assembly), compiles it into an Atari 2600 ROM, and runs that ROM in a built-in emulator preview, using either [6502.ts](https://github.com/6502ts/6502.ts) or [Gopher2600](https://github.com/jetsetilly/gopher2600).
 
-It uses [Blockly](https://developers.google.com/blockly) to allow the user to implement the logic using blocks and then, behind the scenes, generates a [Batari Basic](https://www.randomterrain.com/atari-2600-memories-batari-basic-commands.html) source code, that is then be compiled using [batari-basic-js](https://github.com/haroldo-ok/batari-basic-js) in order to generate an Atari 2600 ROM, which is emulated using [Gopher2600](https://github.com/JetSetIlly/Gopher2600) (compiled to WebAssembly - see `tools/gopher2600-wasm`).
+Gopher2600 is compiled to WebAssembly - see `tools/gopher2600-wasm`.
 
 *This is very much a work-in-progress.*
 
