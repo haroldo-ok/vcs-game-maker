@@ -1109,6 +1109,11 @@ Startup tips, and links on the About tab
 - A tip pops up when the app starts, a different one each time (99 to begin with). Each tip links to the wiki page and
   the exact entry it is about. The tips are in src/data/tips.json, so they are easy to edit. The popup has previous and
   next arrows, the icon of the tab the tip is about, and a "Don't show again" checkbox.
-- New "Show Tooltips at startup" switch under VCSGM Options. The checkbox turns it off and then opens a notice with a
+- New "Show Tips at startup" switch under VCSGM Options. The checkbox turns it off and then opens a notice with a
   link that goes to that switch.
 - The About tab has a Documentation/Wiki link, and the space after each label is no longer part of its link.
+
+=== 0.52.15 ===
+Show Tips at startup
+
+- The Options switch for the startup tips is named "Show Tips at startup".

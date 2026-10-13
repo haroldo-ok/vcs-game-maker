@@ -310,7 +310,7 @@
         <v-switch
           id="show-startup-tips-option"
           v-model="showStartupTips"
-          label="Show Tooltips at startup"
+          label="Show Tips at startup"
           hint="Shows a tip about using the app, with a link to the wiki page it is about, each time the app starts. The tip popup's &quot;Don't show again&quot; checkbox turns this off."
           persistent-hint
           class="option-switch"

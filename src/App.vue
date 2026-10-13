@@ -577,7 +577,7 @@
         <v-card-title>Tips are turned off</v-card-title>
         <v-card-text>
           <p class="tip-message">
-            You can turn them back on any time with the "Show Tooltips at startup" switch under VCSGM Options on the
+            You can turn them back on any time with the "Show Tips at startup" switch under VCSGM Options on the
             Options tab.
           </p>
           <p class="tip-message">
