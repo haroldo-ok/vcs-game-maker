@@ -1,0 +1,497 @@
+{
+  "wiki": "https://github.com/haroldo-ok/vcs-game-maker/wiki",
+  "tips": [
+    {
+      "text": "Press Ctrl+B to jump straight to the block search at the top of the Actions toolbox, then type part of a block's name.",
+      "page": "Actions",
+      "anchor": "block-search"
+    },
+    {
+      "text": "The Player blocks are one combined block with a Player ID dropdown. The block color follows the player you pick: red for Player 0 and blue for Player 1.",
+      "page": "Sprites",
+      "anchor": "player-blocks"
+    },
+    {
+      "text": "A new project starts with one background: a border of lit pixels along all four edges.",
+      "page": "Background",
+      "anchor": "add-background"
+    },
+    {
+      "text": "The Title tab draws full-screen bitmap pages with the Titlescreen Kernel, typically for a title or menu screen.",
+      "page": "Title"
+    },
+    {
+      "text": "The Score tab offers a variety of fonts, as well as tools to make your own and custom fonts.",
+      "page": "Score",
+      "anchor": "score-font"
+    },
+    {
+      "text": "The Text Minikernel shows a message 12 characters wide. Use A-Z, 0-9 and basic punctuation. Up to 2 lines of text are supported.",
+      "page": "Text"
+    },
+    {
+      "text": "Data tables are read-only lookup tables of byte values (0-255). Use them for level layouts, spawn patterns, timing and more.",
+      "page": "Data"
+    },
+    {
+      "text": "Press Space on the Sound tab to preview the selected sound.",
+      "page": "Sound",
+      "anchor": "sound-preview"
+    },
+    {
+      "text": "Tick \"Use pattern tempo\" and set a Tempo (BPM) to change the speed of just one pattern, instead of the whole song.",
+      "page": "Music",
+      "anchor": "pattern-tempo"
+    },
+    {
+      "text": "Turn off \"Load last open project on startup\" on the Options tab and the app always starts from an empty project.",
+      "page": "Options",
+      "anchor": "load-last-project"
+    },
+    {
+      "text": "Emulator Settings (the gear icon) switches between the 6502.ts and gopher2600 emulators and adds TV effects such as scanlines and phosphor glow.",
+      "page": "Emulator",
+      "anchor": "emulator-settings"
+    },
+    {
+      "text": "ROM size runs from 2k up to 64k. Bigger sizes leave more room for code, graphics and sound.",
+      "page": "Options",
+      "anchor": "rom-size"
+    },
+    {
+      "text": "Drawing tool hotkeys:\nPencil: B\nEraser: E\nFill: G\nEyedropper: I\nLine: L\nRectangle: R\nOval: O",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "drawing-tools"
+    },
+    {
+      "text": "Searching the Generated tab:\nEnter: next match\nShift+Enter: previous match",
+      "page": "Generated",
+      "anchor": "searching-the-code"
+    },
+    {
+      "text": "A failed build's error message stays until a build succeeds, and it points to the exact line of generated code the compiler stopped on.",
+      "page": "Console",
+      "anchor": "errors"
+    },
+    {
+      "text": "Press Ctrl+F (Cmd+F on a Mac) to search the blocks you have already placed on the workspace. Matches are highlighted.",
+      "page": "Actions",
+      "anchor": "workspace-search"
+    },
+    {
+      "text": "Click the + button on the Sprites tab to add an animation. The name you give it is what appears in every Animation dropdown.",
+      "page": "Sprites",
+      "anchor": "add-animation"
+    },
+    {
+      "text": "With per-row playfield colors on, pick a color in the quick palette and drag across a background's row colors to paint several rows at once.",
+      "page": "Background",
+      "anchor": "per-row-playfield-colors"
+    },
+    {
+      "text": "A title page is built from graphic cards: 48x1, 48x2, 96x2, Player sprites, Score and Space. The kernel has 8 copies of each bitmap type, shared by every page.",
+      "page": "Title",
+      "anchor": "graphics"
+    },
+    {
+      "text": "Switch on \"5 score digits\" and the leftmost digit is left out so the remaining five are centered. Scores up to 99999 still show in full.",
+      "page": "Score",
+      "anchor": "five-score-digits"
+    },
+    {
+      "text": "A text message can be up to 240 characters. Longer ones scroll, and the Multiline option word-wraps onto a second line.",
+      "page": "Text",
+      "anchor": "message-text"
+    },
+    {
+      "text": "Click the icon next to a value to enter it as decimal, binary, hex, a color, or a pick from your title screens, backgrounds, sounds, songs or text.",
+      "page": "Data",
+      "anchor": "values"
+    },
+    {
+      "text": "Switch on Envelope to shape a sound's volume with Attack, Decay, Sustain and Release. You can drag the points on the graph.",
+      "page": "Sound",
+      "anchor": "envelope"
+    },
+    {
+      "text": "In the piano roll, click a cell to place or remove a note and drag a note's right edge to change how long it lasts.",
+      "page": "Music",
+      "anchor": "piano-roll-notes"
+    },
+    {
+      "text": "Turn on \"Increment on Save\" to bump the version number every time you save, writing each save to a new file.",
+      "page": "Project",
+      "anchor": "increment-on-save"
+    },
+    {
+      "text": "In the keyboard mapping dialog, click a control and then press the new key. Escape cancels.",
+      "page": "Emulator",
+      "anchor": "keyboard-mapping"
+    },
+    {
+      "text": "Expert mode hides the small hint text under fields and switches for a more compact layout.",
+      "page": "Options",
+      "anchor": "expert-mode"
+    },
+    {
+      "text": "Hold Shift while dragging a line to snap it to 45 degrees, or a rectangle or oval to make a square or circle.",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "shape-tools"
+    },
+    {
+      "text": "The Generated tab refreshes when you click Update ROM. Editing blocks does not update it by itself.",
+      "page": "Generated",
+      "anchor": "when-it-updates"
+    },
+    {
+      "text": "Drag the strip along the top of the console to make it taller or shorter.",
+      "page": "Console",
+      "anchor": "resize-console"
+    },
+    {
+      "text": "The \"wait [n] frames\" block pauses for the given number of video frames. There are about 60 frames per second.",
+      "page": "Actions",
+      "anchor": "wait-frames"
+    },
+    {
+      "text": "Each frame has a Duration: the number of game frames it is shown before the animation moves on to the next one.",
+      "page": "Sprites",
+      "anchor": "frame-duration"
+    },
+    {
+      "text": "A background that no block ever switches to is left out of the ROM, so unused backgrounds cost nothing.",
+      "page": "Background",
+      "anchor": "unused-backgrounds"
+    },
+    {
+      "text": "Call \"Draw title screen\" every frame for as long as you want the page shown, for example from \"Title screen update\".",
+      "page": "Title",
+      "anchor": "draw-title-screen"
+    },
+    {
+      "text": "Score Bars 1 and 2 can show health (a solid block growing from the score) or lives (evenly spaced dots).",
+      "page": "Score",
+      "anchor": "score-bars"
+    },
+    {
+      "text": "The \"Scroll text\" blocks add \"every [n] frames\" and \"wait [n] at limits\" fields to control how fast and how long it pauses at each end.",
+      "page": "Text",
+      "anchor": "text-scrolling"
+    },
+    {
+      "text": "The \"Data table bit\" block reads one bit of a value, so a single byte can hold 8 true/false flags.",
+      "page": "Data",
+      "anchor": "data-table-bit"
+    },
+    {
+      "text": "The DIM switch plays every sound and music note at a percentage of its volume. The emulator follows it too.",
+      "page": "Sound",
+      "anchor": "dim"
+    },
+    {
+      "text": "Mute silences an instrument for the whole song, and Solo silences every other instrument so you can hear one by itself.",
+      "page": "Music",
+      "anchor": "mute-solo"
+    },
+    {
+      "text": "The Example Projects button on the Project tab lists projects you can open, with a search box to narrow them down.",
+      "page": "Project",
+      "anchor": "example-projects"
+    },
+    {
+      "text": "The bug icon turns on a debug overlay with the registers, scanlines and CPU use. The list icon picks which variables it shows.",
+      "page": "Emulator",
+      "anchor": "debug-overlay"
+    },
+    {
+      "text": "\"Mute in-game audio\" silences everything the ROM plays while you test, without removing any sound blocks.",
+      "page": "Options",
+      "anchor": "mute-in-game-audio"
+    },
+    {
+      "text": "Mirror draw horizontally or vertically paints the other side of the graphic as you draw. With both on, all four corners are drawn.",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "mirror-and-flip"
+    },
+    {
+      "text": "\"Every [n] frames, plus [n]\" runs its blocks on a power-of-2 interval, with an optional offset, so different jobs can take turns.",
+      "page": "Actions",
+      "anchor": "every-n-frames"
+    },
+    {
+      "text": "Press Play on an animation card to preview it in the emulator without building or changing your ROM.",
+      "page": "Sprites",
+      "anchor": "preview-animation"
+    },
+    {
+      "text": "\"Background area is clear\" tells you whether every playfield pixel in a rectangle is off, for example to see whether all the bricks are gone.",
+      "page": "Background",
+      "anchor": "background-area-clear"
+    },
+    {
+      "text": "Give a title graphic a Window height smaller than its frame and it scrolls through its picture, using the scroll blocks.",
+      "page": "Title",
+      "anchor": "scrolling"
+    },
+    {
+      "text": "Score digit blocks read or change a single digit of the score without touching the others.",
+      "page": "Score",
+      "anchor": "score-digit-blocks"
+    },
+    {
+      "text": "\"Show text ID\" picks a message with a number, so a variable can choose which message to show.",
+      "page": "Text",
+      "anchor": "show-text-id"
+    },
+    {
+      "text": "Export to .CSV and Import from .CSV move a data table's values in and out of a spreadsheet.",
+      "page": "Data",
+      "anchor": "export-csv"
+    },
+    {
+      "text": "Export bank saves every sound on the tab into one .vcsbnk file. Import bank lets you pick which sounds to bring in.",
+      "page": "Sound",
+      "anchor": "export-sound-bank"
+    },
+    {
+      "text": "The target icon makes the visible pattern follow playback as the song moves through its sequence.",
+      "page": "Music",
+      "anchor": "auto-switch-pattern"
+    },
+    {
+      "text": "The Sound Banks button on the Project tab lists sounds and banks you can import into the open project.",
+      "page": "Project",
+      "anchor": "sound-banks"
+    },
+    {
+      "text": "The camera icon saves the emulator picture as a PNG. The full screen icon shows it full screen, and Esc leaves.",
+      "page": "Emulator",
+      "anchor": "screenshot-button"
+    },
+    {
+      "text": "\"Show remaining CPU cycles as the score\" shows roughly how many cycles are left in the frame, white when there is room and red when over budget.",
+      "page": "Options",
+      "anchor": "show-cpu-cycles"
+    },
+    {
+      "text": "Selection tools pick the cells that Move, Flip and Delete act on:\nRectangle select: M\nCircle select: C\nPolygon select: P",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "selection-tools"
+    },
+    {
+      "text": "A \"Run once\" block only runs the first time it is reached and is skipped every time after.",
+      "page": "Actions",
+      "anchor": "run-once"
+    },
+    {
+      "text": "Drag the grab strip across the top of a frame onto another frame to reorder frames. A bar shows where it will land.",
+      "page": "Sprites",
+      "anchor": "reorder-frames"
+    },
+    {
+      "text": "Combine \"Find playfield pixel collided with\" and \"Background Clear pixel\" to break exactly the wall pixel a shot hit.",
+      "page": "Background",
+      "anchor": "find-playfield-pixel"
+    },
+    {
+      "text": "Press the play icon on a title page to test just that page in the emulator without building your whole project.",
+      "page": "Title",
+      "anchor": "test-title-screen"
+    },
+    {
+      "text": "Pick Custom as the score font to draw the digits yourself. \"Use extra glyphs\" adds 6 more drawable symbols.",
+      "page": "Score",
+      "anchor": "extra-glyphs"
+    },
+    {
+      "text": "Turn on \"Show a scroll cursor\" to draw blinking arrows (and an end-of-message icon) next to messages with more than 2 lines.",
+      "page": "Text",
+      "anchor": "scroll-cursor-setting"
+    },
+    {
+      "text": "A data table that no block reads is left out of the ROM entirely, so unused tables cost nothing.",
+      "page": "Data",
+      "anchor": "unused-tables"
+    },
+    {
+      "text": "\"Play sound [type] with frequency, volume and duration\" plays a one-off sound without needing a sound card.",
+      "page": "Sound",
+      "anchor": "play-sound-type"
+    },
+    {
+      "text": "Music playback hotkeys:\nShift+Space: play just the current pattern\nSpace: play the whole pattern sequence",
+      "page": "Music",
+      "anchor": "play-pattern"
+    },
+    {
+      "text": "The Title, Developer, Version and other Project Settings fields are also written as a comment at the top of the generated code.",
+      "page": "Project",
+      "anchor": "project-settings"
+    },
+    {
+      "text": "The ROM capacity panel under the emulator shows how much ROM and how many variables your project uses after each build.",
+      "page": "Emulator",
+      "anchor": "rom-capacity"
+    },
+    {
+      "text": "The DPC+ kernel (experimental) adds Players 2 to 9, sound chip audio and per-background playfield row counts.",
+      "page": "Options",
+      "anchor": "dpc-kernel"
+    },
+    {
+      "text": "Image hotkeys:\nShift+E: export the current frame as a PNG\nShift+I: import an image into the graphic",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "image-files"
+    },
+    {
+      "text": "\"On even frames\" and \"On odd frames\" run different blocks depending on the current frame, handy for splitting heavy work across two frames.",
+      "page": "Actions",
+      "anchor": "even-odd-frames"
+    },
+    {
+      "text": "Turn on per-row sprite colors on the Options tab and every sprite frame gets a color strip, one color per row.",
+      "page": "Sprites",
+      "anchor": "per-row-sprite-colors"
+    },
+    {
+      "text": "A background can be taller than the screen. Background scroll with \"stop at edge\" ticked stops cleanly on its first and last row.",
+      "page": "Background",
+      "anchor": "background-scroll"
+    },
+    {
+      "text": "A title graphic with several frames animates by itself. Switch on \"Play animation once\" to make it stop on its last frame.",
+      "page": "Title",
+      "anchor": "animation"
+    },
+    {
+      "text": "Tag a sound with the piano icon to make it an Instrument. Only instruments show up in the Music tab's instrument dropdown.",
+      "page": "Sound",
+      "anchor": "instrument-tag"
+    },
+    {
+      "text": "Export song saves a song as a .vcsmus file, and Export song bank saves every song with the instruments they use.",
+      "page": "Music",
+      "anchor": "export-song-bank"
+    },
+    {
+      "text": "Every saved project includes a screenshot of the emulator, taken after the last successful build.",
+      "page": "Project",
+      "anchor": "save-project"
+    },
+    {
+      "text": "Save ROM saves the last build as a .bin or .a26 file, named after your project title and version.",
+      "page": "Emulator",
+      "anchor": "save-rom"
+    },
+    {
+      "text": "On a graphic with row colors, click a quick color to arm it, then click or drag across the row color strip. Alt-click removes a quick color.",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "quick-colors"
+    },
+    {
+      "text": "Define function creates a reusable block that takes parameters and can return a value. Call it as a statement or inside an expression.",
+      "page": "Actions",
+      "anchor": "define-function"
+    },
+    {
+      "text": "Untick \"loop\" when you set an animation to make it play once and freeze on its last frame. \"When Player animation has finished\" then runs.",
+      "page": "Sprites",
+      "anchor": "animation-loop"
+    },
+    {
+      "text": "Press Play on a background card to preview just that background in the emulator, without building your ROM.",
+      "page": "Background",
+      "anchor": "preview-background"
+    },
+    {
+      "text": "\"End title screen\" stops the Titlescreen Kernel and shows the regular game screen from the next frame on.",
+      "page": "Title",
+      "anchor": "end-title-screen"
+    },
+    {
+      "text": "The Vol row under the piano roll sets a single note's volume as a percentage of the instrument's base volume.",
+      "page": "Music",
+      "anchor": "volume-row"
+    },
+    {
+      "text": "Drag the emulator pane's left edge to resize it, or use the chevron tab on its edge to hide it and make room for blocks.",
+      "page": "Emulator",
+      "anchor": "resize-emulator-pane"
+    },
+    {
+      "text": "Set height (H) resizes a graphic. It can scale the contents to fit and apply the new height to every frame of the animation.",
+      "page": "Graphic-Editor-Toolbar",
+      "anchor": "set-height"
+    },
+    {
+      "text": "\"Change state to\" switches between the Title screen, Gameplay and Gameover states. Each state has start and update events.",
+      "page": "Actions",
+      "anchor": "change-state"
+    },
+    {
+      "text": "\"Player set width/quantity\" gives the player 2 or 3 copies, or doubles or quadruples its size.",
+      "page": "Sprites",
+      "anchor": "player-width-quantity"
+    },
+    {
+      "text": "Reordering backgrounds renumbers them and updates every block that referred to one by its ID.",
+      "page": "Background",
+      "anchor": "reorder-backgrounds"
+    },
+    {
+      "text": "A 48-wide title graphic can have a colored area behind its picture, drawn with the playfield, and each frame can use a different one.",
+      "page": "Title",
+      "anchor": "picture-background-48-wide-graphics"
+    },
+    {
+      "text": "Every project needs a \"Draw screen\" block in its main loop. It renders the current frame.",
+      "page": "Actions",
+      "anchor": "draw-screen"
+    },
+    {
+      "text": "Import animation frames picks several image files at once. Files numbered like walk1.png, walk2.png are ordered by their number.",
+      "page": "Sprites",
+      "anchor": "import-animation-frames"
+    },
+    {
+      "text": "The Fire block launches a missile or the ball and moves it by itself until it leaves the screen. Pick the direction with an angle or a Joystick direction block.",
+      "page": "Actions",
+      "anchor": "fire-block"
+    },
+    {
+      "text": "The Joystick Fire block can read a pattern of presses (tapped, held and so on), counted in frames. 60 frames is one second.",
+      "page": "Actions",
+      "anchor": "joystick-fire-pattern"
+    },
+    {
+      "text": "Switch blocks have a \"was just switched on\" mode that is true for one frame per press, so the blocks under it run once instead of every frame the switch is held.",
+      "page": "Actions",
+      "anchor": "console-switch"
+    },
+    {
+      "text": "\"Undo last move\" reverts a player's position if it collided with the playfield last frame. Place it before the blocks that move the player.",
+      "page": "Actions",
+      "anchor": "undo-last-move"
+    },
+    {
+      "text": "Bounce reflects an object off whatever it just collided with. Call it every frame the collision lasts, not just once.",
+      "page": "Actions",
+      "anchor": "bounce"
+    },
+    {
+      "text": "The Seek block moves an object toward a target X/Y and stops on arrival. \"Throttle movement\" paces it to every few frames.",
+      "page": "Actions",
+      "anchor": "seek"
+    },
+    {
+      "text": "Set random seed reseeds the random number generator, so a game does not repeat the same sequence every run.",
+      "page": "Actions",
+      "anchor": "set-random-seed"
+    },
+    {
+      "text": "The Fire block's \"check playfield while moving\" option moves the object one pixel at a time, so a fast missile cannot jump over a thin playfield pixel.",
+      "page": "Actions",
+      "anchor": "fire-check-playfield"
+    }
+  ]
+}

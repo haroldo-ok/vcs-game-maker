@@ -537,6 +537,60 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="tipOpen" max-width="520">
+      <v-card v-if="tip">
+        <v-card-title><v-icon :class="['tip-title-icon', 'mr-2', tip.tab.className]" :style="{top: tip.tab.offset + 'px'}">{{ tip.tab.icon }}</v-icon>Tip</v-card-title>
+        <v-card-text>
+          <p class="tip-message tip-text">{{ tip.text }}</p>
+          <p class="tip-message">
+            Learn more:
+            <template v-for="link in tip.links">
+              <br :key="link.url + 'br'" />
+              <a :key="link.url" :href="link.url" target="_blank" rel="noopener">{{ link.label }}</a>
+            </template>
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-checkbox
+            v-model="tipDontShowAgain"
+            label="Don't show again"
+            dense
+            hide-details
+            class="tip-dont-show mt-0 pt-0"
+          ></v-checkbox>
+          <v-spacer></v-spacer>
+          <div class="tip-arrows">
+            <v-btn icon small class="tip-arrow-btn" title="Previous tip" @click="tip = tipNear(tip, -1)">
+              <v-icon>mdi-chevron-left</v-icon>
+            </v-btn>
+            <v-btn icon small class="tip-arrow-btn" title="Next tip" @click="tip = tipNear(tip, 1)">
+              <v-icon>mdi-chevron-right</v-icon>
+            </v-btn>
+          </div>
+          <v-btn text color="primary" @click="tipOpen = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="tipsOffNoticeOpen" max-width="520">
+      <v-card>
+        <v-card-title>Tips are turned off</v-card-title>
+        <v-card-text>
+          <p class="tip-message">
+            You can turn them back on any time with the "Show Tooltips at startup" switch under VCSGM Options on the
+            Options tab.
+          </p>
+          <p class="tip-message">
+            <a href="#" @click.prevent="goToStartupTipsSetting">Go to VCSGM Options</a>
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn text color="primary" @click="tipsOffNoticeOpen = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-footer class="error-message" :style="{height: errorHeight + 'px', maxHeight: errorHeight + 'px'}">
       <div
         class="error-resize-handle"
@@ -562,7 +616,7 @@
 
 <script>
 import {useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useStellaPathStorage, useSoundEffectsStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
@@ -576,6 +630,8 @@ import {startGamepadInput} from './hooks/gamepad';
 import {startTapHold} from './hooks/tap-hold';
 import {syncSoundBanks} from './hooks/soundbanks';
 import {soundKernelNotice, syncSoundsToKernel} from './hooks/sound-kernel';
+import {nextTip, tipNear} from './hooks/tips';
+import {optionToReveal} from './hooks/option-reveal';
 import KeyMappingDialog from './components/KeyMappingDialog.vue';
 import EmulatorSettingsDialog from './components/EmulatorSettingsDialog.vue';
 import DebugSettingsDialog from './components/DebugSettingsDialog.vue';
@@ -694,10 +750,17 @@ export default {
       configurationStorage: useConfigurationStorage(),
       soundKernelNotice, soundEffectsStorage: soundEffectsRef, syncSounds,
       romSaveMenuOpen: false,
+      showStartupTipsStorage: useShowStartupTipsStorage(), tipOpen: false, tip: null, tipDontShowAgain: false,
+      tipNear, tipsOffNoticeOpen: false,
       stellaPathStorage: useStellaPathStorage(),
     };
   },
   mounted() {
+    // A different tip shows on every start while the startup tips setting is on.
+    if (this.showStartupTipsStorage) {
+      this.tip = nextTip();
+      this.tipOpen = !!this.tip;
+    }
     // Once per page load: fetch new/changed example projects (see hooks/examples.js).
     syncExamples();
     syncSoundBanks();
@@ -972,6 +1035,16 @@ export default {
     },
   },
   watch: {
+    // Closing the tip popup with the checkbox ticked turns the startup tips setting off.
+    tipOpen(open) {
+      if (open || !this.tipDontShowAgain) return;
+      this.showStartupTipsStorage = false;
+      this.tipDontShowAgain = false;
+      // Opened once the tip popup and its dark backdrop have finished fading out, or the notice opens beneath them.
+      setTimeout(() => {
+        this.tipsOffNoticeOpen = true;
+      }, 400);
+    },
     // Sounds follow the kernel: Standard sounds become DPC+ sounds when DPC+ is chosen (and back again), including
     // sounds that arrive from an imported project or sound bank.
     'configurationStorage.kernel': {
@@ -1029,6 +1102,12 @@ export default {
     },
   },
   methods: {
+    // The link in the notice that follows turning tips off: opens the Options tab at the switch that turns them on.
+    goToStartupTipsSetting() {
+      this.tipsOffNoticeOpen = false;
+      optionToReveal.value = 'show-startup-tips-option';
+      if (this.$route.path !== '/configuration') this.$router.push('/configuration');
+    },
     // Shared by romBlockVariableAssignments/romUserVariableAssignments above -
     // a plain method (not two near-identical computeds) since the only
     // difference between them is which side of isUserVariable they keep.
@@ -1923,6 +2002,75 @@ export default {
 /* The same outline the popups get (a .v-card inside the menu carries theirs), for dropdown lists. */
 .v-menu__content:has(> .v-select-list) {
   border: 1px solid rgba(0, 0, 0, 0.24);
+}
+
+/* The tip popup's previous/next arrows look and react like the graphic editor toolbar's icon buttons: no box, 26px
+   squares 4px apart, a muted 19px icon that darkens on hover and shrinks a little while pressed. */
+.tip-arrows {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.tip-arrow-btn.v-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+  margin: 0;
+}
+
+.tip-arrow-btn.v-btn::before {
+  display: none;
+}
+
+.tip-arrow-btn.v-btn .v-icon {
+  font-size: 19px;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.tip-arrow-btn.v-btn:not(.v-btn--disabled):active .v-icon {
+  transform: scale(0.82);
+}
+
+.dark-mode.v-application .tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: #fff !important;
+}
+
+/* The icon in the tip popup's title is the icon of the tab the tip is about, in that tab's color. The tab classes (.actions-item
+   and so on) set the color on the element itself, so they win here; the three pages that are not a tab have none and
+   get the title's color. */
+.tip-title-icon.v-icon {
+  position: relative;
+}
+
+.tip-title-icon.v-icon:not([class*="-item"]) {
+  color: inherit !important;
+}
+
+/* A line break in a tip's text starts a new line, for lists such as hotkeys. */
+.tip-text {
+  white-space: pre-line;
+}
+
+/* The tip popup's text: the grey of the popups' helper text at a larger size. It does not use the helper text classes
+   (.v-messages), which Expert mode hides. */
+.tip-message {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.dark-mode.v-application .tip-message {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .v-menu__content > .v-card,

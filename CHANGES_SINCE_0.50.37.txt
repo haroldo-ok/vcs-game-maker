@@ -1102,3 +1102,13 @@ No menu bar in desktop builds
 
 - The desktop app has no menu bar on Windows and Linux (the window's menu is removed and its menu bar stays hidden).
   macOS keeps a hidden Edit menu, since its Cmd+C, Cmd+V and Cmd+A shortcuts come from it.
+
+=== 0.52.14 ===
+Startup tips, and links on the About tab
+
+- A tip pops up when the app starts, a different one each time (99 to begin with). Each tip links to the wiki page and
+  the exact entry it is about. The tips are in src/data/tips.json, so they are easy to edit. The popup has previous and
+  next arrows, the icon of the tab the tip is about, and a "Don't show again" checkbox.
+- New "Show Tooltips at startup" switch under VCSGM Options. The checkbox turns it off and then opens a notice with a
+  link that goes to that switch.
+- The About tab has a Documentation/Wiki link, and the space after each label is no longer part of its link.

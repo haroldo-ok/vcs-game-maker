@@ -308,6 +308,14 @@
           class="option-switch"
         />
         <v-switch
+          id="show-startup-tips-option"
+          v-model="showStartupTips"
+          label="Show Tooltips at startup"
+          hint="Shows a tip about using the app, with a link to the wiki page it is about, each time the app starts. The tip popup's &quot;Don't show again&quot; checkbox turns this off."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="muteBlocklySounds"
           label="Mute Blockly sounds"
           hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute in-game audio&quot; above for that."
@@ -378,16 +386,17 @@
     </v-card>
 </template>
 <script>
-import {computed, defineComponent, ref, watch} from '@vue/composition-api';
+import {computed, defineComponent, nextTick, onMounted, ref, watch} from '@vue/composition-api';
 import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
   useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage,
-  useMuteBlocklySoundsStorage,
+  useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {useEmulatorSettings} from '../hooks/emulator-settings';
+import {optionToReveal} from '../hooks/option-reveal';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 
 // 64k compiles correctly (see generators/bbasic.js's  SUPPORTED_ROM_SIZES/
@@ -466,6 +475,7 @@ export default defineComponent({
     // below so it survives clearProjectStorage() and can be checked at
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
+    const showStartupTips = useShowStartupTipsStorage();
     // Same reasoning as loadLastProject above - these three used to round-trip
     // with the project itself via configurationState, silently resetting
     // every time you switched or started a new project.
@@ -514,6 +524,29 @@ export default defineComponent({
       if (next.has(key)) next.delete(key); else next.add(key);
       collapsedSections.value = next;
     };
+
+    // Opens the section that holds an option another part of the app linked to, scrolls to it and flashes it.
+    const OPTION_SECTION = {'show-startup-tips-option': 'vcsgm'};
+    const revealRequestedOption = async () => {
+      const id = optionToReveal.value;
+      if (!id) return;
+      optionToReveal.value = null;
+      const section = OPTION_SECTION[id];
+      if (section && collapsedSections.value.has(section)) {
+        const next = new Set(collapsedSections.value);
+        next.delete(section);
+        collapsedSections.value = next;
+      }
+      await nextTick();
+      const input = document.getElementById(id);
+      const element = input && (input.closest('.v-input') || input);
+      if (!element) return;
+      element.scrollIntoView({behavior: 'smooth', block: 'center'});
+      element.classList.add('option-revealed');
+      setTimeout(() => element.classList.remove('option-revealed'), 2500);
+    };
+    onMounted(revealRequestedOption);
+    watch(optionToReveal, revealRequestedOption);
 
     const configurationState = computed({
       // scoreFont is chosen on the Score tab, but is kept here so that
@@ -811,6 +844,7 @@ export default defineComponent({
       configurationState.value = state;
 
       loadLastProject.value = false;
+      showStartupTips.value = true;
       muteBlocklySounds.value = false;
       adaptiveFrameSkip.value = true;
       hideDescriptionText.value = false;
@@ -832,7 +866,7 @@ export default defineComponent({
       kernelIsDpcPlus,
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
-      loadLastProject,
+      loadLastProject, showStartupTips,
       muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, darkMode, desaturateBlocklyColors,
       hideDescriptionText,
       stellaPathStorage, isElectron, handleBrowseForStella,
@@ -1060,5 +1094,10 @@ export default defineComponent({
    under that field with or without the description text showing. */
 .pfrowheight-switch {
   margin-top: 2px;
+}
+/* The option the tips popup's link took the user to flashes once. */
+.option-revealed {
+  background-color: rgba(25, 118, 210, 0.15);
+  border-radius: 4px;
 }
 </style>

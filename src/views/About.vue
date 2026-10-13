@@ -11,23 +11,11 @@
       </div>
 
       <div class="about-website">
-        <strong>Official:</strong>
-        <a
-          href="https://haroldo-ok.itch.io/vcs-game-maker"
-          target="_blank"
-          rel="noopener"
-        >
-          haroldo-ok.itch.io/vcs-game-maker
-        </a>
+        <strong>Official:</strong> <a href="https://haroldo-ok.itch.io/vcs-game-maker" target="_blank" rel="noopener">haroldo-ok.itch.io/vcs-game-maker</a>
         <br />
-        <strong>Experimental:</strong>
-        <a
-          href="https://abstractpolygon.com/vcs-game-maker"
-          target="_blank"
-          rel="noopener"
-        >
-          abstractpolygon.com/vcs-game-maker
-        </a>
+        <strong>Experimental:</strong> <a href="https://abstractpolygon.com/vcs-game-maker" target="_blank" rel="noopener">abstractpolygon.com/vcs-game-maker</a>
+        <br />
+        <strong>Documentation/Wiki:</strong> <a href="https://github.com/haroldo-ok/vcs-game-maker/wiki" target="_blank" rel="noopener">github.com/haroldo-ok/vcs-game-maker/wiki</a>
       </div>
 
       <p class="about-description">

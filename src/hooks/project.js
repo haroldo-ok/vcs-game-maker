@@ -243,6 +243,10 @@ export const useProjectShowSoundBanksStorage = () =>
   useBooleanAppSetting('vcs-game-maker.projectShowSoundBanks');
 export const useHideDescriptionTextStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideDescriptionText');
+// Whether a tip pops up when the app starts (see App.vue and hooks/tips.js). The popup's "Don't show again" checkbox
+// turns it off, and the VCSGM Options switch turns it back on.
+export const useShowStartupTipsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.showStartupTips', true);
 export const useMuteBlocklySoundsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.muteBlocklySounds');
 // On by default (see public/js/gopher2600-worker.js's adaptive frame skipping): it only does
