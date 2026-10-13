@@ -1,8 +1,9 @@
 import tipsData from '../data/tips.json';
 
-// The tips shown when the app starts live in src/data/tips.json: each has its text and the wiki page it is about (and
-// optionally a heading on that page, as "anchor"). A tip about more than one page lists the others in "also". Each
-// one has a "page" and an optional "anchor". The wiki's address is at the top of the file. Edit that file to change them.
+// The tips shown when the app starts live in src/data/tips.json: each has its text (the part it is about goes between
+// double asterisks, to be shown in bold), the wiki page it is about, an optional heading or entry on that page as
+// "anchor", and the "label" that is the text of its link. A tip about more than one page lists the others in "also".
+// Each one has a "page", an optional "anchor" and an optional "label". The wiki's address is at the top of the file. Edit that file to change them.
 // Every start shows the next tip in the list, and the list comes round again after the last one.
 const TIP_INDEX_KEY = 'vcs-game-maker.tipIndex';
 
@@ -29,10 +30,13 @@ const TAB_ICONS = {
   'Console': {icon: 'mdi-console', offset: 0.7, className: ''},
 };
 
-const linkOf = ({page, anchor}) => ({
+const linkOf = ({page, anchor, label}) => ({
   url: `${tipsData.wiki}/${page}${anchor ? '#' + anchor : ''}`,
-  label: page.replace(/-/g, ' '),
+  label: label || page.replace(/-/g, ' '),
 });
+
+// A tip's text with the parts between double asterisks in bold: [{text, bold}].
+const segmentsOf = (text) => text.split('**').map((part, i) => ({text: part, bold: i % 2 === 1})).filter((part) => part.text);
 
 const tipAt = (index) => {
   const tips = tipsData.tips;
@@ -43,7 +47,7 @@ const tipAt = (index) => {
   // When one of the links is the Actions page it comes last.
   const links = [...pages.filter((link) => link.page !== 'Actions'), ...pages.filter((link) => link.page === 'Actions')];
   // The icon is the one of the tip's first page (not the Actions page that is listed last when there are several).
-  return {index, text: tip.text, wikiUrl: tipsData.wiki, links: links.map(linkOf), tab: TAB_ICONS[tip.page] || {icon: 'mdi-help-circle-outline', offset: 0.6, className: ''}};
+  return {index, text: tip.text, segments: segmentsOf(tip.text), wikiUrl: tipsData.wiki, links: links.map(linkOf), tab: TAB_ICONS[tip.page] || {icon: 'mdi-help-circle-outline', offset: 0.6, className: ''}};
 };
 
 // The tip for this start.

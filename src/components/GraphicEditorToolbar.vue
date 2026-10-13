@@ -423,7 +423,7 @@ export default {
     // users coming from those tools already reach for them without
     // thinking.
     handleToolHotkey(event) {
-      // Ctrl/Cmd+Z is the toolbar's Undo button, and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y its Redo
+      // Ctrl/Cmd+Z is the toolbar's Undo button, and Ctrl/Cmd+Y its Redo
       // button.
       const history = undoRedoKind(event);
       if (history === 'undo') {

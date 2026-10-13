@@ -541,7 +541,7 @@
       <v-card v-if="tip">
         <v-card-title><v-icon :class="['tip-title-icon', 'mr-2', tip.tab.className]" :style="{top: tip.tab.offset + 'px'}">{{ tip.tab.icon }}</v-icon>Tip</v-card-title>
         <v-card-text>
-          <p class="tip-message tip-text">{{ tip.text }}</p>
+          <p class="tip-message tip-text"><template v-for="(part, i) in tip.segments"><strong v-if="part.bold" :key="i">{{ part.text }}</strong><span v-else :key="i">{{ part.text }}</span></template></p>
           <p class="tip-message">
             Learn more:
             <template v-for="link in tip.links">

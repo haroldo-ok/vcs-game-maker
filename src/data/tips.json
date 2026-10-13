@@ -2,495 +2,594 @@
   "wiki": "https://github.com/haroldo-ok/vcs-game-maker/wiki",
   "tips": [
     {
-      "text": "Press Ctrl+B to jump straight to the block search at the top of the Actions toolbox, then type part of a block's name.",
+      "text": "Press **Ctrl+B** to jump straight to the block search at the top of the Actions toolbox, then type part of a block's name.",
       "page": "Actions",
+      "label": "Block search",
       "anchor": "block-search"
     },
     {
-      "text": "Player blocks are one combined block with a Player ID dropdown. The block color follows the Player Sprite ID you pick.",
+      "text": "**Player blocks** are one combined block with a Player ID dropdown. The block color follows the Player Sprite ID you pick.",
       "page": "Sprites",
+      "label": "Player blocks",
       "anchor": "player-blocks"
     },
     {
-      "text": "The Convert blocks turn a playfield column or row into the matching Player, Missile or Ball X or Y position, and back again.",
+      "text": "The **Convert blocks** turn a playfield column or row into the matching Player, Missile or Ball X or Y position, and back again.",
       "page": "Background",
+      "label": "Convert playfield and sprite positions",
       "anchor": "convert-playfield-sprite"
     },
     {
-      "text": "The Title tab draws full-screen bitmap pages with the Titlescreen Kernel, typically for a title or menu screen.",
-      "page": "Title"
+      "text": "The **Title tab** draws full-screen bitmap pages with the Titlescreen Kernel, typically for a title or menu screen.",
+      "page": "Title",
+      "label": "Title tab"
     },
     {
-      "text": "The Score tab offers a variety of fonts, as well as tools to make or import your own.",
+      "text": "The **Score tab** offers a variety of fonts, as well as tools to make or import your own.",
       "page": "Score",
+      "label": "Score font",
       "anchor": "score-font"
     },
     {
-      "text": "The Text Minikernel shows a message 12 characters wide. Use A-Z, 0-9 and basic punctuation. Up to 2 lines of text are supported.",
-      "page": "Text"
+      "text": "The **Text Minikernel** shows a message 12 characters wide. Use A-Z, 0-9 and basic punctuation. Up to 2 lines of text are supported.",
+      "page": "Text",
+      "label": "Text tab"
     },
     {
-      "text": "Data tables are read-only lookup tables of byte values (0-255). Use them for level layouts, spawn patterns, timing and more.",
-      "page": "Data"
+      "text": "**Data tables** are read-only lookup tables of byte values (0-255). Use them for level layouts, spawn patterns, timing and more.",
+      "page": "Data",
+      "label": "Data tab"
     },
     {
-      "text": "Press Space on the Sound tab to preview the selected sound.",
+      "text": "Press **Space** on the Sound tab to preview the selected sound.",
       "page": "Sound",
+      "label": "Preview a sound",
       "anchor": "sound-preview"
     },
     {
-      "text": "Tick \"Use pattern tempo\" and set a Tempo (BPM) to change the speed of just one pattern, instead of the whole song.",
+      "text": "Tick **Use pattern tempo** and set a Tempo (BPM) to change the speed of just one pattern, instead of the whole song.",
       "page": "Music",
+      "label": "Pattern tempo",
       "anchor": "pattern-tempo"
     },
     {
-      "text": "Turn off \"Load last open project on startup\" on the Options tab and the app always starts from an empty project.",
+      "text": "Turn off **Load last open project on startup** on the Options tab and the app always starts from an empty project.",
       "page": "Options",
+      "label": "Load last open project on startup",
       "anchor": "load-last-project"
     },
     {
-      "text": "Emulator Settings (the gear icon) switches between the 6502.ts and gopher2600 emulators and adds TV effects such as scanlines and phosphor glow.",
+      "text": "**Emulator Settings** (the gear icon) switches between the 6502.ts and gopher2600 emulators and adds TV effects such as scanlines and phosphor glow.",
       "page": "Emulator",
+      "label": "Emulator settings",
       "anchor": "emulator-settings"
     },
     {
-      "text": "ROM size runs from 2k up to 64k. Bigger sizes provide more room for code, graphics and sound.",
+      "text": "**ROM size** runs from 2k up to 64k. Bigger sizes provide more room for code, graphics and sound.",
       "page": "Options",
+      "label": "ROM size",
       "anchor": "rom-size"
     },
     {
-      "text": "Drawing tool hotkeys:\nPencil: B\nEraser: E\nFill: G\nEyedropper: I\nLine: L\nRectangle: R\nOval: O",
+      "text": "**Drawing tool hotkeys**:\nPencil: B\nEraser: E\nFill: G\nEyedropper: I\nLine: L\nRectangle: R\nOval: O",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Drawing tools",
       "anchor": "drawing-tools"
     },
     {
-      "text": "Searching the Generated tab:\nEnter: next match\nShift+Enter: previous match",
+      "text": "**Searching the Generated tab**:\nEnter: next match\nShift+Enter: previous match",
       "page": "Generated",
+      "label": "Searching the code",
       "anchor": "searching-the-code"
     },
     {
-      "text": "A failed build's error message stays until a build succeeds, and it points to the exact line of generated code the compiler stopped on.",
+      "text": "A **failed build's error message** stays until a build succeeds, and it points to the exact line of generated code the compiler stopped on.",
       "page": "Console",
+      "label": "Errors",
       "anchor": "errors"
     },
     {
-      "text": "Press Ctrl+F (Cmd+F on a Mac) to search the blocks you have already placed on the workspace. Matches are highlighted.",
+      "text": "Press **Ctrl+F** (Cmd+F on a Mac) to search the blocks you have already placed on the workspace. Matches are highlighted.",
       "page": "Actions",
+      "label": "Search the workspace",
       "anchor": "workspace-search"
     },
     {
-      "text": "Click the + button on the Sprites tab to add an animation. The name you give it is what appears in every Animation dropdown.",
+      "text": "Click the **+ button** on the Sprites tab to add an animation. The name you give it is what appears in every Animation dropdown.",
       "page": "Sprites",
+      "label": "Add an animation",
       "anchor": "add-animation"
     },
     {
-      "text": "With per-row playfield colors on, pick a color in the quick palette and drag across a background's row colors to paint several rows at once.",
+      "text": "With **per-row playfield colors** on, pick a color in the quick palette and drag across a background's row colors to paint several rows at once.",
       "page": "Background",
+      "label": "Per-row playfield colors",
       "anchor": "per-row-playfield-colors"
     },
     {
-      "text": "A title page is built from graphic cards: 48x1, 48x2, 96x2, Player sprites, Score and Space. The kernel has 8 copies of each bitmap type, shared by every page.",
+      "text": "A **title page** is built from graphic cards: 48x1, 48x2, 96x2, Player sprites, Score and Space. The kernel has 8 copies of each bitmap type, shared by every page.",
       "page": "Title",
+      "label": "Graphics",
       "anchor": "graphics"
     },
     {
-      "text": "Switch on \"5 score digits\" and the leftmost digit is left out so the remaining five are centered. Scores up to 99999 still show in full.",
+      "text": "Switch on **5 score digits** and the leftmost digit is left out so the remaining five are centered. Scores up to 99999 still show in full.",
       "page": "Score",
+      "label": "5 score digits",
       "anchor": "five-score-digits"
     },
     {
-      "text": "A text message can be up to 240 characters. Longer ones scroll, and the Multiline option word-wraps onto a second line.",
+      "text": "A **text message** can be up to 240 characters. Longer ones scroll, and the Multiline option word-wraps onto a second line.",
       "page": "Text",
+      "label": "Message text",
       "anchor": "message-text"
     },
     {
-      "text": "Click the icon next to a value to enter it as decimal, binary, hex, a color, or a pick from your title screens, backgrounds, sounds, songs or text.",
+      "text": "Click the **icon next to a value** to enter it as decimal, binary, hex, a color, or a pick from your title screens, backgrounds, sounds, songs or text.",
       "page": "Data",
+      "label": "Value entry formats",
       "anchor": "values"
     },
     {
-      "text": "Switch on Envelope to shape a sound's volume with Attack, Decay, Sustain and Release. You can drag the points on the graph.",
+      "text": "Switch on **Envelope** to shape a sound's volume with Attack, Decay, Sustain and Release. You can drag the points on the graph.",
       "page": "Sound",
+      "label": "Envelope",
       "anchor": "envelope"
     },
     {
-      "text": "In the piano roll, click a cell to place or remove a note and drag a note's right edge to change how long it lasts.",
+      "text": "In the **piano roll**, click a cell to place or remove a note and drag a note's right edge to change how long it lasts.",
       "page": "Music",
+      "label": "Piano roll",
       "anchor": "piano-roll-notes"
     },
     {
-      "text": "Turn on \"Increment on Save\" to bump the version number every time you save, writing each save to a new file.",
+      "text": "Turn on **Increment on Save** to bump the version number every time you save, writing each save to a new file.",
       "page": "Project",
+      "label": "Increment on Save",
       "anchor": "increment-on-save"
     },
     {
-      "text": "In the keyboard mapping dialog, click a control and then press the new key. Escape cancels.",
+      "text": "In the **keyboard mapping dialog**, click a control and then press the new key. Escape cancels.",
       "page": "Emulator",
+      "label": "Keyboard mapping",
       "anchor": "keyboard-mapping"
     },
     {
-      "text": "Expert mode hides the small hint text under fields and switches for a more compact layout.",
+      "text": "**Expert mode** hides the small hint text under fields and switches for a more compact layout.",
       "page": "Options",
+      "label": "Expert mode",
       "anchor": "expert-mode"
     },
     {
-      "text": "Hold Shift while dragging a line to snap it to 45 degrees, or a rectangle or oval to make a square or circle.",
+      "text": "**Hold Shift** while dragging a line to snap it to 45 degrees, or a rectangle or oval to make a square or circle.",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Line, Rectangle and Oval tools",
       "anchor": "shape-tools"
     },
     {
-      "text": "The Generated tab refreshes when you click Update ROM. Editing blocks does not update it by itself.",
+      "text": "The **Generated tab** refreshes when you click Update ROM. Editing blocks does not update it by itself.",
       "page": "Generated",
+      "label": "When the code updates",
       "anchor": "when-it-updates"
     },
     {
-      "text": "Drag the strip along the top of the console to make it taller or shorter.",
+      "text": "Drag the **strip along the top of the console** to make it taller or shorter.",
       "page": "Console",
+      "label": "Resize the console",
       "anchor": "resize-console"
     },
     {
-      "text": "The \"wait [n] frames\" block pauses for the given number of video frames. There are about 60 frames per second.",
+      "text": "The **wait [n] frames** block pauses for the given number of video frames. There are about 60 frames per second.",
       "page": "Actions",
+      "label": "wait [n] frames",
       "anchor": "wait-frames"
     },
     {
-      "text": "Each frame has a Duration: the number of game frames it is shown before the animation moves on to the next one.",
+      "text": "Each frame has a **Duration**: the number of game frames it is shown before the animation moves on to the next one.",
       "page": "Sprites",
+      "label": "Frame duration",
       "anchor": "frame-duration"
     },
     {
-      "text": "A background that no block ever switches to is left out of the ROM, so unused backgrounds cost nothing.",
+      "text": "A **background that no block ever switches to** is left out of the ROM, so unused backgrounds cost nothing.",
       "page": "Background",
+      "label": "Unused backgrounds",
       "anchor": "unused-backgrounds"
     },
     {
-      "text": "Call \"Draw title screen\" every frame for as long as you want the page shown, for example from \"Title screen update\".",
+      "text": "Call **Draw title screen** every frame for as long as you want the page shown, for example from \"Title screen update\".",
       "page": "Title",
+      "label": "Draw title screen",
       "anchor": "draw-title-screen"
     },
     {
-      "text": "Score Bars 1 and 2 can show health (a solid block growing from the score) or lives (evenly spaced dots).",
+      "text": "**Score Bars 1 and 2** can show health (a solid block growing from the score) or lives (evenly spaced dots).",
       "page": "Score",
+      "label": "Score bars",
       "anchor": "score-bars"
     },
     {
-      "text": "The \"Scroll text\" blocks add \"every [n] frames\" and \"wait [n] at limits\" fields to control how fast and how long it pauses at each end.",
+      "text": "The **Scroll text** blocks add \"every [n] frames\" and \"wait [n] at limits\" fields to control how fast and how long it pauses at each end.",
       "page": "Text",
+      "label": "Scrolling text",
       "anchor": "text-scrolling"
     },
     {
-      "text": "The \"Data table bit\" block reads one bit of a value, so a single byte can hold 8 true/false flags.",
+      "text": "The **Data table bit** block reads one bit of a value, so a single byte can hold 8 true/false flags.",
       "page": "Data",
+      "label": "Data table bit",
       "anchor": "data-table-bit"
     },
     {
-      "text": "The DIM switch plays every sound and music note at a percentage of its volume. The emulator follows it too.",
+      "text": "The **DIM switch** plays every sound and music note at a percentage of its volume. The emulator follows it too.",
       "page": "Sound",
+      "label": "DIM",
       "anchor": "dim"
     },
     {
-      "text": "Mute silences an instrument for the whole song, and Solo silences every other instrument so you can hear one by itself.",
+      "text": "**Mute** silences an instrument for the whole song, and **Solo** silences every other instrument so you can hear one by itself.",
       "page": "Music",
+      "label": "Mute and Solo",
       "anchor": "mute-solo"
     },
     {
-      "text": "The Example Projects button on the Project tab lists projects you can open, with a search box to narrow them down.",
+      "text": "The **Example Projects** button on the Project tab lists projects you can open, with a search box to narrow them down.",
       "page": "Project",
+      "label": "Example Projects",
       "anchor": "example-projects"
     },
     {
-      "text": "The bug icon turns on a debug overlay with the registers, scanlines and CPU use. The list icon picks which variables it shows.",
+      "text": "The **bug icon** turns on a debug overlay with the registers, scanlines and CPU use. The **list icon** picks which variables it shows.",
       "page": "Emulator",
+      "label": "Debug overlay",
       "anchor": "debug-overlay"
     },
     {
-      "text": "\"Mute in-game audio\" silences everything the ROM plays while you test, without removing any sound blocks.",
+      "text": "**Mute in-game audio** silences everything the ROM plays while you test, without removing any sound blocks.",
       "page": "Options",
+      "label": "Mute in-game audio",
       "anchor": "mute-in-game-audio"
     },
     {
-      "text": "Mirror draw horizontally or vertically paints the other side of the graphic as you draw. With both on, all four corners are drawn.",
+      "text": "**Mirror draw** horizontally or vertically paints the other side of the graphic as you draw. With both on, all four corners are drawn.",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Mirror and flip",
       "anchor": "mirror-and-flip"
     },
     {
-      "text": "\"Every [n] frames, plus [n]\" runs its blocks on a power-of-2 interval, with an optional offset, so different jobs can take turns.",
+      "text": "**Every [n] frames, plus [n]** runs its blocks on a power-of-2 interval, with an optional offset, so different jobs can take turns.",
       "page": "Actions",
+      "label": "Every [n] frames, plus [n]",
       "anchor": "every-n-frames"
     },
     {
-      "text": "Press Play on an animation card to preview it in the emulator without building or changing your ROM.",
+      "text": "Press **Play** on an animation card to preview it in the emulator without building or changing your ROM.",
       "page": "Sprites",
+      "label": "Preview an animation",
       "anchor": "preview-animation"
     },
     {
-      "text": "\"Background area is clear\" tells you whether every playfield pixel in a rectangle is off, for example to see whether all the bricks are gone.",
+      "text": "**Background area is clear** tells you whether every playfield pixel in a rectangle is off, for example to see whether all the bricks are gone.",
       "page": "Background",
+      "label": "Background area is clear",
       "anchor": "background-area-clear"
     },
     {
-      "text": "Give a title graphic a Window height smaller than its frame and it scrolls through its picture, using the scroll blocks.",
+      "text": "Give a title graphic a **Window height** smaller than its frame and it scrolls through its picture, using the scroll blocks.",
       "page": "Title",
+      "label": "Title screen scrolling",
       "anchor": "scrolling"
     },
     {
-      "text": "Score digit blocks read or change a single digit of the score without touching the others.",
+      "text": "**Score digit blocks** read or change a single digit of the score without touching the others.",
       "page": "Score",
+      "label": "Score digit blocks",
       "anchor": "score-digit-blocks"
     },
     {
-      "text": "\"Show text ID\" picks a message with a number, so a variable can choose which message to show.",
+      "text": "**Show text ID** picks a message with a number, so a variable can choose which message to show.",
       "page": "Text",
+      "label": "Show text ID",
       "anchor": "show-text-id"
     },
     {
-      "text": "Export to .CSV and Import from .CSV move a data table's values in and out of a spreadsheet.",
+      "text": "**Export to .CSV** and **Import from .CSV** move a data table's values in and out of a spreadsheet.",
       "page": "Data",
+      "label": "Export to .CSV",
       "anchor": "export-csv"
     },
     {
-      "text": "Export bank saves every sound on the tab into one .vcsbnk file. Import bank lets you pick which sounds to bring in.",
+      "text": "**Export bank** saves every sound on the tab into one .vcsbnk file. **Import bank** lets you pick which sounds to bring in.",
       "page": "Sound",
+      "label": "Export bank",
       "anchor": "export-sound-bank"
     },
     {
-      "text": "The target icon makes the visible pattern follow playback as the song moves through its sequence.",
+      "text": "The **target icon** makes the visible pattern follow playback as the song moves through its sequence.",
       "page": "Music",
+      "label": "Auto-switch to the playing pattern",
       "anchor": "auto-switch-pattern"
     },
     {
-      "text": "The Sound Banks button on the Project tab lists sounds and banks you can import into the open project.",
+      "text": "The **Sound Banks** button on the Project tab lists sounds and banks you can import into the open project.",
       "page": "Project",
+      "label": "Sound Banks",
       "anchor": "sound-banks"
     },
     {
-      "text": "The camera icon saves the emulator picture as a PNG. The full screen icon shows it full screen, and Esc leaves.",
+      "text": "The **camera icon** saves the emulator picture as a PNG. The **full screen icon** shows it full screen, and Esc leaves.",
       "page": "Emulator",
+      "label": "Screenshot button",
       "anchor": "screenshot-button"
     },
     {
-      "text": "\"Show remaining CPU cycles as the score\" shows roughly how many cycles are left in the frame, white when there is room and red when over budget.",
+      "text": "**Show remaining CPU cycles as the score** shows roughly how many cycles are left in the frame, white when there is room and red when over budget.",
       "page": "Options",
+      "label": "Show remaining CPU cycles",
       "anchor": "show-cpu-cycles"
     },
     {
-      "text": "Selection tools pick the cells that Move, Flip and Delete act on:\nRectangle select: M\nCircle select: C\nPolygon select: P",
+      "text": "**Selection tools** pick the cells that Move, Flip and Delete act on:\nRectangle select: M\nCircle select: C\nPolygon select: P",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Selection tools",
       "anchor": "selection-tools"
     },
     {
-      "text": "A \"Run once\" block only runs the first time it is reached and is skipped every time after.",
+      "text": "A **Run once** block only runs the first time it is reached and is skipped every time after.",
       "page": "Actions",
+      "label": "Run once",
       "anchor": "run-once"
     },
     {
-      "text": "Drag the grab strip across the top of a frame onto another frame to reorder frames. A bar shows where it will land.",
+      "text": "Drag the **grab strip** across the top of a frame onto another frame to reorder frames. A bar shows where it will land.",
       "page": "Sprites",
+      "label": "Reorder frames",
       "anchor": "reorder-frames"
     },
     {
-      "text": "Combine \"Find playfield pixel collided with\" and \"Background Clear pixel\" to break exactly the wall pixel a shot hit.",
+      "text": "Combine **Find playfield pixel collided with** and **Background Clear pixel** to break exactly the wall pixel a shot hit.",
       "page": "Background",
+      "label": "Find playfield pixel",
       "anchor": "find-playfield-pixel"
     },
     {
-      "text": "Press the play icon on a title page to test just that page in the emulator without building your whole project.",
+      "text": "Press the **play icon** on a title page to test just that page in the emulator without building your whole project.",
       "page": "Title",
+      "label": "Test a title screen",
       "anchor": "test-title-screen"
     },
     {
-      "text": "Pick Custom as the score font to draw the digits yourself. \"Use extra glyphs\" adds 6 more drawable symbols.",
+      "text": "Pick **Custom** as the score font to draw the digits yourself. **Use extra glyphs** adds 6 more drawable symbols.",
       "page": "Score",
+      "label": "Extra glyphs",
       "anchor": "extra-glyphs"
     },
     {
-      "text": "Turn on \"Show a scroll cursor\" to draw blinking arrows (and an end-of-message icon) next to messages with more than 2 lines.",
+      "text": "Turn on **Show a scroll cursor** to draw blinking arrows (and an end-of-message icon) next to messages with more than 2 lines.",
       "page": "Text",
+      "label": "Scroll cursor",
       "anchor": "scroll-cursor-setting"
     },
     {
-      "text": "A data table that no block reads is left out of the ROM entirely, so unused tables cost nothing.",
+      "text": "A **data table that no block reads** is left out of the ROM entirely, so unused tables cost nothing.",
       "page": "Data",
+      "label": "Unused data tables",
       "anchor": "unused-tables"
     },
     {
-      "text": "\"Play sound [type] with frequency, volume and duration\" plays a one-off sound without needing a sound card.",
+      "text": "**Play sound [type] with frequency, volume and duration** plays a one-off sound without needing a sound card.",
       "page": "Sound",
+      "label": "Play sound [type]",
       "anchor": "play-sound-type"
     },
     {
-      "text": "Music playback hotkeys:\nShift+Space: play just the current pattern\nSpace: play the whole pattern sequence",
+      "text": "**Music playback hotkeys**:\nShift+Space: play just the current pattern\nSpace: play the whole pattern sequence",
       "page": "Music",
+      "label": "Play a pattern",
       "anchor": "play-pattern"
     },
     {
-      "text": "The Title, Developer, Version and other Project Settings fields are also written as a comment at the top of the generated code.",
+      "text": "The Title, Developer, Version and other **Project Settings** fields are also written as a comment at the top of the generated code.",
       "page": "Project",
+      "label": "Project Settings",
       "anchor": "project-settings"
     },
     {
-      "text": "The ROM capacity panel under the emulator shows how much ROM and how many variables your project uses after each build.",
+      "text": "The **ROM capacity panel** under the emulator shows how much ROM and how many variables your project uses after each build.",
       "page": "Emulator",
+      "label": "ROM capacity",
       "anchor": "rom-capacity"
     },
     {
-      "text": "The DPC+ kernel (experimental) adds Players 2 to 9, sound chip audio and per-background playfield row counts.",
+      "text": "The **DPC+ kernel** (experimental) adds Players 2 to 9, sound chip audio and per-background playfield row counts.",
       "page": "Options",
+      "label": "DPC+ kernel",
       "anchor": "dpc-kernel"
     },
     {
-      "text": "Image hotkeys:\nShift+E: export the current frame as a PNG\nShift+I: import an image into the graphic",
+      "text": "**Image hotkeys**:\nShift+E: export the current frame as a PNG\nShift+I: import an image into the graphic",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Image files",
       "anchor": "image-files"
     },
     {
-      "text": "\"On even frames\" and \"On odd frames\" run different blocks depending on the current frame, handy for splitting heavy work across two frames.",
+      "text": "**On even frames** and **On odd frames** run different blocks depending on the current frame, handy for splitting heavy work across two frames.",
       "page": "Actions",
+      "label": "On even / odd frames",
       "anchor": "even-odd-frames"
     },
     {
-      "text": "Turn on per-row sprite colors on the Options tab and every sprite frame gets a color strip, one color per row.",
+      "text": "Turn on **per-row sprite colors** on the Options tab and every sprite frame gets a color strip, one color per row.",
       "page": "Sprites",
+      "label": "Per-row sprite colors",
       "anchor": "per-row-sprite-colors"
     },
     {
-      "text": "A background can be taller than the screen. Background scroll with \"stop at edge\" ticked stops cleanly on its first and last row.",
+      "text": "A background can be taller than the screen. **Background scroll** with \"stop at edge\" ticked stops cleanly on its first and last row.",
       "page": "Background",
+      "label": "Background scroll",
       "anchor": "background-scroll"
     },
     {
-      "text": "A title graphic with several frames animates by itself. Switch on \"Play animation once\" to make it stop on its last frame.",
+      "text": "A title graphic with several frames animates by itself. Switch on **Play animation once** to make it stop on its last frame.",
       "page": "Title",
+      "label": "Play animation once",
       "anchor": "animation"
     },
     {
-      "text": "Tag a sound with the piano icon to make it an Instrument. Only instruments show up in the Music tab's instrument dropdown.",
+      "text": "Tag a sound with the **piano icon** to make it an Instrument. Only instruments show up in the Music tab's instrument dropdown.",
       "page": "Sound",
+      "label": "Instrument tag",
       "anchor": "instrument-tag"
     },
     {
-      "text": "Export song saves a song as a .vcsmus file, and Export song bank saves every song with the instruments they use.",
+      "text": "**Export song** saves a song as a .vcsmus file, and **Export song bank** saves every song with the instruments they use.",
       "page": "Music",
+      "label": "Export song bank",
       "anchor": "export-song-bank"
     },
     {
-      "text": "Every saved project includes a screenshot of the emulator, taken after the last successful build.",
+      "text": "Every saved project includes a **screenshot of the emulator**, taken after the last successful build.",
       "page": "Project",
+      "label": "Save",
       "anchor": "save-project"
     },
     {
-      "text": "Save ROM saves the last build as a .bin or .a26 file, named after your project title and version.",
+      "text": "**Save ROM** saves the last build as a .bin or .a26 file, named after your project title and version.",
       "page": "Emulator",
+      "label": "Save ROM",
       "anchor": "save-rom"
     },
     {
-      "text": "On a graphic with row colors, click a quick color to arm it, then click or drag across the row color strip. Alt-click removes a quick color.",
+      "text": "On a graphic with row colors, click a **quick color** to arm it, then click or drag across the row color strip. Alt-click removes a quick color.",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Quick colors",
       "anchor": "quick-colors"
     },
     {
-      "text": "Define function creates a reusable block that takes parameters and can return a value. Call it as a statement or inside an expression.",
+      "text": "**Define function** creates a reusable block that takes parameters and can return a value. Call it as a statement or inside an expression.",
       "page": "Actions",
+      "label": "Define function",
       "anchor": "define-function"
     },
     {
-      "text": "Untick \"loop\" when you set an animation to make it play once and freeze on its last frame. \"When Player animation has finished\" then runs.",
+      "text": "Untick **loop** when you set an animation to make it play once and freeze on its last frame. \"When Player animation has finished\" then runs.",
       "page": "Sprites",
+      "label": "Animation loop",
       "anchor": "animation-loop"
     },
     {
-      "text": "Press Play on a background card to preview just that background in the emulator, without building your ROM.",
+      "text": "Press **Play** on a background card to preview just that background in the emulator, without building your ROM.",
       "page": "Background",
+      "label": "Preview a background",
       "anchor": "preview-background"
     },
     {
-      "text": "\"End title screen\" stops the Titlescreen Kernel and shows the regular game screen from the next frame on.",
+      "text": "**End title screen** stops the Titlescreen Kernel and shows the regular game screen from the next frame on.",
       "page": "Title",
+      "label": "End title screen",
       "anchor": "end-title-screen"
     },
     {
-      "text": "The Vol row under the piano roll sets a single note's volume as a percentage of the instrument's base volume.",
+      "text": "The **Vol row** under the piano roll sets a single note's volume as a percentage of the instrument's base volume.",
       "page": "Music",
+      "label": "Volume row",
       "anchor": "volume-row"
     },
     {
-      "text": "Drag the emulator pane's left edge to resize it, or use the chevron tab on its edge to hide it and make room for blocks.",
+      "text": "Drag the **emulator pane's left edge** to resize it, or use the **chevron tab** on its edge to hide it and make room for blocks.",
       "page": "Emulator",
+      "label": "Resize the emulator pane",
       "anchor": "resize-emulator-pane"
     },
     {
-      "text": "Set height resizes a graphic. It can scale the contents to fit and apply the new height to every frame of the animation.",
+      "text": "**Set height** resizes a graphic. It can scale the contents to fit and apply the new height to every frame of the animation.",
       "page": "Graphic-Editor-Toolbar",
+      "label": "Set height",
       "anchor": "set-height"
     },
     {
-      "text": "\"Change state to\" switches between the Title screen, Gameplay and Gameover states. Each state has start and update events.",
+      "text": "**Change state to** switches between the Title screen, Gameplay and Gameover states. Each state has start and update events.",
       "page": "Actions",
+      "label": "Change state to",
       "anchor": "change-state"
     },
     {
-      "text": "\"Player set width/quantity\" gives the player 2 or 3 copies, or doubles or quadruples its size.",
+      "text": "**Player set width/quantity** gives the player 2 or 3 copies, or doubles or quadruples its size.",
       "page": "Sprites",
+      "label": "Player set width/quantity",
       "anchor": "player-width-quantity"
     },
     {
-      "text": "Reordering backgrounds renumbers them and updates every block that referred to one by its ID.",
+      "text": "**Reordering backgrounds** renumbers them and updates every block that referred to one by its ID.",
       "page": "Background",
+      "label": "Reordering backgrounds",
       "anchor": "reorder-backgrounds"
     },
     {
-      "text": "A 48-wide title graphic can have a colored area behind its picture, drawn with the playfield, and each animation frame can use a different one.",
+      "text": "A **48-wide title graphic** can have a colored area behind its picture, drawn with the playfield, and each animation frame can use a different one.",
       "page": "Title",
+      "label": "Picture background",
       "anchor": "picture-background-48-wide-graphics"
     },
     {
-      "text": "Distance X and Distance Y between two objects give an always-positive distance, handy for checking whether something is close.",
+      "text": "**Distance X** and **Distance Y** between two objects give an always-positive distance, handy for checking whether something is close.",
       "page": "Actions",
+      "label": "Distance between objects",
       "anchor": "distance-between-objects"
     },
     {
-      "text": "Import animation frames picks several image files at once. Files numbered like walk1.png, walk2.png are ordered by their number.",
+      "text": "**Import animation frames** picks several image files at once. Files numbered like walk1.png, walk2.png are ordered by their number.",
       "page": "Sprites",
+      "label": "Import animation frames",
       "anchor": "import-animation-frames"
     },
     {
-      "text": "The Fire block launches a missile or the ball and moves it by itself until it leaves the screen. Set the direction with an angle or a Joystick direction block.",
+      "text": "The **Fire block** launches a missile or the ball and moves it by itself until it leaves the screen. Set the direction with an angle or a Joystick direction block.",
       "page": "Actions",
+      "label": "Fire block",
       "anchor": "fire-block"
     },
     {
-      "text": "The Joystick Fire block can read a pattern of presses (tapped, double-tapped, and held), counted in frames. 60 frames is one second.",
+      "text": "The **Joystick Fire block** can read a pattern of presses (tapped, double-tapped, and held), counted in frames. 60 frames is one second.",
       "page": "Actions",
+      "label": "Joystick Fire pattern",
       "anchor": "joystick-fire-pattern"
     },
     {
-      "text": "Switch blocks have a \"was just switched on\" mode that is true for one frame per press, so the blocks under it run once instead of every frame the switch is held.",
+      "text": "**Switch blocks** have a \"was just switched on\" mode that is true for one frame per press, so the blocks under it run once instead of every frame the switch is held.",
       "page": "Actions",
+      "label": "Console switches",
       "anchor": "console-switch"
     },
     {
-      "text": "\"Undo last move\" reverts a player's position if it collided with the playfield last frame. Place it before the blocks that move the player.",
+      "text": "**Undo last move** reverts a player's position if it collided with the playfield last frame. Place it before the blocks that move the player.",
       "page": "Actions",
+      "label": "Undo last move",
       "anchor": "undo-last-move"
     },
     {
-      "text": "Bounce reflects an object off whatever it just collided with. Call it every frame the collision lasts.",
+      "text": "**Bounce** reflects an object off whatever it just collided with. Call it every frame the collision lasts.",
       "page": "Actions",
+      "label": "Bounce",
       "anchor": "bounce"
     },
     {
-      "text": "The Seek block moves an object toward a target X/Y and stops on arrival.",
+      "text": "The **Seek block** moves an object toward a target X/Y and stops on arrival.",
       "page": "Actions",
+      "label": "Seek",
       "anchor": "seek"
     },
     {
-      "text": "Set random seed reseeds the random number generator, so a game does not repeat the same sequence every run.",
+      "text": "**Set random seed** reseeds the random number generator, so a game does not repeat the same sequence every run.",
       "page": "Actions",
+      "label": "Set random seed",
       "anchor": "set-random-seed"
     },
     {
-      "text": "The Fire block's \"check playfield while moving\" option moves the object one pixel at a time, so a fast missile cannot jump over a thin playfield pixel.",
+      "text": "The Fire block's **check playfield while moving** option moves the object one pixel at a time, so a fast missile cannot jump over a thin playfield pixel.",
       "page": "Actions",
+      "label": "Check playfield while moving",
       "anchor": "fire-check-playfield"
     }
   ]

@@ -1117,3 +1117,15 @@ Startup tips, and links on the About tab
 Show Tips at startup
 
 - The Options switch for the startup tips is named "Show Tips at startup".
+
+=== 0.52.16 ===
+Tip popup polish, Ctrl+Y for redo, Delete key hint
+
+- Each tip shows what it is about in bold, and its link is named after the entry it goes to (for example "Define
+  function" instead of "Actions"). The popup also has a "Full documentation" link in a fixed spot, previous and next
+  arrows, and the "Don't show again" checkbox sits level with the buttons.
+- Redo is Ctrl+Y (Cmd+Y) on every tab, the same as on the Actions tab; Ctrl+Shift+Z no longer redoes outside it.
+- The tooltip of a delete button names the Delete key where the key deletes the selected card or frame.
+- Popups: the buttons in the bottom row are as far from the bottom edge as from the sides, and the label of every
+  checkbox sits closer to its box.
+- The macOS build installs appdmg again when npm skipped it.
