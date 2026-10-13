@@ -1,0 +1,80 @@
+name: Desktop builds
+
+# Builds the desktop app (Electron Forge) for Windows, macOS and Linux and attaches the installers to a GitHub Release.
+#
+# - When a release is published, the installers are attached to that release.
+# - Run manually from the Actions tab to build the version in package.json: the installers go to the release tagged
+#   v<version> (it is created, with generated notes, if it does not exist yet).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.read.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: read
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install the packages the Linux makers need
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
+      # vuetify-loader asks for Vue 2.7 while the project is on Vue 2.6.
+      - run: npm ci --legacy-peer-deps
+      - name: Build the web app
+        run: npm run build
+      - name: Make the installers
+        run: npm run electron:make
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ runner.os }}
+          path: out/make/**
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: installers
+      - name: Attach the installers to the release
+        run: |
+          mapfile -t files < <(find installers -type f \( -name '*.exe' -o -name '*.nupkg' -o -name 'RELEASES' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \))
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --title "VCS Game Maker ${TAG#v}" --generate-notes
+          fi
