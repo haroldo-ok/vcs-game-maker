@@ -1240,7 +1240,7 @@ export default (Blockly) => {
       // player1's  shadow vars) or a bare literal identifier (scorecolor/
       // TextColor) - either way it's already just a plain string by the time
       // it gets here.
-      return buildFadeCheckAsm({
+      const fadeAsm = buildFadeCheckAsm({
         colorVar: colorVarName,
         targetVar,
         timerVar,
@@ -1251,6 +1251,15 @@ export default (Blockly) => {
         tag,
         isWatched: watches.has(backgroundFadeWatchKey(rawVar)),
       });
+      // Under DPC+ a missile has a separate color register (COLUM0/COLUM1), so a player's fade carries it along:
+      // whether the fade was running is noted before its step, and the missile takes the player's color after it
+      // (the step that ends the fade included).
+      const missileColor = {player0realcolor: 'COLUM0', player1realcolor: 'COLUM1'}[rawVar];
+      const configurationStorage = useConfigurationStorage();
+      const config = (configurationStorage && configurationStorage.value) || {};
+      if (!missileColor || config.kernel !== 'dpcplus') return fadeAsm;
+      const flagBit = `${resolveVar(fadeFlagsVarName(rawVar))}{${fadeActiveBit(rawVar)}}`;
+      return [` temp1 = 0 : if ${flagBit} then temp1 = 1`, ...[fadeAsm].flat(), ` if temp1 then ${missileColor} = ${colorVarName}`];
     };
 
     return [...fadeVarsUsed].map(checksForVar).flat().join('\n');

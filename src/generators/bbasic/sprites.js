@@ -1956,6 +1956,9 @@ export default (Blockly) => {
       // The width/quantity option reads the low 3 bits of the size variable.
       const widthOf = /^__(player\d)size_w_$/.exec(block.getFieldValue('VAR') || '');
       if (widthOf) return [`(${widthOf[1]}size & 7)`, Blockly.BBasic.ORDER_ATOMIC];
+      // A missile's color under DPC+ is the kernel's COLUM0/COLUM1 register.
+      const missileColor = /^missile([01])color$/.exec(block.getFieldValue('VAR') || '');
+      if (missileColor) return [`COLUM${missileColor[1]}`, Blockly.BBasic.ORDER_ATOMIC];
       // Visibility: a hidden player is on frame 255, which is the one frame with every bit set. Anding the frame with itself
       // shifted right by each of the 7 places leaves bit 0 set only then, and that is worked out with shifts alone, with no
       // call to the divide routine.
@@ -1985,6 +1988,11 @@ export default (Blockly) => {
           Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
       const varName = Blockly.BBasic.nameDB_.getName(
           block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+      const missileColor = /^missile([01])color$/.exec(varName);
+      if (missileColor) {
+        return `COLUM${missileColor[1]} = ${argument0}
+`;
+      }
       if (varName === 'ballwidth') {
         // Ball width packs into CTRLPF's  bits 4-5 - masked in against
         // CTRLPF's CURRENT value (207 = 0b11001111, clearing only bits 4-5)

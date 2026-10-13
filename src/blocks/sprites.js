@@ -391,6 +391,11 @@ const buildPlayerVarOptionsFn = (extraOptionsFor) => function() {
   return [...buildPlayerOptions(name), ...(extraOptionsFor ? extraOptionsFor(name) : [])];
 };
 
+// Under DPC+ each missile has a separate color register (COLUM0/COLUM1), where the standard kernel draws a missile in
+// its player's color. The Missile blocks' Color option stands for it; the generator turns it into that register.
+const dpcPlusMissileColorOptions = (name) =>
+  (((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus' ? [[COLOR_ICON + ' Color', `${name}color`]] : []);
+
 // Same reasoning as buildPlayerVarOptionsFn above, for the combined Missile
 // 0/1 get/set/change blocks - extraOptionsFor appends Width (set-only), the
 // missile equivalent of buildPlayerVarOptionsFn's  Frame/Visibility.
@@ -822,7 +827,7 @@ const buildCombinedMissileVarBlocks = ({icon, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'VAR',
-          'options': buildMissileVarOptionsFn(),
+          'options': buildMissileVarOptionsFn(dpcPlusMissileColorOptions),
         },
       ],
       'output': 'Number',
@@ -843,7 +848,7 @@ const buildCombinedMissileVarBlocks = ({icon, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'VAR',
-          'options': buildMissileVarOptionsFn((name) => [[HEIGHT_ICON + ' Width', `${name}width`]]),
+          'options': buildMissileVarOptionsFn((name) => [[HEIGHT_ICON + ' Width', `${name}width`], ...dpcPlusMissileColorOptions(name)]),
         },
         {
           'type': 'input_value',
@@ -854,7 +859,8 @@ const buildCombinedMissileVarBlocks = ({icon, colour}) => {
       'nextStatement': null,
       colour,
       'extensions': ['sprite_missile_field_sync'],
-      'tooltip': 'Updates information about whichever missile is selected.',
+      'tooltip': 'Updates information about whichever missile is selected. With the DPC+ kernel the missile ' +
+        'also has a Color, and a Height of 0 hides it while a Height of 1 draws it on every other line.',
     },
     // Block for adding to a variable in place.
     {
@@ -2117,7 +2123,8 @@ Blockly.defineBlocksWithJsonArray([
       'an "if" block that only briefly becomes true, until it reaches the target and stops. Also ' +
       'fades that player\'s missile (missile0 for Player 0, missile1 for Player 1) for free - ' +
       'on real Atari 2600 hardware, a missile always shares its player\'s color register, so ' +
-      'there\'s no separate missile color to fade.',
+      'there\'s no separate missile color to fade. With the DPC+ kernel a missile has a separate color register ' +
+      '(the Missile Color option), and the fade carries it along with the player\'s.',
   },
 ]);
 
