@@ -43,6 +43,10 @@ jobs:
         run: npm run build
       - name: Make the installers
         run: npm run electron:make
+      # The macOS runner is Apple Silicon; this adds the Intel build next to it.
+      - name: Make the Intel macOS installers
+        if: runner.os == 'macOS'
+        run: npx electron-forge make --arch=x64
       - uses: actions/upload-artifact@v7
         with:
           name: installers-${{ runner.os }}
