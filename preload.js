@@ -9,9 +9,9 @@ const {contextBridge, ipcRenderer} = require('electron');
 // "running in a browser", where none of this exists at all.
 contextBridge.exposeInMainWorld('electronAPI', {
   pickStellaPath: () => ipcRenderer.invoke('stella:pick-path'),
-  // romBytes: a Uint8Array (Javatari.compiledResult.output) - structured-
-  // cloned across the IPC boundary automatically, no manual serialization
-  // needed.
+  // romBytes: a Uint8Array (App.vue's compiledRomBytes.output - see
+  // hooks/rom-status.js) - structured-cloned across the IPC boundary
+  // automatically, no manual serialization needed.
   launchStella: (stellaPath, romBytes) => ipcRenderer.invoke('stella:launch', {stellaPath, romBytes}),
   saveProjectAs: (content, suggestedName) => ipcRenderer.invoke('project:save-as', {content, suggestedName}),
   saveProject: (filePath, content) => ipcRenderer.invoke('project:save', {filePath, content}),

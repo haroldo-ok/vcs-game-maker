@@ -3,7 +3,7 @@
 // One-time migration from the old, separate sprite_player0_*/sprite_player1_*
 // and sprite_missile0_*/sprite_missile1_* block types into the single
 // combined sprite_player_*/sprite_missile_* type each pair now shares (see
-// PLAYER_OPTIONS'/MISSILE_OPTIONS' own comments in blocks/sprites.js for
+// PLAYER_OPTIONS'/MISSILE_OPTIONS' comments in blocks/sprites.js for
 // why: Player 0/1 and Missile 0/1 are each otherwise-identical hardware
 // objects, so there's a single block type with a PLAYER/MISSILE dropdown
 // field instead of two full sets of blocks - Ball is NOT part of this, it
@@ -11,12 +11,12 @@
 // (VAR/SIZE/STATE/OFFSET/HEIGHT/X/Y/ANGLE/etc.) already holds a real,
 // object-specific value or an object-independent choice (e.g. VAR is
 // already the literal bB variable name "player0x"/"missile1height", not a
-// generic index) - untouched by this migration, only the block's own
+// generic index) - untouched by this migration, only the block's
 // "type" attribute and a brand new PLAYER/MISSILE field need to change.
-// Same overall shape as hooks/migrate-player-animations.js's own
+// Same overall shape as hooks/migrate-player-animations.js's
 // remapPlayer1AnimationIndexesInWorkspaceXml (raw workspace XML STRING in,
 // string out, via DOMParser/XMLSerializer) - called from the same two
-// places that function is: main.js's own startup pass (an existing
+// places that function is: main.js's  startup pass (an existing
 // localStorage-persisted project) and Project.vue's "Open Project" handler
 // (a freshly opened .vcsgm file), since either path can hand this a
 // workspace that still has the old block types in it.
@@ -25,7 +25,7 @@ const OLD_TYPE_TO_NEW = {
   sprite_player0_set: {type: 'sprite_player_set', field: 'PLAYER', value: '0'},
   sprite_player0_change: {type: 'sprite_player_change', field: 'PLAYER', value: '0'},
   sprite_player0_size: {type: 'sprite_player_size', field: 'PLAYER', value: '0'},
-  sprite_player0_animation_select: {type: 'sprite_player_animation_select', field: 'PLAYER', value: '0'},
+  sprite_player0_animation_select: {type: 'sprite_player_animation_select', field: null},
   sprite_player0_animation_playback: {type: 'sprite_player_animation_playback', field: 'PLAYER', value: '0'},
   sprite_player0_rom_noise: {type: 'sprite_player_rom_noise', field: 'PLAYER', value: '0'},
   sprite_player0_rom_noise_stop: {type: 'sprite_player_rom_noise_stop', field: 'PLAYER', value: '0'},
@@ -35,7 +35,7 @@ const OLD_TYPE_TO_NEW = {
   sprite_player1_set: {type: 'sprite_player_set', field: 'PLAYER', value: '1'},
   sprite_player1_change: {type: 'sprite_player_change', field: 'PLAYER', value: '1'},
   sprite_player1_size: {type: 'sprite_player_size', field: 'PLAYER', value: '1'},
-  sprite_player1_animation_select: {type: 'sprite_player_animation_select', field: 'PLAYER', value: '1'},
+  sprite_player1_animation_select: {type: 'sprite_player_animation_select', field: null},
   sprite_player1_animation_playback: {type: 'sprite_player_animation_playback', field: 'PLAYER', value: '1'},
   sprite_player1_rom_noise: {type: 'sprite_player_rom_noise', field: 'PLAYER', value: '1'},
   sprite_player1_rom_noise_stop: {type: 'sprite_player_rom_noise_stop', field: 'PLAYER', value: '1'},
@@ -46,13 +46,19 @@ const OLD_TYPE_TO_NEW = {
   sprite_missile0_change: {type: 'sprite_missile_change', field: 'MISSILE', value: '0'},
   sprite_missile0_size: {type: 'sprite_missile_size', field: 'MISSILE', value: '0'},
   sprite_missile0_fire: {type: 'sprite_missile_fire', field: 'MISSILE', value: '0'},
-  sprite_missile0_bounce: {type: 'sprite_missile_bounce', field: 'MISSILE', value: '0'},
+  // Bounce itself was later unified further, into object_bounce (one block
+  // covering all 5 sprite names via an OBJECT field, not just Missile 0/1 -
+  // see hooks/migrate-bounce-blocks.js) - these two map straight to THAT
+  // type/field now, skipping the since-removed intermediate
+  // sprite_missile_bounce entirely, so a project this old still lands on a
+  // real, currently-registered block type.
+  sprite_missile0_bounce: {type: 'object_bounce', field: 'OBJECT', value: 'missile0'},
   sprite_missile1_get: {type: 'sprite_missile_get', field: 'MISSILE', value: '1'},
   sprite_missile1_set: {type: 'sprite_missile_set', field: 'MISSILE', value: '1'},
   sprite_missile1_change: {type: 'sprite_missile_change', field: 'MISSILE', value: '1'},
   sprite_missile1_size: {type: 'sprite_missile_size', field: 'MISSILE', value: '1'},
   sprite_missile1_fire: {type: 'sprite_missile_fire', field: 'MISSILE', value: '1'},
-  sprite_missile1_bounce: {type: 'sprite_missile_bounce', field: 'MISSILE', value: '1'},
+  sprite_missile1_bounce: {type: 'object_bounce', field: 'OBJECT', value: 'missile1'},
 };
 
 // Exported separately from the localStorage-string wrapper below so
@@ -71,6 +77,8 @@ export const migrateLegacyPlayerBlocksInWorkspaceXml = (workspaceXml) => {
       if (!replacement) return;
       changed = true;
       block.setAttribute('type', replacement.type);
+      // An animation name block has no player to remember: every sprite shares the one pool of animations.
+      if (!replacement.field) return;
       const field = doc.createElement('field');
       field.setAttribute('name', replacement.field);
       field.textContent = replacement.value;

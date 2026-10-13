@@ -1,13 +1,30 @@
 
 draw_bmp_48x2_4
 
+ ifconst bmp_48x2_4_colorheight
+	lda #<(bmp_48x2_4_colors-1+bmp_48x2_4_colorheight-bmp_48x2_4_window)
+ else
 	lda #<(bmp_48x2_4_colors-1+bmp_48x2_4_height-bmp_48x2_4_window)
- ifconst bmp_48x2_4_index
+ endif
+ ifconst bmp_48x2_4_colorindex
+	sec
+	sbc bmp_48x2_4_colorindex
+ else
+  ifconst bmp_48x2_4_index
 	sec
 	sbc bmp_48x2_4_index
+  endif
  endif
 	sta aux5+0
+ ifconst bmp_48x2_4_colorheight
+	lda #>(bmp_48x2_4_colors-1+bmp_48x2_4_colorheight-bmp_48x2_4_window)
+ else
 	lda #>(bmp_48x2_4_colors-1+bmp_48x2_4_height-bmp_48x2_4_window)
+ endif
+ ifconst bmp_48x2_4_colorpage
+	clc
+	adc bmp_48x2_4_colorpage
+ endif
 	sta aux5+1
 
         ldy #11

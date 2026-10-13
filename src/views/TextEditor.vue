@@ -2,7 +2,7 @@
   <div>
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Text</v-card-title>
-      <v-card-text>
+      <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message text-intro-paragraph">
           Define text blocks here, then display them at runtime with either the "Show text"
           block (pick from a list) or "Show text ID" - useful for choosing a message from a
@@ -12,10 +12,11 @@
           message's "Multiline" for word-wrap onto a second static line instead.
         </p>
 
-        <div class="text-bkcolor-row">
+        <div class="text-bkcolor-row tight-under-intro">
           <color-swatch-picker
             :value="textBkColor"
             :allow-clear="false"
+            square
             title="Click to set the Text Minikernel's message background color"
             @input="(byte) => (textBkColor = byte)"
           />
@@ -72,9 +73,9 @@
                 outlined
                 :ripple="false"
                 class="text-card"
-                :class="[dragCardClass(index), {'text-card-selected': entry.id === selectedCardId}]"
+                :class="[dragCardClass(index), {'text-card-selected': selectedCardIds.includes(entry.id)}]"
                 v-on="dragTargetListeners(index)"
-                @click.stop="selectCard(entry.id)"
+                @click.stop="selectCard(entry.id, $event)"
               >
                 <div
                   class="text-drag-handle"
@@ -97,44 +98,17 @@
                 <div class="text-id-badge" title="The number to use with &quot;Show text ID&quot; - stays the same no matter how cards are rearranged below.">
                   ID:{{ entry.id }}
                 </div>
-                <v-menu
+                <confirm-delete-menu
                   v-if="state.textStrings.length > 1"
+                  :title="deleteQuestion(entry.id, 'message', 1)"
+                  :selected="entry.id === selectedCardId && selectedCardIds.includes(entry.id)"
+                  :activator-title="deleteQuestion(entry.id, 'message', 1).replace('?', '')"
+                  icon-btn-class="text-delete-btn text-icon-btn-size"
+                  absolute
                   top
-                >
-                  <template v-slot:activator="{ on, attrs }">
-                    <v-btn
-                      title="Delete this message"
-                      icon
-                      small
-                      absolute
-                      top
-                      right
-                      class="text-delete-btn delete-icon-btn text-icon-btn-size"
-                      v-bind="attrs"
-                      v-on="on"
-                    >
-                      <v-icon>mdi-delete</v-icon>
-                    </v-btn>
-                  </template>
-
-                  <v-card>
-                    <v-card-title>Delete this message?</v-card-title>
-                    <v-list>
-                      <v-list-item @click="handleDeleteEntry(entry)">
-                        <v-list-item-icon>
-                          <v-icon>mdi-check</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>Yes, delete</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item>
-                        <v-list-item-icon>
-                          <v-icon>mdi-cancel</v-icon>
-                        </v-list-item-icon>
-                        <v-list-item-title>No, don't delete</v-list-item-title>
-                      </v-list-item>
-                    </v-list>
-                  </v-card>
-                </v-menu>
+                  right
+                  @confirm="handleDeleteEntry(entry)"
+                />
 
                 <v-card-text class="text-name-section">
                   <v-text-field
@@ -180,7 +154,6 @@
                     label="Multiline"
                     title="When this message is longer than 12 characters, shows its second line automatically underneath the first, with no scrolling needed. Off (or for a message with more than 2 lines), only the first line shows until a &quot;Scroll text lines&quot; block is used to reveal the rest. Only the plain &quot;Show text&quot; blocks support this - the &quot;(scrolling)&quot; blocks always scroll a single line and ignore it."
                     hide-details
-                    dense
                     class="text-wrap-switch"
                     @change="handleChildChange"
                   />
@@ -207,13 +180,17 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
+import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import TextFontEditor from '../components/TextFontEditor.vue';
 import {useCollapsedIds} from '../hooks/collapse';
-import {CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
+import {recordReorder, sameItems, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
+import {undoRedoKind} from '../utils/undo-hotkey';
+import {CSS_CLASS_DRAGGING, dragGroupFor, moveCards} from '../hooks/drag-reorder';
+import {useCardSelection} from '../hooks/card-selection';
 import {useConfigurationStorage, useTextStringsStorage, useTextColumnsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WIDTH,
   TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH,
@@ -221,18 +198,18 @@ import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WID
 import {BLINK_SPEED_OPTIONS, DEFAULT_BLINK_SPEED} from '../utils/text-font';
 
 export default defineComponent({
-  components: {ColorSwatchPicker, TextFontEditor},
+  components: {ColorSwatchPicker, ConfirmDeleteMenu, TextFontEditor},
   setup() {
     const textStringsStorage = useTextStringsStorage();
     const configurationStorage = useConfigurationStorage();
 
-    // The Text Minikernel's own message background color (the "textbkcolor"
+    // The Text Minikernel's  message background color (the "textbkcolor"
     // const - see generators/bbasic.js's generateConfiguration) - a single
     // project-wide setting stored alongside the rest of Configuration.vue's
-    // own options, not per-message, since only one Text Minikernel instance
+    // options, not per-message, since only one Text Minikernel instance
     // can ever be active in a project. Defaults to black (0), matching the
     // same "?? 0" fallback generateConfiguration itself uses (and what
-    // text12a.asm's own ifnconst fallback already defaults to).
+    // text12a.asm's  ifnconst fallback already defaults to).
     const textBkColor = computed({
       get() {
         try {
@@ -252,8 +229,8 @@ export default defineComponent({
       },
     });
 
-    // Whether text12b.asm's own "more below" scroll cursor is compiled in at
-    // all (see generators/bbasic.js's own buildRom-time
+    // Whether text12b.asm's "more below" scroll cursor is compiled in at
+    // all (see generators/bbasic.js's  buildRom-time
     // buildTextScrollCursorOverride splice, gated on this same field) - a
     // single project-wide toggle, same reasoning/pattern as textBkColor
     // just above.
@@ -275,7 +252,7 @@ export default defineComponent({
       },
     });
 
-    // The scroll cursor's own blink speed (see BLINK_SPEED_OPTIONS/
+    // The scroll cursor's  blink speed (see BLINK_SPEED_OPTIONS/
     // resolveBlinkMask in utils/text-font.js) - only meaningful (and only
     // shown, see the template above) while enableTextScrollCursor is on.
     const textScrollCursorBlinkSpeed = computed({
@@ -297,8 +274,8 @@ export default defineComponent({
       },
     });
 
-    // How many of the Text Minikernel's own 12 physical character positions
-    // this project actually uses - see TEXT_MAX_DISPLAY_WIDTH_OPTIONS' own
+    // How many of the Text Minikernel's  12 physical character positions
+    // this project actually uses - see TEXT_MAX_DISPLAY_WIDTH_OPTIONS'
     // comment in blocks/text-strings.js for why this is compile-time only
     // (never a runtime-settable block) and why a narrower setting only
     // blanks the unused tail rather than shrinking storage. Same
@@ -326,16 +303,14 @@ export default defineComponent({
 
     // Purely a visual "which card am I looking at" marker - same
     // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
-    // own song cards and SoundFXEditor.vue's own sound effect cards (see
-    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // song cards and SoundFXEditor.vue's  sound effect cards (see
+    // MusicEditor.vue's  comment for the full reasoning): plain local
     // component state, not persisted, not wired into anything else.
+    // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
+    // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const selectCard = (id) => {
-      selectedCardId.value = id;
-    };
-    const deselectCard = () => {
-      selectedCardId.value = null;
-    };
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
+        () => state.value.textStrings.map(({id}) => id), selectedCardId);
 
     const state = computed({
       get() {
@@ -357,16 +332,16 @@ export default defineComponent({
     };
 
     // Every card starts collapsed on every visit to this tab (see
-    // collapseAll's own comment in hooks/collapse.js), not just ones never
+    // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
     const {isCollapsed, toggleCollapsed, ensureExpanded, collapseAll} = useCollapsedIds('text', true);
     collapseAll();
 
-    // Card reordering - NOT built on hooks/drag-reorder.js's own
-    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's own
-    // single-column card lists), since that hook's own top-border
+    // Card reordering - NOT built on hooks/drag-reorder.js's
+    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's
+    // single-column card lists), since that hook's  top-border
     // drag-over convention only makes sense for a strictly vertical stack.
-    // .text-list is a CSS grid (see its own comment - two or more cards can
+    // .text-list is a CSS grid (see its  comment - two or more cards can
     // sit side by side on a wide enough window), where the meaningful
     // drop-target edge is left/right (which card this lands before/after in
     // reading order), not top/bottom - confirmed directly as a real gap
@@ -374,13 +349,15 @@ export default defineComponent({
     // "insert above," with no way to drop a card at the END of a row or
     // between two cards sharing that row.
     const draggedEntryIndex = ref(null);
+    // Every card being dragged: the selected ones when the one dragged is one of them.
+    const draggedGroup = ref([]);
     // {index, side} - side is 'before' or 'after', which HALF of card
     // `index` the pointer is currently over - same halfway-point
-    // convention MusicEditor.vue's own dragOverSideFor/DataEditor.vue's
-    // own valueRowListeners already use for their identical grid-drop
+    // convention MusicEditor.vue's  dragOverSideFor/DataEditor.vue's
+    // valueRowListeners already use for their identical grid-drop
     // problem.
     const dragOverEntry = ref(null);
-    const isEntryDragging = (index) => draggedEntryIndex.value === index;
+    const isEntryDragging = (index) => draggedEntryIndex.value === index || draggedGroup.value.includes(index);
     const isEntryDragOver = (index) =>
       !!dragOverEntry.value && dragOverEntry.value.index === index && !isEntryDragging(index);
     const entryDragOverSide = (index) => (isEntryDragOver(index) ? dragOverEntry.value.side : null);
@@ -397,13 +374,15 @@ export default defineComponent({
     const dragHandleListeners = (index) => ({
       dragstart: (event) => {
         draggedEntryIndex.value = index;
+        draggedGroup.value = dragGroupFor(index, getSelectedIndices());
         event.dataTransfer.effectAllowed = 'move';
-        // Same Firefox requirement as hooks/drag-reorder.js's own
+        // Same Firefox requirement as hooks/drag-reorder.js's
         // dragHandleListeners - the value itself is never read back.
         event.dataTransfer.setData('text/plain', String(index));
       },
       dragend: () => {
         draggedEntryIndex.value = null;
+        draggedGroup.value = [];
         dragOverEntry.value = null;
       },
     });
@@ -424,21 +403,31 @@ export default defineComponent({
       drop: (event) => {
         event.preventDefault();
         const from = draggedEntryIndex.value;
+        const group = draggedGroup.value.length ? draggedGroup.value : [from];
         draggedEntryIndex.value = null;
+        draggedGroup.value = [];
         dragOverEntry.value = null;
-        if (from == null || from === index) return;
-        // Computed fresh off the actual drop event's own pointer position -
-        // see MusicEditor.vue's own sequenceChipListeners drop handler for
+        if (from == null || group.includes(index)) return;
+        // Computed fresh off the actual drop event's  pointer position -
+        // see MusicEditor.vue's  sequenceChipListeners drop handler for
         // why this isn't just read back off dragOverEntry instead.
         const side = dragOverSideFor(event);
-        let insertAt = side === 'after' ? index + 1 : index;
-        if (from < insertAt) insertAt--;
-        if (insertAt === from) return;
-        const items = state.value.textStrings.slice();
-        const [moved] = items.splice(from, 1);
-        items.splice(insertAt, 0, moved);
+        const insertAt = side === 'after' ? index + 1 : index;
+        const before = state.value.textStrings.slice();
+        const items = moveCards(before, group, insertAt);
+        if (sameItems(items, before)) return;
         state.value.textStrings = items;
         handleChildChange();
+        const after = items.slice();
+        const restore = (order) => {
+          state.value.textStrings = order.slice();
+          handleChildChange();
+        };
+        recordReorder({
+          undo: () => restore(before),
+          redo: () => restore(after),
+          isCurrent: () => sameItems(state.value.textStrings, after),
+        });
       },
     });
 
@@ -463,13 +452,15 @@ export default defineComponent({
 
     const handleDeleteEntry = (entry) => {
       if (state.value.textStrings.length <= 1) return;
-      state.value.textStrings = state.value.textStrings.filter(({id}) => id != entry.id);
+      const doomed = idsToDelete(entry.id, 1);
+      state.value.textStrings = state.value.textStrings.filter(({id}) => !doomed.includes(id));
+      if (doomed.length > 1) deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
 
     // No longer clamped to TEXT_MESSAGE_LENGTH (12) characters here - a
-    // message longer than the project's own configured max display width
+    // message longer than the project's  configured max display width
     // (see textMaxDisplayWidth below) now scrolls to show the rest instead
     // of being cut off (see encodeTextMessage in generators/bbasic/
     // text-minikernel.js), so there's no reason to stop the user from
@@ -479,8 +470,18 @@ export default defineComponent({
       handleChildChange();
     };
 
+    // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) put a reordered card back; nothing else on this tab has an
+    // undo.
+    const handleHistoryHotkey = (event) => {
+      const history = undoRedoKind(event);
+      if (!history) return;
+      if (history === 'undo' ? tryUndoReorder() : tryRedoReorder()) event.preventDefault();
+    };
+    onMounted(() => window.addEventListener('keydown', handleHistoryHotkey));
+    onBeforeUnmount(() => window.removeEventListener('keydown', handleHistoryHotkey));
+
     return {
-      selectedCardId, selectCard, deselectCard,
+      selectedCardId, selectedCardIds, selectCard, deselectCard, deleteQuestion,
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
       isCollapsed, toggleCollapsed, textBkColor, enableTextScrollCursor,
       textScrollCursorBlinkSpeed, BLINK_SPEED_OPTIONS, textMaxDisplayWidth,
@@ -499,27 +500,16 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
+/* v-list-item's  default 0 16px padding stacks on top of v-card-text's,
    pushing the message card in further than the Score tab's, which sits
    directly in a v-card-text with no list-item wrapper. Zeroing both sides
    (not just left, as this used to) matches the Player/Data/Background tabs'
-   own identical fix - the unzeroed right padding was otherwise most visible
+   identical fix - the unzeroed right padding was otherwise most visible
    on the last column of .text-list's grid, sitting further from the tab's
    right edge than the left column sits from the left edge. */
 .entry-list-item {
   padding-left: 0;
   padding-right: 0;
-}
-
-/* Pulls this intro paragraph up 5px - confirmed directly (measured from the
-   "Text" title's own text glyphs down to this paragraph's own top: 20px,
-   vs. only 15px between the Text Minikernel Font subcard's own header and
-   ITS description right below it - TextFontEditor.vue's own custom header
-   has less bottom padding than Vuetify's default v-card-title). Matches
-   that tighter subcard spacing instead of the wider gap Vuetify's own
-   v-card-title default padding otherwise leaves here. */
-.text-intro-paragraph {
-  margin-top: -5px;
 }
 
 .text-bkcolor-row {
@@ -530,7 +520,7 @@ export default defineComponent({
 }
 
 /* Same margin-top/padding-top override as .text-columns-switch below -
-   Vuetify's own selection-control margin-top (meant for stacking below
+   Vuetify's selection-control margin-top (meant for stacking below
    other fields) otherwise leaves extra space above this switch. Sits inline
    in .text-bkcolor-row now, to the right of the color picker, so no
    margin-bottom is needed either. */
@@ -541,14 +531,14 @@ export default defineComponent({
   margin-left: 16px;
 }
 
-/* Matches the Score tab's own .score-bkcolor-label size (ScoreFontEditor.vue). */
+/* Matches the Score tab's .score-bkcolor-label size (ScoreFontEditor.vue). */
 .text-bkcolor-label {
   font-size: 1rem;
 }
 
-/* Vuetify's own v-select reserves space above the input for its label,
-   sitting lower than .text-scroll-cursor-switch's own centered toggle+label
-   row right next to it - nudged up to bring its own input line back onto
+/* Vuetify's  v-select reserves space above the input for its label,
+   sitting lower than .text-scroll-cursor-switch's centered toggle+label
+   row right next to it - nudged up to bring its input line back onto
    the same baseline. */
 .text-blink-speed-field {
   max-width: 160px;
@@ -568,15 +558,15 @@ export default defineComponent({
 
 .text-max-width-field {
   max-width: 320px;
-  /* Matches SoundFXEditor.vue's own .soundfx-filter margin-top - without
+  /* Matches SoundFXEditor.vue's .soundfx-filter margin-top - without
      it, this field and .soundfx-filter sit on different baselines, and
-     .text-columns-switch's own offset (tuned to match .soundfx-filter's
+     .text-columns-switch's offset (tuned to match .soundfx-filter's
      row) ends up too low relative to this field specifically. */
   margin-top: 8px;
 }
 
-/* Same margin-top/padding-top override as SoundFXEditor.vue's own
-   .soundfx-columns-switch - Vuetify's own selection-control margin-top
+/* Same margin-top/padding-top override as SoundFXEditor.vue's
+   .soundfx-columns-switch - Vuetify's selection-control margin-top
    (meant for stacking below other fields) otherwise pushes this out of
    line with the select next to it. */
 .text-columns-switch {
@@ -585,7 +575,7 @@ export default defineComponent({
   padding-top: 0 !important;
 }
 
-/* A 12-character message doesn't need anywhere near .text-list's own full
+/* A 12-character message doesn't need anywhere near .text-list's  full
    column width (previously capped at 640px, sized for that) - grid instead
    of the v-list's normal single-column stacking, so two (or more, on a wide
    enough window) fit side by side instead of each wasting most of a full
@@ -599,40 +589,40 @@ export default defineComponent({
      tall to match it, instead of sitting flush at the top like its card
      content actually sizes to. */
   align-items: start;
-  /* Matches BackgroundEditor.vue's own .background-list - restores the
-     space above the FIRST row that zeroing v-list-item__content's own
+  /* Matches BackgroundEditor.vue's .background-list - restores the
+     space above the FIRST row that zeroing v-list-item__content's
      top padding below removes. */
   margin-top: 12px;
 }
 
 /* Single full-width column instead of the grid .text-list defaults to
    above - toggled via the "Columns" switch next to the max-width field.
-   Same shape as SoundFXEditor.vue's own .soundfx-list--single-column. */
+   Same shape as SoundFXEditor.vue's .soundfx-list--single-column. */
 .text-list--single-column {
   display: flex;
   flex-direction: column;
 }
 
-/* Grid stretches each item to fill its own column width automatically -
-   flex doesn't do that for .entry-list-item (Vuetify's own v-list-item, the
-   actual flex child) on its own, leaving .text-card's own width: 100% only
+/* Grid stretches each item to fill its  column width automatically -
+   flex doesn't do that for .entry-list-item (Vuetify's v-list-item, the
+   actual flex child) by itself, leaving .text-card's width: 100% only
    filling 100% of that un-stretched item instead of the whole row. Same
-   fix as SoundFXEditor.vue's own equivalent rule. */
+   fix as SoundFXEditor.vue's equivalent rule. */
 .text-list--single-column .entry-list-item {
   width: 100%;
 }
 
 /* v-list-item__content's default 12px top/bottom padding was adding extra
-   space between grid ROWS on top of this grid's own 8px gap (same issue as
-   BackgroundEditor.vue's own .background-list, see its comment there),
+   space between grid ROWS on top of this grid's 8px gap (same issue as
+   BackgroundEditor.vue's .background-list, see its comment there),
    without anything similar between columns - zeroing it here keeps this
-   grid's own gap as the only source of spacing, matching the Background
-   tab's spacing exactly. overflow: visible (see MusicEditor.vue's own
+   grid's gap as the only source of spacing, matching the Background
+   tab's spacing exactly. overflow: visible (see MusicEditor.vue's
    identical fix) stops this same element's default "overflow: hidden"
-   from clipping a selected card's own 2px outline - min-width: 0 has to
+   from clipping a selected card's 2px outline - min-width: 0 has to
    come with it (same comment there for the full explanation): overflow:
-   visible silently undoes a flex item's own default 0 min-width, letting
-   it refuse to shrink below its own widest content instead of the tab's
+   visible silently undoes a flex item's default 0 min-width, letting
+   it refuse to shrink below its widest content instead of the tab's
    width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
@@ -646,7 +636,7 @@ export default defineComponent({
 }
 
 /* Only this top strip is actually draggable (see hooks/drag-reorder.js's
-   own comment on why) - covers the same header band the collapse/ID/delete
+   comment on why) - covers the same header band the collapse/ID/delete
    controls already occupy. Sits behind them (they're later in DOM order,
    so they paint on top and stay clickable) but in front of everything
    else, so a click-and-drag gesture anywhere else in the card - the name/
@@ -660,7 +650,7 @@ export default defineComponent({
   cursor: grab;
 }
 
-/* hooks/drag-reorder.js's own CSS_CLASS_DRAGGING (see its comment for why
+/* hooks/drag-reorder.js's  CSS_CLASS_DRAGGING (see its comment for why
    this lives per-tab instead of globally) - faded so the card being moved
    reads as "lifted" rather than duplicated. */
 .drag-reorder-dragging {
@@ -669,8 +659,8 @@ export default defineComponent({
 
 /* Which side of THIS card a dragged one would land on (see
    entryDragOverSide/dragOverSideFor) - left/right, not hooks/
-   drag-reorder.js's own top-border convention, since .text-list is a CSS
-   grid that can put more than one card on the same row (see its own
+   drag-reorder.js's top-border convention, since .text-list is a CSS
+   grid that can put more than one card on the same row (see its
    comment) - left/right is what actually reflects reading-order position
    within it. */
 .text-card-drag-over-before {
@@ -683,8 +673,15 @@ export default defineComponent({
 
 /* Vuetify's fab+absolute+top combo centers the button on the card's top
    edge, poking half of it out (and clipped there); pull it down so the whole
-   button sits inside the card instead. */
-.text-delete-btn {
+   button sits inside the card instead.
+   ">>>" deep combinator, not a plain selector - this class now lands on
+   ConfirmDeleteMenu.vue's internal activator button (passed down via
+   its "icon-btn-class" prop), a CHILD component's element that never
+   carries this file's scope attribute, so a plain scoped ".text-delete-btn"
+   selector would silently never match it at all - the same cross-component
+   scoping gap already hit elsewhere in this app (e.g. BlocklyComponent.vue's
+   deep-selector rules for Blockly's runtime-injected markup). */
+.text-card >>> .text-delete-btn {
   top: 8px !important;
   right: 8px !important;
   box-shadow: none !important;
@@ -692,7 +689,7 @@ export default defineComponent({
 
 /* Same top-edge fix as .text-delete-btn, positioned at the opposite corner -
    a smaller top offset than .text-delete-btn's, since this one has to line
-   up against .text-id-badge's own text baseline right next to it, not just
+   up against .text-id-badge's text baseline right next to it, not just
    sit inside the card. */
 .text-collapse-btn {
   top: 2px !important;
@@ -700,7 +697,7 @@ export default defineComponent({
   box-shadow: none !important;
 }
 
-/* Same icon/button sizing as the Player Sprite tab's own toolbar icons
+/* Same icon/button sizing as the Player Sprite tab's  toolbar icons
    (PixelEditor.vue's .pixel-editor-tools rules) - size only, no colour
    changes, so .delete-icon-btn's red-on-hover convention is untouched. */
 .text-icon-btn-size {
@@ -732,22 +729,28 @@ export default defineComponent({
 }
 
 /* Split from the rest of the card's content (text-message-section) so the
-   name field can stay visible while collapsed - v-card-text's own default
-   padding-bottom would otherwise open a gap between them that the original,
-   single v-card-text never had. */
+   name field can stay visible while collapsed. padding-bottom: 0 (an
+   earlier version) left almost no room below the name field's
+   underline while collapsed - unlike DataEditor.vue's equivalent .data-
+   name-section, whose Table name field isn't hide-details, so Vuetify
+   reserves a ~22px hint/error strip below it "for free" - this
+   field IS hide-details (no hint text ever needed here), so that room
+   has to come from padding instead, tuned to match that same ~22px gap
+   directly (confirmed against the real rendered card) rather than
+   guessing. */
 .text-name-section {
-  padding-bottom: 0;
+  padding-bottom: 22px;
 }
 
 .text-message-section {
   padding-top: 0;
 }
 
-/* Vuetify's own v-text-field__details reserves a 12px left padding by
+/* Vuetify's  v-text-field__details reserves a 12px left padding by
    default (tuned for the non-outlined variant's underline, which is inset
-   from the field's own edge) - the outlined Text field's hint sat 12px
-   further right than the field's own left border because of it, confirmed
-   directly via each element's own getBoundingClientRect. Zeroed here so the
+   from the field's edge) - the outlined Text field's hint sat 12px
+   further right than the field's left border because of it, confirmed
+   directly via each element's getBoundingClientRect. Zeroed here so the
    hint lines up with the outline above it instead. */
 .text-message-section >>> .v-textarea .v-text-field__details {
   padding-left: 0;

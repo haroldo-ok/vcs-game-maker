@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div :class="{'quick-color-collapsed': collapsed}">
     <v-divider class="quick-color-divider" />
     <div class="quick-color-label-row">
       <v-btn
@@ -21,9 +21,12 @@
         :class="{
           'quick-color-swatch-selected': value === byte,
           'quick-color-swatch-delete-armed': isAltHeld && hoveredByte === byte,
+          ...dragCardClass(quickIndex),
         }"
         :style="{backgroundColor: cssColor(byte)}"
-        :title="`${bbasicLiteral(byte)} — click to select for painting row colors, alt-click to remove`"
+        :title="`${bbasicLiteral(byte)} — click to select for painting row colors, drag to reorder, alt-click to remove`"
+        v-bind="dragAttrs()"
+        v-on="{...dragHandleListeners(quickIndex), ...dragTargetListeners(quickIndex)}"
         @click="(event) => handleClickSwatch(byte, event)"
         @mouseenter="hoveredByte = byte"
         @mouseleave="hoveredByte = null"
@@ -65,10 +68,13 @@
 import {computed, defineComponent, onMounted, onUnmounted, ref} from '@vue/composition-api';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {useDragReorder} from '../hooks/drag-reorder';
+import {recordQuickColorDeletion} from '../hooks/quick-color-undo';
 import {useColorPaletteStorage} from '../hooks/project';
+import {useDrawColor} from '../hooks/pixel-tool';
 import {colorByteToBBasic, colorByteToCss, NTSC_COLORS} from '../utils/palette';
 
-// A single "entry" for useCollapsedIds' own per-list-item convention -
+// A single "entry" for useCollapsedIds'  per-list-item convention -
 // there's only ever one Quick colors section per tab, not a list of them.
 // A fixed id (not per-instance) so the collapsed state - and the palette
 // data itself, via useColorPaletteStorage below - stays in sync across
@@ -78,15 +84,15 @@ import {colorByteToBBasic, colorByteToCss, NTSC_COLORS} from '../utils/palette';
 const COLLAPSE_ENTRY = {id: 'quick-colors'};
 
 // Reusable "Quick colors" bar - a curated shortlist of color bytes for fast
-// reuse while picking row colors, shown under a divider with its own
-// collapsible header (matching MusicEditor's own Sequence section). Backed
+// reuse while picking row colors, shown under a divider with its
+// collapsible header (matching MusicEditor's  Sequence section). Backed
 // by shared project storage (useColorPaletteStorage), so a color added on
 // one tab (e.g. Player 0) is immediately available on every other tab this
 // component appears on (Player 1, Backgrounds) too.
 //
 // v-model is the currently "armed" color byte (or null) - a plain click
 // selects/deselects a swatch here; the PARENT is expected to pass that
-// value into its own PlayfieldColorStrip instance(s) as activeQuickColor,
+// value into its  PlayfieldColorStrip instance(s) as activeQuickColor,
 // so a plain click on a row swatch there paints this color directly. Armed
 // state is local to this component instance (not shared storage) - it's a
 // live "tool selection", not project data, so it resets per-tab rather
@@ -95,25 +101,58 @@ export default defineComponent({
   name: 'QuickColorPalette',
   props: {
     value: {type: Number, default: null},
+    // The currently focused frame's pixel editor instance, if any (same
+    // value each tab already passes to GraphicEditorToolbar's
+    // active-editor prop) - only used to snapshot its undo history length
+    // at the moment a swatch is deleted, so the toolbar's Undo button can
+    // later tell whether that same frame has been drawn on since (see
+    // hooks/quick-color-undo.js).
+    activeEditor: {type: Object, default: null},
   },
   setup(props, {emit}) {
     const paletteStorage = useColorPaletteStorage();
     const palette = computed(() => paletteStorage.value || []);
+    // Selecting a quick color also puts it in the toolbar's swatch, which is what the Pencil and Fill paint rows with.
+    const selectColor = (byte) => {
+      useDrawColor().value = byte;
+      emit('input', byte);
+    };
     const handleAddColor = (byte) => {
-      if (palette.value.includes(byte)) return;
+      // A color already in the bar is selected there instead of added again.
+      if (palette.value.includes(byte)) {
+        selectColor(byte);
+        return;
+      }
       paletteStorage.value = [...palette.value, byte];
     };
     const handleRemoveColor = (byte) => {
-      paletteStorage.value = palette.value.filter((existing) => existing !== byte);
+      const index = palette.value.indexOf(byte);
+      if (index === -1) return;
+      paletteStorage.value = palette.value.filter((existing, i) => i !== index);
       if (props.value === byte) emit('input', null);
+      recordQuickColorDeletion({
+        byte, index, paletteStorage,
+        undoStackLength: props.activeEditor && props.activeEditor.editor && props.activeEditor.editor.history ?
+          props.activeEditor.editor.history.undoStack.length : null,
+      });
     };
+
+    // Drag a swatch onto another to move it there - same hook every other
+    // reorderable list in this app uses (see hooks/drag-reorder.js), writing
+    // straight back to the shared palette storage so the new order is
+    // immediately visible on every tab this component appears on, same as
+    // adding/removing a color already is.
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} =
+      useDragReorder(() => palette.value, (next) => {
+        paletteStorage.value = next;
+      });
 
     const {isCollapsed, toggleCollapsed: toggleCollapsedEntry} = useCollapsedIds('player-quick-colors');
     const collapsed = computed(() => isCollapsed(COLLAPSE_ENTRY));
     const toggleCollapsed = () => toggleCollapsedEntry(COLLAPSE_ENTRY);
 
     // Tracks whether Alt is currently physically held down, purely for this
-    // bar's own hover feedback - CSS alone can't observe a keyboard
+    // bar's  hover feedback - CSS alone can't observe a keyboard
     // modifier's live state, only :hover, so this needs real key listeners.
     // Window-level (not scoped to the swatches themselves) since a key can
     // be pressed or released while the mouse sits still over a swatch,
@@ -151,11 +190,13 @@ export default defineComponent({
         handleRemoveColor(byte);
         return;
       }
-      emit('input', props.value === byte ? null : byte);
+      if (props.value === byte) emit('input', null);
+      else selectColor(byte);
     };
 
     return {
       palette, handleAddColor, handleRemoveColor,
+      dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       collapsed, toggleCollapsed,
       isAltHeld, hoveredByte, handleClickSwatch,
       ntscPalette: NTSC_COLORS, cssColor: colorByteToCss, bbasicLiteral: colorByteToBBasic,
@@ -165,7 +206,10 @@ export default defineComponent({
 </script>
 <style scoped>
 .quick-color-divider {
-  margin: 8px 0;
+  /* Reaches the full width of the pinned toolbar around it, like the line under it does. */
+  margin: 8px calc(-1 * var(--toolbar-bleed, 0px));
+  /* Vuetify caps a divider at its parent's width, which would leave the negative margin only moving it left. */
+  max-width: none;
 }
 
 .quick-color-label-row {
@@ -182,10 +226,26 @@ export default defineComponent({
   width: 16px !important;
 }
 
+/* margin-top: -2px - .quick-color-label-row's align-items: center lines
+   this label's box up against the 16px collapse button next to it, but
+   the label's text sits slightly LOW within that box (ordinary text
+   line-height, vs. the icon centered exactly in the button), reading as
+   visibly unaligned - confirmed directly as a real reported "text needs
+   to move up a pixel or two". */
 .quick-color-section-label {
   font-size: 12px;
   color: rgba(0, 0, 0, 0.6);
-  margin-bottom: 4px;
+  margin-top: -2px;
+  margin-bottom: 2px;
+}
+
+/* Collapsed, only the label row is left, so it doesn't need the room the swatches would sit in below it. */
+.quick-color-collapsed .quick-color-section-label {
+  margin-bottom: 0;
+}
+
+.quick-color-collapsed {
+  margin-bottom: -4px;
 }
 
 .quick-color-palette {
@@ -193,7 +253,7 @@ export default defineComponent({
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 2px;
 }
 
 .quick-color-swatch {
@@ -211,10 +271,25 @@ export default defineComponent({
   outline-offset: -2px;
 }
 
+/* Same hooks/drag-reorder.js classes every other reorderable list in this
+   app uses, styled for a horizontally-wrapping row of swatches instead of a
+   vertical stack of cards - a left border (this list's drop target always
+   lands BEFORE the swatch it's dropped on, same as the shared hook's other
+   callers) reads as "insert here" the way a top border does for a card
+   list, without eating into this tiny swatch's visible color square the
+   way shrinking it to fit an outline would. */
+.quick-color-swatch.drag-reorder-dragging {
+  opacity: 0.4;
+}
+
+.quick-color-swatch.drag-reorder-over {
+  border-left: 3px solid var(--v-primary-base, #1976d2);
+}
+
 /* The currently-armed color - a visibly bolder/thicker outline than the
    plain hover outline above, so "this one's armed for painting" reads as a
    distinctly stronger state than "the mouse just happens to be over it".
-   White-then-black double ring (matching PlayfieldColorStrip's own
+   White-then-black double ring (matching PlayfieldColorStrip's
    .palette-swatch.selected) instead of a solid color outline, so it stays
    visible against a quick color that's itself close to white or black. */
 .quick-color-swatch-selected {
@@ -227,15 +302,17 @@ export default defineComponent({
    action about to happen - a red outline plus the "X" icon (see
    .quick-color-delete-icon below) rather than just the plain hover ring,
    so it's unambiguous this click removes the color instead of selecting
-   it. */
+   it. var(--destructive-color, red) - see App.vue's comment on that
+   variable - so this darkens along with every other "delete" accent under
+   Subdued Palette instead of staying the one leftover bright red. */
 .quick-color-swatch-delete-armed {
-  outline: 2px solid red;
+  outline: 2px solid var(--destructive-color, red);
   outline-offset: -2px;
   cursor: not-allowed;
 }
 
 .quick-color-delete-icon {
-  color: red !important;
+  color: var(--destructive-color, red) !important;
   /* A dark swatch would otherwise swallow a plain red icon - the shadow
      keeps the "X" readable against any quick color, light or dark. */
   filter: drop-shadow(0 0 1px white) drop-shadow(0 0 1px white);
@@ -246,7 +323,7 @@ export default defineComponent({
   height: 20px !important;
 }
 
-/* Same popup grid style as PlayfieldColorStrip's own .palette-card/
+/* Same popup grid style as PlayfieldColorStrip's .palette-card/
    .palette-grid/.palette-swatch - duplicated rather than imported since
    this one lives in a plain v-menu here, not that component. */
 .palette-card {
@@ -255,18 +332,19 @@ export default defineComponent({
 
 .palette-grid {
   display: grid;
-  grid-template-columns: repeat(8, 18px);
-  gap: 1px;
+  grid-template-columns: repeat(8, 28px);
+  gap: 0;
 }
 
+/* The same swatch the color blocks' picker shows (see App.vue's .fieldGridDropDownContainer
+   rules): 28 pixel squares with no gap. */
 .palette-swatch {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   cursor: pointer;
 }
 
 .palette-swatch:hover {
-  outline: 2px solid #1976d2;
-  outline-offset: -2px;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45);
 }
 </style>

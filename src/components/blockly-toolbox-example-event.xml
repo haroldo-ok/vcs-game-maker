@@ -34,7 +34,8 @@
             <statement name="DO">
                 <block type="controls_if">
                 <value name="IF0">
-                    <block type="input_joy0_get">
+                    <block type="input_joystick_get">
+                    <field name="JOYSTICK">0</field>
                     <field name="VAR">joy0fire</field>
                     </block>
                 </value>

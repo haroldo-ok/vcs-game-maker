@@ -1,0 +1,210 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+package cartridge
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/jetsetilly/gopher2600/environment"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/mapper"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/mapper/banking"
+	"github.com/jetsetilly/gopher2600/hardware/memory/memorymap"
+	"github.com/jetsetilly/gopher2600/logger"
+)
+
+type ua struct {
+	env *environment.Environment
+
+	mappingID string
+
+	// ua cartridges are 8k in size and have two banks of 4096 bytes
+	bankSize int
+	banks    [][]uint8
+
+	// identifies the currently selected bank
+	bank int
+
+	// the hotspot addresses are swapped
+	swappedHotspots bool
+}
+
+func newUA(env *environment.Environment, swappedHotspots bool) (mapper.CartMapper, error) {
+	data, err := io.ReadAll(env.Loader)
+	if err != nil {
+		return nil, fmt.Errorf("UA: %w", err)
+	}
+
+	cart := &ua{
+		env:             env,
+		mappingID:       "UA",
+		bankSize:        4096,
+		swappedHotspots: swappedHotspots,
+	}
+
+	if len(data) != cart.bankSize*cart.NumBanks() {
+		return nil, fmt.Errorf("%s: wrong number of bytes in the cartridge data", cart.mappingID)
+	}
+
+	cart.banks = make([][]uint8, cart.NumBanks())
+
+	for k := 0; k < cart.NumBanks(); k++ {
+		cart.banks[k] = make([]uint8, cart.bankSize)
+		offset := k * cart.bankSize
+		copy(cart.banks[k], data[offset:offset+cart.bankSize])
+	}
+
+	// only one cartridge dump is known to have swapped hotspots
+	if !cart.swappedHotspots {
+		switch env.Loader.HashSHA1 {
+		case "6d4a94c2348bbd8e9c73b73d8f3389196d42fd54":
+			cart.swappedHotspots = true
+			logger.Log(env, cart.mappingID, "swapping hotspot address for this cartridge: Sorcerer's Apprentice")
+		case "e38fa80640137fa9db3d2b1bb87e710435baf107":
+			cart.swappedHotspots = true
+			logger.Log(env, cart.mappingID, "swapping hotspot address for this cartridge: Beamrider (Digivision JVP) (Brazil)")
+		}
+	}
+
+	if cart.swappedHotspots {
+		cart.mappingID = "UASW"
+	}
+
+	return cart, nil
+}
+
+// MappedBanks implements the mapper.CartMapper interface
+func (cart *ua) MappedBanks() string {
+	return fmt.Sprintf("Bank: %d", cart.bank)
+}
+
+// ID implements the mapper.CartMapper interface
+func (cart *ua) ID() string {
+	return cart.mappingID
+}
+
+// Snapshot implements the mapper.CartMapper interface
+func (cart *ua) Snapshot() mapper.CartMapper {
+	n := *cart
+	return &n
+}
+
+// Plumb implements the mapper.CartMapper interface
+func (cart *ua) Plumb(env *environment.Environment) {
+	cart.env = env
+}
+
+// Reset implements the mapper.CartMapper interface
+func (cart *ua) Reset() error {
+	cart.SetBank("AUTO")
+	return nil
+}
+
+// Access implements the mapper.CartMapper interface
+func (cart *ua) Access(addr uint16, _ bool) (uint8, uint8, error) {
+	return cart.banks[cart.bank][addr], mapper.CartDrivenPins, nil
+}
+
+// AccessVolatile implements the mapper.CartMapper interface
+func (cart *ua) AccessVolatile(addr uint16, data uint8, poke bool) error {
+	if poke {
+		cart.banks[cart.bank][addr] = data
+	}
+	return nil
+}
+
+// NumBanks implements the mapper.CartMapper interface
+func (cart *ua) NumBanks() int {
+	return 2
+}
+
+// GetBank implements the mapper.CartMapper interface
+func (cart *ua) GetBank(addr uint16) banking.Information {
+	// ua cartridges are like atari cartridges in that the entire address
+	// space points to the selected bank
+	return banking.Information{Number: cart.bank}
+}
+
+// SetBank implements the mapper.CartMapper interface.
+func (cart *ua) SetBank(bank string) error {
+	if banking.IsAutoSelection(bank) {
+		cart.bank = len(cart.banks) - 1
+		return nil
+	}
+
+	b, err := banking.SingleSelection(bank)
+	if err != nil {
+		return fmt.Errorf("%s: %w", cart.mappingID, err)
+	}
+
+	if b.Number >= len(cart.banks) {
+		return fmt.Errorf("%s: cartridge does not have bank '%d'", cart.mappingID, b.Number)
+	}
+	if b.IsRAM {
+		return fmt.Errorf("%s: cartridge does not have bankable RAM", cart.mappingID)
+	}
+
+	cart.bank = b.Number
+
+	return nil
+}
+
+// AccessPassive implements the mapper.CartMapper interface
+func (cart *ua) AccessPassive(addr uint16, data uint8) error {
+	switch addr & 0x1260 {
+	case 0x0220:
+		if cart.swappedHotspots {
+			cart.bank = 1
+		} else {
+			cart.bank = 0
+		}
+	case 0x0240:
+		if cart.swappedHotspots {
+			cart.bank = 0
+		} else {
+			cart.bank = 1
+		}
+	}
+	return nil
+}
+
+// Step implements the mapper.CartMapper interface
+func (cart *ua) Step(_ float32) {
+}
+
+// CopyBanks implements the mapper.CartMapper interface
+func (cart *ua) CopyBanks() []banking.Content {
+	c := make([]banking.Content, len(cart.banks))
+	for b := 0; b < len(cart.banks); b++ {
+		c[b] = banking.Content{Number: b,
+			Data:    cart.banks[b],
+			Origins: []uint16{memorymap.OriginCartFxxx},
+		}
+	}
+	return c
+}
+
+// Patch implements the mapper.CartPatchable interface
+func (cart *ua) Patch(offset int, data uint8) error {
+	if offset >= cart.bankSize*len(cart.banks) {
+		return fmt.Errorf("%s: patch offset too high (%d)", cart.mappingID, offset)
+	}
+
+	bank := offset / cart.bankSize
+	offset %= cart.bankSize
+	cart.banks[bank][offset] = data
+	return nil
+}

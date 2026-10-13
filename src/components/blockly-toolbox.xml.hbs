@@ -1,4 +1,5 @@
 <xml>
+    <category kind="search" name="Search" colour="%{BKY_LOGIC_HUE}"></category>
     <category name="Logic" colour="%{BKY_LOGIC_HUE}">
         <block type="controls_if"></block>
         <block type="controls_if">
@@ -45,14 +46,6 @@
         </block>
         <block type="controls_whileUntil"></block>
 
-        <block type="wait_frames">
-            <value name="FRAMES">
-                <shadow type="math_number">
-                    <field name="NUM">30</field>
-                </shadow>
-            </value>
-        </block>
-
         <block type="controls_repeat_ext">
             <value name="TIMES">
                 <block type="math_number">
@@ -79,24 +72,62 @@
         <block type="math_number">
             <field name="NUM">123</field>
         </block>
-        <block type="math_arithmetic"></block>
+        <block type="math_arithmetic">
+            <value name="A">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="B">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
         <block type="math_abs_set"></block>
+        <block type="variables_push"></block>
+        <block type="variables_pull"></block>
+        <block type="variables_stack_position"></block>
     </category>
     <category name="Variables" custom="VARIABLE" colour="%{BKY_VARIABLES_HUE}">
     </category>
     <category name="Input" colour="green">
-        <block type="input_joy0_get"></block>
-        <block type="input_joy1_get"></block>
-        <block type="input_joy0_direction8"></block>
-        <block type="input_joy1_direction8"></block>
-        <block type="input_joy0_fire_pattern"></block>
-        <block type="input_joy1_fire_pattern"></block>
-        <block type="input_keypad0_get"></block>
-        <block type="input_keypad1_get"></block>
-        <block type="input_keypad0_any_pressed"></block>
-        <block type="input_keypad1_any_pressed"></block>
-        <block type="input_keypad0_id_get"></block>
-        <block type="input_keypad1_id_get"></block>
+        <block type="input_joystick_get">
+            <field name="JOYSTICK">0</field>
+        </block>
+        <block type="input_joystick_direction8">
+            <field name="JOYSTICK">0</field>
+        </block>
+        <block type="input_joystick_fire_pattern">
+            <field name="JOYSTICK">0</field>
+        </block>
+        <block type="input_joystick_get">
+            <field name="JOYSTICK">1</field>
+        </block>
+        <block type="input_joystick_direction8">
+            <field name="JOYSTICK">1</field>
+        </block>
+        <block type="input_joystick_fire_pattern">
+            <field name="JOYSTICK">1</field>
+        </block>
+        <block type="input_keypad_get">
+            <field name="KEYPAD">0</field>
+        </block>
+        <block type="input_keypad_any_pressed">
+            <field name="KEYPAD">0</field>
+        </block>
+        <block type="input_keypad_id_get">
+            <field name="KEYPAD">0</field>
+        </block>
+        <block type="input_keypad_get">
+            <field name="KEYPAD">1</field>
+        </block>
+        <block type="input_keypad_any_pressed">
+            <field name="KEYPAD">1</field>
+        </block>
+        <block type="input_keypad_id_get">
+            <field name="KEYPAD">1</field>
+        </block>
         <block type="collision_get"></block>
         <block type="collision_check_position"></block>
         <block type="input_console_switch_get"></block>
@@ -150,8 +181,9 @@
             </value>
         </block>
     </category>
-    <category name="Title" colour="rgb(233, 30, 99)">
+    <category name="Title" colour="rgb(103, 58, 183)">
         <block type="titlescreen_draw"></block>
+        <block type="titlescreen_end"></block>
         <block type="titlescreen_scroll_set">
             <value name="VALUE">
                 <shadow type="math_number">
@@ -159,6 +191,58 @@
                 </shadow>
             </value>
         </block>
+        <block type="titlescreen_scroll_by">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_scroll_edge_reached"></block>
+        <block type="titlescreen_animation_finished"></block>
+        <block type="titlescreen_card_color_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">14</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_card_color_fade">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">14</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">60</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_card_animate"></block>
+        <block type="titlescreen_card_frame_set">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_box_set"></block>
+        <block type="titlescreen_box_color_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">70</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_bg_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="titlescreen_bg_reset"></block>
         <block type="titlescreen_player_frame_set">
             <value name="VALUE">
                 <shadow type="math_number">
@@ -167,7 +251,7 @@
             </value>
         </block>
     </category>
-    <category name="Sprites" colour="red">
+    <category name="Sprites" colour="rgb(33, 150, 243)">
 
         <block type="sprite_player_get"></block>
         <block type="sprite_player_set">
@@ -185,8 +269,18 @@
             </value>
         </block>
         <block type="sprite_player_size" />
+        <block type="sprite_player_set_animation"></block>
+        <block type="sprite_player_set_animation_id">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_player_animation_id_get"></block>
         <block type="sprite_player_animation_select"></block>
         <block type="sprite_player_animation_playback"></block>
+        <block type="sprite_player_animation_finished"></block>
         <block type="sprite_player_rom_noise">
             <value name="OFFSET">
                 <shadow type="math_number">
@@ -321,8 +415,12 @@
                     <field name="NUM">0</field>
                 </shadow>
             </value>
+            <value name="SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
-        <block type="sprite_missile_bounce"></block>
 
         <block type="sprite_missile_get">
             <field name="MISSILE">1</field>
@@ -372,9 +470,11 @@
                     <field name="NUM">0</field>
                 </shadow>
             </value>
-        </block>
-        <block type="sprite_missile_bounce">
-            <field name="MISSILE">1</field>
+            <value name="SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
 
         <block type="sprite_ball_get"></block>
@@ -392,7 +492,8 @@
                 </shadow>
             </value>
         </block>
-        <block type="sprite_ball_fire">
+        <block type="sprite_missile_fire">
+            <field name="MISSILE">ball</field>
             <value name="X">
                 <shadow type="math_number">
                     <field name="NUM">0</field>
@@ -408,8 +509,22 @@
                     <field name="NUM">0</field>
                 </shadow>
             </value>
+            <value name="SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
-        <block type="sprite_ball_bounce"></block>
+
+        <block type="object_fire_stop"></block>
+        <block type="sprite_fire_speed_set">
+            <value name="SPEED">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_fire_angle_get"></block>
 
         <block type="object_seek_to">
             <value name="X">
@@ -431,8 +546,68 @@
 
         <block type="object_seek_arrived"></block>
 
+        <block type="sprite_lock">
+            <field name="CHILD">player1</field>
+            <field name="PARENT">player0</field>
+            <value name="X">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+            <value name="Y">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_unlock">
+            <field name="CHILD">player1</field>
+        </block>
+
+        <block type="sprite_scroll_with_playfield_set">
+            <value name="VALUE">
+                <shadow type="logic_boolean">
+                    <field name="BOOL">TRUE</field>
+                </shadow>
+            </value>
+        </block>
+
+        <block type="sprite_scroll_with_playfield_get"></block>
+
+        <block type="sprite_inertia_accelerate">
+            <value name="DIRECTION">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="RATE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+            <value name="MAXSPEED">
+                <shadow type="math_number">
+                    <field name="NUM">10</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="sprite_inertia_decelerate">
+            <value name="RATE">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="object_bounce">
+            <value name="ANGLE">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+
     </category>
-    <category name="Background" colour="#ffa500">
+    <category name="Background" colour="rgb(255, 152, 0)">
         <block type="sprite_priority_set"></block>
         <block type="background_select"></block>
         <block type="background_set">
@@ -459,6 +634,18 @@
             </value>
         </block>
         <block type="background_get_color"></block>
+        <block type="background_fade_rows_from">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">0</field>
+                </shadow>
+            </value>
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
         <block type="background_fade_to">
             <field name="VAR">COLUBK</field>
             <value name="VALUE">
@@ -483,6 +670,28 @@
             <value name="Y">
                 <shadow type="math_number">
                     <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="background_area_clear">
+            <value name="X1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="X2">
+                <shadow type="math_number">
+                    <field name="NUM">3</field>
+                </shadow>
+            </value>
+            <value name="Y2">
+                <shadow type="math_number">
+                    <field name="NUM">3</field>
                 </shadow>
             </value>
         </block>
@@ -538,6 +747,21 @@
             </value>
         </block>
         <block type="background_scroll">
+            <field name="DIRECTION">up</field>
+        </block>
+        <block type="background_scroll_colors">
+            <field name="DIRECTION">up</field>
+        </block>
+        <block type="background_scroll_position"></block>
+        <block type="background_scroll_set_row">
+            <value name="ROW">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="background_scroll_edge_reached">
+            <field name="EDGE">bottom</field>
         </block>
         <block type="background_get_resolution"></block>
         <block type="background_pixel_to_sprite">
@@ -554,8 +778,25 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_collision_pixel_direction">
+            <field name="SPRITE">missile0</field>
+            <value name="DIRECTION">
+                <shadow type="math_number">
+                    <field name="NUM">2</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="background_collision_pixel_column"></block>
+        <block type="background_collision_pixel_row"></block>
+        <block type="background_rainbow_colors">
+            <value name="OFFSET">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="background_rainbow_colors_stop"></block>
         <block type="background_clear"></block>
-        <block type="draw_screen"></block>
         <block type="screen_shake">
             <value name="FRAMES">
                 <shadow type="math_number">
@@ -563,12 +804,22 @@
                 </shadow>
             </value>
         </block>
+        {{#if kernelIsDpcPlus}}
+        <block type="background_set_dpc_plus_row_height">
+            <value name="SCANLINES">
+                <shadow type="math_number">
+                    <field name="NUM">8</field>
+                </shadow>
+            </value>
+        </block>
+        {{/if}}
+        <block type="draw_screen"></block>
     </category>
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
         <block type="soundfx_play"></block>
     </category>
-    <category name="Music" colour="rgb(255, 87, 34)">
+    <category name="Music" colour="rgb(0, 188, 212)">
         <block type="music_play_song"></block>
         <block type="music_play_song_by_id">
             <value name="SONG_ID">
@@ -600,6 +851,8 @@
         <block type="music_sequence_chip_finished"></block>
         <block type="music_sequence_chip_finished_by_id"></block>
         <block type="music_sequence_chip_finished_current_song"></block>
+        <block type="music_sequence_chip_playing_by_id"></block>
+        <block type="music_sequence_chip_playing_current_song"></block>
         <block type="music_note_played"></block>
         <block type="music_note_played_by_id"></block>
     </category>
@@ -619,6 +872,8 @@
                 </shadow>
             </value>
         </block>
+
+        <block type="score_font_set"></block>
 
         <block type="score_color_get"></block>
         <block type="score_color_set">
@@ -716,7 +971,7 @@
             </value>
         </block>
     </category>
-    <category name="Text" colour="#3F51B5">
+    <category name="Text" colour="rgb(233, 30, 99)">
         <block type="text_minikernel_show"></block>
         <block type="text_minikernel_show_row"></block>
         <block type="text_minikernel_show_named"></block>
@@ -819,6 +1074,14 @@
         <block type="text_minikernel_clear"></block>
     </category>
     <category name="Data" colour="rgb(121, 85, 72)">
+        <block type="data_table_size"></block>
+        <block type="data_table_size_by_id">
+            <value name="TABLE_ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="data_get_element">
             <value name="INDEX">
                 <shadow type="math_number">
@@ -870,7 +1133,8 @@
           <statement name="DO">
             <block type="controls_if">
               <value name="IF0">
-                <block type="input_joy0_get">
+                <block type="input_joystick_get">
+                  <field name="JOYSTICK">0</field>
                   <field name="VAR">joy0fire</field>
                 </block>
               </value>
@@ -886,9 +1150,19 @@
         <block type="event_frame_even_odd"></block>
         <block type="event_frame_every_n"></block>
         <block type="event_run_once"></block>
+        <block type="wait_frames">
+            <value name="FRAMES">
+                <shadow type="math_number">
+                    <field name="NUM">30</field>
+                </shadow>
+            </value>
+        </block>
 
         <block type="subroutine_define"></block>
         <block type="subroutine_call"></block>
+        <block type="subroutine_return"></block>
+        <block type="label_define"></block>
+        <block type="label_goto"></block>
 
         <block type="function_define"></block>
         <block type="function_param_get"></block>
@@ -914,10 +1188,12 @@
             </value>
         </block>
 
+    </category>
+    <category name="Comment" colour="#BDBDBD">
         <block type="event_comment"></block>
         <block type="event_comment_wrapper"></block>
     </category>
-    <category name="Examples" colour="cyan">
+    <category name="Examples" colour="#5ba6a6">
 
         {{{blocklyToolboxPlayer0Movement}}}
 

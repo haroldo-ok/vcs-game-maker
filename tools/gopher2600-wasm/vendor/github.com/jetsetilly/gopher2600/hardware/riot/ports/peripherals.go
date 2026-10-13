@@ -1,0 +1,210 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+package ports
+
+import (
+	"github.com/jetsetilly/gopher2600/environment"
+	"github.com/jetsetilly/gopher2600/hardware/memory/chipbus"
+	"github.com/jetsetilly/gopher2600/hardware/riot/ports/plugging"
+)
+
+// Peripheral represents a (input or output) device that can plugged into the
+// ports of the VCS.
+type Peripheral interface {
+	// String should return information about the state of the peripheral
+	String() string
+
+	// Reset state of peripheral. be careful how peripherals implement this. it's not like the
+	// cartridge reset function, for example, which is called on cartridge insertion. resetting a
+	// peripheral is more about putting the peripheral in a known state and can be called much more
+	// frequently than the console reset.
+	//
+	// A good example of a peripheral were care needs to be taken, is the panel peripheral. There
+	// are stateful switches on the panel (eg. the colour switch). These should not be reset.
+	// However, those parts of the peripheral that require direct user interaction (eg. the reset
+	// switch) should be reset.
+	//
+	// For most peripherals there are not stateful inputs. In other words, all input requres direct
+	// user interaction.
+	Reset()
+
+	// Periperhal is to be removed. This should be used to clean up any resources used by the
+	// peripheral (closing external files, etc.)
+	//
+	// It should also make sure the INPTx registers are left in a suitable state for an unplugged
+	// device. For example, INPT4 and INPT5 should be reset to 0x80 because that is the null state
+	// for those registers. INPT0 to INPT3 however, should not be reset
+	Unplug()
+
+	// Snapshot the instance of the Peripheral
+	Snapshot() Peripheral
+
+	// Plumb a new PeripheralBus into the Peripheral
+	Plumb(PeripheralBus)
+
+	// The port the peripheral is plugged into
+	PortID() plugging.PortID
+
+	// The ID of the peripheral being represented
+	ID() plugging.PeripheralID
+
+	// handle an incoming input event
+	HandleEvent(Event, EventData) (bool, error)
+
+	// memory has been updated. peripherals are notified.
+	Update(chipbus.ChangedRegister) bool
+
+	// step is called every CPU clock. important for paddle devices
+	Step()
+
+	// whether the peripheral is currently "active"
+	IsActive() bool
+}
+
+// PeripheralShim implementations allow other peripherals to be plugged into them
+type PeripheralShim interface {
+	// Plug peripheral into shim
+	Plug(Peripheral)
+
+	// the child of this peripheral
+	Periph() Peripheral
+
+	// ShimID is the ID of the shim. For the ID of the peripheral plugged into it use the ID()
+	// function
+	ShimID() plugging.PeripheralID
+
+	// the ID of the peripheral plugged into the shim
+	ID() plugging.PeripheralID
+
+	// shim specific protocol information
+	Protocol() string
+}
+
+// MutePeripheral is implemented by peripherals that produce audio independent of the emulators
+// sound output. This is useful for implementations that call on third-party applications/processes
+// to produce output.
+type MutePeripheral interface {
+	Mute(bool)
+}
+
+// RestartPeripheral is implemented by peripherals that can significantly change configuration. For
+// example, the AtariVox can make use of an external program which might be changed during the
+// emulation.
+//
+// Implementations should be careful about restarting unecessarily. For example, only if the
+// underlying preference controlling the peripheral has changed.
+type RestartPeripheral interface {
+	Restart()
+}
+
+// DisablePeripheral is implemented by peripherals that can be disabled. This is useful for
+// peripherals that do not act well during rewinding.
+type DisablePeripheral interface {
+	Disable(bool)
+}
+
+// NewPeripheral defines the function signature for a creating a new
+// peripheral, suitable for use with AttachPloyer0() and AttachPlayer1().
+type NewPeripheral func(*environment.Environment, plugging.PortID, PeripheralBus) Peripheral
+
+// PeripheralBus defines the memory operations required by peripherals. We keep
+// this bus definition here rather than the Bus package because it is very
+// specific to this package and sub-packages.
+type PeripheralBus interface {
+	WriteINPTx(inptx chipbus.Register, data uint8)
+
+	// the SWCHA register is logically divided into two nibbles. player 0
+	// uses the upper nibble and player 1 uses the lower nibble. peripherals
+	// attached to either player port *must* only use the upper nibble. this
+	// write function will transparently shift the data into the lower nibble
+	// for peripherals attached to the player 1 port.
+	//
+	// also note that peripherals do not need to worry about preserving bits
+	// in the opposite nibble. the WriteSWCHx implementation will do that
+	// transparently according to which port the peripheral is attached
+	//
+	// Peripherals attached to the panel port can use the entire byte of the
+	// SWCHB register
+	WriteSWCHx(id plugging.PortID, data uint8)
+}
+
+// periperhalNone represents the absence of a peripheral in a port
+type peripheralNone struct {
+	bus  PeripheralBus
+	port plugging.PortID
+}
+
+// NewPeripheralNone creates a new instance of peripheralNone, which represents an absence of a
+// peripheral in a port.
+func NewPeripheralNone(_ *environment.Environment, port plugging.PortID, bus PeripheralBus) Peripheral {
+	return &peripheralNone{
+		bus:  bus,
+		port: port,
+	}
+}
+
+func (_ *peripheralNone) String() string {
+	return string(plugging.PeriphNone)
+}
+
+func (p *peripheralNone) Reset() {
+	switch p.port {
+	case plugging.PortLeft:
+		p.bus.WriteINPTx(chipbus.INPT4, 0x80)
+	case plugging.PortRight:
+		p.bus.WriteINPTx(chipbus.INPT5, 0x80)
+	}
+}
+
+func (p *peripheralNone) Unplug() {
+	switch p.port {
+	case plugging.PortLeft:
+		p.bus.WriteINPTx(chipbus.INPT4, 0x80)
+	case plugging.PortRight:
+		p.bus.WriteINPTx(chipbus.INPT5, 0x80)
+	}
+}
+
+func (p *peripheralNone) Snapshot() Peripheral {
+	n := *p
+	return &n
+}
+
+func (_ *peripheralNone) Plumb(PeripheralBus) {
+}
+
+func (p *peripheralNone) PortID() plugging.PortID {
+	return p.port
+}
+
+func (_ *peripheralNone) ID() plugging.PeripheralID {
+	return plugging.PeriphNone
+}
+
+func (_ *peripheralNone) HandleEvent(Event, EventData) (bool, error) {
+	return false, nil
+}
+
+func (_ *peripheralNone) Update(chipbus.ChangedRegister) bool {
+	return false
+}
+
+func (_ *peripheralNone) Step() {
+}
+
+func (_ *peripheralNone) IsActive() bool {
+	return false
+}

@@ -1,10 +1,9 @@
 <template>
-  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText}">
+  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode}">
     <div class="app-logo">
       <img src="./assets/logo.svg" alt="VCS Game Maker" class="app-logo-img" />
       <div class="app-logo-version">{{ version }}</div>
     </div>
-    <div class="app-logo-divider" />
 
     <v-app-bar
       app
@@ -13,7 +12,6 @@
       height="72"
       color="white"
       class="navigation-list top-toolbar"
-      :class="{'top-toolbar-no-drawer': hideSidebar || !drawer}"
     >
         <v-btn to="/" link text class="actions-item" title="Actions" elevation="0">
           <v-icon>mdi-chart-scatter-plot</v-icon>
@@ -78,7 +76,6 @@
     >
       <div class="nav-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
       <v-list
-        shaped
         class="navigation-list"
       >
         <v-list-item
@@ -263,22 +260,133 @@
       :mobile-breakpoint="0"
     >
       <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
-        <v-btn
-          block
-          small
-          text
-          class="emulator-refresh-button"
-          title="Reload the page to fix the emulator preview if it has disappeared - you'll need to click Update ROM again afterward"
-          @click="handleRefreshEmulator"
-        >
-          <v-icon left small>mdi-refresh</v-icon>
-          Refresh emulator
-        </v-btn>
-        <div id="javatari-target-container" :style="emulatorScaleStyle"></div>
+        <div class="emulator-toolbar-row">
+          <v-btn
+            small
+            class="emulator-refresh-button"
+            title="Reload the page to fix the emulator preview if it has disappeared - you'll need to click Update ROM again afterward"
+            @click="handleRefreshEmulator"
+          >
+            <v-icon left small>mdi-refresh</v-icon>
+            Refresh emulator
+          </v-btn>
+          <div class="emulator-toolbar-icons">
+            <v-btn
+              icon
+              small
+              class="emulator-flat-icon-btn emulator-fullscreen-btn"
+              title="Show the emulator full screen (Esc to leave)"
+              @click="handleFullscreen"
+            >
+              <v-icon>mdi-fullscreen</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
+              class="emulator-flat-icon-btn emulator-screenshot-btn"
+              title="Save a screenshot of the emulator screen as a PNG"
+              @click="handleScreenshot"
+            >
+              <v-icon>mdi-camera-outline</v-icon>
+            </v-btn>
+            <v-divider class="emulator-toolbar-divider" vertical />
+            <v-btn
+              v-if="emulatorSettings.backend === 'stellerator'"
+              icon
+              small
+              class="emulator-flat-icon-btn emulator-debug-btn"
+              :class="{'emulator-debug-btn-on': emulatorSettings.debugOverlay}"
+              :title="emulatorSettings.debugOverlay ? 'Hide the debug info over the emulator screen' : 'Show debug info (registers, program counter, scanlines, CPU cycles) over the emulator screen'"
+              @click="handleToggleDebugOverlay"
+            >
+              <v-icon>mdi-bug-outline</v-icon>
+            </v-btn>
+            <debug-settings-dialog v-if="emulatorSettings.backend === 'stellerator'"></debug-settings-dialog>
+            <key-mapping-dialog></key-mapping-dialog>
+            <emulator-settings-dialog></emulator-settings-dialog>
+          </div>
+        </div>
+        <div id="gopher2600-target-container" :style="emulatorScaleStyle">
+          <div
+            v-if="emulatorSettings.backend === 'stellerator' && emulatorSettings.debugOverlay && debugInfo"
+            class="emulator-debug-overlay"
+          >
+            <pre>{{ debugText }}</pre>
+            <table v-if="debugVariableRows.length" class="emulator-debug-table">
+              <tr v-for="(row, rowIndex) in debugVariableRows" :key="rowIndex">
+                <template v-for="(cell, cellIndex) in row">
+                  <td :key="`n${cellIndex}`" class="emulator-debug-name">{{ cell.name }}</td>
+                  <td :key="`v${cellIndex}`" class="emulator-debug-value">{{ cell.text }}</td>
+                </template>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div class="panel-switches-row mt-2">
+          <v-btn
+            small
+            :color="emulatorPoweredOn ? 'green' : undefined"
+            class="emulator-power-button"
+            :class="{'emulator-power-button-on': emulatorPoweredOn}"
+            title="Power the emulated console on or off"
+            @click="handleTogglePower(!emulatorPoweredOn)"
+          >
+            <v-icon small>mdi-power</v-icon>
+          </v-btn>
+          <v-btn
+            small
+            :color="emulatorColorMode ? 'primary' : undefined"
+            title="Color/B&W switch"
+            @click="handleToggleColorMode(!emulatorColorMode)"
+          >
+            {{ emulatorColorMode ? 'Color' : 'B&W' }}
+          </v-btn>
+          <v-btn
+            small
+            :color="emulatorLeftDifficultyPro ? 'primary' : undefined"
+            title="Left (Player 1) difficulty switch"
+            @click="handleToggleDifficulty('left', !emulatorLeftDifficultyPro)"
+          >
+            P1: {{ emulatorLeftDifficultyPro ? 'A' : 'B' }}
+          </v-btn>
+          <v-btn
+            small
+            :color="emulatorRightDifficultyPro ? 'primary' : undefined"
+            title="Right (Player 2) difficulty switch"
+            @click="handleToggleDifficulty('right', !emulatorRightDifficultyPro)"
+          >
+            P2: {{ emulatorRightDifficultyPro ? 'A' : 'B' }}
+          </v-btn>
+          <div class="emulator-select-reset-group">
+            <v-btn
+              small
+              class="emulator-select-button"
+              title="Select switch - hold to select (e.g. cycle game variation)"
+              @mousedown="handlePressSelect"
+              @mouseup="handleReleaseSelect"
+              @mouseleave="handleReleaseSelect"
+            >
+              Select
+            </v-btn>
+            <v-btn
+              small
+              class="emulator-reset-button"
+              title="Reset switch - hold to reset the running game"
+              @mousedown="handlePressReset"
+              @mouseup="handleReleaseReset"
+              @mouseleave="handleReleaseReset"
+            >
+              Reset
+            </v-btn>
+          </div>
+        </div>
         <div class="rom-buttons-row mt-2">
           <v-btn
             :color="romOutdated ? 'warning' : 'primary'"
             :loading="building"
+            :disabled="buildInProgress && !building"
+            :title="buildInProgress && !building ?
+              'A title screen preview is currently building - try again once it finishes' : undefined"
             @click="handleRomUpdate"
           >
             {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
@@ -292,9 +400,28 @@
           >
             Test in Stella
           </v-btn>
-          <v-btn color="primary" :disabled="!hasCompiledRom" @click="handleRomDownload">
-            Save ROM
-          </v-btn>
+          <v-menu v-model="romSaveMenuOpen" top offset-y>
+            <template v-slot:activator="{ attrs }">
+              <!-- Where the browser has a save dialog with a "Save as type" list, the button
+                   opens that; otherwise it opens this small menu to pick .bin or .a26. -->
+              <v-btn
+                color="primary"
+                :disabled="!hasCompiledRom"
+                v-bind="attrs"
+                @click="handleSaveRomClick"
+              >
+                Save ROM
+              </v-btn>
+            </template>
+            <v-list dense>
+              <v-list-item @click="handleRomDownload('bin')">
+                <v-list-item-title>Save as .bin</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="handleRomDownload('a26')">
+                <v-list-item-title>Save as .a26</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
         </div>
         <div
           v-if="romCapacityText"
@@ -314,6 +441,10 @@
         <div class="rom-capacity-log">
           <div v-if="romCapacitySummary" class="rom-capacity-summary">{{ romCapacitySummary }}</div>
           <div v-if="romVariablesSummary" class="rom-capacity-summary"><strong>Total Variables:</strong> {{ romVariablesSummary }}</div>
+          <div v-if="romDpcPlusRamText" class="rom-capacity-summary"><strong>DPC+ RAM:</strong> {{ romDpcPlusRamText }}</div>
+          <div v-if="romDpcPlusRamItems.length" class="rom-capacity-variables">
+            <div v-for="item in romDpcPlusRamItems" :key="item.name">{{ item.name }}: {{ item.bytes.toLocaleString() }} bytes</div>
+          </div>
           <div v-if="romSystemVariableAssignments.length" class="rom-capacity-summary"><strong>System reserved:</strong></div>
           <div v-if="romSystemVariableAssignments.length" class="rom-capacity-variables">
             <div v-for="assignment in romSystemVariableAssignments" :key="assignment.slot">
@@ -323,13 +454,17 @@
           <div v-if="romBlockVariableAssignments.length" class="rom-capacity-summary"><strong>Required by blocks:</strong></div>
           <div v-if="romBlockVariableAssignments.length" class="rom-capacity-variables">
             <div v-for="assignment in romBlockVariableAssignments" :key="assignment.slot">
-              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}
+              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}<span
+                v-if="assignment.sharedWith && assignment.sharedWith.length"
+              >{{ ' / ' + assignment.sharedWith.join(' / ') }}</span>
             </div>
           </div>
           <div v-if="romUserVariableAssignments.length" class="rom-capacity-summary"><strong>User defined:</strong></div>
           <div v-if="romUserVariableAssignments.length" class="rom-capacity-variables">
             <div v-for="assignment in romUserVariableAssignments" :key="assignment.slot">
-              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}
+              <strong>{{ assignment.slot }}:</strong> {{ assignment.name }}<span
+                v-if="assignment.sharedWith && assignment.sharedWith.length"
+              >{{ ' / ' + assignment.sharedWith.join(' / ') }}</span>
             </div>
           </div>
           <div v-if="romCapacityBanks.length" class="rom-capacity-detail">
@@ -389,6 +524,19 @@
       </div>
     </v-main>
 
+    <v-dialog v-model="soundKernelNotice.open" max-width="520">
+      <v-card>
+        <v-card-title>{{ soundKernelNotice.title }}</v-card-title>
+        <v-card-text>
+          <p v-for="line in soundKernelNotice.lines" :key="line">{{ line }}</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn text @click="soundKernelNotice.open = false">OK</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-footer class="error-message" :style="{height: errorHeight + 'px', maxHeight: errorHeight + 'px'}">
       <div
         class="error-resize-handle"
@@ -402,9 +550,10 @@
             :key="index"
             class="compile-log-line"
             :class="entry.level === 'error' ? 'compile-log-error' : 'compile-log-info'"
-            :style="{fontWeight: entry.level === 'stage' ? 'bold' : 'normal'}"
-          >{{ entry.text }}</div>
-          <pre v-if="errorStorage" v-text="errorStorage"></pre>
+            :style="entry.level === 'stage' ? {fontWeight: 'bold'} : {}"
+          ><span v-if="entry.html" v-html="entry.text"></span><template v-else>{{ entry.text }}</template></div>
+          <pre v-if="errorStorage" v-html="errorStorage"></pre>
+          <div v-if="errorStorage && errorBannerHighlight" class="error-banner-highlight" v-html="errorBannerHighlight"></div>
         </div>
       </div>
     </v-footer>
@@ -412,19 +561,37 @@
 </template>
 
 <script>
-import {useCompileLog, useErrorStorage, useHideDescriptionTextStorage, useHideSidebarStorage,
-  useStellaPathStorage} from './hooks/project';
-import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom} from './hooks/rom';
-import {productName, version} from '../package.json';
+import {useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useStellaPathStorage, useSoundEffectsStorage,
+  markSkipLoadLastProjectCheckOnce} from './hooks/project';
+import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
+  useBuildInProgress} from './hooks/rom';
+import {safeWithGopher2600} from './hooks/emulator';
+import {useEmulatorSettings, saveEmulatorSettings} from './hooks/emulator-settings';
+import {escapeHtml} from './utils/build-error';
+import {captureEmulatorScreenshot} from './utils/emulator-screenshot';
+import {sanitizeForFilename} from './utils/file';
+import {syncExamples} from './hooks/examples';
+import {startGamepadInput} from './hooks/gamepad';
+import {startTapHold} from './hooks/tap-hold';
+import {syncSoundBanks} from './hooks/soundbanks';
+import {soundKernelNotice, syncSoundsToKernel} from './hooks/sound-kernel';
+import KeyMappingDialog from './components/KeyMappingDialog.vue';
+import EmulatorSettingsDialog from './components/EmulatorSettingsDialog.vue';
+import DebugSettingsDialog from './components/DebugSettingsDialog.vue';
+import {useDebugVariables} from './hooks/debug-symbols';
+import pkg from '../package.json';
+const {productName, version} = pkg;
 
 // Below this fraction of the bank's usable space remaining, the capacity
 // display switches to a warning color.
 const ROM_CAPACITY_LOW_THRESHOLD = 0.1;
 
-// Javatari renders at a fixed size and never reflows to fit its container, so
-// the emulator is scaled with a CSS transform instead. It picks that size from
-// the space available when it starts, so it varies with the window and has to
-// be measured rather than assumed.
+// The emulator canvas renders at a fixed pixel resolution (the real TIA's
+// cropped picture size) and never reflows to fit its container, so it's
+// scaled with a CSS transform instead - see emulatorScaleStyle/
+// updateEmulatorScale. That resolution isn't known until the first frame
+// renders, so it has to be measured rather than assumed.
 const EMULATOR_DEFAULT_WIDTH = 256;
 const EMULATOR_MIN_WIDTH = 200;
 const EMULATOR_MAX_WIDTH = 900;
@@ -445,18 +612,20 @@ const ERROR_MIN_HEIGHT = 112;
 // content) when dragging the error pane very tall.
 const ERROR_MIN_REMAINING_HEIGHT = 150;
 const ERROR_HEIGHT_KEY = 'vcs-game-maker.errorHeight';
-// How long to keep waiting for Javatari to lay out before giving up. A timer
-// is used rather than an animation frame so this still settles when the window
-// is in the background.
+// How long to keep waiting for the emulator canvas to lay out before giving
+// up. A timer is used rather than an animation frame so this still settles
+// when the window is in the background.
 const EMULATOR_MEASURE_RETRIES = 60;
 const EMULATOR_MEASURE_INTERVAL = 50;
+// How often checkEmulatorCanvas looks for a vanished/mis-sized emulator canvas.
+const EMULATOR_WATCHDOG_INTERVAL = 1000;
 
-// Alphabetizes the "Variables" panel's own per-slot lists (a-z for a plain
+// Alphabetizes the "Variables" panel's  per-slot lists (a-z for a plain
 // letter slot; numeric-aware for a Superchip "varN" slot, so var2 sorts
 // before var10 rather than after it as a plain string compare would) -
 // these arrive in RESERVATION order (whichever feature/user variable
 // happened to route first), which is meaningless to a reader scanning for
-// a specific letter/slot. localeCompare's own {numeric: true} option
+// a specific letter/slot. localeCompare's {numeric: true} option
 // handles both slot shapes with one comparator: plain single-letter slots
 // (a, b, c...) collate alphabetically same as always, and multi-character
 // "varN" slots collate by their embedded number instead of lexicographically.
@@ -478,76 +647,176 @@ const readStoredErrorHeight = () => {
 // never having been set, means "visible" (the default).
 const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KEY) !== 'false';
 
+// The name the debug info gives to the player0size byte it reads to tell when the Title Screen Kernel runs.
+const TITLE_KERNEL_WATCH_NAME = '__titleKernelRunning';
+// The lines in a frame of both TV standards the project can use (NTSC and PAL60).
+const NTSC_FRAME_SCANLINES = 262;
+
 export default {
+  components: {KeyMappingDialog, EmulatorSettingsDialog, DebugSettingsDialog},
   data: () => ({
     drawer: null,
     emulatorWidth: readStoredWidth(),
     emulatorVisible: readStoredEmulatorVisible(),
     emulatorScale: 1,
     emulatorHeight: null,
+    debugInfo: null,
     resizing: false,
     errorHeight: readStoredErrorHeight(),
     resizingError: false,
     building: false,
     launchingStella: false,
+    // Front-panel switch state. Power defaults on (matches the previous
+    // Javatari preview always being "on"); the rest default to real Atari
+    // 2600 power-on defaults (Color, both difficulties set to "A"/pro).
+    emulatorPoweredOn: true,
+    emulatorColorMode: true,
+    emulatorLeftDifficultyPro: true,
+    emulatorRightDifficultyPro: true,
   }),
   setup() {
     const errorStorage = useErrorStorage();
+    const soundEffectsRef = useSoundEffectsStorage();
+    const configurationRef = useConfigurationStorage();
+    const syncSounds = () => syncSoundsToKernel(soundEffectsRef, configurationRef.value || {});
     console.info('Text', version);
     return {
-      errorStorage, compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      hasCompiledRom: useHasCompiledRom(),
+      emulatorSettings: useEmulatorSettings(), debugSymbols: useDebugVariables(),
+      errorStorage, errorBannerHighlight: useErrorBannerHighlight(),
+      compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
+      hasCompiledRom: useHasCompiledRom(), compiledRomBytes: useCompiledRomBytes(),
+      buildInProgress: useBuildInProgress(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
       hideSidebarStorage: useHideSidebarStorage(),
+      desaturateAppColorsStorage: useDesaturateBlocklyColorsStorage(),
+      darkModeStorage: useDarkModeStorage(),
+      adaptiveFrameSkipStorage: useAdaptiveFrameSkipStorage(),
+      configurationStorage: useConfigurationStorage(),
+      soundKernelNotice, soundEffectsStorage: soundEffectsRef, syncSounds,
+      romSaveMenuOpen: false,
       stellaPathStorage: useStellaPathStorage(),
     };
   },
   mounted() {
+    // Once per page load: fetch new/changed example projects (see hooks/examples.js).
+    syncExamples();
+    syncSoundBanks();
     this.attachEmulator();
+    this.applyAdaptiveFrameSkip();
+    this.stopGamepadInput = startGamepadInput();
+    this.stopTapHold = startTapHold();
+    this.$vuetify.theme.dark = this.darkMode;
     window.addEventListener('resize', this.handleWindowResize);
+    window.addEventListener('gopher2600-ready', this.handleGopher2600Ready);
+    window.addEventListener('emulator-debug', this.handleEmulatorDebug);
+    this.sendDebugWatch();
+    this.emulatorWatchdogTimer = window.setInterval(this.checkEmulatorCanvas, EMULATOR_WATCHDOG_INTERVAL);
   },
   beforeDestroy() {
     this.stopResize();
+    if (this.stopGamepadInput) this.stopGamepadInput();
+    if (this.stopTapHold) this.stopTapHold();
+    window.clearInterval(this.emulatorWatchdogTimer);
     window.removeEventListener('resize', this.handleWindowResize);
+    window.removeEventListener('gopher2600-ready', this.handleGopher2600Ready);
+    window.removeEventListener('emulator-debug', this.handleEmulatorDebug);
     if (this.emulatorResizeObserver) {
       this.emulatorResizeObserver.disconnect();
       this.emulatorResizeObserver = null;
     }
-    if (this.emulatorReparentObserver) {
-      this.emulatorReparentObserver.disconnect();
-      this.emulatorReparentObserver = null;
-    }
   },
   computed: {
     // See Configuration.vue's "Expert mode" switch - reads the same standing
-    // app preference (useHideDescriptionTextStorage, see its own comment in
+    // app preference (useHideDescriptionTextStorage, see its  comment in
     // hooks/project.js - not part of the project itself, unlike the rest of
     // configurationState), bound as a class on the root v-app below so the
     // global ".hide-description-text .v-messages__message" CSS rule can
     // reach every hint/description paragraph in the app from one place,
     // now that they all consistently use that same class (see TextEditor.vue's
-    // own hint paragraph for the pattern every other tab's hint text follows).
+    // hint paragraph for the pattern every other tab's hint text follows).
     hideDescriptionText() {
       // this.hideDescriptionTextStorage is a computed RETURNED from setup() -
       // Vue's Composition API auto-unwraps that when accessed through the
-      // component instance (confirmed against this file's own romCapacityText
+      // component instance (confirmed against this file's  romCapacityText
       // above, which reads "this.romCapacity" the same unwrapped way), so
-      // it's already the plain boolean here, not a ref needing its own
+      // it's already the plain boolean here, not a ref needing its
       // ".value".
       return !!this.hideDescriptionTextStorage;
     },
     // Same auto-unwrapping reasoning as hideDescriptionText just above - see
     // Configuration.vue's "Never show the left sidebar" switch/
-    // useHideSidebarStorage's own comment in hooks/project.js.
+    // useHideSidebarStorage's  comment in hooks/project.js.
     hideSidebar() {
       return !!this.hideSidebarStorage;
     },
+    // Same "Soft Colors" preference the Blockly canvas itself desaturates
+    // by (see BlocklyComponent.vue's parseBlockColour patch) - bound as
+    // a class on the root v-app below so the tab bar/nav-drawer's
+    // hardcoded per-tab colors (.actions-item, .titlescreen-item, etc.)
+    // mute along with the blocks instead of staying fully saturated.
+    desaturateAppColors() {
+      return !!this.desaturateAppColorsStorage;
+    },
+    // Bound as a class on the root v-app below (.dark-mode) - see that
+    // class's CSS comment (right below the Subdued Palette :root rule in
+    // the unscoped <style> block) for how it actually recolors the app.
+    darkMode() {
+      return !!this.darkModeStorage;
+    },
     // Same "window.electronAPI's mere presence" check as Configuration.vue's
-    // own isElectron - see preload.js's own comment. Gates the "Test in
+    // isElectron - see preload.js's  comment. Gates the "Test in
     // Stella" button's very existence (not just whether it's enabled),
     // since a plain web build has no way to launch a local program at all.
     isElectron() {
       return !!window.electronAPI;
+    },
+    debugText() {
+      const info = this.debugInfo;
+      if (!info) return '';
+      const hex = (value, digits) => value.toString(16).toUpperCase().padStart(digits, '0');
+      // P is shown as the flag letters that are set (N V - B D I Z C).
+      const flagLetters = [[128, 'N'], [64, 'V'], [16, 'B'], [8, 'D'], [4, 'I'], [2, 'Z'], [1, 'C']]
+          .map(([bit, letter]) => (info.flags & bit ? letter : '.')).join('');
+      return `PC $${hex(info.pc, 4)}  A $${hex(info.a, 2)}  X $${hex(info.x, 2)}  Y $${hex(info.y, 2)}` +
+        `  S $${hex(info.s, 2)}  ${flagLetters}\n` +
+        `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}  Frame ${info.frame}\n` +
+        (info.busyCycles === null ?
+          `CPU cycles/frame ${info.cpuCycles}` :
+          `CPU busy ${info.busyCycles} of ${info.cpuCycles} cycles/frame`);
+    },
+    // The watched variables' values as table rows, a few to a row: a cell is a name and its value in decimal
+    // with hex beside it.
+    debugVariableRows() {
+      const reported = (this.debugInfo && this.debugInfo.variables) || [];
+      // The Title Screen Kernel is running while the top bit of player0size is set (see TITLE_KERNEL_LOOP_BIT).
+      const titleRunning = reported.some(([name, value]) => name === TITLE_KERNEL_WATCH_NAME && (value & 128));
+      // A variable the title screen shares a slot with goes by the title screen's name while the kernel runs and
+      // by the game's name the rest of the time.
+      const shown = new Map();
+      reported.filter(([name]) => name !== TITLE_KERNEL_WATCH_NAME).forEach(([name, value]) => {
+        const symbol = this.debugSymbols.find((entry) => entry.name === name) || {};
+        const displayName = titleRunning && symbol.sharedWith && symbol.sharedWith.length ? symbol.sharedWith[0] :
+          !titleRunning && symbol.hostName ? symbol.hostName : name;
+        if (!shown.has(displayName)) shown.set(displayName, value);
+      });
+      const variables = [...shown.entries()];
+      if (!variables.length) return [];
+      const columns = variables.length > 6 ? 3 : variables.length > 1 ? 2 : 1;
+      const cells = variables.map(([name, value]) => ({
+        name,
+        text: `${value} ($${value.toString(16).toUpperCase().padStart(2, '0')})`,
+      }));
+      const rows = [];
+      for (let i = 0; i < cells.length; i += columns) rows.push(cells.slice(i, i + columns));
+      return rows;
+    },
+    // Names picked in the debug settings, with the address the last build gave each.
+    debugWatch() {
+      const chosen = this.emulatorSettings.debugVariables || [];
+      const watch = this.debugSymbols.filter(({name}) => chosen.includes(name)).map(({name, address}) => ({name, address}));
+      // player0size also goes along, to tell when the Title Screen Kernel is running.
+      const titleFlag = this.debugSymbols.find(({name}) => name === 'player0size');
+      return watch.length && titleFlag ? [...watch, {name: TITLE_KERNEL_WATCH_NAME, address: titleFlag.address}] : watch;
     },
     emulatorScaleStyle() {
       return {
@@ -563,6 +832,14 @@ export default {
     // "low" warning still keys off bank 1 specifically - that's the one bank
     // that always holds the project's unrelocatable main body, so it's the
     // more actionable signal for "about to need relocation".
+    // The DPC+ kernel's display RAM that nothing in the project has taken, as text.
+    romDpcPlusRamItems() {
+      return (this.romCapacity && this.romCapacity.dpcPlusRamItems) || [];
+    },
+    romDpcPlusRamText() {
+      const free = this.romCapacity && this.romCapacity.dpcPlusRamFree;
+      return free === undefined || free === null ? '' : `${free.toLocaleString()} bytes free`;
+    },
     romCapacityText() {
       const capacity = this.romCapacity;
       if (!capacity) return '';
@@ -596,8 +873,8 @@ export default {
     // separately from the byte-capacity text above since these are a
     // completely different, hard-capped resource (25-55 slots project-wide
     // depending on Superchip, not bytes) that can run out well before ROM
-    // space does. Superchip's own half is omitted entirely when it's off
-    // (available is 0 then - see computeVariableUsage's own comment) rather
+    // space does. Superchip's  half is omitted entirely when it's off
+    // (available is 0 then - see computeVariableUsage's  comment) rather
     // than shown as "0 of 0", which would read as broken rather than simply
     // not applicable yet.
     romVariablesSummary() {
@@ -605,24 +882,31 @@ export default {
       if (!usage) return '';
       const parts = [`${usage.letters.used} of ${usage.letters.available} letters`];
       if (usage.superchip.available) parts.push(`${usage.superchip.used} of ${usage.superchip.available} Superchip RAM`);
-      // Superchip's own separate r/w pool (see computeVariableUsage's own
+      // Superchip's  separate r/w pool (see computeVariableUsage's
       // comment in hooks/rom.js) - a completely different resource from the
       // "Superchip RAM" figure just above (that one shares the same 48-
       // byte-freed-playfield-plus-26-letter budget the plain letters figure
-      // also draws from; this is its own distinct 128-byte region), so it's
-      // its own clause here rather than folded into that count.
+      // also draws from; this is its  distinct 128-byte region), so it's
+      // its  clause here rather than folded into that count.
       if (usage.superchipRw.available) {
         parts.push(`${usage.superchipRw.used} of ${usage.superchipRw.available} Superchip read/write vars`);
+      }
+      // DPC+'s own always-on bonus RAM pool (var0-var8 - see
+      // computeVariableUsage's own comment in hooks/rom.js) - no toggle to
+      // gate on, so this simply doesn't show for non-DPC+ builds (available
+      // is 0 then), same convention as the Superchip clauses above.
+      if (usage.dpcPlus.available) {
+        parts.push(`${usage.dpcPlus.used} of ${usage.dpcPlus.available} DPC+ bonus RAM (${usage.dpcPlus.available - usage.dpcPlus.used} bytes free)`);
       }
       return `${parts.join(', ')} used.`;
     },
     // System variables (player0frame, newbackground, etc. - see
-    // SYSTEM_VARIABLES' own comment in generators/bbasic.js) - a SEPARATE,
+    // SYSTEM_VARIABLES' comment in generators/bbasic.js) - a SEPARATE,
     // always-unconditional set of "dim" lines, deliberately NOT folded into
     // romVariableAssignments/romVariablesSummary below: those two describe the
     // competitive dev/user var pool specifically (14 letters without
     // Superchip, matching USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP - see its
-    // own comment in generators/bbasic.js for why system variables' own 12
+    // comment in generators/bbasic.js for why system variables'  12
     // letters are excluded from that count), so merging system variables into
     // that same list would make "X of 14" look wrong the moment the list
     // shows more than 14 entries, even though nothing is actually broken.
@@ -631,18 +915,18 @@ export default {
       return sortByAssignmentSlot((usage && usage.systemAssignments) || []);
     },
     // Per-slot breakdown of the competitive dev/user var pool (see bbasic.js's
-    // own letterVarAssignments/superchipVarAssignments and hooks/rom.js's
-    // computeVariableUsage), split into two separate lists by each entry's own
-    // isUserVariable flag (see bbasic.js's own userVarNames comment) - a dev
-    // var some block quietly needs (rand16, collision-move's own backtrack
-    // bytes, missile fire's own fired-direction state, etc.) reads very
+    // letterVarAssignments/superchipVarAssignments and hooks/rom.js's
+    // computeVariableUsage), split into two separate lists by each entry's
+    // isUserVariable flag (see bbasic.js's  userVarNames comment) - a dev
+    // var some block quietly needs (rand16, collision-move's  backtrack
+    // bytes, missile fire's  fired-direction state, etc.) reads very
     // differently from a variable the user themselves created on the
     // Variables tab, even though both draw from the exact same letter/
-    // Superchip budget and both count toward the summary line's own "X of Y"
+    // Superchip budget and both count toward the summary line's "X of Y"
     // above. Letters first (the pool every project always has), Superchip
-    // slots after - matches the summary line's own "letters, ... Superchip
+    // slots after - matches the summary line's "letters, ... Superchip
     // RAM" order; each half sorted independently (see sortByAssignmentSlot's
-    // own comment) so that grouping itself is preserved, only the ORDER
+    // comment) so that grouping itself is preserved, only the ORDER
     // within each half changes.
     romBlockVariableAssignments() {
       return this.romVariableAssignmentsByOwner(false);
@@ -650,12 +934,12 @@ export default {
     romUserVariableAssignments() {
       return this.romVariableAssignmentsByOwner(true);
     },
-    // Per-bank breakdown (see computeRomCapacity's own perBank field) - the
+    // Per-bank breakdown (see computeRomCapacity's  perBank field) - the
     // summary above averages over every bank, which can look like there's
     // plenty of room even when a SPECIFIC bank (the one a new relocated unit
-    // would actually need to land in) has almost none left. Each bank's own
+    // would actually need to land in) has almost none left. Each bank's
     // contents (see hooks/rom.js's computeBankContents) are rendered right
-    // under its own "free" line - covers every bank, not just ones something
+    // under its "free" line - covers every bank, not just ones something
     // got relocated INTO this build (the old autoRelocatedEventsText this
     // replaced only ever showed those).
     romCapacityBanks() {
@@ -667,10 +951,10 @@ export default {
         contents: this.bankContentsParts(i + 1),
       }));
     },
-    // Drives the "bytes free" text turning red, and the capacity bar's own
+    // Drives the "bytes free" text turning red, and the capacity bar's
     // red tier (see romCapacityBarColor) - keyed off the TOTAL across every
     // bank (matching what "bytes free" itself already shows), at the user's
-    // own explicit request, rather than bank 1 specifically.
+    // explicit request, rather than bank 1 specifically.
     romCapacityLow() {
       const capacity = this.romCapacity;
       if (!capacity || !capacity.total.usableBytes) return false;
@@ -688,15 +972,41 @@ export default {
     },
   },
   watch: {
+    // Sounds follow the kernel: Standard sounds become DPC+ sounds when DPC+ is chosen (and back again), including
+    // sounds that arrive from an imported project or sound bank.
+    'configurationStorage.kernel': {
+      immediate: true,
+      handler() {
+        this.syncSounds();
+      },
+    },
+    'soundEffectsStorage': {
+      deep: true,
+      handler() {
+        this.syncSounds();
+      },
+    },
+    // The addresses come from the last build, so a new build or a new choice sends the list again.
+    debugWatch() {
+      this.sendDebugWatch();
+    },
+    // The Options tab's adaptive frame skipping, passed on to the emulator whenever it changes.
+    'adaptiveFrameSkipStorage'() {
+      this.applyAdaptiveFrameSkip();
+    },
+    // Vuetify's dark theme (see the .dark-mode CSS comment).
+    darkMode(value) {
+      this.$vuetify.theme.dark = value;
+    },
     emulatorWidth() {
       // Wait for the drawer's new width to reach the DOM before measuring.
       this.$nextTick(this.updateEmulatorScale);
     },
     emulatorVisible(value) {
       localStorage.setItem(EMULATOR_VISIBLE_KEY, value ? 'true' : 'false');
-      // Re-measure once it's shown again - updateEmulatorScale's own retry
+      // Re-measure once it's shown again - updateEmulatorScale's  retry
       // loop already tolerates being called before the drawer's slide-in
-      // transition (transform/visibility - see .emulator-drawer's own
+      // transition (transform/visibility - see .emulator-drawer's
       // transition-property) finishes, the same way it already tolerates a
       // width-drag mid-reflow.
       if (value) this.$nextTick(this.updateEmulatorScale);
@@ -706,13 +1016,13 @@ export default {
     // scrolled (usually the top, showing only the earliest "Preprocessing
     // started..."-style lines) while new lines keep appending below the
     // visible area. compileLog gets a whole new array reference on every
-    // append (see hooks/project.js's own appendCompileLog), so a plain
+    // append (see hooks/project.js's  appendCompileLog), so a plain
     // (non-deep) watcher already fires on every line, not just the first.
     compileLog() {
       this.$nextTick(this.scrollErrorConsoleToBottom);
     },
-    // Same reasoning as compileLog above - a build's own final failure
-    // message renders through this separate ref (see errorStorage's own
+    // Same reasoning as compileLog above - a build's  final failure
+    // message renders through this separate ref (see errorStorage's
     // comment in hooks/project.js), not as another compileLog line.
     errorStorage() {
       this.$nextTick(this.scrollErrorConsoleToBottom);
@@ -729,14 +1039,15 @@ export default {
       return [
         ...sortByAssignmentSlot((usage.letterAssignments || []).filter(matches)),
         ...sortByAssignmentSlot((usage.superchipAssignments || []).filter(matches)),
-        // Superchip's own r/w pool (see computeVariableUsage's own comment
+        ...sortByAssignmentSlot((usage.dpcPlusAssignments || []).filter(matches)),
+        // Superchip's  r/w pool (see computeVariableUsage's  comment
         // in hooks/rom.js) - every entry here is isUserVariable: false, so
         // this only ever contributes to the block list, never the user one,
-        // matching this pool's own "never offered to the user" design.
+        // matching this pool's "never offered to the user" design.
         ...sortByAssignmentSlot((usage.superchipRwAssignments || []).filter(matches)),
       ];
     },
-    // Scrolls the bottom console pane (see .error-scroll-wrapper's own
+    // Scrolls the bottom console pane (see .error-scroll-wrapper's
     // ref) to its newest line - called after $nextTick from the
     // compileLog/errorStorage watchers above, so the DOM has already
     // grown to include whatever line just triggered this before the
@@ -746,8 +1057,8 @@ export default {
       if (!el) return;
       el.scrollTop = el.scrollHeight;
     },
-    // Formats one bank's own contents (see hooks/rom.js's computeBankContents)
-    // as a list of {label, names} entries for romCapacityBanks's own per-bank
+    // Formats one bank's  contents (see hooks/rom.js's computeBankContents)
+    // as a list of {label, names} entries for romCapacityBanks's  per-bank
     // entry - one entry per kind present (rather than one long comma-separated
     // line) so a bank holding several different kinds of content stays
     // scannable, and an empty array for a bank with nothing in it. Kept
@@ -770,123 +1081,93 @@ export default {
       const parts = groups
           .filter(([, names]) => names.length)
           .map(([label, names]) => ({label, names: names.join(', ')}));
+      // First in its bank's list, ahead of everything else in it.
+      if (contents.titleScreenKernel) parts.unshift({label: 'Title Screen Kernel', names: ''});
       if (contents.textMinikernel) parts.push({label: 'Text Minikernel', names: ''});
       if (contents.bankOverhead) parts.push({label: 'Bank switching overhead', names: ''});
       return parts;
     },
-    // Javatari's own size is whatever it chose at startup, so scale it to the
-    // column by measuring both. offsetWidth/offsetHeight are layout sizes and
-    // so are unaffected by the transform already applied.
-    // Ugly hack in order to move the Javatari screen to a Vue component.
-    // Javatari builds its screen on its own schedule, so it may not exist yet
-    // when this component mounts. Appending it then threw, leaving the emulator
-    // missing entirely, so wait for it instead.
-    attachEmulator(retriesLeft = EMULATOR_MEASURE_RETRIES) {
-      const container = document.getElementById('javatari-target-container');
-      const javatariScreen = document.getElementById('javatari-screen');
-      if (!container) return;
-      if (!javatariScreen) {
-        if (retriesLeft > 0) {
-          window.setTimeout(
-              () => this.attachEmulator(retriesLeft - 1), EMULATOR_MEASURE_INTERVAL);
-        }
-        return;
-      }
-      container.appendChild(javatariScreen);
-      this.resetScreenStyle(javatariScreen);
-      this.observeEmulatorSize(container, javatariScreen);
-      this.observeEmulatorReparenting(container);
-      this.pollEmulatorVisibility(container);
+    // The canvas lives directly in public/index.html (see
+    // tools/gopher2600-wasm), so unlike the old Javatari integration it
+    // exists from page load rather than being asynchronously created and
+    // placed by an external library - no retry-until-it-exists dance needed,
+    // just move it into this component's container once and start
+    // observing its size.
+    sendDebugWatch() {
+      safeWithGopher2600((gopher2600) => {
+        if (typeof gopher2600.setDebugWatch === 'function') gopher2600.setDebugWatch(this.debugWatch);
+      });
+    },
+    handleToggleDebugOverlay() {
+      this.debugInfo = null;
+      saveEmulatorSettings({...this.emulatorSettings, debugOverlay: !this.emulatorSettings.debugOverlay});
+    },
+    handleEmulatorDebug(event) {
+      if (this.emulatorSettings.debugOverlay) this.debugInfo = event.detail;
+    },
+    attachEmulator() {
+      const container = document.getElementById('gopher2600-target-container');
+      // Falls back to the remembered element: if the canvas was ever removed
+      // from the page along with a re-rendered container, it can't be found
+      // by id any more but is still there to put back.
+      const screen = document.getElementById('gopher2600-screen') || this.emulatorScreenEl ||
+        window.gopher2600ScreenElement;
+      if (!container || !screen) return;
+      this.emulatorScreenEl = screen;
+      container.appendChild(screen);
+      screen.style.display = '';
+      this.observeEmulatorSize(container, screen);
       this.updateEmulatorScale();
     },
-    // Wipes the screen element's inline style (Javatari sets some of its own
-    // when it owns the element's placement, e.g. while it's parked in its
-    // default DOM location) EXCEPT margin-bottom, which Javatari also uses,
-    // separately, to reserve room below the screen for its own console-panel
-    // graphic (power/reset/difficulty switches) whenever that panel is
-    // active. A blanket "style = ''" here used to wipe that margin along with
-    // everything else; updateEmulatorScale() then sized the container from
-    // the now-zero margin, and since the container clips overflow, the panel
-    // was still being drawn - just below the bottom edge of a container too
-    // short to show it. Confirmed by manually restoring the margin and
-    // triggering a rescale, which brought the panel back with no other
-    // change. Preserving it here keeps the container sized to include it.
-    resetScreenStyle(screen) {
-      const marginBottom = screen.style.marginBottom;
-      screen.style = '';
-      screen.style.marginBottom = marginBottom;
-    },
-    // Javatari sometimes re-inserts its own screen element back into its
-    // default location in the DOM (observed after loading a new ROM via
-    // "Update ROM") rather than leaving it where attachEmulator() moved it -
-    // since our layout only shows what's inside #javatari-target-container,
-    // this makes the preview appear to vanish. A single re-attach right after
-    // a build finishes (handleRomUpdate already does this) isn't reliable if
-    // Javatari does the move on its own schedule; watching for it and moving
-    // the screen back the moment it happens is more robust than reacting only
-    // once, after the fact.
-    //
-    // Also dismisses Javatari's own dialogs here rather than only once from
-    // handleRomUpdate - see dismissEmulatorDialogs()'s own comment for why a
-    // dialog can open on Javatari's own schedule, after the one-shot
-    // post-build call already ran, and previously stayed open forever since
-    // nothing ever checked again. "attributes: true" with a class filter is
-    // needed for that: opening a dialog toggles an existing element's
-    // "jt-show" class rather than inserting a new node, which the
-    // childList-only observer below never saw.
-    // Shared by both the event-driven MutationObserver below and the
-    // time-based poller (pollEmulatorVisibility) - the observer only fires
-    // for mutations it was specifically told to watch (childList, "class",
-    // "style"), so any OTHER way the screen could end up hidden or
-    // misplaced (a Javatari-internal state change that doesn't touch those,
-    // or one this app doesn't know about yet) would slip past it silently.
-    // Polling the same check on a timer catches those too, since it doesn't
-    // depend on knowing what caused the problem - only on verifying the
-    // current state is correct.
-    checkAndFixEmulatorVisibility(container) {
-      this.dismissEmulatorDialogs();
-      const screen = document.getElementById('javatari-screen');
-      if (!screen) return;
-      const reparented = screen.parentElement !== container;
-      if (reparented) container.appendChild(screen);
-      if (reparented || screen.style.display === 'none' || screen.style.visibility === 'hidden' ||
-          screen.style.opacity === '0') {
-        this.resetScreenStyle(screen);
-        this.updateEmulatorScale();
+    // Safety net for the emulator canvas vanishing (reported as happening
+    // sometimes after a refresh, cause not pinned down): once a second,
+    // checks that the canvas is still inside its container, shown, and that
+    // the container's height matches the canvas's scaled height, and
+    // repairs whichever is off. Logs what it found so a repeat can be traced.
+    checkEmulatorCanvas() {
+      const container = document.getElementById('gopher2600-target-container');
+      const screen = document.getElementById('gopher2600-screen') || this.emulatorScreenEl ||
+        window.gopher2600ScreenElement;
+      if (!container || !screen || !container.clientWidth || document.hidden) return;
+      const problems = [];
+      if (screen.parentElement !== container) problems.push('canvas not in its container');
+      if (screen.style.display === 'none') problems.push('canvas hidden');
+      if (screen.offsetWidth && screen.offsetHeight) {
+        const marginBottom = parseFloat(getComputedStyle(screen).marginBottom) || 0;
+        const expected = Math.round((screen.offsetHeight + marginBottom) *
+          (container.clientWidth / screen.offsetWidth));
+        if (Math.abs(container.clientHeight - expected) > 2) {
+          problems.push(`container height ${container.clientHeight}px, expected ${expected}px`);
+        }
+      } else {
+        problems.push(`canvas size ${screen.offsetWidth}x${screen.offsetHeight}`);
       }
+      if (!problems.length) return;
+      console.warn('Emulator canvas problem, repairing:', problems.join('; '));
+      this.attachEmulator();
     },
-    observeEmulatorReparenting(container) {
-      if (this.emulatorReparentObserver) return;
-      this.emulatorReparentObserver = new MutationObserver(() => this.checkAndFixEmulatorVisibility(container));
-      this.emulatorReparentObserver.observe(document.body,
-          {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style']});
+    // Fires on every 'gopher2600-ready' event - the real first page load,
+    // a full "Refresh emulator" reload, and (see public/index.html's
+    // error listener) an automatic reinstantiation after a fatal WASM trap.
+    // A fresh instance resets the canvas to a small default size before its
+    // first real frame renders (see gopher2600-wasm's newConsole), which is
+    // exactly the transient-zero-size window updateEmulatorScale's
+    // bounded retry budget can lose the race against - without re-running
+    // this here, a crash-recovery landing in that window left the emulator
+    // pane collapsed to 0px height with nothing left to ever re-measure it,
+    // i.e. the reported "emulator preview sometimes disappears". Re-running
+    // the same attach/observe logic used on mount and after a build is a
+    // cheap, safe way to resync (re-attaching an already-attached element or
+    // re-observing an already-observed one is a no-op).
+    handleGopher2600Ready() {
+      this.attachEmulator();
+      this.applyAdaptiveFrameSkip();
     },
-    // Time-based backstop for whatever the event-driven observer above
-    // misses - see checkAndFixEmulatorVisibility's own comment. Runs
-    // indefinitely (this component is never unmounted in normal use - it's
-    // the app's own root), so no clearInterval on a matching lifecycle hook.
-    pollEmulatorVisibility(container) {
-      if (this.emulatorVisibilityPoller) return;
-      this.emulatorVisibilityPoller = window.setInterval(
-          () => this.checkAndFixEmulatorVisibility(container), 500);
-    },
-    // Root cause of the preview "vanishing" after "Update ROM": Javatari's
-    // own "Select Cartridge"/"Select ROM Format"/"Save/Load State" dialogs
-    // (all share the "jt-select-dialog" class, shown/hidden via the "jt-show"
-    // class) are drawn on TOP of the screen at a high z-index. If one is
-    // already open - most commonly the cartridge chooser, which Javatari
-    // opens on its own at startup whenever there's no cartridge inserted yet
-    // and it has recent ROMs to offer - loading a new ROM via
-    // fileLoader.loadFromContent() builds and runs it correctly underneath,
-    // but doesn't close whatever dialog happened to already be open, leaving
-    // it covering the now-running game. Removing "jt-show" from every such
-    // dialog closes them the same way Javatari's own Escape-key handler does,
-    // without triggering any of their side effects (loading a different ROM,
-    // opening a file picker, etc. - those only run from their own dialog
-    // button/key handlers, not from this class removal).
-    dismissEmulatorDialogs() {
-      document.querySelectorAll('.jt-select-dialog.jt-show')
-          .forEach((dialog) => dialog.classList.remove('jt-show'));
+    applyAdaptiveFrameSkip() {
+      const enabled = !!this.adaptiveFrameSkipStorage;
+      safeWithGopher2600((gopher2600) => {
+        if (typeof gopher2600.setAdaptiveFrameSkip === 'function') gopher2600.setAdaptiveFrameSkip(enabled);
+      });
     },
     // A single measurement is fragile: if it runs while the container's width
     // has not settled to the drawer width yet, the scale comes out too large,
@@ -895,13 +1176,14 @@ export default {
     // changes makes the height self-correct once layout settles, instead of
     // staying wrong until the user resizes.
     //
-    // Also watches the Javatari screen element itself, not just the
-    // container: toggling Javatari's own fullscreen button changes the
-    // screen's *intrinsic* size (screen.offsetWidth/offsetHeight, what the
-    // scale is computed from), without necessarily changing the container's
-    // width - leaving the container-only check above blind to it, so the
-    // scale stayed stuck at whatever it was before fullscreen and the
-    // preview came back the wrong size after exiting.
+    // Also watches the canvas element itself, not just the container: the
+    // emulator resizes the canvas's width/height attributes to match
+    // the cropped picture it's rendering (see gopher2600-wasm's
+    // onAnimationFrame, which can change size e.g. between NTSC/PAL), which
+    // changes its *intrinsic* size (screen.offsetWidth/offsetHeight, what
+    // the scale is computed from) without necessarily changing the
+    // container's width - leaving the container-only check above blind
+    // to it.
     observeEmulatorSize(container, screen) {
       if (this.emulatorResizeObserver || typeof ResizeObserver === 'undefined') {
         return;
@@ -938,12 +1220,15 @@ export default {
       this.updateEmulatorScale();
     },
     updateEmulatorScale(retriesLeft = EMULATOR_MEASURE_RETRIES) {
-      const container = document.getElementById('javatari-target-container');
-      const screen = document.getElementById('javatari-screen');
+      if (document.fullscreenElement) this.syncFullscreenAspect();
+      const container = document.getElementById('gopher2600-target-container');
+      const screen = document.getElementById('gopher2600-screen');
       if (!container || !screen) return;
-      // Javatari lays out after this component mounts, so it may still have no
-      // size. Measuring then would collapse the container to zero height and
-      // clip the emulator away entirely. Also guards the container's own
+      // The canvas has no size until the emulator's first rendered frame
+      // sets its width/height attributes (see gopher2600-wasm's
+      // onAnimationFrame). Measuring before then would collapse the
+      // container to zero height and clip the emulator away entirely. Also
+      // guards the container's
       // width, not just the screen's - this is called synchronously right
       // after a ROM build finishes (see handleRomUpdate), which can land
       // before the drawer has laid out again since the last reflow, momentarily
@@ -1015,7 +1300,7 @@ export default {
       localStorage.setItem(ERROR_HEIGHT_KEY, String(this.errorHeight));
       // Same reflow nudge as stopResize() above, for the same reason: the
       // Blockly canvas only re-measures its container (which just changed
-      // height) on a window resize event, not on its own.
+      // height) on a window resize event, not by itself.
       this.$nextTick(() => window.dispatchEvent(new Event('resize')));
     },
     // buildRom() compiles via WASM asynchronously now (the real bB 1.9
@@ -1028,109 +1313,521 @@ export default {
       window.setTimeout(() => {
         buildRom().finally(() => {
           this.building = false;
-          // Loading a new ROM sometimes leaves the preview looking like it
-          // vanished - re-running the same attach/observe logic used on
-          // mount is a cheap, safe way to re-sync regardless of the exact
-          // cause (it re-finds the screen element fresh rather than
-          // trusting a reference that may be stale, and re-attaching an
-          // already-attached element or re-observing an already-observed
-          // one is a no-op). dismissEmulatorDialogs() closes the actual
-          // confirmed cause - see its own comment.
-          this.dismissEmulatorDialogs();
+          // Re-running the same attach/observe logic used on mount is a
+          // cheap, safe way to keep the canvas correctly placed and sized
+          // after a build (re-finds the element fresh rather than trusting
+          // a reference that may be stale; re-attaching an already-attached
+          // element or re-observing an already-observed one is a no-op).
           this.attachEmulator();
         });
       }, 0);
     },
-    // Manual escape hatch for the emulator preview intermittently vanishing.
-    // Re-parenting/re-styling the existing screen element (the same recovery
-    // dismissEmulatorDialogs()/attachEmulator()/checkAndFixEmulatorVisibility
-    // already do automatically) turned out not to be enough on its own -
-    // confirmed the DOM element can be present, correctly parented, and
-    // correctly styled while still showing nothing, meaning Javatari's own
-    // internal rendering had actually stopped, not just been hidden or
-    // misplaced. There's no supported way to restart only Javatari's
-    // internals from here (it's a page-embedded <script>, not something this
-    // app owns or can re-inject on its own), so this reloads the whole page
-    // instead - the one guaranteed way to get a fresh, working instance.
-    // Project data lives in localStorage and survives this; the compiled ROM
-    // (kept in memory by Javatari) and the Generated tab's own in-memory
-    // code ref don't, so the user needs to click "Update ROM" again
-    // afterward. Deliberately NOT done automatically here: if a bad ROM is
-    // itself what froze the emulator, auto-rebuilding it the moment the
-    // page comes back up would just re-trigger the same freeze immediately,
-    // soft-locking the user out of ever seeing a stable page to fix the
-    // project from.
+    // Manual fallback if the emulator preview ever gets into a bad state
+    // this component's logic doesn't recover from by itself (e.g. the
+    // WASM module itself crashing - see gopher2600-wasm's onAnimationFrame,
+    // which recovers panics in the render loop but not a fatal WASM trap).
+    // A full reload is the one guaranteed way to get a fresh instance.
+    // Project data lives in localStorage and survives this. Whatever ROM
+    // was actually showing on screen (a real "Update ROM" build or a Title
+    // Screen preview build) survives too - see rom-status.js's
+    // recordLoadedRomForRecovery/sessionStorage restore, and emulator.js's
+    // 'gopher2600-ready' listener that re-flashes it into the fresh
+    // instance - so the emulator picks back up showing the same graphics
+    // instead of coming back up blank. Only the Generated tab's in-memory
+    // code ref and the real build's Save ROM/Test in Stella state
+    // (compiledRomBytes/hasCompiledRom - deliberately NOT persisted, since
+    // after a reload there's no way to tell whether the last thing shown
+    // was a real build or a synthetic preview) don't survive, so the user
+    // needs to click "Update ROM" again to re-enable those specifically.
+    // Re-flashing the same already-successfully-loaded bytes here (rather
+    // than auto-rebuilding) is deliberate: if a bad ROM's RUNTIME behavior
+    // is itself what crashed the emulator, re-running the compiler the
+    // moment the page comes back up would risk re-triggering the same crash
+    // immediately, soft-locking the user out of ever seeing a stable page
+    // to fix the project from - reloading known-good bytes into a fresh
+    // instance carries no such risk.
     handleRefreshEmulator() {
+      markSkipLoadLastProjectCheckOnce();
       window.location.reload();
     },
-    handleRomDownload() {
-      if (!window.Javatari?.compiledResult) {
-        this.errorStorage.value =
+    // Shows the emulator picture full screen: the canvas's container is what goes full screen
+    // (see the #gopher2600-target-container:fullscreen rules), since the browser fixes the size
+    // of the full screen element itself and the picture has to keep its aspect ratio.
+    handleFullscreen() {
+      const container = document.getElementById('gopher2600-target-container');
+      if (!container || !container.requestFullscreen) return;
+      this.syncFullscreenAspect();
+      container.requestFullscreen().catch(() => {});
+    },
+    // The picture's width over its height, for the full screen rules to fit it to the display.
+    syncFullscreenAspect() {
+      const container = document.getElementById('gopher2600-target-container');
+      const screen = document.getElementById('gopher2600-screen');
+      if (!container || !screen) return;
+      const width = parseFloat(screen.style.width) || screen.width;
+      const height = parseFloat(screen.style.height) || screen.height;
+      if (width && height) container.style.setProperty('--fullscreen-aspect', String(width / height));
+    },
+    // Saves what the emulator is showing as a PNG.
+    handleScreenshot() {
+      const shot = captureEmulatorScreenshot();
+      if (!shot) {
+        this.errorStorage = 'There is no emulator picture to capture yet.';
+        return;
+      }
+      const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+      shot.toBlob((blob) => {
+        if (!blob) return;
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `screenshot-${stamp}.png`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }, 'image/png');
+    },
+    // Opens the save dialog with a "Save as type" list (.bin or .a26 - the same raw
+    // ROM image either way; a26 is the usual name for an Atari 2600 ROM) where the
+    // browser has one (Chrome and Edge). Others download compiled-rom.bin or
+    // compiled-rom.a26, picked from the menu on the button.
+    // The ROM's file name (without the extension): the Project tab's Title followed
+    // by its Version (0.0.0 when none is set), dots as dashes like the saved
+    // project's name, e.g. My_Game_1-0-0. With no Title it is just compiled-rom.
+    romBaseName() {
+      const config = this.configurationStorage || {};
+      const title = config.projectTitle && sanitizeForFilename(config.projectTitle);
+      if (!title) return 'compiled-rom';
+      const version = sanitizeForFilename(config.projectVersion || '0.0.0').replace(/\./g, '-');
+      return `${title}_${version}`;
+    },
+    handleSaveRomClick() {
+      if (window.showSaveFilePicker) this.handleRomDownload();
+      else this.romSaveMenuOpen = !this.romSaveMenuOpen;
+    },
+    // extension: which one to download as when there is no save dialog with a type
+    // list (see handleSaveRomClick); ignored when there is one.
+    async handleRomDownload(extension = 'bin') {
+      if (!this.compiledRomBytes) {
+        this.errorStorage =
           'There is no compiled ROM yet; use "Update ROM" first.';
         return;
       }
-      const blob = new Blob([Javatari.compiledResult.output], {type: 'application/octet-stream'});
+      const blob = new Blob([this.compiledRomBytes.output], {type: 'application/octet-stream'});
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: `${this.romBaseName()}.bin`,
+            // Each type has its own made-up MIME type. A shared one is merged into a
+            // single entry, and a real one such as application/octet-stream is
+            // expanded by the browser into every extension it knows for it (the
+            // dialog then showed .bin on its own, or both extensions on each entry).
+            types: [
+              {description: 'Atari 2600 ROM (.bin)', accept: {'application/x-atari-2600-rom-bin': ['.bin']}},
+              {description: 'Atari 2600 ROM (.a26)', accept: {'application/x-atari-2600-rom-a26': ['.a26']}},
+            ],
+            excludeAcceptAllOption: true,
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        } catch (e) {
+          // Cancelling the dialog is not an error.
+          if (e && e.name !== 'AbortError') this.errorStorage = `Could not save the ROM: ${e.message}`;
+        }
+        return;
+      }
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = 'compiled-rom.bin';
+      link.download = `${this.romBaseName()}.${extension === 'a26' ? 'a26' : 'bin'}`;
       link.click();
     },
-    // "Test in Stella" - launches the user's own local Stella install
-    // (configured on the Options tab - see Configuration.vue's own Stella
+    // "Test in Stella" - launches the user's  local Stella install
+    // (configured on the Options tab - see Configuration.vue's  Stella
     // field) with the just-compiled ROM, with no extra CLI flags ("default
-    // settings", per the explicit request - Stella's own UI already
+    // settings", per the explicit request - Stella's  UI already
     // remembers whatever the user last configured there across runs). Only
     // reachable in the desktop build at all (see isElectron above) - a
     // browser tab has no way to launch a local program.
     async handleTestInStella() {
-      if (!window.Javatari?.compiledResult) {
-        this.errorStorage.value = 'There is no compiled ROM yet; use "Update ROM" first.';
+      if (!this.compiledRomBytes) {
+        this.errorStorage = 'There is no compiled ROM yet; use "Update ROM" first.';
         return;
       }
       if (!this.stellaPathStorage) {
-        this.errorStorage.value = 'Set the Stella installation location on the Options tab first.';
+        this.errorStorage = 'Set the Stella installation location on the Options tab first.';
         return;
       }
       this.launchingStella = true;
       try {
-        const result = await window.electronAPI.launchStella(this.stellaPathStorage, Javatari.compiledResult.output);
+        const result = await window.electronAPI.launchStella(this.stellaPathStorage, this.compiledRomBytes.output);
         if (!result.success) {
-          this.errorStorage.value = `Couldn't launch Stella: ${result.error}`;
+          // escapeHtml - errorStorage's <pre> renders via v-html now (see
+          // showError's boldenErrorHeaders), so a raw '<'/'>'/'&' in a
+          // Stella launch error would otherwise be parsed as real markup.
+          this.errorStorage = `Couldn't launch Stella: ${escapeHtml(result.error)}`;
         }
       } finally {
         this.launchingStella = false;
       }
     },
+    // Front-panel switches - Gopher2600 (unlike Javatari) draws no
+    // console-panel graphic itself, so these are real UI, wired
+    // directly to gopher2600-wasm's exposed API (tools/gopher2600-wasm/main.go).
+    handleTogglePower(poweredOn) {
+      this.emulatorPoweredOn = poweredOn;
+      safeWithGopher2600((gopher2600) => {
+        if (poweredOn) {
+          gopher2600.powerOn();
+          // A fresh VCS resets every switch to hardware defaults - restore
+          // whatever position the UI currently shows for the persistent
+          // (non-momentary) ones.
+          gopher2600.setColorMode(this.emulatorColorMode);
+          gopher2600.setDifficulty('left', this.emulatorLeftDifficultyPro);
+          gopher2600.setDifficulty('right', this.emulatorRightDifficultyPro);
+        } else {
+          gopher2600.powerOff();
+        }
+      });
+    },
+    handlePressReset() {
+      safeWithGopher2600((gopher2600) => gopher2600.pressReset());
+    },
+    handleReleaseReset() {
+      safeWithGopher2600((gopher2600) => gopher2600.releaseReset());
+    },
+    handlePressSelect() {
+      safeWithGopher2600((gopher2600) => gopher2600.pressSelect());
+    },
+    handleReleaseSelect() {
+      safeWithGopher2600((gopher2600) => gopher2600.releaseSelect());
+    },
+    handleToggleColorMode(color) {
+      this.emulatorColorMode = color;
+      safeWithGopher2600((gopher2600) => gopher2600.setColorMode(color));
+    },
+    handleToggleDifficulty(port, pro) {
+      if (port === 'left') this.emulatorLeftDifficultyPro = pro;
+      else this.emulatorRightDifficultyPro = pro;
+      safeWithGopher2600((gopher2600) => gopher2600.setDifficulty(port, pro));
+    },
   },
 };
 </script>
-<!-- Unscoped: #javatari-screen is injected by Javatari at runtime, so it never
+<!-- Unscoped: #gopher2600-screen lives directly in public/index.html and is
+     moved into this component's DOM by attachEmulator(), so it never
      carries this component's scope attribute. -->
 <style>
-/* The app's own default font, as a custom property so switching it later
-   (see public/index.html's own <link> for the actual font file/weights)
+/* The flat icon-button look of the emulator toolbar's screenshot and keyboard
+   mapping buttons - the same flat-icon treatment as every other icon button
+   in the app (e.g. Project.vue's .project-flat-icon-btn): transparent
+   background (no Vuetify default hover circle), the icon fading from a faint
+   grey to near-black on hover and flashing the app's blue on press. Unscoped
+   because the keyboard button belongs to KeyMappingDialog.vue. */
+.emulator-flat-icon-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.emulator-flat-icon-btn::before {
+  display: none;
+}
+
+/* The icon colors are scoped under .v-application .emulator-toolbar-row so they outrank
+   Soft Colors' blanket ".desaturate-app-colors .theme--light.v-icon" darkening
+   (see further below), which otherwise holds these icons at a fixed dark grey
+   with no hover change. */
+.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn .v-icon {
+  /* The graphic editor toolbar's icon size. */
+  font-size: 19px;
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease;
+}
+
+.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn:hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn:active .v-icon {
+  color: var(--v-primary-base, #1976d2) !important;
+}
+
+/* Dark Mode (see Configuration.vue's switch, bound to darkMode below) uses
+   Vuetify's built-in dark theme (see the darkMode watcher: $vuetify.theme.dark),
+   which switches every Vuetify component to its .theme--dark colors, plus the
+   overrides below for this app's hardcoded colors. There is no filter on
+   the app, so canvases, color swatches and the emulator screen are never
+   recolored: they keep their true colors with no special handling. */
+.dark-mode.v-application {
+  background-color: #000 !important;
+}
+
+.dark-mode.desaturate-app-colors.v-application {
+  background-color: #1e1e1e !important;
+}
+
+.dark-mode .emulator-drawer.theme--dark.v-navigation-drawer,
+.dark-mode .nav-drawer.theme--dark.v-navigation-drawer,
+.dark-mode .top-toolbar.theme--dark.v-app-bar.v-toolbar.v-sheet {
+  background-color: #000 !important;
+}
+
+.dark-mode.desaturate-app-colors .emulator-drawer.theme--dark.v-navigation-drawer,
+.dark-mode.desaturate-app-colors .nav-drawer.theme--dark.v-navigation-drawer,
+.dark-mode.desaturate-app-colors .top-toolbar.theme--dark.v-app-bar.v-toolbar.v-sheet {
+  background-color: #1e1e1e !important;
+}
+
+.dark-mode .emulator-drawer .v-navigation-drawer__border,
+.dark-mode .nav-drawer .v-navigation-drawer__border {
+  background-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.dark-mode.v-application .nav-drawer {
+  border-top-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.dark-mode.v-application .top-toolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+/* Blockly keeps its light-theme colors for everything but the workspace
+   background (blocks are darkened by BlocklyComponent.vue's darkenHex). */
+.dark-mode .blocklySvg {
+  background-color: #1e1e1e !important;
+}
+
+.dark-mode .blocklyDiv [id^="blocklyGridPattern"] line {
+  stroke: #595959 !important;
+}
+
+.dark-mode .blocklyFlyoutBackground {
+  fill: #1e1e1e !important;
+}
+
+.dark-mode .blocklyFlyoutLabelText {
+  fill: #fff !important;
+}
+
+/* All gated behind "Soft Colors" (see Configuration.vue's switch,
+   bound to desaturateAppColors below) - off means plain stock Vuetify
+   white everywhere, on mutes both block/tab colors (see the filter rules
+   further below) AND swaps every white surface for one of three
+   progressively darker tiers: cards (lightest, so they still read as
+   distinct surfaces), the app's chrome/background around them
+   (darker), and the build/error console footer below that (darkest, so it
+   reads as its panel). Each needs !important to beat Vuetify's
+   base stylesheet (plain classes there, not inline styles, so a plain
+   override without !important would otherwise just lose a specificity tie
+   to a same-specificity rule that happens to be loaded after this one). */
+/* 2% darker than the original #eeeeee, at the user's request. */
+.desaturate-app-colors .theme--light.v-card {
+  background-color: #e9e9e9 !important;
+}
+
+/* Vuetify's .theme--light.v-list default (white) isn't covered by the
+   v-card rule above - a v-list nested inside a popup card (e.g. the Set
+   height popup's title/slider rows - TitleScreenEditor.vue/PlayerEditor.vue/
+   BackgroundEditor.vue's v-dialog, despite this rule's older comment
+   describing it as a v-menu) kept a plain white background even with
+   Subdued Palette on, while the rest of that same popup (rows with no
+   v-list wrapper, e.g. the Cancel/Set height button row) correctly picked
+   up the card's grey - confirmed as a real reported bug, visibly
+   inconsistent within one popup ("popup colors should also be affected by
+   subdued color toggle", "the bottom portion of the set height popup
+   behind the cancel and set height buttons is the wrong color"). Scoped to
+   .v-menu__content/.v-dialog__content specifically - every tab's card-list
+   container (.background-list, .animation-list, .titlescreen-card-list,
+   ...) is ALSO a v-list, and painting those the same grey showed as a
+   stray light box sitting behind that tab's cards instead (also confirmed
+   as a real reported bug once tried unscoped). */
+.desaturate-app-colors .v-menu__content .theme--light.v-list,
+.desaturate-app-colors .v-dialog__content .theme--light.v-list {
+  background-color: #e9e9e9 !important;
+}
+
+.desaturate-app-colors.v-application,
+.desaturate-app-colors .theme--light.v-app-bar.v-toolbar.v-sheet,
+.desaturate-app-colors .theme--light.v-navigation-drawer,
+.desaturate-app-colors .editor-container.theme--light.v-card {
+  background-color: #e1e1e1 !important;
+}
+
+.desaturate-app-colors .error-message.theme--light.v-footer {
+  background-color: #bdbdbd !important;
+}
+
+/* Darkens the error console's red text to match Soft Colors' desaturated
+   palette - the plain Material red (rgb(244, 67, 54)) both .theme--light.
+   v-footer.error-message (the blanket color errorStorage's <pre> inherits)
+   and .compile-log-error use normally stood out as the one remaining bright,
+   saturated color against every other darkened/desaturated element. */
+.desaturate-app-colors .theme--light.v-footer.error-message,
+.desaturate-app-colors .compile-log-error {
+  color: #c62828 !important;
+}
+
+/* Dark Mode - the error/build console gets an explicit black background
+   (not just whatever inverting its normal light background happens to
+   produce) and keeps its red error text truly red, not hue-rotated into
+   looking orange/cyan - a real reported requirement. .error-message is
+   excluded from the blanket invert entirely now (see that rule's
+   :not(.error-message) further up, added after a real reported "the
+   console log is now all white" regression - once the blanket invert was
+   scoped directly onto .v-application--wrap's children instead of their
+   shared ancestor, this element started receiving that filter directly
+   rather than cancelling an ancestor's copy of it, so the forced-black
+   background below was getting inverted to white by this element's
+   now-redundant copy of the exact same filter), so its light-mode text
+   colors - including Subdued Palette's red/background overrides just
+   above, when also active - already apply normally with no filter
+   involved at all; the background is then forced black regardless (this
+   rule's selector ties Subdued's background rule above on specificity, so
+   it has to come AFTER it in source order to win when both are on), and
+   the otherwise near-black info/stage text is brightened to stay readable
+   against that new black background. */
+.dark-mode .error-message.theme--light.v-footer {
+  background-color: #000 !important;
+}
+
+.dark-mode .compile-log-info {
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
+/* .error-message's border-top (rgba(0, 0, 0, 0.24), see its rule further
+   below) goes invisible against the forced-black background above for the
+   same reason the resize handle did - .error-message is excluded from the
+   blanket invert entirely now (see the comment further up), so this plain
+   color property needs an explicit value, not a filter to rely on. Matches
+   the emulator pane's left border once that one got an explicit fix too
+   (.emulator-drawer .v-navigation-drawer__border further below) - both
+   ended up needing the identical direct value for the identical reason,
+   now that neither lives inside the blanket invert anymore. */
+.dark-mode .error-message {
+  border-top-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+/* Every v-switch's OFF-state thumb (the little knob) defaults to plain
+   white, unlike its ON state (which gets a "primary--text" utility class
+   added, tinting it the app's blue via currentColor) - same card color
+   as the rest of this file's darker-than-white overrides above, so the knob
+   doesn't stand out as the one leftover white dot against a switch's
+   track and whatever card/background it's sitting on. Excludes the "on"
+   variant (:not(.primary--text)) so the blue itself is untouched. */
+.desaturate-app-colors .v-input--switch__thumb:not(.primary--text) {
+  background-color: #ebebeb !important;
+}
+
+/* The ON-state's "primary--text" blue (see the comment above) - left
+   untouched by the OFF-state rule above on purpose, but still one more
+   fully-saturated color left on the page otherwise, confirmed directly as
+   a real reported gap ("make the blue on toggles also be affected"). Same
+   filter treatment as every other colored control under Subdued Palette. */
+.desaturate-app-colors .v-input--switch__thumb.primary--text,
+.desaturate-app-colors .v-input--switch__track.primary--text {
+  filter: saturate(50%) brightness(0.85);
+}
+
+/* v-slider's filled AND unfilled track, plus the thumb (SoundFXEditor.vue's
+   "DIM" slider, MusicEditor.vue/BackgroundEditor.vue/TitleScreenEditor.vue/
+   PlayerEditor.vue's sliders) - all plain Vuetify "primary" background
+   color utility classes (the unfilled side also gets Vuetify's
+   "lighten-3"), same as the switch thumb/track above, just not named
+   "primary--text" this time (it's a background-color, not a text/
+   currentColor tint) - confirmed directly as a real reported gap ("slider
+   colors should also update" - and, once the filled side was fixed, "the
+   slider bar color should also get darker, not just the filled part").
+   Same filter treatment as every other colored control under Subdued
+   Palette. */
+.desaturate-app-colors .v-slider__track-fill.primary,
+.desaturate-app-colors .v-slider__track-background.primary,
+.desaturate-app-colors .v-slider__thumb.primary {
+  filter: saturate(50%) brightness(0.85);
+}
+
+/* Every solid-colored button throughout the app (color="primary"/"green"/
+   etc, Vuetify's ".v-btn--has-bg" - the power button once on, "Update
+   ROM", the P1/P2 difficulty and Color/B&W switches, every tab's
+   selected-state toggle buttons, and so on) - same saturate+darken
+   treatment as the top toolbar/sidebar tab icons above (see those rules'
+   comments), so a colored button reads as muted/calmer under Soft
+   Colors the same way everything else does, instead of standing out as the
+   one remaining fully-saturated thing on the page. Unscoped (this file's
+   FIRST <style> block, not the <style scoped> one below) since these
+   buttons live in every tab's view component, not just App.vue's
+   template. */
+.desaturate-app-colors .theme--light.v-btn.v-btn--has-bg {
+  filter: saturate(50%) brightness(0.85);
+}
+
+/* Same rule as above, for the floating circular "+" add buttons several
+   tabs use (BackgroundEditor.vue/DataEditor.vue/MusicEditor.vue/etc's
+   fab v-btns) - these pass Vuetify's "dark" prop (just to force their icon
+   white against the colored background), which makes Vuetify give them
+   ".theme--dark" instead of ".theme--light", so the rule above never
+   matched them at all - confirmed directly as a real reported gap ("the
+   floating + buttons don't desaturate"). */
+.desaturate-app-colors .theme--dark.v-btn.v-btn--has-bg {
+  filter: saturate(50%) brightness(0.85);
+}
+
+/* The "alpha"/experimental-feature warning banners (v-alert type="warning",
+   e.g. MusicEditor.vue's .alpha-notice) - Vuetify's stock warning
+   orange (#fb8c00, applied via its "warning--text" utility class here since
+   these are all "outlined" alerts, text/border only, no filled background)
+   stayed exactly as bright as ever even with every other color on the page
+   muted, confirmed directly as a real reported gap. Darker (not just
+   desaturated, unlike the button filter above) since the request was
+   specifically for a darker orange, not a softer one. */
+.desaturate-app-colors .warning--text {
+  filter: brightness(0.75);
+}
+
+/* Each tab's card grid is wrapped in a v-list (titlescreen-list, text-list,
+   soundfx-list, background-list, song-list, data-list, animation-list) -
+   v-list is a v-sheet, not a v-card, so it fell through the .theme--light.
+   v-card rule above and stayed Vuetify's default solid white, showing
+   through as a white background behind/between the actual item cards.
+   Transparent instead, so the surrounding .editor-container's
+   background (set above) shows through there instead. Targeted by each
+   tab's list class rather than a blanket ".v-list.v-sheet" rule, which
+   would also hit dropdown/menu content that legitimately still needs an
+   opaque background to stay readable over whatever's behind it. */
+.desaturate-app-colors .titlescreen-list,
+.desaturate-app-colors .titlescreen-card-list,
+.desaturate-app-colors .text-list,
+.desaturate-app-colors .soundfx-list,
+.desaturate-app-colors .background-list,
+.desaturate-app-colors .song-list,
+.desaturate-app-colors .data-list,
+.desaturate-app-colors .animation-list,
+.desaturate-app-colors .animation-frame-list,
+.desaturate-app-colors .about-list {
+  background-color: transparent !important;
+}
+
+/* The app's  default font, as a custom property so switching it later
+   (see public/index.html's <link> for the actual font file/weights)
    only means changing this one value, not hunting down every place that
    might otherwise hardcode a font name. .v-application is the exact
-   selector Vuetify's own bundled CSS itself uses for its default
+   selector Vuetify's bundled CSS itself uses for its default
    (Roboto) font-family - matching it here, with !important, is what lets
    this override win over that built-in rule instead of just adding a
    second, lower-priority one beside it. */
 :root {
   --app-font-family: 'Inter', sans-serif;
-  /* Blockly's own block/flyout text only - deliberately separate from
+  /* Blockly's  block/flyout text only - deliberately separate from
      --app-font-family above (the rest of the app, Vuetify panels included,
      stays on Inter) - see the .blocklyText/.blocklyFlyoutLabelText rule
-     below and APP_BLOCKLY_THEME's own fontStyle in ActionEditor.vue, which
-     both have to agree on this exact font (that file's own comment explains
-     why: Blockly measures block width from its own theme fontStyle, not
+     below and APP_BLOCKLY_THEME's fontStyle in ActionEditor.vue, which
+     both have to agree on this exact font (that file's comment explains
+     why: Blockly measures block width from its theme fontStyle, not
      from whatever CSS ends up applied, so the two have to be kept in sync
      by hand). public/index.html loads the actual font file for this. */
   --blockly-font-family: 'IBM Plex Mono', monospace;
 }
 
 /* Every scrollbar in the app (the left sidebar, the emulator column, each
-   editor tab's own scroll area, the error console) was previously left at
-   the browser's own default width/appearance - unstyled anywhere in this
+   editor tab's scroll area, the error console) was previously left at
+   the browser's default width/appearance - unstyled anywhere in this
    codebase (confirmed directly, no "::-webkit-scrollbar"/"scrollbar-width"
    rule existed before this one). Global rather than scoped to any one
    panel, so all of them read as one consistent, subdued design: a slim,
@@ -1138,23 +1835,23 @@ export default {
    it), a little darker on hover so it's still easy to find and grab. 16px
    gutter, 12px visible thumb - the thumb is narrower than the gutter via a
    transparent border + background-clip: content-box (the border eats into
-   the thumb's own box without changing the gutter it's laid out in, and
+   the thumb's box without changing the gutter it's laid out in, and
    clipping the background to content-box keeps that border area from
-   getting painted over) - the standard trick for "thinner bar than its own
+   getting painted over) - the standard trick for "thinner bar than its
    track." Firefox has no equivalent for a specific pixel gutter/thumb size
    (only the generic "scrollbar-width: thin/auto/none" keywords), so it only
    gets the color change here, not the exact sizing. */
 /* Vuetify's default outlined-card border (rgba(0, 0, 0, 0.12)) reads as
    quite faint - darkened a bit here so card edges are easier to pick out
-   from the page background. Targets each tab's own MAIN per-entry card
+   from the page background. Targets each tab's MAIN per-entry card
    class by name (not a blanket .v-sheet--outlined rule, which is what
-   v-card's own "outlined" prop applies) specifically so this does NOT also
-   darken a sub-frame nested inside one of these - PixelEditor.vue's own
+   v-card's "outlined" prop applies) specifically so this does NOT also
+   darken a sub-frame nested inside one of these - PixelEditor.vue's
    outlined card (the sprite/background pixel art canvas, nested inside
-   .animation-card/.background-card) and MusicEditor.vue's own .pattern-card
+   .animation-card/.background-card) and MusicEditor.vue's .pattern-card
    (nested inside .song-card) both stay at Vuetify's default lighter
-   border, since each is a sub-frame within its own main card rather than
-   that main card's own edge. */
+   border, since each is a sub-frame within its main card rather than
+   that main card's edge. */
 .animation-card,
 .background-card,
 .data-card,
@@ -1162,8 +1859,83 @@ export default {
 .text-card,
 .song-card,
 .titlescreen-card,
-.titlescreen-screen-card {
+.titlescreen-screen-card,
+.example-card,
+.sound-bank-card {
   border-color: rgba(0, 0, 0, 0.24) !important;
+}
+
+/* Popup cards (v-menu's Set height/import pickers/etc., and v-dialog's
+   confirm/settings popups - e.g. KeyMappingDialog.vue) render as plain
+   v-cards with no "outlined" prop, so they had no border at all - just
+   elevation/shadow separating them from whatever's behind. Matches the
+   same darkened border color as the main per-entry cards above, so any
+   popup reads as consistent with the rest of the app instead of a
+   borderless white/grey blob.
+   box-shadow removed outright, in every mode, not just Dark Mode - Dark
+   Mode's blanket filter was turning Vuetify's stock black-based
+   elevation shadow into a glowing white halo, and CSS filter has no way to
+   exempt just that one property from an ancestor's effect while still
+   inverting the rest of the same popup - the only way to genuinely leave
+   it unaffected was to not have one at all (a real, direct request after
+   a pre-inverted "cancel it out" value still read as a visible glow once
+   actually checked). The border above already gives every popup a visible
+   edge in every mode, so nothing is left undefined without a shadow
+   either.
+   ".v-dialog" itself (not just ".v-dialog > .v-card" below) needs this
+   same override too - confirmed live (getComputedStyle), a v-dialog popup's
+   VISIBLE shadow actually comes from the ".v-dialog" wrapper's
+   elevation (Vuetify defaults dialogs to elevation 24 - a much bigger
+   blur/spread than a plain card's elevation 2), not from the ".v-card"
+   inside it - the ".v-card" rule below was removing the wrong element's
+   shadow this whole time, a real reported case of "the drop shadow is
+   still here" after that fix alone.
+   ".v-menu__content" needs the same thing for the identical reason - its
+   card IS a direct child (confirmed earlier, unlike .v-dialog), but the
+   VISIBLE shadow still turned out to live on ".v-menu__content" itself
+   (elevation 10: "rgba(0, 0, 0, .2) 0px 5px 5px -3px, rgba(0, 0, 0, .14)
+   0px 8px 10px 1px, rgba(0, 0, 0, .12) 0px 3px 14px 2px"), not on its
+   ".v-card" - a real reported case of "delete popups still have a drop
+   shadow" (every tab's "Delete this X?" confirm is a v-menu, not a
+   v-dialog) after the ".v-card"/".v-dialog" fixes alone. */
+.v-dialog,
+.v-menu__content {
+  box-shadow: none !important;
+}
+
+/* Menus that hold a bare list instead of a card (e.g. the Data tab's cell
+   mode menu) get the same border. */
+.data-format-menu {
+  border: 1px solid rgba(0, 0, 0, 0.24);
+}
+
+/* A dropdown's list is narrower than its menu when the menu scrolls (the scrollbar takes the difference), and the
+   menu itself had no background, so the scrollbar read as sitting outside the dropdown. With the list's
+   color on the menu, the scrollbar sits inside it, on the right edge. */
+.v-menu__content.theme--light {
+  background-color: #fff;
+}
+
+.v-menu__content.theme--dark {
+  background-color: #1e1e1e;
+}
+
+/* The same outline the popups get (a .v-card inside the menu carries theirs), for dropdown lists. */
+.v-menu__content:has(> .v-select-list) {
+  border: 1px solid rgba(0, 0, 0, 0.24);
+}
+
+.v-menu__content > .v-card,
+.v-dialog > .v-card {
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  box-shadow: none !important;
+  /* These cards default to overflow: visible, so a flush-edged child (e.g.
+     the Set height popup's v-card-actions row) squares off past the
+     card's rounded corners instead of being clipped to them - right at
+     that corner, whatever's behind the popup shows through instead of the
+     card's background color, reading as "the wrong color at the
+     bottom" (confirmed as a real reported bug). */
+  overflow: hidden;
 }
 
 /* Card-level click-to-select (see selectCard/selectedCardId/deselectCard in
@@ -1171,12 +1943,12 @@ export default {
    border-color darkening just above and .editor-container squaring below
    already are, rather than duplicating this same CSS in every tab that
    adds the feature. Suppresses every v-card--link side effect (Vuetify's
-   own default for ANY v-card with a click listener - a pointer cursor,
+   default for ANY v-card with a click listener - a pointer cursor,
    ripple, and a hover/focus/active darkening overlay via ::before) on both
-   a selectable card AND its own tab's outer editor-container (whose own
+   a selectable card AND its tab's outer editor-container (whose
    click clears the selection - see deselectCard) - the ONLY visual effect
-   either should have is the selected card's own outline below, nothing
-   else. Add a tab's own MAIN card class (matching the list just above) to
+   either should have is the selected card's outline below, nothing
+   else. Add a tab's MAIN card class (matching the list just above) to
    both selector groups here when wiring up a new tab. */
 .soundfx-card.v-card--link,
 .song-card.v-card--link,
@@ -1212,12 +1984,12 @@ export default {
   box-shadow: none !important;
 }
 
-/* Recolors a selected card's own border to the app's primary blue, plus a
+/* Recolors a selected card's  border to the app's primary blue, plus a
    2px outline (drawn outside the border edge, never part of layout/box-
-   sizing, so a card's own content never shifts when selected) for extra
+   sizing, so a card's content never shifts when selected) for extra
    visual weight. Both need !important: border-color beats v-sheet--
-   outlined's own rule on specificity, and outline-style needs to beat
-   Vuetify's own base stylesheet, which resets "outline: 0" on .v-card -
+   outlined's rule on specificity, and outline-style needs to beat
+   Vuetify's base stylesheet, which resets "outline: 0" on .v-card -
    without it, only outline-color/outline-width actually applied (confirmed
    directly: outline-STYLE stayed "none", so nothing ever painted) and the
    selected card visually looked like nothing but the border-color change
@@ -1234,59 +2006,120 @@ export default {
   outline: 2px solid var(--v-primary-base, #1976d2) !important;
 }
 
-/* Every tab's own main window card shares this exact class name
+/* Every tab's  main window card shares this exact class name
    (PlayerEditor/BackgroundEditor/SoundFXEditor/TextEditor/DataEditor.vue,
    among others) - squared off globally here rather than per-file, so it
-   reads consistently with Options/Music (which use v-card's own "flat"
+   reads consistently with Options/Music (which use v-card's "flat"
    prop, no shadow, so their rounding was never visible either way) and
    Generated Code (which already squares this exact class off itself, for
-   an unrelated clipping reason - see its own comment - and would otherwise
+   an unrelated clipping reason - see its comment - and would otherwise
    have been the only tab actually SHOWING Vuetify's default rounding,
    simply because nothing else here had squared it off yet). */
 .editor-container {
   border-radius: 0 !important;
 }
 
-/* Vuetify's own default drawer border (an internal 1px div it renders, not
+/* Vuetify's  default drawer border (an internal 1px div it renders, not
    a CSS border property) for both the tool sidebar (.nav-drawer) and the
    emulator pane (.emulator-drawer) - darkened here to match the same
    .v-sheet--outlined border color above rather than Vuetify's default
    rgba(0, 0, 0, 0.12). Both drawers share this exact class, so one rule
    covers both dividers. Has to live in this unscoped <style> block, not
    the <style scoped> block below (where every other App.vue rule targeting
-   Vuetify's own drawer classes lives) - this particular div is rendered by
-   Vuetify's own internal render function rather than this component's
+   Vuetify's drawer classes lives) - this particular div is rendered by
+   Vuetify's internal render function rather than this component's
    template, so it never receives this component's scope attribute, and a
    scoped version of this exact rule silently never matched it at all. */
 .v-navigation-drawer__border {
   background-color: rgba(0, 0, 0, 0.24) !important;
 }
 
-/* Vuetify assigns v-menu/v-dialog overlay content its own z-index
+/* Every tab's intro paragraph (DataEditor.vue/MusicEditor.vue/ScoreFontEditor.vue/
+   SoundFXEditor.vue/TextEditor.vue/TitleScreenEditor.vue) shares this exact
+   class already - one shared rule here instead of each tab guessing its
+   margin-top (TextEditor.vue's .text-intro-paragraph once had a -5px
+   override, landing it visibly closer to its title than every other tab's -
+   confirmed directly as a real reported inconsistency). Explicit margin-top:
+   0 - matches Vuetify's default v-card-title/v-card-text spacing (what
+   every tab actually gets with no override at all), made explicit and
+   centralized here rather than "correct by nobody having touched it yet". */
+.v-messages__message {
+  margin-top: 0;
+}
+
+/* Shared by every alpha-stage tab's warning banner, directly under its
+   v-card-title (Music, Title) - shrinks to fit the warning text itself
+   instead of stretching the full card width (Vuetify's v-alert default);
+   width: fit-content keeps its internal padding symmetric left/right
+   either way, so this doesn't need any padding override to
+   match. Moved here (not left as a MusicEditor.vue-only scoped rule) once
+   a second tab needed the exact same treatment - see .tab-intro-section's
+   comment just below for the same "duplicated, then shared" history. */
+.alpha-notice {
+  width: fit-content;
+  margin: 0 16px 0;
+}
+
+/* Tightens the gap specifically when a .tab-intro-section (and its
+   description paragraph) follows an .alpha-notice warning (Music, Title) -
+   confirmed as a real reported case of "too much space" between the two:
+   .tab-intro-section's default v-card-text padding-top (16px, left
+   un-overridden - see that rule's comment below) stacked on top of this
+   alert's former 8px margin-bottom, 24px total. Scoped to this
+   adjacent-sibling case only, not a blanket .tab-intro-section change,
+   since every other tab's intro paragraph sits directly under its
+   v-card-title with no alert in between and still wants the full 16px. */
+.alpha-notice + .tab-intro-section {
+  padding-top: 8px;
+}
+
+/* The v-card-text wrapping every tab's intro paragraph (Background/Sprites/
+   Title screen/Sound/Music/Score/Text/Data/Project/Generated) - one shared
+   class/rule here instead of each tab picking its padding-bottom to
+   fight its next-element's padding-top (Sound/Music/Generated each
+   independently zeroed this same way after being reported as "too much
+   space" before the content below - confirmed as a real reported
+   inconsistency once every tab was compared side by side). Zeroed so the
+   paragraph's 16px margin-bottom (see .v-messages__message above) is
+   the ONLY thing setting that gap, everywhere, at exactly the same value. */
+.tab-intro-section {
+  padding-bottom: 0;
+}
+
+/* Pulls a toolbar up close under its tab's intro text (Sound, Data, Sprites,
+   Background). The paragraph's 16px bottom margin collapses with this
+   negative one, leaving a 6px gap, and the same 6px remains with the
+   description text hidden (Expert mode). */
+.v-application .tight-under-intro {
+  margin-top: -10px;
+}
+
+
+/* Vuetify assigns v-menu/v-dialog overlay content its  z-index
    dynamically at open time (computed from whatever's already on the page,
-   not a fixed CSS value - there's nothing to override in its own
+   not a fixed CSS value - there's nothing to override in its
    stylesheet), and that computed value routinely lands below this app's
-   own chrome-level z-index: 20 rules (.emulator-resize-handle,
-   .error-resize-handle's own z-index: 2 sits inside .error-message's
-   z-index: 10 stacking context, .emulator-hide-button, etc - see their own
+   chrome-level z-index: 20 rules (.emulator-resize-handle,
+   .error-resize-handle's z-index: 2 sits inside .error-message's
+   z-index: 10 stacking context, .emulator-hide-button, etc - see their
    comments). Confirmed as a real bug: the sidebar/console drag handles
    rendered on top of popup menus (e.g. a sound effect's delete
    confirmation) instead of under them. Pushed well above every one of
    those instead of tuning each one down, so no future chrome-level z-index
    added here needs to keep this in mind too. */
-/* Was pinned to a fixed 30 - too low. .v-overlay (Vuetify's own generic
+/* Was pinned to a fixed 30 - too low. .v-overlay (Vuetify's  generic
    modal-backdrop wrapper - shared by v-dialog, v-menu, AND a temporary
-   v-navigation-drawer's own scrim, e.g. the emulator sidebar) gets its own
+   v-navigation-drawer's scrim, e.g. the emulator sidebar) gets its
    z-index assigned dynamically by Vuetify, unrelated to this stylesheet,
    and it climbs over a long session as more menus/dialogs open - confirmed
    directly, it drifted to 201, well above this fixed 30, putting a
-   dialog's own scrim on top of its content and making the dialog's buttons
+   dialog's scrim on top of its content and making the dialog's buttons
    unclickable (document.elementFromPoint() at their center returned the
    scrim, not the button - reported as "Create New Project" doing nothing
    when clicked).
    An earlier fix for this pinned .v-overlay itself below 30 instead of
    raising this - wrong, since .v-overlay isn't dialog-specific: capping it
-   also capped the emulator sidebar's own drawer scrim, breaking ITS
+   also capped the emulator sidebar's drawer scrim, breaking ITS
    stacking (reported directly: "the emulator sidebar is now behind the
    overlay"). Raised high enough here instead that it stays above .v-overlay
    regardless of how far that drifts, without touching .v-overlay at all -
@@ -1321,15 +2154,15 @@ export default {
   background-color: rgba(0, 0, 0, 0.4);
 }
 
-/* Blockly draws its own scrollbars as SVG rects (.blocklyScrollbarHandle),
+/* Blockly draws its  scrollbars as SVG rects (.blocklyScrollbarHandle),
    not real browser scrollbars, so the ::-webkit-scrollbar rules above never
    reach them - overridden here with the same rest/hover colors so they read
-   as the same design instead of Blockly's own default light grey.
-   Blockly's own stock stylesheet (node_modules/blockly/core/css.js) already
+   as the same design instead of Blockly's default light grey.
+   Blockly's stock stylesheet (node_modules/blockly/core/css.js) already
    has a ".blocklyFlyout .blocklyScrollbarHandle"/"...:hover" pair (two
    classes) specifically for flyout scrollbars, darkened for its grey
    background - that beats a plain ".blocklyScrollbarHandle" rule on
-   specificity regardless of source order, so the flyout's own scrollbar was
+   specificity regardless of source order, so the flyout's scrollbar was
    still showing Blockly's stock grey (#bbb/#aaa) instead of this app's
    rgba(0,0,0,0.25/0.4), particularly obvious on hover. Repeating the
    ".blocklyFlyout" prefix here matches that specificity so this app's colors
@@ -1346,15 +2179,55 @@ export default {
   fill: rgba(0, 0, 0, 0.4);
 }
 
-/* Matches the grid-snap icon's own rest/hover/press opacity steps (see
-   ActionEditor.vue's setupGridSnapZoomButton) - overrides Blockly's own
+/* White-based, not filter-based (unlike .blocklyDiv's blanket exclusion
+   above) - a real reported requirement ("Blockly scrollbars need to be
+   inverted to match the other app scrollbars"): same black-based-rgba-
+   reads-as-invisible-on-a-now-dark-surface issue already fixed for the
+   console log's resize handle, same direct-fill-override fix (Blockly's
+   scrollbars are SVG rects, not real browser scrollbars - the app-wide
+   ::-webkit-scrollbar rules this is meant to visually match never reach
+   them either, which is why this app's rgba(0,0,0,...) override just
+   above exists in the first place). */
+.dark-mode .blocklyScrollbarHandle,
+.dark-mode .blocklyFlyout .blocklyScrollbarHandle {
+  fill: rgba(255, 255, 255, 0.25);
+}
+
+.dark-mode .blocklyScrollbarBackground:hover + .blocklyScrollbarHandle,
+.dark-mode .blocklyScrollbarHandle:hover,
+.dark-mode .blocklyFlyout .blocklyScrollbarBackground:hover + .blocklyScrollbarHandle,
+.dark-mode .blocklyFlyout .blocklyScrollbarHandle:hover {
+  fill: rgba(255, 255, 255, 0.4);
+}
+
+/* Matches the grid-snap icon's rest/hover/press opacity steps (see
+   ActionEditor.vue's setupGridSnapZoomButton) - overrides Blockly's
    stock ".blocklyZoom>image"/"...:hover"/"...:active" rule (css.js,
-   .4/.6/.8), which is the SAME selector this app's own stylesheet uses, so
+   .4/.6/.8), which is the SAME selector this app's stylesheet uses, so
    which one wins is otherwise just a source-order coin flip (Blockly injects
-   its CSS at runtime, after this file's own compiled <style> tag) -
-   !important makes this app's values win unconditionally instead. */
+   its CSS at runtime, after this file's compiled <style> tag) -
+   !important makes this app's values win unconditionally instead.
+   filter: brightness(0) matches the REST of grid-snap/multiselect's look
+   too, not just their opacity curve - a real reported gap ("give the
+   blockly zoom control buttons the same styles as the multiselect and grid
+   snap buttons... every button state, not just some"): opacity alone was
+   already identical (confirmed live, both read 0.25 at rest), but the zoom
+   icons are a raster clipped from Blockly's media/sprites.png, which
+   bakes in Blockly's stock icon colour - not the near-black grid-snap's
+   hand-drawn glyph and multiselect's recoloured SVG both use instead (see
+   MULTISELECT_ICON_INACTIVE/_ACTIVE in BlocklyComponent.vue). brightness(0)
+   zeroes every RGB channel while leaving alpha untouched, forcing the
+   raster to solid black regardless of its original colour - the same
+   "force a uniform icon colour Blockly doesn't expose a setting for"
+   problem multiselect already solved, just via a filter here instead of a
+   recoloured source image, since this one has no plugin option to swap the
+   source for. Applies uniformly to rest/hover/press alike (not a per-state
+   rule), so there's no separate copy needed on the :hover/:active rules
+   below - once the icon itself is black, the existing opacity steps alone
+   already reproduce grid-snap/multiselect's exact look at every state. */
 .blocklyZoom > image,
 .blocklyZoom > svg > image {
+  filter: brightness(0) !important;
   opacity: .25 !important;
 }
 
@@ -1368,45 +2241,87 @@ export default {
   opacity: .75 !important;
 }
 
+/* Same reasoning/values as .blocklyZoom above, now for the multiselect
+   plugin's toggle icon (BlocklyComponent.vue's mounted()) sitting right
+   next to the grid-snap icon (ActionEditor.vue's setupGridSnapZoomButton) -
+   overrides the plugin's injected .blocklyMultiselect rule (multiselect
+   _controls.js's Blockly.Css.register call, .2/.4/.6) so the two icons read
+   as one consistent set instead of two different opacity curves sitting
+   side by side - confirmed as a real reported mismatch. The icon's color
+   match (black at rest, the app's primary blue once active) comes from
+   BlocklyComponent.vue's MULTISELECT_ICON_INACTIVE/_ACTIVE data URIs
+   instead of a CSS filter here - <image> elements have no fill to override
+   directly, so recoloring the source SVGs themselves was the only way to
+   match grid-snap's hand-drawn glyph exactly. */
+.blocklyMultiselect > image,
+.blocklyMultiselect > svg > image {
+  opacity: .25 !important;
+}
+
+.blocklyMultiselect > image:hover,
+.blocklyMultiselect > svg > image:hover {
+  opacity: .5 !important;
+}
+
+.blocklyMultiselect > image:active,
+.blocklyMultiselect > svg > image:active {
+  opacity: .75 !important;
+}
+
+/* Matches grid-snap's "active (toggled on) is always full opacity,
+   regardless of hover" rule exactly (see ActionEditor.vue's
+   setupGridSnapZoomButton's render()) - blockly-multiselect-active is
+   toggled by BlocklyComponent.vue's wrapped updateMultiselectIcon, the
+   only hook this plugin exposes for "the mode just changed." Higher
+   specificity (two classes) than the plain rest/hover/press rules above
+   would already win without !important, but every other rule here uses it
+   for the same guaranteed-precedence reason (see .blocklyZoom's comment
+   above on Blockly injecting its CSS at runtime), so this stays
+   consistent with them. */
+.blocklyMultiselect.blockly-multiselect-active > image,
+.blocklyMultiselect.blockly-multiselect-active > svg > image {
+  opacity: 1 !important;
+}
+
 /* The handle's exact 12px width/inset (matching the app's global scrollbar
    thumb) is set directly on the SVG attributes in BlocklyComponent.vue's
    createDom_ patch, not here - CSS geometry-property support for SVG
    width/x/rx isn't reliable enough across browsers for something this
    visible. */
 
-/* Overrides Vuetify's own bundled reset (ress.css), which sets
-   "html { overflow-y: scroll }" deliberately (its own comment: "All
+/* Overrides Vuetify's  bundled reset (ress.css), which sets
+   "html { overflow-y: scroll }" deliberately (its comment: "All
    browsers without overlaying scrollbars") to reserve scrollbar space
    up front and avoid a width shift on pages that sometimes need to
    scroll and sometimes don't. Confirmed directly (via computed style
-   and a search of every loaded stylesheet's own rules) as the actual
+   and a search of every loaded stylesheet's rules) as the actual
    source of an always-present, non-functional scrollbar flush against
-   the browser's own right edge - not a bug in this app's own layout,
-   and not something overflowing. This app's own design already has
+   the browser's right edge - not a bug in this app's layout,
+   and not something overflowing. This app's design already has
    every panel (nav drawer, emulator sidebar, each editor tab, the
-   error console) scroll internally on its own, so the document itself
-   is never actually meant to scroll at all - Vuetify's own "always
+   error console) scroll internally by itself, so the document itself
+   is never actually meant to scroll at all - Vuetify's "always
    reserve the gutter" tradeoff has nothing real to protect against
    here, just an inert scrollbar with no content to scroll to. */
 html {
   overflow-y: auto !important;
 }
 
-/* Vuetify's own .v-application--wrap (the flex column that lays out the
+/* Vuetify's .v-application--wrap (the flex column that lays out the
    app-bar/v-main/footer) only sets "min-height: 100vh" - a FLOOR, not a
-   fixed size. flex-shrink only ever kicks in when a flex CONTAINER's own
+   fixed size. flex-shrink only ever kicks in when a flex CONTAINER's
    main-size is definite/fixed and smaller than its children's combined
    hypothetical sizes; with only a min-height, the browser instead just
    grows this container to fit whatever its children want, so .app-main's
-   own "flex: 1 1 auto; min-height: 0" override (see that rule's own
+   "flex: 1 1 auto; min-height: 0" override (see that rule's
    comment) never actually had a reason to shrink anything - there was
    never a real space shortage for it to respond to, just an ever-growing
    container. height: 100vh makes this a genuinely fixed-size flex
    container, which is what actually makes .app-main shrink to fit instead
-   of dictating the page's own height - confirmed as the real remaining
+   of dictating the page's height - confirmed as the real remaining
    piece after the flex-shrink change alone turned out not to be enough on
-   its own. v-app's own auto-generated v-application--wrap div is rendered
-   by the v-app COMPONENT itself, not written in App.vue's own template, so
+   its. v-app's auto-generated v-application--wrap div is rendered
+   by the v-app COMPONENT itself, not written in App.vue's template, so
    (like .v-main__wrap elsewhere in this file) this has to live in this
    UNSCOPED block rather than the scoped one below - a scoped version
    matches nothing here, the same reason the fab z-index rule above had to
@@ -1416,14 +2331,14 @@ html {
 }
 
 /* Keeps every tab's floating "+" fab (Background, Player0/1, Sound, Music,
-   Data) above .error-message's own fixed, viewport-pinned footer (see that
-   rule, in this file's OWN scoped style block below - .error-message is in
-   App.vue's own template, so scoped CSS reaches it fine). This rule has to
+   Data) above .error-message's fixed, viewport-pinned footer (see that
+   rule, in this file's scoped style block below - .error-message is in
+   App.vue's template, so scoped CSS reaches it fine). This rule has to
    live in this UNSCOPED block instead, even though it's right next to
    .error-message conceptually: every one of those fab buttons is rendered
-   by a CHILD component's own template (PlayerEditor.vue, BackgroundEditor.vue,
+   by a CHILD component's template (PlayerEditor.vue, BackgroundEditor.vue,
    etc.), and Vue's scoped CSS only ever auto-attaches its scope attribute to
-   elements written directly in THIS component's own template - a scoped
+   elements written directly in THIS component's template - a scoped
    version of this exact rule silently matched nothing at all in any other
    component, confirmed directly as why the fabs went missing again even
    after this same fix was already applied once (it just never actually
@@ -1438,61 +2353,98 @@ html {
   font-family: var(--app-font-family) !important;
 }
 
-/* Blockly ships its own bundled CSS (font: 11pt sans-serif on these exact
-   selectors) rather than inheriting the page's own font-family, so the
+/* Blockly ships its  bundled CSS (font: 11pt sans-serif on these exact
+   selectors) rather than inheriting the page's font-family, so the
    block canvas/flyout text stayed in the browser's generic sans-serif even
    after .v-application above switched everywhere else - confirmed directly
-   by inspecting Blockly's own injected stylesheet. font-family only (not
+   by inspecting Blockly's injected stylesheet. font-family only (not
    the shorthand font: ... property) so this doesn't also touch the 11pt
-   size Blockly itself sets. Deliberately its own --blockly-font-family (see
-   that variable's own comment above), not --app-font-family - only the
+   size Blockly itself sets. Deliberately its --blockly-font-family (see
+   that variable's comment above), not --app-font-family - only the
    block/flyout text itself uses this font, everything else in the app
    stays on Inter. [class*="-theme"] (not a fixed ".app-theme") because
-   Blockly's own injected theme class is literally that theme's own NAME +
+   Blockly's injected theme class is literally that theme's NAME +
    "-theme" (see Theme.prototype.getClassName) - confirmed as the reason an
-   earlier version of this rule (".classic-theme", copied from Blockly's own
+   earlier version of this rule (".classic-theme", copied from Blockly's
    default theme name rather than the actual "app-theme" class this
-   project's own custom theme produces) never matched anything at all.
+   project's custom theme produces) never matched anything at all.
    [class*="-renderer"] the same way, for the exact same reason - Blockly's
-   injected renderer class is that renderer's own name + "-renderer" (see
+   injected renderer class is that renderer's name + "-renderer" (see
    renderers/common/renderer.js), and this app has already switched which
    renderer it uses more than once (geras -> zelos -> thrasos), so a fixed
    class here would go stale again the next time it does. */
+/* The editing box that opens over a block's text field (comment blocks, number
+   fields...) has no background of its own here, so the field's text stayed
+   visible underneath and the two overlapped while typing. Give it a solid
+   one so it covers that text. */
+.blocklyWidgetDiv .blocklyHtmlInput {
+  background-color: #fff;
+}
+
+/* The multiline (comment block) editing box is sized to the block's text,
+   which is drawn in the block font, but Blockly's textarea defaults to
+   monospace - wider characters - so what was being typed got cropped. Use
+   the block font so the box and the text agree. */
+.blocklyWidgetDiv .blocklyHtmlTextAreaInput {
+  font-family: var(--blockly-font-family) !important;
+  /* The box is sized to the longest line as it is typed, so a line must never wrap
+     inside it (a wrap shows the words jumping to the next line mid-typing). */
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: hidden;
+}
+
 [class*="-renderer"][class*="-theme"] .blocklyText,
 [class*="-renderer"][class*="-theme"] .blocklyFlyoutLabelText {
   font-family: var(--blockly-font-family) !important;
 }
 
-/* The color picker (field_grid_dropdown, see blocks/color.js's own
-   color_get) - white background + rounded corners instead of Blockly's own
-   default (the block's own colour, purple here, tinting the whole flyout -
+/* The color picker (field_grid_dropdown, see blocks/color.js's
+   color_get) - white background + rounded corners instead of Blockly's
+   default (the block's colour, purple here, tinting the whole flyout -
    set directly as an inline style by DropDownDiv.setColour(), hence
    !important to win over it). :has(.fieldGridDropDownContainer) scopes this
    to only the grid-dropdown color picker specifically - .blocklyDropDownDiv
    is a single shared singleton every ordinary (non-grid) dropdown field
    also reuses, so a blanket override here would have re-colored every
-   plain dropdown's own flyout too. */
+   plain dropdown's flyout too. */
 .blocklyDropDownDiv:has(.fieldGridDropDownContainer) {
   background-color: #fff !important;
   border-radius: 8px !important;
 }
 
-/* @blockly/field-grid-dropdown's own default 7px grid-gap between cells -
+/* The dropdown is attached to the page body, outside the app root that carries the theme classes, so the
+   themes are found from the body: the color picker takes the same colors as the popup cards (Subdued
+   Palette, Dark Mode, and both together). */
+body:has(#inspire.desaturate-app-colors) .blocklyDropDownDiv:has(.fieldGridDropDownContainer) {
+  background-color: #e9e9e9 !important;
+}
+
+body:has(#inspire.dark-mode) .blocklyDropDownDiv:has(.fieldGridDropDownContainer) {
+  background-color: #000 !important;
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+}
+
+body:has(#inspire.dark-mode.desaturate-app-colors) .blocklyDropDownDiv:has(.fieldGridDropDownContainer) {
+  background-color: #2a2a2a !important;
+}
+
+/* @blockly/field-grid-dropdown's  default 7px grid-gap between cells -
    with the border/padding shrink below already making each cell mostly
-   just its own swatch, that gap read as a wide, oddly deliberate-looking
+   just its swatch, that gap read as a wide, oddly deliberate-looking
    gutter between adjacent colors rather than the label-affording spacing
    it was originally sized for. */
 .fieldGridDropDownContainer.blocklyMenu {
   grid-gap: 0 !important;
 }
 
-/* Each swatch cell's own bordered frame, shrunk to match blocks/color.js's
-   own 28x28 swatch images (up from an original 16x16) - @blockly/field-
-   grid-dropdown's own default padding-left:15px is leftover checkmark
+/* Each swatch cell's  bordered frame, shrunk to match blocks/color.js's
+   28x28 swatch images (up from an original 16x16) - @blockly/field-
+   grid-dropdown's default padding-left:15px is leftover checkmark
    space (this app already hides the checkmark itself, see that package's
-   own CSS), which otherwise left every swatch floating off-center in a
+   CSS), which otherwise left every swatch floating off-center in a
    much bigger, mostly-empty cell instead of filling it. That same package's
-   own default 1px dark border around every cell is dropped too (border:
+   default 1px dark border around every cell is dropped too (border:
    none) - once the swatch itself fills the whole cell (padding above), that
    border just drew a visible dark line on top of/around the color square
    rather than framing empty space the way it did before. */
@@ -1502,9 +2454,9 @@ html {
 }
 
 /* The swatch <img> itself is a default INLINE element, which (like any
-   inline element) reserves descender space below its own baseline within
+   inline element) reserves descender space below its baseline within
    its containing block - confirmed directly by measuring the two rects:
-   the image sat flush against its own cell's top with the entire gap
+   the image sat flush against its cell's top with the entire gap
    sitting underneath it, exactly the classic "inline image leaves a sliver
    of empty space below it" quirk, not a padding/centering issue. display:
    block removes it from the inline flow entirely, closing that gap. */
@@ -1513,21 +2465,27 @@ html {
 }
 
 /* The currently-selected swatch (whichever color this field is already set
-   to) - @blockly/field-grid-dropdown's own default is a translucent dark
+   to) - @blockly/field-grid-dropdown's default is a translucent dark
    overlay wash across the whole cell (background-color: rgba(1,1,1,.25)),
    muddying the actual color underneath rather than clearly marking it as
    selected. A 2px solid black INSET box-shadow instead - inset (not a
    plain border) so it draws inside the cell's existing bounds rather than
    adding to them, which would otherwise shift/shrink the swatch image
-   relative to every other (unselected) cell's own size. */
+   relative to every other (unselected) cell's size. */
 .fieldGridDropDownContainer.blocklyMenu .blocklyMenuItemSelected {
   background-color: transparent !important;
   box-shadow: inset 0 0 0 2px #000 !important;
 }
 
-/* Vuetify's own hint/error text under a field (e.g. the description under
+/* A white frame instead in Dark Mode, where the popup is dark (the dropdown sits outside the app root, so the
+   theme is found from the body). */
+body:has(#inspire.dark-mode) .fieldGridDropDownContainer.blocklyMenu .blocklyMenuItemSelected {
+  box-shadow: inset 0 0 0 2px #fff !important;
+}
+
+/* Vuetify's  hint/error text under a field (e.g. the description under
    the "Enable Superchip RAM..." switch on the Options tab) - default
-   line-height (12px, exactly matching its own 12px font-size, i.e. no
+   line-height (12px, exactly matching its 12px font-size, i.e. no
    leading at all) reads as cramped once a hint runs to more than one line.
    Global (not scoped to one field) since every hint/detail message in the
    app uses this same class. */
@@ -1536,12 +2494,12 @@ html {
 }
 
 /* See Configuration.vue's "Hide small description text" switch (VCSGM
-   Options) and this file's own hideDescriptionText computed, bound as a
+   Options) and this file's hideDescriptionText computed, bound as a
    class on the root v-app above - hides every hint/description paragraph
    app-wide from one place, now that they all consistently share this same
-   Vuetify class (see TextEditor.vue's own hint paragraph for the pattern).
+   Vuetify class (see TextEditor.vue's hint paragraph for the pattern).
    Left targeting the plain class (not "v-messages" too) since a field's
-   OWN validation/error messages also render through the same DOM structure
+   validation/error messages also render through the same DOM structure
    and use ".v-messages__message" too - scoping any tighter would need
    distinguishing "hint" text from "error" text, which Vuetify itself
    doesn't expose a separate class for. */
@@ -1549,39 +2507,113 @@ html {
   display: none;
 }
 
-/* Vuetify gives every ".v-messages" wrapper its own 14px min-height
+/* Vuetify gives every ".v-messages" wrapper its  14px min-height
    regardless of whether a message is actually rendered inside it (reserved
    so a validation error popping in/out doesn't shift surrounding layout) -
    hiding just the text above still left that empty 14px box behind, so
-   fields/switches whose own spacing (e.g. Configuration.vue's
+   fields/switches whose spacing (e.g. Configuration.vue's
    ".option-switch + .option-switch"/".pfres-field" rules) assumes the hint
    text is fully gone still sat farther apart than intended. */
 .hide-description-text .v-messages {
   min-height: 0;
 }
 
-#javatari-target-container {
+#gopher2600-target-container {
+  position: relative;
   overflow: hidden;
   /* This sits inside .emulator-drawer-inner's flex column, at a fixed
-     JS-computed height (see App.vue's own updateEmulatorScale) - without
+     JS-computed height (see App.vue's updateEmulatorScale) - without
      this, once the ROM capacity bank-contents text below it (see
      .rom-capacity-detail) grew long enough after a build that everything in
-     the column no longer fit, the flex column's own default flex-shrink: 1
-     silently compressed this container below its real height instead of
-     leaving it alone, clipping the bottom of the emulator (Javatari's own
-     console-panel graphic) behind whatever sits right after it - the
-     Update ROM/Get generated ROM buttons - instead of showing it. That text
-     block already has its own overflow-y: auto (see its own flex: 1 1 auto)
-     specifically to absorb space shortages like this on its own, so nothing
-     above it - this container, the buttons, the summary text - should ever
-     need to shrink at all.
+     the column no longer fit, the flex column's default flex-shrink: 1
+     would silently compress this container below its real height instead
+     of leaving it alone, clipping the bottom of the emulator canvas behind
+     whatever sits right after it - the panel switches/Update ROM/Get
+     generated ROM buttons - instead of showing it. That text block already
+     has overflow-y: auto (see its flex: 1 1 auto) specifically
+     to absorb space shortages like this by itself, so nothing above it -
+     this container, the buttons, the summary text - should ever need to
+     shrink at all.
   */
   flex-shrink: 0;
 }
 
-#javatari-target-container > #javatari-screen {
+/* The debug info sits over the top left of the picture. */
+.emulator-debug-overlay {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font: 11px/1.3 monospace;
+  pointer-events: none;
+  white-space: pre;
+}
+
+.emulator-debug-overlay pre {
+  margin: 0;
+  font: inherit;
+}
+
+.emulator-debug-table {
+  margin-top: 4px;
+  border-collapse: collapse;
+}
+
+.emulator-debug-table td {
+  padding: 0 6px 0 0;
+  white-space: pre;
+}
+
+.emulator-debug-table .emulator-debug-name {
+  opacity: 0.75;
+}
+
+.emulator-debug-table .emulator-debug-value {
+  padding-right: 14px;
+  text-align: right;
+}
+
+.emulator-debug-table tr td:last-child {
+  padding-right: 0;
+}
+
+/* Switched on: the blue the graphic editor toolbar's active tool has, at rest and on hover. The
+   extra class beats the dim-at-rest and hover rules above and the dark-mode ones. */
+.v-application .emulator-toolbar-row .emulator-flat-icon-btn.emulator-debug-btn-on.v-btn .v-icon,
+.v-application .emulator-toolbar-row .emulator-flat-icon-btn.emulator-debug-btn-on.v-btn:hover .v-icon {
+  color: var(--v-primary-base, #1976d2) !important;
+}
+
+.dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.emulator-debug-btn-on.v-btn .v-icon,
+.dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.emulator-debug-btn-on.v-btn:hover .v-icon {
+  color: var(--v-primary-lighten1, #2196f3) !important;
+}
+
+/* Full screen: the container fills the display (the browser sets that) and the canvas, which
+   keeps the picture's aspect ratio, is the largest size that fits, centered. */
+#gopher2600-target-container:fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+#gopher2600-target-container:fullscreen > #gopher2600-screen {
+  transform: none;
+  margin: 0;
+  width: min(100vw, calc(100vh * var(--fullscreen-aspect, 1.333))) !important;
+  height: min(100vh, calc(100vw / var(--fullscreen-aspect, 1.333))) !important;
+}
+
+#gopher2600-target-container > #gopher2600-screen {
   transform: scale(var(--emulator-scale, 1));
   transform-origin: top left;
+  image-rendering: pixelated;
 }
 
 
@@ -1597,10 +2629,10 @@ html {
   box-shadow: none !important;
 }
 
-/* Shrinks the handle to the same diameter as the track's own height (14px,
+/* Shrinks the handle to the same diameter as the track's  height (14px,
    giving it the same 7px radius as the track/channel), instead of
    Vuetify's default handle (20px) sticking out past both edges of the
-   track. top is re-centered to match (Vuetify's own rule computes it as
+   track. top is re-centered to match (Vuetify's rule computes it as
    half the DEFAULT 20px handle - "calc(50% - 10px)" - which no longer
    centers a 14px one). */
 .v-input--switch__thumb {
@@ -1612,9 +2644,9 @@ html {
 
 /* App-wide, every tab: Vuetify's default track width (36px, see
    .v-input--switch__track in node_modules/vuetify/dist/vuetify.css) shrunk
-   to 32px - this used to be scoped to just the Options tab's own
+   to 32px - this used to be scoped to just the Options tab's
    .option-switch class, so every OTHER tab's switches (Sound's DIM/
-   Columns, Text/Data's own Columns, etc.) stayed at the wider default
+   Columns, Text/Data's Columns, etc.) stayed at the wider default
    instead of matching it (a real reported inconsistency). Made global,
    here, instead of copy-pasting the same rule's scoped class onto every
    other view. */
@@ -1622,16 +2654,16 @@ html {
   width: 32px !important;
 }
 
-/* Vuetify's own "on" position (translate(20px, 0), see its own
+/* Vuetify's "on" position (translate(20px, 0), see its
    .v-input--switch.v-input--is-dirty rule) was tuned for the DEFAULT 20px
    handle - shrinking the handle to 14px above (a 6px smaller diameter,
-   3px off each edge) left it 3px short of the track's own right edge once
+   3px off each edge) left it 3px short of the track's right edge once
    turned on, reported as looking not far enough right. +3px restores the
    same reach the original, larger handle had. Then shortened another 4px
    (22px -> 18px), same reasoning as the track-width rule just above: this
    value has to stay in sync with the 36px -> 32px track shrink (both now
    app-wide, not just Options-tab-scoped), so the thumb still lands flush
-   against the track's own right edge instead of overshooting it once
+   against the track's right edge instead of overshooting it once
    checked. */
 .v-application--is-ltr .v-input--switch.v-input--is-dirty .v-input--switch__thumb {
   transform: translate(18px, 0) !important;
@@ -1639,12 +2671,12 @@ html {
 
 /* App-wide: lighter underline for a text field (or a v-select/v-combobox,
    which are both built on top of v-text-field in this Vuetify version - the
-   same class carries their own underline too) while it's NOT focused -
-   Vuetify's own default resting-state color (rgba(0,0,0,.42), see
-   node_modules/vuetify/dist/vuetify.css's own ".theme--light.v-text-field >
+   same class carries their underline too) while it's NOT focused -
+   Vuetify's default resting-state color (rgba(0,0,0,.42), see
+   node_modules/vuetify/dist/vuetify.css's ".theme--light.v-text-field >
    .v-input__control > .v-input__slot:before" rule) reads as fairly dark/
    prominent even on a field nobody's currently using. Only the plain
-   ":before" (resting) rule below is touched - the focused state (its own
+   ":before" (resting) rule below is touched - the focused state (its
    ":after" rule, which Vuetify animates in via a separate scaleX
    transform - untouched here) still gets the normal, full-strength primary-
    color underline, so a focused field still reads clearly as active. Every
@@ -1652,13 +2684,13 @@ html {
    style that actually shows this underline at all - confirmed via a
    project-wide grep - so no variant exclusion is needed here.
 
-   :not(:hover) keeps this from also flattening Vuetify's own hover-darken
-   rule (its own ".theme--light.v-text-field:not(.v-input--has-state):hover
+   :not(:hover) keeps this from also flattening Vuetify's hover-darken
+   rule (its ".theme--light.v-text-field:not(.v-input--has-state):hover
    > ... :before", rgba(0,0,0,.87)) - that rule and this one both target the
    same ::before, so without this exclusion the !important below (needed to
-   beat Vuetify's own un-!important resting rule) was winning on hover too,
+   beat Vuetify's un-!important resting rule) was winning on hover too,
    silently killing the hover feedback instead of just lightening the
-   resting state. Letting Vuetify's own already-tuned hover rule apply
+   resting state. Letting Vuetify's already-tuned hover rule apply
    unopposed here is simpler than duplicating/guessing a new hover value. */
 .theme--light.v-text-field:not(:hover) > .v-input__control > .v-input__slot:before {
   border-color: rgba(0, 0, 0, 0.15) !important;
@@ -1673,9 +2705,42 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 /* Shared with the pixel editor toolbar's icons (see PixelEditor.vue) so a
    delete button's rest state matches them, instead of standing out as an
-   always-red trash can. */
+   always-red trash can.
+
+   --v-primary-base backs every "active/selected" blue accent across the
+   app (active toolbar icons, drag-reorder highlights, focused pixel
+   editor borders, etc.) that already referenced
+   var(--v-primary-base, #1976d2) defensively, as if it were a real
+   Vuetify theme variable - Vuetify itself never actually defines that
+   variable (confirmed directly - absent from its compiled CSS), so
+   every one of those rules was silently just using the literal #1976d2
+   fallback, un-themeable. Defining it for real here activates all of them
+   at once, and lets Subdued Palette override just this one variable
+   below instead of every individual rule that references it - the
+   plain-hardcoded "#1976d2 !important" rules elsewhere in the app were
+   switched to reference this same variable+fallback for the same reason,
+   see e.g. GraphicEditorToolbar.vue's .v-btn--active rule.
+
+   --destructive-color is the same idea for red "this deletes something"
+   accents (the delete button's hover color below, the Quick Colors
+   palette's delete-armed swatch outline/X icon in QuickColorPalette.vue) -
+   confirmed directly as a real reported gap ("red delete hover color
+   should also update"). */
 :root {
   --editor-icon-rest-color: rgba(0, 0, 0, 0.38);
+  --v-primary-base: #1976d2;
+  --destructive-color: red;
+}
+
+/* Desaturated/darkened equivalents of the two variables above
+   (saturate(50%) brightness(85%), the same transform every other colored
+   control under Subdued Palette uses via filter - precomputed here
+   instead, since CSS filters can't be applied to a custom property's
+   color value directly). Retroactively darkens every rule that references
+   either variable with zero changes needed at each individual call site. */
+.desaturate-app-colors {
+  --v-primary-base: #3e668d;
+  --destructive-color: #c62828;
 }
 
 /* Delete buttons (trash icon, top-right of a graphics/data/sound card): the
@@ -1687,11 +2752,635 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .delete-icon-btn:hover {
-  color: red !important;
+  color: var(--destructive-color, red) !important;
 }
 
 .delete-icon-btn::before {
   background-color: transparent !important;
+}
+
+/* Import buttons (e.g. PlayerEditor.vue's "Import animation frames",
+   TitleScreenEditor.vue's "Import card frames"): same muted-grey-at-rest/
+   no-filled-circle treatment as .delete-icon-btn above, just not red - these
+   aren't destructive, so they darken to near-black on hover instead, the
+   same neutral hover convention MusicEditor.vue's .music-flat-icon-btn
+   uses for its non-destructive icon buttons. */
+.import-icon-btn {
+  color: var(--editor-icon-rest-color) !important;
+}
+
+.import-icon-btn:hover {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.import-icon-btn::before {
+  background-color: transparent !important;
+}
+
+/* Shared 26x26 flat icon-button sizing, moved here once it turned up
+   byte-identical under 6 different per-tab class names (PlayerEditor.vue's
+   .player-icon-btn-size, reused verbatim as-is by BackgroundEditor.vue;
+   TitleScreenEditor.vue's .titlescreen-icon-btn-size; DataEditor.vue's
+   .data-icon-btn-size; SoundFXEditor.vue's .soundfx-icon-btn-size;
+   MusicEditor.vue's .music-icon-btn-size) - scoped CSS can't share a rule
+   across components even under the exact same class name (each component's
+   <style scoped> only ever matches elements IT rendered), so every one of
+   those tabs had independently copy-pasted this same recipe into its
+   local stylesheet. Kept as two groups (not one) since the two real
+   differences that exist are margin (Player/Background/Title use a plain
+   0; Data/Sound/Music use 0 1px, each tuned for how tightly packed that
+   tab's toolbar row is) and whether a disabled button dims via opacity
+   (only Player/Background/Title ever needed that fix - see the next rule
+   below). Every tab keeps its original class name in its template;
+   only the duplicated DECLARATIONS moved here. */
+.player-icon-btn-size,
+.titlescreen-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0;
+}
+
+.data-icon-btn-size,
+.soundfx-icon-btn-size,
+.music-icon-btn-size {
+  min-width: 0;
+  height: 26px !important;
+  width: 26px !important;
+  margin: 0 1px;
+}
+
+/* No ">>>" here (unlike every per-tab scoped copy this replaced) -
+   deep-combinator syntax only means anything inside a component's
+   <style scoped> block (where it pierces that component's scoping
+   attribute boundary); this is a plain unscoped block with no such
+   boundary to pierce in the first place. ">>>" was mistakenly kept when
+   these rules were first moved here - a bare ">>>" is not valid CSS syntax
+   outside Vue's scoped-style preprocessing, so every selector using it
+   failed to parse and the browser silently dropped the whole rule,
+   confirmed directly against the compiled output - a real reported bug
+   ("the import/export buttons on the music tab look larger than they do
+   on the graphic editor toolbar" - actually every tab's icons silently
+   losing this sizing, not just Music's). */
+.player-icon-btn-size .v-icon,
+.titlescreen-icon-btn-size .v-icon,
+.data-icon-btn-size .v-icon,
+.soundfx-icon-btn-size .v-icon,
+.music-icon-btn-size .v-icon {
+  font-size: 19px !important;
+}
+
+/* Vuetify's disabled styling normally dims a button's icon color, but the
+   icon's rest-state color elsewhere is forced with !important (matching
+   PixelEditor.vue's toolbar icons), which also blocks Vuetify's disabled
+   color from ever showing through - confirmed as a real reported bug (a
+   disabled Paste button read as clickable, no different from the enabled
+   Copy button next to it). Opacity reaches it without needing to fight
+   that !important. Only Player/Background/Title ever hit this specific bug
+   (Data/Sound/Music's disabled buttons weren't reported this way) -
+   left scoped to just those two class names rather than widening it to
+   every icon-btn-size tab speculatively. */
+.player-icon-btn-size.v-btn--disabled,
+.titlescreen-icon-btn-size.v-btn--disabled {
+  opacity: 0.35;
+}
+
+/* mdi-delete's glyph sits smaller within its icon box than this
+   app's other toolbar icons at the same font-size (more built-in padding
+   around the trash-can shape), reading noticeably smaller alongside them -
+   bumped a couple pixels past the shared 19px above so a delete button
+   reads as the same visual size as its neighbors at a glance. Same
+   Player/Background/Title-only scope as the disabled-opacity rule above. */
+.delete-icon-btn.player-icon-btn-size .v-icon,
+.delete-icon-btn.titlescreen-icon-btn-size .v-icon {
+  font-size: 21px !important;
+}
+
+/* Flat, fade-in-on-hover icon-button treatment (no grey box/elevation, dim
+   at rest, darker on hover) instead of Vuetify's default hover circle -
+   moved here once MusicEditor.vue's .music-flat-icon-btn and
+   TitleScreenEditor.vue's .titlescreen-play-btn turned up byte-identical
+   for these 4 rules (confirmed directly against compiled CSS - see
+   TitleScreenEditor.vue's comment). Each file's "currently active/
+   playing" persistent tint (:active, loading, or an explicit active class)
+   stays local to that file - those trigger conditions genuinely differ per
+   tab, even though they land on the same blue. */
+.music-flat-icon-btn,
+.titlescreen-play-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.music-flat-icon-btn::before,
+.titlescreen-play-btn::before {
+  display: none;
+}
+
+/* transition includes "transform 0.08s ease" (not just "color") to exactly
+   match GraphicEditorToolbar.vue's .get-tools >>> .v-btn .v-icon rule -
+   MusicEditor.vue's :active rule (its <style scoped> block) applies
+   a transform: scale() press effect that needs this same transition to
+   animate smoothly, the same way Graphic's buttons do. Harmless on
+   titlescreen-play-btn, which never sets a transform. */
+.music-flat-icon-btn .v-icon,
+.titlescreen-play-btn .v-icon {
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.music-flat-icon-btn:hover .v-icon,
+.titlescreen-play-btn:hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+/* Dark Mode overrides for this app's hardcoded light-theme colors (every
+   rule is prefixed with .dark-mode.v-application and uses !important so it
+   outranks the component's scoped rule it replaces). Grouped by what they
+   are: icon button colors, dividers/borders, and the light surfaces
+   (toolbars, cards inside editors, rows). */
+.dark-mode {
+  --editor-icon-rest-color: rgba(255, 255, 255, 0.5);
+}
+
+/* The colors-only copy/paste buttons in a frame's corner (Sprites and Title Screen tabs) look
+   and react like the copy/paste buttons in the frame's toolbar: no box, a muted icon that
+   darkens on hover and shrinks a little while pressed, and dimmed when disabled. */
+.copy-paste-color-btn.v-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.copy-paste-color-btn.v-btn::before {
+  display: none;
+}
+
+.copy-paste-color-btn.v-btn .v-icon {
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.copy-paste-color-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.copy-paste-color-btn.v-btn:not(.v-btn--disabled):active .v-icon {
+  transform: scale(0.82);
+}
+
+.dark-mode.v-application .copy-paste-color-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: #fff !important;
+}
+
+/* Icon buttons: dim at rest, bright on hover, dimmer still when disabled. */
+.dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn .v-icon,
+.dark-mode.v-application .get-tools .v-btn .v-icon,
+.dark-mode.v-application .pixel-editor-tools .v-btn .v-icon,
+.dark-mode.v-application .pixel-grid-toggle-btn .v-icon,
+.dark-mode.v-application .pixel-grid-toggle-label,
+.dark-mode.v-application .unified-toolbar-height-btn,
+.dark-mode.v-application .reset-to-defaults-btn.v-btn,
+.dark-mode.v-application .data-toolbar-row .v-btn .v-icon,
+.dark-mode.v-application .data-flat-icon-btn .v-icon,
+.dark-mode.v-application .generated-code-toolbar-row .v-btn .v-icon,
+.dark-mode.v-application .generated-code-flat-icon-btn .v-icon,
+.dark-mode.v-application .project-toolbar-row .v-btn .v-icon,
+.dark-mode.v-application .soundfx-bank-btn .v-icon,
+.dark-mode.v-application .soundfx-instrument-btn .v-icon,
+.dark-mode.v-application .soundfx-stop-btn .v-icon,
+.dark-mode.v-application .soundfx-play-btn .v-icon,
+.dark-mode.v-application .music-flat-icon-btn .v-icon,
+.dark-mode.v-application .titlescreen-play-btn .v-icon {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn:hover .v-icon,
+.dark-mode.v-application .get-tools .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .pixel-editor-tools .v-btn:hover .v-icon,
+.dark-mode.v-application .pixel-grid-toggle-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .pixel-grid-toggle-btn:not(.v-btn--disabled):hover .pixel-grid-toggle-label,
+.dark-mode.v-application .unified-toolbar-height-btn:not(.v-btn--disabled):hover,
+.dark-mode.v-application .reset-to-defaults-btn.v-btn:hover,
+.dark-mode.v-application .data-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .data-flat-icon-btn:hover .v-icon,
+.dark-mode.v-application .generated-code-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .generated-code-flat-icon-btn:hover .v-icon,
+.dark-mode.v-application .project-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .soundfx-bank-btn:hover .v-icon,
+.dark-mode.v-application .soundfx-instrument-btn:hover .v-icon,
+.dark-mode.v-application .soundfx-stop-btn:hover .v-icon,
+.dark-mode.v-application .soundfx-play-btn:hover .v-icon,
+.dark-mode.v-application .music-flat-icon-btn:hover .v-icon,
+.dark-mode.v-application .titlescreen-play-btn:hover .v-icon,
+.dark-mode.v-application .import-icon-btn:hover {
+  color: #fff !important;
+}
+
+.dark-mode.v-application .get-tools .v-btn--disabled .v-icon,
+.dark-mode.v-application .data-toolbar-row .v-btn--disabled .v-icon,
+.dark-mode.v-application .project-toolbar-row .v-btn--disabled .v-icon,
+.dark-mode.v-application .music-flat-icon-btn.v-btn--disabled .v-icon {
+  color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn:active .v-icon,
+.dark-mode.v-application .titlescreen-play-btn:active .v-icon,
+.dark-mode.v-application .titlescreen-play-btn.v-btn--loading .v-icon {
+  color: var(--v-primary-base, #1976d2) !important;
+}
+
+.dark-mode.v-application .pixel-grid-toggle-btn-active .pixel-grid-toggle-label {
+  color: #fff !important;
+}
+
+/* Active (selected or switched-on) icon buttons keep the blue the light theme gives them. The
+   dim-at-rest rules above are as specific and !important, so without these every active
+   icon went back to the dim grey and nothing showed which button was selected. The extra
+   class in each selector makes them win. */
+.dark-mode.v-application .project-toolbar-row .v-btn.project-flat-icon-btn-active .v-icon,
+.dark-mode.v-application .get-tools .v-btn.v-btn--active .v-icon,
+.dark-mode.v-application .pixel-grid-toggle-btn.pixel-grid-toggle-btn-active .v-icon,
+.dark-mode.v-application .music-flat-icon-btn.v-btn.music-icon-btn-active .v-icon,
+.dark-mode.v-application .soundfx-arpeggio-btn.v-btn.soundfx-arpeggio-btn-active .v-icon {
+  color: var(--v-primary-lighten1, #2196f3) !important;
+}
+
+/* The text buttons at the bottom of a popup (Cancel, Close, Clear...) and the emulator pane's Refresh,
+   Select and Reset buttons share one look: small, the theme's plain button background and text color,
+   no primary-blue text (hard to see in dark mode and with Subdued Colors). */
+.v-card__actions .v-btn.v-btn--text:not(.v-btn--icon),
+.emulator-select-button.v-btn,
+.emulator-reset-button.v-btn,
+.emulator-refresh-button.v-btn {
+  height: 28px;
+  min-width: 50px;
+  padding: 0 12.4px !important;
+  font-size: 0.75rem;
+  box-shadow: none !important;
+  background-color: #f5f5f5 !important;
+  color: rgba(0, 0, 0, 0.87) !important;
+  caret-color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.v-card__actions .v-btn.v-btn--text.v-btn--disabled:not(.v-btn--icon),
+.emulator-select-button.v-btn.v-btn--disabled,
+.emulator-reset-button.v-btn.v-btn--disabled,
+.emulator-refresh-button.v-btn.v-btn--disabled {
+  background-color: rgba(0, 0, 0, 0.12) !important;
+  color: rgba(0, 0, 0, 0.26) !important;
+}
+
+.dark-mode .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon),
+.dark-mode .emulator-select-button.v-btn,
+.dark-mode .emulator-reset-button.v-btn,
+.dark-mode .emulator-refresh-button.v-btn {
+  background-color: #272727 !important;
+  color: #fff !important;
+  caret-color: #fff !important;
+}
+
+.dark-mode .v-card__actions .v-btn.v-btn--text.v-btn--disabled:not(.v-btn--icon),
+.dark-mode .emulator-select-button.v-btn.v-btn--disabled,
+.dark-mode .emulator-reset-button.v-btn.v-btn--disabled,
+.dark-mode .emulator-refresh-button.v-btn.v-btn--disabled {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Subdued Colors mutes every filled button the same way (see the rules for .v-btn--has-bg above). */
+.desaturate-app-colors .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon),
+.desaturate-app-colors .emulator-select-button.v-btn,
+.desaturate-app-colors .emulator-reset-button.v-btn,
+.desaturate-app-colors .emulator-refresh-button.v-btn {
+  filter: saturate(50%) brightness(0.85);
+}
+
+/* Active icons keep the blue on hover too. */
+.dark-mode.v-application .project-toolbar-row .v-btn.project-flat-icon-btn-active:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .get-tools .v-btn.v-btn--active:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .pixel-grid-toggle-btn.pixel-grid-toggle-btn-active:not(.v-btn--disabled):hover .v-icon {
+  color: var(--v-primary-lighten1, #2196f3) !important;
+}
+
+/* The tab area and the sticky toolbars above each editor: black like the
+   sidebar (cards inside the tab stay #1e1e1e so they stand out). */
+.dark-mode.v-application .graphic-editor-toolbar,
+.dark-mode.v-application .data-toolbar,
+.dark-mode.v-application .generated-code-toolbar,
+.dark-mode.v-application .generated-code-search-dock,
+.dark-mode.v-application .music-toolbar,
+.dark-mode.v-application .piano-roll-zoom-row,
+.dark-mode.v-application .piano-roll-step-header,
+.dark-mode.v-application .piano-roll-label-spacer,
+.dark-mode.v-application .project-toolbar,
+.dark-mode.v-application .soundfx-toolbar,
+.dark-mode.v-application .editor-container.theme--dark.v-card {
+  background-color: #000 !important;
+}
+
+.dark-mode.v-application .data-value-row {
+  background-color: #1e1e1e !important;
+}
+
+/* With Subdued Palette the tab area is the same softer #1e1e1e as the rest. */
+.dark-mode.desaturate-app-colors.v-application .graphic-editor-toolbar,
+.dark-mode.desaturate-app-colors.v-application .data-toolbar,
+.dark-mode.desaturate-app-colors.v-application .generated-code-toolbar,
+.dark-mode.desaturate-app-colors.v-application .generated-code-search-dock,
+.dark-mode.desaturate-app-colors.v-application .music-toolbar,
+.dark-mode.desaturate-app-colors.v-application .piano-roll-zoom-row,
+.dark-mode.desaturate-app-colors.v-application .piano-roll-step-header,
+.dark-mode.desaturate-app-colors.v-application .piano-roll-label-spacer,
+.dark-mode.desaturate-app-colors.v-application .project-toolbar,
+.dark-mode.desaturate-app-colors.v-application .soundfx-toolbar,
+.dark-mode.desaturate-app-colors.v-application .editor-container.theme--dark.v-card {
+  background-color: #1e1e1e !important;
+}
+
+/* Dividers and outlines that were a dark line on white. */
+.dark-mode.v-application .graphic-editor-toolbar-scrolled,
+.dark-mode.v-application .data-toolbar-scrolled,
+.dark-mode.v-application .generated-code-toolbar-scrolled,
+.dark-mode.v-application .music-toolbar-scrolled,
+.dark-mode.v-application .project-toolbar-scrolled,
+.dark-mode.v-application .soundfx-toolbar-scrolled {
+  border-bottom-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.dark-mode.v-application .soundfx-envelope-graph-toolbar,
+.dark-mode.v-application .generated-code-search-dock {
+  border-top-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.dark-mode.v-application .animation-card,
+.dark-mode.v-application .background-card,
+.dark-mode.v-application .data-card,
+.dark-mode.v-application .soundfx-card,
+.dark-mode.v-application .text-card,
+.dark-mode.v-application .song-card,
+.dark-mode.v-application .titlescreen-card,
+.dark-mode.v-application .titlescreen-screen-card,
+.dark-mode.v-application .example-card,
+.dark-mode.v-application .sound-bank-card,
+.dark-mode.v-application .data-format-menu,
+.dark-mode.v-application .v-menu__content:has(> .v-select-list),
+.dark-mode.v-application .v-menu__content > .v-card,
+.dark-mode.v-application .v-dialog > .v-card,
+.dark-mode.v-application .error-message {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.dark-mode.v-application .data-values {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Text that was dark grey. */
+.dark-mode.v-application .about-version,
+.dark-mode.v-application .app-logo-version,
+.dark-mode.v-application .quick-color-section-label,
+.dark-mode.v-application .music-section-label,
+.dark-mode.v-application .generated-code-search-count,
+.dark-mode.v-application .titlescreen-add-limit-note,
+.dark-mode.v-application .compile-log-info {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.dark-mode.v-application .copy-paste-color-badge {
+  background: #1e1e1e;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* The thin scrollbars and resize handles. */
+.dark-mode * {
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.dark-mode ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Help text: several templates put .theme--light on a .v-messages paragraph. */
+.dark-mode.v-application .v-messages.theme--light,
+.dark-mode.v-application .theme--light.v-messages {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Blockly's toolbox and its small control icons (which are dark images). */
+.dark-mode .blocklyToolboxDiv {
+  background-color: #1e1e1e !important;
+}
+
+/* The expand/collapse arrow beside a toolbox category with sub-categories
+   (Examples) is a dark image, so it is inverted to white. */
+.dark-mode .blocklyTreeIcon {
+  filter: invert(1);
+}
+
+.dark-mode .blocklyTreeRow:hover,
+.dark-mode .blocklyTreeSelected {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark-mode.v-application .blocklyZoom > image,
+.dark-mode.v-application .blocklyZoom > svg > image {
+  filter: brightness(0) invert(1) !important;
+}
+
+.dark-mode.v-application .blocklyMultiselect:not(.blockly-multiselect-active) > image,
+.dark-mode.v-application .blocklyMultiselect:not(.blockly-multiselect-active) > svg > image {
+  filter: invert(1);
+}
+/* The Music tab's piano roll and the sound envelope graph: faint dark lines
+   and shading on white become faint light ones on dark. */
+/* Step cells: a cell a note can go in is a lighter grey (alternate steps a
+   touch lighter again), a cell it can't (a row the active track can't play, or
+   a step another channel's note covers) is solid black. The
+   cells holding a note keep the instrument color they are painted with. */
+.dark-mode.v-application .piano-roll-cell:not(.piano-roll-cell-active),
+.dark-mode.v-application .piano-roll-volume-cell {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.dark-mode.v-application .piano-roll-cell:not(.piano-roll-cell-active):nth-child(even),
+.dark-mode.v-application .piano-roll-volume-cell:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.21);
+}
+
+.dark-mode.v-application .piano-roll-row:nth-child(odd) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* The note names down the left of the piano roll read like a keyboard: light
+   keys with dark text for natural notes, darker keys with white text for sharps
+   and flats, and the same two shades, dimmed, for a row the active track can't play. */
+.dark-mode.v-application .piano-roll-label {
+  background-color: #cfcfcf !important;
+  color: #111 !important;
+  opacity: 1;
+}
+
+.dark-mode.v-application .piano-roll-label.piano-roll-label-black-key {
+  background-color: #5c5c5c !important;
+  color: #fff !important;
+}
+
+.dark-mode.v-application .piano-roll-label.piano-roll-label-row-unavailable {
+  background-color: #707070 !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.dark-mode.v-application .piano-roll-label.piano-roll-label-black-key.piano-roll-label-row-unavailable {
+  background-color: #383838 !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.dark-mode.v-application .piano-roll-cell,
+.dark-mode.v-application .piano-roll-volume-cell {
+  border-left-color: rgba(255, 255, 255, 0.22) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-mode.v-application .piano-roll-volume-row {
+  border-top-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+.dark-mode.v-application .piano-roll-step-number {
+  border-left-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark-mode.v-application .piano-roll-volume-resize-handle,
+.dark-mode.v-application .piano-roll-height-resize-handle {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-top-color: rgba(255, 255, 255, 0.12) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark-mode.v-application .piano-roll-volume-resize-handle:hover,
+.dark-mode.v-application .piano-roll-height-resize-handle:hover {
+  background-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+.dark-mode.v-application .piano-roll-cell-row-unavailable,
+.dark-mode.v-application .piano-roll-cell-disabled,
+.dark-mode.v-application .piano-roll-cell-disabled:hover,
+.dark-mode.v-application .piano-roll-cell-length-disabled,
+.dark-mode.v-application .piano-roll-cell-length-disabled:hover {
+  background-color: #000 !important;
+}
+
+.dark-mode.v-application .piano-roll-scroll,
+.dark-mode.v-application .piano-roll-volume-scroll,
+.dark-mode.v-application .instrument-color-dot,
+.dark-mode.v-application .envelope-graph {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.dark-mode.v-application .envelope-graph-scale-tick,
+.dark-mode.v-application .envelope-graph-stage-label,
+.dark-mode.v-application .envelope-graph-frame-label {
+  color: rgba(255, 255, 255, 0.6) !important;
+  -webkit-text-stroke-color: #1e1e1e !important;
+}
+
+.dark-mode.v-application .envelope-graph-snap-line-vertical {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.dark-mode.v-application .instrument-summary-chip-active,
+.dark-mode.v-application .sequence-chip-wrap-playing {
+  box-shadow: 0 0 0 2px #1e1e1e, 0 0 0 4px var(--v-primary-base, #1976d2) !important;
+}
+/* Dark Mode keeps the tab colors of the top toolbar and sidebar as they are in light
+   mode. With Subdued Palette they are muted (saturation halved) but not also
+   darkened, which light mode does (brightness .7) and which read as too dull on the
+   dark background. Top toolbar and sidebar get the same single filter. */
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .actions-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .titlescreen-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .player-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .background-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .sound-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .music-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .text-tab-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .data-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .scorefont-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .configuration-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .generated-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .project-item {
+  filter: saturate(50%);
+}
+
+.dark-mode.desaturate-app-colors.v-application .nav-drawer .v-list-item__content,
+.dark-mode.desaturate-app-colors.v-application .nav-drawer .v-list-item__icon {
+  filter: none;
+}
+
+/* The About tab has no color of its own, so Dark Mode shows it in plain white, which
+   next to the muted tab colors of Subdued Palette is too bright: a softer grey
+   for its label, icon and left edge, in both the sidebar and the top toolbar. */
+.dark-mode.desaturate-app-colors.v-application .about-item,
+.dark-mode.desaturate-app-colors.v-application .about-item .v-icon,
+.dark-mode.desaturate-app-colors.v-application .about-item .v-list-item__title {
+  color: #b0b0b0 !important;
+  border-left-color: #b0b0b0 !important;
+}
+
+/* The sidebar's icons take the tab's text color (Vuetify's dark theme makes
+   them white). */
+.dark-mode.v-application .nav-drawer .v-list-item__icon .v-icon {
+  color: inherit !important;
+}
+/* The list behind each tab's cards shows the tab's black (Vuetify's dark
+   theme paints every v-list #1e1e1e). */
+.dark-mode.v-application .titlescreen-list,
+.dark-mode.v-application .titlescreen-card-list,
+.dark-mode.v-application .text-list,
+.dark-mode.v-application .soundfx-list,
+.dark-mode.v-application .background-list,
+.dark-mode.v-application .song-list,
+.dark-mode.v-application .data-list,
+.dark-mode.v-application .animation-list,
+.dark-mode.v-application .animation-frame-list,
+.dark-mode.v-application .about-list {
+  background-color: transparent !important;
+}
+/* With Subdued Palette the tab area is #1e1e1e, so its cards (and popup cards)
+   are a step lighter to stand out from it. */
+.dark-mode.desaturate-app-colors.v-application .theme--dark.v-card:not(.editor-container) {
+  background-color: #2a2a2a !important;
+}
+/* Without Subdued Palette the tab area is black and its cards are black too
+   (their borders set them apart). */
+.dark-mode:not(.desaturate-app-colors).v-application .theme--dark.v-card:not(.editor-container) {
+  background-color: #000 !important;
+}
+/* A list inside a popup card (the delete confirmations, Set height...) takes the
+   card's color instead of Vuetify's list color, which left it a
+   different shade from the rest of the popup. */
+.dark-mode.v-application .v-menu__content > .v-card .theme--dark.v-list,
+.dark-mode.v-application .v-dialog > .v-card .theme--dark.v-list {
+  background-color: transparent !important;
+}
+/* The build/error console: error text stays red (Vuetify's dark footer would
+   make it white), on the same black as the sidebar. */
+.dark-mode.v-application .theme--dark.v-footer.error-message {
+  background-color: #000 !important;
+  color: rgb(244, 67, 54);
+}
+
+.dark-mode.v-application .compile-log-error {
+  color: rgb(244, 67, 54) !important;
+}
+
+.dark-mode.desaturate-app-colors.v-application .theme--dark.v-footer.error-message {
+  background-color: #1e1e1e !important;
+  color: #e05555;
+}
+
+.dark-mode.desaturate-app-colors.v-application .compile-log-error {
+  color: #e05555 !important;
 }
 </style>
 <style scoped>
@@ -1706,36 +3395,60 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* Separates the top toolbar from everything below it (the middle pane AND
    the emulator column) with one continuous line, rather than adding the
    same border separately to each pane below it (tried first - two
-   separately-bordered panes, each only as wide as its own column, instead
+   separately-bordered panes, each only as wide as its column, instead
    of one line spanning the full width in one place). !important because
-   the v-app-bar's own "color=white" prop applies Vuetify's ".white" color
+   the v-app-bar's "color=white" prop applies Vuetify's ".white" color
    utility class, which sets "border-color: #fff !important" - confirmed
    directly (computed style showed this border rendering solid white,
-   invisible against the toolbar's own white background) rather than assumed. */
+   invisible against the toolbar's white background) rather than assumed. */
 .top-toolbar {
-  /* Matches the darkened .v-sheet--outlined card border color (see its own
-     comment) rather than Vuetify's default rgba(0, 0, 0, 0.12). */
+  /* Matches the darkened .v-sheet--outlined card border color (see that
+     comment) rather than Vuetify's default rgba(0, 0, 0, 0.12). Spans the
+     toolbar's full width (see "left"/"width"/"padding-left" below), so this
+     single border now reads as one continuous line under both the logo and
+     the toolbar's content - no separate divider element needed to fake
+     that continuity (see the removed .app-logo-divider, replaced by this). */
   border-bottom: 1px solid rgba(0, 0, 0, 0.24) !important;
-  /* Vuetify's own .v-app-bar base styles already transition left/right/
-     width/max-width/transform (its own built-in slide when $vuetify.
+  /* Vuetify's .v-app-bar base styles already transition left/right/
+     width/max-width/transform (its built-in slide when $vuetify.
      application.left changes, e.g. when a drawer opens/closes) - removing
      the drawer element entirely via v-if (see "Never show the left
      sidebar") changes that same tracked value, so the toolbar visibly
-     animated into place even after removing this rule's OWN
-     padding-left transition (confirmed directly - the animation was
-     Vuetify's own, not this file's). !important overrides Vuetify's own
-     class-level transition declaration. */
+     animated into place even after removing this rule's padding-left
+     transition (confirmed directly - the animation was Vuetify's,
+     not this file's). !important overrides Vuetify's class-level
+     transition declaration. */
   transition: none !important;
+  /* Always spans the full window width, starting at x: 0, rather than
+     Vuetify's "app" positioning (which normally offsets this past
+     a present drawer's width automatically, via $vuetify.application.left,
+     and falls back to x: 0 only once the drawer's gone - see the removed
+     .top-toolbar-no-drawer, which used to force that same x: 0 case back to
+     x: 200 to avoid sitting underneath .app-logo). Unconditionally
+     overriding "left"/"width" instead, in both the drawer-present and
+     drawer-absent cases alike, means the toolbar's box (so its
+     background and the border-bottom above) always extends under
+     .app-logo's reserved 200px corner too, instead of stopping at its
+     edge - letting the logo and the toolbar share one border instead of
+     needing a second element to visually continue it. padding-left keeps
+     the toolbar's actual content (the tab buttons) clear of that same
+     200px corner, same value .app-logo reserves, regardless of whether a
+     drawer happens to be present. !important is required to win over
+     Vuetify's inline "left"/"width" styles - inline styles normally
+     beat stylesheet rules, but never ones marked !important. */
+  left: 0 !important;
+  width: 100% !important;
+  padding-left: 200px;
 }
 
-/* Vuetify's own default v-btn sizing (min-width: 64px, 0 16px padding) is
+/* Vuetify's  default v-btn sizing (min-width: 64px, 0 16px padding) is
    meant for a TEXT button - applied here to plain icon-only buttons (no
    "icon" prop, since these need to stay clickable/keyboard-focusable
    v-btn-with-text, not the smaller round "icon" button variant elsewhere
    in this app), it leaves each one a 64x36 rectangle around a ~24px icon,
    which reads as an odd wide rectangle on hover/focus instead of a square
-   matching the icon's own proportions. min-width dropped to the same 36px
-   as the button's own (unchanged) 36px height, padding dropped to just
+   matching the icon's proportions. min-width dropped to the same 36px
+   as the button's (unchanged) 36px height, padding dropped to just
    enough to keep the icon centered, so the hover/focus overlay itself
    comes out square. margin adds explicit breathing room back between
    buttons now that min-width no longer does that as a side effect - kept
@@ -1748,52 +3461,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   margin: 0 4px !important;
 }
 
-/* v-app-bar's own "app" positioning normally sets its own inline "left"
-   style past the drawer's own width automatically, via Vuetify's shared
-   $vuetify.application.left tracking - which only accounts for space an
-   ACTUALLY PRESENT drawer reserves. Whenever the drawer isn't there to
-   reserve it (removed entirely via v-if - see "Never show the left
-   sidebar" in Configuration.vue - or just transiently closed, e.g. on a
-   narrow viewport), Vuetify sets that inline style to "left: 0px" instead,
-   which would otherwise slide the toolbar all the way to x: 0 and sit
-   directly underneath .app-logo, which is always shown (fixed position,
-   not part of this same "app" system) regardless of whether the drawer
-   itself is currently there - confirmed directly as a real visual overlap
-   once "Never show the left sidebar" first shipped.
-   200px (not padding, and not a smaller value like .app-logo's own
-   184+8=192px reserved area) specifically to exactly match Vuetify's own
-   inline "left: 200px" from the normal (drawer present) case - confirmed
-   directly via computed style in both states. An earlier version of this
-   used "padding-left: 192px" instead, which looked superficially similar
-   but actually left two real, confirmed mismatches against the normal
-   case: the toolbar's own box (so its white background/bottom border)
-   still started at x: 0 instead of x: 200 like normal, and its first
-   icon landed 8px further left (208px vs the normal case's 216px) since
-   192 + Vuetify's own 16px internal toolbar padding undershoots the
-   normal case's real 200 + 16. Overriding "left" directly instead makes
-   both the box geometry and the icon position match the normal case
-   exactly, not just approximately.
-   !important is required to win over Vuetify's own inline "left: 0px" -
-   inline styles normally beat stylesheet rules, but never one marked
-   !important.
-   The template's own condition is "hideSidebar || !drawer", not just
-   "!drawer" alone - confirmed directly as a second real overlap bug:
-   toggling "Never show the left sidebar" on while the drawer happened to
-   be open removes the drawer element via v-if without ever flipping its
-   own v-model (drawer) back to false first (nothing in Vue does this
-   automatically for an element that unmounts out from under a v-model
-   binding), so "drawer" itself stays stuck at its last real value. Checking
-   hideSidebar explicitly covers exactly that case, regardless of whatever
-   stale value "drawer" is left holding. */
-.top-toolbar-no-drawer {
-  left: 200px !important;
-}
-
-/* Sits in the empty top-left corner: to the left of .top-toolbar (which
-   only starts at x: 200px, past the navigation drawer's own width), above
-   the drawer itself (which is "clipped" and starts at y: 72px, see the
-   template). Fixed positioning (not part of any Vuetify "app" element's
-   own flow) since none of the surrounding chrome has a slot for it. */
+/* Sits in the empty top-left corner, above the drawer itself (which is
+   "clipped" and starts at y: 72px, see the template) and on top of
+   .top-toolbar's box (which, since .top-toolbar's "left"/"width"/
+   "padding-left" above now span its full width unconditionally, extends
+   underneath this same corner too - the logo just paints over it, via a
+   higher z-index below). Fixed positioning (not part of any Vuetify "app"
+   element's flow) since none of the surrounding chrome has a slot for it. */
 .app-logo {
   position: fixed;
   top: 0;
@@ -1816,6 +3490,14 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   height: auto;
 }
 
+/* The logo is inverted under Dark Mode (invert + hue-rotate keeps its hues,
+   the same look the old whole-app filter gave it), and dimmed a bit: at full
+   brightness it read as too stark against the dark UI. */
+.dark-mode .app-logo-img {
+  filter: invert(1) hue-rotate(180deg);
+  opacity: 0.8;
+}
+
 .app-logo-version {
   margin-top: 4px;
   font-size: 11px;
@@ -1823,38 +3505,15 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   line-height: 1;
 }
 
-/* .app-logo's own divider, independent of the drawer's own border-top
-   below (which only actually renders on-screen while the drawer itself is
-   both present AND open) - confirmed directly as a real gap: the drawer is
-   translated off-screen (not just closed) below Vuetify's own responsive
-   mobile-breakpoint regardless of "Never show the left sidebar", and
-   removed from the DOM entirely when that setting IS on, so relying on
-   the drawer's own border for this was never reliably visible under the
-   logo to begin with. Same width/x-position .top-toolbar-no-drawer's own
-   "left: 200px" override reserves, same color/thickness as every other
-   divider in this file, positioned to align with .top-toolbar's own
-   border-bottom (72px tall app-bar) regardless of whether that specific
-   border is currently sitting at x: 200 (drawer present) or x: 0 (not) -
-   this one never moves either way. */
-.app-logo-divider {
-  position: fixed;
-  top: 71px;
-  left: 0;
-  width: 200px;
-  height: 1px;
-  background: rgba(0, 0, 0, 0.24);
-  z-index: 21;
-  pointer-events: none;
-}
-
-/* Same divider, same color, on the sidebar's own top edge - now that the
+/* Same color, on the sidebar's top edge - now that the
    drawer is "clipped" (starts below the app-bar instead of the system-bar
    above it, see the template), this lines up exactly with .top-toolbar's
-   own border-bottom above, reading as one continuous line across the whole
-   window instead of two separate borders that happen to match colors. */
+   border-bottom above (which now spans under the logo too, see that
+   comment), reading as one continuous line across the whole window instead
+   of two separate borders that happen to match colors. */
 /* margin-top: -1px nudges the border up a hair from where it'd otherwise
-   land - even though the drawer's own top (now "clipped" below the app-bar,
-   see the template) and .top-toolbar's own bottom edge compute to the exact
+   land - even though the drawer's top (now "clipped" below the app-bar,
+   see the template) and .top-toolbar's bottom edge compute to the exact
    same y-coordinate, the two borders still rendered a device pixel apart at
    this window's 1.5x scale factor, a common sub-pixel rounding artifact
    between two independently-positioned elements whose edges only coincide
@@ -1871,62 +3530,62 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    nothing needs to animate. */
 .app-main {
   transition: none;
-  /* Vuetify's own .v-main is "flex: 1 0 auto" - flex-shrink: 0 means it
-     NEVER shrinks below its own content's natural height, regardless of how
+  /* Vuetify's .v-main is "flex: 1 0 auto" - flex-shrink: 0 means it
+     NEVER shrinks below its content's natural height, regardless of how
      little space v-application--wrap (min-height: 100vh, otherwise
      content-driven) actually has left for it - so a tab with enough content
      to be genuinely taller than the viewport (16 score-font glyph cards,
      for instance) grew the WHOLE PAGE taller instead of ever reaching
-     .app-main-inner's own overflow-y: auto at all, which only ever gets a
+     .app-main-inner's overflow-y: auto at all, which only ever gets a
      chance to clip/scroll content that doesn't already fit within the
      height this element itself was already given. flex-shrink: 1
      (overriding Vuetify's 0) lets this actually shrink to fit its real
-     allocated space instead of dictating the page's own height upward, and
-     min-height: 0 removes flexbox's own separate "never shrink below
+     allocated space instead of dictating the page's height upward, and
+     min-height: 0 removes flexbox's separate "never shrink below
      content size" default floor (distinct from flex-shrink, and it applies
      even with flex-shrink: 1 unless overridden) that would otherwise still
      block the same thing from working. Confirmed directly as the real root
      cause of a "phantom" scrollbar appearing at the literal browser window
-     edge (not this app's own internal panel scrollbars) specifically on
+     edge (not this app's internal panel scrollbars) specifically on
      tabs with enough content to actually be taller than one viewport. */
   flex: 1 1 auto;
   min-height: 0;
 }
 
-/* Vuetify's own .v-main is "flex: 1 0 auto" (flex-shrink: 0) with no fixed
-   height of its own - a paddingBottom bound directly to it (an earlier
+/* Vuetify's .v-main is "flex: 1 0 auto" (flex-shrink: 0) with no fixed
+   height - a paddingBottom bound directly to it (an earlier
    version of this) just grew that box past whatever space the outer
    v-application--wrap flex column actually had left, overflowing the
    whole page (a real, new scrollbar this time, not the inert forced-
    scrollbar case fixed elsewhere) instead of being absorbed anywhere. This
-   inner div is a plain block, not a flex item with its own shrink-doesn't-
+   inner div is a plain block, not a flex item with its shrink-doesn't-
    happen behavior - height: calc(100% - Npx) takes exactly whatever height
-   v-main's own flex-grow already resolved (stretched across via v-main's
+   v-main's flex-grow already resolved (stretched across via v-main's
    default row-direction align-items: stretch on its real single child,
    .v-main__wrap, which this sits inside), reduced by errorHeight to reserve
-   room for .error-message's own fixed footer (which isn't an "app" element
+   room for .error-message's fixed footer (which isn't an "app" element
    Vuetify lays out room for).
    position: relative makes THIS the containing block for any
    position: absolute descendant a routed view renders (e.g.
-   ActionEditor.vue's own "#blockly2 { position: absolute; bottom: 0; }",
+   ActionEditor.vue's "#blockly2 { position: absolute; bottom: 0; }",
    which sizes the whole Blockly canvas including its toolbox/flyout, or
-   GeneratedCode.vue's own ".editor-container", same pattern) - without it,
+   GeneratedCode.vue's ".editor-container", same pattern) - without it,
    such a descendant skips past this div (position: static doesn't
    establish a containing block) straight to the next actual positioned
-   ancestor up the tree, Vuetify's own .v-main__wrap, which still extends
+   ancestor up the tree, Vuetify's .v-main__wrap, which still extends
    all the way to the TRUE viewport bottom.
    A PADDING-based version of this (height: 100% + padding-bottom: Npx +
    box-sizing: border-box, matching .nav-drawer-inner/.emulator-drawer-inner's
-   own pattern) was tried here first and confirmed NOT equivalent for this
-   specific job: a position: absolute child's own "bottom: 0" aligns with
+   pattern) was tried here first and confirmed NOT equivalent for this
+   specific job: a position: absolute child's "bottom: 0" aligns with
    its containing block's PADDING-box edge, which is the same as the
    border-box edge (the outermost edge, padding included) whenever there's
-   no border - so "bottom: 0" landed exactly at this div's own OUTER edge,
+   no border - so "bottom: 0" landed exactly at this div's OUTER edge,
    completely ignoring the padding meant to hold it back, and every
    position: absolute view (ActionEditor's Blockly canvas, GeneratedCode's
    whole editor pane including its search dock) kept rendering straight
    through .error-message's fixed footer regardless. Actually reducing the
-   HEIGHT itself (not padding it) is what genuinely moves this div's own
+   HEIGHT itself (not padding it) is what genuinely moves this div's
    bottom edge - and so its padding-box edge too - up above the footer, the
    only version of this fix confirmed (via direct getBoundingClientRect
    measurement) to actually change where "bottom: 0" resolves to. */
@@ -1942,23 +3601,23 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    positioned child, so the hover highlight never actually spilled onto the
    content to its left the way .error-resize-handle's does (that one lives in
    a v-footer, which doesn't clip). Fixed to the window instead, with "right"
-   bound inline to emulatorWidth so it still tracks the drawer's own left
+   bound inline to emulatorWidth so it still tracks the drawer's left
    edge as it's resized. */
 .emulator-resize-handle {
   position: fixed;
-  /* 72px clears the fixed chrome above the drawer (the app-bar's own
-     height, see .emulator-hide-button's own comment below) - this used to
+  /* 72px clears the fixed chrome above the drawer (the app-bar's
+     height, see .emulator-hide-button's comment below) - this used to
      be a plain 0, which ran the handle up over that chrome instead of
-     starting at the drawer's own clipped top edge. */
+     starting at the drawer's clipped top edge. */
   top: 72px;
   /* bottom is set inline (bound to errorHeight, see the template) rather
      than a plain 0 here - this handle used to run the full viewport height,
      rendering on top of the console footer (a sibling, not a descendant, so
-     the console's own z-index couldn't help) instead of stopping above it
+     the console's z-index couldn't help) instead of stopping above it
      the way the emulator drawer itself already does. */
-  /* Straddles the drawer's own left edge (-5px to +5px, via the "right"
+  /* Straddles the drawer's  left edge (-5px to +5px, via the "right"
      style bound to emulatorWidth - 5 in the template), matching
-     .error-resize-handle's own straddle - a plain 6px strip fully inside
+     .error-resize-handle's straddle - a plain 6px strip fully inside
      the drawer was too easy to miss by a pixel and land on the emulator
      content instead. */
   width: 10px;
@@ -1976,7 +3635,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 /* A visible grip bar centered in the drag strip - same rest/hover grey as
-   the scrollbar thumbs and .error-resize-handle's own grip below, so all of
+   the scrollbar thumbs and .error-resize-handle's grip below, so all of
    the app's draggable handles read as one consistent design instead of
    being invisible until hovered. */
 .emulator-resize-handle::after {
@@ -1995,21 +3654,51 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   background-color: rgba(0, 0, 0, 0.4);
 }
 
-.emulator-refresh-button {
+.emulator-toolbar-row {
+  display: flex;
+  align-items: center;
   margin-top: 8px;
   margin-bottom: 4px;
 }
 
+/* Holds the screenshot and keyboard-mapping buttons together at the row's far
+   right - the keyboard button's own auto left margin (KeyMappingDialog.vue)
+   then has no spare room to take inside this shrink-wrapped group. */
+.emulator-toolbar-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.emulator-toolbar-divider {
+  margin: 0;
+}
+
+/* "Refresh emulator" plus both icon buttons have to fit the drawer's default
+   256 px width (240 px row): trimmed padding on Refresh and 26 px icon
+   buttons (the keyboard one included, so the two match) make that fit. */
+.emulator-refresh-button.v-btn {
+  padding: 0 8px !important;
+}
+
+.emulator-toolbar-icons >>> .v-btn.v-btn--icon {
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
 /* A sibling of the drawer (see the template), NOT a child of it - v-
-   navigation-drawer sets overflow: hidden on itself (to mask its own slide
+   navigation-drawer sets overflow: hidden on itself (to mask its slide
    transition), which was clipping away the left half of this button when it
    lived inside the drawer as an absolutely-positioned child straddling its
    edge. Fixed to the window instead, with "right" bound inline to
-   emulatorWidth (see the template) so it still tracks the drawer's own left
+   emulatorWidth (see the template) so it still tracks the drawer's left
    edge as it's resized. top: 80px clears the fixed chrome above the drawer
-   (the app-bar's own 72px, plus a little breathing room), putting this at
+   (the app-bar's 72px, plus a little breathing room), putting this at
    the top of the emulator column instead of vertically centered on it.
-   z-index bumped well past Vuetify's own app-bar/navigation-drawer chrome,
+   z-index bumped well past Vuetify's app-bar/navigation-drawer chrome,
    which otherwise sat on top of and ate clicks meant for this button. */
 .emulator-hide-button {
   position: fixed;
@@ -2019,7 +3708,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   box-shadow: none !important;
 }
 
-/* right: 16px (not flush against the window's own edge) - flush placement
+/* right: 16px (not flush against the window's  edge) - flush placement
    sat exactly where the browser's native scrollbar renders, which (unlike
    the DOM z-index fix .emulator-hide-button needed) can't be fixed with
    z-index at all: an OS/browser-drawn scrollbar always paints on top of
@@ -2038,7 +3727,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    default than the app's usual blue "primary" accent, since this floats
    over whatever tab is open rather than living inside a toolbar/panel with
    other controls, and shouldn't compete for attention until the user is
-   actually reaching for it. Full opacity plus the app's own primary blue on
+   actually reaching for it. Full opacity plus the app's primary blue on
    hover together read as "now active"/clickable. */
 .emulator-toggle-button {
   opacity: 0.5;
@@ -2051,13 +3740,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 /* Flex column so .rom-capacity-detail (the last child) can grow to fill
    whatever vertical space the emulator/buttons/summary line above it don't
-   use, instead of sizing to its own content and leaving dead space below.
+   use, instead of sizing to its content and leaving dead space below.
    box-sizing: border-box makes the padding-bottom below (which reserves room
    for the error console footer, which overlaps the bottom of this drawer
    since it isn't an "app" element Vuetify reserves layout space for) count
    against this 100% height, instead of being added on top of it - otherwise
    the flex children size themselves as if the footer weren't there, and
-   .rom-capacity-detail's own scrollbar never kicks in until content is
+   .rom-capacity-detail's scrollbar never kicks in until content is
    pushed further down than the footer already covers. */
 .emulator-drawer-inner {
   display: flex;
@@ -2066,10 +3755,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   box-sizing: border-box;
   /* The "Refresh emulator"/"Update ROM"/"Get generated ROM" buttons are all
      "block" (100% width of this container), which previously ran them
-     flush edge to edge with no breathing room. #javatari-target-container
+     flush edge to edge with no breathing room. #gopher2600-target-container
      (the emulator screen itself) also ends up very slightly narrower as a
-     result, rather than compensating it back out with its own negative
-     margin - that container's own width feeds a live ResizeObserver-driven
+     result, rather than compensating it back out with its negative
+     margin - that container's width feeds a live ResizeObserver-driven
      scale calculation (see updateEmulatorScale/observeEmulatorSize below),
      and a negative margin there risks that measurement disagreeing with
      what's actually laid out, for a fix this small. */
@@ -2077,14 +3766,44 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 /* "Update ROM"/"Get generated ROM" side by side in one row (used to each be
-   a separate "block" full-width v-btn, stacked) - each sized to its own
+   a separate "block" full-width v-btn, stacked) - each sized to its
    label's natural width (not stretched to fill/split the row) and the pair
-   centered as a group. */
-.rom-buttons-row {
+   centered as a group. Front-panel switches use the same layout. */
+.rom-buttons-row,
+.panel-switches-row {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
+}
+
+/* Select/Reset as one indivisible unit within .panel-switches-row's
+   flex-wrap, rather than two separate flex items - a plain flex-wrap row
+   wraps items ONE AT A TIME as space runs out, which could leave Select on
+   the previous row and Reset alone on the next. Grouping them into their
+   nested flex container (itself a single flex item as far as the outer
+   row is concerned) makes the pair wrap down together or not at all. */
+.emulator-select-reset-group {
+  display: flex;
+  gap: 8px;
+}
+
+/* Vuetify's "color" prop doesn't compute a contrasting icon/text color
+   from the color itself (that only happens via the app's overall light/
+   dark THEME, not per-button) - without this, the power icon stayed its
+   usual dark grey on top of the now-green filled button once powered on,
+   reading as low-contrast/hard to see instead of a clear white icon on a
+   solid green background. No ">>> " deep-combinator here (tried first) -
+   this v-icon is written directly in THIS component's template (unlike
+   e.g. Blockly's injected SVG text elsewhere in this file), so it already
+   carries this component's scope attribute like any other element
+   here, and gets matched by a plain scoped selector same as they would -
+   using >>> would have stripped that attribute-selector specificity back
+   off again, losing a specificity tie against the app-wide "Soft Colors"
+   icon-darkening rule (.desaturate-app-colors .theme--light.v-icon, itself
+   3 classes) instead of comfortably beating it. */
+.panel-switches-row .emulator-power-button.emulator-power-button-on.green .v-icon {
+  color: #fff !important;
 }
 
 /* Same reasoning as .emulator-drawer-inner above: the error console footer
@@ -2100,6 +3819,14 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   box-sizing: border-box;
 }
 
+/* Vuetify's v-list has an 8px top/bottom padding by default, which left a
+   gap between the Actions tab and the top of the drawer that the top
+   toolbar's tab row doesn't have. Removed so the first tab sits flush
+   with the drawer's top edge. */
+.navigation-list.v-list {
+  padding-top: 0;
+}
+
 .v-list-item__icon {
   margin-right: 12px !important;
 }
@@ -2109,7 +3836,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 /* REMOVED: "opacity: 0.65" on every inactive sidebar item - the top bar's
-   own tab buttons have no equivalent dimming (always full-strength color,
+   tab buttons have no equivalent dimming (always full-strength color,
    active or not), so this was the actual source of the sidebar's icon/text
    colors looking washed out compared to the top bar's for any tab that
    wasn't the current page - confirmed directly via computed style: both
@@ -2118,29 +3845,29 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    identically), it was purely this element-wide opacity multiplying that
    same color down for the sidebar alone. */
 
-/* The top v-app-bar's own tab buttons (.actions-item/.player-item/etc,
-   the exact same class names as the sidebar's own v-list-item entries just
+/* The top v-app-bar's  tab buttons (.actions-item/.player-item/etc,
+   the exact same class names as the sidebar's v-list-item entries just
    above - see the rules right below this one) used to render with
-   Vuetify's own default v-btn appearance, a solid light grey fill
+   Vuetify's default v-btn appearance, a solid light grey fill
    (".theme--light.v-btn.v-btn--has-bg { background-color: #f5f5f5 }" - see
-   node_modules/vuetify/dist/vuetify.css), unlike the sidebar's own
-   v-list-item entries, which have no background fill of their own at all -
+   node_modules/vuetify/dist/vuetify.css), unlike the sidebar's
+   v-list-item entries, which have no background fill at all -
    confirmed as the actual source of the two navigation bars visibly not
    matching. The "text" prop (added on each of these v-btn in the template)
    is what removes that default fill, the same way it would for any other
    Vuetify text-style button - no CSS override needed here for that part.
    Once that grey fill is gone, the hover/active TINT COLOR already matches
-   the sidebar for free: Vuetify's own v-btn already uses
+   the sidebar for free: Vuetify's v-btn already uses
    "background-color: currentColor" for its built-in hover/focus/active
    overlay (".v-btn:before"/".v-btn--active::before" in the same vuetify.css),
    and the color rules below already force "color: rgbX !important" on
-   these exact same classes. The tint's own STRENGTH still didn't match
-   though (confirmed directly against vuetify.css) - v-list-item's own
-   overlay opacities (hover 0.04, active 0.12) are roughly HALF v-btn's own
+   these exact same classes. The tint's STRENGTH still didn't match
+   though (confirmed directly against vuetify.css) - v-list-item's
+   overlay opacities (hover 0.04, active 0.12) are roughly HALF v-btn's
    (hover 0.08, active 0.18), which read as visibly lighter/washed-out on
    the sidebar than the same color looked on the top bar even once both
    used the same base color. The override right below brings the sidebar's
-   own v-list-item opacities UP to match the top bar's v-btn values
+   v-list-item opacities UP to match the top bar's v-btn values
    exactly, scoped to just these nav items (not every v-list-item
    app-wide). */
 .navigation-list.v-list .v-list-item:hover::before {
@@ -2157,6 +3884,150 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   opacity: 0.16 !important;
 }
 
+/* "Soft Colors" (see Configuration.vue) - these tab colors are plain
+   hardcoded rgb() values, not run through Blockly's HSL-based
+   parseBlockColour patch (see BlocklyComponent.vue), so there's no single
+   funnel to desaturate them through the way every block color has. A CSS
+   filter, same mechanism already used for the blockly text/emoji desaturation,
+   covers both the icon and label text (and the border-left indicator) of
+   each tab in one rule, with no per-tab color duplication. */
+.desaturate-app-colors .actions-item,
+.desaturate-app-colors .titlescreen-item,
+.desaturate-app-colors .player-item,
+.desaturate-app-colors .background-item,
+.desaturate-app-colors .sound-item,
+.desaturate-app-colors .music-item,
+.desaturate-app-colors .text-tab-item,
+.desaturate-app-colors .data-item,
+.desaturate-app-colors .scorefont-item,
+.desaturate-app-colors .configuration-item,
+.desaturate-app-colors .generated-item,
+.desaturate-app-colors .project-item {
+  filter: saturate(50%);
+}
+
+/* The left-hand nav-drawer's tab labels/icons AND the top toolbar's
+   matching tab icons - desaturating alone (see the filter rule just above)
+   left them a similar lightness to before, which read as harder to read
+   against both bars' darkened backgrounds (see the app-wide
+   .desaturate-app-colors background tiers). Darkened on top of that same
+   desaturation (filters compose) by the same amount in both places, so a
+   given tab's icon reads as the exact same color whether it's clicked in
+   the top bar or the sidebar - confirmed as a real reported mismatch when
+   only the sidebar had this. */
+/* Only brightness here (not saturate too) - the ANCESTOR .actions-item/etc
+   already gets its saturate(50%) (see that rule further below), which
+   composites over its entire rendered box including these two children, so
+   adding a second saturate() here would double it up (effectively ~25%,
+   not 50%) rather than matching the top toolbar's single combined
+   "saturate(50%) brightness(0.7)" value (see that rule further below - the
+   top toolbar's icon has no such ancestor filter to compose with, since it
+   sits directly inside the v-btn with no v-list-item wrapper, so it needs
+   the full combined value declared directly on itself instead). */
+.desaturate-app-colors .nav-drawer .v-list-item__content,
+.desaturate-app-colors .nav-drawer .v-list-item__icon {
+  filter: brightness(0.7);
+}
+
+/* Same rule as just above, for the top toolbar's matching tab icons - kept
+   as its rule (rather than one shared selector list) so the brightness
+   filter here can be combined with the saturate(50%) filter every top-
+   toolbar/sidebar tab icon already gets (see that rule further below) into
+   ONE filter value. A second, separate "filter: brightness(0.7)" rule of
+   equal-or-higher specificity targeting the SAME element would have just
+   replaced that saturate() entirely instead of composing with it - CSS
+   filter doesn't merge across separate declarations the way e.g. transform
+   sometimes can be reasoned about; only the highest-specificity single
+   declaration wins. */
+.desaturate-app-colors .top-toolbar .actions-item,
+.desaturate-app-colors .top-toolbar .titlescreen-item,
+.desaturate-app-colors .top-toolbar .player-item,
+.desaturate-app-colors .top-toolbar .background-item,
+.desaturate-app-colors .top-toolbar .sound-item,
+.desaturate-app-colors .top-toolbar .music-item,
+.desaturate-app-colors .top-toolbar .text-tab-item,
+.desaturate-app-colors .top-toolbar .data-item,
+.desaturate-app-colors .top-toolbar .scorefont-item,
+.desaturate-app-colors .top-toolbar .configuration-item,
+.desaturate-app-colors .top-toolbar .generated-item,
+.desaturate-app-colors .top-toolbar .project-item {
+  filter: saturate(50%) brightness(0.7);
+}
+
+/* Every OTHER icon/text in the app (not the left nav-drawer's tab
+   icons/labels, already darkened above, or the top toolbar's colored per-
+   tab icons, restored below) - Vuetify's default light-theme text/icon
+   opacities (rgba(0,0,0,.87) for body text, .54 for icons, lighter still
+   for hints/secondary text) were tuned against a plain white background.
+   Against the darker card/app-bg tiers those same alpha values read as
+   noticeably lower-contrast, so both are bumped darker here. color (not
+   filter) - filter would also darken whatever background is BEHIND the
+   element, since it applies to the full rendered box, not just the text/
+   icon glyph itself. */
+.desaturate-app-colors.theme--light {
+  color: rgba(0, 0, 0, 0.95) !important;
+}
+
+.desaturate-app-colors .theme--light.v-icon {
+  color: rgba(0, 0, 0, 0.75) !important;
+}
+
+/* The top toolbar's tab icons (.actions-item/.titlescreen-item/etc,
+   directly <v-icon> inside the v-btn - no .v-list-item__icon wrapper the
+   way the sidebar's matching entries have, see those rules further below)
+   otherwise matched the blanket darkening rule just above with nothing
+   more specific to beat it, flattening every tab's distinct color
+   (green/purple/blue/etc) down to plain dark grey - confirmed as a real
+   reported bug. Restores each one back to its per-tab color (already
+   forced onto the parent .actions-item/etc button - see those rules) via
+   plain inheritance. */
+.desaturate-app-colors .top-toolbar .theme--light.v-icon {
+  color: inherit !important;
+}
+
+/* Vuetify's hover overlay (".v-btn:before", tinted by the button's
+   currentColor at ~8% opacity) barely showed up on a plain grey-background
+   button like "Reset to Defaults"/"Refresh emulator" - "Reset to Defaults"
+   forces its resting text color to a faint rgba(0,0,0,.38)-ish grey
+   (see Configuration.vue's rule), unlike the other three here, which
+   left ITS hover overlay noticeably fainter than the rest even though
+   all four are meant to read as the same style of button - confirmed as a
+   real reported mismatch. One explicit, shared hover background instead of
+   relying on that per-button overlay math, so all four always match
+   exactly regardless of each button's resting text color. */
+.v-card__actions .v-btn.v-btn--text:not(.v-btn--icon):not(.v-btn--disabled):hover,
+.reset-to-defaults-btn.v-btn:hover,
+.emulator-refresh-button.v-btn:hover,
+.palette-clear-btn.v-btn:hover,
+.emulator-select-button.v-btn:hover,
+.emulator-reset-button.v-btn:hover {
+  background-color: #e0e0e0 !important;
+}
+
+/* Same explicit-hover-color reasoning as just above, darker to match Soft
+   Colors' darker background tiers (see the app-wide
+   .desaturate-app-colors rules) - overrides the plain-theme value above. */
+.desaturate-app-colors .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon):not(.v-btn--disabled):hover,
+.desaturate-app-colors .reset-to-defaults-btn.v-btn:hover,
+.desaturate-app-colors .emulator-refresh-button.v-btn:hover,
+.desaturate-app-colors .palette-clear-btn.v-btn:hover,
+.desaturate-app-colors .emulator-select-button.v-btn:hover,
+.desaturate-app-colors .emulator-reset-button.v-btn:hover {
+  background-color: #d0d0d0 !important;
+}
+
+/* The dark theme's hover for the same buttons (the light greys above would wash out the white text). */
+.dark-mode .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon):not(.v-btn--disabled):hover,
+.dark-mode .emulator-refresh-button.v-btn:hover,
+.dark-mode .emulator-select-button.v-btn:hover,
+.dark-mode .emulator-reset-button.v-btn:hover,
+.dark-mode.desaturate-app-colors .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon):not(.v-btn--disabled):hover,
+.dark-mode.desaturate-app-colors .emulator-refresh-button.v-btn:hover,
+.dark-mode.desaturate-app-colors .emulator-select-button.v-btn:hover,
+.dark-mode.desaturate-app-colors .emulator-reset-button.v-btn:hover {
+  background-color: #3a3a3a !important;
+}
+
 .actions-item,
 .actions-item > .v-list-item__icon > .theme--light.v-icon,
 .actions-item > .v-list-item__content {
@@ -2164,8 +4035,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(76, 175, 80) !important;
 }
 
-/* Never had a color rule of its own - fell back to the same unstyled
-   default the About tab (also with no rule of its own) renders with,
+/* Never had a color rule - fell back to the same unstyled
+   default the About tab (also with no rule) renders with,
    making the two tabs look identically colored despite being unrelated.
    Deep purple isn't used by any other tab. */
 .titlescreen-item,
@@ -2196,8 +4067,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-left-color: rgb(156, 39, 176) !important;
 }
 
-/* Never had a color rule of its own before this - fell back to the same
-   unstyled default color the About tab (also with no rule of its own)
+/* Never had a color rule of its  before this - fell back to the same
+   unstyled default color the About tab (also with no rule)
    happens to render with, making the two tabs look identically colored
    even though they're unrelated. */
 .music-item,
@@ -2254,29 +4125,29 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    COLUMN that instead makes every block button grow to fill the leftover
    vertical space whenever .rom-capacity-detail isn't rendered yet (no ROM
    built yet), stretching them tall. Buttons should only ever size to their
-   own content here. */
+   content here. */
 .emulator-drawer-inner .v-btn {
   flex: 0 0 auto !important;
 }
 
 /* Everything from the "Total Variables"/"System reserved" summary lines down
    through the per-bank breakdown is ONE scrollable region now (previously
-   only .rom-capacity-detail, the per-bank breakdown, scrolled on its own -
+   only .rom-capacity-detail, the per-bank breakdown, scrolled by itself -
    once the System reserved/Required by blocks/User defined lists above it
    grew past a project's available drawer height, THEY had nowhere to shrink
    (flex-shrink: 0, sized to content), so the overflow spilled out of
    .emulator-drawer-inner entirely and the WHOLE drawer started scrolling
    instead, a real reported regression). The "bytes free" line and its
    progress bar (.rom-capacity/.rom-capacity-bar) stay OUTSIDE this, as their
-   own fixed (flex-shrink: 0) siblings, same as the emulator/buttons above
+   fixed (flex-shrink: 0) siblings, same as the emulator/buttons above
    them - always visible, never pushed off by a long variable/bank list.
    flex: 1 (with the drawer content column above) lets this grow to fill
    whatever room those fixed elements don't use, instead of staying a fixed
-   height, with its own scrollbar (min-height: 0 is required for a flex
+   height, with its scrollbar (min-height: 0 is required for a flex
    child to be allowed to shrink below its content size and actually scroll
    instead of overflowing the drawer). Every child inside it (rom-capacity-
    summary/-variables/-detail) is plain in-flow content, not itself a flex
-   item, so no flex-shrink of its own is needed. */
+   item, so no flex-shrink is needed. */
 .rom-capacity-log {
   flex: 1 1 auto;
   min-height: 0;
@@ -2314,9 +4185,9 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   user-select: text;
 }
 
-/* The "Variables:" summary line's own per-slot breakdown - same sizing as
+/* The "Variables:" summary line's  per-slot breakdown - same sizing as
    .rom-capacity-summary just above (it reads as a continuation of that line,
-   not a new section), indented like .rom-capacity-bank-contents' own list
+   not a new section), indented like .rom-capacity-bank-contents' list
    items so each "letter: name" pair reads as a sub-item of the summary. */
 .rom-capacity-variables {
   font-size: 0.75em;
@@ -2359,12 +4230,12 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 /* position: fixed pins this to the viewport bottom so it can't scroll away
-   with page content. This previously covered every tab's own floating "+"
+   with page content. This previously covered every tab's floating "+"
    button (Background, Player0/1, Sound, Music, Data - all use Vuetify's
-   "absolute right fab" pattern with no z-index of their own) since a fab
+   "absolute right fab" pattern with no z-index) since a fab
    with no explicit z-index loses the stacking fight against this footer's
    z-index: 10. Fixed for real this time, rather than reverting again, by
-   giving those fabs their own explicit z-index above this footer's (see
+   giving those fabs their explicit z-index above this footer's (see
    the .v-btn--absolute.v-btn--fab rule below) instead of just removing the
    fixed positioning that was the actual point of this rule. */
 .error-message {
@@ -2373,7 +4244,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   right: 0;
   bottom: 0;
   z-index: 10;
-  /* Matches the darkened .v-sheet--outlined card border color (see its own
+  /* Matches the darkened .v-sheet--outlined card border color (see its
      comment) rather than Vuetify's default rgba(0, 0, 0, 0.12). */
   border-top: 1px solid rgba(0, 0, 0, 0.24);
 }
@@ -2385,32 +4256,32 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* The actual scroll container - moved here from .error-message itself
    (which used to have overflow-y: scroll directly) so .error-resize-handle
    (a sibling of this, not a descendant) never scrolls along with the log
-   content: .error-resize-handle's own position: absolute is anchored to
+   content: .error-resize-handle's position: absolute is anchored to
    .error-message, which is also where a scrollbar's scroll OFFSET used to
    be tracked - a still-scrolling ancestor drags an absolutely-positioned
    child's rendered position along with it exactly like any other content,
    confirmed directly as why the handle became unreachable (scrolled out
    of view along with the log text) once there was enough log content to
    scroll at all.
-   Absolutely positioned (inset: 0 within .error-message's own
-   position: relative, its own top-8px left free for the resize handle's
-   own strip) rather than sized through flexbox (a v-footer's row-direction
+   Absolutely positioned (inset: 0 within .error-message's
+   position: relative, its top-8px left free for the resize handle's
+   strip) rather than sized through flexbox (a v-footer's row-direction
    flex layout makes height the CROSS axis, which turned out to still let
-   this grow to fit its own content instead of actually clipping to the
-   footer's own fixed height even with align-self: stretch + flex +
+   this grow to fit its content instead of actually clipping to the
+   footer's fixed height even with align-self: stretch + flex +
    min-height: 0 all set - confirmed directly: scrollHeight kept exactly
    matching clientHeight, i.e. never actually overflowing/scrolling
-   internally at all, which spilled the overflow out into the page's own
+   internally at all, which spilled the overflow out into the page's
    document flow instead, making the WHOLE PAGE scroll to reveal it - this
    sidesteps that flexbox cross-axis sizing question entirely with a hard,
    unambiguous 0/0/0/0 inset instead of a size that has to be derived. */
 /* overflow-y: auto (not "scroll") - "scroll" unconditionally reserves a
    scrollbar track even when the log has too few lines to actually need
    one, which renders as an inert, un-draggable scrollbar (no real content
-   to scroll to) flush against the browser's own right edge, confirmed as
-   a real, confusing bug on its own (looked like something was broken,
+   to scroll to) flush against the browser's right edge, confirmed as
+   a real, confusing bug by itself (looked like something was broken,
    since dragging it did nothing) rather than an intentional "always show
-   the gutter to avoid layout shift" choice - nothing in this rule's own
+   the gutter to avoid layout shift" choice - nothing in this rule's
    history documented that as the reason "scroll" was used here. */
 .error-scroll-wrapper {
   position: absolute;
@@ -2421,10 +4292,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   overflow-y: auto;
 }
 
-/* v-footer's own default is a row-direction flex container (fine for a
+/* v-footer's  default is a row-direction flex container (fine for a
    single <pre>, wrong once this holds many stacked lines) - column instead,
-   with no gap of its own, so spacing between lines comes only from
-   .compile-log-line's own tight line-height below. */
+   with no gap, so spacing between lines comes only from
+   .compile-log-line's tight line-height below. */
 .error-console-content {
   display: flex;
   flex-direction: column;
@@ -2432,8 +4303,20 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   padding-top: 8px;
 }
 
+/* Every browser's UA stylesheet sets <pre> { font-family: monospace } by
+   default - never explicitly overridden here before, so errorStorage's
+   <pre> (the error banner's plain-text body) has always silently rendered
+   in a different font than the .compile-log-line entries above it (plain
+   <div>s, which inherit the app's regular font normally) - confirmed
+   directly as a real, pre-existing mismatch, not something introduced this
+   session. Unified here rather than on the <pre> element itself so a
+   future addition to this panel doesn't need to remember to repeat it. */
+.error-console-content pre {
+  font-family: inherit;
+}
+
 /* Live progress feed for the build pipeline (see hooks/rom.js's buildRom())
-   - overrides the footer's own blanket red (meant for errorStorage's actual
+   - overrides the footer's blanket red (meant for errorStorage's actual
    error banner just below it) back to ordinary text color for anything that
    isn't itself an error-level entry. margin: 0 and a tight line-height keep
    many lines from spreading out - the default paragraph-like spacing looked
@@ -2454,11 +4337,28 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   font-weight: bold;
 }
 
+/* showError's optional highlightHtml (see utils/build-error.js) - rendered
+   right after the plain-text error banner, in the same red that banner
+   already inherits from .theme--light.v-footer.error-message. Deliberately
+   NOT bold itself (only whichever inline <b> tags the HTML content brings
+   with it are) - this div previously set font-weight: bold on the whole
+   paragraph, which made the intended "just this phrase" <b> inside it
+   render even heavier ("bolder" relative to an already-bold parent) while
+   the surrounding plain sentence wrongly looked bold too - confirmed
+   directly as a real reported "everything looks bold, and the bytes text
+   looks extra bold" bug. padding-left matches .compile-log-line's, so this
+   lines up with the log text above it instead of sitting flush left. */
+.error-banner-highlight {
+  padding-left: 8px;
+  padding-top: 4px;
+}
+
+
 .error-resize-handle {
   position: absolute;
   left: 0;
   right: 0;
-  /* Straddles the footer's own top edge (-5px to +5px) rather than sitting
+  /* Straddles the footer's  top edge (-5px to +5px) rather than sitting
      entirely inside it - a plain 6px strip fully inside the panel was too
      easy to miss by a pixel and land on the error text right below it
      instead, starting a text selection instead of a resize drag. */
@@ -2472,7 +4372,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   background-color: rgba(0, 0, 0, 0.15);
 }
 
-/* Matches .emulator-resize-handle's own grip bar above - same rest/hover
+/* Matches .emulator-resize-handle's  grip bar above - same rest/hover
    grey, just rotated for this handle's horizontal drag axis. */
 .error-resize-handle::after {
   content: '';
@@ -2488,5 +4388,35 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .error-resize-handle:hover::after {
   background-color: rgba(0, 0, 0, 0.4);
+}
+
+/* White-based, not the plain black-based rgba() every rest-state rule above
+   uses - a real reported bug ("the console log top handle and border is
+   disappearing"): unlike .emulator-resize-handle (which sits over a
+   background that never gets specially darkened, so the same black-based
+   rgba() stays visible under both Dark Mode and Subdued Palette with no
+   override needed), .error-message's background gets explicitly forced
+   much darker under both (see its rules elsewhere in this file) -
+   black-based "darken for contrast against a light surface" rgba() reads
+   as invisible once that surface is dark/black itself. Flipped to the same
+   rest/hover/grip values the black-based version uses, just inverted to
+   white, so this handle reads exactly as visibly as .emulator-resize-handle's
+   does, regardless of which of the two is actually on. The emulator pane's
+   handle takes the very same values (rest, hover and grip), so the two match
+   in Dark Mode (with or without Subdued Palette). With Subdued Palette alone the
+   surfaces stay light grey, so the black-based rest-state values above apply. */
+.dark-mode .error-resize-handle:hover,
+.dark-mode .emulator-resize-handle:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.dark-mode .error-resize-handle::after,
+.dark-mode .emulator-resize-handle::after {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+.dark-mode .error-resize-handle:hover::after,
+.dark-mode .emulator-resize-handle:hover::after {
+  background-color: rgba(255, 255, 255, 0.4);
 }
 </style>

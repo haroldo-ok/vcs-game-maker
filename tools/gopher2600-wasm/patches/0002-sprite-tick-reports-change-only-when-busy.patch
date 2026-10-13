@@ -1,0 +1,81 @@
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/ball.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/ball.go
+index 3e4a20e..5fd7621 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/ball.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/ball.go
+@@ -217,6 +217,12 @@ func (bs *BallSprite) tickHMOVE() bool {
+ 
+ // returns true if pixel has changed.
+ func (bs *BallSprite) tick() bool {
++	// VCS GAME MAKER: report a change only when the sprite's pixel can differ from the one
++	// Video.Pixel() last worked out. An idle sprite (nothing drawing, latching or scheduled)
++	// always outputs "off", so returning true for it made every color clock look changed and
++	// Video.Pixel() never took its early return. Register writes set tiaHasChanged themselves.
++	busy := bs.Enclockifier.Active || bs.futureStart.IsActive()
++
+ 	bs.lastHmoveCt = bs.tia.hmove.Ripple
+ 
+ 	bs.pclk++
+@@ -244,7 +250,8 @@ func (bs *BallSprite) tick() bool {
+ 	bs.futureReset.Tick(bs._futureResetPosition)
+ 	bs.futureStart.Tick(bs._futureStartDrawingEvent)
+ 
+-	return true
++	return busy || bs.Enclockifier.Active || bs.futureStart.IsActive() || bs.futureReset.IsActive() ||
++		bs.lastTickFromHmove
+ }
+ 
+ func (bs *BallSprite) _futureStartDrawingEvent(_ uint8) {
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/missile.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/missile.go
+index 09e39c6..321d971 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/missile.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/missile.go
+@@ -245,6 +245,12 @@ func (ms *MissileSprite) tickHMOVE() bool {
+ 
+ // returns true if pixel has changed.
+ func (ms *MissileSprite) tick() bool {
++	// VCS GAME MAKER: report a change only when the sprite's pixel can differ from the one
++	// Video.Pixel() last worked out. An idle sprite (nothing drawing, latching or scheduled)
++	// always outputs "off", so returning true for it made every color clock look changed and
++	// Video.Pixel() never took its early return. Register writes set tiaHasChanged themselves.
++	busy := ms.Enclockifier.Active || ms.futureStart.IsActive()
++
+ 	// reset-to-player placement note: we don't do the missile-to-player reset
+ 	// unless we're hmoving or ticking. if we place this block before the "early return
+ 	// if nothing to do" block (in the tickHBLANK() and tickHMOVE() blocks), then it will
+@@ -309,7 +315,8 @@ func (ms *MissileSprite) tick() bool {
+ 	ms.futureReset.Tick(ms._futureResetPosition)
+ 	ms.futureStart.Tick(ms._futureStartDrawingEvent)
+ 
+-	return true
++	return busy || ms.Enclockifier.Active || ms.futureStart.IsActive() || ms.futureReset.IsActive() ||
++		ms.ResetToPlayer || ms.lastTickFromHmove
+ }
+ 
+ func (ms *MissileSprite) _futureStartDrawingEvent(v uint8) {
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/player.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/player.go
+index c4855c4..2457ad8 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/player.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/tia/video/player.go
+@@ -293,6 +293,12 @@ func (ps *PlayerSprite) tickHMOVE() bool {
+ 
+ // returns true if pixel has changed.
+ func (ps *PlayerSprite) tick() bool {
++	// VCS GAME MAKER: report a change only when the sprite's pixel can differ from the one
++	// Video.Pixel() last worked out. An idle sprite (nothing drawing, latching or scheduled)
++	// always outputs "off", so returning true for it made every color clock look changed and
++	// Video.Pixel() never took its early return. Register writes set tiaHasChanged themselves.
++	busy := ps.ScanCounter.IsActive() || ps.ScanCounter.IsLatching()
++
+ 	// tick graphics scan counter during visible screen and during HMOVE.
+ 	// from TIA_HW_Notes.txt:
+ 	//
+@@ -381,7 +387,8 @@ func (ps *PlayerSprite) tick() bool {
+ 	ps.futureReset.Tick(ps._futureResetPosition)
+ 	ps.futureStart.Tick(ps._futureStartDrawingEvent)
+ 
+-	return true
++	return busy || ps.ScanCounter.IsActive() || ps.ScanCounter.IsLatching() ||
++		ps.futureStart.IsActive() || ps.futureReset.IsActive() || ps.futureSetNUSIZ.IsActive()
+ }
+ 
+ func (ps *PlayerSprite) _futureStartDrawingEvent(v uint8) {

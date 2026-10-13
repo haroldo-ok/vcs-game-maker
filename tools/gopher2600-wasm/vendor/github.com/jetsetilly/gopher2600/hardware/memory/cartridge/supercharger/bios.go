@@ -1,0 +1,168 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+package supercharger
+
+import (
+	"crypto/md5"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/jetsetilly/gopher2600/environment"
+	"github.com/jetsetilly/gopher2600/logger"
+	"github.com/jetsetilly/gopher2600/resources"
+)
+
+// list of allowed filenames for the supercharger BIOS.
+var ntscBiosFile = []string{
+	"Supercharger BIOS.bin",
+	"Supercharger.BIOS.bin",
+	"Supercharger_BIOS.bin",
+	"supercharger_bios.bin",
+	"SUPERCHARGER_BIOS.bin",
+}
+
+var palBiosFile = []string{
+	"Supercharger BIOS PAL.bin",
+	"Supercharger_BIOS_PAL.bin",
+	"SUPERCHARGER_BIOS_PAL.bin",
+}
+
+const (
+	ntscAllowedBiosMD5 = "4565c1a7abce773e53c75b35414adefd"
+	palAllowedBiosMD5  = "4a8c743396b8ad69d97e6fd3dd3e3132"
+)
+
+// loadBIOS attempts to load BIOS from (in order of priority):
+//   - current working directory
+//   - the same directory as the tape/bin file
+//   - the emulator's resource path
+func loadBIOS(env *environment.Environment, path string) ([]uint8, error) {
+	biosFile := ntscBiosFile
+	md5sum := ntscAllowedBiosMD5
+	if env.Loader.ReqSpec == "PAL" {
+		biosFile = palBiosFile
+		md5sum = palAllowedBiosMD5
+	}
+
+	// current working directory
+	for _, b := range biosFile {
+		d, err := _loadBIOS(b, md5sum)
+		if err != nil {
+			continue
+		}
+
+		// only accept 2k files
+		if len(d) != 2048 {
+			return nil, fmt.Errorf("bios: file (%s) is not 2k", b)
+		}
+
+		logger.Logf(env, "supercharger: bios", "using %s (from current working directory)", b)
+		return d, nil
+	}
+
+	// the same directory as the tape/bin file
+	for _, b := range biosFile {
+		p := filepath.Join(path, b)
+		d, err := _loadBIOS(p, md5sum)
+		if err != nil {
+			continue
+		}
+
+		// only accept 2k files
+		if len(d) != 2048 {
+			return nil, fmt.Errorf("bios: file (%s) is not 2k", p)
+		}
+
+		logger.Logf(env, "supercharger: bios", "using %s (from the same path as the game ROM)", p)
+		return d, nil
+	}
+
+	// the emulator's resource path
+	for _, b := range biosFile {
+		p, err := resources.JoinPath(b)
+		if err != nil {
+			return nil, err
+		}
+
+		d, err := _loadBIOS(p, md5sum)
+		if err != nil {
+			continue
+		}
+
+		// only accept 2k files
+		if len(d) != 2048 {
+			return nil, fmt.Errorf("bios: file (%s) is not 2k", p)
+		}
+
+		logger.Logf(env, "supercharger: bios", "using %s (from the resource path)", p)
+		return d, nil
+	}
+
+	return nil, fmt.Errorf("bios: can't find any suitable file")
+}
+
+func _loadBIOS(biosFilePath string, md5sum string) ([]uint8, error) {
+	f, err := os.Open(biosFilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	// get file info. not using Stat() on the file handle because the
+	// windows version (when running under wine) does not handle that
+	cfi, err := os.Stat(biosFilePath)
+	if err != nil {
+		return nil, err
+	}
+	size := cfi.Size()
+
+	data := make([]uint8, size)
+	_, err = f.Read(data)
+	if err != nil {
+		return nil, err
+	}
+
+	// check that file is correct
+	h := fmt.Sprintf("%x", md5.Sum(data))
+	if h != md5sum {
+		return nil, fmt.Errorf("disallowed supercharger MD5 hash: %s", h)
+	}
+
+	return data, nil
+}
+
+const loadEndedAddress = 0x0a1a
+
+// fastloadOnlyBIOS is the minimum amount of code required to load a fastload ROM
+func fastloadOnlyBIOS() []uint8 {
+	b := make([]uint8, 2048)
+
+	// touch the tape load register
+	b[0] = 0xad
+	b[1] = 0xf9
+	b[2] = 0x1f
+
+	// CPU jump table
+	b[2042] = 0x00
+	b[2043] = 0x18
+	b[2044] = 0x00
+	b[2045] = 0x18
+	b[2046] = 0x00
+	b[2047] = 0x18
+
+	return b
+}

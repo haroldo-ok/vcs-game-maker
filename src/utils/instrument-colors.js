@@ -19,7 +19,7 @@ export const autoInstrumentColor = (soundEffectId) => {
 };
 
 /**
- * A sound effect's own chosen color (see the color picker on its Sound tab
+ * A sound effect's  chosen color (see the color picker on its Sound tab
  * card), falling back to an automatically assigned one if it hasn't set one.
  * @param {Object} soundEffect The sound effect (from blocks/soundfx.js) to
  *     get a display color for, or null/undefined.
@@ -33,7 +33,7 @@ export const instrumentColorFor = (soundEffect) => {
 };
 
 // A single shared canvas 2d context, reused rather than created per call -
-// it's only ever used to lean on the browser's own CSS color parser (fillStyle
+// it's only ever used to lean on the browser's  CSS color parser (fillStyle
 // normalizes ANY valid CSS color string - hsl(...), rgb(...), #hex, named
 // colors - down to a plain #rrggbb/rgba(...) string), not for drawing
 // anything.
@@ -58,9 +58,9 @@ const normalizeColor = (cssColor) => {
  * function silently produces an invalid value there - confirmed as the
  * cause of the Music tab's sequence-chip resize handle rendering blank/
  * white on desktop exports specifically, never reproducing in a normal
- * browser). Reuses normalizeColor's own canvas-based parser, so this works
+ * browser). Reuses normalizeColor's  canvas-based parser, so this works
  * uniformly whether cssColor is hsl(...) (auto-assigned) or rgb(...)/hex (a
- * user's own pick), same reasoning color-mix was originally chosen for.
+ * user's  pick), same reasoning color-mix was originally chosen for.
  * @param {string} cssColor Any valid CSS color string.
  * @param {number} colorPercent 0-100, how much of cssColor to keep.
  * @return {string} An rgb(...) string, or cssColor unchanged if it couldn't
@@ -96,7 +96,7 @@ export const mixColorWithTransparent = (cssColor, colorPercent) => {
  * Whether a CSS color (auto-assigned hsl(...) or a user-picked TIA color -
  * see instrumentColorFor above) reads as light enough that white text on top
  * of it would be hard to read - used to pick dark text instead wherever an
- * instrument's own color is used as a chip/background fill (e.g. the Music
+ * instrument's  color is used as a chip/background fill (e.g. the Music
  * tab's collapsed instrument summary chips).
  * @param {string} cssColor Any valid CSS color string.
  * @return {boolean} True if dark text should be used on top of this color.

@@ -1,0 +1,101 @@
+# github.com/go-audio/audio v1.0.0
+## explicit
+github.com/go-audio/audio
+# github.com/go-audio/riff v1.0.0
+## explicit; go 1.12
+github.com/go-audio/riff
+# github.com/go-audio/wav v1.1.0
+## explicit; go 1.13
+github.com/go-audio/wav
+# github.com/hajimehoshi/go-mp3 v0.3.4
+## explicit; go 1.14
+github.com/hajimehoshi/go-mp3
+github.com/hajimehoshi/go-mp3/internal/bits
+github.com/hajimehoshi/go-mp3/internal/consts
+github.com/hajimehoshi/go-mp3/internal/frame
+github.com/hajimehoshi/go-mp3/internal/frameheader
+github.com/hajimehoshi/go-mp3/internal/huffman
+github.com/hajimehoshi/go-mp3/internal/imdct
+github.com/hajimehoshi/go-mp3/internal/maindata
+github.com/hajimehoshi/go-mp3/internal/sideinfo
+# github.com/jetsetilly/gopher2600 v0.57.2 => C:\tmp\gopher2600-vendor-src
+## explicit; go 1.25.0
+github.com/jetsetilly/gopher2600/archivefs
+github.com/jetsetilly/gopher2600/cartridgeloader
+github.com/jetsetilly/gopher2600/coprocessor
+github.com/jetsetilly/gopher2600/coprocessor/faults
+github.com/jetsetilly/gopher2600/crunched
+github.com/jetsetilly/gopher2600/debugger/govern
+github.com/jetsetilly/gopher2600/debugger/terminal/commandline
+github.com/jetsetilly/gopher2600/environment
+github.com/jetsetilly/gopher2600/hardware
+github.com/jetsetilly/gopher2600/hardware/clocks
+github.com/jetsetilly/gopher2600/hardware/cpu
+github.com/jetsetilly/gopher2600/hardware/cpu/execution
+github.com/jetsetilly/gopher2600/hardware/cpu/instructions
+github.com/jetsetilly/gopher2600/hardware/cpu/registers
+github.com/jetsetilly/gopher2600/hardware/input
+github.com/jetsetilly/gopher2600/hardware/memory
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/ace
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/architecture
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/callfn
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/fpu
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/rng
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/timer
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/cdf
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/dpcplus
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/elf
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/mapper
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/mapper/banking
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/moviecart
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/plusrom
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/plusrom/plusnet
+github.com/jetsetilly/gopher2600/hardware/memory/cartridge/supercharger
+github.com/jetsetilly/gopher2600/hardware/memory/chipbus
+github.com/jetsetilly/gopher2600/hardware/memory/cpubus
+github.com/jetsetilly/gopher2600/hardware/memory/memorymap
+github.com/jetsetilly/gopher2600/hardware/memory/vcs
+github.com/jetsetilly/gopher2600/hardware/peripherals
+github.com/jetsetilly/gopher2600/hardware/peripherals/atarivox
+github.com/jetsetilly/gopher2600/hardware/peripherals/atarivox/engines
+github.com/jetsetilly/gopher2600/hardware/peripherals/atarivox/msa
+github.com/jetsetilly/gopher2600/hardware/peripherals/controllers
+github.com/jetsetilly/gopher2600/hardware/peripherals/savekey
+github.com/jetsetilly/gopher2600/hardware/peripherals/savekey/i2c
+github.com/jetsetilly/gopher2600/hardware/preferences
+github.com/jetsetilly/gopher2600/hardware/riot
+github.com/jetsetilly/gopher2600/hardware/riot/ports
+github.com/jetsetilly/gopher2600/hardware/riot/ports/panel
+github.com/jetsetilly/gopher2600/hardware/riot/ports/plugging
+github.com/jetsetilly/gopher2600/hardware/riot/timer
+github.com/jetsetilly/gopher2600/hardware/television
+github.com/jetsetilly/gopher2600/hardware/television/colourgen
+github.com/jetsetilly/gopher2600/hardware/television/coords
+github.com/jetsetilly/gopher2600/hardware/television/frameinfo
+github.com/jetsetilly/gopher2600/hardware/television/limiter
+github.com/jetsetilly/gopher2600/hardware/television/signal
+github.com/jetsetilly/gopher2600/hardware/television/specification
+github.com/jetsetilly/gopher2600/hardware/tia
+github.com/jetsetilly/gopher2600/hardware/tia/audio
+github.com/jetsetilly/gopher2600/hardware/tia/audio/mix
+github.com/jetsetilly/gopher2600/hardware/tia/delay
+github.com/jetsetilly/gopher2600/hardware/tia/hmove
+github.com/jetsetilly/gopher2600/hardware/tia/phaseclock
+github.com/jetsetilly/gopher2600/hardware/tia/polycounter
+github.com/jetsetilly/gopher2600/hardware/tia/revision
+github.com/jetsetilly/gopher2600/hardware/tia/video
+github.com/jetsetilly/gopher2600/logger
+github.com/jetsetilly/gopher2600/notifications
+github.com/jetsetilly/gopher2600/prefs
+github.com/jetsetilly/gopher2600/properties
+github.com/jetsetilly/gopher2600/random
+github.com/jetsetilly/gopher2600/resources
+github.com/jetsetilly/gopher2600/resources/fs
+github.com/jetsetilly/gopher2600/resources/unique
+github.com/jetsetilly/gopher2600/version
+# github.com/jetsetilly/supercharge v0.3.0
+## explicit; go 1.25
+github.com/jetsetilly/supercharge/supercharge
+# github.com/jetsetilly/gopher2600 => C:\tmp\gopher2600-vendor-src

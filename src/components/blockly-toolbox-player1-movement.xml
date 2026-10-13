@@ -6,7 +6,8 @@
             <next>
                 <block type="controls_if">
                     <value name="IF0">
-                        <block type="input_joy1_get">
+                        <block type="input_joystick_get">
+                        <field name="JOYSTICK">1</field>
                         <field name="VAR">joy1right</field>
                         </block>
                     </value>
@@ -24,7 +25,8 @@
                     <next>
                         <block type="controls_if">
                         <value name="IF0">
-                            <block type="input_joy1_get">
+                            <block type="input_joystick_get">
+                            <field name="JOYSTICK">1</field>
                             <field name="VAR">joy1left</field>
                             </block>
                         </value>
@@ -42,7 +44,8 @@
                         <next>
                             <block type="controls_if">
                             <value name="IF0">
-                                <block type="input_joy1_get">
+                                <block type="input_joystick_get">
+                                <field name="JOYSTICK">1</field>
                                 <field name="VAR">joy1up</field>
                                 </block>
                             </value>
@@ -60,7 +63,8 @@
                             <next>
                                 <block type="controls_if">
                                 <value name="IF0">
-                                    <block type="input_joy1_get">
+                                    <block type="input_joystick_get">
+                                    <field name="JOYSTICK">1</field>
                                     <field name="VAR">joy1down</field>
                                     </block>
                                 </value>
@@ -144,7 +148,8 @@
             <next>
                 <block type="controls_if">
                 <value name="IF0">
-                    <block type="input_joy1_get">
+                    <block type="input_joystick_get">
+                    <field name="JOYSTICK">1</field>
                     <field name="VAR">joy1right</field>
                     </block>
                 </value>
@@ -161,7 +166,8 @@
                 <next>
                     <block type="controls_if">
                     <value name="IF0">
-                        <block type="input_joy1_get">
+                        <block type="input_joystick_get">
+                        <field name="JOYSTICK">1</field>
                         <field name="VAR">joy1left</field>
                         </block>
                     </value>
@@ -256,7 +262,8 @@
             <next>
                 <block type="controls_if">
                 <value name="IF0">
-                    <block type="input_joy1_get">
+                    <block type="input_joystick_get">
+                    <field name="JOYSTICK">1</field>
                     <field name="VAR">joy1down</field>
                     </block>
                 </value>
@@ -273,7 +280,8 @@
                 <next>
                     <block type="controls_if">
                     <value name="IF0">
-                        <block type="input_joy1_get">
+                        <block type="input_joystick_get">
+                        <field name="JOYSTICK">1</field>
                         <field name="VAR">joy1up</field>
                         </block>
                     </value>
@@ -313,7 +321,8 @@
     <category name="Player 1 shoots missile 1" colour="blue">
         <block type="controls_if">
         <value name="IF0">
-            <block type="input_joy1_get">
+            <block type="input_joystick_get">
+            <field name="JOYSTICK">1</field>
             <field name="VAR">joy1fire</field>
             </block>
         </value>

@@ -1,14 +1,13 @@
 'use strict';
 
-import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../../hooks/project';
-import {DEFAULT_DIM_PERCENT, dimVolume} from './soundfx';
+import {useConfigurationStorage} from '../../hooks/project';
 
 export default (Blockly) => {
   Blockly.BBasic[`simple_sound_set`] = function(block) {
     const audc = block.getFieldValue('AUDC');
     const audf = block.getFieldValue('AUDF');
     const audv = block.getFieldValue('AUDV');
-    const channel = block.getFieldValue('CHANNEL');
+    const channel = Blockly.BBasic.normalizeChannel(block.getFieldValue('CHANNEL'));
     const duration = block.getFieldValue('DURATION');
 
     const configurationStorage = useConfigurationStorage();
@@ -29,14 +28,18 @@ export default (Blockly) => {
     // is a separate, freeform way to set AUDC/AUDF/AUDV directly, so it was
     // bypassing DIM entirely regardless of which sound type (AUDC) was
     // picked.
-    // App-wide preference (see useDimSoundFxStorage's own comment in
-    // hooks/project.js), not part of this project's own saved configuration.
-    const effectiveAudv = useDimSoundFxStorage().value ?
-      dimVolume(audv, useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) : audv;
+    // App-wide preference (see useDimSoundFxStorage's  comment in
+    // hooks/project.js), not part of this project's  saved configuration.
+    const effectiveAudv = audv;
 
+    // Under DPC+ the sound type and frequency are turned into the waveform and pitch the sound chip plays (see
+    // generators/bbasic/dpcplus-audio.js).
+    // Only channel 0 is played by the chip; channel 1 stays on the TIA.
+    const dpcPlan = Blockly.BBasic.dpcAudioPlan && Blockly.BBasic.dpcAudioPlan.isChannel(channel) ?
+      Blockly.BBasic.dpcAudioPlan : null;
     const code = `AUDV${channel}=0\n` +
-      `AUDC${channel}=${audc}\n` +
-      `AUDF${channel}=${audf}\n` +
+      `AUDC${channel}=${dpcPlan ? dpcPlan.waveIdForTia(audc) : audc}\n` +
+      `AUDF${channel}=${dpcPlan ? dpcPlan.pitchIdForTia(audc, audf) : audf}\n` +
       `AUDV${channel}=${effectiveAudv}\n` +
       `channnel${channel}duration=${duration}\n`;
     return code;

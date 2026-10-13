@@ -16,7 +16,7 @@ export const MAX_DATA_TABLE_VALUES = 256;
 // How many value fields DataEditor.vue displays per row before wrapping to a
 // new one - purely a display preference (see table.columns there), stored
 // per table so it survives a reload. Also the fallback for any table saved
-// before this feature existed, which won't have its own "columns" yet.
+// before this feature existed, which won't have its "columns" yet.
 export const DEFAULT_DATA_TABLE_COLUMNS = 4;
 
 export const DEFAULT_DATA_TABLES = {
@@ -40,11 +40,11 @@ export const processDataTablesStorageDefaults = (dataTablesStorage) => {
 
 // A table can only be read correctly from the same bank it's declared in
 // (see the bank-targeting feasibility notes), so a table read from more than
-// one bank needs a separate physical copy per bank - each copy needs its own
+// one bank needs a separate physical copy per bank - each copy needs its
 // symbol name, hence the bank number baked in here. Bank 1 keeps the
 // original (suffix-less) name some existing generated projects may already
-// reference. Shared beyond just dataTableSymbolName below (see its own
-// callers) - the Text Minikernel's own fixed-name tables (text_offsets/
+// reference. Shared beyond just dataTableSymbolName below (see its
+// callers) - the Text Minikernel's  fixed-name tables (text_offsets/
 // text_scroll_max/text_static_offsets/text_has_row2/text_lines_max in
 // generators/bbasic/text-scroll.js and text-minikernel.js) need this exact
 // same per-bank-copy scheme and previously didn't have it: a project reading
@@ -106,17 +106,46 @@ Blockly.Blocks['data_get_element'] = {
   },
 };
 
+// The number of values in a data table. The count is known when the project is built, so the
+// block compiles to a plain number: no ROM, no variable and no table read.
+Blockly.Blocks['data_table_size'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${DATA_ICON} Size of data table`)
+        .appendField(new Blockly.FieldDropdown(buildDataTableOptions), 'TABLE');
+    this.setOutput(true, 'Number');
+    this.setColour(DATA_COLOR);
+    this.setTooltip('The number of values in a data table set up on the Data tab. ' +
+      'Its last index is one less than this.');
+  },
+};
+
+// The same size, for a table chosen by its ID number (a plain number, or any value worked out while the
+// game runs).
+Blockly.Blocks['data_table_size_by_id'] = {
+  init: function() {
+    this.appendValueInput('TABLE_ID')
+        .setCheck('Number')
+        .appendField(`${DATA_ICON} Size of data table ID`);
+    this.setInputsInline(true);
+    this.setOutput(true, 'Number');
+    this.setColour(DATA_COLOR);
+    this.setTooltip('The number of values in a data table, chosen by its ID number (see the ID badge on ' +
+      'its card on the Data tab). A table with 256 values reports 255 when the ID is not a plain number.');
+  },
+};
+
 // Same table lookup as data_get_element above, just chosen by its ID number
 // (see the ID badge shown on each table card on the Data tab) instead of
 // picking it from a name dropdown - lets a project with many similarly-
 // structured tables be built generically (e.g. a formula elsewhere
-// computing which table's own ID to read) rather than hardcoding one
+// computing which table's  ID to read) rather than hardcoding one
 // specific table by name at edit time. TABLE_ID is a plain "Number" value
 // SOCKET (a math_number shadow, like every other numeric input in this
 // app), not a typed-in field - still has to resolve to a real, compile-time
 // literal though (see resolveTableIdLiteral in generators/bbasic/data.js):
 // which physical data table gets read is baked into the generated code at
-// compile time, the same way TABLE's own dropdown choice already is, so
+// compile time, the same way TABLE's  dropdown choice already is, so
 // only a plain number actually plugged in here (not a variable or computed
 // expression) can resolve to a table at all.
 Blockly.Blocks['data_get_element_by_id'] = {
@@ -130,19 +159,19 @@ Blockly.Blocks['data_get_element_by_id'] = {
     this.setInputsInline(true);
     this.setOutput(true, 'Number');
     this.setColour(DATA_COLOR);
-    this.setTooltip('Reads a value out of a read-only data table, chosen by its own ID number ' +
+    this.setTooltip('Reads a value out of a read-only data table, chosen by its ID number ' +
       '(see the ID badge on its card on the Data tab, plugged in as a plain number here) instead ' +
       'of picking it from a dropdown. The table can only be read, not written to.');
   },
 };
 
 // A plain VALUE block, pluggable directly into a standard "if" (or any
-// other Number/Boolean socket) - unlike batari Basic's own "{n}" bit-index
+// other Number/Boolean socket) - unlike batari Basic's "{n}" bit-index
 // syntax (see generators/bbasic/bit.js), which only works on a plain
 // variable and can't be chained onto an array read like "table[index]{n}"
 // (confirmed by a real compile: the assembler choked on a mangled
-// "LDX #0]{0" line). Its own generator instead computes the bit with pure
-// arithmetic (see its own comment there) - no "{n}" syntax, no temp
+// "LDX #0]{0" line). Its generator instead computes the bit with pure
+// arithmetic (see its  comment there) - no "{n}" syntax, no temp
 // variable, so it never runs into that limitation at all.
 Blockly.Blocks['data_get_bit'] = {
   init: function() {
@@ -164,7 +193,7 @@ Blockly.Blocks['data_get_bit'] = {
 // number (see the ID badge on its card on the Data tab) instead of picking
 // it from a name dropdown - same relationship data_get_element_by_id has to
 // data_get_element, including TABLE_ID being a plain Number value socket
-// (see its own comment on data_get_element_by_id above) rather than a
+// (see its  comment on data_get_element_by_id above) rather than a
 // typed-in field.
 Blockly.Blocks['data_get_bit_by_id'] = {
   init: function() {
@@ -181,7 +210,7 @@ Blockly.Blocks['data_get_bit_by_id'] = {
     this.setOutput(true, 'Boolean');
     this.setColour(DATA_COLOR);
     this.setTooltip('Checks a single bit (0-7) of a value read out of a read-only data table, ' +
-      'chosen by its own ID number (see the ID badge on its card on the Data tab, plugged in as ' +
+      'chosen by its ID number (see the ID badge on its card on the Data tab, plugged in as ' +
       'a plain number here) instead of picking it from a dropdown.');
   },
 };

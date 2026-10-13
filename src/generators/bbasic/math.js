@@ -57,7 +57,7 @@ export default (Blockly) => {
       'BITOR': [' | ', Blockly.BBasic.ORDER_BITWISE_OR],
       'BITXOR': [' ^ ', Blockly.BBasic.ORDER_BITWISE_XOR],
       // Same "% " infix operator the separate (never toolboxed - see
-      // blocks/math.js) stock math_modulo block's own generator already
+      // blocks/math.js) stock math_modulo block's  generator already
       // uses below.
       'MODULO': [' % ', Blockly.BBasic.ORDER_MODULUS],
     };
@@ -92,7 +92,7 @@ export default (Blockly) => {
   // Real functions (sqrt, log, sin, ...) that JS's Math object has, but 6502
   // batari Basic - integer-only, no floating point, no trig - fundamentally
   // doesn't. Each maps to a JS function computing the same result in
-  // degrees-in/degrees-out terms (matching this block's own field labels),
+  // degrees-in/degrees-out terms (matching this block's  field labels),
   // used ONLY to constant-fold a literal argument at compile time (see
   // math_single below) - never emitted as runtime bB code, since there's no
   // way to compute any of these from a runtime value on this platform.

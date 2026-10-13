@@ -1,5 +1,5 @@
 // Persists the single "active project" FileSystemFileHandle (see
-// Project.vue's own data.activeFileHandle) across a page reload, so "Save"
+// Project.vue's  data.activeFileHandle) across a page reload, so "Save"
 // keeps writing straight back to the same file the user last saved to or
 // opened, instead of silently reverting to "Save As..." behavior just
 // because the tab got refreshed. A real reported gap: the handle used to
@@ -9,11 +9,13 @@
 // A FileSystemFileHandle can't go in localStorage (string-only), but IS a
 // structured-cloneable object IndexedDB can store directly - a single
 // fixed key is enough here, since there's only ever one "current project"
-// handle at a time (matching data.activeFileHandle's own single-value
+// handle at a time (matching data.activeFileHandle's  single-value
 // shape), not a per-project history.
 const DB_NAME = 'vcs-game-maker';
 const STORE_NAME = 'file-handles';
 const HANDLE_KEY = 'active-project';
+// The folder the active project was last saved into (see Project.vue's handleSaveProject).
+const DIR_KEY = 'active-project-dir';
 
 const openHandleDb = () => new Promise((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, 1);
@@ -24,18 +26,18 @@ const openHandleDb = () => new Promise((resolve, reject) => {
   request.onerror = () => reject(request.error);
 });
 
-// handle=null clears whatever was persisted (see Project.vue's own
+// handle=null clears whatever was persisted (see Project.vue's
 // handleNewProject - a new project has nothing to save back to, and
 // shouldn't leave the PREVIOUS project's handle sitting around to be
 // silently restored into it on the next reload).
-export const persistActiveFileHandle = async (handle) => {
+const persistHandle = async (handle, key) => {
   try {
     const db = await openHandleDb();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     if (handle) {
-      tx.objectStore(STORE_NAME).put(handle, HANDLE_KEY);
+      tx.objectStore(STORE_NAME).put(handle, key);
     } else {
-      tx.objectStore(STORE_NAME).delete(HANDLE_KEY);
+      tx.objectStore(STORE_NAME).delete(key);
     }
     await new Promise((resolve, reject) => {
       tx.oncomplete = resolve;
@@ -46,11 +48,14 @@ export const persistActiveFileHandle = async (handle) => {
   }
 };
 
-export const loadPersistedFileHandle = async () => {
+export const persistActiveFileHandle = (handle) => persistHandle(handle, HANDLE_KEY);
+export const persistActiveDirHandle = (handle) => persistHandle(handle, DIR_KEY);
+
+const loadHandle = async (key) => {
   try {
     const db = await openHandleDb();
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).get(HANDLE_KEY);
+    const request = tx.objectStore(STORE_NAME).get(key);
     return await new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error);
@@ -61,13 +66,16 @@ export const loadPersistedFileHandle = async () => {
   }
 };
 
+export const loadPersistedFileHandle = () => loadHandle(HANDLE_KEY);
+export const loadPersistedDirHandle = () => loadHandle(DIR_KEY);
+
 // A handle restored from a PRIOR session (queryPermission) - or even one
 // from THIS session that was never actually granted write access yet
 // (requestPermission, which needs a user gesture; both this and the
 // "Save" click that calls it are the same gesture, so this is safe to
 // call from there) - needs its write permission (re-)confirmed before
 // createWritable() is trusted to work. The browser itself decides how
-// long a "granted" answer is remembered (commonly for the page's own
+// long a "granted" answer is remembered (commonly for the page's
 // lifetime, sometimes across reloads for the same origin) - this only
 // ever ASKS, never assumes.
 export const ensureWritePermission = async (handle) => {
@@ -77,8 +85,8 @@ export const ensureWritePermission = async (handle) => {
   return false;
 };
 
-// The Electron build's own equivalent of the above, for the active
-// project's absolute file path (see background.js's own project:save-as/
+// The Electron build's  equivalent of the above, for the active
+// project's absolute file path (see background.js's  project:save-as/
 // project:open handlers) rather than a FileSystemFileHandle - a plain
 // string, so localStorage (not IndexedDB) is enough to persist it across
 // a reload.

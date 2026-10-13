@@ -2,24 +2,117 @@
   <div>
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Data</v-card-title>
-      <v-card-text>
+      <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message data-intro-paragraph">
           Define read-only lookup tables here (0-255 byte values each), then read them at
           runtime with the "Data table ID at index" block - useful for anything indexed by a
           runtime variable, like per-scene stats or animation lookups. Each value can be typed
           as plain decimal, binary, or hex, or toggled to a color/background/animation/sound/
-          song/text picker instead for convenience - the byte actually stored is the same
+          song/text/data table picker instead for convenience - the byte actually stored is the same
           either way.
         </p>
 
-        <div class="data-filter-row">
-          <v-switch
-            v-model="dataColumns"
-            label="Columns"
-            title="Lay data table cards out in multiple columns when there's room, instead of one full-width column."
-            hide-details
-            class="data-columns-switch"
-          />
+        <!-- Acts on whichever card is currently selected (selectedTable) -
+             same "shared toolbar, not one copy per card" pattern as
+             GraphicEditorToolbar.vue's activeEditor and MusicEditor.vue's
+             activeSong(). Always rendered, buttons disabled rather than the
+             whole bar hidden when nothing's selected - a real reported case
+             of hiding it outright being wrong ("the toolbar isn't showing
+             until a card is open, that's incorrect"), and matches
+             GraphicEditorToolbar.vue's behaviour exactly (that bar never
+             hides itself either, just disables each tool while
+             !activeEditor). @click.stop for the same reason
+             GraphicEditorToolbar.vue's root div has it: .editor-container's
+             "click anywhere to deselect" handler would otherwise fire on
+             every click in here too, deselecting the very card these tools
+             are supposed to act on. -->
+        <div
+          class="data-toolbar"
+          :class="{'data-toolbar-scrolled': isDataToolbarScrolled}"
+          @click.stop
+        >
+          <div class="data-toolbar-row">
+            <v-btn
+              icon
+              small
+              :title="UNDO_TITLE"
+              class="data-flat-icon-btn data-icon-btn-size"
+              :disabled="!(selectedTable && canUndoTable(selectedTable)) && !reorderCanUndo"
+              @click="() => handleUndoTable(selectedTable)"
+            >
+              <v-icon>mdi-undo</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
+              :title="REDO_TITLE"
+              class="data-flat-icon-btn data-icon-btn-size"
+              :disabled="!(selectedTable && canRedoTable(selectedTable)) && !reorderCanRedo"
+              @click="() => handleRedoTable(selectedTable)"
+            >
+              <v-icon>mdi-redo</v-icon>
+            </v-btn>
+            <v-divider class="data-toolbar-divider" vertical />
+            <v-btn
+              icon
+              small
+              title="Export to .CSV"
+              class="data-flat-icon-btn data-icon-btn-size"
+              :disabled="!selectedTable"
+              @click="() => handleExportCsv(selectedTable)"
+            >
+              <v-icon>mdi-export</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
+              title="Import from .CSV"
+              class="data-flat-icon-btn data-icon-btn-size"
+              :disabled="!selectedTable"
+              @click="() => handleImportCsv(selectedTable)"
+            >
+              <v-icon>mdi-import</v-icon>
+            </v-btn>
+            <v-divider class="data-toolbar-divider" vertical />
+            <v-btn
+              icon
+              small
+              title="Duplicate this table"
+              class="data-flat-icon-btn data-icon-btn-size"
+              :disabled="!selectedTable"
+              @click="() => handleDuplicateTable(selectedTable)"
+            >
+              <v-icon>mdi-content-duplicate</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
+              title="Copy this table's contents (values, columns, value formats, and value notes)"
+              class="data-flat-icon-btn data-icon-btn-size"
+              :disabled="!selectedTable"
+              @click="() => handleCopyTable(selectedTable)"
+            >
+              <v-icon>mdi-content-copy</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
+              :disabled="!selectedTable || !copiedTableData"
+              title="Paste copied contents onto this table"
+              class="data-flat-icon-btn data-icon-btn-size"
+              @click="() => handlePasteTable(selectedTable)"
+            >
+              <v-icon>mdi-content-paste</v-icon>
+            </v-btn>
+            <v-divider class="data-toolbar-divider" vertical />
+            <v-switch
+              v-model="dataColumns"
+              label="Columns"
+              title="Lay data table cards out in multiple columns when there's room, instead of one full-width column."
+              hide-details
+              class="data-columns-switch"
+            />
+          </div>
         </div>
 
         <v-list class="data-list" :class="{'data-list--single-column': !dataColumns}">
@@ -29,9 +122,9 @@
                 outlined
                 :ripple="false"
                 class="data-card"
-                :class="[dragCardClass(index), {'data-card-selected': table.id === selectedCardId}]"
+                :class="[dragCardClass(index), {'data-card-selected': selectedCardIds.includes(table.id)}]"
                 v-on="dragTargetListeners(index)"
-                @click.stop="selectCard(table.id)"
+                @click.stop="(event) => handleCardClick(table, event)"
               >
                 <div
                   class="data-drag-handle"
@@ -54,108 +147,14 @@
                 <div class="data-id-badge">ID:{{ table.id }}</div>
 
                 <div class="data-toolbar-top-right">
-                  <v-btn
-                    icon
-                    small
-                    title="Undo"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    :disabled="!canUndoTable(table)"
-                    @click="() => handleUndoTable(table)"
-                  >
-                    <v-icon>mdi-undo</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
-                    title="Redo"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    :disabled="!canRedoTable(table)"
-                    @click="() => handleRedoTable(table)"
-                  >
-                    <v-icon>mdi-redo</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
-                    title="Duplicate this table"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    @click="() => handleDuplicateTable(table)"
-                  >
-                    <v-icon>mdi-content-duplicate</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
-                    title="Copy this table's contents (values, columns, and value formats)"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    @click="() => handleCopyTable(table)"
-                  >
-                    <v-icon>mdi-content-copy</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
-                    :disabled="!copiedTableData"
-                    title="Paste copied contents onto this table"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    @click="() => handlePasteTable(table)"
-                  >
-                    <v-icon>mdi-content-paste</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
-                    title="Export to .CSV"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    @click="() => handleExportCsv(table)"
-                  >
-                    <v-icon>mdi-export</v-icon>
-                  </v-btn>
-                  <v-btn
-                    icon
-                    small
-                    title="Import from .CSV"
-                    class="data-flat-icon-btn data-icon-btn-size"
-                    @click="() => handleImportCsv(table)"
-                  >
-                    <v-icon>mdi-import</v-icon>
-                  </v-btn>
-
-                  <v-menu
+                  <confirm-delete-menu
                     v-if="state.dataTables.length > 1"
-                    top
-                  >
-                    <template v-slot:activator="{ on, attrs }">
-                      <v-btn
-                        title="Delete this table"
-                        icon
-                        small
-                        class="delete-icon-btn data-icon-btn-size"
-                        v-bind="attrs"
-                        v-on="on"
-                      >
-                        <v-icon>mdi-delete</v-icon>
-                      </v-btn>
-                    </template>
-
-                    <v-card>
-                      <v-card-title>Delete this table?</v-card-title>
-                      <v-list>
-                        <v-list-item @click="handleDeleteTable(table)">
-                          <v-list-item-icon>
-                            <v-icon>mdi-check</v-icon>
-                          </v-list-item-icon>
-                          <v-list-item-title>Yes, delete</v-list-item-title>
-                        </v-list-item>
-                        <v-list-item>
-                          <v-list-item-icon>
-                            <v-icon>mdi-cancel</v-icon>
-                          </v-list-item-icon>
-                          <v-list-item-title>No, don't delete</v-list-item-title>
-                        </v-list-item>
-                      </v-list>
-                    </v-card>
-                  </v-menu>
+                    :title="deleteQuestion(table.id, 'table', 1)"
+                    :selected="table.id === selectedCardId && selectedCardIds.includes(table.id)"
+                    :activator-title="deleteQuestion(table.id, 'table', 1).replace('?', '')"
+                    icon-btn-class="data-icon-btn-size"
+                    @confirm="handleDeleteTable(table)"
+                  />
                 </div>
 
                 <v-card-text class="data-name-section">
@@ -164,12 +163,14 @@
                       class="data-name-field"
                       label="Table name"
                       v-model="table.name"
+                      @focus="() => handleClearSelectedValue(table)"
                       @change="handleChildChange"
                     />
                     <v-text-field
                       :value="tableColumns(table)"
                       @input="(v) => handleColumnsInput(table, v)"
                       @change="() => handleColumnsChange(table)"
+                      @focus="() => handleClearSelectedValue(table)"
                       type="number"
                       min="1"
                       :max="maxColumns"
@@ -184,10 +185,11 @@
 
                 <v-card-text v-if="!isCollapsed(table)" class="data-notes-section">
                   <v-textarea
-                    :value="table.notes"
+                    :value="noteText(table)"
                     @input="(v) => handleNotesInput(table, v)"
                     @change="handleChildChange"
-                    label="Notes"
+                    :label="noteLabel(table)"
+                    title="Shows the note for the value cell you last clicked (outlined in blue below); with no cell selected it is a note for the whole table"
                     outlined
                     rows="2"
                     hide-details
@@ -208,14 +210,17 @@
                       v-for="(value, index) in table.values"
                       v-bind:key="index"
                       class="data-value-row"
-                      :class="valueDragClass(table, index)"
+                      :class="[valueDragClass(table, index), {'data-value-row-selected': noteTargetIndex(table) === index}]"
                       v-on="valueRowListeners(table, index)"
+                      @click="() => handleSelectValue(table, index)"
                     >
                       <span
                         class="data-value-index"
+                        :class="{'data-value-index-has-note': hasValueNote(table, index)}"
                         draggable="true"
-                        title="Drag to reorder"
+                        :title="valueIndexTitle(table, index)"
                         v-on="valueHandleListeners(table, index)"
+                        @click.stop="() => handleToggleSelectValue(table, index)"
                       >{{ index }}</span>
                       <color-swatch-picker
                         v-if="valueFormat(table, index) === 'color'"
@@ -252,23 +257,41 @@
                         class="data-value-field"
                         :class="{'data-value-field-binary': valueFormat(table, index) !== 'dec'}"
                       />
-                      <v-btn
-                        icon
-                        :title="FORMAT_TOGGLE_TITLES[valueFormat(table, index)]"
-                        class="data-format-toggle-btn data-flat-icon-btn"
-                        @click="() => toggleValueFormat(table, index)"
-                      >
-                        <v-icon
-                          size="22"
-                          :class="{
-                            'data-format-icon-background': valueFormat(table, index) === 'background',
-                            'data-format-icon-player0': valueFormat(table, index) === 'player0',
-                            'data-format-icon-player1': valueFormat(table, index) === 'player1',
-                            'data-format-icon-sound': valueFormat(table, index) === 'sound',
-                            'data-format-icon-text': valueFormat(table, index) === 'text',
-                          }"
-                        >{{ FORMAT_ICONS[valueFormat(table, index)] }}</v-icon>
-                      </v-btn>
+                      <v-menu offset-y content-class="data-format-menu">
+                        <template v-slot:activator="{on, attrs}">
+                          <v-btn
+                            icon
+                            :title="`${FORMAT_LABELS[valueFormat(table, index)]} entry - click to choose another`"
+                            class="data-format-toggle-btn data-flat-icon-btn"
+                            v-bind="attrs"
+                            v-on="on"
+                          >
+                            <v-icon
+                              size="22"
+                              :class="{
+                                'data-format-icon-background': valueFormat(table, index) === 'background',
+                                'data-format-icon-titlescreen': valueFormat(table, index) === 'titlescreen',
+                                'data-format-icon-player0': valueFormat(table, index) === 'player0',
+                                'data-format-icon-sound': valueFormat(table, index) === 'sound',
+                                'data-format-icon-text': valueFormat(table, index) === 'text',
+                              }"
+                            >{{ FORMAT_ICONS[valueFormat(table, index)] }}</v-icon>
+                          </v-btn>
+                        </template>
+                        <v-list dense>
+                          <v-list-item
+                            v-for="format in FORMAT_CYCLE"
+                            :key="format"
+                            :input-value="valueFormat(table, index) === format"
+                            @click="() => setValueFormat(table, index, format)"
+                          >
+                            <v-list-item-icon>
+                              <v-icon>{{ FORMAT_ICONS[format] }}</v-icon>
+                            </v-list-item-icon>
+                            <v-list-item-title>{{ FORMAT_LABELS[format] }}</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-menu>
                       <v-btn
                         icon
                         small
@@ -284,7 +307,7 @@
                   <v-btn
                     text
                     small
-                    title="Removes the value cell last clicked into, or the table's own last value if none has been"
+                    title="Removes the value cell last clicked into, or the table's last value if none has been"
                     :disabled="table.values.length <= 1"
                     @click="() => handleSubtractValue(table)"
                   >
@@ -323,14 +346,18 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, ref, watch} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
 import {max} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {recordReorder, sameItems} from '../hooks/reorder-history';
+import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useDragReorder, CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
+import {useCardSelection} from '../hooks/card-selection';
 import {useBackgroundsStorage, useDataTablesStorage, usePlayerAnimationsStorage,
-  useSoundEffectsStorage, useSongsStorage, useTextStringsStorage, useDataColumnsStorage} from '../hooks/project';
+  useSoundEffectsStorage, useSongsStorage, useTextStringsStorage, useTitleScreenStorage,
+  useDataColumnsStorage} from '../hooks/project';
 import {DEFAULT_DATA_TABLES, DEFAULT_DATA_TABLE_COLUMNS, MAX_DATA_TABLE_VALUES,
   processDataTablesStorageDefaults} from '../blocks/data';
 import {processBackgroundStorageDefaults} from '../blocks/background';
@@ -338,13 +365,16 @@ import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprit
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {processSongsStorageDefaults} from '../blocks/music';
 import {processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {processTitleScreenStorageDefaults} from '../blocks/titlescreen';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
+import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
+import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 // A data table is just a flat array of 0-255 bytes (see blocks/data.js), so
 // its CSV form is a single row of comma-separated integers - no header, no
-// columns, matching the table's own in-memory shape exactly.
+// columns, matching the table's  in-memory shape exactly.
 const valueToCsvNumber = (value) => Math.min(255, Math.max(0, Math.round(value)));
 
 // Purely a UI display cap (see table.columns/tableColumns) - past this many,
@@ -354,13 +384,13 @@ const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
 
 // The narrowest a single value cell (index label + field + format toggle +
 // delete button) can get before it stops being usable - matches
-// .data-value-field's own min-width (46px) plus its neighbors/gaps/padding,
-// with a little headroom. Used as the grid's own auto-fit floor (see
-// .data-values' inline gridTemplateColumns below): each column's own
-// minimum width is max(its fair share at the table's own Columns setting,
+// .data-value-field's  min-width (46px) plus its neighbors/gaps/padding,
+// with a little headroom. Used as the grid's  auto-fit floor (see
+// .data-values' inline gridTemplateColumns below): each column's
+// minimum width is max(its fair share at the table's  Columns setting,
 // this floor) - on a wide enough window, "fair share" is already bigger
 // than this floor, so auto-fit still lands on exactly Columns tracks
-// (nothing else fits, since each one's already sized to fill its own equal
+// (nothing else fits, since each one's already sized to fill its  equal
 // share); once the window's too narrow for that fair share to clear this
 // floor, this floor wins instead, and auto-fit settles on however many
 // FEWER columns actually fit at that width, wrapping the rest onto
@@ -370,11 +400,11 @@ const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
 // on a wide window, "fair share at Columns" is the LARGER number, so min()
 // picked this floor instead - a value smaller than fair share, which let
 // auto-fit fit MORE than Columns-many tracks into a wide row and only
-// wrapped whatever didn't divide evenly onto its own final row, confirmed
+// wrapped whatever didn't divide evenly onto its  final row, confirmed
 // directly as the cause of a real "only the last cell wraps oddly" bug.
 // "Fair share" itself is calc((100% - (Columns-1)*1px) / Columns), not a
 // plain 100%/Columns - a plain percentage split leaves NO room for the
-// (Columns-1) 1px column-gaps between tracks (see .data-values' own
+// (Columns-1) 1px column-gaps between tracks (see .data-values'
 // column-gap), so Columns tracks at exactly 100%/Columns each need
 // (Columns-1)px MORE than the container actually has once gaps are added
 // in - auto-fit correctly (if confusingly) responds by dropping to
@@ -382,11 +412,11 @@ const MAX_DATA_TABLE_COLUMNS_DISPLAY = 8;
 // rendered as 1/2/7 actual columns, always exactly one short, until this
 // calc() started subtracting the gap total before dividing.
 // DATA_VALUES_EXTRA_SLACK_PX below folds in the SAME reasoning for two more
-// things this original fix didn't yet account for: .data-values' own 1px
+// things this original fix didn't yet account for: .data-values'  1px
 // border on each side (2px total, inside the same 100% this percentage is
 // measured against), and ordinary floating-point rounding in the percentage
 // division itself (100%/3, .../7, etc. don't divide evenly) - either one on
-// its own can still tip an exact-fit row back into the same "one column
+// its  can still tip an exact-fit row back into the same "one column
 // short" symptom this comment already fixed once, just by a sub-pixel
 // margin this time rather than a whole gap's worth. Reproduced directly:
 // Columns tracks still rendering as Columns-1 at specific window widths
@@ -395,20 +425,20 @@ const DATA_VALUES_EXTRA_SLACK_PX = 3;
 const DATA_VALUE_CELL_MIN_PX = 120;
 
 // Module-scope (not a ref inside setup()) - same reasoning as
-// BackgroundEditor.vue's own copiedBackgroundData/copiedBackgroundRowColors:
+// BackgroundEditor.vue's  copiedBackgroundData/copiedBackgroundRowColors:
 // keeps the clipboard alive across navigating away from and back to this
 // tab (Vue Router destroys and recreates this component each time).
 const copiedTableData = ref(null);
 
 export default defineComponent({
-  components: {ColorSwatchPicker},
+  components: {ColorSwatchPicker, ConfirmDeleteMenu},
   setup() {
     const dataTablesStorage = useDataTablesStorage();
     const dataColumns = useDataColumnsStorage();
     const backgroundsStorage = useBackgroundsStorage();
     // {text, value} pairs for the 'background' format's dropdown (see
     // valueFormat/FORMAT_CYCLE below) - same {id, name} source
-    // blocks/background.js's own buildBackgroundOptions reads for the
+    // blocks/background.js's  buildBackgroundOptions reads for the
     // Blockly "Background:" field dropdown, just as a plain reactive
     // computed instead of a FieldDropdown options-generator function.
     const backgroundOptions = computed(() =>
@@ -416,28 +446,24 @@ export default defineComponent({
           .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
     const playerAnimationsStorage = usePlayerAnimationsStorage();
     // Same {text, value} shape as backgroundOptions above, but the VALUE is
-    // each animation's own INDEX in the shared pool, not an id - matching
-    // blocks/sprites.js's own buildAnimationOptions exactly (see its
+    // each animation's  INDEX in the shared pool, not an id - matching
+    // blocks/sprites.js's  buildAnimationOptions exactly (see its
     // comment: the generated code dispatches on "player0animation = N"
     // against the animation's position in the list, not any stored id, so
     // that's what a data table value needs to hold too for this to mean
     // anything once read back by a Data block). Both hardware players share
-    // the exact same list now (see hooks/project.js's own
-    // usePlayerAnimationsStorage), so player0Options/player1Options below
-    // are identical - kept as two separate names since Data blocks still
-    // let a cell independently be formatted as "Player 0 animation" or
-    // "Player 1 animation" (see FORMAT_CYCLE below), not because the
-    // underlying options actually differ.
+    // the exact same list (see hooks/project.js's
+    // usePlayerAnimationsStorage), so a cell has just the one "Sprite
+    // animation" format (stored as 'player0'; valueFormat below maps the
+    // older 'player1' to it).
     const playerOptions = computed(() =>
       processPlayerAnimationsStorageDefaults(playerAnimationsStorage).animations
           .map((animation, index) => ({text: animation.name || `Unnamed ${index + 1}`, value: index})));
-    const player0Options = playerOptions;
-    const player1Options = playerOptions;
     // Same {id, name} -> {text, value} shape as backgroundOptions - sound
-    // effects/songs/text strings are all referenced by their own stored id
+    // effects/songs/text strings are all referenced by their  stored id
     // (not a list position, unlike player animations above), matching
     // buildSoundEffectOptions/buildSongOptions/buildTextStringOptions'
-    // own dropdowns in blocks/soundfx.js, blocks/music.js, and
+    // dropdowns in blocks/soundfx.js, blocks/music.js, and
     // blocks/text-strings.js respectively.
     const soundEffectsStorage = useSoundEffectsStorage();
     const soundOptions = computed(() =>
@@ -447,22 +473,35 @@ export default defineComponent({
     const musicOptions = computed(() =>
       processSongsStorageDefaults(songsStorage).songs
           .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
+    // Data tables are referenced by their stored id too, like the Data blocks' table dropdown
+    // (blocks/data.js's buildDataTableOptions).
+    const dataTableOptions = computed(() =>
+      state.value.dataTables.map(({id, name}) => ({text: name || `Unnamed ${id}`, value: Number(id)})));
     const textStringsStorage = useTextStringsStorage();
     const textOptions = computed(() =>
       processTextStringsStorageDefaults(textStringsStorage).textStrings
           .map(({id, name}) => ({text: name || `Unnamed ${id}`, value: id})));
+    // Title screens are referenced by their stored id, like the "Draw title
+    // screen" block's dropdown (blocks/titlescreen.js).
+    const titleScreenStorage = useTitleScreenStorage();
+    const titleScreenOptions = computed(() =>
+      processTitleScreenStorageDefaults(titleScreenStorage).screens
+          .map(({id, name}) => ({text: name || `Title Screen ${id}`, value: id})));
     // Purely a visual "which card am I looking at" marker - same
     // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
-    // own song cards and SoundFXEditor.vue/TextEditor.vue's own cards (see
-    // MusicEditor.vue's own comment for the full reasoning): plain local
+    // song cards and SoundFXEditor.vue/TextEditor.vue's  cards (see
+    // MusicEditor.vue's  comment for the full reasoning): plain local
     // component state, not persisted, not wired into anything else.
+    // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
+    // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const selectCard = (id) => {
-      selectedCardId.value = id;
-    };
-    const deselectCard = () => {
-      selectedCardId.value = null;
-    };
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
+        () => state.value.dataTables.map(({id}) => id), selectedCardId);
+    // The table the shared toolbar below acts on - whichever card is
+    // currently selected, same pattern as MusicEditor.vue's activeSong()
+    // and GraphicEditorToolbar.vue's activeEditor driving each toolbar.
+    const selectedTable = computed(() =>
+      state.value.dataTables.find(({id}) => id === selectedCardId.value) || null);
 
     const state = computed({
       get() {
@@ -484,21 +523,21 @@ export default defineComponent({
     };
 
     // Every card starts collapsed on every visit to this tab (see
-    // collapseAll's own comment in hooks/collapse.js), not just ones never
+    // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
     const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('data', true);
     collapseAll();
 
-    // Undo/redo for a whole table's own content (name/columns/values/
+    // Undo/redo for a whole table's  content (name/columns/values/
     // valueFormats - everything but its id), one stack pair per table id -
-    // same shape as MusicEditor.vue's own pattern undo/redo
+    // same shape as MusicEditor.vue's  pattern undo/redo
     // (patternUndoStacks/patternRedoStacks/patternLastSnapshot), scoped to a
     // whole table here (rather than just a few fiddly-to-drag fields, the
-    // way SoundFXEditor.vue's own envelope undo/redo narrows to just
+    // way SoundFXEditor.vue's  envelope undo/redo narrows to just
     // Attack/Decay/Sustain/Release) since every field on a table - a typo'd
     // name, an accidental Columns change, a batch CSV import gone wrong - is
     // equally easy to want to step back from here.
-    const DATA_HISTORY_KEYS = ['name', 'columns', 'values', 'valueFormats', 'notes'];
+    const DATA_HISTORY_KEYS = ['name', 'columns', 'values', 'valueFormats', 'notes', 'valueNotes'];
     const snapshotTable = (table) => JSON.stringify(
         DATA_HISTORY_KEYS.reduce((acc, key) => {
           acc[key] = table[key]; return acc;
@@ -507,10 +546,10 @@ export default defineComponent({
     const tableRedoStacks = ref({});
     const tableLastSnapshot = {};
     // Seeded once, synchronously, for every table already on disk when this
-    // component mounts - same reasoning as MusicEditor.vue's own identical
+    // component mounts - same reasoning as MusicEditor.vue's  identical
     // seeding loop: without this, the reactive watcher below (which only
     // ever fires AFTER a mutation has already happened) would have no true
-    // pre-edit baseline to offer the very first edit's own Undo.
+    // pre-edit baseline to offer the very first edit's  Undo.
     state.value.dataTables.forEach((table) => {
       tableLastSnapshot[table.id] = snapshotTable(table);
     });
@@ -519,7 +558,7 @@ export default defineComponent({
     // a row, and coalescing those into one undo step per PAUSE in editing
     // (not one per underlying mutation) matches how a typical undo history
     // actually reads to a user - same 500ms debounce MusicEditor.vue/
-    // SoundFXEditor.vue's own history watchers already use.
+    // SoundFXEditor.vue's  history watchers already use.
     let tableHistoryDebounce = null;
     watch(() => state.value.dataTables, () => {
       clearTimeout(tableHistoryDebounce);
@@ -529,6 +568,7 @@ export default defineComponent({
           const last = tableLastSnapshot[table.id];
           if (last !== undefined && last !== snapshot) {
             const stack = tableUndoStacks.value[table.id] || [];
+            noteEdit();
             tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: [...stack, last]};
             // A fresh edit invalidates whatever redo history existed from an
             // earlier undo - same convention as any standard undo/redo stack.
@@ -545,7 +585,7 @@ export default defineComponent({
       const data = JSON.parse(snapshotJson);
       table.name = data.name;
       // $set for columns/valueFormats - same reason as handleColumnsInput's
-      // own comment above: a table snapshotted before either field existed
+      // comment above: a table snapshotted before either field existed
       // can't pick up a brand new property through a plain assignment, Vue 2
       // never notices it.
       instance.proxy.$set(table, 'columns', data.columns);
@@ -553,6 +593,7 @@ export default defineComponent({
       instance.proxy.$set(table, 'valueFormats', data.valueFormats);
       // Same $set reasoning - a table snapshotted before this field existed.
       instance.proxy.$set(table, 'notes', data.notes);
+      instance.proxy.$set(table, 'valueNotes', data.valueNotes);
       // Written directly (not through the watcher above) so restoring a
       // snapshot is never itself mistaken for a new edit worth recording.
       tableLastSnapshot[table.id] = snapshotJson;
@@ -561,15 +602,22 @@ export default defineComponent({
     };
     const canUndoTable = (table) => (tableUndoStacks.value[table.id] || []).length > 0;
     const canRedoTable = (table) => (tableRedoStacks.value[table.id] || []).length > 0;
+    const reorderCanUndo = computed(() => canUndoReorder());
+    const reorderCanRedo = computed(() => canRedoReorder());
     const handleUndoTable = (table) => {
+      if (tryUndoReorder()) return;
+      if (!table) return;
       const stack = tableUndoStacks.value[table.id] || [];
       if (!stack.length) return;
       const redoStack = tableRedoStacks.value[table.id] || [];
       tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: [...redoStack, snapshotTable(table)]};
       tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: stack.slice(0, -1)};
       applyTableSnapshot(table, stack[stack.length - 1]);
+      settleEdits();
     };
     const handleRedoTable = (table) => {
+      if (tryRedoReorder()) return;
+      if (!table) return;
       const stack = tableRedoStacks.value[table.id] || [];
       if (!stack.length) return;
       const undoStack = tableUndoStacks.value[table.id] || [];
@@ -579,8 +627,8 @@ export default defineComponent({
     };
 
     // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
-    // SoundFXEditor.vue/MusicEditor.vue's own uses of this same hook) -
-    // tables are already referenced everywhere by their own permanent id
+    // SoundFXEditor.vue/MusicEditor.vue's  uses of this same hook) -
+    // tables are already referenced everywhere by their  permanent id
     // (see dataTableSymbolName/buildDataTableOptions in blocks/data.js),
     // never by array position, so reordering the display order here is
     // already safe.
@@ -591,9 +639,48 @@ export default defineComponent({
             state.value.dataTables = items;
             handleChildChange();
           },
+          getSelectedIndices,
       );
 
     const instance = getCurrentInstance();
+
+    // Same "growing padding + a bottom border once actually scrolled"
+    // treatment as GraphicEditorToolbar.vue's .graphic-editor-toolbar/
+    // isScrolled and MusicEditor.vue's .music-toolbar/
+    // isMusicToolbarScrolled (Composition API version, same reasoning as
+    // that file's comment on why this searches for .editor-container
+    // rather than reading $el directly).
+    const isDataToolbarScrolled = ref(false);
+    let dataToolbarScrollContainer = null;
+    const handleDataToolbarScroll = (event) => {
+      isDataToolbarScrolled.value = event.target.scrollTop > 0;
+    };
+    onMounted(() => {
+      dataToolbarScrollContainer = instance.proxy.$el.querySelector('.editor-container');
+      if (dataToolbarScrollContainer) {
+        dataToolbarScrollContainer.addEventListener('scroll', handleDataToolbarScroll);
+      }
+    });
+    const handleHistoryHotkey = (event) => {
+      const history = undoRedoKind(event);
+      const table = selectedTable.value;
+      if (!history) return;
+      const can = history === 'undo' ?
+        reorderCanUndo.value || (table && canUndoTable(table)) :
+        reorderCanRedo.value || (table && canRedoTable(table));
+      if (can) {
+        event.preventDefault();
+        (history === 'undo' ? handleUndoTable : handleRedoTable)(table);
+      }
+    };
+    onMounted(() => window.addEventListener('keydown', handleHistoryHotkey));
+    onBeforeUnmount(() => {
+      window.removeEventListener('keydown', handleHistoryHotkey);
+      if (dataToolbarScrollContainer) {
+        dataToolbarScrollContainer.removeEventListener('scroll', handleDataToolbarScroll);
+      }
+    });
+
     const handleAddTable = () => {
       const dataTables = state.value.dataTables;
       const maxId = max(dataTables.map((o) => o.id)) || 0;
@@ -611,16 +698,18 @@ export default defineComponent({
     };
 
     const handleDeleteTable = (table) => {
-      state.value.dataTables = state.value.dataTables.filter(({id}) => id != table.id);
+      const doomed = idsToDelete(table.id, 1);
+      state.value.dataTables = state.value.dataTables.filter(({id}) => !doomed.includes(id));
+      if (doomed.length > 1) deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
 
     // Inserted right after the source table (not just appended to the end)
     // so the copy shows up exactly where a user would expect it, next to
-    // the table they just duplicated - matches handleDuplicatePattern's own
+    // the table they just duplicated - matches handleDuplicatePattern's
     // placement convention in MusicEditor.vue. structuredClone (not a
-    // shallow spread) since values/columns are the table's own real data,
+    // shallow spread) since values/columns are the table's  real data,
     // not just a reference the copy should keep sharing with the original.
     const handleDuplicateTable = (table) => {
       const dataTables = state.value.dataTables;
@@ -636,11 +725,11 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    // Copy/paste the full contents (values/columns/valueFormats) of one
+    // Copy/paste the full contents (values/columns/valueFormats/per-value notes) of one
     // table onto a DIFFERENT existing one - unlike handleDuplicateTable
     // above (which always creates a brand new table), this overwrites
     // whatever table you paste it onto, id/name left alone, same "copy the
-    // real content, not the identity" split BackgroundEditor.vue's own
+    // real content, not the identity" split BackgroundEditor.vue's
     // handleCopyBackground/handlePasteBackground already establishes for an
     // identical copy-onto-an-existing-entry use case.
     const handleCopyTable = (table) => {
@@ -648,10 +737,11 @@ export default defineComponent({
         columns: structuredClone(table.columns),
         values: structuredClone(table.values),
         valueFormats: structuredClone(table.valueFormats || null),
+        valueNotes: structuredClone(table.valueNotes || null),
       };
     };
     // $set (not plain assignment) for columns/valueFormats - same reason as
-    // handleColumnsInput's own comment just below: a table saved before
+    // handleColumnsInput's  comment just below: a table saved before
     // either field existed can't pick up a brand new property through a
     // plain assignment, Vue 2 never notices it. values is already always a
     // real property on every table (see DEFAULT_DATA_TABLES/
@@ -662,12 +752,13 @@ export default defineComponent({
       table.values = structuredClone(copiedTableData.value.values);
       instance.proxy.$set(table, 'columns', structuredClone(copiedTableData.value.columns));
       instance.proxy.$set(table, 'valueFormats', structuredClone(copiedTableData.value.valueFormats));
+      instance.proxy.$set(table, 'valueNotes', structuredClone(copiedTableData.value.valueNotes));
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
 
     // Falls back to the shared default for a table saved before this feature
-    // existed (no "columns" of its own yet) - same reasoning as
+    // existed (no "columns" of its  yet) - same reasoning as
     // buildSongOptions/DEFAULT_FADE_LENGTH elsewhere in this app.
     const tableColumns = (table) => {
       const value = Number(table.columns);
@@ -677,7 +768,7 @@ export default defineComponent({
 
     // Plain assignment (table.columns = ...) doesn't work for a table saved
     // before this feature existed - Vue 2 can't detect a brand new property
-    // being added to an already-reactive object that way, so the grid's own
+    // being added to an already-reactive object that way, so the grid's
     // :style binding (which reads table.columns via tableColumns above)
     // never re-evaluates. $set (same fix every other structural change in
     // this file already uses - see handleAddValue/handleDeleteValue/
@@ -692,9 +783,34 @@ export default defineComponent({
     // $set - same reasoning as handleColumnsInput above: a table saved before
     // this field existed can't pick up a brand new property through a plain
     // assignment, Vue 2 never notices it.
+    // The notes field is for whichever value cell is selected (see
+    // selectedValueIndex) and for the whole table when none is: the table's
+    // note is table.notes, a cell's note is table.valueNotes[index].
+    // valueNotes is rewritten as a whole array (not one index set on a
+    // possibly-missing/short array), so a new note never leaves holes that
+    // would be saved as null.
     const handleNotesInput = (table, rawValue) => {
-      instance.proxy.$set(table, 'notes', rawValue);
+      const index = noteTargetIndex(table);
+      if (index === null) {
+        instance.proxy.$set(table, 'notes', rawValue);
+        return;
+      }
+      const notes = table.values.map((_, i) => (table.valueNotes && table.valueNotes[i]) || '');
+      notes[index] = rawValue;
+      instance.proxy.$set(table, 'valueNotes', notes);
     };
+    const noteText = (table) => {
+      const index = noteTargetIndex(table);
+      return index === null ? (table.notes || '') : ((table.valueNotes && table.valueNotes[index]) || '');
+    };
+    const noteLabel = (table) => {
+      const index = noteTargetIndex(table);
+      return index === null ? 'Table notes' : `Note for value ${index}`;
+    };
+    const hasValueNote = (table, index) => !!(table.valueNotes && table.valueNotes[index]);
+    const valueIndexTitle = (table, index) => hasValueNote(table, index) ?
+      `Note: ${table.valueNotes[index]} (click to select, drag to reorder)` :
+      'Click to select this value, drag to reorder';
 
     const handleColumnsChange = (table) => {
       const value = Number(table.columns);
@@ -716,8 +832,9 @@ export default defineComponent({
       if (table.values.length <= 1) return;
       table.values.splice(index, 1);
       // Kept aligned with values above - same reasoning as the drag-reorder
-      // drop handler's own identical splice.
+      // drop handler's  identical splice.
       if (table.valueFormats) table.valueFormats.splice(index, 1);
+      if (table.valueNotes) table.valueNotes.splice(index, 1);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -726,15 +843,40 @@ export default defineComponent({
     // table.id, a page-local UI-only concern, not project data) - what the
     // "- Subtract value" button below deletes, so it acts on whichever cell
     // the user was just working with rather than always the last one. Set
-    // on focus (see the value field's own @focus in the template) - simply
+    // on focus (see the value field's @focus in the template) - simply
     // clicking into a field to edit it is enough to "select" it here, no
     // separate selection affordance needed.
     const selectedValueIndex = ref({});
     const handleSelectValue = (table, index) => {
       instance.proxy.$set(selectedValueIndex.value, table.id, index);
     };
+    // The cell the notes field is showing/editing and the one outlined in the
+    // grid: the selected one, if it still exists, otherwise none (the notes
+    // field is then the whole table's).
+    const noteTargetIndex = (table) => {
+      const selected = selectedValueIndex.value[table.id];
+      return Number.isInteger(selected) && selected >= 0 && selected < table.values.length ? selected : null;
+    };
+    // A click on the card selects it (for the toolbar) and, unless it landed
+    // on a value cell or in the notes field, lets go of the selected value
+    // cell, so the notes field goes back to the whole table's note.
+    const handleCardClick = (table, event) => {
+      selectCard(table.id, event);
+      const target = event && event.target;
+      if (!(target && target.closest && target.closest('.data-value-row, .data-notes-section'))) {
+        handleClearSelectedValue(table);
+      }
+    };
+    const handleClearSelectedValue = (table) => {
+      if (table.id in selectedValueIndex.value) instance.proxy.$delete(selectedValueIndex.value, table.id);
+    };
+    // Clicking the selected cell's number again lets go of it.
+    const handleToggleSelectValue = (table, index) => {
+      if (noteTargetIndex(table) === index) handleClearSelectedValue(table);
+      else handleSelectValue(table, index);
+    };
     // Deletes whichever cell was last focused in THIS table (see
-    // selectedValueIndex above), or the table's own last value if nothing's
+    // selectedValueIndex above), or the table's  last value if nothing's
     // been focused yet (or the previously-selected index no longer exists -
     // e.g. it was already removed some other way) - reuses handleDeleteValue
     // itself, so this shares its exact same "never delete the last
@@ -758,11 +900,11 @@ export default defineComponent({
     // underlying value (table.values[index]) is always the same 0-255 number
     // either way, this only changes how it's typed/shown and which literal
     // form generateDataTables (bbasic.js) emits for it - confirmed directly
-    // that batari Basic's own "data" statement accepts a plain %-prefixed
+    // that batari Basic's "data" statement accepts a plain %-prefixed
     // binary literal mixed freely with decimal ones in the same table
     // (compiled a real ROM with both in one row before building this); $-
-    // prefixed hex literals are DASM's own standard numeric-literal syntax
-    // (the same one math_number's own hex support already relies on - see
+    // prefixed hex literals are DASM's  standard numeric-literal syntax
+    // (the same one math_number's  hex support already relies on - see
     // generators/bbasic/math.js), so the same "data" statement accepts those
     // too.
     // mdi-binary doesn't actually exist in this app's bundled MDI icon set
@@ -770,64 +912,71 @@ export default defineComponent({
     // the same "boxed letter" icon language as the Music tab's Mute/Solo
     // toggles instead (mdi-alpha-*-box), which does exist.
     // 'color' reuses the same TIA color BYTE convention as every other color
-    // picker in this app (see utils/palette.js's own comment) - the stored
+    // picker in this app (see utils/palette.js's  comment) - the stored
     // value is still a plain 0-255 number, this only swaps the text field
     // for a ColorSwatchPicker (see the template) and skips straight to a
     // valid byte on click rather than typing digits.
-    // 'background' is the same idea applied to a background's own numeric id
-    // (see backgroundOptions above and blocks/background.js's own
+    // 'background' is the same idea applied to a background's  numeric id
+    // (see backgroundOptions above and blocks/background.js's
     // buildBackgroundOptions, which this reads the exact same {id, name}
     // list from) - a dropdown of every background in the project instead of
     // a color swatch, storing whichever id is picked.
-    // 'player0'/'player1' are the same idea as 'background', applied to
-    // each player's own animation list (see player0Options/player1Options
-    // above) - stores whichever animation INDEX is picked.
-    const FORMAT_CYCLE = ['dec', 'bin', 'hex', 'color', 'background', 'player0', 'player1',
-      'sound', 'music', 'text'];
+    // 'player0' is the same idea as 'background', applied to the sprite
+    // animation list (see playerOptions above) - stores whichever animation
+    // INDEX is picked.
+    const FORMAT_CYCLE = ['dec', 'bin', 'hex', 'color', 'titlescreen', 'player0', 'background',
+      'sound', 'music', 'text', 'datatable'];
     const FORMAT_ICONS = {
-      dec: 'mdi-alpha-d-box', bin: 'mdi-alpha-b-box', hex: 'mdi-alpha-h-box', color: 'mdi-palette',
-      background: 'mdi-map', player0: 'mdi-human-handsup', player1: 'mdi-human-handsup',
+      dec: 'mdi-alpha-d-box', bin: 'mdi-alpha-b-box', hex: 'mdi-alpha-h-box', color: 'mdi-palette', titlescreen: 'mdi-image-frame',
+      background: 'mdi-map', player0: 'mdi-human-handsup',
       sound: 'mdi-waveform', music: 'mdi-music-note', text: 'mdi-card-text-outline',
+      datatable: 'mdi-table',
     };
-    const FORMAT_TOGGLE_TITLES = {
-      dec: 'Decimal entry (click to switch to 8-bit binary)',
-      bin: 'Binary entry (click to switch to hex)',
-      hex: 'Hex entry (click to switch to a color swatch)',
-      color: 'Color swatch entry (click to switch to a background)',
-      background: 'Background entry (click to switch to a Player 0 animation)',
-      player0: 'Player 0 animation entry (click to switch to a Player 1 animation)',
-      player1: 'Player 1 animation entry (click to switch to a sound effect)',
-      sound: 'Sound effect entry (click to switch to a song)',
-      music: 'Song entry (click to switch to a text string)',
-      text: 'Text string entry (click to switch to decimal)',
+    // The name of each entry mode, as listed in the cell's mode menu.
+    const FORMAT_LABELS = {
+      dec: 'Decimal',
+      bin: 'Binary (8-bit)',
+      hex: 'Hex',
+      color: 'Color swatch',
+      background: 'Background',
+      titlescreen: 'Title screen',
+      player0: 'Sprite animation',
+      sound: 'Sound effect',
+      music: 'Song',
+      text: 'Text string',
+      datatable: 'Data table',
     };
-    const valueFormat = (table, index) => (table.valueFormats && table.valueFormats[index]) || 'dec';
+    const valueFormat = (table, index) => {
+      const format = (table.valueFormats && table.valueFormats[index]) || 'dec';
+      return format === 'player1' ? 'player0' : format;
+    };
     // $set (not plain assignment) for the same reason handleColumnsInput's
-    // own comment gives - valueFormats doesn't exist at all on a table saved
+    // comment gives - valueFormats doesn't exist at all on a table saved
     // before this feature existed, and Vue 2 can't detect a brand new
     // property being added to an already-reactive object any other way.
     // Which dropdown-backed format each of these three shares - keyed here
-    // once so toggleValueFormat's own defaulting below (and
+    // once so setValueFormat's  defaulting below (and
     // dropdownOptionsFor, used by the template) don't have to repeat the
     // same three-way branch.
     const DROPDOWN_OPTIONS_BY_FORMAT = {
       background: backgroundOptions,
-      player0: player0Options,
-      player1: player1Options,
+      titlescreen: titleScreenOptions,
+      player0: playerOptions,
       sound: soundOptions,
       music: musicOptions,
       text: textOptions,
+      datatable: dataTableOptions,
     };
     const dropdownOptionsFor = (format) => DROPDOWN_OPTIONS_BY_FORMAT[format];
-    const toggleValueFormat = (table, index) => {
+    const setValueFormat = (table, index, next) => {
+      if (valueFormat(table, index) === next) return;
       if (!table.valueFormats) instance.proxy.$set(table, 'valueFormats', []);
-      const next = FORMAT_CYCLE[(FORMAT_CYCLE.indexOf(valueFormat(table, index)) + 1) % FORMAT_CYCLE.length];
       instance.proxy.$set(table.valueFormats, index, next);
       // Whatever this cell's value happened to be before (a decimal digit,
       // a color byte, ...) is unlikely to also be a valid option in
       // whichever dropdown it's about to switch to - defaults to that
       // dropdown's first entry instead of leaving it on a value nothing in
-      // its own options actually matches (which Vuetify's own v-select just
+      // its  options actually matches (which Vuetify's  v-select just
       // renders blank). Left alone if the value already IS a real option
       // (e.g. toggling away from 'background' and back), so a deliberate
       // choice isn't clobbered.
@@ -841,7 +990,7 @@ export default defineComponent({
     };
 
     // What the value field itself actually displays - a plain decimal
-    // number, or that same number's own 8-digit binary/2-digit hex form,
+    // number, or that same number's  8-digit binary/2-digit hex form,
     // per valueFormat above.
     const displayValue = (table, index) => {
       const raw = Number(table.values[index]) || 0;
@@ -852,10 +1001,10 @@ export default defineComponent({
       return clamped;
     };
 
-    // Parses whatever the field's own current format expects - lenient the
+    // Parses whatever the field's  current format expects - lenient the
     // same way handleValueChange already is (a stray non-numeric/non-binary/
     // non-hex entry falls back to 0 rather than rejecting the keystroke
-    // outright), since this fires on every keystroke (see the template's own
+    // outright), since this fires on every keystroke (see the template's
     // @input), not just on blur/change.
     const handleValueInput = (table, index, rawInput) => {
       const format = valueFormat(table, index);
@@ -870,7 +1019,7 @@ export default defineComponent({
       } else if (format === 'hex') {
         // Same belt-and-suspenders shape as binary above - strips anything
         // that isn't 0-9/A-F (a pasted "0x"/"$" prefix, stray whitespace,
-        // lowercase letters) and caps at 2 digits (a byte's own max).
+        // lowercase letters) and caps at 2 digits (a byte's  max).
         const digits = String(rawInput).replace(/[^0-9a-fA-F]/g, '').slice(0, 2);
         instance.proxy.$set(table.values, index, digits ? parseInt(digits, 16) : 0);
       } else {
@@ -879,7 +1028,7 @@ export default defineComponent({
       }
     };
 
-    // ColorSwatchPicker's own @input already hands back a valid TIA color
+    // ColorSwatchPicker's @input already hands back a valid TIA color
     // byte (an even 0-254 number, see utils/palette.js) picked straight from
     // the palette grid - no parsing/clamping needed the way the typed
     // formats above need, this can go straight into the table.
@@ -889,47 +1038,47 @@ export default defineComponent({
     };
 
     // Same shape as handleColorValueInput above - shared by all three
-    // dropdown-backed formats (background/player0/player1, see the
-    // template), whose own v-select already hands back a valid id/index
-    // straight from its own options list, so no parsing is needed here
+    // dropdown-backed formats (background/player0/titlescreen, see the
+    // template), whose v-select already hands back a valid id/index
+    // straight from its  options list, so no parsing is needed here
     // either.
     const handleDropdownValueInput = (table, index, value) => {
       instance.proxy.$set(table.values, index, value);
       handleValueChange(table, index);
     };
 
-    // Drag-and-drop reordering for one table's own value fields - not built
-    // on hooks/drag-reorder.js's own useDragReorder (already used above for
+    // Drag-and-drop reordering for one table's  value fields - not built
+    // on hooks/drag-reorder.js's  useDragReorder (already used above for
     // reordering whole TABLES), since that hook's draggedIndex/dragOverIndex
     // refs assume exactly one reorderable list exists at a time. Every table
-    // on this tab has its OWN independent values array, so the dragged/
+    // on this tab has its independent values array, so the dragged/
     // drag-over state here is keyed by table id as well as index, to keep
     // dragging a value in one table from being misread as a drag-over hit
     // in a different table's identically-indexed value - same reasoning
-    // MusicEditor.vue's own sequenceChipListeners already documents for its
+    // MusicEditor.vue's  sequenceChipListeners already documents for its
     // near-identical per-song drag state. [index] (not the value itself) is
-    // the drag handle, not the whole row - matches this file's own
+    // the drag handle, not the whole row - matches this file's
     // .data-drag-handle convention for table cards, and keeps the number
-    // field's own click-and-drag text selection working.
+    // field's  click-and-drag text selection working.
     const draggedValue = ref(null);
-    // Wraps each of the table CARD's own drop-target handlers (not just
+    // Wraps each of the table CARD's  drop-target handlers (not just
     // conditionally swapping the whole listeners object the way a naive
     // guard might) so the real "is a value drag in progress" check happens
     // synchronously at the moment an event actually fires, not only after
-    // Vue's own (batched, async) re-render has had a chance to re-evaluate
+    // Vue's (batched, async) re-render has had a chance to re-evaluate
     // this v-on binding. Confirmed directly as a real bug otherwise, the
-    // exact same class MusicEditor.vue's own dragTargetListeners wrapper
+    // exact same class MusicEditor.vue's  dragTargetListeners wrapper
     // documents for its identical chip-vs-card conflict: dragging a value
     // sets draggedValue synchronously, but the browser can still dispatch a
     // dragover (or even drop) on the table CARD before Vue's next tick
     // actually detaches its old listeners, since HTML5 drag events aren't
-    // batched the way Vue's own reactivity is - letting the card's own
+    // batched the way Vue's  reactivity is - letting the card's
     // reorder highlight/drop briefly fire mid-value-drag despite
-    // stopPropagation on the value row's own handlers (stopPropagation only
+    // stopPropagation on the value row's  handlers (stopPropagation only
     // stops BUBBLED events from reaching the card, not a dragover the
     // browser dispatches DIRECTLY on the card whenever the pointer crosses
-    // any part of its own bounding box that isn't precisely covered by a
-    // child's own listener, e.g. the gaps between value cells).
+    // any part of its  bounding box that isn't precisely covered by a
+    // child's  listener, e.g. the gaps between value cells).
     const dragTargetListeners = (index) => {
       const raw = rawDragTargetListeners(index);
       const guarded = {};
@@ -943,7 +1092,7 @@ export default defineComponent({
     };
     // {tableId, index, side} - side is 'before' or 'after', which HALF of
     // cell `index` the pointer is currently over (see dragOverSideFor
-    // below). Unlike a single-column list (see hooks/drag-reorder.js's own
+    // below). Unlike a single-column list (see hooks/drag-reorder.js's
     // top-border convention), this grid wraps into multiple COLUMNS per
     // row, so the meaningful drop-target edge is left/right (which cell
     // this lands before/after in reading order), not top/bottom.
@@ -960,9 +1109,9 @@ export default defineComponent({
       'data-value-drag-over-before': valueDragOverSide(table, index) === 'before',
       'data-value-drag-over-after': valueDragOverSide(table, index) === 'after',
     });
-    // Left half of the cell's own bounding box means "insert before it",
+    // Left half of the cell's  bounding box means "insert before it",
     // right half means "insert after it" - same halfway-point convention
-    // MusicEditor.vue's own dragOverSideFor uses for its horizontal
+    // MusicEditor.vue's  dragOverSideFor uses for its horizontal
     // sequence chip list.
     const dragOverSideFor = (event) => {
       const rect = event.currentTarget.getBoundingClientRect();
@@ -970,16 +1119,16 @@ export default defineComponent({
     };
     const valueHandleListeners = (table, index) => ({
       dragstart: (event) => {
-        // Stops this drag from ALSO being seen by the table card's own
+        // Stops this drag from ALSO being seen by the table card's
         // dragTargetListeners (see dragAttrs/dragHandleListeners above,
         // bound to the whole .data-card every value row sits inside) -
-        // without this, dragging a value would also trigger the CARD's own
+        // without this, dragging a value would also trigger the CARD's
         // "drag a table here" reorder highlight, since it has no way to
         // tell a bubbled value-drag apart from an actual table-card drag.
         event.stopPropagation();
         draggedValue.value = {tableId: table.id, index};
         event.dataTransfer.effectAllowed = 'move';
-        // Same Firefox requirement as hooks/drag-reorder.js's own
+        // Same Firefox requirement as hooks/drag-reorder.js's
         // dragHandleListeners - the value itself is never read back.
         event.dataTransfer.setData('text/plain', String(index));
       },
@@ -1012,15 +1161,20 @@ export default defineComponent({
         draggedValue.value = null;
         dragOverValue.value = null;
         if (!from || from.tableId !== table.id || from.index === index) return;
-        // Computed fresh off the actual drop event's own pointer position
+        // Computed fresh off the actual drop event's  pointer position
         // (not read back off dragOverValue) so the drop always matches
         // exactly what the highlight it lands on last showed - see
-        // MusicEditor.vue's own sequenceChipListeners drop handler for the
+        // MusicEditor.vue's  sequenceChipListeners drop handler for the
         // identical reasoning.
         const side = dragOverSideFor(event);
         let insertAt = side === 'after' ? index + 1 : index;
         if (from.index < insertAt) insertAt--;
         if (insertAt === from.index) return;
+        const valuesBefore = {
+          values: table.values.slice(),
+          valueFormats: table.valueFormats ? table.valueFormats.slice() : null,
+          valueNotes: table.valueNotes ? table.valueNotes.slice() : null,
+        };
         const values = table.values.slice();
         const [moved] = values.splice(from.index, 1);
         values.splice(insertAt, 0, moved);
@@ -1035,7 +1189,30 @@ export default defineComponent({
           formats.splice(insertAt, 0, movedFormat);
           table.valueFormats = formats;
         }
+        // Notes follow their values too.
+        if (table.valueNotes) {
+          const notes = table.valueNotes.slice();
+          const [movedNote] = notes.splice(from.index, 1);
+          notes.splice(insertAt, 0, movedNote);
+          table.valueNotes = notes;
+        }
         handleChildChange();
+        const valuesAfter = {
+          values: table.values.slice(),
+          valueFormats: table.valueFormats ? table.valueFormats.slice() : null,
+          valueNotes: table.valueNotes ? table.valueNotes.slice() : null,
+        };
+        const restore = (saved) => {
+          Object.keys(saved).forEach((key) => {
+            if (saved[key]) table[key] = saved[key].slice();
+          });
+          handleChildChange();
+        };
+        recordReorder({
+          undo: () => restore(valuesBefore),
+          redo: () => restore(valuesAfter),
+          isCurrent: () => sameItems(table.values, valuesAfter.values),
+        });
       },
     });
 
@@ -1064,6 +1241,8 @@ export default defineComponent({
                 });
             if (!values.length) return;
             table.values = values;
+            // Notes stay with their index; any past the new end are dropped.
+            if (table.valueNotes) instance.proxy.$set(table, 'valueNotes', table.valueNotes.slice(0, values.length));
             handleChildChange();
             instance.proxy.$forceUpdate();
           })
@@ -1072,17 +1251,19 @@ export default defineComponent({
 
     return {
       dataColumns,
-      selectedCardId, selectCard, deselectCard,
+      selectedCardId, selectedCardIds, selectCard, deselectCard, deleteQuestion, selectedTable, isDataToolbarScrolled,
       state, handleChildChange, handleAddTable, handleDeleteTable, handleDuplicateTable,
       copiedTableData, handleCopyTable, handlePasteTable,
       handleAddValue, handleDeleteValue, handleValueChange, handleSelectValue, handleSubtractValue,
-      valueFormat, toggleValueFormat, displayValue, handleValueInput, handleColorValueInput,
+      noteTargetIndex, handleCardClick, handleClearSelectedValue, handleToggleSelectValue, noteText, noteLabel, hasValueNote,
+      valueIndexTitle,
+      valueFormat, setValueFormat, displayValue, handleValueInput, handleColorValueInput,
       handleDropdownValueInput, dropdownOptionsFor,
-      FORMAT_ICONS, FORMAT_TOGGLE_TITLES,
+      FORMAT_ICONS, FORMAT_LABELS, FORMAT_CYCLE,
       handleExportCsv, handleImportCsv,
       tableColumns, handleColumnsInput, handleColumnsChange, handleNotesInput,
       isCollapsed, toggleCollapsed,
-      canUndoTable, canRedoTable, handleUndoTable, handleRedoTable,
+      canUndoTable, canRedoTable, handleUndoTable, handleRedoTable, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE,
       maxValues: MAX_DATA_TABLE_VALUES,
       DATA_VALUE_CELL_MIN_PX,
       DATA_VALUES_EXTRA_SLACK_PX,
@@ -1102,7 +1283,7 @@ export default defineComponent({
   width: 100%;
 }
 
-/* v-list-item's own default 0 16px padding stacks on top of v-card-text's,
+/* v-list-item's  default 0 16px padding stacks on top of v-card-text's,
    pushing the data table card in further than the Score tab's, which sits
    directly in a v-card-text with no list-item wrapper. Zeroing both sides
    (not just left, as this used to) keeps the card's right edge from sitting
@@ -1112,49 +1293,55 @@ export default defineComponent({
   padding-right: 0;
 }
 
-.data-filter-row {
-  display: flex;
-  align-items: center;
-}
-
-/* Same margin-top/padding-top override as SoundFXEditor.vue's own
-   .soundfx-columns-switch - Vuetify's own selection-control margin-top
+/* Same margin-top/padding-top override as SoundFXEditor.vue's
+   .soundfx-columns-switch - Vuetify's selection-control margin-top
    (meant for stacking below other fields) otherwise pushes this out of
    line with the intro paragraph above it. */
 .data-columns-switch {
   flex: 0 0 auto;
-  margin-top: 0 !important;
-  padding-top: 0 !important;
+  margin: 0 !important;
+  /* Room between the divider before it and the switch itself, on top of the
+     row's 4px gap (the icon buttons' padding already gives them this). */
+  margin-left: 8px !important;
+  padding: 0 !important;
 }
 
-/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's own
+
+/* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's
    .background-list/.entry-list-item rules - v-list-item__content's default
    12px top/bottom padding was adding extra space between cards beyond
    anything explicitly set (there was no explicit gap here at all before),
-   so this tab's own card spacing didn't match the Background tab's.
+   so this tab's card spacing didn't match the Background tab's.
    margin-top puts back the space above the FIRST card that zeroing
-   v-list-item__content's own padding would otherwise have also removed.
+   v-list-item__content's padding would otherwise have also removed.
    Multi-column grid by default now (see the "Columns" switch above, same
-   SoundFXEditor.vue/TextEditor.vue own .soundfx-list/.text-list pattern) -
+   SoundFXEditor.vue/TextEditor.vue .soundfx-list/.text-list pattern) -
    .data-list--single-column below switches back to one full-width column,
-   for a table with enough columns of its own that squeezing it into a grid
+   for a table with enough columns that squeezing it into a grid
    cell would cramp it. */
 .data-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 8px;
-  margin-top: 12px;
+  /* 4px, not the 12px this used to be - matches GraphicEditorToolbar.vue's
+     measured 4px gap below its toolbar exactly, now that .data-toolbar
+     no longer uses a negative margin-bottom to reach that same number (see
+     that comment for why that was wrong - this is the safe way to
+     close the same gap instead, since it reduces this element's margin
+     rather than pulling the sticky bar above it down over this one's top
+     edge). */
+  margin-top: 4px;
   /* Grid items stretch to fill their row's height by default (same fix as
-     SoundFXEditor.vue's own .soundfx-list) - a collapsed card next to an
+     SoundFXEditor.vue's .soundfx-list) - a collapsed card next to an
      expanded one (or just a shorter table next to a longer one) in the
      same row would otherwise stretch tall to match it, instead of sitting
-     flush at the top like its own content actually sizes to. */
+     flush at the top like its content actually sizes to. */
   align-items: start;
 }
 
 /* Single full-width column instead of the grid .data-list defaults to (see
-   that rule's own comment) - toggled via the "Columns" switch above. No
-   max-width on .data-card either way (see its own comment) - a table with
+   that rule's comment) - toggled via the "Columns" switch above. No
+   max-width on .data-card either way (see its comment) - a table with
    many columns needs the full width of whichever container it lands in,
    single column or grid cell, to keep them all visible without shrinking
    each one down too far. */
@@ -1163,20 +1350,20 @@ export default defineComponent({
   flex-direction: column;
 }
 
-/* Same reasoning as SoundFXEditor.vue's own identical rule - Vuetify's
+/* Same reasoning as SoundFXEditor.vue's  identical rule - Vuetify's
    v-list-item (.entry-list-item) doesn't stretch to its flex container's
-   full width on its own, leaving .data-card's own width: 100% only filling
+   full width by itself, leaving .data-card's width: 100% only filling
    100% of that un-stretched item instead of the whole row. */
 .data-list--single-column .entry-list-item {
   width: 100%;
 }
 
 /* overflow: visible added alongside the padding reset (see MusicEditor.vue's
-   own identical fix) - stops this element's default "overflow: hidden" from
-   clipping a selected card's own 2px outline - min-width: 0 has to come
+   identical fix) - stops this element's default "overflow: hidden" from
+   clipping a selected card's 2px outline - min-width: 0 has to come
    with it (same comment there for the full explanation): overflow: visible
-   silently undoes a flex item's own default 0 min-width, letting it refuse
-   to shrink below its own widest content (a wide table) instead of the
+   silently undoes a flex item's default 0 min-width, letting it refuse
+   to shrink below its widest content (a wide table) instead of the
    tab's width. */
 .entry-list-item >>> .v-list-item__content {
   padding: 0;
@@ -1193,7 +1380,7 @@ export default defineComponent({
 }
 
 /* Same reasoning/placement as TextEditor.vue's .text-drag-handle (see
-   hooks/drag-reorder.js's own comment) - only this top strip is actually
+   hooks/drag-reorder.js's comment) - only this top strip is actually
    draggable, so click-and-drag still selects text everywhere else in the
    card. */
 .data-drag-handle {
@@ -1205,8 +1392,8 @@ export default defineComponent({
   cursor: grab;
 }
 
-/* Same two classes/reasoning as hooks/drag-reorder.js's own comment and
-   TextEditor.vue's identical rules (its own first use of this hook). */
+/* Same two classes/reasoning as hooks/drag-reorder.js's  comment and
+   TextEditor.vue's identical rules (its first use of this hook). */
 .drag-reorder-dragging {
   opacity: 0.4;
 }
@@ -1230,7 +1417,7 @@ export default defineComponent({
 
 /* Same top-edge fix as .data-delete-btn, positioned at the opposite corner -
    a smaller top offset than .data-delete-btn's, since this one has to line
-   up against .data-id-badge's own text baseline right next to it, not just
+   up against .data-id-badge's text baseline right next to it, not just
    sit inside the card. */
 .data-collapse-btn {
   top: 2px !important;
@@ -1238,7 +1425,7 @@ export default defineComponent({
   box-shadow: none !important;
 }
 
-/* Same 20px reserved below the badge as the SoundFX tab's own
+/* Same 20px reserved below the badge as the SoundFX tab's
    .soundfx-name-field - was 12px, visibly tighter than that reference
    spacing once actually compared side by side. */
 .data-name-field {
@@ -1247,10 +1434,10 @@ export default defineComponent({
 }
 
 /* Columns sits on the SAME row as Table name (rather than down with the
-   values grid it actually controls) - keeps the card's own header
-   compact, and matches .data-caption-row's own flex-end alignment so
+   values grid it actually controls) - keeps the card's header
+   compact, and matches .data-caption-row's flex-end alignment so
    both fields' input boxes line up evenly regardless of Table name's
-   own floated label pushing it taller. */
+   floated label pushing it taller. */
 .data-name-row {
   display: flex;
   align-items: flex-end;
@@ -1258,7 +1445,7 @@ export default defineComponent({
 }
 
 /* Split from the rest of the card's content (data-values-section) so the
-   name field can stay visible while collapsed - v-card-text's own default
+   name field can stay visible while collapsed - v-card-text's default
    padding-bottom would otherwise open a gap between them that the original,
    single v-card-text never had. */
 .data-name-section {
@@ -1266,7 +1453,7 @@ export default defineComponent({
 }
 
 /* Same top/bottom padding removal as .data-name-section/.data-values-section
-   above - without it, this section's own default v-card-text padding stacks
+   above - without it, this section's default v-card-text padding stacks
    on top of .data-name-section's already-zeroed bottom, reopening the same
    gap that fix closed. */
 .data-notes-section {
@@ -1274,9 +1461,9 @@ export default defineComponent({
   padding-bottom: 8px;
 }
 
-/* No margin above/below the field itself (Vuetify's own default input
+/* No margin above/below the field itself (Vuetify's  default input
    spacing) - lets the zeroed section padding above/below actually bring the
-   field close to the name row and the values grid instead of leaving its own
+   field close to the name row and the values grid instead of leaving its
    gaps on both sides. */
 .data-notes-field {
   margin-top: 0;
@@ -1287,9 +1474,122 @@ export default defineComponent({
   padding-top: 0;
 }
 
-/* Groups Export/Import/Delete into one row in the card's top-right corner,
-   same corner (and offset) .data-collapse-btn uses for the top-left, instead
-   of each button separately fighting over "absolute top right". */
+/* Same visual treatment/sticky behaviour as GraphicEditorToolbar.vue's
+   .graphic-editor-toolbar and MusicEditor.vue's .music-toolbar (that
+   component itself isn't reused here - it's built entirely around a
+   PixelEditor instance's tools, nothing this tab has - but the visual
+   treatment is copied so it reads as the same kind of toolbar). Sticks to
+   the top of the tab's scrolling ancestor (.editor-container) as the card
+   list scrolls past underneath it. */
+.data-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: #fff;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  transition: padding 0.15s ease;
+  /* Matches GraphicEditorToolbar.vue's 16px gap above exactly (measured
+     live against its padding plus its neighbours' margins, not guessed) -
+     a real reported case of this not already matching ("the spacing seems
+     wrong under the columns tab, match spacing similar to graphics editor
+     toolbar above/below"). The intro paragraph (directly above) is a
+     different element than that toolbar's neighbour, so copying its
+     padding alone (already matched above) didn't reproduce the same gap -
+     margin here instead. The gap BELOW is fixed on .data-list's margin-top
+     instead of a negative margin-bottom here - a negative margin on this
+     element specifically caused a real reported bug (a selected card's top
+     border rendering hidden): this toolbar is position: sticky with a
+     raised z-index so it stays above the scrolled-under list, and a
+     negative margin-bottom pulls its box (that z-index layer included)
+     down over the list's top edge, painting over whatever's there rather
+     than just reducing visual distance the way a negative margin normally
+     reads. */
+  margin-top: -10px;
+  /* Same "full-bleed" trick as GraphicEditorToolbar.vue's bleedStyle
+     (margin cancels the parent v-card-text's 16px side padding so this
+     bar's background spans the full window width, padding re-adds the
+     same 16px so the icons inside still line up with everything else on
+     the tab) - a real reported case of this not happening here
+     ("the data tab toolbar show[uld] span the full width of the window...
+     right now it looks like there's padding on the left/right"). A plain
+     static 16px, not a prop-driven bleedStyle - this tab only ever sits in
+     one single 16px-padded v-card-text, unlike that shared component,
+     which has to support whatever padding each different caller's
+     container happens to use. */
+  margin-left: -16px;
+  margin-right: -16px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.data-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* The graphic editor toolbar's row is 28px tall (its outer divider sets
+     that), which puts its icons 1px lower in the same 4px of padding. */
+  min-height: 28px;
+}
+
+/* Zeroes .data-icon-btn-size's margin: 0 1px (needed elsewhere on this
+   tab, where there's no shared flex gap doing the spacing) - same reasoning
+   as MusicEditor.vue's .music-toolbar-row >>> .music-icon-btn-size. */
+.data-toolbar-row >>> .data-icon-btn-size {
+  margin: 0;
+}
+
+.data-toolbar-divider {
+  margin: 0;
+  /* Same 26px as the icon buttons (the graphic editor toolbar's inner
+     dividers), not stretched to the 28px row. */
+  align-self: center;
+  height: 26px;
+}
+
+/* The same icon states as GraphicEditorToolbar.vue's .get-tools: the shared
+   rest color, a dimmer color when disabled (Vuetify's default disabled color was
+   a visibly stronger grey), darker on hover only while enabled, and the same
+   small press-in. */
+.data-toolbar-row >>> .v-btn .v-icon {
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.data-toolbar-row >>> .v-btn--disabled .v-icon {
+  color: rgba(0, 0, 0, 0.18) !important;
+}
+
+.data-toolbar-row >>> .v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.data-toolbar-row >>> .v-btn:not(.v-btn--disabled):active .v-icon {
+  transform: scale(0.82);
+}
+
+/* Same "grows + gains a bottom border once actually scrolled" treatment as
+   GraphicEditorToolbar.vue's .graphic-editor-toolbar-scrolled. */
+.data-toolbar-scrolled {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.24);
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* "Soft Colors" (see App.vue's desaturate-app-colors class/comment) -
+   matches the darker .editor-container this bar is pinned inside of once
+   that's on, instead of staying the plain white every other surface swaps
+   away from. */
+.desaturate-app-colors .data-toolbar {
+  background-color: #e1e1e1;
+}
+
+/* Groups just Delete into the card's top-right corner now (Undo/Redo/
+   Duplicate/Copy/Paste/Export/Import all moved into the shared toolbar
+   above, acting on whichever card is selected - a real reported request,
+   "move the buttons on data cards up into a unified toolbar... leave the
+   delete buttons on the cards"), same corner (and offset) .data-collapse-btn
+   uses for the top-left. */
 .data-toolbar-top-right {
   position: absolute;
   top: 8px;
@@ -1299,22 +1599,12 @@ export default defineComponent({
   z-index: 1;
 }
 
-/* Same icon/button sizing as the Player Sprite tab's toolbar icons
-   (PixelEditor.vue's .pixel-editor-tools rules) - split out from
-   .data-flat-icon-btn below so it can also apply to the Delete button
-   without pulling in that class's own hover colour, which would override
-   .delete-icon-btn's red-on-hover convention. Use this same sizing for any
-   new icon buttons added elsewhere going forward. */
-.data-icon-btn-size {
-  min-width: 0;
-  height: 26px !important;
-  width: 26px !important;
-  margin: 0 1px;
-}
-
-.data-icon-btn-size >>> .v-icon {
-  font-size: 19px !important;
-}
+/* .data-icon-btn-size's size/icon-font-size rules - see App.vue's
+   shared, unscoped copy (moved there once confirmed byte-identical to
+   SoundFXEditor.vue's .soundfx-icon-btn-size/MusicEditor.vue's
+   .music-icon-btn-size). Split out from .data-flat-icon-btn below so it can
+   also apply to the Delete button without pulling in that class's hover
+   colour, which would override .delete-icon-btn's red-on-hover convention. */
 
 /* Same flat icon-button treatment as the Player Sprite tab's Export/Import
    image buttons (PixelEditor.vue's .pixel-editor-tools rules): no grey box,
@@ -1340,37 +1630,37 @@ export default defineComponent({
   color: rgba(0, 0, 0, 0.87) !important;
 }
 
-/* Same red/blue/orange App.vue's own .player-item/.background-item
+/* Same red/blue/orange App.vue's .player-item/.background-item
    sidebar tabs use for their identical icons - overrides
-   .data-flat-icon-btn's own dim grey above (both rest and hover) so this
-   toggle button's icon reads as "Player 0"/"Player 1"/"Background" by color
+   .data-flat-icon-btn's dim grey above (both rest and hover) so this
+   toggle button's icon reads as "Sprite animation"/"Background" by color
    the same way the sidebar already does, not just by title text on hover.
    Dimmed via opacity at rest, same as every other format icon here dims via
-   a lower rgba alpha (.data-flat-icon-btn's own 0.38 rest / 0.87 hover,
+   a lower rgba alpha (.data-flat-icon-btn's 0.38 rest / 0.87 hover,
    above) - opacity is used instead of another rgba tint (which would just
-   fade toward white/grey, not this icon's own color) so it fades toward
+   fade toward white/grey, not this icon's color) so it fades toward
    transparent instead, dimming without ever losing that color identity.
-   Selectors deliberately repeat .data-flat-icon-btn's own full prefix
+   Selectors deliberately repeat .data-flat-icon-btn's full prefix
    (rather than a shorter, more "obvious" selector) so each stays a strict
    superset of - and so always wins specificity over - the plain .v-icon
    rules above, regardless of source order. A shorter selector here was
    tried first and confirmed to lose that fight, leaving these stuck on
-   .data-flat-icon-btn's own dim grey no matter what color was set. */
+   .data-flat-icon-btn's dim grey no matter what color was set. */
 .data-flat-icon-btn >>> .v-icon.data-format-icon-background,
+.data-flat-icon-btn >>> .v-icon.data-format-icon-titlescreen,
 .data-flat-icon-btn >>> .v-icon.data-format-icon-player0,
-.data-flat-icon-btn >>> .v-icon.data-format-icon-player1,
 .data-flat-icon-btn >>> .v-icon.data-format-icon-sound,
 .data-flat-icon-btn >>> .v-icon.data-format-icon-text {
   opacity: 0.4;
   color: rgb(244, 67, 54) !important;
 }
 
-.data-flat-icon-btn >>> .v-icon.data-format-icon-background {
-  color: rgb(255, 152, 0) !important;
+.data-flat-icon-btn >>> .v-icon.data-format-icon-titlescreen {
+  color: rgb(103, 58, 183) !important;
 }
 
-.data-flat-icon-btn >>> .v-icon.data-format-icon-player1 {
-  color: rgb(33, 150, 243) !important;
+.data-flat-icon-btn >>> .v-icon.data-format-icon-background {
+  color: rgb(255, 152, 0) !important;
 }
 
 .data-flat-icon-btn >>> .v-icon.data-format-icon-sound {
@@ -1382,20 +1672,20 @@ export default defineComponent({
 }
 
 .data-flat-icon-btn:hover >>> .v-icon.data-format-icon-background,
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-titlescreen,
 .data-flat-icon-btn:hover >>> .v-icon.data-format-icon-player0,
-.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-player1,
 .data-flat-icon-btn:hover >>> .v-icon.data-format-icon-sound,
 .data-flat-icon-btn:hover >>> .v-icon.data-format-icon-text {
   opacity: 1;
   color: rgb(244, 67, 54) !important;
 }
 
-.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-background {
-  color: rgb(255, 152, 0) !important;
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-titlescreen {
+  color: rgb(103, 58, 183) !important;
 }
 
-.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-player1 {
-  color: rgb(33, 150, 243) !important;
+.data-flat-icon-btn:hover >>> .v-icon.data-format-icon-background {
+  color: rgb(255, 152, 0) !important;
 }
 
 .data-flat-icon-btn:hover >>> .v-icon.data-format-icon-sound {
@@ -1404,6 +1694,23 @@ export default defineComponent({
 
 .data-flat-icon-btn:hover >>> .v-icon.data-format-icon-text {
   color: rgb(233, 30, 99) !important;
+}
+
+/* This whole per-format color palette (red/orange/blue/purple/pink above)
+   isn't reachable through any single shared class/variable the way the
+   app's "active" blue or "delete" red accents are (see App.vue's
+   --v-primary-base/--destructive-color comment) - five genuinely different
+   colors, not one repeated concept - so it gets the same catch-all filter
+   treatment as any other one-off multi-color group under Subdued Palette
+   (e.g. App.vue's sidebar tab icon rule), confirmed directly as a real
+   reported gap ("check the full app for elements that may not be getting
+   updated colors"). */
+.desaturate-app-colors .data-flat-icon-btn >>> .v-icon.data-format-icon-background,
+.desaturate-app-colors .data-flat-icon-btn >>> .v-icon.data-format-icon-titlescreen,
+.desaturate-app-colors .data-flat-icon-btn >>> .v-icon.data-format-icon-player0,
+.desaturate-app-colors .data-flat-icon-btn >>> .v-icon.data-format-icon-sound,
+.desaturate-app-colors .data-flat-icon-btn >>> .v-icon.data-format-icon-text {
+  filter: saturate(50%) brightness(0.85);
 }
 
 .data-caption-row {
@@ -1422,10 +1729,10 @@ export default defineComponent({
 /* How many value fields to show per row before wrapping - see tableColumns.
    Deliberately narrow: this is a display preference, not a value itself.
    margin-bottom compensates for hide-details/dense (no reserved hint-line
-   space below its own input, unlike Table name's plain v-text-field) -
-   without this, .data-name-row's own align-items: flex-end lines up the
-   two fields' OUTER boxes, but Table name's own reserved (empty) hint-line
-   space below its visible input pushes that input's own bottom edge
+   space below its input, unlike Table name's plain v-text-field) -
+   without this, .data-name-row's align-items: flex-end lines up the
+   two fields' OUTER boxes, but Table name's reserved (empty) hint-line
+   space below its visible input pushes that input's bottom edge
    noticeably higher than this field's, leaving the two input boxes
    visibly misaligned despite the row itself being bottom-aligned. */
 .data-columns-field {
@@ -1435,23 +1742,23 @@ export default defineComponent({
 
 /* grid-template-columns is set inline per table (see tableColumns) since the
    column count is a per-table preference, not fixed - grid wraps extra
-   values onto new rows on its own once a row's own column count is full,
-   the same way flex-wrap would, but keeps every column's own width aligned
+   values onto new rows by itself once a row's column count is full,
+   the same way flex-wrap would, but keeps every column's width aligned
    across rows instead of each row sizing independently. Each column is
-   minmax(0, 1fr), not auto - auto lets a row's own natural content width
+   minmax(0, 1fr), not auto - auto lets a row's natural content width
    push the grid wider than its container (forcing horizontal scrolling once
    there are enough columns); 1fr instead divides whatever width IS
-   available evenly and lets .data-value-row's own children (below) shrink
+   available evenly and lets .data-value-row's children (below) shrink
    to fit, so every column - however many there are - stays visible without
-   scrolling sideways (see the card's own width, uncapped for the same
+   scrolling sideways (see the card's width, uncapped for the same
    reason).
    No max-height/internal scroll either (used to cap at 320px) - a table
    with several rows should grow the card tall enough to show all of them
-   at once instead of hiding rows behind their own separate scrollbar;
-   .editor-container's own page-level scroll still applies once the whole
+   at once instead of hiding rows behind their separate scrollbar;
+   .editor-container's page-level scroll still applies once the whole
    page is taller than the window.
    Divider lines between cells are drawn without knowing the column count:
-   the grid's own background shows through a 1px gap as a line between
+   the grid's background shows through a 1px gap as a line between
    every cell, on all four sides at once, rather than needing to
    conditionally border just the cells that aren't in the last row/column
    (not straightforward in pure CSS when the column count itself is set via
@@ -1465,10 +1772,10 @@ export default defineComponent({
   margin-bottom: 8px;
 }
 
-/* min-width: 0 overrides flex's own default (min-width: auto), which would
+/* min-width: 0 overrides flex's  default (min-width: auto), which would
    otherwise refuse to shrink this row below its children's natural combined
-   width - exactly the overflow .data-values' own 1fr columns are trying to
-   avoid. Its own background covers the grid's own (the divider-line colour)
+   width - exactly the overflow .data-values' 1fr columns are trying to
+   avoid. Its background covers the grid's (the divider-line colour)
    everywhere except the 1px gap between cells, which is what actually draws
    the lines. */
 .data-value-row {
@@ -1480,9 +1787,19 @@ export default defineComponent({
   padding: 1px 2px;
 }
 
+/* "Soft Colors" (see App.vue's desaturate-app-colors class/comment) - this
+   plain white cell background isn't covered by any of App.vue's blanket
+   rules (not a .v-card/.v-btn/etc, just a bare div), so it stayed the one
+   bright white surface left on this tab even with Soft Colors on. Matches
+   the app chrome/background tier's color (App.vue's .desaturate-app-
+   colors.v-application rule) rather than introducing a fourth shade. */
+.desaturate-app-colors .data-value-row {
+  background-color: #e1e1e1;
+}
+
 /* Which side of THIS cell a dragged value would land on (see
    valueDragOverSide/dragOverSideFor) - left/right, not hooks/
-   drag-reorder.js's own top-border convention, since this grid wraps into
+   drag-reorder.js's top-border convention, since this grid wraps into
    multiple columns per row, and left/right is what actually reflects
    reading-order position within it. */
 .data-value-drag-over-before {
@@ -1493,48 +1810,61 @@ export default defineComponent({
   border-right: 3px solid var(--v-primary-base, #1976d2);
 }
 
-/* The drag handle for reordering this value within its own table (see
+/* The drag handle for reordering this value within its  table (see
    valueHandleListeners) - cursor: grab signals that, same as
    .data-drag-handle does for a whole table card. */
+/* The cell the notes field is showing (see noteTargetIndex), outlined in the
+   app's primary blue - the same blue as the other "on"/focus states. */
+.data-value-row-selected {
+  outline: 2px solid var(--v-primary-base, #1976d2);
+  outline-offset: -2px;
+}
+
 .data-value-index {
   flex: 0 0 auto;
   font-family: monospace;
-  /* Matches .data-id-badge's own font-size (the "ID: N" badge on each data
-     table card) rather than this row's own relative 0.7em, which came out
+  /* Matches .data-id-badge's  font-size (the "ID: N" badge on each data
+     table card) rather than this row's relative 0.7em, which came out
      visibly smaller. */
   font-size: 0.75rem;
   opacity: 0.7;
   text-align: right;
   cursor: grab;
-  /* Nudged down 1px - .data-value-row's own align-items: center still left
+  /* Nudged down 1px - .data-value-row's  align-items: center still left
      this sitting a pixel too high next to the value field beside it, likely
-     the monospace font's own metrics not centering quite the same as the
+     the monospace font's metrics not centering quite the same as the
      field's text. */
   position: relative;
   top: 1px;
   margin-left: 5px;
 }
 
+/* A value that has a note: its number is underlined and no longer faded. */
+.data-value-index.data-value-index-has-note {
+  opacity: 1;
+  text-decoration: underline dotted;
+}
+
 /* One shared sizing rule for every format (decimal, binary, hex) - it used
    to be a fixed 58px for decimal but a separately shrinkable 92px basis for
    binary/hex (see .data-value-field-binary below, which now only handles
-   font styling), so toggling format changed this field's own rendered
+   font styling), so toggling format changed this field's rendered
    width, which visibly shifted the delete button next to it (that button's
-   own margin-left: auto repositions it based on how much space this field
+   margin-left: auto repositions it based on how much space this field
    is actually taking up) - confirmed directly as a real bug. Same
    flex-basis/min-width for every format fixes that at the root, rather than
    trying to compensate for the width change elsewhere. min-width (46px, not
    0) keeps at least most of an 8-digit binary/2-digit hex value legible -
    safe against ever overflowing into the next cell now that .data-values'
-   own grid (see its inline gridTemplateColumns) guarantees each cell at
+   grid (see its inline gridTemplateColumns) guarantees each cell at
    least DATA_VALUE_CELL_MIN_PX (120px) of real room, wrapping extra columns
    onto new rows instead of ever squeezing a cell smaller than that. A
    hard-coded min-width here WITHOUT that grid-level floor previously let
-   this field's own minimum genuinely exceed a many-column table's actual
+   this field's minimum genuinely exceed a many-column table's actual
    per-cell width, spilling into the neighboring cell - confirmed directly
    as a real bug, fixed at the grid level rather than by removing this
-   field's own min-width again. The deep selectors below strip
-   Vuetify's own default input padding/alignment, which otherwise dominates
+   field's min-width again. The deep selectors below strip
+   Vuetify's default input padding/alignment, which otherwise dominates
    the field's width far more than the (up to 3-digit decimal/8-digit
    binary/2-digit hex) value itself does. */
 .data-value-field {
@@ -1544,21 +1874,21 @@ export default defineComponent({
 }
 
 /* Vuetify's v-menu renders its activator slot content as a SIBLING of its
-   own (empty, zero-size) root element, not nested inside it (same gotcha
-   SoundFXEditor.vue's own .soundfx-name-row >>> .color-swatch-picker-dot
+   (empty, zero-size) root element, not nested inside it (same gotcha
+   SoundFXEditor.vue's .soundfx-name-row >>> .color-swatch-picker-dot
    documents) - a class on <color-swatch-picker> itself lands on that
    invisible marker, so the actual visible swatch (.color-swatch-picker-dot)
-   is its own separate flex item in this row, styled directly here instead.
+   is its separate flex item in this row, styled directly here instead.
    Same flex-basis/min-width/margin as .data-value-field so the toggle/
    delete buttons next to it don't shift position switching in/out of color
-   mode, stretched wider (overriding its own default 14x14 dot size) to
+   mode, stretched wider (overriding its default 14x14 dot size) to
    actually fill that space rather than sitting small inside it. */
 .data-value-row >>> .color-swatch-picker-dot {
   flex: 1 1 84px;
   min-width: 46px;
   margin-left: 4px;
   width: auto;
-  /* Matches the toggle/delete buttons' own 26px height (see
+  /* Matches the toggle/delete buttons'  26px height (see
      .data-value-row .v-btn.v-btn--icon below) - this was 24px, a leftover
      mismatch from before those two were unified, which could still grow a
      row when a color-format cell shared a grid row with one of the other
@@ -1568,14 +1898,14 @@ export default defineComponent({
 }
 
 /* A plain (not solo/filled/outlined) v-select still shares .data-value-
-   field's own >>> .v-input__slot rule above (underline/box-shadow removal),
+   field's >>> .v-input__slot rule above (underline/box-shadow removal),
    since this reuses that same class - only the extra bits specific to a
-   select (rather than a bare <input>, which that rule's own padding/margin
-   tuning targets) need overriding here: the selection text's own vertical
+   select (rather than a bare <input>, which that rule's padding/margin
+   tuning targets) need overriding here: the selection text's vertical
    offset and the dropdown arrow icon, both trimmed down so this row isn't
    any taller than a plain number cell next to it. */
 .data-value-dropdown-select >>> .v-select__selection {
-  /* No explicit font-size - matches .data-value-field's own decimal input,
+  /* No explicit font-size - matches .data-value-field's  decimal input,
      which also leaves this at Vuetify's default rather than overriding it,
      so the two read as the same size next to each other. */
   margin: 0;
@@ -1587,27 +1917,27 @@ export default defineComponent({
   top: -2px;
   /* A background/sound effect/song/text string with a long enough name
      otherwise wraps onto a second line inside this narrow a cell, growing
-     ITS OWN row - and since every row in .data-values' grid stretches to
-     match its own tallest cell, that one long name was enough to grow the
+     ITS row - and since every row in .data-values' grid stretches to
+     match its tallest cell, that one long name was enough to grow the
      WHOLE grid, not just the row it's actually in (same class of bug the
-     dropdown arrow icon's own height caused above, confirmed directly the
+     dropdown arrow icon's height caused above, confirmed directly the
      same way: reproduced only with a long enough name, hence "sometimes").
      Truncated with an ellipsis instead of ever wrapping. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
-  /* A flex item's default min-width is "auto" (its own natural content
+  /* A flex item's default min-width is "auto" (its  natural content
      width), which overrides max-width/overflow above and lets it keep
      forcing its flex container wider instead of ever actually truncating -
      same fix .data-value-row itself already needed for the same reason
-     (see that rule's own min-width: 0). */
+     (see that rule's min-width: 0). */
   min-width: 0;
 }
 
-/* The dropdown arrow icon's own default size (24px) is taller than this
-   row's own 28px height minus .data-value-row's vertical padding leaves
-   room for - since .data-value-row sizes itself to fit its own tallest
+/* The dropdown arrow icon's  default size (24px) is taller than this
+   row's 28px height minus .data-value-row's vertical padding leaves
+   room for - since .data-value-row sizes itself to fit its tallest
    child (a plain flex row, height: auto), that alone was enough to grow
    EVERY row in the whole grid by 4px the moment any ONE cell anywhere used
    this format, not just the row the select itself sits in (confirmed
@@ -1631,10 +1961,10 @@ export default defineComponent({
   min-height: 0 !important;
 }
 
-/* Vuetify's own v-select__selections (a plain block-level div, unlike a
-   bare <input>) doesn't otherwise center its own text against this row's
+/* Vuetify's  v-select__selections (a plain block-level div, unlike a
+   bare <input>) doesn't otherwise center its text against this row's
    other compact content - collapsing to min-height above left it sitting
-   noticeably low, so it's made its own flex row here to center vertically
+   noticeably low, so it's made its flex row here to center vertically
    the same way .data-value-row centers everything else in it. */
 .data-value-dropdown-select >>> .v-select__selections {
   display: flex;
@@ -1644,9 +1974,9 @@ export default defineComponent({
 
 /* Monospace keeps every digit a consistent width instead of drifting as
    0s/1s (or hex digits) are typed/deleted - sizing itself is shared with
-   plain decimal now (see .data-value-field's own comment on why). */
+   plain decimal now (see .data-value-field's comment on why). */
 .data-value-field-binary {
-  /* Empty on purpose (was width) - kept as its own class since the
+  /* Empty on purpose (was width) - kept as its  class since the
      template still needs somewhere to hang the font-family override
      below, scoped to binary/hex only (a 3-digit decimal value reads fine
      in the default font). */
@@ -1659,8 +1989,8 @@ export default defineComponent({
 .data-value-field >>> input {
   padding: 0;
   text-align: center;
-  /* Nudged up slightly - Vuetify's own default line-height/padding leaves
-     the digits sitting a little low relative to the row's own other
+  /* Nudged up slightly - Vuetify's  default line-height/padding leaves
+     the digits sitting a little low relative to the row's other
      content ([index] label, delete button), once the underline below is
      gone and there's no floating label pushing it down to make room for. */
   margin-top: -5px;
@@ -1668,12 +1998,12 @@ export default defineComponent({
 
 .data-value-field >>> .v-input__slot {
   padding: 0 2px !important;
-  /* Removes Vuetify's own default underline (the ::before/::after border
+  /* Removes Vuetify's  default underline (the ::before/::after border
      pair below) - this field has no label and sits in a dense grid of
      bare number boxes, where a full-width line under every single cell
      reads as visual noise rather than a real field boundary indicator. */
   box-shadow: none !important;
-  /* Matches every other format's own 26px height (the toggle/delete
+  /* Matches every other format's  26px height (the toggle/delete
      buttons, the color swatch, the dropdown select below) - left
      unspecified before, this plain text field's natural height (21px) was
      the one holdout still shorter than the rest, so a row could still grow
@@ -1688,17 +2018,17 @@ export default defineComponent({
 }
 
 /* Same size/flat treatment as .data-icon-btn-size elsewhere in this app,
-   just without that class's own hover colour override (this button's
+   just without that class's hover colour override (this button's
    default red-on-hover, from the "delete" styling below, should stay).
    Pushed to the right edge of the row (margin-left: auto) - the [index]
    label and value field stay left-aligned together as one group, with
    the delete button visually separated at the opposite end rather than
    sitting right up against the value field. */
 /* 26x26 (not the smaller 20x20 this row's icon buttons started at) -
-   matches .data-format-toggle-btn's own explicit override below, which
+   matches .data-format-toggle-btn's explicit override below, which
    needs the extra room for its "D"/"B"/"H"/etc glyphs (see FORMAT_ICONS) to
    stay legible. Sized the SAME here, rather than leaving the delete button
-   smaller, so every row's own natural height is identical regardless of
+   smaller, so every row's natural height is identical regardless of
    which format is active anywhere in it - a mismatched delete button was
    confirmed directly as the real cause of rows growing specifically when a
    dropdown/color format was in play: CSS Grid stretches every row in a
@@ -1719,7 +2049,7 @@ export default defineComponent({
 
 /* The button itself is now sized the same 26x26 as every other icon button
    in this row (see .data-value-row .v-btn.v-btn--icon above) - only the
-   icon GLYPH inside needs its own bigger override, since the blanket
+   icon GLYPH inside needs its bigger override, since the blanket
    16px font-size above still reads too small for this one's "D"/"B"/"H"/
    etc letters (see FORMAT_ICONS). */
 .data-value-row .v-btn.v-btn--icon.data-format-toggle-btn >>> .v-icon {

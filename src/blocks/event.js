@@ -1,10 +1,10 @@
 import * as Blockly from 'blockly/core';
 import {COMMENT_ICON, GAMEOVER_ICON, GAME_ICON, START_ICON, SYSTEM_ICON, TITLE_ICON, UPDATE_ICON} from './icon';
 
-// Distinct from every other block colour in the app (see blocks/*.js's own
+// Distinct from every other block colour in the app (see blocks/*.js's
 // palette: purple, red, blue, background's orange, score's orange-red,
 // data's brown, text's brown, sound's magenta, sprites' teal, and this
-// category's own existing rgb(39, 176, 176) teal) - plain (non-blue) grey
+// category's  existing rgb(39, 176, 176) teal) - plain (non-blue) grey
 // reads as neutral/inert, fitting for a block that has no effect on the
 // compiled program at all, unlike every other block, which actually does
 // something.
@@ -16,10 +16,10 @@ const EVENT_OPTIONS = [
   [`${TITLE_ICON} ${UPDATE_ICON} Title screen update`, `title_update`],
   [`${GAME_ICON} ${START_ICON} Gameplay start`, `gameplay_start`],
   // Deliberately NOT a real, separately-relocatable event the way the other
-  // five are - see Blockly.BBasic.finish's own comment in bbasic.js. Plain
+  // five are - see Blockly.BBasic.finish's  comment in bbasic.js. Plain
   // top-level blocks (no event wrapper at all) already run every frame
   // during gameplay; this is purely an explicit, organized way to write
-  // that same code, for symmetry with Title/Gameover's own Start+Update
+  // that same code, for symmetry with Title/Gameover's  Start+Update
   // pairs.
   [`${GAME_ICON} ${UPDATE_ICON} Gameplay update`, `gameplay_update`],
   [`${GAMEOVER_ICON} ${START_ICON} Gameover start`, `gameover_start`],

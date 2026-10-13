@@ -52,6 +52,23 @@ Blockly.defineBlocksWithJsonArray([
     'colour': SCORE_COLOR,
     'extensions': ['math_change_tooltip'],
   },
+  // Block for choosing which of the two score fonts is drawn.
+  {
+    'type': `score_font_set`,
+    'message0': `${SCORE_ICON} Score set font to %1`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'FONT',
+        'options': [['primary', 'primary'], ['secondary', 'secondary']],
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Switches the score digits to the primary or the secondary font chosen on the Score tab, at once. ` +
+      `Does nothing without a secondary font.`,
+  },
   // Block for the color getter.
   {
     'type': `score_color_get`,
@@ -75,14 +92,14 @@ Blockly.defineBlocksWithJsonArray([
     'colour': SCORE_COLOR,
     'tooltip': `Updates the score's color`,
   },
-  // Block for fading the score's color - same mechanism as Background's own
-  // "Fade color to" (see blocks/background.js's own fade var-name helpers
+  // Block for fading the score's color - same mechanism as Background's
+  // "Fade color to" (see blocks/background.js's  fade var-name helpers
   // and generateBackgroundFadeChecks in generators/bbasic/background.js,
   // both now generalized past just COLUBK/COLUPF), just always targeting
   // scorecolor rather than offering a register choice - there's only one
   // possible score color register. Fire-and-forget, same as Background's
-  // own version: triggering this once keeps the color stepping toward the
-  // target every frame afterward on its own.
+  // version: triggering this once keeps the color stepping toward the
+  // target every frame afterward by itself.
   {
     'type': `score_fade_to`,
     'message0': `${SCORE_ICON} Fade Score ${COLOR_ICON} color to %1 over %2 frames`,
@@ -108,8 +125,8 @@ Blockly.defineBlocksWithJsonArray([
   },
   // Block for the background color setter - only takes effect when the
   // project also uses the Text Minikernel (see generators/bbasic/score.js's
-  // own generator): the standard score bar has no runtime-settable
-  // background color at all, only the Text Minikernel's own "minikernel"
+  // generator): the standard score bar has no runtime-settable
+  // background color at all, only the Text Minikernel's "minikernel"
   // subroutine reads scorebkcolor.
   {
     'type': `score_bk_color_set`,
@@ -356,7 +373,7 @@ Blockly.defineBlocksWithJsonArray([
 ]);
 
 // Works exactly like background_fade_finished (see blocks/background.js's
-// own comment - same shared bit/flag machinery, same "fires once, regardless
+// comment - same shared bit/flag machinery, same "fires once, regardless
 // of fade direction, never late" behavior), just always targeting
 // scorecolor rather than offering a register choice - same reasoning as
 // score_fade_to above: there's only one possible score color register.
@@ -369,6 +386,6 @@ Blockly.Blocks['score_fade_finished'] = {
     this.setNextStatement(true);
     this.setColour(SCORE_COLOR);
     this.setTooltip('Runs the connected blocks once, the moment a matching "Fade Score color" block ' +
-      'reaches its own target color. Does nothing if no matching fade ever runs anywhere in the project.');
+      'reaches its target color. Does nothing if no matching fade ever runs anywhere in the project.');
   },
 };

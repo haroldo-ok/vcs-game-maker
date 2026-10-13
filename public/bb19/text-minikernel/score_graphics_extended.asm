@@ -19,6 +19,10 @@ scorelength = (LENDEC+LENHEX+LENSPACE+LENDOLLAR+LENPOUND+LENMRHAPPY+LENMRSAD+LEN
        ORG $8FE4-scorelength-bscode_length
        RORG $FFE4-scorelength-bscode_length
      endif
+     if bankswitch == 64
+       ORG  $10FD0-scorelength-bscode_length
+       RORG $1FFD0-scorelength-bscode_length
+     endif
    else
      ORG $FFEC-scorelength
    endif
@@ -2917,6 +2921,10 @@ scoretableend
      if bankswitch == 32
        ORG $8FF4-bscode_length
        RORG $FFF4-bscode_length
+     endif
+     if bankswitch == 64
+       ORG  $10FE0-bscode_length
+       RORG $1FFE0-bscode_length
      endif
    else
      ORG $FFFC

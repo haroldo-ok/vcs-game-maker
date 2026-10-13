@@ -7,16 +7,16 @@ import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 // Matches text12b.asm's TextPointersLoop, which always reads exactly 12
 // bytes starting at TextIndex, unconditionally - a hard hardware ceiling
 // baked into that hand-tuned, cycle-counted routine, not something this app
-// can raise. Every message's own STORED row is still exactly this wide
-// regardless of the project's own configured max display width below (a
+// can raise. Every message's  STORED row is still exactly this wide
+// regardless of the project's  configured max display width below (a
 // narrower setting only blanks out the unused tail, it never shrinks
 // storage - see encodeTextMessage in generators/bbasic/text-minikernel.js).
 export const TEXT_MESSAGE_LENGTH = 12;
 
 // A hard per-card cap on raw typed length (before word-wrap/justify), not
-// just a recommendation - the Text Minikernel's own static "data text_strings"
+// just a recommendation - the Text Minikernel's  static "data text_strings"
 // table (see getStaticMessageLayout in generators/bbasic/text-minikernel-
-// layout.js) packs every card's own row offset into a single BYTE (0-255)
+// layout.js) packs every card's  row offset into a single BYTE (0-255)
 // throughout the generator/asm chain, so the table as a whole can never
 // exceed 256 bytes - a real assembler failure ("Value must be <$100") once
 // it does, confirmed directly against a real project. 240 characters (20
@@ -28,23 +28,23 @@ export const TEXT_MESSAGE_LENGTH = 12;
 // paragraph into a visible, enforced limit instead.
 export const TEXT_CARD_MAX_LENGTH = 240;
 
-// How many of TEXT_MESSAGE_LENGTH's own 12 positions a project actually
+// How many of TEXT_MESSAGE_LENGTH's  12 positions a project actually
 // wants to USE at once - a project-wide, compile-time-only setting (see
-// TextEditor.vue's own dropdown), never runtime-adjustable: letting it
-// change at runtime would mean a message's own padding/justification could
+// TextEditor.vue's  dropdown), never runtime-adjustable: letting it
+// change at runtime would mean a message's  padding/justification could
 // no longer be baked in at compile time the way it is now, and would need
 // an extra RAM scratch buffer + per-display reformatting instead of
 // reading straight from ROM - real added cost for a feature nobody asked
 // for once "just clip statically" covered the actual need. Positions from
 // this value up to TEXT_MESSAGE_LENGTH-1 are always left blank, in every
-// message, regardless of that message's own justify setting - "only the
+// message, regardless of that message's  justify setting - "only the
 // first N slots are ever used" applies literally, not just to where the
 // text happens to sit within them.
 export const TEXT_MAX_DISPLAY_WIDTH_OPTIONS =
   Array.from({length: TEXT_MESSAGE_LENGTH}, (_, i) => i + 1);
 export const DEFAULT_TEXT_MAX_DISPLAY_WIDTH = TEXT_MESSAGE_LENGTH;
 
-// How a message's own padding (see encodeTextMessage in
+// How a message's  padding (see encodeTextMessage in
 // generators/bbasic/text-minikernel.js) is split across the 12-character
 // row - 'left' (all padding on the right, the original/default behavior),
 // 'center' (padding split across both sides), or 'right' (all padding on
@@ -107,11 +107,11 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
   }
   // Entries saved before Justify existed won't have it yet - including ones
   // saved with the short-lived boolean "Center" checkbox this replaced,
-  // which never shipped as a release so isn't worth its own migration path.
+  // which never shipped as a release so isn't worth its  migration path.
   textStrings.textStrings.forEach((entry) => {
     if (!TEXT_JUSTIFY_OPTIONS.includes(entry.justify)) entry.justify = DEFAULT_TEXT_JUSTIFY;
     // Entries saved before "Wrap to line 2" existed won't have this field -
-    // defaults to off, matching every message's own pre-existing single-row
+    // defaults to off, matching every message's  pre-existing single-row
     // behavior exactly (see encodeTextMessageLines in
     // generators/bbasic/text-minikernel.js). Vue.set, not a plain
     // assignment: `entry` here is very often the SAME object useLocalStorage
@@ -119,7 +119,7 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
     // ref) from an EXISTING saved project's JSON, which never had this key
     // at all - Vue 2's reactivity can't detect a brand new property added to
     // an already-observed object via plain assignment (the classic "Vue
-    // cannot detect property addition" caveat), so TextEditor.vue's own
+    // cannot detect property addition" caveat), so TextEditor.vue's
     // ":counter" binding (which reads entry.wrapToLine2) silently never
     // updated on toggle - confirmed as a real reported bug ("it should
     // update the character count without selecting another text card").
@@ -157,12 +157,12 @@ export const findTextStringById = (id) => {
   }
 };
 
-// Every stored text string, sorted by its own permanent id - NOT the order
-// shown on the Text tab (see TextEditor.vue's own drag-reorder, which only
+// Every stored text string, sorted by its  permanent id - NOT the order
+// shown on the Text tab (see TextEditor.vue's  drag-reorder, which only
 // ever touches display order, reading state.textStrings directly rather
 // than through this function). "Show text with ID"'s runtime number counts
 // positions in THIS id-sorted order (see generators/bbasic/
-// text-minikernel.js, both for the compiled data table's own row order and
+// text-minikernel.js, both for the compiled data table's  row order and
 // namedMessagePosition's lookup), so a raw compile-time reference
 // (dropdown) and a runtime one (a variable holding a typed-in number)
 // always agree on which message a given position means, and neither one
