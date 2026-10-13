@@ -3,19 +3,27 @@
 ; Adapted from the Titlescreen Kernel 1.8's own examples/ex5-player_and_
 ; playfield/titlescreen/asm/player_kernel.asm. Only change from the
 ; original: the setup-phase REFP0/REFP1/NUSIZ0/NUSIZ1 overrides (which
-; unconditionally reset those registers from bmp_player0_refp/bmp_player0_
-; nusiz/etc every call) were removed - VCS Game Maker's own "Player 0/1 set
-; width/quantity"/"horizontal flip" blocks (Actions tab) already write
-; those exact same registers, and this minikernel is meant to draw whatever
-; the game already configured there rather than silently reset it back to
-; "normal size, no flip" every frame. This is safe to remove without
-; affecting the routine's own cycle-exact timing below - it's plain
-; sequential setup code that runs once per call, well before the real
-; per-scanline WSYNC loop begins.
+; reset those registers from bmp_player0_refp/bmp_player0_nusiz/etc every
+; call) now take the width/quantity the game set with the "Player 0/1 set
+; width/quantity" block (player0size/player1size, one copy by default),
+; instead of a fixed value, since the bitmap kernels above leave the
+; registers on "three copies". The horizontal flip blocks (Actions tab)
+; write REFP0/REFP1 themselves. This does not affect the routine's
+; cycle-exact timing below - it's plain sequential setup code that runs
+; once per call, well before the real per-scanline WSYNC loop begins.
 
 draw_player_display
 
 	jsr TSpositionp0p1
+
+	; The bitmap kernels leave NUSIZ0/NUSIZ1 on "three copies", so the sprites would show up
+	; repeated. Put back what the game set with "Player 0/1 set width/quantity" (one copy unless
+	; it chose otherwise); the top bit of player0size is only a flag of the title screen loop,
+	; and NUSIZ ignores it.
+	lda player0size
+	sta NUSIZ0
+	lda player1size
+	sta NUSIZ1
 
 save_variables
 	lda player0y

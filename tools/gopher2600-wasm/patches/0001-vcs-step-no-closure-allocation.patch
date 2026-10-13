@@ -1,0 +1,122 @@
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/step.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/step.go
+index 3bd5c47..83a783f 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/step.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/step.go
+@@ -15,14 +15,13 @@
+ 
+ package hardware
+ 
+-func nullCallback(_ bool) error {
+-	return nil
+-}
+-
+ // Step the emulator state one CPU instruction
+ func (vcs *VCS) Step(colorClockCallback func(isCycle bool) error) error {
+-	if colorClockCallback == nil {
+-		colorClockCallback = nullCallback
++	// a nil callback is simply not called (it used to be replaced with a function that
++	// did nothing, which was still called three times every CPU cycle)
++	vcs.stepCallback = colorClockCallback
++	if vcs.stepCycle == nil {
++		vcs.stepCycle = vcs.cycle
+ 	}
+ 
+ 	// the cycle function defines the order of operation for the rest of
+@@ -56,45 +55,52 @@ func (vcs *VCS) Step(colorClockCallback func(isCycle bool) error) error {
+ 	// I don't believe any visual or audible artefacts of the VCS (undocumented
+ 	// or not) rely on the details of the CPU-TIA relationship.
+ 	//
+-	// at the end of the cycle() function the cycleCallback() function is called
+-	cycle := func() error {
+-		if err := vcs.Input.Handle(); err != nil {
+-			return err
+-		}
++	err := vcs.CPU.ExecuteInstruction(vcs.stepCycle)
++	if err != nil {
++		return err
++	}
++
++	return nil
++}
+ 
+-		vcs.TIA.QuickStep(1)
+-		if err := colorClockCallback(false); err != nil {
++// cycle is the function Step() passes to the CPU, described in Step(). It is a method
++// (not a closure built inside Step) so no allocation is needed for each instruction.
++func (vcs *VCS) cycle() error {
++	if err := vcs.Input.Handle(); err != nil {
++		return err
++	}
++
++	vcs.TIA.QuickStep(1)
++	if callback := vcs.stepCallback; callback != nil {
++		if err := callback(false); err != nil {
+ 			return err
+ 		}
++	}
+ 
+-		vcs.TIA.QuickStep(2)
+-		if err := colorClockCallback(false); err != nil {
++	vcs.TIA.QuickStep(2)
++	if callback := vcs.stepCallback; callback != nil {
++		if err := callback(false); err != nil {
+ 			return err
+ 		}
++	}
+ 
+-		if reg, ok := vcs.Mem.TIA.ChipHasChanged(); ok {
+-			vcs.TIA.Step(reg, 3)
+-		} else {
+-			vcs.TIA.QuickStep(3)
+-		}
+-		if reg, ok := vcs.Mem.RIOT.ChipHasChanged(); ok {
+-			vcs.RIOT.Step(reg)
+-		} else {
+-			vcs.RIOT.QuickStep()
+-		}
++	if reg, ok := vcs.Mem.TIA.ChipHasChanged(); ok {
++		vcs.TIA.Step(reg, 3)
++	} else {
++		vcs.TIA.QuickStep(3)
++	}
++	if reg, ok := vcs.Mem.RIOT.ChipHasChanged(); ok {
++		vcs.RIOT.Step(reg)
++	} else {
++		vcs.RIOT.QuickStep()
++	}
+ 
+-		vcs.Mem.Cart.Step(vcs.Clock)
++	vcs.Mem.Cart.Step(vcs.Clock)
+ 
+-		if err := colorClockCallback(true); err != nil {
++	if callback := vcs.stepCallback; callback != nil {
++		if err := callback(true); err != nil {
+ 			return err
+ 		}
+-
+-		return nil
+-	}
+-
+-	err := vcs.CPU.ExecuteInstruction(cycle)
+-	if err != nil {
+-		return err
+ 	}
+ 
+ 	return nil
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/vcs.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/vcs.go
+index 56fad9e..d075b96 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/vcs.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/vcs.go
+@@ -69,6 +69,12 @@ type VCS struct {
+ 	// television detects a change in the TV signal it will notify the emulated
+ 	// console, allowing it to note the new implied clock speed.
+ 	Clock float32
++
++	// VCS GAME MAKER: the per-cycle function Step() hands to the CPU and the callback it
++	// calls each color clock. Step() used to build a new closure on every call, which
++	// escaped to the heap: one allocation per CPU instruction (about 6,700 per frame).
++	stepCallback func(isCycle bool) error
++	stepCycle    func() error
+ }
+ 
+ // NewVCS creates a new VCS and everything associated with the hardware. It is

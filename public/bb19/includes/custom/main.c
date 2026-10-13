@@ -143,6 +143,7 @@ int count;
 //int temp3;
 int temp4;
 int temp5;
+int temp6;
 unsigned int mask;
 
  // masking: NUSIZ bit 7=off/on, NUSIZ 6=L/R
@@ -156,6 +157,10 @@ const unsigned char maskdata[32]=
          0x7F,0x3F,0x1F,0x0F,0x07,0x03,0x01,0
           };
 
+#ifdef DPC_AUDIO
+// Where the sound engine's waveforms are in the ROM (set by function 44).
+const unsigned char *dpcwaves;
+#endif
 char spritesort[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0};
 char myGfxIndex[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0};
 
@@ -293,6 +298,7 @@ void on_off_flip(unsigned int loc, unsigned int fnmask)
   }
 }
 
+
 // main() is what gets called when you store 0xFF into DPC+ register CALLFUNCTION in your 6507 code.
 int main()
 {
@@ -304,7 +310,7 @@ int main()
   int temp3;
   int Gfxindex;
   unsigned char *HMdiv=(unsigned char *)(0xc00+0x1000);
-  const unsigned char setbyte[32]=
+  static const unsigned char setbyte[32]=
 	{0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
 	 0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,
 	 0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
@@ -393,6 +399,57 @@ int main()
       return;
     }
 
+#ifdef DPC_AUDIO
+    case 44: // sound engine waveforms: C_function1 / C_function2 = where they are in the ROM, as the sprite pointers are
+    {        // (low byte, then the high byte with the bank in its upper bits). 8 waveforms of 32 samples (0 to 15), two to a
+             // byte, the first in the low nibble.
+      dpcwaves=flashdata+(C_function2<<8)+C_function1;
+      return;
+    }
+    case 48: // waveform rebuild: C_function1 = RAM slot of the voice (display RAM address / 32), C_function2 = waveform number * 16
+    {        // + height. Writes the 32 samples of the waveform scaled to the height (a sample * height / 15, rounded), the first
+             // two bytes carrying the waveform and the height in their high nibbles.
+      unsigned char *dst=(unsigned char *)queue+((C_function1&0x7f)<<5);
+      const unsigned char *src=dpcwaves+((C_function2>>4)<<4);
+      unsigned int height=C_function2&15;
+      unsigned int k;
+      for (k=0;k<32;++k)
+      {
+        unsigned int value=((((src[k>>1]>>((k&1)<<2))&15)*height*17+134)>>8);
+        if (k<2) value|=(k==0)?(C_function2&0xF0):(height<<4);
+        dst[k]=value;
+      }
+      return;
+    }
+    case 52: // sound engine volume mix: C_function1 to 3 = the volumes (0 to 15) of up to three voices. When they add up to more
+    {        // than the 15 the chip's output has, each is scaled down by 15 over the total (a voice that sounds keeps at least 1);
+             // the results are written back to C_function1 to 3.
+      unsigned int total=C_function1+C_function2+C_function3;
+      unsigned int k;
+      if (total>15)
+      {
+        for (k=1;k<4;++k)
+        {
+          unsigned int rest=C_function[k]*15;
+          unsigned int share=0;
+          for (;rest>=total;++share) rest-=total;
+          C_function[k]=(share==0 && C_function[k]!=0)?1:share;
+        }
+      }
+      return;
+    }
+#endif
+#ifdef DPC_MATH
+    case 40: // div8: C_function1 / C_function2 back in C_function[3]. A divisor under 2 gives the numerator
+    {        // unchanged, as the 6502's "jsr div8" does.
+      unsigned int rest=C_function1;
+      unsigned int share=0;
+      if (C_function2>1) for (;rest>=C_function2;++share) rest-=C_function2; else share=rest;
+      C_function[3]=share;
+      return;
+    }
+#endif
+
   default: // everything else
    break;
   }
@@ -433,6 +490,7 @@ int main()
   RIOT[spritedisplay]=temp3;
   // fetcher setup
   //my_memset(queue+(dfhigh(3)<<8)+dflow(3),0,192);
+  mask=0xFF; // the ones in bss start as whatever the RAM held, which showed in the first frame's player0
   my_memset(queue+get32bitdf(3),0,192);
 
   //my_memset(queue+(dfhigh(1)<<8)+dflow(1),RIOT[COLUM1],192); // clear multiplexed sprites and fill colors

@@ -203,6 +203,21 @@ adjustloop2
 
 
      ;set score pointers
+     ; vcs-game-maker: the Score tab's "5 score digits" switch drops the leftmost digit of the score: each digit moves one place to the
+     ; left, and the kernel leaves the sixth place blank, so the five digits sit where the left five of six would, centered.
+     ifconst score5digits
+     lax score+2
+     jsr scorepointerset
+     sty scorepointers+2
+     stx scorepointers+4
+     lax score+1
+     jsr scorepointerset
+     sty scorepointers+1
+     stx scorepointers+3
+     lax score
+     jsr scorepointerset
+     sty scorepointers
+     else
      lax score+2
      jsr scorepointerset
      sty scorepointers+5
@@ -215,6 +230,7 @@ adjustloop2
      jsr scorepointerset
      sty scorepointers+3
      stx scorepointers
+     endif
 
 vblk
      ; run possible vblank bB code
@@ -236,12 +252,20 @@ scorepointerset
      asl
      asl
      asl
-     adc #<scoretable
+     ifconst scorefonts
+         adc scorefontlow
+     else
+         adc #<scoretable
+     endif
      tay 
      txa
      ; and #$F0
      ; lsr
      asr #$F0
-     adc #<scoretable
+     ifconst scorefonts
+         adc scorefontlow
+     else
+         adc #<scoretable
+     endif
      tax
      rts

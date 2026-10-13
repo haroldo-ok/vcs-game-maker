@@ -4,13 +4,13 @@ import Vue from 'vue';
 import * as Blockly from 'blockly/core';
 
 import {useSoundEffectsStorage} from '../hooks/project';
-import {CHANNEL_OPTIONS} from './sound';
+import {channelOptions} from './sound';
 import {SOUND_ICON} from './icon';
 
 const SOUND_COLOR = 'rgb(156, 39, 176)';
 
 // How often the arpeggio flips pitch, as a note division relative to the
-// song/pattern's own tempo (matching DURATION_SUBDIVISION_OPTIONS' style in
+// song/pattern's  tempo (matching DURATION_SUBDIVISION_OPTIONS' style in
 // blocks/music.js) - e.g. 8 means "flip every 1/8 step", so the arpeggio
 // speeds up and slows down with the song instead of staying a fixed frame
 // count. Converted to an actual frame count (and clamped to the 4-bit
@@ -20,7 +20,7 @@ const SOUND_COLOR = 'rgb(156, 39, 176)';
 export const ARPEGGIO_DIVISION_OPTIONS = [1, 2, 4, 8, 16, 32];
 export const DEFAULT_ARPEGGIO_DIVISION = 8;
 
-// Default fixed AUDF bump between the note's own pitch and the "other"
+// Default fixed AUDF bump between the note's  pitch and the "other"
 // arpeggio pitch.
 export const DEFAULT_ARPEGGIO_INTERVAL = 3;
 // Must fit in the 3 spare bits alongside the real AUDF value (see
@@ -32,7 +32,7 @@ export const MAX_ARPEGGIO_INTERVAL = 7;
 // Shape + range of the arpeggio pattern, like an old-style synth
 // arpeggiator's range setting - see ARPEGGIO_PHASE_SEQUENCES in
 // generators/bbasic/music.js for the exact note order each one plays:
-// - UP/DOWN 1 OCT: the note's own pitch and pitch+interval, in ascending or
+// - UP/DOWN 1 OCT: the note's  pitch and pitch+interval, in ascending or
 //   descending order.
 // - UP/DOWN 2 OCT: that same two-note pattern, then repeats it one octave
 //   up or down (pitch halved/doubled, since AUDF is a frequency divisor).
@@ -47,7 +47,7 @@ export const ARPEGGIO_RANGE_UP_DOWN_2_OCT = 5;
 export const DEFAULT_ARPEGGIO_RANGE = ARPEGGIO_RANGE_UP_1_OCT;
 // Display order only - the stored value (see ARPEGGIO_RANGE_* above) is
 // what generators/bbasic/music.js and utils/music-playback.js actually key
-// off of (an index into their own ARPEGGIO_PHASE_SEQUENCES), so reordering
+// off of (an index into their  ARPEGGIO_PHASE_SEQUENCES), so reordering
 // this list doesn't require touching either of them.
 export const ARPEGGIO_RANGE_OPTIONS = [
   ['UP 2 OCT', ARPEGGIO_RANGE_UP_2_OCT],
@@ -65,18 +65,25 @@ export const ARPEGGIO_RANGE_OPTIONS = [
 // instant attack, no decay, hold, then release - see utils/envelope.js's
 // buildEnvelopeCurve, which now covers both shapes).
 //
-// Attack/Decay/Release are frame counts; Sustain is a LEVEL (percent of
-// this sound's own peak volume), not a duration - see utils/envelope.js's
-// own comment for why. Small, fixed dropdown option sets (not free-typed
-// numbers) are deliberate, same reasoning the old fade-length dropdowns
-// already established: keeps the total number of DISTINCT envelope shapes
-// a project can generate small, which keeps the compiled ROM's own
-// per-config data tables small too (see generateEnvelopeChecks in
+// Attack/Decay/Release are frame counts; Decay End and Release Start are
+// LEVELS (percent of this sound's peak volume), not durations - see
+// utils/envelope.js's comment for why. There's deliberately no single
+// "sustain level" field: Decay End is where Decay bottoms out (and Sustain
+// starts from), Release Start is where Sustain ends (and Release starts
+// from) - previously these were the same one value, always held flat for
+// Sustain's whole length, which made it impossible for Release to start
+// any higher than wherever Sustain had settled (a real reported request:
+// "increase the volume at the release point above the volume set for
+// sustain"). Small, fixed dropdown option sets (not free-typed numbers) are
+// deliberate, same reasoning the old fade-length dropdowns already
+// established: keeps the total number of DISTINCT envelope shapes a
+// project can generate small, which keeps the compiled ROM's per-config
+// data tables small too (see generateEnvelopeChecks in
 // generators/bbasic/soundfx.js).
 export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16];
 // Attack/Release specifically (not Decay, which stays on the smaller set
 // above) get a wider range up to 32 frames - confirmed with the user: only
-// those two needed expanding, not Decay. Each stage's own table cost (see
+// those two needed expanding, not Decay. Each stage's  table cost (see
 // buildEnvelopeConfigTables in generators/bbasic/soundfx.js) is still just
 // one ROM byte per frame of that specific stage, so this only makes an
 // envelope that actually USES a longer attack/release slightly bigger, not
@@ -85,8 +92,39 @@ export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32];
 export const DEFAULT_ENVELOPE_ATTACK = 0;
 export const DEFAULT_ENVELOPE_DECAY = 0;
 export const DEFAULT_ENVELOPE_RELEASE = 4;
-export const ENVELOPE_SUSTAIN_PERCENT_OPTIONS = [0, 25, 50, 75, 100];
-export const DEFAULT_ENVELOPE_SUSTAIN_PERCENT = 100;
+// Shared by both Decay End and Release Start (see the class-level comment
+// above) - same option set/default the old single Sustain level field used,
+// so a preset that never touches either new field still sounds the same as
+// it did under the old flat-Sustain model (Decay End === Release Start ===
+// 100% by default, same as Sustain defaulting to 100% used to be).
+export const ENVELOPE_VOLUME_PERCENT_OPTIONS = [0, 25, 50, 75, 100];
+export const DEFAULT_ENVELOPE_VOLUME_PERCENT = 100;
+// How many frames the Sustain ramp itself lasts - same small-fixed-dropdown
+// reasoning as every other stage above, same range as Attack/Release (see
+// ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS' comment). Release now always
+// starts immediately after Sustain ends (see clampEnvelopeStages/
+// buildEnvelopeCurve in utils/envelope.js) rather than always ending exactly
+// on the sound/note's last frame the way it used to when Sustain had no
+// length - a real reported request ("I should be able to shorten
+// the sustain to 0"), which wasn't actually possible before this existed:
+// Sustain used to just be "however long is left," with no way to make that
+// zero regardless of how short Attack/Decay/Release were set. Defaults to
+// the max option (32) so an existing preset saved before this field existed
+// (see its migration clamp below) keeps sounding close to its old
+// "holds until Release" behavior rather than suddenly cutting off early.
+export const ENVELOPE_SUSTAIN_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32];
+export const DEFAULT_ENVELOPE_SUSTAIN_FRAMES = 32;
+
+// Only meaningful once a note actually overlaps another note on the same
+// channel - see canPlaceNoteAt in MusicEditor.vue, which lets any
+// instrument, tunable or noise, land on top of another track's note
+// sharing the same channel. Ties (equal priority) still fall back to plain
+// timing - whichever note starts later wins, same as before this existed -
+// so this only needs to matter when a project actually wants one specific
+// instrument (e.g. a kick) to never lose to another (e.g. a hi-hat)
+// regardless of which one lands later in a pattern.
+export const NOISE_PRIORITY_OPTIONS = [1, 2, 3, 4, 5];
+export const DEFAULT_NOISE_PRIORITY = 1;
 
 export const DEFAULT_SOUND_EFFECTS = {
   soundEffects: [
@@ -100,7 +138,9 @@ export const DEFAULT_SOUND_EFFECTS = {
       envelope: false,
       envelopeAttack: DEFAULT_ENVELOPE_ATTACK,
       envelopeDecay: DEFAULT_ENVELOPE_DECAY,
-      envelopeSustain: DEFAULT_ENVELOPE_SUSTAIN_PERCENT,
+      envelopeDecayEnd: DEFAULT_ENVELOPE_VOLUME_PERCENT,
+      envelopeReleaseStart: DEFAULT_ENVELOPE_VOLUME_PERCENT,
+      envelopeSustainLength: DEFAULT_ENVELOPE_SUSTAIN_FRAMES,
       envelopeRelease: DEFAULT_ENVELOPE_RELEASE,
       // Only used for this preset's notes on the Music tab (see
       // generators/bbasic/music.js) - always on for every note played with
@@ -112,17 +152,22 @@ export const DEFAULT_SOUND_EFFECTS = {
       arpeggioDivision: DEFAULT_ARPEGGIO_DIVISION,
       arpeggioInterval: DEFAULT_ARPEGGIO_INTERVAL,
       arpeggioRange: DEFAULT_ARPEGGIO_RANGE,
+      // See NOISE_PRIORITY_OPTIONS' comment.
+      priority: DEFAULT_NOISE_PRIORITY,
       // A TIA color byte (utils/palette.js's index<<1 convention), or null
       // for "auto-assigned" - see utils/instrument-colors.js. Used by the
       // Music tab to color this sound's notes in the piano roll.
       color: null,
-      // Purely a display tag for the Sound tab's own "show all/instruments/
-      // sounds" filter (see SoundFXEditor.vue) - every sound effect preset
-      // is already usable BOTH as a soundfx_play trigger and as a Music tab
-      // instrument regardless of this flag, so it doesn't gate or change
-      // anything else. Defaults false (a plain "sound effect") since that's
-      // what every preset already was before this existed.
+      // A display tag for the Sound tab's "show all/instruments/sounds"
+      // filter (see SoundFXEditor.vue), but also the actual gate on the
+      // Music tab's Instrument dropdown (see MusicEditor.vue's
+      // soundEffectOptions, which only lists isInstrument sounds there).
+      // The default sound starts as a plain sound effect; clicking its
+      // icon on the Sound tab makes it an instrument.
       isInstrument: false,
+      // A percussion sound (a drum hit): on the Music tab it plays from the Hit row at the pitch set here, never from
+      // the piano keys. A sound is a sound effect, an instrument or percussion, never two of them.
+      isPercussion: false,
     },
   ],
 };
@@ -137,12 +182,12 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     soundEffect.arpeggio = !!soundEffect.arpeggio;
     // Vue.set (not a plain assignment) for every envelope* field below -
     // soundEffectsStorage is a Vue ref whose reactivity was already set up
-    // (once, at load time - see hooks/storage.js's own ref(readInitial())
+    // (once, at load time - see hooks/storage.js's  ref(readInitial())
     // comment) from whatever plain JSON was in localStorage. A preset saved
     // before this feature existed simply never HAD an "envelope" key at
     // that point, so a plain "soundEffect.envelope = ..." assignment here
     // creates an ordinary, non-reactive property - Vue never defined a
-    // getter/setter for a key that didn't exist during its own initial
+    // getter/setter for a key that didn't exist during its  initial
     // walk. Confirmed as a real reported bug this way: the Envelope switch/
     // dropdowns/graph all silently stopped updating the view (toggling
     // Arpeggio - an OLD, already-reactive field - incidentally forced a
@@ -150,7 +195,7 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     // untracked values, and closing/reopening the card did the same via a
     // full remount). Vue.set defines the missing property properly instead,
     // exactly like $set is already used for the same reason elsewhere in
-    // this app (see DataEditor.vue's own instance.proxy.$set calls).
+    // this app (see DataEditor.vue's  instance.proxy.$set calls).
     Vue.set(soundEffect, 'envelope', !!soundEffect.envelope);
     // Presets saved before this existed (or before it replaced the old
     // single-stage Fade) won't have these yet - same Number() coercion as
@@ -171,10 +216,30 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     } else {
       Vue.set(soundEffect, 'envelopeRelease', Number(soundEffect.envelopeRelease));
     }
-    if (!ENVELOPE_SUSTAIN_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeSustain))) {
-      Vue.set(soundEffect, 'envelopeSustain', DEFAULT_ENVELOPE_SUSTAIN_PERCENT);
+    // Presets saved before Decay End/Release Start replaced the old single
+    // Sustain level won't have either new field yet, but WILL still have
+    // its old envelopeSustain value - used as both new fields' fallback
+    // (instead of DEFAULT_ENVELOPE_VOLUME_PERCENT) so an old project
+    // imports sounding the same as it did under the old flat-Sustain model,
+    // rather than silently resetting to 100% regardless of what it was
+    // actually set to.
+    const legacySustain = Number(soundEffect.envelopeSustain);
+    const legacySustainFallback = ENVELOPE_VOLUME_PERCENT_OPTIONS.includes(legacySustain) ?
+      legacySustain : DEFAULT_ENVELOPE_VOLUME_PERCENT;
+    if (!ENVELOPE_VOLUME_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeDecayEnd))) {
+      Vue.set(soundEffect, 'envelopeDecayEnd', legacySustainFallback);
     } else {
-      Vue.set(soundEffect, 'envelopeSustain', Number(soundEffect.envelopeSustain));
+      Vue.set(soundEffect, 'envelopeDecayEnd', Number(soundEffect.envelopeDecayEnd));
+    }
+    if (!ENVELOPE_VOLUME_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeReleaseStart))) {
+      Vue.set(soundEffect, 'envelopeReleaseStart', legacySustainFallback);
+    } else {
+      Vue.set(soundEffect, 'envelopeReleaseStart', Number(soundEffect.envelopeReleaseStart));
+    }
+    if (!ENVELOPE_SUSTAIN_FRAME_OPTIONS.includes(Number(soundEffect.envelopeSustainLength))) {
+      Vue.set(soundEffect, 'envelopeSustainLength', DEFAULT_ENVELOPE_SUSTAIN_FRAMES);
+    } else {
+      Vue.set(soundEffect, 'envelopeSustainLength', Number(soundEffect.envelopeSustainLength));
     }
     if (!ARPEGGIO_DIVISION_OPTIONS.includes(Number(soundEffect.arpeggioDivision))) {
       soundEffect.arpeggioDivision = DEFAULT_ARPEGGIO_DIVISION;
@@ -194,9 +259,15 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     soundEffect.arpeggioRange = ARPEGGIO_RANGE_OPTIONS.some(([, value]) => value === range) ?
       range : DEFAULT_ARPEGGIO_RANGE;
     // Presets saved before this existed won't have it yet - defaults false
-    // (a plain "sound effect"), matching every preset's own behavior before
+    // (a plain "sound effect"), matching every preset's  behavior before
     // this tag existed.
-    soundEffect.isInstrument = !!soundEffect.isInstrument;
+    soundEffect.isPercussion = !!soundEffect.isPercussion;
+    soundEffect.isInstrument = !!soundEffect.isInstrument && !soundEffect.isPercussion;
+    // Same Number() coercion as arpeggioRange above, for the same v-select
+    // quirk. A preset saved before Priority existed at all falls back to
+    // the default.
+    const priority = Number(soundEffect.priority);
+    soundEffect.priority = NOISE_PRIORITY_OPTIONS.includes(priority) ? priority : DEFAULT_NOISE_PRIORITY;
   });
   return soundEffects;
 };
@@ -236,7 +307,7 @@ Blockly.Blocks['soundfx_play'] = {
         .appendField(`${SOUND_ICON} Play sound effect`)
         .appendField(new Blockly.FieldDropdown(buildSoundEffectOptions), 'SOUNDFX')
         .appendField('on')
-        .appendField(new Blockly.FieldDropdown(CHANNEL_OPTIONS), 'CHANNEL');
+        .appendField(new Blockly.FieldDropdown(() => channelOptions()), 'CHANNEL');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(SOUND_COLOR);

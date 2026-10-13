@@ -32,10 +32,10 @@ Blockly.Blocks['math_number'] = {
   },
 };
 
-// Override the built-in arithmetic block to add batari Basic's own real
+// Override the built-in arithmetic block to add batari Basic's  real
 // bitwise operators (AND/OR/XOR - "&"/"|"/"^", confirmed against the real
 // command reference) alongside the stock +/-/×/÷/^ options. Hand-written
-// JSON (matching Blockly's own stock math_arithmetic definition, just with
+// JSON (matching Blockly's  stock math_arithmetic definition, just with
 // three extra OPERATOR options and plain ASCII symbols instead of the
 // stock block's %{BKY_...} localized ones - this app has no localization
 // elsewhere either) rather than patching the registered block after the
@@ -43,8 +43,8 @@ Blockly.Blocks['math_number'] = {
 // is used, not just after some other code path happens to touch it.
 // "math_op_tooltip" is the SAME extension the stock block already uses
 // (see node_modules/blockly/blocks/math.js) - it reads
-// Blockly.Constants.Math.TOOLTIPS_BY_OP for each OP value's own tooltip,
-// so the three new ops get their own entries added to that same shared
+// Blockly.Constants.Math.TOOLTIPS_BY_OP for each OP value's  tooltip,
+// so the three new ops get their  entries added to that same shared
 // map below, rather than needing a whole new extension.
 Blockly.Blocks['math_arithmetic'] = {
   init: function() {
@@ -103,10 +103,59 @@ Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_BITXOR'] =
   'Bitwise XOR: each bit of the result is 1 where the two numbers\' bits DIFFER.';
 Blockly.Msg['MATH_ARITHMETIC_TOOLTIP_MODULO'] =
   'Modulo: the remainder left over after dividing the first number by the second.';
-Blockly.Constants.Math.TOOLTIPS_BY_OP['BITAND'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITAND}';
-Blockly.Constants.Math.TOOLTIPS_BY_OP['BITOR'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITOR}';
-Blockly.Constants.Math.TOOLTIPS_BY_OP['BITXOR'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITXOR}';
-Blockly.Constants.Math.TOOLTIPS_BY_OP['MODULO'] = '%{BKY_MATH_ARITHMETIC_TOOLTIP_MODULO}';
+
+// Blockly 8 made the stock math blocks' TOOLTIPS_BY_OP table (node_
+// modules/blockly/blocks/math.js) a local, unexported closure const -
+// Blockly.Constants.Math (the namespace this used to mutate directly) no
+// longer exists at all, and there's no way to reach that specific object
+// reference from outside that module to mutate it in place either. The
+// 'math_op_tooltip' extension built from it is still just an ordinary
+// named Blockly.Extensions entry, though, so the fix is to replace the
+// WHOLE extension rather than the table it closed over: unregister the
+// stock one, then re-register the same name against a fresh table built
+// from a copy of the stock entries (so every existing block keeps the
+// correct tooltip) plus this app's 4 extra bitwise/modulo ones. Every block
+// that used the stock extension (math_arithmetic/math_single/math_trig/
+// math_on_list) looks it up by this same name at RENDER time, not at
+// registration time, so replacing it here - before any of those blocks
+// have rendered yet, since this module runs during this app's blocks/
+// index.js import pass - affects all of them identically to the original.
+const STOCK_MATH_TOOLTIPS_BY_OP = {
+  'ADD': '%{BKY_MATH_ARITHMETIC_TOOLTIP_ADD}',
+  'MINUS': '%{BKY_MATH_ARITHMETIC_TOOLTIP_MINUS}',
+  'MULTIPLY': '%{BKY_MATH_ARITHMETIC_TOOLTIP_MULTIPLY}',
+  'DIVIDE': '%{BKY_MATH_ARITHMETIC_TOOLTIP_DIVIDE}',
+  'POWER': '%{BKY_MATH_ARITHMETIC_TOOLTIP_POWER}',
+  'ROOT': '%{BKY_MATH_SINGLE_TOOLTIP_ROOT}',
+  'ABS': '%{BKY_MATH_SINGLE_TOOLTIP_ABS}',
+  'NEG': '%{BKY_MATH_SINGLE_TOOLTIP_NEG}',
+  'LN': '%{BKY_MATH_SINGLE_TOOLTIP_LN}',
+  'LOG10': '%{BKY_MATH_SINGLE_TOOLTIP_LOG10}',
+  'EXP': '%{BKY_MATH_SINGLE_TOOLTIP_EXP}',
+  'POW10': '%{BKY_MATH_SINGLE_TOOLTIP_POW10}',
+  'SIN': '%{BKY_MATH_TRIG_TOOLTIP_SIN}',
+  'COS': '%{BKY_MATH_TRIG_TOOLTIP_COS}',
+  'TAN': '%{BKY_MATH_TRIG_TOOLTIP_TAN}',
+  'ASIN': '%{BKY_MATH_TRIG_TOOLTIP_ASIN}',
+  'ACOS': '%{BKY_MATH_TRIG_TOOLTIP_ACOS}',
+  'ATAN': '%{BKY_MATH_TRIG_TOOLTIP_ATAN}',
+  'SUM': '%{BKY_MATH_ONLIST_TOOLTIP_SUM}',
+  'MIN': '%{BKY_MATH_ONLIST_TOOLTIP_MIN}',
+  'MAX': '%{BKY_MATH_ONLIST_TOOLTIP_MAX}',
+  'AVERAGE': '%{BKY_MATH_ONLIST_TOOLTIP_AVERAGE}',
+  'MEDIAN': '%{BKY_MATH_ONLIST_TOOLTIP_MEDIAN}',
+  'MODE': '%{BKY_MATH_ONLIST_TOOLTIP_MODE}',
+  'STD_DEV': '%{BKY_MATH_ONLIST_TOOLTIP_STD_DEV}',
+  'RANDOM': '%{BKY_MATH_ONLIST_TOOLTIP_RANDOM}',
+};
+Blockly.Extensions.unregister('math_op_tooltip');
+Blockly.Extensions.register('math_op_tooltip', Blockly.Extensions.buildTooltipForDropdown('OP', {
+  ...STOCK_MATH_TOOLTIPS_BY_OP,
+  'BITAND': '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITAND}',
+  'BITOR': '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITOR}',
+  'BITXOR': '%{BKY_MATH_ARITHMETIC_TOOLTIP_BITXOR}',
+  'MODULO': '%{BKY_MATH_ARITHMETIC_TOOLTIP_MODULO}',
+}));
 
 // Real, working absolute value: a statement (not a nested expression) since
 // making a negative unsigned byte (its top bit set, i.e. 128-255 in two's

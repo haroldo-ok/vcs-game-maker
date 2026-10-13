@@ -1,7 +1,7 @@
 'use strict';
 
 export default (Blockly) => {
-  // The variable dropdown mixes the user's own variables, which are listed by
+  // The variable dropdown mixes the user's  variables, which are listed by
   // id, with built-in batari Basic names, which are listed literally.
   const resolveVariable = (block) => {
     const value = block.getFieldValue('VAR');

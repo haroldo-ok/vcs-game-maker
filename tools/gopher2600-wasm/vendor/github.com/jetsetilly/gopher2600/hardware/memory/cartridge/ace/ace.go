@@ -1,0 +1,297 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+package ace
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/jetsetilly/gopher2600/coprocessor"
+	"github.com/jetsetilly/gopher2600/environment"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/mapper"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/mapper/banking"
+	"github.com/jetsetilly/gopher2600/hardware/memory/memorymap"
+	"github.com/jetsetilly/gopher2600/logger"
+)
+
+// Ace implements the mapper.CartMapper interface.
+type Ace struct {
+	env *environment.Environment
+
+	arm *arm.ARM
+	mem *aceMemory
+
+	// the hook that handles cartridge yields
+	yieldHook coprocessor.CartYieldHook
+
+	// armState is a copy of the ARM's state at the moment of the most recent
+	// Snapshot. it's used only during a Plumb() operation
+	armState *arm.ARMState
+}
+
+// NewAce is the preferred method of initialisation for the Ace type.
+func NewAce(env *environment.Environment) (mapper.CartMapper, error) {
+	cart := &Ace{
+		env:       env,
+		yieldHook: coprocessor.StubCartYieldHook{},
+	}
+
+	data, err := io.ReadAll(env.Loader)
+	if err != nil {
+		return nil, fmt.Errorf("ACE: %w", err)
+	}
+
+	cart.mem, err = newAceMemory(env, data, cart.env.Prefs.Cartridge.ARM)
+	if err != nil {
+		return nil, err
+	}
+
+	cart.arm = arm.NewARM(cart.env, cart.mem.model, cart.mem, cart)
+	cart.arm.CycleDuringImmediateMode(true)
+	cart.mem.Plumb(cart.arm)
+
+	logger.Logf(env, "ACE", "ccm: %08x to %08x", cart.mem.ccmOrigin, cart.mem.ccmMemtop)
+	logger.Logf(env, "ACE", "flash: %08x to %08x", cart.mem.flashOrigin, cart.mem.flashMemtop)
+	logger.Logf(env, "ACE", "buffer: %08x to %08x", cart.mem.sramOrigin, cart.mem.sramMemtop)
+	logger.Logf(env, "ACE", "gpio: %08x to %08x", cart.mem.gpioOrigin, cart.mem.gpioMemtop)
+
+	return cart, nil
+}
+
+// Reset implements the mapper.CartMapper interface.
+func (cart *Ace) Reset() error {
+	// reset probably not needed but we'll do it anyway
+	cart.env.Loader.Reset()
+
+	data, err := io.ReadAll(cart.env.Loader)
+	if err != nil {
+		return fmt.Errorf("ACE: %w", err)
+	}
+
+	cart.mem, err = newAceMemory(cart.env, data, cart.env.Prefs.Cartridge.ARM)
+	if err != nil {
+		return fmt.Errorf("ACE: %w", err)
+	}
+
+	cart.arm.Reset()
+	armState := cart.arm.Snapshot()
+	cart.arm.Plumb(cart.env, armState, cart.mem, cart)
+	cart.mem.Plumb(cart.arm)
+
+	return nil
+}
+
+// MappedBanks implements the mapper.CartMapper interface.
+func (cart *Ace) MappedBanks() string {
+	return ""
+}
+
+// ID implements the mapper.CartMapper interface.
+func (cart *Ace) ID() string {
+	return fmt.Sprintf("ACE (%s)", cart.mem.header.version)
+}
+
+// Snapshot implements the mapper.CartMapper interface.
+func (cart *Ace) Snapshot() mapper.CartMapper {
+	n := *cart
+
+	// taking a snapshot of ARM state via the ARM itself can cause havoc if
+	// this instance of the cart is not current (because the ARM pointer itself
+	// may be stale or pointing to another emulation)
+	if cart.armState == nil {
+		n.armState = cart.arm.Snapshot()
+	} else {
+		n.armState = cart.armState.Snapshot()
+	}
+
+	n.mem = cart.mem.Snapshot()
+	return &n
+}
+
+// Plumb implements the mapper.CartMapper interface.
+func (cart *Ace) PlumbFromDifferentEmulation(env *environment.Environment) {
+	cart.env = env
+	if cart.armState == nil {
+		panic("cannot plumb this ACE instance because the ARM state is nil")
+	}
+	cart.arm = arm.NewARM(cart.env, cart.mem.model, cart.mem, cart)
+	cart.mem.Plumb(cart.arm)
+	cart.arm.Plumb(cart.env, cart.armState, cart.mem, cart)
+	cart.armState = nil
+	cart.yieldHook = coprocessor.StubCartYieldHook{}
+}
+
+// Plumb implements the mapper.CartMapper interface.
+func (cart *Ace) Plumb(env *environment.Environment) {
+	cart.env = env
+	if cart.armState == nil {
+		panic("cannot plumb this ELF instance because the ARM state is nil")
+	}
+	cart.mem.Plumb(cart.arm)
+	cart.arm.Plumb(cart.env, cart.armState, cart.mem, cart)
+	cart.armState = nil
+}
+
+// Access implements the mapper.CartMapper interface.
+func (cart *Ace) Access(addr uint16, _ bool) (uint8, uint8, error) {
+	return cart.mem.gpio[DATA_ODR-cart.mem.gpioOrigin], mapper.CartDrivenPins, nil
+}
+
+// AccessVolatile implements the mapper.CartMapper interface.
+func (cart *Ace) AccessVolatile(addr uint16, data uint8, _ bool) error {
+	return nil
+}
+
+// NumBanks implements the mapper.CartMapper interface.
+func (cart *Ace) NumBanks() int {
+	return 1
+}
+
+// GetBank implements the mapper.CartMapper interface.
+func (cart *Ace) GetBank(_ uint16) banking.Information {
+	return banking.Information{
+		Sequential:            true,
+		Number:                0,
+		IsRAM:                 false,
+		ExecutingCoprocessor:  cart.mem.parallelARM,
+		CoprocessorResumeAddr: 0xf000,
+	}
+}
+
+func (cart *Ace) runARM() bool {
+	// start profiling before the run sequence
+	cart.arm.StartProfiling()
+	defer cart.arm.ProcessProfiling()
+
+	// call arm once and then check for yield conditions
+	var cycles float32
+	cart.mem.yield, cycles = cart.arm.Run()
+	cart.mem.cycles += cycles
+
+	// keep calling runArm() for as long as program does not need to sync with the VCS
+	for cart.mem.yield.Type != coprocessor.YieldSyncWithVCS {
+		// the ARM should never return YieldProgramEnded. if it does then it is
+		// an error and we should yield with YieldExecutionError
+		if cart.mem.yield.Type == coprocessor.YieldProgramEnded {
+			cart.mem.yield.Type = coprocessor.YieldExecutionError
+			cart.mem.yield.Error = fmt.Errorf("ACE does not support ProgramEnded yield type")
+		}
+
+		// treat infinite loops like a YieldSyncWithVCS
+		if cart.mem.yield.Type == coprocessor.YieldInfiniteLoop {
+			return true
+		}
+
+		switch cart.yieldHook.CartYield(cart.mem.yield) {
+		case coprocessor.YieldHookEnd:
+			cart.mem.armInterruptCt = maxArmInterrupCt
+			return false
+		case coprocessor.YieldHookContinue:
+			cart.mem.yield, cycles = cart.arm.Run()
+			cart.mem.cycles += cycles
+		}
+	}
+	return true
+}
+
+// AccessPassive implements the mapper.CartMapper interface.
+func (cart *Ace) AccessPassive(addr uint16, data uint8) error {
+	// if memory access is not a cartridge address (ie. a TIA or RIOT address)
+	// then the ARM is running in parallel (ie. no synchronisation)
+	cart.mem.parallelARM = (addr&memorymap.OriginCart != memorymap.OriginCart)
+
+	// set data first and continue once. this seems to be necessary to allow
+	// the PlusROM exit routine to work correctly
+	cart.mem.gpio[DATA_IDR-cart.mem.gpioOrigin] = data
+	if cart.runARM() {
+		// set address for ARM program
+		cart.mem.gpio[ADDR_IDR-cart.mem.gpioOrigin] = uint8(addr)
+		cart.mem.gpio[ADDR_IDR-cart.mem.gpioOrigin+1] = uint8(addr >> 8)
+
+		// continue and wait for the sixth YieldSyncWithVCS...
+		for cart.mem.armInterruptCt < maxArmInterrupCt {
+			if !cart.runARM() {
+				break // for loop
+			}
+		}
+		cart.mem.armInterruptCt = 0
+	}
+
+	return nil
+}
+
+// Step implements the mapper.CartMapper interface.
+func (cart *Ace) Step(clock float32) {
+	if cart.mem.cycles > 0 {
+		cart.mem.cycles -= float32(cart.env.Prefs.Cartridge.ARM.Clock.Get().(float64)) / clock
+	} else {
+		cart.arm.Step(clock)
+	}
+}
+
+// CopyBanks implements the mapper.CartMapper interface.
+func (cart *Ace) CopyBanks() []banking.Content {
+	c := make([]banking.Content, 1)
+	c[0] = banking.Content{Number: 0,
+		Data:    cart.mem.sram,
+		Origins: []uint16{memorymap.OriginCartFxxx},
+	}
+	return c
+}
+
+// implements arm.CartridgeHook interface.
+func (cart *Ace) ARMinterrupt(addr uint32, val1 uint32, val2 uint32) (arm.ARMinterruptReturn, error) {
+	return arm.ARMinterruptReturn{}, nil
+}
+
+// BusStuff implements the mapper.CartBusStuff interface.
+func (cart *Ace) BusStuff() (uint8, bool) {
+	if cart.mem.isDataModeOut() {
+		cart.mem.gpio[DATA_MODER-cart.mem.gpioOrigin] = 0x00
+		cart.mem.gpio[DATA_MODER-cart.mem.gpioOrigin+1] = 0x00
+		return cart.mem.gpio[DATA_ODR-cart.mem.gpioOrigin], true
+	}
+	return 0, false
+}
+
+func (cart *Ace) ExecutableOrigin() uint32 {
+	return cart.mem.resetPC
+}
+
+// CoProcExecutionState implements the coprocessor.CartCoProcBus interface.
+func (cart *Ace) CoProcExecutionState() coprocessor.CoProcExecutionState {
+	if cart.mem.parallelARM {
+		return coprocessor.CoProcExecutionState{
+			Sync:  coprocessor.CoProcParallel,
+			Yield: cart.mem.yield,
+		}
+	}
+	return coprocessor.CoProcExecutionState{
+		Sync:  coprocessor.CoProcStrongARMFeed,
+		Yield: cart.mem.yield,
+	}
+}
+
+// CoProcRegister implements the coprocessor.CartCoProcBus interface.
+func (cart *Ace) GetCoProc() coprocessor.CartCoProc {
+	return cart.arm
+}
+
+// SetYieldHook implements the coprocessor.CartCoProcBus interface.
+func (cart *Ace) SetYieldHook(hook coprocessor.CartYieldHook) {
+	cart.yieldHook = hook
+}

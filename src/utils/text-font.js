@@ -4,21 +4,21 @@ import {useTextFontStorage} from '../hooks/project';
 
 // Every glyph the Text Minikernel can draw is a fixed 4-pixel-wide, 5-row
 // -tall shape (confirmed directly against public/bb19/text-minikernel/
-// text12b.asm's own left_text/right_text tables: each row is stored as one
+// text12b.asm's  left_text/right_text tables: each row is stored as one
 // byte with only its high nibble - left_text - or low nibble - right_text -
 // ever set, the other 4 bits always 0). The kernel draws two adjacent
 // half-width characters per GRP0/GRP1 write by ORing a "left" glyph's
 // left_text byte with a "right" glyph's right_text byte together - see
-// buildTextFontOverride's own comment below for exactly how that's
+// buildTextFontOverride's  comment below for exactly how that's
 // reconstructed from a single 4x5 pixel matrix per glyph.
 export const TEXT_GLYPH_WIDTH = 4;
 export const TEXT_GLYPH_HEIGHT = 5;
 
-// The exact order glyph labels appear in text12b.asm's own left_text table -
+// The exact order glyph labels appear in text12b.asm's  left_text table -
 // confirmed directly against the vendored file. This is the REAL on-disk
 // byte layout (glyph N's 5 bytes start at offset N*TEXT_GLYPH_HEIGHT within
 // text_data), not just a display convenience, so buildTextFontOverride can
-// safely walk both the pristine file's own .byte lines and this app's own
+// safely walk both the pristine file's .byte lines and this app's
 // stored glyph array in lockstep.
 const GLYPH_LABEL_ORDER = [
   '__A', '__B', '__C', '__D', '__E', '__F', '__G', '__H', '__I', '__J', '__K', '__L', '__M',
@@ -28,7 +28,7 @@ const GLYPH_LABEL_ORDER = [
 ];
 
 // Maps each glyph label back to the character it represents, purely for the
-// editor's own display labels - reusing CHAR_TO_GLYPH (blocks/text-strings.js,
+// editor's  display labels - reusing CHAR_TO_GLYPH (blocks/text-strings.js,
 // the same map encodeTextMessage itself reads) as the single source of truth
 // for that association, rather than a second, independently-typed char list
 // that could quietly drift out of sync with it.
@@ -38,16 +38,16 @@ const GLYPH_TO_CHAR = Object.fromEntries(
 export const TEXT_GLYPH_ORDER = GLYPH_LABEL_ORDER.map((label) => ({label, char: GLYPH_TO_CHAR[label] || label}));
 // 51 - exactly fills the 255 bytes (51 * 5) a single 8-bit glyph index can
 // address at all (see TextPointersLoop/showtextrow in text12b.asm - the
-// index is the glyph's own raw byte offset into text_data, capped at 255).
+// index is the glyph's  raw byte offset into text_data, capped at 255).
 // This is a firm hardware ceiling, not a chosen limit: there is no spare
 // room for a 52nd glyph without changing the addressing scheme entirely, so
 // this editor only ever lets these 51 be REDRAWN, never adds a new one.
 export const TEXT_GLYPH_COUNT = TEXT_GLYPH_ORDER.length;
 
-// Anchors used to locate the pristine file's own left_text/right_text
+// Anchors used to locate the pristine file's  left_text/right_text
 // sections (see buildTextFontOverride below) - 'text_data\n\nleft_text' is
 // unique to the real table label (plain "left_text,x" - with a comma -
-// appears many times earlier, in the kernel's own drawing code, so a bare
+// appears many times earlier, in the kernel's  drawing code, so a bare
 // "left_text" search would land on the wrong, much earlier occurrence).
 // 'text_data_height' only appears once as an actual label (a second,
 // harmless use as an operand - "if >. != >[.+text_data_height]" - comes
@@ -62,7 +62,7 @@ const LEFT_TABLE_ANCHOR_RE = /text_data\r?\n\r?\nleft_text/;
 const HEIGHT_LABEL = 'text_data_height';
 const RIGHT_TABLE_LABEL = 'right_text';
 
-// Returns the index right at "left_text" itself (just past the anchor's own
+// Returns the index right at "left_text" itself (just past the anchor's
 // "text_data\n\n" prefix), or -1 if the pristine file isn't shaped as
 // expected.
 const findLeftTextStart = (text12b) => {
@@ -72,9 +72,9 @@ const findLeftTextStart = (text12b) => {
 
 const BYTE_LINE_RE = /\.byte\s+%[01]{8}/g;
 
-// Parses one section's own sequence of ".byte %XXXXXXXX" lines, in order,
+// Parses one section's  sequence of ".byte %XXXXXXXX" lines, in order,
 // into an array of 8-char bit strings - used both to read the pristine
-// file's own default glyphs (getDefaultTextFont) and (indirectly, via
+// file's  default glyphs (getDefaultTextFont) and (indirectly, via
 // replaceByteValues below) to rewrite them.
 const parseByteValues = (section) => [...section.matchAll(BYTE_LINE_RE)].map((m) => m[0].match(/[01]{8}/)[0]);
 
@@ -84,18 +84,18 @@ const parseByteValues = (section) => [...section.matchAll(BYTE_LINE_RE)].map((m)
 // addresses stay byte-for-byte identical to the original; only the pixel
 // VALUES change. This is what lets this override skip the ORG/RORG address
 // juggling buildScoreFontOverride (utils/score-font.js) needs - a glyph's
-// on-disk size never changes (see TEXT_GLYPH_COUNT's own "firm hardware
+// on-disk size never changes (see TEXT_GLYPH_COUNT's "firm hardware
 // ceiling" comment), so there is never a byte count to compensate for.
 const replaceByteValues = (section, values) => {
   let i = 0;
   return section.replace(BYTE_LINE_RE, () => `.byte %${values[i++]}`);
 };
 
-// Splits a section's own flat byte-value array (TEXT_GLYPH_COUNT *
+// Splits a section's  flat byte-value array (TEXT_GLYPH_COUNT *
 // TEXT_GLYPH_HEIGHT long) into one TEXT_GLYPH_HEIGHT x TEXT_GLYPH_WIDTH
-// pixel matrix per glyph - only the byte's own nibble that this glyph
+// pixel matrix per glyph - only the byte's  nibble that this glyph
 // table actually stores data in matters (left_text's high nibble, or
-// right_text's identical low nibble - see this file's own top comment); the
+// right_text's identical low nibble - see this file's  top comment); the
 // other nibble is always zero in the pristine file, and this app never
 // needs to represent it separately at all, since buildTextFontOverride
 // below always re-derives BOTH nibbles fresh from one shared pixel matrix.
@@ -110,8 +110,8 @@ const bytesToGlyphs = (byteValues, nibble) => {
 };
 
 /**
- * The Text Minikernel's own built-in glyph shapes, one 5-row x 4-col pixel
- * matrix per glyph (TEXT_GLYPH_ORDER's own order) - parsed once from the
+ * The Text Minikernel's  built-in glyph shapes, one 5-row x 4-col pixel
+ * matrix per glyph (TEXT_GLYPH_ORDER's  order) - parsed once from the
  * real pristine text12b.asm rather than hand-transcribed, so this can never
  * drift out of sync with whatever the vendored file actually ships.
  * @return {!Promise<!Array<!Array<!Array<number>>>>}
@@ -148,15 +148,15 @@ export const processTextFontDefaults = (storage, defaultGlyphs) => {
   return {glyphs};
 };
 
-// The "more below" scroll cursor - text12b.asm's own "textScrollCursor"
-// ifconst block (see generators/bbasic.js's own textScrollCursorConfigurationCode)
+// The "more below" scroll cursor - text12b.asm's "textScrollCursor"
+// ifconst block (see generators/bbasic.js's  textScrollCursorConfigurationCode)
 // draws this next to whichever row is currently the last one on screen, only
 // when there's more of the message left to scroll to. Unlike the 51 real
 // glyphs above, this ISN'T part of the indexed text_data table at all - it's
 // never looked up by a runtime glyph index, just a single fixed shape drawn
 // directly by name - so it isn't limited to the 4-bit-wide, half-nibble
 // shape those need to leave room for OR-ing two characters together (see
-// this file's own top comment). With the WHOLE byte to itself, 2 rows of a
+// this file's  top comment). With the WHOLE byte to itself, 2 rows of a
 // full 4 bits each fits with zero bits left over: 2 * 4 = 8.
 export const TEXT_CURSOR_WIDTH = 4;
 export const TEXT_CURSOR_HEIGHT = 2;
@@ -169,23 +169,23 @@ export const DEFAULT_TEXT_CURSOR = [
 ];
 
 // The "end of message" icon - a plain filled 2x2 square, drawn on GRP1 (its
-// own COLUP1, independent of the up/down arrows' COLUP0 on GRP0) with a
+// COLUP1, independent of the up/down arrows' COLUP0 on GRP0) with a
 // corrective HMOVE (see buildTextScrollCursorOverride) pulling it back in
-// line with the down arrow's own position. Fixed, not user-editable like
+// line with the down arrow's  position. Fixed, not user-editable like
 // the up/down glyph - a much smaller, simpler shape that doesn't need its
-// own Font Editor tile.
+// Font Editor tile.
 export const END_ICON_BYTE = '%11000000';
 
-// The scroll cursor's own blink speed (Text tab's own "Blink speed" field,
+// The scroll cursor's  blink speed (Text tab's "Blink speed" field,
 // shown next to "Show a scroll cursor" only while that's on) - stored
 // directly as the frames-per-phase value, always a power of 2 (see
-// buildTextScrollCursorOverride's own blinkMask param above): framecounter's
+// buildTextScrollCursorOverride's  blinkMask param above): framecounter's
 // bit for that value is ANDed against every frame, toggling every N frames -
 // a HIGHER value means a SLOWER blink (each on/off phase lasts longer). Only
 // powers of 2 are valid - anything else wouldn't correspond to a single
 // framecounter bit at all. "never" is a special case - not a mask at all,
 // it means the cursor never blinks off (see resolveBlinkMask/
-// buildTextScrollCursorOverride's own "no blink check at all" path below) -
+// buildTextScrollCursorOverride's "no blink check at all" path below) -
 // first in the list and the default, since a non-blinking cursor is the
 // simpler, less surprising default behavior.
 export const BLINK_SPEED_OPTIONS = [
@@ -199,7 +199,7 @@ export const BLINK_SPEED_OPTIONS = [
 export const DEFAULT_BLINK_SPEED = 'never';
 
 // Resolves a stored blink-speed value (config.textScrollCursorBlinkSpeed) to
-// its own "$XX" asm literal, or null for "never"/an unset/invalid value
+// its "$XX" asm literal, or null for "never"/an unset/invalid value
 // (e.g. an older saved project from before this field existed) - null tells
 // buildTextScrollCursorOverride to skip the blink check entirely rather than
 // AND against some mask, since "never blink" isn't representable as any
@@ -228,10 +228,10 @@ export const processCursorGlyphDefaults = (storage) => {
 };
 
 /**
- * Packs the cursor's own 2x4 pixel matrix into the single byte
+ * Packs the cursor's  2x4 pixel matrix into the single byte
  * buildTextScrollCursorOverride below splices into text12b.asm as a literal
  * "lda #%XXXXXXXX" - row 0 in the high nibble, row 1 in the low nibble, each
- * the shape's own full 4 bits wide (see TEXT_CURSOR_WIDTH's own comment for
+ * the shape's  full 4 bits wide (see TEXT_CURSOR_WIDTH's  comment for
  * why this doesn't need left_text/right_text's half-nibble reservation).
  * @param {!Array<!Array<number>>} cursor TEXT_CURSOR_HEIGHT x TEXT_CURSOR_WIDTH.
  * @return {string} An assembly "%XXXXXXXX" byte literal.
@@ -244,7 +244,7 @@ export const packCursorGlyphByte = (cursor) => {
 const nibbleBits = (row) => row.map((pixel) => pixel ? '1' : '0').join('');
 
 /**
- * Builds a text12b.asm override with the user's own drawn glyphs spliced
+ * Builds a text12b.asm override with the user's  drawn glyphs spliced
  * into the left_text/right_text tables, for hooks/rom.js to place as a
  * sibling of the compiled source (the same mechanism buildScoreFontOverride
  * in utils/score-font.js already uses for score_graphics.asm). Returns null
@@ -252,9 +252,11 @@ const nibbleBits = (row) => row.map((pixel) => pixel ? '1' : '0').join('');
  * card has ever written to storage), or if the bundled text12b.asm isn't
  * shaped as expected - either way, the caller keeps using the stock,
  * unmodified file.
+ * @param {?string} pristineSource The kernel file to start from, when it is not text12b.asm (DPC+ has a
+ *     single text12DPCplus.asm with the same glyph tables).
  * @return {!Promise<?string>}
  */
-export const buildTextFontOverride = async () => {
+export const buildTextFontOverride = async (pristineSource = null) => {
   let stored;
   try {
     stored = useTextFontStorage().value;
@@ -265,7 +267,7 @@ export const buildTextFontOverride = async () => {
   const glyphs = stored && stored.glyphs;
   if (!Array.isArray(glyphs) || glyphs.length !== TEXT_GLYPH_COUNT) return null;
 
-  const pristine = await getPristineText12b();
+  const pristine = pristineSource || await getPristineText12b();
   const leftStart = findLeftTextStart(pristine);
   const heightAt = leftStart >= 0 ? pristine.indexOf(HEIGHT_LABEL, leftStart) : -1;
   const rightStart = heightAt >= 0 ? pristine.indexOf(RIGHT_TABLE_LABEL, heightAt) : -1;
@@ -278,7 +280,7 @@ export const buildTextFontOverride = async () => {
   // Each glyph's row is a single shared 4-bit pattern - left_text always
   // stores it left-aligned into the byte's high nibble (the low nibble
   // always 0), right_text stores that exact same pattern right-aligned into
-  // the low nibble instead (the high nibble always 0) - see this file's own
+  // the low nibble instead (the high nibble always 0) - see this file's
   // top comment for why the kernel needs both.
   const leftValues = [];
   const rightValues = [];
@@ -298,7 +300,7 @@ export const buildTextFontOverride = async () => {
 };
 
 // A fixed, unique comment text12b.asm itself carries right after
-// "textrowsdone"'s own GRP0/GRP1/NUSIZ0/NUSIZ1/VDELP0/VDELP1 cleanup (see the
+// "textrowsdone"'s  GRP0/GRP1/NUSIZ0/NUSIZ1/VDELP0/VDELP1 cleanup (see the
 // vendored file directly) - the splice point for the "more below" scroll
 // cursor below. Deliberately NOT a bare "left_text"-style anchor - this text
 // only ever appears once, as a plain comment, so a simple indexOf is safe
@@ -306,26 +308,26 @@ export const buildTextFontOverride = async () => {
 // line break the way the glyph table anchors do).
 const SCROLL_CURSOR_ANCHOR = 'vcs-game-maker scroll-cursor hook';
 
-// Same reasoning as SCROLL_CURSOR_ANCHOR above, but for row 2's own color -
-// see its own comment in text12b.asm, right after "gotrow2base".
+// Same reasoning as SCROLL_CURSOR_ANCHOR above, but for row 2's  color -
+// see its  comment in text12b.asm, right after "gotrow2base".
 const ROW2_COLOR_ANCHOR = 'vcs-game-maker row2-color hook';
 
 /**
- * Splices row 2's own color set into text12b.asm, right after its own fixed
+ * Splices row 2's  color set into text12b.asm, right after its  fixed
  * anchor comment (see ROW2_COLOR_ANCHOR above) - a plain "pha/lda <var>/sta
- * COLUP0/sta COLUP1/pla" run right before row 2's own "jsr showtextrow",
+ * COLUP0/sta COLUP1/pla" run right before row 2's "jsr showtextrow",
  * saving/restoring A (row 2's base offset into text_strings, needed
  * untouched by showtextrow) around the color set. Only ever called when row
  * 2 is actually used (see hooks/rom.js) - like buildTextScrollCursorOverride
  * below, there's no separate "customized or not" gate here to return null
  * from.
  * @param {string} text12b Either the pristine file, or an earlier override's
- *     own output - either way, its anchor comment is untouched by that.
+ *     output - either way, its anchor comment is untouched by that.
  * @param {{colorVarName: string}} params colorVarName is
- *     textRow2ColorVarName's own REAL resolved symbol name for this build,
+ *     textRow2ColorVarName's  REAL resolved symbol name for this build,
  *     routed through the ordinary letter/Superchip-var pool (settable via
  *     the "Text: set row 2 color" block) - see buildTextScrollCursorOverride's
- *     own doc comment below for why hooks/rom.js has to resolve this rather
+ *     doc comment below for why hooks/rom.js has to resolve this rather
  *     than a standalone util module doing it.
  * @return {string}
  */
@@ -338,12 +340,12 @@ export const buildTextRow2ColorOverride = (text12b, {colorVarName}) => {
     return text12b;
   }
   // $01 is the "never explicitly set" sentinel (see textRow2ColorVarName's
-  // own comment in generators/bbasic/text-minikernel.js) - real color bytes
+  // comment in generators/bbasic/text-minikernel.js) - real color bytes
   // are always even (colorByteToBBasic masks off bit 0), so $01 can never
   // collide with an actual chosen color. Row 2 then just follows TextColor
   // directly until a "Text: set color" block explicitly targets row 2 (or
   // "both", which still only ever writes TextColor - "both" relies on this
-  // same fallback rather than writing its own copy into row 2's var at
+  // same fallback rather than writing its  copy into row 2's var at
   // all), including tracking any later change to TextColor (a fade, or
   // another row-1/both color set) automatically, the way a real single
   // shared color would.
@@ -363,8 +365,8 @@ export const buildTextRow2ColorOverride = (text12b, {colorVarName}) => {
 };
 
 /**
- * Splices the "more below" scroll cursor's own drawing code into
- * text12b.asm, right after its own fixed anchor comment. Reuses GRP0 on 3
+ * Splices the "more below" scroll cursor's  drawing code into
+ * text12b.asm, right after its  fixed anchor comment. Reuses GRP0 on 3
  * dedicated extra scanlines (a real pixel row, a blank scanline between -
  * matching how every other glyph in this kernel renders in-game - then the
  * second real row), the exact same "player0 is already free here" premise
@@ -373,17 +375,17 @@ export const buildTextRow2ColorOverride = (text12b, {colorVarName}) => {
  * buildTextFontOverride above, there's no separate "customized or not" gate
  * here to return null from.
  *
- * Cycle-exactness (the reason buildTextFontOverride's own glyph edits are
+ * Cycle-exactness (the reason buildTextFontOverride's  glyph edits are
  * pure byte swaps, never touching code) genuinely doesn't matter for this
- * one: every new scanline below is its own fresh WSYNC boundary doing only a
+ * one: every new scanline below is its  fresh WSYNC boundary doing only a
  * handful of cycles' worth of work, with nothing after it depending on a
  * precise cycle count the way the tight, interleaved character-drawing loop
- * above it does - if this "spillover" logic (running before its own first
+ * above it does - if this "spillover" logic (running before its  first
  * WSYNC) takes a little long, the worst case is quietly consuming one more
  * invisible overscan-adjacent cycle window, never misaligned pixels.
  *
  * @param {string} text12b Either the pristine file, or buildTextFontOverride's
- *     own output - either way, its anchor comment is untouched by that.
+ *     output - either way, its anchor comment is untouched by that.
  * @param {{glyphByte: string, linesMaxVarName: string, linesBaseVarName: string,
  *     colorVarName: string, endColorVarName: string, blinkMask: string}}
  *     params glyphByte is a "%XXXXXXXX" literal (see packCursorGlyphByte
@@ -391,20 +393,20 @@ export const buildTextRow2ColorOverride = (text12b, {colorVarName}) => {
  *     arrow (the same shape, drawn with its two rows swapped - a vertical
  *     flip, not a separate glyph). linesMaxVarName/linesBaseVarName/
  *     colorVarName/endColorVarName are _textLinesMax/_textLinesBase/
- *     textScrollCursorColorVarName/textEndIconColorVarName's own REAL
+ *     textScrollCursorColorVarName/textEndIconColorVarName's  REAL
  *     resolved symbol names for this build (routed through the ordinary
  *     letter/Superchip-var pool, never a fixed name - unlike TextIndex/
  *     TextRow2Active/framecounter, which this can reference directly by
- *     their own real, unchanging names) - the caller (hooks/rom.js) resolves
+ *     their  real, unchanging names) - the caller (hooks/rom.js) resolves
  *     these via Blockly.BBasic.nameDB_ right after the same regenerateCode()
  *     call that already resolved them for the real generated source, since a
- *     standalone util module has no live access to that resolver on its own.
+ *     standalone util module has no live access to that resolver by itself.
  *     colorVarName/endColorVarName are settable at runtime via the "Text:
  *     set scroll cursor color"/"Text: set end icon color" blocks, unlike
  *     glyphByte (fixed once compiled, from the Text Minikernel Font card).
- *     colorVarName's own bit 0 additionally doubles as the cursor's runtime
+ *     colorVarName's  bit 0 additionally doubles as the cursor's runtime
  *     show/hide flag ("Text scroll cursor show or hide" block) - see
- *     TEXT_SCROLL_CURSOR_HIDDEN_BIT's own comment in
+ *     TEXT_SCROLL_CURSOR_HIDDEN_BIT's  comment in
  *     generators/bbasic/text-minikernel.js for why that bit was free to
  *     reuse. blinkMask is a "$XX" literal ANDed against framecounter to
  *     decide the blink phase (see BLINK_SPEED_MASKS below) - a single bit of
@@ -437,7 +439,7 @@ export const buildTextScrollCursorOverride = (
   const g = parseByteLiteral(glyphByte);
   const highNibble = g & 0xF0;
   const lowNibble = g & 0x0F;
-  // Row 0: up's own contribution (when shown) is the glyph's low nibble
+  // Row 0: up's  contribution (when shown) is the glyph's low nibble
   // (its stored row 1, for the vertical flip) shifted into the high nibble;
   // down's is the glyph's high nibble either as-is (solo) or shifted into
   // the low nibble (shared, alongside up).
@@ -479,9 +481,9 @@ export const buildTextScrollCursorOverride = (
     '_tsc_after_tables',
     // Down arrow: shown while there's more below to reach with "Scroll text
     // lines down" - _textLinesMax is already the highest value TextIndex
-    // itself can hold (see setTextLinesRangeCode's own
+    // itself can hold (see setTextLinesRangeCode's
     // "lineCount - (wrapToLine2 ? 2 : 1)" formula in generators/bbasic/
-    // text-minikernel.js) - that formula's own "-2" already accounts for
+    // text-minikernel.js) - that formula's "-2" already accounts for
     // row 2 being shown alongside row 1, so a plain TextIndex/_textLinesMax
     // compare works the same whether TextRow2Active is set or not.
     '    ldx #0',
@@ -492,20 +494,20 @@ export const buildTextScrollCursorOverride = (
     '    ldx #1',
     '_tsc_downdecided',
     '    stx scorepointers+0',
-    // Ends the pre-existing tight scanline (shared with textrowsdone's own
+    // Ends the pre-existing tight scanline (shared with textrowsdone's
     // cleanup) right where the original single-arrow version always did -
-    // everything below runs on its own fresh scanlines instead of adding
+    // everything below runs on its  fresh scanlines instead of adding
     // more work here, since this one has no slack to spare (an earlier
     // attempt at extra precompute work here caused real frame-timing
-    // corruption - see this function's own history).
+    // corruption - see this function's  history).
     '    sta WSYNC',
-    // The end icon's own flag - deliberately NOT the same as the down
-    // arrow's own scorepointers+0 (which also blinks off while there's
+    // The end icon's  flag - deliberately NOT the same as the down
+    // arrow's  scorepointers+0 (which also blinks off while there's
     // still more below, same on/off cycle the arrow itself uses) - the end
     // icon needs a steady "is there structurally nothing left" check with
-    // no blink mixed in, or it would flicker on during the down arrow's own
+    // no blink mixed in, or it would flicker on during the down arrow's
     // off phase even with more content still left to scroll to (a real
-    // reported bug). Reuses the carry flag from the down-decision's own
+    // reported bug). Reuses the carry flag from the down-decision's
     // "cmp linesMaxVarName" above (the SAME comparison) instead of redoing
     // it - nothing between there and here touches carry (LDA/AND/branches/
     // LDX/STX/a plain STA WSYNC all leave it alone), so it's still exactly
@@ -530,9 +532,9 @@ export const buildTextScrollCursorOverride = (
     // Both rows' final GRP0 byte is now a single table lookup (see
     // row0Table/row1Table above) instead of a branch tree - just needs a
     // 2-bit index built from the up/down flags: (up << 1) | down, matching
-    // each table's own [neither, down solo, up solo, shared] order. Cheap
+    // each table's [neither, down solo, up solo, shared] order. Cheap
     // enough to compute right here alongside the up-decision, rather than
-    // needing its own dedicated scanline the way the old branchy version
+    // needing its  dedicated scanline the way the old branchy version
     // did. Left in X (not stashed to scratch RAM) - nothing between here and
     // the indexed loads below touches X, and WSYNC itself never touches any
     // CPU register, so it survives the scanline boundary for free.
@@ -543,28 +545,28 @@ export const buildTextScrollCursorOverride = (
     '    sta WSYNC',
     // GRP1 sits ~10 color clocks right of GRP0 by default (RESP1 strobes 3
     // CPU cycles after RESP0, plus a 1-clock difference between HMP0/HMP1's
-    // own original fine-adjust) - an earlier version corrected this with an
+    // original fine-adjust) - an earlier version corrected this with an
     // HMCLR/HMP1/HMOVE sequence, but HMOVE applying any nonzero motion
     // causes a real, unavoidable "comb" glitch (a black patch on that
-    // scanline's left edge). A plain RESP1 re-strobe, on its own dedicated
+    // scanline's left edge). A plain RESP1 re-strobe, on its  dedicated
     // scanline, moves it instead without touching any HM register at all -
     // no glitch, just coarser control (3-pixel/1-CPU-cycle steps, since
     // that's what one fewer cycle of "sleep" before the strobe buys) rather
     // than HMOVE's single-pixel fine adjustment. The exact same cycle offset
     // from a fresh WSYNC always lands on the same physical screen column
     // regardless of which scanline it's on - "sleep 45" here reproduces
-    // roughly the same column minikernel's own original RESP1 strobe did
+    // roughly the same column minikernel's  original RESP1 strobe did
     // (cycle 46 there, see text12a.asm), one cycle (3 pixels) earlier to
     // nudge it left.
     '    sleep 40',
     '    sta RESP1',
     '    sta WSYNC',
     // Runtime show/hide ("Text scroll cursor show or hide" block) - rides in
-    // colorVarName's own otherwise-unused bit 0 (see
-    // TEXT_SCROLL_CURSOR_HIDDEN_BIT's own comment in generators/bbasic/
+    // colorVarName's  otherwise-unused bit 0 (see
+    // TEXT_SCROLL_CURSOR_HIDDEN_BIT's  comment in generators/bbasic/
     // text-minikernel.js) rather than a dedicated var. Forces the table
-    // index (X, still valid from scanline B - see its own comment above) to
-    // 0 ("neither shown") and the end icon's own structural flag
+    // index (X, still valid from scanline B - see its  comment above) to
+    // 0 ("neither shown") and the end icon's  structural flag
     // (scorepointers+5) to 0 too, in one shared check, whenever that bit is
     // set. Cheap on the common "visible" path (just the lda/and/beq below,
     // falling straight through) - only the ldx/stx pair costs anything, and
@@ -579,17 +581,17 @@ export const buildTextScrollCursorOverride = (
     '    stx scorepointers+5',
     '_tsc_visible',
     // Both rows' table lookups (same index, still in X from before - see
-    // its own comment above), the end icon's own byte, and both colors -
+    // its  comment above), the end icon's  byte, and both colors -
     // all still comfortably inside one scanline's budget now that the old
     // branch trees are gone.
     '    lda _tsc_row0_table,x',
     '    sta scorepointers+2',
     '    lda _tsc_row1_table,x',
     '    sta scorepointers+3',
-    // The end icon's own byte (GRP1, shared by both rows - a plain filled
+    // The end icon's  byte (GRP1, shared by both rows - a plain filled
     // square, same shape either row) - shown whenever there's structurally
-    // nothing left below (scorepointers+5 - see its own comment above;
-    // deliberately not the down arrow's own blinking flag).
+    // nothing left below (scorepointers+5 - see its  comment above;
+    // deliberately not the down arrow's  blinking flag).
     '    lda #0',
     '    ldx scorepointers+5',
     '    cpx #0',
@@ -597,8 +599,8 @@ export const buildTextScrollCursorOverride = (
     `    lda #${END_ICON_BYTE}`,
     '_tsc_endzero',
     '    sta scorepointers+4',
-    // The cursor's own color ("Text: set scroll cursor color" block) and
-    // the end icon's own ("Text: set end icon color") - COLUP0/COLUP1 stay
+    // The cursor's  color ("Text: set scroll cursor color" block) and
+    // the end icon's ("Text: set end icon color") - COLUP0/COLUP1 stay
     // put across scanlines until something else writes them, so setting
     // them here (rather than on the draw scanlines themselves) costs
     // nothing extra there.
@@ -609,7 +611,7 @@ export const buildTextScrollCursorOverride = (
     '    sta WSYNC',
     // Row 0 draw: plain bare loads/stores, same fast timing the original
     // single-arrow version always used - no HMOVE needed (see this
-    // function's own history for why GRP1 is left at its natural position).
+    // function's  history for why GRP1 is left at its natural position).
     '    lda scorepointers+2',
     '    sta GRP0',
     '    lda scorepointers+4',
@@ -628,9 +630,9 @@ export const buildTextScrollCursorOverride = (
     // else clears them before whatever draws next (e.g. a top-of-screen
     // status area also using GRP0/GRP1), so without this it can smear the
     // cursor's leftover pixels into that unrelated drawing until the next
-    // frame's own gameplay code re-establishes them from scratch. Needs its
-    // own fresh WSYNC first - without one, this zero-write happens on the
-    // very same scanline as row 1's own draw above, stomping it before the
+    // frame's  gameplay code re-establishes them from scratch. Needs its
+    // fresh WSYNC first - without one, this zero-write happens on the
+    // very same scanline as row 1's  draw above, stomping it before the
     // beam even finishes sweeping across that line (row 1 never actually
     // became visible - only row 0 did).
     '    sta WSYNC',

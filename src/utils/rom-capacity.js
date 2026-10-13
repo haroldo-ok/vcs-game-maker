@@ -36,11 +36,18 @@ const countTrailingFree = (bin, bankStart, boundaryOffset) => {
 
 // bank1: free space in the single bank that always holds the project's main
 // per-frame body (see generators/bbasic.js's RELOCATABLE_EVENT_NAMES) - the
-// number that matters for "is my unrelocatable content getting tight".
+// number that matters for "is my unrelocatable content getting tight". Keyed
+// by primaryBankIndex (0-based physical bank index, default 0 = the first
+// physical bank) rather than hardcoded to perBank[0] - DPC+ moves that
+// unrelocatable body into physical bank 2 instead (see
+// generateDpcPlusBankPreamble's own comment in generators/bbasic.js: DPC+'s
+// own header/score-table/startup/kernel driver already consume nearly all of
+// physical bank 1 before this project's own code ever starts), so callers
+// pass primaryBankIndex 1 there - see hooks/rom.js's own primaryBankIndexFor.
 // total: the same measurement summed across every bank the compiled binary
 // actually has - grows with ROM size, reflecting genuine total capacity
 // (including banks the automatic allocator hasn't put anything in yet).
-export const computeRomCapacity = ({output, symbolmap}) => {
+export const computeRomCapacity = ({output, symbolmap}, primaryBankIndex) => {
   const bin = output;
   const scoretable = symbolmap['scoretable'];
   if (scoretable == null) return null;
@@ -56,7 +63,7 @@ export const computeRomCapacity = ({output, symbolmap}) => {
   }
 
   return {
-    bank1: perBank[0],
+    bank1: perBank[primaryBankIndex || 0],
     perBank,
     total: {
       freeBytes: perBank.reduce((sum, b) => sum + b.freeBytes, 0),

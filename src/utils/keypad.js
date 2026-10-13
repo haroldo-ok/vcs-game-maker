@@ -1,4 +1,4 @@
-// Shared between generators/bbasic.js's own pre-scan (which reserves the
+// Shared between generators/bbasic.js's  pre-scan (which reserves the
 // dev var) and generators/bbasic/input.js's getter generators (which read
 // it back) - both sides have to resolve the exact same canonical name
 // through Blockly.BBasic.nameDB_.getName for a project's "Keypad N: key X

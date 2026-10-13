@@ -8,8 +8,8 @@
 ; compiled source, the same flat-sibling layout the Text Minikernel's own
 ; text12a.asm/text12b.asm already use (see hooks/rom.js). The player/
 ; score/gameselect minikernels from the original kernel aren't wired in
-; here - only the 48x1/48x2/96x2 bitmap kernels and "space" are currently
-; supported.
+; here - only the 48x1/48x2/96x2 bitmap kernels and "space" are
+; currently supported.
  include "layoutmacros.asm"
  include "dpcfix.asm"
  include "titlescreen_layout.asm"

@@ -1,17 +1,48 @@
 <template>
-  <v-card flat>
+  <v-card flat class="editor-container">
     <v-card-title>Score</v-card-title>
-    <v-card-text>
-      <v-select
-        v-model="selectedFont"
-        :items="scoreFontOptions"
-        label="Score font"
-      />
+    <v-card-text class="tab-intro-section">
+      <p class="v-messages theme--light v-messages__message scorefont-intro-paragraph">
+        The score display shown at the bottom of the screen - set its value with "Score set to"
+        or "Score change by" (Actions tab), and its color with the Score category's color
+        blocks. Pick a built-in digit font below, or draw a custom one.
+      </p>
+
+      <div class="score-font-row">
+        <v-select
+          v-model="selectedFont"
+          :items="scoreFontOptions"
+          label="Primary score font"
+          class="score-font-select"
+        />
+        <v-select
+          v-model="secondaryFont"
+          :items="secondaryFontOptions"
+          label="Secondary score font"
+          :disabled="secondaryUnavailable"
+          class="score-font-select"
+        />
+        <v-select
+          v-model="scorePaddingLines"
+          :items="[0, 1, 2]"
+          label="Add score padding"
+          title="How many extra scanlines of the score row's background color to draw right after the score digits finish, before whatever draws next."
+          hide-details
+          class="score-padding-field"
+        />
+      </div>
+      <div v-if="secondaryActive" class="score-font-role-row">
+        <v-btn-toggle v-model="editingRole" mandatory dense>
+          <v-btn small value="primary" title="Draw the primary font below">Edit primary</v-btn>
+          <v-btn small value="secondary" title="Draw the secondary font below">Edit secondary</v-btn>
+        </v-btn-toggle>
+      </div>
       <div class="score-bkcolor-row">
         <color-swatch-picker
           :value="scoreBkColorSwatchValue"
           :fallback-color="backgroundPreviewColor"
           clear-label="Use background color"
+          square
           title="Click to set the score row's background color"
           @input="(byte) => (scoreBkColor = byte === null ? 'background' : byte)"
         />
@@ -23,46 +54,50 @@
           hide-details
           class="score-fade-switch"
         />
+        <v-switch
+          v-model="fiveScoreDigits"
+          label="5 score digits"
+          title="Draws the score with 5 digits instead of 6: the standard and DPC+ kernels, and the Text Minikernel's score digits, leave the leftmost digit out (a score of up to 99999 shows in full), centered."
+          hide-details
+          class="score-fade-switch"
+        />
       </div>
-      <p v-if="isEditableFontSelected" class="v-messages theme--light v-messages__message">
-        Draw the ten score digits below. They are used when the score font is
-        set to <strong>Custom</strong> or <strong>Squish Custom</strong>.
+      <p class="v-messages theme--light v-messages__message">
+        Draw the score digits below. Every font can be redrawn: what you draw is kept for the
+        selected font only{{ fontIsEdited ? ' (this one has been edited)' : '' }}, and "{{ resetLabel }}"
+        brings back its original digits.
       </p>
-      <p v-else class="v-messages theme--light v-messages__message">
-        Set the score font to <strong>Custom</strong> or <strong>Squish Custom</strong> above to draw custom
-        digits - {{ selectedFont ? 'the selected preset' : 'Default' }} is a fixed, built-in font with nothing
-        to edit here.
-      </p>
-      <template v-if="isEditableFontSelected">
+      <template>
         <div class="score-extras-row">
           <v-switch
-            v-if="showExtraGlyphs"
             v-model="extraGlyphsEnabled"
             label="Use extra glyphs (10-15)"
-            hint="Costs 48 extra bytes of ROM space."
+            :hint="secondaryActive ? 'Not available while a secondary score font is set.' :
+              'Costs 48 extra bytes of ROM space.'"
+            :disabled="secondaryActive"
             persistent-hint
             class="option-switch"
           />
-          <v-select
-            v-model="scorePaddingLines"
-            :items="[0, 1, 2]"
-            label="Add score padding"
-            title="How many extra scanlines of the score row's background color to draw right after the score digits finish, before whatever draws next."
-            hide-details
-            class="score-padding-field"
-          />
         </div>
-        <editor-zoom v-model="zoom" class="score-editor-zoom" />
-        <div class="digit-list">
+        <graphic-editor-toolbar class="score-editor-toolbar-row" :active-editor="activeEditor">
+          <template v-slot:before-tools>
+            <editor-zoom v-model="zoom" class="score-editor-zoom" />
+            <pixel-grid-toggle v-model="showPixelGrid" />
+          </template>
+        </graphic-editor-toolbar>
+        <div class="digit-list" :class="{'digit-list-tools-hidden': zoom <= 0.5}">
           <div
             class="digit"
             :style="{width: digitWidth}"
             v-for="(digit, index) in state.digits"
-            v-show="index < DECIMAL_DIGIT_COUNT || (showExtraGlyphs && extraGlyphsEnabled)"
+            v-show="index < DECIMAL_DIGIT_COUNT || extraGlyphsEnabled"
             :key="index"
           >
             <div class="digit-label">{{ index }}</div>
-            <div class="digit-editor">
+            <div
+              class="digit-editor"
+              :class="{'digit-editor-active': activeEditorIndex === index}"
+            >
               <pixel-editor
                 :key="activeDigitHeight + '-' + resetToken"
                 :width="8"
@@ -73,40 +108,68 @@
                 :showClearButton="true"
                 :name="'score-font-digit-' + index"
                 :allowChangingHeight="false"
+                :hideToolbar="true"
+                :showGrid="showPixelGrid"
                 @input="handleChange"
-              />
+                @activate="(editorInstance) => setActiveEditor(editorInstance, index)"
+              >
+                <template v-slot:toolbar-end>
+                  <v-btn
+                    icon
+                    small
+                    title="Copy this digit's image"
+                    class="player-icon-btn-size"
+                    @click="() => handleCopyDigit(index)"
+                  >
+                    <v-icon>mdi-content-copy</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    :disabled="!copiedDigitData"
+                    title="Paste copied image onto this digit"
+                    class="player-icon-btn-size"
+                    @click="() => handlePasteDigit(index)"
+                  >
+                    <v-icon>mdi-content-paste</v-icon>
+                  </v-btn>
+                </template>
+              </pixel-editor>
             </div>
           </div>
         </div>
-        <v-btn class="reset-button" color="secondary" @click="handleReset">
+        <v-btn class="reset-button" color="secondary" :disabled="!canReset" @click="handleReset">
           <v-icon>mdi-restore</v-icon>
-          <div>Reset to default digits</div>
+          <div>{{ resetLabel }}</div>
         </v-btn>
       </template>
     </v-card-text>
   </v-card>
 </template>
 <script>
-import {computed, defineComponent, ref} from '@vue/composition-api';
+import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import EditorZoom from '../components/EditorZoom.vue';
+import GraphicEditorToolbar from '../components/GraphicEditorToolbar.vue';
 import PixelEditor from '../components/PixelEditor.vue';
-import {useConfigurationStorage, useScoreFontStorage, useSquishCustomScoreFontStorage} from '../hooks/project';
+import PixelGridToggle from '../components/PixelGridToggle.vue';
+import {useConfigurationStorage, usePixelGridOverlayStorage, useScoreFontEditsStorage, useScoreFontStorage,
+  useSquishCustomScoreFontStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {SCORE_FONT_NAMES} from '../generators/score-fonts';
 import {
   CUSTOM_SCORE_FONT,
   DECIMAL_DIGIT_COUNT,
-  DEFAULT_SCORE_FONT,
-  DIGIT_HEIGHT,
   SQUISH_SCORE_FONT,
   SQUISH_CUSTOM_SCORE_FONT,
-  SQUISH_DEFAULT_SCORE_FONT,
-  SQUISH_DIGIT_HEIGHT,
+  editedScoreFontDigits,
   fontToDigits,
   processScoreFontDefaults,
+  scoreFontDigitHeight,
+  scoreFontEditKey,
+  scoreFontOriginalBytes,
 } from '../utils/score-font';
 
 // Score digits are drawn with player graphics, one colour clock per pixel, and
@@ -124,30 +187,46 @@ const BASE_SCORE_FONT_OPTIONS = [
 ];
 const CUSTOM_SCORE_FONT_OPTION = {text: 'Custom (drawn below)', value: CUSTOM_SCORE_FONT};
 
-// backgroundrealcolor's own hardcoded Setup default (see bbasic.bb.hbs) -
+// backgroundrealcolor's  hardcoded Setup default (see bbasic.bb.hbs) -
 // used only for the "Use background color" preview swatch below, since
 // there's no per-project stored value to read it from otherwise (a project
 // with no "Background: set color" block never changes it from this).
 const BACKGROUND_DEFAULT_COLOR_BYTE = 0xC4;
 
+// Same "module-scope ref, not per-instance state" reasoning as
+// PlayerEditor.vue's copiedFrameData - a copied digit survives
+// navigating away from this tab and back (this component is destroyed/
+// recreated on navigation - see hooks/collapse.js's comment on that
+// lifecycle elsewhere).
+const copiedDigitData = ref(null);
+
 export default defineComponent({
-  components: {ColorSwatchPicker, EditorZoom, PixelEditor},
+  components: {ColorSwatchPicker, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle},
   setup() {
     const scoreFontStorage = useScoreFontStorage();
     const squishCustomScoreFontStorage = useSquishCustomScoreFontStorage();
+    const scoreFontEditsStorage = useScoreFontEditsStorage();
     const configurationStorage = useConfigurationStorage();
-    const zoom = useEditorZoom('scorefont');
+    const zoom = useEditorZoom('scorefont', 1.5);
+    // Shared with every other tab's pixel grid toggle (see
+    // PixelGridToggle.vue's comment) - not per-tab state.
+    const showPixelGrid = usePixelGridOverlayStorage();
     const digitWidth = computed(() => `${Math.round(DIGIT_BASE_WIDTH * zoom.value)}px`);
 
-    // Squish (and Squish Custom, which starts from Squish's own digits and is
+    // Squish (and Squish Custom, which starts from Squish's  digits and is
     // then editable below like the regular Custom font) shrinks the score
-    // row to make room for the Text Minikernel's own text lines underneath
+    // row to make room for the Text Minikernel's  text lines underneath
     // it - always offered, even with no Text Minikernel block placed yet,
-    // since a smaller score font is a reasonable choice on its own.
+    // since a smaller score font is a reasonable choice by itself.
+    // A font with changes drawn for it is marked as edited (Custom and Squish Custom are all
+    // drawing, so they are not).
+    // The DPC+ kernel has no secondary font yet.
+    const isDpcPlus = computed(() => ((configurationStorage.value || {}).kernel === 'dpcplus'));
     const scoreFontOptions = computed(() => [...BASE_SCORE_FONT_OPTIONS,
       {text: 'Squish (compact - shrinks the score row)', value: SQUISH_SCORE_FONT},
       {text: 'Squish Custom (compact - drawn below)', value: SQUISH_CUSTOM_SCORE_FONT},
-      CUSTOM_SCORE_FONT_OPTION]);
+      CUSTOM_SCORE_FONT_OPTION].map((option) => (editedScoreFontDigits(option.value) ?
+        {...option, text: `${option.text} (edited)`} : option)));
 
     // Only this one option is owned here, so it is merged into the stored
     // configuration rather than replacing it.
@@ -169,15 +248,44 @@ export default defineComponent({
       },
     });
 
-    // The score row's own background color, independent of the playfield -
-    // only takes effect with the standard kernel's own generic "minikernel"
+    // The secondary font: "" for none, "default" for the default font, otherwise a font name. It has the
+    // ten digits only, and shares one page of ROM with the primary font (see buildScoreFontOverride).
+    const secondaryFont = computed({
+      get() {
+        return (configurationStorage.value || {}).secondaryScoreFont || '';
+      },
+
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          secondaryScoreFont: value,
+        };
+      },
+    });
+    const isSquishFont = (font) => font === SQUISH_SCORE_FONT || font === SQUISH_CUSTOM_SCORE_FONT;
+    const secondaryUnavailable = computed(() => isSquishFont(selectedFont.value) || isDpcPlus.value);
+    const secondaryActive = computed(() => !!secondaryFont.value && !secondaryUnavailable.value);
+    const secondaryFontOptions = computed(() => [
+      {text: 'None', value: ''},
+      {text: 'Default', value: 'default'},
+      ...SCORE_FONT_NAMES.map((name) => ({text: name, value: name})),
+      CUSTOM_SCORE_FONT_OPTION,
+    ].map((option) => (option.value && editedScoreFontDigits(option.value === 'default' ? '' : option.value) ?
+      {...option, text: `${option.text} (edited)`} : option)));
+    // Which of the two fonts the editor below draws.
+    const editingRole = ref('primary');
+    const editingFont = computed(() => (editingRole.value === 'secondary' && secondaryActive.value ?
+      (secondaryFont.value === 'default' ? '' : secondaryFont.value) : selectedFont.value));
+
+    // The score row's  background color, independent of the playfield -
+    // only takes effect with the standard kernel's  generic "minikernel"
     // score-row hook (see generators/bbasic/score.js's
     // generateScoreBkColorAsm/generateScoreBkColorRuntimeDims). Three
     // possible states: a byte (an explicitly picked palette color), the
     // string 'background' (explicitly track the live backgroundrealcolor
     // system variable - see backgroundPreviewColor below), or unset, which
     // is treated the SAME as 'background' (see
-    // Blockly.BBasic.scoreBkColorIsBackground's own comment in generators/
+    // Blockly.BBasic.scoreBkColorIsBackground's  comment in generators/
     // bbasic.js - a project that never visited this picker should match its
     // actual background, not default to black underneath the score row) -
     // normalized to the literal string here too, so the swatch always shows
@@ -223,15 +331,15 @@ export default defineComponent({
       },
     });
 
-    // 'background' has no palette swatch of its own to highlight - the
-    // picker only understands a byte or null (its own "nothing selected"
+    // 'background' has no palette swatch of its  to highlight - the
+    // picker only understands a byte or null (its "nothing selected"
     // state), so that sentinel is translated to/from null here rather than
     // taught to the shared component.
     const scoreBkColorSwatchValue = computed(() =>
       scoreBkColor.value === 'background' ? null : scoreBkColor.value);
 
     // A preview swatch color for the "Use background color" option -
-    // backgroundrealcolor's own hardcoded Setup default (there's no other
+    // backgroundrealcolor's  hardcoded Setup default (there's no other
     // stored value to read ahead of time; a "Background: set color" block
     // could change it at runtime, which this static preview can't reflect).
     // Both generateScoreBkColorRuntimeDims (Text Minikernel active) and
@@ -243,35 +351,11 @@ export default defineComponent({
     const backgroundPreviewColor = computed(() => colorByteToCss(BACKGROUND_DEFAULT_COLOR_BYTE));
 
     // Squish Custom edits a separate set of digits from the regular Custom
-    // font (different storage key, seeded from Squish's own compact shapes
+    // font (different storage key, seeded from Squish's  compact shapes
     // instead of the standard 8-row digits), so the editor below switches
     // which one it's bound to based on the current selection.
-    const isSquishCustomSelected = computed(() => selectedFont.value === SQUISH_CUSTOM_SCORE_FONT);
-    // Gates the 6 extra glyph cards (10-15, see DECIMAL_DIGIT_COUNT's own
-    // comment) below - only the two fonts a project can actually EDIT get
-    // them; every preset (and plain Squish) is a fixed, non-editable
-    // bitmap already, so there's nothing useful to draw for slots those
-    // fonts don't expose in the compiled ROM anyway (see
-    // buildScoreFontOverride/buildSquishScoreFontOverride in
-    // utils/score-font.js - only CUSTOM/SQUISH_CUSTOM ever splice them in
-    // at all).
-    const showExtraGlyphs = computed(() =>
-      selectedFont.value === CUSTOM_SCORE_FONT || isSquishCustomSelected.value);
-    // Same condition as showExtraGlyphs above, but gating the base 0-9 digit
-    // editors themselves (see the template's own v-if on .digit-list) - only
-    // Custom/Squish Custom are actually EDITABLE fonts (backed by real
-    // storage this editor writes to); Default and every named preset are
-    // fixed, compiled-in bitmaps (see generators/score-fonts.js) with no
-    // storage of their own to write to at all. Before this, the digit grid
-    // stayed visible and editable regardless of selectedFont - editing it
-    // always silently wrote to the Custom (or Squish Custom) font's own
-    // storage no matter what was actually selected, which looked like (and
-    // was reported as) "editing Default" even though Default itself was
-    // never actually touched - just confusingly implied to be, and any
-    // edits made this way were invisible until Custom was later selected.
-    const isEditableFontSelected = computed(() =>
-      selectedFont.value === CUSTOM_SCORE_FONT || isSquishCustomSelected.value);
-    // Explicit, stored opt-in (see utils/score-font.js's own
+    const isSquishCustomSelected = computed(() => editingFont.value === SQUISH_CUSTOM_SCORE_FONT);
+    // Explicit, stored opt-in (see utils/score-font.js's
     // customScoreFontExtraGlyphsEnabled/trimUnusedExtraGlyphs, the actual
     // source of truth this reads/writes the same configuration key as) -
     // off by default, so a project that's never visited this toggle keeps
@@ -295,12 +379,24 @@ export default defineComponent({
       },
     });
     // How many extra blank scanlines (0, 1, or 2) the score row draws of its
-    // own background color right after the digits finish (see
-    // generators/bbasic.js's own scorePaddingConfigurationCode, which emits
-    // "const scorepaddinglines = N" - text12a.asm's own
+    // background color right after the digits finish (see
+    // generators/bbasic.js's  scorePaddingConfigurationCode, which emits
+    // "const scorepaddinglines = N" - text12a.asm's
     // "if scorepaddinglines >= N" checks read that). 0 by default - a
     // project that's never visited this dropdown keeps its existing frame
     // timing unchanged.
+    // On: 5 digits, the standard and DPC+ kernels leave the leftmost digit blank (const score5digits); off (default): 6.
+    const fiveScoreDigits = computed({
+      get() {
+        return (configurationStorage.value || {}).scoreDigits === 5;
+      },
+      set(value) {
+        configurationStorage.value = {
+          ...(configurationStorage.value || {}),
+          scoreDigits: value ? 5 : 6,
+        };
+      },
+    });
     const scorePaddingLines = computed({
       get() {
         try {
@@ -318,47 +414,123 @@ export default defineComponent({
         };
       },
     });
-    const activeScoreFontStorage = computed(() =>
+    // Custom and Squish Custom keep their digits in separate storage; every other font in
+    // the scoreFontEdits storage (see scoreFontEditKey in utils/score-font.js).
+    const editKey = computed(() => scoreFontEditKey(editingFont.value));
+    const ownStorage = computed(() =>
       isSquishCustomSelected.value ? squishCustomScoreFontStorage : scoreFontStorage);
-    const activeDefaultFont = computed(() =>
-      isSquishCustomSelected.value ? SQUISH_DEFAULT_SCORE_FONT : DEFAULT_SCORE_FONT);
-    // Squish Custom's editor is 5 rows tall instead of the usual 8 - Squish
-    // never reads the top 3 rows at runtime (see SQUISH_DIGIT_HEIGHT), so
-    // there's nothing useful to draw there.
-    const activeDigitHeight = computed(() =>
-      isSquishCustomSelected.value ? SQUISH_DIGIT_HEIGHT : DIGIT_HEIGHT);
+    const originalBytes = computed(() => scoreFontOriginalBytes(editingFont.value));
+    // Squish and Squish Custom are 5 rows tall instead of the usual 8 - Squish never reads the
+    // top 3 rows at runtime (see SQUISH_DIGIT_HEIGHT), so there's nothing useful to draw there.
+    const activeDigitHeight = computed(() => scoreFontDigitHeight(editingFont.value));
+    const fontIsEdited = computed(() => editKey.value !== null && !!editedScoreFontDigits(editingFont.value));
+    const canReset = computed(() => editKey.value === null || fontIsEdited.value);
+    const resetLabel = computed(() =>
+      editKey.value === null ? 'Reset to default digits' : 'Reset to original digits');
 
-    const state = computed({
-      get() {
-        try {
-          return processScoreFontDefaults(activeScoreFontStorage.value, activeDefaultFont.value, activeDigitHeight.value);
-        } catch (e) {
-          console.error('Error loading the score font from local storage', e);
-          return {digits: fontToDigits(activeDefaultFont.value, activeDigitHeight.value)};
-        }
-      },
-
-      set(newState) {
-        activeScoreFontStorage.value.value = newState;
-      },
-    });
-
-    // The pixel editor mutates its matrix in place, so the whole object is
-    // reassigned to push it back into storage.
-    const handleChange = () => {
-      state.value = state.value;
+    // Tracks whichever digit's PixelEditor instance was last clicked
+    // into (see its "activate" event, emitted from PixelEditor.vue's
+    // handleActivate) - the single toolbar above (Eraser/Pencil/Undo/Redo/
+    // Export/Import) acts on THIS digit, since every digit's
+    // per-instance toolbar is now hidden (hideToolbar on the pixel-editor
+    // below) in favor of this one shared row. No card-selection fallback is
+    // needed here (unlike PlayerEditor.vue's effectiveFrameEditor) -
+    // there's no way to "select" a digit other than clicking directly into
+    // its PixelEditor card (no separate header/name row to click that
+    // wouldn't also activate it), so a plain activeEditor is enough.
+    const activeEditor = ref(null);
+    const activeEditorIndex = ref(null);
+    const setActiveEditor = (editorInstance, index) => {
+      activeEditor.value = editorInstance;
+      activeEditorIndex.value = index;
     };
 
     // PixelEditor only reads its "value" prop once, on mount - it has no
     // watcher to notice external changes after that (e.g. dragging pixels
     // updates it, via handleChange, but writes from outside the component
-    // don't). Reset replaces all ten digits' data at once from here, so
+    // don't). Reset replaces all the digits' data at once from here, so
     // resetToken is bumped into the editors' :key below to force them to
-    // remount and pick the new data up, the same trick already used for
-    // activeDigitHeight when switching between Custom and Squish Custom.
+    // remount and pick the new data up, the same trick used for
+    // activeDigitHeight when switching between fonts.
     const resetToken = ref(0);
+
+    // The digits being edited: a working copy of the selected font's, loaded when the font
+    // changes (the stored digits for Custom/Squish Custom or an edited font, otherwise the
+    // font's original ones), and saved back by handleChange. A font that was never edited
+    // stores nothing until the first change, so just looking at one costs nothing.
+    const working = ref({digits: []});
+    const loadWorking = () => {
+      try {
+        if (editKey.value === null) {
+          working.value = processScoreFontDefaults(ownStorage.value, originalBytes.value, activeDigitHeight.value);
+        } else {
+          const edited = editedScoreFontDigits(editingFont.value);
+          working.value = {
+            digits: edited ? JSON.parse(JSON.stringify(edited)) :
+              fontToDigits(originalBytes.value, activeDigitHeight.value),
+          };
+        }
+      } catch (e) {
+        console.error('Error loading the score font from local storage', e);
+        working.value = {digits: fontToDigits(originalBytes.value, activeDigitHeight.value)};
+      }
+    };
+    watch(editingFont, () => {
+      loadWorking();
+      resetToken.value++;
+    }, {immediate: true});
+
+    const state = computed(() => working.value);
+
+    const persist = () => {
+      if (editKey.value === null) {
+        ownStorage.value.value = working.value;
+        return;
+      }
+      const stored = scoreFontEditsStorage.value;
+      scoreFontEditsStorage.value = {
+        ...(stored || {}),
+        fonts: {
+          ...((stored && stored.fonts) || {}),
+          [editKey.value]: {digits: JSON.parse(JSON.stringify(working.value.digits))},
+        },
+      };
+    };
+
+    // The pixel editor mutates its matrix in place, so the whole font is saved back.
+    const handleChange = () => {
+      persist();
+    };
+
+    // Same "whole image" copy/paste pair as PlayerEditor.vue's
+    // handleCopyFrame/handlePasteFrame - digits have no row colors or other
+    // per-cell metadata to carry along, just the plain pixel matrix.
+    const handleCopyDigit = (index) => {
+      copiedDigitData.value = structuredClone(state.value.digits[index]);
+    };
+    const handlePasteDigit = (index) => {
+      if (!copiedDigitData.value) return;
+      state.value.digits[index] = structuredClone(copiedDigitData.value);
+      handleChange();
+      // PixelEditor only reads its "value" prop once, on mount (see
+      // resetToken's comment right below) - pasting writes the new
+      // pixels from OUTSIDE the target digit's editor instance, so
+      // without this it wouldn't actually show up until something else
+      // happened to force that digit to remount.
+      resetToken.value++;
+    };
+
     const handleReset = () => {
-      state.value = {digits: fontToDigits(activeDefaultFont.value, activeDigitHeight.value)};
+      if (editKey.value === null) {
+        working.value = {digits: fontToDigits(originalBytes.value, activeDigitHeight.value)};
+        persist();
+      } else {
+        const stored = scoreFontEditsStorage.value || {};
+        const fonts = {...(stored.fonts || {})};
+        delete fonts[editKey.value];
+        scoreFontEditsStorage.value = {...stored, fonts};
+        loadWorking();
+      }
       resetToken.value++;
     };
 
@@ -367,6 +539,11 @@ export default defineComponent({
       handleChange,
       handleReset,
       selectedFont,
+      secondaryFont,
+      secondaryFontOptions,
+      secondaryUnavailable,
+      secondaryActive,
+      editingRole,
       scoreBkColor,
       scoreBkColorSwatchValue,
       scoreFadeEnabled,
@@ -376,52 +553,111 @@ export default defineComponent({
       resetToken,
       PIXEL_ASPECT,
       zoom,
+      showPixelGrid,
       digitWidth,
-      showExtraGlyphs,
       extraGlyphsEnabled,
       scorePaddingLines,
-      isEditableFontSelected,
+      fiveScoreDigits,
+      fontIsEdited,
+      canReset,
+      resetLabel,
       DECIMAL_DIGIT_COUNT,
+      activeEditor, activeEditorIndex, setActiveEditor,
+      copiedDigitData, handleCopyDigit, handlePasteDigit,
     };
   },
 });
 </script>
 <style scoped>
-/* Same as Configuration.vue's own .option-switch rule - Vuetify aligns a
+/* Same as Configuration.vue's .option-switch rule - Vuetify aligns a
    switch's hint under the toggle track by default; indent it to line up
-   under the label text instead, matching the toggle's own width. */
+   under the label text instead, matching the toggle's width. */
 .option-switch >>> .v-messages {
   margin-left: 46px;
 }
 
-.score-extras-row {
+.score-font-row {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 16px;
 }
 
-.score-padding-field {
-  max-width: 200px;
+.score-font-select {
+  flex: 1 1 150px;
+  max-width: 320px;
+  min-width: 0;
 }
 
-/* Breathing room from the "Use extra glyphs" switch's own hint text
+.score-font-role-row {
+  margin: 4px 0 28px;
+}
+
+.score-extras-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  /* Closer to the text above it. */
+  margin-top: -10px;
+}
+
+.score-padding-field {
+  flex: 0 1 150px;
+  min-width: 0;
+}
+
+/* Breathing room from the "Use extra glyphs" switch's  hint text
    ("Costs 48 extra bytes of ROM space.") directly above - the two sat flush
    against each other otherwise. */
-.score-editor-zoom {
+/* Unlike PlayerEditor.vue/BackgroundEditor.vue/TitleScreenEditor.vue, this
+   tab never had its self-scrolling wrapper - it relied on some outer
+   ancestor (app-main's overflow) to scroll instead, which is why the
+   toolbar row below couldn't stick to "the top of this tab" the way theirs
+   do (there was no boundary of this tab's to stick to in the first
+   place). Same position: absolute + overflow: auto trick as those other
+   tabs' .editor-container. */
+.editor-container {
+  position: absolute;
+  overflow: auto;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+}
+
+/* Attribute passthrough - Vue applies a non-prop class/attribute given to a
+   component directly onto ITS root element, so this reaches
+   GraphicEditorToolbar.vue's outer div despite living in a different
+   file - restores the gap between the switches row above and the toolbar
+   that this tab used to set directly by itself (now-removed) wrapper. */
+.score-editor-toolbar-row {
   margin-top: 12px;
+}
+
+.score-editor-zoom {
+  margin-bottom: 0;
+}
+
+/* Marks which digit the shared toolbar above currently acts on - same
+   border-color + outline treatment as every other tab's "-selected"
+   card highlight (App.vue's shared outlined-card border rule) and
+   PlayerEditor.vue's identical per-frame highlight. */
+.digit-editor-active >>> .v-card {
+  border-color: var(--v-primary-base, #1976d2) !important;
+  outline: 2px solid var(--v-primary-base, #1976d2) !important;
 }
 
 .score-bkcolor-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  /* Sits a little below the Score font selects. */
+  margin-top: 4px;
   margin-bottom: 16px;
 }
 
-/* Vuetify's own switch margin-top (meant for stacking below other fields)
+/* Vuetify's  switch margin-top (meant for stacking below other fields)
    otherwise pushes this out of line with the swatch/label sharing this same
-   row - same override TextEditor.vue's own .text-columns-switch uses for
+   row - same override TextEditor.vue's .text-columns-switch uses for
    an identical inline-row switch. margin-left separates it from the label
    text right before it. */
 .score-fade-switch {
@@ -431,8 +667,8 @@ export default defineComponent({
   flex: 0 0 auto;
 }
 
-/* Matches .score-bkcolor-label's own explicit size below - Vuetify's switch
-   label otherwise renders at its own default size, which read visibly
+/* Matches .score-bkcolor-label's  explicit size below - Vuetify's switch
+   label otherwise renders at its default size, which read visibly
    smaller/larger than the plain-text label sharing this same row. */
 .score-fade-switch >>> .v-label {
   font-size: 1rem;
@@ -446,6 +682,16 @@ export default defineComponent({
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
+}
+
+/* At 50% zoom (the lowest level - see hooks/zoom.js's ZOOM_LEVELS) each
+   digit is too small for the Copy/Paste/Clear row below its graphic to fit
+   without the icons overlapping or the card growing wider than the graphic
+   itself - hidden here rather than shrinking them further, since they're
+   still reachable via the shared toolbar at the top of the tab regardless
+   of zoom level. */
+.digit-list-tools-hidden >>> .pixel-editor-hidden-toolbar-row {
+  display: none;
 }
 
 /* Width is set inline from the zoom factor. */
@@ -462,4 +708,7 @@ export default defineComponent({
 .reset-button {
   margin-top: 24px;
 }
+
+/* .player-icon-btn-size's size/disabled-opacity/icon-font-size rules -
+   see App.vue's shared, unscoped copy. */
 </style>

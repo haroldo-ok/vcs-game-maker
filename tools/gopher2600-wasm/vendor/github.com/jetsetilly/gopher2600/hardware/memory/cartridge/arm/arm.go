@@ -1,0 +1,1174 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+package arm
+
+import (
+	"encoding/binary"
+	"fmt"
+	"math"
+	"os"
+	"strings"
+
+	"github.com/jetsetilly/gopher2600/coprocessor"
+	"github.com/jetsetilly/gopher2600/coprocessor/faults"
+	"github.com/jetsetilly/gopher2600/environment"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/architecture"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/fpu"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/rng"
+	"github.com/jetsetilly/gopher2600/hardware/memory/cartridge/arm/timer"
+	"github.com/jetsetilly/gopher2600/logger"
+)
+
+// it is sometimes convenient to dissassemble every instruction and to print it
+// to stderr for inspection. we most likely need this during the early stages of
+// debugging of a new cartridge type
+const disassembleToStderr = false
+
+// core register names
+const (
+	rSB = 9 + iota // static base
+	rSL            // stack limit
+	rFP            // frame pointer
+	rIP            // intra-procedure-call scratch register
+	rSP
+	rLR
+	rPC
+	NumCoreRegisters
+)
+
+// the maximum number of cycles allowed in a single ARM program execution.
+// no idea if this value is sufficient.
+//
+// 03/02/2022 - raised to 1000000 to accomodate CDFJBoulderDash development
+// 17/09/2022 - raised to 1500000 for marcoj's RPG game
+const cycleLimit = 1500000
+
+// the maximum number of instructions to execute. like cycleLimit but for when
+// running in immediate mode
+const instructionsLimit = 1300000
+
+// stepFunction variations are a result of different ARM architectures
+type stepFunction func(opcode uint16, memIdx int) bool
+
+// decodeFunction represents one of the functions that decodes a specific group
+// of ARM instructions. the decodeOnly flag in the ARM type controls how the function
+// operates
+type decodeFunction func() *DisasmEntry
+
+type ARMState struct {
+	// ARM registers
+	registers [NumCoreRegisters]uint32
+
+	// see note about status register in the documentation of the type
+	status status
+
+	mam  mam
+	rng  rng.RNG
+	t1   timer.Timer
+	tim2 timer.Timer
+	fpu  fpu.FPU
+
+	// the PC of the opcode being processed and the PC of the instruction being
+	// executed
+	//
+	// when this emulation was Thumb (16bit only) there was no distiniction
+	// between these two concepts and there was only executingPC. with 32bit
+	// instructions we need to know about both
+	//
+	// executingPC will be equal to instructionPC in the case of 16bit
+	// instructions but will be different in the case of 32bit instructions
+	executingPC   uint32
+	instructionPC uint32
+
+	// was the most recent instruction a result of a branch or another
+	// instruction that has altered the program counter in some way
+	//
+	// this flag affects the number of cycles consumed by an instruction and
+	// also how we treat breakpoints
+	branchedExecution bool
+
+	// the current stack frame of the execution
+	stackFrame uint32
+
+	// the yield reason explains the reason for why the ARM execution ended
+	yield coprocessor.CoProcYield
+
+	// the expectedReturnAddress is the address that the program will return to
+	// at the end of the program's execution. if the PC is ever set to this
+	// value (as a result of a BX or BLX instruction) then the ARM will yield
+	// with the YieldProgramEnded type
+	expectedReturnAddress uint32
+
+	// expected SP value when YieldProgramEnded is encountered at the end of the Run() function
+	expectedSP uint32
+
+	// the area the PC covers. once assigned we'll assume that the program
+	// never reads outside this area. the value is assigned on reset()
+	programMemory *[]uint8
+
+	// address limits for program memory
+	programMemoryOrigin uint32
+	programMemoryMemtop uint32
+
+	// currentExecutionCache records the function that implements the instruction group for each
+	// opcode in program memory. must be reset every time programMemory is reassigned
+	//
+	// note that when executing from RAM (which isn't normal) it's possible for
+	// code to be modified (ie. self-modifying code). in that case currentExecutionCache
+	// may be unreliable.
+	//
+	// note that this is a sparse array rather than a map. even with the
+	// improved map implementation in go 1.24.0 a map is too slow for our
+	// purposes. a sparse array means greater memory usage but that's a
+	// necessary trade-off
+	currentExecutionCache []decodeFunction
+
+	// if developer information is available then the emulation's stack protection will try to
+	// defend against the stack colliding with the top of variable memory
+	protectVariableMemTop bool
+	variableMemtop        uint32
+
+	// once a stack has caused an error we no longer check for more stack errors
+	stackHasErrors bool
+
+	// cycle counting
+
+	// the last cycle to be triggered, used to decide whether to merge I-S cycles
+	lastCycle cycleType
+
+	// the type of cycle next prefetch (the main PC increment in the Run()
+	// loop) should be. either N or S type. never I type.
+	prefetchCycle cycleType
+
+	// total number of cycles for the entire program
+	cyclesTotal float32
+
+	// number of cycles with CLKLEN modulation applied
+	stretchedCycles float32
+
+	// record the order in which cycles happen for a single instruction
+	// - required for disasm only
+	cycleOrder cycleOrder
+
+	// whether a branch has used the branch trail latches or not
+	// - required for disasm only
+	branchTrail BranchTrail
+
+	// whether an I cycle that is followed by an S cycle has been merged
+	// - required for disasm only
+	mergedIS bool
+
+	// the number of cycles left over from the previous clock tick
+	accumulatedCycles float32
+
+	// 32bit instructions
+
+	// these two flags work as a pair:
+	// . is the current instruction a 32bit instruction
+	// . was the most recent instruction decoded a 32bit instruction
+	instruction32bitDecoding  bool
+	instruction32bitResolving bool
+
+	// the first 16bits of the most recent 32bit instruction
+	instruction32bitOpcodeHi uint16
+}
+
+// Snapshot implements the mapper.CartMapper interface.
+func (s *ARMState) Snapshot() *ARMState {
+	n := *s
+	return &n
+}
+
+// Plumb implements the mapper.CartMapper interface.
+func (s *ARMState) Plumb(env *environment.Environment) {
+	s.mam.Plumb(env)
+	s.rng.Plumb(env)
+
+	// force reset of program memory
+	s.programMemory = nil
+	s.programMemoryOrigin = 0
+	s.programMemoryMemtop = 0
+}
+
+// precalculated clock length values for each memory region
+type clkLen struct {
+	length float32
+	useMAM bool
+}
+
+// ARM implements the ARM7TDMI-S LPC2103 processor.
+type ARM struct {
+	env  *environment.Environment
+	mmap architecture.Map
+	mem  SharedMemory
+	hook CartridgeHook
+
+	// precalculated clock length values for each memory region
+	clkLen []clkLen
+
+	// the binary interface for reading data returned by SharedMemory interface.
+	// defaults to LittleEndian
+	byteOrder binary.ByteOrder
+
+	// the function that is called on every step of the cycle. can change
+	// depending on the architecture
+	stepFunction stepFunction
+
+	// state of the ARM. saveable and restorable
+	state *ARMState
+
+	// updated on every call to run()
+	abortOnMemoryFault bool
+
+	// the speed at which the arm is running at and the required stretching for
+	// access to flash memory. speed is in MHz. Access latency of Flash memory is
+	// 50ns which is 20MHz. Rounding up, this means that the clklen (clk stretching
+	// amount) is 4.
+	//
+	// "The pipelined nature of the ARM7TDMI-S processor bus interface means that
+	// there is a distinction between clock cycles and bus cycles. CLKEN can be
+	// used to stretch a bus cycle, so that it lasts for many clock cycles. The
+	// CLKEN input extends the timing of bus cycles in increments of of complete
+	// CLK cycles"
+	//
+	// Access speed of SRAM is 10ns which is fast enough not to require stretching.
+	// MAM also requires no stretching.
+	//
+	// updated from prefs on every Run() invocation
+	Clk float32
+
+	// value used to stretch (or shink) the number of cycles used by each
+	// instruction. a value of 1.0 is a neutral regulator
+	//
+	// we only apply the regulator value when the run() function has finished.
+	// this means that the cycleLimit is less useful than it might be but
+	// there's a performance penalty for applying the regulator for every
+	// instruction
+	//
+	// we could maybe apply the regulator every N cycles to mitigate that
+	// problem but it doesn't seem worth the additional complexity
+	//
+	// we could also scale the cycle limit but again, it's added complexity for
+	// little gain and honestly, if we're worrying about the cycle limit the
+	// ARM program is running out of spec in any case
+	cycleRegulator float32
+
+	// collection of functionMap instances. indexed by programMemoryOffset to
+	// retrieve a functionMap
+	//
+	// allocated in NewARM() and added to in checkProgramMemory() if an entry
+	// does not exist
+	//
+	// see note on currentExecutionCache field in the ARMState type
+	executionCache map[uint32][]decodeFunction
+
+	// only decode an instruction do not execute. consider using the
+	// decodeInstruction() function instead of changing the field directly
+	decodeOnly bool
+
+	// interface to an optional disassembler
+	disasm coprocessor.CartCoProcDisassembler
+
+	// the summary of the most recent disassembly
+	disasmSummary DisasmSummary
+
+	// interface to an option development package
+	dev coprocessor.CartCoProcDeveloper
+
+	// immediateMode controls whether cycle count or not. value updated from
+	// updatePrefs()
+	//
+	// used to cut out code that is required only for cycle counting. See
+	// Icycle, Scycle and Ncycle fields which are called so frequently we
+	// forego checking the immediateMode flag each time and have preset a stub
+	// function if required
+	immediateMode bool
+
+	// if arm is in immediate mode then we don't call the clock function unless
+	// immediateModeCycle is set to true. normally the clock is ticked forward in
+	// the ARM driver code (eg. the CDF mapper) but for some mappers it is required
+	// that the ARM emulation does this
+	//
+	// not an ideal solution but necessary because drivers like ACE or ELF are more
+	// likely to want to measure an ARM timer without ever yielding
+	immediateModeCycle bool
+
+	// rather than call the cycle counting functions directly, we assign the
+	// functions to these fields. in this way, we can use stubs when executing
+	// in immediate mode (when cycle counting isn't necessary)
+	//
+	// other aspects of cycle counting are not expensive and can remain
+	Icycle func()
+	Scycle func(bus busAccess, addr uint32)
+	Ncycle func(bus busAccess, addr uint32)
+
+	// profiler for executed instructions. measures cycles counts
+	profiler *coprocessor.CartCoProcProfiler
+}
+
+// NewARM is the preferred method of initialisation for the ARM type.
+func NewARM(env *environment.Environment, mmap architecture.Map, mem SharedMemory, hook CartridgeHook) *ARM {
+	arm := &ARM{
+		env:            env,
+		mmap:           mmap,
+		mem:            mem,
+		hook:           hook,
+		clkLen:         make([]clkLen, len(mmap.Regions)+1),
+		byteOrder:      binary.LittleEndian,
+		executionCache: make(map[uint32][]decodeFunction),
+		state:          &ARMState{},
+	}
+
+	// disassembly printed to stderr
+	if disassembleToStderr {
+		arm.disasm = &coprocessor.CartCoProcDisassemblerStderr{}
+	}
+
+	switch arm.mmap.ARMArchitecture {
+	case architecture.ARM7TDMI:
+		arm.stepFunction = arm.stepARM7TDMI
+	case architecture.ARMv7_M:
+		arm.stepFunction = arm.stepARM7_M
+	default:
+		panic(fmt.Sprintf("unhandled ARM architecture: cannot set %s", arm.mmap.ARMArchitecture))
+	}
+
+	arm.state.mam = newMam(arm.env, arm.mmap)
+	arm.state.rng = rng.NewRNG(arm.env, arm.mmap)
+	if arm.mmap.HasT1 {
+		arm.state.t1 = timer.NewT1(arm.mmap)
+	}
+	if arm.mmap.HasTIM2 {
+		arm.state.tim2 = timer.NewTIM2(arm.mmap)
+	}
+
+	// by definition the ARM starts in a program ended state
+	arm.state.yield.Type = coprocessor.YieldProgramEnded
+
+	arm.state.fpu.Reset()
+	arm.resetPeripherals()
+	arm.resetRegisters()
+	arm.updatePrefs()
+
+	return arm
+}
+
+func (arm *ARM) Reset() {
+	arm.resetPeripherals()
+	arm.resetRegisters()
+	arm.resetYield()
+}
+
+// Sets the immediate mode cycle flag. This is required to be set for ARM drivers that yield
+// less frequently (eg. ELF or ACE)
+func (arm *ARM) CycleDuringImmediateMode(set bool) {
+	arm.immediateModeCycle = true
+}
+
+// SetByteOrder changes the binary interface used to read memory returned by the
+// SharedMemory interface
+func (arm *ARM) SetByteOrder(o binary.ByteOrder) {
+	arm.byteOrder = o
+}
+
+// ProcessorID implements the coprocessor.CartCoProc interface. Names the type
+// of ARM being emulated
+func (arm *ARM) ProcessorID() string {
+	return string(arm.mmap.ARMArchitecture)
+}
+
+// ImmediateMode returns whether the most recent execution was in immediate mode
+// or not.
+func (arm *ARM) ImmediateMode() bool {
+	return arm.immediateMode
+}
+
+// SetDisassembler implements the coprocessor.CartCoProc interface.
+func (arm *ARM) SetDisassembler(disasm coprocessor.CartCoProcDisassembler) {
+	arm.disasm = disasm
+}
+
+// SetDeveloper implements the coprocessor.CartCoProc interface.
+func (arm *ARM) SetDeveloper(dev coprocessor.CartCoProcDeveloper) {
+	arm.dev = dev
+}
+
+// Snapshot implements the mapper.CartMapper interface.
+func (arm *ARM) Snapshot() *ARMState {
+	return arm.state.Snapshot()
+}
+
+// Plumb should be used to update the shared memory reference.
+// Useful when used in conjunction with the rewind system.
+//
+// The ARMState argument can be nil as a special case. If it is nil then the
+// existing state does not change. For some cartridge mappers this is acceptable
+// and more convenient
+//
+// Plumb implements the mapper.CartMapper interface.
+func (arm *ARM) Plumb(env *environment.Environment, state *ARMState, mem SharedMemory, hook CartridgeHook) {
+	arm.env = env
+	arm.mem = mem
+	arm.hook = hook
+
+	if state != nil {
+		arm.state = state
+		arm.state.Plumb(env)
+	}
+
+	// any more plumbing work is superfluous unless we're dealing with the main
+	// emulation environment
+	if !arm.env.IsEmulation(environment.MainEmulation) {
+		return
+	}
+
+	// if we're plumbing in a new state then we *must* reevaluate the
+	// pointer the program memory
+	if state != nil {
+		arm.checkProgramMemory(true)
+	}
+
+	// execution cache must be cleared because the old cache will be pointing to
+	// functions in another instance of ARM
+	clear(arm.executionCache)
+}
+
+// resetPeripherals in the ARM package.
+func (arm *ARM) resetPeripherals() {
+	if arm.mmap.HasRNG {
+		arm.state.rng.Reset()
+	}
+	if arm.state.t1 != nil {
+		arm.state.t1.Reset()
+	}
+	if arm.state.tim2 != nil {
+		arm.state.tim2.Reset()
+	}
+}
+
+// resetRegisters of ARM. does not reset peripherals.
+func (arm *ARM) resetRegisters() {
+	arm.state.status.reset()
+
+	for i := range rSP {
+		arm.state.registers[i] = 0x00000000
+	}
+
+	preResetPC := arm.state.registers[rPC]
+	arm.state.registers[rSP], arm.state.registers[rLR], arm.state.registers[rPC] = arm.mem.ResetVectors()
+	arm.state.stackFrame = arm.state.registers[rSP]
+	arm.state.expectedReturnAddress = (arm.state.registers[rLR] + 2) & 0xfffffffe
+
+	// set executingPC to be two behind the current value in the PC register
+	arm.state.executingPC = arm.state.registers[rPC] - 2
+
+	// if the PC value has changed then the reset procedure is treated like a branch
+	arm.state.branchedExecution = preResetPC != arm.state.registers[rPC]
+
+	// reset prefectch cycle value
+	arm.state.prefetchCycle = S
+}
+
+// updatePrefs should be called periodically to ensure that the current
+// preference values are being used in the ARM emulation
+func (arm *ARM) updatePrefs() {
+	// update clock value from preferences
+	arm.Clk = float32(arm.env.Prefs.Cartridge.ARM.Clock.Get().(float64))
+
+	// update clkLen entries
+	for _, r := range arm.mmap.Regions {
+		id := arm.mmap.RegionID(r.Origin)
+		latencyInMhz := (1 / (r.Latency / 1000000000)) / 1000000
+		arm.clkLen[id] = clkLen{
+			length: float32(math.Ceil(float64(arm.Clk) / latencyInMhz)),
+			useMAM: r.UseMAM,
+		}
+	}
+
+	// default clk length
+	latencyInMhz := (1 / (1.0 / 1000000000)) / 1000000
+	arm.clkLen[0] = clkLen{
+		length: float32(math.Ceil(float64(arm.Clk) / latencyInMhz)),
+	}
+
+	// get clock regulator from preferences
+	arm.cycleRegulator = float32(arm.env.Prefs.Cartridge.ARM.CycleRegulator.Get().(float64))
+
+	arm.state.mam.updatePrefs()
+
+	// set cycle counting functions
+	arm.immediateMode = arm.env.Prefs.Cartridge.ARM.Immediate.Get().(bool)
+	if arm.immediateMode {
+		arm.Icycle = arm.iCycle_Stub
+		arm.Scycle = arm.sCycle_Stub
+		arm.Ncycle = arm.nCycle_Stub
+	} else {
+		switch arm.mmap.ARMArchitecture {
+		case architecture.ARM7TDMI:
+			arm.Icycle = arm.iCycle_ARM7TDMI
+			arm.Scycle = arm.sCycle_ARM7TDMI
+			arm.Ncycle = arm.nCycle_ARM7TDMI
+		case architecture.ARMv7_M:
+			arm.Icycle = arm.iCycle_ARMv7_M
+			arm.Scycle = arm.sCycle_ARMv7_M
+			arm.Ncycle = arm.nCycle_ARMv7_M
+		default:
+			panic(fmt.Sprintf("unhandled ARM architecture: cannot set %s", arm.mmap.ARMArchitecture))
+		}
+	}
+
+	arm.abortOnMemoryFault = arm.env.Prefs.Cartridge.ARM.AbortOnMemoryFault.Get().(bool)
+}
+
+func (arm *ARM) String() string {
+	s := strings.Builder{}
+	for i, r := range arm.state.registers {
+		if i > 0 {
+			if i%4 == 0 {
+				s.WriteString("\n")
+			} else {
+				s.WriteString("\t\t")
+			}
+		}
+		fmt.Fprintf(&s, "R%-2d: %08x", i, r)
+	}
+	s.WriteString("\n")
+	s.WriteString(arm.state.status.String())
+	if arm.mmap.ARMArchitecture == architecture.ARMv7_M {
+		fmt.Fprintf(&s, "\tIT: cond=%04b mask=%04b", arm.state.status.itCond, arm.state.status.itMask)
+	}
+	return s.String()
+}
+
+// Step moves the ARM on one cycle. Currently, the timer will only step forward
+// when Step() is called and not during the Run() process. This might cause
+// problems in some instances with some ARM programs.
+func (arm *ARM) Step(vcsClock float32) {
+	// the ARM timer ticks forward once every ARM cycle. the best we can do to
+	// accommodate this is to tick the counter forward by the the appropriate
+	// fraction every VCS cycle. Put another way: an NTSC spec VCS, for
+	// example, will tick forward every 58-59 ARM cycles.
+	arm.clock(arm.Clk / vcsClock)
+}
+
+func (arm *ARM) clock(cycles float32) {
+	// the timer uses the peripheral clock (PCLK) rather the processor clock
+	// (CCLK). the number of cycles is therefore divided by CLKDIV (contained in
+	// the architecture.Map for the processor) but we defer that division until
+	// later
+
+	if arm.state.t1 != nil {
+		arm.state.t1.Step(cycles)
+	}
+
+	if arm.state.tim2 != nil {
+		arm.state.tim2.Step(cycles)
+	}
+}
+
+func (arm *ARM) resetYield() {
+	arm.state.yield.Type = coprocessor.YieldRunning
+	arm.state.yield.Error = nil
+}
+
+func (arm *ARM) logYield() {
+	if arm.state.yield.Type.Normal() {
+		return
+	}
+	if arm.state.yield.Error != nil {
+		logger.Logf(arm.env, "ARM7", "%s: %v", arm.state.yield.Type, arm.state.yield.Error)
+	} else {
+		logger.Logf(arm.env, "ARM7", "%s: no specific error", arm.state.yield.Type)
+	}
+
+	// extended memory logging
+
+	if arm.env.Prefs.Cartridge.ARM.ExtendedMemoryFaultLogging.Get().(bool) == false {
+		return
+	}
+
+	if arm.state.programMemory == nil {
+		return
+	}
+
+	memIdx := int(arm.state.executingPC - arm.state.programMemoryOrigin)
+	if memIdx < 0 || memIdx >= len(*arm.state.programMemory) {
+		return
+	}
+
+	df := arm.state.currentExecutionCache[memIdx]
+	if df == nil {
+		return
+	}
+
+	entry := arm.decodeInstruction(df)
+	if entry != nil {
+		logger.Log(arm.env, "ARM7", entry)
+		logger.Log(arm.env, "ARM7", arm.disasmVerbose(*entry))
+	}
+}
+
+func (arm *ARM) decodeInstruction(f decodeFunction) *DisasmEntry {
+	arm.decodeOnly = true
+	defer func() {
+		arm.decodeOnly = false
+	}()
+	return f()
+}
+
+// SetInitialRegisters is intended to be called after creation but before the
+// first call to Run().
+//
+// The optional arguments are used to initialise the registers in order
+// starting with R0. The remaining options will be set to their default values
+// (SP, LR and PC set according to the ResetVectors() via the SharedMemory
+// interface).
+//
+// Note that you don't need to use this to set the initial values for SP, LR or
+// PC. Those registers are initialised via the ResetVectors() function of the
+// SharedMemory interface. The function will return with an error if those
+// registers are attempted to be initialised.
+//
+// The emulated ARM will be left with a yield state of YieldSyncWithVCS
+func (arm *ARM) SetInitialRegisters(args ...uint32) error {
+	arm.resetRegisters()
+
+	if len(args) >= rSP {
+		return fmt.Errorf("ARM7: trying to set registers SP, LR or PC")
+	}
+
+	copy(arm.state.registers[:], args)
+
+	// fill the pipeline before yielding. this ensures that the PC is
+	// correct on the first call to Run()
+	arm.state.registers[rPC] += 2
+
+	// making sure that yield is not of type YieldProgramEnded. that would cause
+	// the registers to be immediately reset on the next call to Run()
+	//
+	// NOTE: not sure if we should have a specific YieldReset yield type
+	arm.state.yield.Type = coprocessor.YieldRunning
+
+	return nil
+}
+
+// StartProfiling starts a profiling session
+func (arm *ARM) StartProfiling() {
+	if arm.dev != nil {
+		arm.dev.StartProfiling()
+	}
+}
+
+// ProcessProfiling ends a profiling session
+func (arm *ARM) ProcessProfiling() {
+	if arm.dev != nil {
+		arm.dev.ProcessProfiling()
+	}
+}
+
+// Run will execute an ARM program from the current PC address, unless the
+// previous execution ran to completion (ie. was uninterrupted).
+//
+// Returns the yield reason, the number of ARM cycles consumed.
+func (arm *ARM) Run() (coprocessor.CoProcYield, float32) {
+	if arm.dev != nil {
+		defer func() {
+			// I used to call t1 and tim2 resolve() but that's no longer necessary
+
+			// OnYield is used slightly differently when yield has been user initiated
+			if !arm.state.yield.Type.UserInitiated() {
+				arm.logYield()
+
+				// instructionPC is the correct value to use with the OnYield()
+				// function. if we use the current PC value then we might be
+				// returning the address that is the second word of a 32bit
+				// instruction
+				arm.dev.OnYield(arm.state.instructionPC, arm.state.yield)
+			}
+		}()
+	}
+
+	// only reset registers if the previous yield was one that indicated the end
+	// of the program execution
+	switch arm.state.yield.Type {
+	case coprocessor.YieldProgramEnded:
+		arm.resetRegisters()
+		arm.state.registers[rPC] += 2
+	case coprocessor.YieldSyncWithVCS:
+	}
+
+	// always reset cyclesTotal. always resetting regards of previous yield type allows
+	// malfunctioning programs to actually run and possibly generate informative errors other than
+	// an exceeded cycles message
+	arm.state.cyclesTotal = 0
+
+	// arm.state.prefetchCycle reset in resetRegisters() function. we don't want to change
+	// the value if we're resuming from a yield
+
+	// reset disassembly as approprite for the previous yield type
+	if arm.disasm != nil {
+		// start of program execution
+		arm.disasmSummary.I = 0
+		arm.disasmSummary.N = 0
+		arm.disasmSummary.S = 0
+		if arm.state.yield.Type.Normal() {
+			arm.disasm.Start()
+
+			defer func() {
+				// wrapping disasmEnd because we don't want to capture disasmSummary
+				// too early (because the deferred func() is invoked as part of the
+				// declaration any arguments to the function will be captured at
+				// that point. wrapping the call to disasm.End() prevents
+				// disasmSummary being captured)
+				arm.disasm.End(arm.disasmSummary)
+			}()
+		}
+	}
+
+	// get developer information. this probably hasn't changed since ARM
+	// creation but you never know
+	if arm.dev != nil {
+		arm.profiler = arm.dev.Profiling()
+		arm.state.variableMemtop = arm.dev.HighAddress()
+	}
+	arm.state.protectVariableMemTop = arm.dev != nil
+
+	// monitor the stack pointer to make sure it hasn't been tampered with. only do this if the previous
+	// state says the program had ended
+	if arm.state.yield.Type == coprocessor.YieldProgramEnded {
+		arm.state.expectedSP = arm.state.registers[rSP]
+	}
+
+	// reset yield. we do this as late as possible because we want to use
+	// information about the previous yield during the above preparations
+	arm.resetYield()
+
+	// make sure program memory is correct
+	arm.checkProgramMemory(false)
+	if arm.state.yield.Type != coprocessor.YieldRunning {
+		return arm.state.yield, 0
+	}
+
+	cycles := arm.run()
+
+	// perform the expected SP check only when the program has ended
+	if arm.state.yield.Type == coprocessor.YieldProgramEnded {
+		if arm.state.registers[rSP] != arm.state.expectedSP {
+			arm.memoryFault("stack position tampered with", faults.StackCollision, arm.state.registers[rSP])
+		}
+	}
+
+	return arm.state.yield, cycles
+}
+
+// Interrupt indicates that the ARM execution should cease after the current
+// instruction has been executed. The ARM will then yield with the reson
+// YieldSyncWithVCS.
+func (arm *ARM) Interrupt() {
+	arm.state.yield.Type = coprocessor.YieldSyncWithVCS
+}
+
+// MemoryFault causes a memory fault to be triggered
+func (arm *ARM) MemoryFault(event string, fault faults.Category) {
+	arm.memoryFault(event, fault, arm.state.instructionPC)
+}
+
+// StackFrame implements the coprocess.CartCoProc interface
+func (arm *ARM) StackFrame() uint32 {
+	return arm.state.stackFrame
+}
+
+func (arm *ARM) checkProgramMemory(force bool) {
+	// the address to use for program memory lookup
+	//
+	// the plus one to the executingPC value is intended to make sure that we're
+	// not jumping to the very last byte of a memory block, if we did then 16bit
+	// instruction lookup would fail
+	//
+	// important: some implementations of the SharedMemory interface will be
+	// sensitive to the address value used with MapAddress(). therefore, how the
+	// addr value is determined should never change - it may work with some
+	// mappers but will fail with others
+	addr := arm.state.executingPC + 1
+
+	if !force && arm.state.programMemory != nil {
+		if addr >= arm.state.programMemoryOrigin && addr <= arm.state.programMemoryMemtop {
+			return
+		}
+	}
+
+	var origin uint32
+	arm.state.programMemory, origin = arm.mem.MapAddress(addr, false, true)
+	if arm.state.programMemory == nil {
+		arm.memoryFault("program memory does not exist", faults.ProgramMemory, addr)
+		return
+	}
+
+	if !arm.mem.IsExecutable(addr) {
+		arm.memoryFault("program memory not executable", faults.ProgramMemory, addr)
+		arm.state.programMemory = nil
+		return
+	}
+
+	arm.state.programMemoryOrigin = origin
+	arm.state.programMemoryMemtop = origin + uint32(len(*arm.state.programMemory)) - 1
+
+	if m, ok := arm.executionCache[arm.state.programMemoryOrigin]; ok {
+		arm.state.currentExecutionCache = m
+	} else {
+		arm.executionCache[arm.state.programMemoryOrigin] = make([]decodeFunction, len(*arm.state.programMemory))
+		arm.state.currentExecutionCache = arm.executionCache[arm.state.programMemoryOrigin]
+	}
+
+	arm.stackProtectCheckProgramMemory()
+}
+
+func (arm *ARM) run() float32 {
+	defer func() {
+		// there are panics for unsupported conditions in the instruction implementations. this
+		// construct should probably be replaced with errors returned by the decode functions. panic
+		// recovery is fine though for the time being
+		if r := recover(); r != nil {
+			arm.state.yield.Type = coprocessor.YieldExecutionError
+			arm.state.yield.Error = fmt.Errorf("PC at %08x: %s", arm.state.executingPC, r)
+		}
+	}()
+
+	arm.updatePrefs()
+
+	// number of iterations. only used when in immediate mode
+	var iterations int
+
+	// loop detection counter
+	var loopDetectionCt int
+
+	// loop through instructions until we reach an exit condition
+	for arm.state.yield.Type == coprocessor.YieldRunning {
+		// program counter to execute:
+		//
+		// from "7.6 Data Operations" in "ARM7TDMI-S Technical Reference Manual r4p1", page 1-2
+		//
+		// "The program counter points to the instruction being fetched rather than to the instruction
+		// being executed. This is important because it means that the Program Counter (PC)
+		// value used in an executing instruction is always two instructions ahead of the address."
+		prev := arm.state.executingPC
+		arm.state.executingPC = arm.state.registers[rPC] - 2
+
+		// check program memory if execution branched last instruction
+		if arm.state.branchedExecution {
+			if prev == arm.state.executingPC {
+				// basic detection of infinite loops. currently, this is only good enough to
+				// detect exceedingly tight loops of the "while (true) {}" type
+				loopDetectionCt++
+				if loopDetectionCt > 2 {
+					arm.state.yield.Type = coprocessor.YieldInfiniteLoop
+					break
+				}
+			}
+			arm.checkProgramMemory(false)
+			if arm.state.yield.Type != coprocessor.YieldRunning {
+				break // for loop
+			}
+		}
+
+		// check breakpoints
+		if arm.dev != nil {
+			arm.checkBreakpoints()
+			if arm.state.yield.Type != coprocessor.YieldRunning {
+				break // for loop
+			}
+		}
+
+		// update strobe
+		if arm.dev != nil {
+			arm.dev.UpdateStrobe(arm.state.executingPC)
+		}
+
+		memIdx := int(arm.state.executingPC - arm.state.programMemoryOrigin)
+
+		// check that we're not crashing into the end of the program memory
+		if memIdx >= len(*arm.state.programMemory)-1 {
+			arm.state.yield.Type = coprocessor.YieldExecutionError
+			arm.state.yield.Error = fmt.Errorf("execution reached end of program memory")
+			break // for loop
+		}
+
+		// opcode for executed instruction
+		opcode := arm.byteOrder.Uint16((*arm.state.programMemory)[memIdx:])
+
+		// bump PC counter for prefetch. actual prefetch is done after execution
+		arm.state.registers[rPC] += 2
+
+		// expectedPC is used to decide whether to add cycles due to pipeline filling
+		expectedPC := arm.state.registers[rPC]
+
+		// expectedLR is used to change the stack frame information
+		expectedLR := arm.state.registers[rLR]
+
+		// expectedSP is used to decide whether to check the stack pointer
+		// for collision with other memory errors
+		expectedSP := arm.state.registers[rSP]
+
+		// execute instruction
+		if !arm.stepFunction(opcode, memIdx) {
+			break // for loop
+		}
+
+		// if program counter is not what we expect then that means we have hit a branch
+		arm.state.branchedExecution = expectedPC != arm.state.registers[rPC]
+
+		// if arm.state.branchedExecution && arm.state.function32bitDecoding {
+		// 	panic("ARM7: impossible condition")
+		// }
+
+		if !arm.immediateMode {
+			// add additional cycles required to fill pipeline before next iteration
+			if arm.state.branchedExecution {
+				arm.fillPipelineAfterBranch()
+			}
+
+			// prefetch cycle for next instruction is associated with and counts
+			// towards the total of the current instruction. most prefetch cycles
+			// are S cycles but store instructions require an N cycle
+			if arm.state.prefetchCycle == N {
+				arm.Ncycle(prefetch, arm.state.registers[rPC])
+			} else {
+				arm.Scycle(prefetch, arm.state.registers[rPC])
+			}
+
+			// default to an S cycle for prefetch unless an instruction explicitly
+			// says otherwise
+			arm.state.prefetchCycle = S
+
+			// increases total number of program cycles by the stretched cycles for this instruction
+			arm.state.cyclesTotal += arm.state.stretchedCycles
+
+			// update clock
+			arm.clock(arm.state.stretchedCycles)
+		} else if arm.immediateModeCycle {
+			// nominal amount of cycles when in immediate mode
+			arm.clock(1.1)
+		}
+
+		// stack frame has changed if LR register has changed
+		if expectedLR != arm.state.registers[rLR] {
+			arm.state.stackFrame = arm.state.registers[rSP]
+		}
+
+		// disassemble if appropriate
+		if arm.disasm != nil {
+			if !arm.state.instruction32bitDecoding {
+				df := arm.state.currentExecutionCache[memIdx]
+				if df != nil {
+					e := arm.decodeInstruction(df)
+					if e != nil {
+						arm.completeDisasmEntry(e, opcode, true)
+
+						// update disasm summary
+						arm.disasmSummary.ImmediateMode = arm.immediateMode
+						arm.disasmSummary.add(arm.state.cycleOrder)
+
+						// executed the Step() function of the attached disassembler
+						arm.disasm.Step(*e)
+
+						// print additional information output for stderr
+						if _, ok := arm.disasm.(*coprocessor.CartCoProcDisassemblerStderr); ok {
+							fmt.Fprintln(os.Stderr, arm.disasmVerbose(*e))
+						}
+					}
+				}
+			}
+		}
+
+		// accumulate cycle counts for profiling
+		if arm.profiler != nil {
+			arm.profiler.Entries = append(arm.profiler.Entries, coprocessor.CartCoProcProfileEntry{
+				Addr:   arm.state.instructionPC,
+				Cycles: arm.state.stretchedCycles,
+			})
+		}
+
+		// reset cycle information
+		if !arm.immediateMode {
+			arm.state.branchTrail = BranchTrailNotUsed
+			arm.state.mergedIS = false
+			arm.state.stretchedCycles = 0
+
+			// reset cycle order if we're not currently decoding a 32bit
+			// instruction
+			if !arm.state.instruction32bitDecoding {
+				arm.state.cycleOrder.reset()
+			}
+
+			// limit the number of cycles used by the ARM program
+			if arm.state.cyclesTotal >= cycleLimit {
+				arm.state.yield.Type = coprocessor.YieldCycleLimit
+			}
+		} else {
+			iterations++
+			if iterations > instructionsLimit {
+				arm.state.yield.Type = coprocessor.YieldCycleLimit
+			}
+		}
+
+		// check for stack errors if the arm is not already yielding and if the stack has changed
+		if arm.state.yield.Type.Normal() {
+			if arm.state.registers[rSP] != expectedSP {
+				arm.stackProtectCheckSP()
+			}
+		}
+
+		// handle memory access yields. we don't these want these to bleed out
+		// of the ARM unless the abort preference is set
+		if arm.state.yield.Type == coprocessor.YieldMemoryFault {
+			if !arm.abortOnMemoryFault {
+				arm.resetYield()
+			}
+		}
+	}
+
+	// cycles are stretched by the cycle regulator
+	return arm.state.cyclesTotal * arm.cycleRegulator
+}
+
+func (arm *ARM) checkBreakpoints() {
+	// don't check if we're in the middle of decoding a 32bit instruction
+	if arm.state.instruction32bitDecoding {
+		return
+	}
+
+	var addr uint32
+
+	if arm.state.branchedExecution {
+		addr = arm.state.registers[rPC] - 2
+	} else {
+		addr = arm.state.executingPC
+	}
+
+	if ok, yld := arm.dev.CheckBreakpoint(addr); ok {
+		arm.state.yield = yld
+		arm.dev.OnYield(addr, arm.state.yield)
+	}
+}
+
+func (arm *ARM) stepARM7TDMI(opcode uint16, memIdx int) bool {
+	df := arm.state.currentExecutionCache[memIdx]
+	if df == nil {
+		df = arm.decodeThumb(opcode)
+		if df == nil {
+			arm.state.yield.Type = coprocessor.YieldExecutionError
+			arm.state.yield.Error = fmt.Errorf("%04x is not a valid ARM Thumb instruction", opcode)
+			return false
+		}
+		arm.state.currentExecutionCache[memIdx] = df
+	}
+
+	// while the ARM7TDMI/Thumb instruction doesn't have 32bit instructions, in
+	// practice the BL instruction can/should be treated like a 32bit instruction
+	// for disassembly purposes
+	if arm.state.instruction32bitDecoding {
+		arm.state.instruction32bitResolving = true
+		arm.state.instruction32bitDecoding = false
+	} else {
+		arm.state.instructionPC = arm.state.executingPC
+		arm.state.instruction32bitResolving = false
+		if is32BitThumb2(opcode) {
+			arm.state.instruction32bitDecoding = true
+			arm.state.instruction32bitOpcodeHi = opcode
+		}
+	}
+
+	df()
+	return true
+}
+
+func (arm *ARM) stepARM7_M(opcode uint16, memIdx int) bool {
+	// decode function to execute
+	var df decodeFunction
+
+	// process a 32bit or 16bit instruction as appropriate
+	if arm.state.instruction32bitDecoding {
+		arm.state.instruction32bitDecoding = false
+		arm.state.instruction32bitResolving = true
+		df = arm.state.currentExecutionCache[memIdx]
+		if df == nil {
+			df = arm.decode32bitThumb2(arm.state.instruction32bitOpcodeHi, opcode)
+			arm.state.currentExecutionCache[memIdx] = df
+		}
+	} else {
+		// the opcode is either a 16bit instruction or the first halfword for a
+		// 32bit instruction. either way we're not resolving a 32bit
+		// instruction, by defintion
+		arm.state.instruction32bitResolving = false
+		arm.state.instruction32bitOpcodeHi = 0x0
+
+		arm.state.instructionPC = arm.state.executingPC
+		if is32BitThumb2(opcode) {
+			arm.state.instruction32bitDecoding = true
+			arm.state.instruction32bitOpcodeHi = opcode
+		} else {
+			df = arm.state.currentExecutionCache[memIdx]
+			if df == nil {
+				df = arm.decodeThumb2(opcode)
+				arm.state.currentExecutionCache[memIdx] = df
+			}
+		}
+	}
+
+	// new 32bit functions always execute
+	// if the opcode indicates that this is a 32bit thumb instruction
+	// then we need to resolve that regardless of any IT block
+	if !arm.state.instruction32bitDecoding {
+		if arm.state.status.itMask != 0b0000 {
+			r, _ := arm.state.status.condition(arm.state.status.itCond)
+
+			if r {
+				if df == nil {
+					arm.state.yield.Type = coprocessor.YieldExecutionError
+					arm.state.yield.Error = fmt.Errorf("%04x %04x is not a valid ARM Thumb instruction",
+						arm.state.instruction32bitOpcodeHi, opcode)
+					return false
+				}
+				df()
+			} else {
+				// "A7.3.2: Conditional execution of undefined instructions
+				//
+				// If an undefined instruction fails a condition check in Armv7-M, the instruction
+				// behaves as a NOP and does not cause an exception"
+				//
+				// page A7-179 of the "ARMv7-M Architecture Reference Manual"
+			}
+
+			// update IT conditions only if the opcode is not a 32bit opcode
+			// update LSB of IT condition by copying the MSB of the IT mask
+			arm.state.status.itCond &= 0b1110
+			arm.state.status.itCond |= (arm.state.status.itMask >> 3)
+
+			// shift IT mask
+			arm.state.status.itMask = (arm.state.status.itMask << 1) & 0b1111
+		} else {
+			if df == nil {
+				arm.state.yield.Type = coprocessor.YieldExecutionError
+				arm.state.yield.Error = fmt.Errorf("%04x %04x is not a valid ARM Thumb instruction",
+					arm.state.instruction32bitOpcodeHi, opcode)
+				return false
+			}
+			df()
+		}
+	}
+
+	return true
+}

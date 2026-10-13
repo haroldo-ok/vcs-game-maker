@@ -1,0 +1,133 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+// Package hmove represents the TIA HMOVE process.
+package hmove
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/jetsetilly/gopher2600/hardware/tia/delay"
+)
+
+type Hmove struct {
+	// the delay between HMOVE being triggered and the latch flag being set
+	// to true
+	FutureLatch delay.Event
+
+	// Latch indicates whether HMOVE has been triggered this scanline. it is
+	// reset when a new scanline begins
+	Latch bool
+
+	// the delay between HMOVE being triggered and the ripple count starting
+	Future delay.Event
+
+	// Ripple counts backwards from 15 to -1 (represented by 255). note that
+	// unlike how it is described in TIA_HW_Notes.txt, we always send the extra
+	// tick to the sprites on Phi1.  however, we also send the HmoveCt value,
+	// whether or not the extra should be honoured is up to the sprite.
+	// (TIA_HW_Notes.txt says that HmoveCt is checked *before* sending the
+	// extra tick)
+	Ripple uint8
+
+	// Has the Ripple counter just expired this cycle
+	RippleJustEnded bool
+
+	// Clk is true when the TIA PhaseClock.Phi2() is true
+	Clk bool
+}
+
+// ResetRipple begins the ripple count.
+func (hm *Hmove) ResetRipple() {
+	hm.Ripple = 15
+}
+
+// Tick every video cycle when Clk is true. ie. when the TIA phaseclock is in
+// rising Phi2.
+func (hm *Hmove) Tick() {
+	hm.RippleJustEnded = false
+	if hm.Ripple != 0xff {
+		hm.Ripple--
+		hm.RippleJustEnded = hm.Ripple == 0xff
+	}
+}
+
+// Reset Hmove values.
+func (hm *Hmove) Reset() {
+	hm.Latch = false
+	hm.Ripple = 0xff
+	hm.Clk = false
+	hm.FutureLatch.Drop()
+	hm.Future.Drop()
+}
+
+func (hm *Hmove) JustStarted() bool {
+	return hm.Ripple == 15
+}
+
+// IsActive returns true if HMOVE is "active".
+//
+// I'm not sure what to call this really. It tests if HMOVE is currently rippling but
+// not at the point when the ripple value is zero. HMOVE is also considered to be active if the
+// ripple has *just* finished.
+func (hm *Hmove) IsActive() bool {
+	return hm.Ripple > 0 && (hm.Ripple != 0xff || hm.RippleJustEnded)
+}
+
+func (hm *Hmove) String() string {
+	s := strings.Builder{}
+
+	if hm.Clk {
+		s.WriteString("[Clk]")
+	}
+
+	if hm.Future.IsActive() {
+		fmt.Fprintf(&s, " HMOVE latching %d", hm.Future.Remaining())
+	} else if hm.Latch {
+		s.WriteString(" HMOVE latched")
+	} else {
+		s.WriteString(" HMOVE not latched")
+	}
+
+	if hm.Ripple <= 15 {
+		fmt.Fprintf(&s, " (ripple count %d)", hm.Ripple)
+	} else if hm.RippleJustEnded {
+		s.WriteString(" (ripple just ended)")
+	}
+
+	return strings.TrimSpace(s.String())
+}
+
+// CompareHMOVE tests two variables of type uint8 and checks to see if any of
+// the bits in the lower nibble differ. returns false if no bits are the same,
+// true otherwise
+//
+// returns true if any corresponding bits in the lower nibble are the same.
+// from TIA_HW_Notes.txt:
+//
+// "When the comparator for a given object detects that none of the 4 bits
+// match the bits in the counter state, it clears this latch".
+func (hm *Hmove) Compare(v uint8) bool {
+	return hm.Ripple&0x08 == v&0x08 || hm.Ripple&0x04 == v&0x04 || hm.Ripple&0x02 == v&0x02 || hm.Ripple&0x01 == v&0x01
+
+	// at first flush the quotation above appears to be saying the following:
+	//
+	//	return hm.Ripple & v & 0x0f != 0
+	//
+	// but it does not. this simpler construct does not check whether zero bits
+	// are the same. the actual comparison, which we're using, compares one and
+	// zero bits equally.
+}

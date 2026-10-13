@@ -1,0 +1,240 @@
+// This file is part of Gopher2600.
+//
+// Gopher2600 is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Gopher2600 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Gopher2600.  If not, see <https://www.gnu.org/licenses/>.
+
+// Package panel implements the front control panel of the VCS.
+package panel
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/jetsetilly/gopher2600/environment"
+	"github.com/jetsetilly/gopher2600/hardware/memory/chipbus"
+	"github.com/jetsetilly/gopher2600/hardware/riot/ports"
+	"github.com/jetsetilly/gopher2600/hardware/riot/ports/plugging"
+)
+
+// Panel represents the console's front control panel.
+type Panel struct {
+	id  plugging.PortID
+	bus ports.PeripheralBus
+
+	p0pro         bool
+	p1pro         bool
+	color         bool
+	selectPressed bool
+	resetPressed  bool
+
+	active int
+}
+
+// NewPanel is the preferred method of initialisation for the Panel type.
+func NewPanel(env *environment.Environment, id plugging.PortID, bus ports.PeripheralBus) ports.Peripheral {
+	pan := &Panel{
+		id:    id,
+		bus:   bus,
+		color: true,
+	}
+	return pan
+}
+
+// Reset implements the Peripheral interface.
+func (pan *Panel) Reset() {
+	// p0pro, p1pro and color are toggles and shouldn't be reset because the user might have
+	// changed them intentionally
+
+	// select and reset are switches that need to be held by the user. the reset should cause these
+	// switches to be released
+	pan.selectPressed = false
+	pan.resetPressed = false
+
+	pan.write()
+}
+
+// Unplug implements the Peripheral interface.
+func (pan *Panel) Unplug() {
+}
+
+// Snapshot implements the Peripheral interface.
+func (pan *Panel) Snapshot() ports.Peripheral {
+	n := *pan
+	return &n
+}
+
+// Plumb implements the Peripheral interface.
+func (pan *Panel) Plumb(bus ports.PeripheralBus) {
+	pan.bus = bus
+}
+
+// String implements the Peripheral interface.
+func (pan *Panel) String() string {
+	s := strings.Builder{}
+
+	s.WriteString("sel=")
+	if pan.selectPressed {
+		s.WriteString("held")
+	} else {
+		s.WriteString("no")
+	}
+
+	s.WriteString(", res=")
+	if pan.resetPressed {
+		s.WriteString("held")
+	} else {
+		s.WriteString("no")
+	}
+
+	s.WriteString(", p0=")
+	if pan.p0pro {
+		s.WriteString("pro")
+	} else {
+		s.WriteString("am")
+	}
+
+	s.WriteString(", p1=")
+	if pan.p1pro {
+		s.WriteString("pro")
+	} else {
+		s.WriteString("am")
+	}
+
+	s.WriteString(", ")
+
+	if pan.color {
+		s.WriteString("col")
+	} else {
+		s.WriteString("b&w")
+	}
+
+	return s.String()
+}
+
+// PortID implements the ports.Peripheral interface.
+func (pan *Panel) PortID() plugging.PortID {
+	return pan.id
+}
+
+// ID implements the Peripheral interface.
+func (pan *Panel) ID() plugging.PeripheralID {
+	return plugging.PeriphPanel
+}
+
+// commit changes to RIOT memory
+func (pan *Panel) write() {
+	// pins 2, 4 and 5 are not used and from the view of the panel are always set
+	v := uint8(0x34)
+
+	// bit positions described in the "Stella Programmer's Guide", page 13
+	//
+	// note that the P0 and P1 difficulty bit positions are maybe different to what you would
+	// intuitively expect. from the outset of gopher2600, the positions of the difficulty bits were
+	// the opposite of what they should be. this meant that when user input was trying to set the P0
+	// difficulty it was affecting the P1 difficulty bits. in practice, the bug was not noticeable
+	// unless the input switches were altered
+
+	if pan.p0pro {
+		v |= 0x40
+	}
+
+	if pan.p1pro {
+		v |= 0x80
+	}
+
+	if pan.color {
+		v |= 0x08
+	}
+
+	if !pan.selectPressed {
+		v |= 0x02
+	}
+
+	if !pan.resetPressed {
+		v |= 0x01
+	}
+
+	pan.bus.WriteSWCHx(plugging.PortPanel, v)
+}
+
+// HandleEvent implements Peripheral interface.
+func (pan *Panel) HandleEvent(event ports.Event, value ports.EventData) (bool, error) {
+	var v bool
+	switch d := value.(type) {
+	case bool:
+		v = d
+	case ports.EventDataPlayback:
+		if len(string(d)) > 0 {
+			var err error
+			v, err = strconv.ParseBool(string(d))
+			if err != nil {
+				return false, fmt.Errorf("panel: %v: unexpected event data", event)
+			}
+		}
+	}
+
+	switch event {
+	case ports.PanelSelect:
+		pan.selectPressed = v
+
+	case ports.PanelReset:
+		pan.resetPressed = v
+
+	case ports.PanelSetColor:
+		pan.color = v
+
+	case ports.PanelSetPlayer0Pro:
+		pan.p0pro = v
+
+	case ports.PanelSetPlayer1Pro:
+		pan.p1pro = v
+
+	case ports.PanelToggleColor:
+		pan.color = !pan.color
+
+	case ports.PanelTogglePlayer0Pro:
+		pan.p0pro = !pan.p0pro
+
+	case ports.PanelTogglePlayer1Pro:
+		pan.p1pro = !pan.p1pro
+
+	case ports.PanelPowerOff:
+		return false, ports.PowerOff
+
+	default:
+		return false, nil
+	}
+
+	pan.write()
+
+	return true, nil
+}
+
+// Update implements the Peripheral interface.
+func (pan *Panel) Update(data chipbus.ChangedRegister) bool {
+	return false
+}
+
+// Step implements the Peripheral interface.
+func (pan *Panel) Step() {
+	if pan.active > 0 {
+		pan.active--
+	}
+}
+
+// IsActive implements the ports.Peripheral interface. Note that it only
+// responds to the select and reset buttons being pressed/held.
+func (pan *Panel) IsActive() bool {
+	return pan.selectPressed || pan.resetPressed
+}

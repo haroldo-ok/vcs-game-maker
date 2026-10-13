@@ -37,6 +37,10 @@ scorepaddinglines = 0
 minikernel
 
     sta WSYNC               ; 3     (0)
+    ; vcs-game-maker: with the score hidden (noscoretxt) there is nothing for the setup line that follows this wait, so
+    ; the positioning line starts at once (the registers it needed are set in its first cycles), which brings the text up by a
+    ; scanline.
+    ifnconst noscoretxt
  	ifconst scorebkcolor
  	    ifnconst noscoretxt
 	        ; vcs-game-maker: was "lda #scorebkcolor" (immediate) upstream -
@@ -52,7 +56,17 @@ minikernel
     ldx #0                  ; 2     (2)
     stx GRP0                ; 3     (5)         
     stx GRP1                ; 3     (8)
-    ldy #$D0                ; 2     (10)
+    ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered;
+    ; the text below them is moved back (see after the digit loop).
+    ifconst score5digits
+        ifnconst noscoretxt
+    ldy #DIGITHMP0                ; 2     (10)
+        else
+    ldy #TEXTHMP0                ; 2     (10)
+        endif
+    else
+    ldy #TEXTHMP0                ; 2     (10)
+    endif
     sty HMP0                ; 3     (13)
     lda scorepointers+1
     sta temp1
@@ -68,9 +82,7 @@ minikernel
     lda scorecolor          
 
     sta WSYNC               ; 3     (0)
-    ifnconst noscoretxt
-        sleep 3             ; 3     (3)
-    endif
+    sleep 3             ; 3     (3)
     sta COLUP0              ; 3     (6)
     sta COLUP1              ; 3     (9)
     ifconst scorefade
@@ -83,6 +95,14 @@ minikernel
         else
             sleep 6
         endif
+    endif
+    else
+    ldy #TEXTHMP0                ; 2     (2)
+    sty HMP0                ; 3     (5)
+    ldy #1                  ; 2     (7)
+    sty VDELP0              ; 3     (10)
+    sty VDELP1              ; 3     (13)
+    sleep 2                 ; 2     (15)
     endif
 	lda #3                  ; 2     (17)
 	sta NUSIZ0              ; 3     (20)
@@ -97,8 +117,22 @@ minikernel
     sta RESP0               ; 3     (43)
     sta RESP1               ; 3     (46)
     sta temp6               ; 3     (49)
-	ldy #$E0                ; 2     (51)
+    ifconst score5digits
+        ifnconst noscoretxt
+	ldy #DIGITHMP1                ; 2     (51)
+        else
+	ldy #TEXTHMP1                ; 2     (51)
+        endif
+    else
+	ldy #TEXTHMP1                ; 2     (51)
+    endif
 	sty HMP1                ; 3     (54)
+    ; vcs-game-maker: with the score hidden (noscoretxt) there is no digit row to start, and nothing to put in PF1, so the
+    ; same cycles are spent waiting and the registers stay as they are (see the cleanup after the digit loop below).
+    ifconst noscoretxt
+        sleep 10            ; 10    (64)
+        sleep 6             ; 6     (70)
+    else
     ldy #scorecount         ; 2     (56)
     lda (scorepointers),y   ; 5     (61)
     sta GRP0                ; 3     (64)
@@ -107,6 +141,7 @@ minikernel
         sta PF1             ; 3     (70)
     else
         sleep 6             ; 6     (70)
+    endif
     endif
 	sta HMOVE               ; 3     (73)
 posthmove	
@@ -119,6 +154,12 @@ posthmove
    endif
 
 textscoreloop
+         ; vcs-game-maker: with 5 score digits the digits are drawn 2 cycles sooner (see below), so the loop waits these 2 at its start.
+         ifconst score5digits
+             ifnconst scorefade
+                 sleep 2
+             endif
+         endif
          lda (scorepointers),y      ; 5     (66)
          sta GRP0                   ; 3     (69)
          ifconst pfscore
@@ -144,7 +185,13 @@ begintextscore
          ifconst scorefade
              lda TextDataPtr+1             ; 3     (31)
          else
-             sleep 3                ; 3     (31)
+             ; vcs-game-maker: with 5 score digits the digits stand 6 clocks (2 cycles) further to the left (see DIGITHMP0 in
+             ; text12b.asm), so the writes that draw them come 2 cycles sooner: 1 here and 1 below.
+             ifconst score5digits
+                 sleep 2            ; 2     (30)
+             else
+                 sleep 3            ; 3     (31)
+             endif
          endif
 
          ifconst pfscore
@@ -159,7 +206,18 @@ begintextscore
              endif
          endif
 
+         ; vcs-game-maker: the Score tab's "5 score digits" switch leaves the sixth place blank (same 5 cycles); the pointers
+         ; already hold the other five digits one place to the left (see std_overscan.asm).
+         ifconst score5digits
+             lda #0
+             ifconst scorefade
+                 sleep 3
+             else
+                 sleep 2
+             endif
+         else
          lda (scorepointers+$A),y   ; 5     (42)
+         endif
          stx GRP1                   ; 3     (45)
          tsx                        ; 2     (47)
          stx GRP0                   ; 3     (50)
@@ -231,6 +289,9 @@ begintextscore
 
 score_loop_height = * - textscoreloop
 
+    ; vcs-game-maker: with the score hidden no digit was drawn, so the stack pointer, PF1 and the sprite registers are as
+    ; the setup above left them and need no cleanup, which brings the text up by the cycles it took.
+    ifnconst noscoretxt
     ldx temp7               ; 63
     txs                     ; 65
 	ldy #0                  ; 2     (67)
@@ -238,6 +299,22 @@ score_loop_height = * - textscoreloop
 	sty GRP0                ; 3     (73)
 	sty GRP1                ; 3     (76/0)
 	sty GRP0                ; 3     (3)
+    ; vcs-game-maker: the sprites go back to where the text is centered (the digits were moved half a digit): the same strobes
+    ; at the same cycles and the same fine motion as the setup at the top, on a line by itself.
+    ifconst score5digits
+    sta WSYNC
+    ldy #TEXTHMP0                ; 2     (2)
+    sty HMP0                ; 3     (5)
+    ldy #TEXTHMP1                ; 2     (7)
+    sty HMP1                ; 3     (10)
+    sleep 30                ; 30    (40)
+    sta RESP0               ; 3     (43)
+    sta RESP1               ; 3     (46)
+    sleep 24                ; 24    (70)
+    sta HMOVE               ; 3     (73)
+    sleep 6                 ; 6     (79 = 3)
+    endif
+    endif
 	; vcs-game-maker: when noscoretxt is unset (score digits shown) AND
 	; scorepaddinglines is at least 1, the "ifnconst noscoretxt" block above
 	; (right after the score loop) already set COLUBK to textbkcolor
@@ -278,6 +355,9 @@ score_loop_height = * - textscoreloop
     adc temp7               ; 3     (69) ; use existing carry from last operation
     endif
     
+    ; vcs-game-maker: with the score hidden only the second row of text reads through the pointer; row 1 reads the
+    ; messages directly (see showtextrowfast in text12b.asm).
+    ifnconst textfastrow1
     ifconst extendedtxt
         adc #>text_strings  ; carry already clear
     else
@@ -286,7 +366,20 @@ score_loop_height = * - textscoreloop
     sta TextDataPtr+1
     lda #<text_strings
     sta TextDataPtr
+    else
+        ifconst textkernel2ndrow
+    ifconst extendedtxt
+        adc #>text_strings  ; carry already clear
+    else
+        lda #>text_strings
+    endif
+    sta TextDataPtr+1
+    lda #<text_strings
+    sta TextDataPtr
+        endif
+    endif
 
+starttextkernel
     ifconst textbank
         sta temp7
         lda #>(textkernel-1)
@@ -304,5 +397,67 @@ score_loop_height = * - textscoreloop
     endif
 
 posttextkernel
-
+    ; vcs-game-maker: the Title Screen kernel (titletext below) can call from another bank. The bank switch routine works out
+    ; the bank to return to from the return address, which does not tell the right bank for every bank, so that return is made
+    ; by naming the bank (titletextbank). The standard kernel's call, from this same bank, returns the usual way.
+    ifconst titletextbank
+    lda titleTextFlag
+    beq stdtextreturn
+    lda #0
+    sta titleTextFlag
+    pha
+    pha
+    ldx #titletextbank
+    jmp BS_jsr
+stdtextreturn
+    endif
+    ifconst bs_mask
+    RETURN
+    else
     rts
+    endif
+
+    ifconst titletext
+; vcs-game-maker: the text on a Title Screen page, called by the Title Screen kernel when its layout is done, standing in the
+; middle of a line (see buildDriverAsm in generators/bbasic/titlescreen.js). No score digits are drawn there: the registers a
+; layout may have left are cleared, the two sprites are positioned the way the minikernel above does it (the same cycles after
+; the wait) and the text is drawn from textkernel as usual, returning to the caller through posttextkernel.
+titletextkernel
+    ifconst titletextbank
+    lda #1
+    sta titleTextFlag
+    endif
+    lda #0
+    sta GRP0
+    sta GRP1
+    sta GRP0
+    sta PF0
+    sta PF1
+    sta PF2
+    sta HMCLR
+    sta WSYNC               ; 3     (0)
+    ldy #TEXTHMP0                ; 2     (2)
+    sty HMP0                ; 3     (5)
+    ldy #1                  ; 2     (7)
+    sty VDELP0              ; 3     (10)
+    sty VDELP1              ; 3     (13)
+    sleep 2                 ; 2     (15)
+    lda #3                  ; 2     (17)
+    sta NUSIZ0              ; 3     (20)
+    sta NUSIZ1              ; 3     (23)
+    sleep 17                ; 17    (40)
+    sta RESP0               ; 3     (43)
+    sta RESP1               ; 3     (46)
+    sleep 3                 ; 3     (49)
+    ldy #TEXTHMP1                ; 2     (51)
+    sty HMP1                ; 3     (54)
+    sleep 16                ; 16    (70)
+    sta HMOVE               ; 3     (73)
+    lda #textbkcolor
+    sta COLUBK
+    lda #>text_strings
+    sta TextDataPtr+1
+    lda #<text_strings
+    sta TextDataPtr
+    jmp starttextkernel
+    endif

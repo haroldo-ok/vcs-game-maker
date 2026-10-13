@@ -1,10 +1,10 @@
 // Same "YYYY-MM-DD-HH-MM-SS" shape the old toISOString()-based version
-// produced, but built from the Date object's own LOCAL getters instead -
-// toISOString() always reports UTC regardless of the user's own timezone,
+// produced, but built from the Date object's  LOCAL getters instead -
+// toISOString() always reports UTC regardless of the user's  timezone,
 // so a save near midnight (or anywhere with a large UTC offset) landed on
 // the wrong calendar day/hour in the filename, confirmed as a real
 // reported "you seem hours off in the filename" mismatch against the
-// user's own clock.
+// user's  clock.
 const pad2 = (n) => String(n).padStart(2, '0');
 
 export const getDateInfix = () => {

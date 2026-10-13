@@ -14,7 +14,10 @@ Blockly.defineBlocksWithJsonArray([
     ],
     'previousStatement': null,
     'nextStatement': null,
-    'colour': '%{BKY_LOOPS_HUE}',
+    // Matches the Event category's  colour (rgb(39, 176, 176) - see
+    // blocks/event.js) now that this block lives in that toolbox category
+    // instead of Loops.
+    'colour': 'rgb(39, 176, 176)',
     'tooltip': `Pauses for the given number of video frames (NTSC runs at about 60 frames per second) ` +
       `before continuing.`,
   },

@@ -3,6 +3,7 @@
     <template v-slot:activator="{ on, attrs }">
       <div
         class="color-swatch-picker-dot"
+        :class="{'color-swatch-picker-dot-square': square}"
         :style="{backgroundColor: swatchColor}"
         :title="title"
         v-bind="attrs"
@@ -10,7 +11,7 @@
       />
     </template>
     <v-card class="palette-card">
-      <v-btn v-if="allowClear" text small block @click="$emit('input', null)">
+      <v-btn v-if="allowClear" small block class="palette-clear-btn" @click="$emit('input', null)">
         {{ clearLabel }}
       </v-btn>
       <div class="palette-grid">
@@ -33,7 +34,7 @@ import {NTSC_COLORS, colorByteToCss} from '../utils/palette';
 
 // A single reusable swatch-button + palette-grid color picker (a TIA color
 // byte, matching utils/palette.js's index<<1 convention) - the same
-// interaction Configuration.vue's own Text Minikernel background color
+// interaction Configuration.vue's  Text Minikernel background color
 // picker uses, generalized so anything needing one TIA color value (Sound
 // tab instrument colors, etc.) doesn't have to duplicate the markup/CSS.
 export default defineComponent({
@@ -45,6 +46,12 @@ export default defineComponent({
     allowClear: {type: Boolean, default: true},
     clearLabel: {type: String, default: 'Use automatic color'},
     title: {type: String, default: 'Click to change color'},
+    // Matches the Quick colors bar's .quick-color-swatch look (square
+    // corners, thicker border) instead of this component's default rounded
+    // dot - see .color-swatch-picker-dot-square below. A single shared prop
+    // instead of every caller (Text/Score/Title tab background color
+    // pickers) each hand-rolling the same deep-selector CSS override.
+    square: {type: Boolean, default: false},
   },
   setup(props) {
     const swatchColor = computed(() => (props.value != null ? colorByteToCss(props.value) : props.fallbackColor));
@@ -66,30 +73,43 @@ export default defineComponent({
   outline-offset: -2px;
 }
 
+/* Matches the Quick colors bar's .quick-color-swatch size/border exactly
+   (see components/QuickColorPalette.vue) - hover styling above already
+   matches without needing an override here. */
+.color-swatch-picker-dot-square {
+  width: 18px;
+  height: 18px;
+  border-radius: 0;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
 .palette-card {
   padding: 4px;
 }
 
-.palette-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 18px);
-  gap: 1px;
+.palette-clear-btn {
+  margin: 4px 0;
 }
 
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 28px);
+  gap: 0;
+}
+
+/* The same swatch the color blocks' picker shows (see App.vue's .fieldGridDropDownContainer
+   rules): 28 pixel squares with no gap, the selected one marked with a black inset frame. */
 .palette-swatch {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   cursor: pointer;
 }
 
 .palette-swatch:hover {
-  outline: 2px solid #1976d2;
-  outline-offset: -2px;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45);
 }
 
 .palette-swatch.selected {
-  outline: 2px solid #ffffff;
-  outline-offset: -2px;
-  box-shadow: 0 0 0 1px #000;
+  box-shadow: inset 0 0 0 2px #000;
 }
 </style>

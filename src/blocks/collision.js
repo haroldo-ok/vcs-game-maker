@@ -1,6 +1,7 @@
 import * as Blockly from 'blockly/core';
 
 import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, PLAYFIELD_ICON} from './icon';
+import {useConfigurationStorage} from '../hooks/project';
 
 const options = [
   [PLAYER_ICON + ' Player 0', 'player0'],
@@ -10,6 +11,14 @@ const options = [
   [BALL_ICON + ' Ball', 'ball'],
   [PLAYFIELD_ICON + ' Playfield', 'playfield'],
 ];
+
+// The DPC+ kernel's extra sprites (Player 2 to 9) are offered too.
+const collisionOptions = function() {
+  const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
+  if (!dpcPlus) return options;
+  const extra = Array.from({length: 8}, (_, i) => [PLAYER_ICON + ' Player ' + (i + 2), 'player' + (i + 2)]);
+  return [...options.slice(0, 2), ...extra, ...options.slice(2)];
+};
 
 // The "Check bounding box collision with Playfield" / "Bounding box
 // collision result" block pair (predictive software box collision, with
@@ -28,12 +37,12 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'field_dropdown',
         'name': 'VAR0',
-        options,
+        'options': collisionOptions,
       },
       {
         'type': 'field_dropdown',
         'name': 'VAR1',
-        options,
+        'options': collisionOptions,
       },
     ],
     'output': 'Boolean',
@@ -42,31 +51,27 @@ Blockly.defineBlocksWithJsonArray([
   },
 ]);
 
-const playerOptions = [
-  [PLAYER_ICON + ' Player 0', '0'],
-  [PLAYER_ICON + ' Player 1', '1'],
-];
+const playerOptions = function() {
+  const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
+  return Array.from({length: dpcPlus ? 10 : 2}, (_, i) => [PLAYER_ICON + ' Player ' + i, String(i)]);
+};
 
-// One-frame-delayed hardware-collision "backtrack" check - no movement of
-// its own, and no extra drawscreen: bBasic's own kernel already clears the
+// One-frame-delayed hardware-collision "backtrack" check - no movement
+// and no extra drawscreen: bBasic's kernel already clears the
 // TIA collision latches every frame as part of "drawscreen" (its version of
 // CXCLR), and its "collision()" builtin already wraps reading them
 // (CXP0FB/CXP1FB) - so checking collision() at the START of a frame, BEFORE
-// this frame's own movement blocks run, reads the result of LAST frame's
+// this frame's movement blocks run, reads the result of LAST frame's
 // movement and undoes it if it collided. Place this ahead of whatever
 // joystick/movement blocks already move the player (e.g. from the Sprites
 // category) in the same event - it only backs up and restores position, it
 // never moves the player itself.
 //
-// This checks X and Y together (both revert if either axis collided), not
-// separately - CXP0FB/CXP1FB is a single combined bit with no way to tell
-// which axis caused the overlap, so per-axis wall sliding isn't possible
-// with this technique on its own. A software (pfread-based) axis-aware
-// version of this was tried and reverted after causing two separate real
-// bugs on an actual project (a ROM lockup, then - even after fixing that - a
-// hard crash on contact) - see generators/bbasic/collision.js's own
-// top-of-file comment for the full account. This version is simpler and
-// known-correct: it stops dead at a wall instead of sliding along it.
+// The hardware flag (CXP0FB/CXP1FB) is a single combined bit with no way to tell which axis caused the overlap, so the
+// generator tries the axes one at a time with the software box test of generators/bbasic/pf-box.js (checked against the
+// hardware flag over every position of a solid sprite): the move is kept in the axis that is clear, so the player slides along a
+// wall, and goes back to where it was only when neither is. See generators/bbasic/collision.js's top-of-file comment for the
+// earlier attempts at this.
 const buildCollisionCheckBlock = () => ({
   'type': 'collision_check_position',
   'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield`,
@@ -77,10 +82,12 @@ const buildCollisionCheckBlock = () => ({
   'nextStatement': null,
   'colour': 'purple',
   'tooltip': 'Checks last frame\'s collision result between the chosen player and the ' +
-    'Playfield (using real TIA hardware collision detection) and reverts to the position ' +
-    'from before that move if it collided. Place this before whatever block(s) actually move ' +
-    'the player each frame - it only backs up and restores position, it does not move the ' +
-    'player itself.',
+    'Playfield (the hardware collision flag, or for Players 2 to 9 a software test of the ' +
+    'sprite box) and, if it collided, takes back as much of that move as it needs: the ' +
+    'part of it along an axis that is clear is kept, so the player slides along a wall, and ' +
+    'it goes back to where it was only when neither axis is clear. Place this before ' +
+    'whatever block(s) actually move the player each frame - it only backs up and restores ' +
+    'position, it does not move the player itself.',
 });
 
 Blockly.defineBlocksWithJsonArray([
@@ -88,14 +95,14 @@ Blockly.defineBlocksWithJsonArray([
 ]);
 
 // A predictive (check-BEFORE-moving) software playfield collision block
-// (collision_check_playfield_move), adapted from Random Terrain's own
+// (collision_check_playfield_move), adapted from Random Terrain's
 // "Sprite With Collision Prevention" example (AtariAge), was tried here and
 // removed again - real testing found it reported collisions against pixels
 // the player wasn't actually near, even after fixing two earlier bugs found
 // along the way (a row-height formula that didn't scale with this project's
-// own Superchip pfres, and a compound "&&"-plus-nested-"if" condition never
+// Superchip pfres, and a compound "&&"-plus-nested-"if" condition never
 // actually proven to compile correctly). Root cause not isolated before the
-// approach was abandoned in favor of adapting this app's own already-working
+// approach was abandoned in favor of adapting this app's already-working
 // built-in "background collision" example blocks (hardware collision_get,
 // checked one-frame-delayed - see collision_check_position above) instead of
 // continuing to chase custom pfread() box math. See git history on this file

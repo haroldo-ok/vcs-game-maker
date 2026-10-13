@@ -207,7 +207,7 @@ noreadpaddle
              sleep 2
              jmp continuekernel
          else
-             ifnconst playercolors 
+             ifnconst playercolors
                  ifconst PFcolors
                      txa
                      tay
@@ -383,7 +383,7 @@ lastkernelline
 
      else
 lastkernelline
-         
+
          ifconst PFheights
              ldx #1
              ;sleep 5
@@ -658,7 +658,12 @@ noshakescreen2
          sta HMCLR
          tsx
          stx stack1 
+         ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered.
+         ifconst score5digits
+         ldx #$D0
+         else
          ldx #$E0
+         endif
          stx HMP0
 
          LDA scorecolor 
@@ -697,7 +702,11 @@ noshakescreen2
          STA NUSIZ0
          STA NUSIZ1
          STA VDELP1
+         ifconst score5digits
+         LDA #$E0
+         else
          LDA #$F0
+         endif
          STA HMP1
          lda (scorepointers),y
          sta GRP0
@@ -750,7 +759,13 @@ beginscore
              endif
          endif
 
+         ; vcs-game-maker: the Score tab's "5 score digits" switch leaves the sixth place blank (same 5 cycles).
+         ifconst score5digits
+             lda #0
+             sleep 3
+         else
          lda (scorepointers+$A),y ;+5 21 63
+         endif
          stx GRP1 ;+3 44 132 D3 D3 D4 D2!
          tsx
          stx GRP0 ;+3 47 141 D5 D3! D4 D4

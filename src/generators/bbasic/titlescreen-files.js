@@ -1,10 +1,10 @@
 'use strict';
 
-// The Titlescreen Kernel's own static drawing code (see public/bb19/
+// The Titlescreen Kernel's  static drawing code (see public/bb19/
 // titlescreen/) - the fixed, cycle-exact assembly adapted from Mike
 // Saarna's "bB Titlescreen Kernel" 1.8. Fetched once and cached, same
 // "hooks/rom.js places these as siblings of the compiled source" reasoning
-// as text-minikernel-files.js's own getTextMinikernelSiblingFiles - only
+// as text-minikernel-files.js's  getTextMinikernelSiblingFiles - only
 // the files actually needed for whichever bitmap kernel copies (1-8, per
 // type) the current project uses are included, so an unused kernel/copy
 // costs nothing to fetch either.
@@ -14,10 +14,10 @@ const fetchText = (path) => fetch(path).then((r) => r.text());
 // registerTitleScreenSubroutine (generators/bbasic/titlescreen.js) now
 // generates that driver/color content directly in JS, one shared copy for
 // every title screen page in the project instead of one static, single-
-// page file (see its own comment for why: a per-copy kernel file like
+// page file (see its  comment for why: a per-copy kernel file like
 // 48x1_1_kernel.asm reaches shared routines like position48 via a plain
 // same-bank "jsr", so every page has to compile into the SAME subroutine/
-// bank rather than each getting its own).
+// bank rather than each getting its).
 let staticFilesPromise = null;
 const STATIC_FILES = [
   'layoutmacros.asm', 'dpcfix.asm', 'position48.asm', 'player_kernel.asm', 'score_kernel.asm',
@@ -45,16 +45,18 @@ const getKernelFile = (name) => {
  * per-copy kernel files (48x1_N_kernel.asm/48x2_N_kernel.asm/
  * 96x2_N_kernel.asm) actually referenced, plus the shared 48x1_X_kernel.asm/
  * 48x2_X_kernel.asm core whenever any 48x1/48x2 copy is used at all (see
- * public/bb19/titlescreen/titlescreen_kernel.asm's own #ifconst gates,
+ * public/bb19/titlescreen/titlescreen_kernel.asm's #ifconst gates,
  * mirrored here so an unused copy's kernel file is never even fetched).
  * @param {Set<string>} usedKernelKeys e.g. new Set(['48x1_1', '96x2_3']).
+ * @param {boolean} hasScoreCard Whether a Score card is used: it draws with the shared 48x1 core, even with no 48x1 graphic.
  * @return {Promise<Object<string, string>>} filename -> file content.
  */
-export const getTitleScreenSiblingFiles = async (usedKernelKeys) => {
+export const getTitleScreenSiblingFiles = async (usedKernelKeys, hasScoreCard = false) => {
   const staticEntries = await getStaticFiles();
   const files = Object.fromEntries(staticEntries);
 
   const perCopyNames = new Set();
+  if (hasScoreCard) perCopyNames.add('48x1_X_kernel.asm');
   usedKernelKeys.forEach((key) => {
     perCopyNames.add(`${key}_kernel.asm`);
     if (key.startsWith('48x1_')) perCopyNames.add('48x1_X_kernel.asm');

@@ -38,6 +38,11 @@ initscore
  sta scorepointers,x 
  dex
  bpl initscore
+ ifconst scorefonts
+ ; The primary score font is the one assembled at scoretable; the secondary sits right below it.
+ lda #<scoretable
+ sta scorefontlow
+ endif
  lda #1
  sta CTRLPF
  ora INTIM

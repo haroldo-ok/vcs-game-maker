@@ -151,7 +151,7 @@ const getIncludesManifest = () => {
 
 window.__vcsWasi19Compile = async (preprocessedCode, siblingFiles, trace) => {
   const includes = await getIncludesManifest();
-  // Mirrors the real bB 1.9 distribution's own layout exactly: a "bB" folder
+  // Mirrors the real bB 1.9 distribution's  layout exactly: a "bB" folder
   // containing 2600basic.wasm and an "includes/" subfolder (with
   // default.inc etc. inside it) - the real 2600basic.sh invokes
   // "-i $bB" where $bB is that same outer folder, preopened alongside the
@@ -179,7 +179,7 @@ window.__vcsWasi19Dasm = async (mainAsmContent, siblingFiles, trace) => {
   const includes = await getIncludesManifest();
   // dasm.wasm takes the asm file by name (not stdin), with "-I." for
   // sibling includes (text12a.asm/text12b.asm) and "-I/bbinc/includes" for
-  // the standard library files main.asm's own "include" directives need.
+  // the standard library files main.asm's "include" directives need.
   const r = await runWasi(
       '/bb19/dasm.wasm',
       ['main.asm', '-I.', '-I/bbinc/includes', '-f3', '-p20', '-lmain.lst', '-smain.sym', '-omain.bin'],

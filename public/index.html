@@ -17,7 +17,478 @@
     <div id="app"></div>
     <!-- built files will be auto injected -->
 
-    <div id="javatari-screen" style="display: none"></div>
-    <script src="js/javatari.js"></script>
+    <canvas id="gopher2600-screen" style="display: none; background-color: #000;"></canvas>
+    <script src="js/stellerator-page.js"></script>
+    <script>
+      // Web Audio playback for the gopher2600-wasm preview emulator (see
+      // tools/gopher2600-wasm/main.go's onAnimationFrame): each rendered
+      // frame's audio samples arrive here as one Float32Array chunk, played
+      // back-to-back via individually-scheduled AudioBufferSourceNodes -
+      // the standard low-latency streaming pattern for Web Audio, since
+      // there's no single long-lived buffer to append to.
+      let gopher2600AudioCtx = null;
+      let gopher2600AudioNextStart = 0;
+      // The audio queue's lag behind real time is what a player hears as a
+      // delay between something happening on screen and its sound. Chunks are
+      // played back to back, so any burst of onAnimationFrame calls (a
+      // throttled tab catching up, a slow frame followed by fast ones, a build
+      // running) leaves the queue that far behind for good: the old cap let it
+      // stay up to half a second late, which showed up as sound effects playing
+      // a fraction of a second after the event. Now a backlog beyond
+      // GOPHER2600_AUDIO_MAX_LAG_SECONDS is dropped and playback restarts a short
+      // cushion (GOPHER2600_AUDIO_CUSHION_SECONDS) ahead of real time - one brief
+      // glitch instead of a lasting delay - and an underrun restarts at the same
+      // cushion. This also bounds the queue of scheduled nodes.
+      const GOPHER2600_AUDIO_MAX_LAG_SECONDS = 0.15;
+      const GOPHER2600_AUDIO_CUSHION_SECONDS = 0.04;
+      // The Sound and Music tabs' DIM switch and percentage (app-wide preferences, see
+      // src/hooks/project.js): with DIM on, the emulator plays at that percentage of full volume.
+      // Read from localStorage (a change is heard within a quarter of a second, no rebuild needed).
+      let gopher2600DimGain = 1;
+      let gopher2600DimReadAt = 0;
+      const gopher2600CurrentDimGain = () => {
+        const now = performance.now();
+        if (now - gopher2600DimReadAt > 250) {
+          gopher2600DimReadAt = now;
+          try {
+            const on = window.localStorage.getItem('vcs-game-maker.dimSoundFx') === 'true';
+            const parsed = parseFloat(window.localStorage.getItem('vcs-game-maker.dimSoundFxPercent'));
+            const percent = Number.isFinite(parsed) ? parsed : 25;
+            gopher2600DimGain = on ? Math.max(0, Math.min(100, percent)) / 100 : 1;
+          } catch (error) {
+            gopher2600DimGain = 1;
+          }
+        }
+        return gopher2600DimGain;
+      };
+      window.playGopher2600AudioChunk = function(sampleRate, samples) {
+        if (typeof gopher2600Paused !== 'undefined' && gopher2600Paused) return;
+        if (!gopher2600AudioCtx) {
+          gopher2600AudioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint: 'interactive'});
+          gopher2600AudioNextStart = gopher2600AudioCtx.currentTime + GOPHER2600_AUDIO_CUSHION_SECONDS;
+        }
+        const dimGain = gopher2600CurrentDimGain();
+        if (dimGain !== 1) {
+          for (let i = 0; i < samples.length; i++) samples[i] *= dimGain;
+        }
+        if (gopher2600AudioCtx.state === 'suspended') {
+          gopher2600AudioCtx.resume();
+        }
+        const buffer = gopher2600AudioCtx.createBuffer(1, samples.length, sampleRate);
+        buffer.getChannelData(0).set(samples);
+        const source = gopher2600AudioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(gopher2600AudioCtx.destination);
+        const now = gopher2600AudioCtx.currentTime;
+        if (gopher2600AudioNextStart < now || gopher2600AudioNextStart - now > GOPHER2600_AUDIO_MAX_LAG_SECONDS) {
+          gopher2600AudioNextStart = now + GOPHER2600_AUDIO_CUSHION_SECONDS;
+        }
+        source.start(gopher2600AudioNextStart);
+        gopher2600AudioNextStart += buffer.duration;
+      };
+      // Browsers block audio until a user gesture; the emulator keeps
+      // rendering silently until the first click anywhere resumes it.
+      document.addEventListener('click', () => {
+        if (gopher2600AudioCtx && gopher2600AudioCtx.state === 'suspended') {
+          gopher2600AudioCtx.resume();
+        }
+      });
+
+      // The emulator runs in a web worker (public/js/gopher2600-worker.js), so a
+      // frame that takes 12 ms to emulate never blocks the page. This is the
+      // page's side of it: window.gopher2600 forwards every call to the worker,
+      // each display refresh sends it one "tick" (it turns those into a steady
+      // 60 frames per second whatever the monitor's refresh rate), and the
+      // frames and audio that come back are drawn on the canvas and played.
+      //
+      // Created once at page load (independent of the app's build pipeline) so
+      // window.gopher2600 is ready before the first "Update ROM" finishes - see
+      // src/hooks/rom.js. Calls made before the worker has loaded its WASM wait
+      // in the worker until it has. A fatal WASM trap - a real reported crash
+      // ("RuntimeError: memory access out of bounds") - halts the Go runtime
+      // below what Go's recover() can catch, so the worker is thrown away
+      // and a new one started automatically instead of leaving the preview
+      // dead until the user reloads the page.
+      const GOPHER2600_API = [
+        'loadRom', 'powerOn', 'clearRom', 'powerOff', 'pressReset', 'releaseReset',
+        'pressSelect', 'releaseSelect', 'setColorMode', 'setDifficulty', 'setKeypadMode', 'setKeyMapping',
+      ];
+      let gopher2600Worker = null;
+      let gopher2600Ready = false;
+      let gopher2600TicksInFlight = 0;
+      // Set while a ROM is compiling (see setEmulatorPaused in src/hooks/emulator.js): no
+      // ticks are sent, so the worker runs no frames and the compiler has the machine to itself.
+      let gopher2600Paused = false;
+      // The Options tab's adaptive frame skipping, kept here so a replacement worker (after a
+      // crash) is told it too.
+      let gopher2600AdaptiveFrameSkip = true;
+      // The variables the debug info shows (see setDebugWatch below), kept for a replacement worker.
+      let debugWatch = [];
+
+      // Two emulators can sit behind window.gopher2600: 6502.ts (public/js/stellerator-worker.js,
+      // the default: much faster, with screen effects) and gopher2600
+      // (public/js/gopher2600-worker.js, a WebAssembly build of a cycle-exact emulator). Both
+      // speak the same messages, so only the worker script and how a frame reaches the canvas
+      // differ. The Emulator settings dialog (src/components/EmulatorSettingsDialog.vue) picks
+      // between them and sets the effects; its values are kept in localStorage and read here so
+      // the very first frame already uses them.
+      const EMULATOR_WORKERS = {
+        stellerator: 'js/stellerator-worker.js',
+        gopher2600: 'js/gopher2600-worker.js',
+      };
+      const EMULATOR_SETTINGS_KEY = 'vcs-game-maker.emulatorSettings';
+      const EMULATOR_SETTINGS_DEFAULTS = {
+        backend: 'stellerator',
+        cpuAccuracy: 'cycle',
+        tvEmulation: 'none',
+        phosphor: 0,
+        scanlines: 0,
+        gamma: 1,
+        debugOverlay: false,
+        debugVariables: [],
+        scalingMode: 'none',
+        fullscreenResolution: 'native',
+        fullscreenScaling: 'qis',
+      };
+      const readEmulatorSettings = () => {
+        try {
+          return {...EMULATOR_SETTINGS_DEFAULTS, ...JSON.parse(window.localStorage.getItem(EMULATOR_SETTINGS_KEY))};
+        } catch (error) {
+          return {...EMULATOR_SETTINGS_DEFAULTS};
+        }
+      };
+      let emulatorSettings = readEmulatorSettings();
+      // 6502.ts has no keypad controller, so a ROM that uses one runs on gopher2600 (see
+      // setKeypadMode below) whatever the setting says.
+      let gopher2600KeypadFallback = false;
+      const activeEmulatorBackend = () => {
+        if (gopher2600KeypadFallback) return 'gopher2600';
+        return EMULATOR_WORKERS[emulatorSettings.backend] ? emulatorSettings.backend : 'stellerator';
+      };
+      // What a fresh worker is told (after a crash or a switch of emulator), so it matches the one
+      // it replaces.
+      const gopher2600Replay = {colorMode: undefined, difficulty: {}};
+      // The page needs the key bindings and keypad modes too, to know which keys
+      // to claim (preventDefault) without waiting on the worker.
+      let gopher2600KeyMapping = [];
+      const gopher2600KeypadMode = {left: false, right: false};
+
+      // The canvas element is kept here for good: if the page's component tree is rebuilt, the
+      // element can leave the document with the old container, and looking it up by id would
+      // then find nothing, so nothing could draw to it or put it back (App.vue's
+      // attachEmulator re-attaches window.gopher2600ScreenElement).
+      const gopher2600ScreenElement = document.getElementById('gopher2600-screen');
+      window.gopher2600ScreenElement = gopher2600ScreenElement;
+      const gopher2600Canvas = () => document.getElementById('gopher2600-screen') || gopher2600ScreenElement;
+      // The picture is always opaque, so the canvas is created without an alpha
+      // channel: the browser can then skip blending it with the page behind it.
+      // The options only count on the first getContext call, so this is made
+      // once, here, before anything else asks the canvas for a context.
+      const gopher2600Context = () => gopher2600Canvas().getContext('2d', {alpha: false});
+      gopher2600Context();
+      const gopher2600SizeCanvas = (canvas, width, height) => {
+        if (canvas.width === width && canvas.height === height) return;
+        canvas.width = width;
+        canvas.height = height;
+        // TIA color clocks are not square pixels: a real 2600's picture is shown
+        // about twice as wide as its clock count, the standard stretch that gives
+        // a ~4:3 TV aspect. App.vue scales the canvas by this CSS box.
+        canvas.style.width = (width * 2) + 'px';
+        canvas.style.height = height + 'px';
+      };
+
+      // ---- 6502.ts picture ------------------------------------------------------------------
+      // Frames arrive as 160 pixel wide RGBA. Without effects they go straight to the canvas
+      // (the browser scales it, sharply, by CSS); with effects they go through 6502.ts's WebGL
+      // video driver, which draws into an off-screen canvas that is copied onto the visible one
+      // - after the driver has drawn, in the same animation frame.
+      const stelleratorNeedsDriver = () => {
+        const e = emulatorSettings;
+        // Full screen always goes through the driver, so its resolution setting applies whether
+        // or not any effect is on.
+        return !!window.StelleratorVideo &&
+          (!!document.fullscreenElement || e.tvEmulation !== 'none' || e.phosphor > 0 || e.scanlines > 0 || e.gamma !== 1 || e.scalingMode !== 'none');
+      };
+      let stelleratorDriver = null;
+      let stelleratorDriverKey = '';
+      let stelleratorCopyScheduled = false;
+      let stelleratorFrameCount = 0;
+      let stelleratorTargetSize = '';
+      const closeStelleratorDriver = () => {
+        if (stelleratorDriver) stelleratorDriver.close();
+        stelleratorDriver = null;
+        stelleratorDriverKey = '';
+        stelleratorTargetSize = '';
+      };
+      // A real TV shows the picture at 4:3, which is also how 6502.ts's driver lays it out.
+      const stelleratorSizeCanvas = (canvas, width, height) => {
+        canvas.style.width = Math.round(height * 4 / 3) + 'px';
+        canvas.style.height = height + 'px';
+      };
+      const stelleratorDriverConfig = () => ({
+        gamma: emulatorSettings.gamma,
+        // Full screen can scale differently from the window ('same' keeps the window's).
+        scalingMode: document.fullscreenElement && emulatorSettings.fullscreenScaling !== 'same' ?
+          emulatorSettings.fullscreenScaling : emulatorSettings.scalingMode,
+        phosphorLevel: emulatorSettings.phosphor,
+        scanlineLevel: emulatorSettings.scanlines,
+        tvEmulation: emulatorSettings.tvEmulation,
+      });
+      const drawStelleratorFrame = (canvas, message) => {
+        stelleratorSizeCanvas(canvas, message.width, message.height);
+        if (!stelleratorNeedsDriver()) {
+          closeStelleratorDriver();
+          if (canvas.width !== message.width || canvas.height !== message.height) {
+            canvas.width = message.width;
+            canvas.height = message.height;
+          }
+          gopher2600Context().putImageData(
+              new ImageData(new Uint8ClampedArray(message.pixels), message.width, message.height), 0, 0);
+          return;
+        }
+        const key = JSON.stringify(stelleratorDriverConfig());
+        if (!stelleratorDriver || key !== stelleratorDriverKey) {
+          closeStelleratorDriver();
+          stelleratorDriver = window.StelleratorVideo.create(stelleratorDriverConfig());
+          stelleratorDriverKey = key;
+        }
+        // The picture is shown scaled by App.vue (a CSS transform); the driver and the visible
+        // canvas are sized to what actually reaches the screen so it is drawn 1:1.
+        if (stelleratorFrameCount++ % 15 === 0 || !stelleratorTargetSize) {
+          const rect = canvas.getBoundingClientRect();
+          const width = rect.width || canvas.offsetWidth;
+          const height = rect.height || canvas.offsetHeight;
+          const ratio = window.devicePixelRatio || 1;
+          // Full screen can be capped to a lower resolution than the display's, which is then
+          // scaled up by the browser (CSS); a window always renders at the size it is shown.
+          let scale = 1;
+          const cap = document.fullscreenElement ? parseInt(emulatorSettings.fullscreenResolution, 10) : NaN;
+          if (cap && height * ratio > cap) scale = cap / (height * ratio);
+          const targetWidth = Math.max(1, Math.round(width * ratio * scale));
+          const targetHeight = Math.max(1, Math.round(height * ratio * scale));
+          const size = targetWidth + 'x' + targetHeight;
+          if (size !== stelleratorTargetSize && width && height) {
+            stelleratorTargetSize = size;
+            stelleratorDriver.resize(targetWidth / ratio, targetHeight / ratio);
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+          }
+        }
+        stelleratorDriver.push(message.width, message.height, message.pixels);
+        if (!stelleratorCopyScheduled) {
+          stelleratorCopyScheduled = true;
+          window.requestAnimationFrame(() => {
+            stelleratorCopyScheduled = false;
+            if (stelleratorDriver) gopher2600Context().drawImage(stelleratorDriver.canvas, 0, 0, canvas.width, canvas.height);
+          });
+        }
+      };
+
+      const handleGopher2600Message = (message) => {
+        const canvas = gopher2600Canvas();
+        switch (message.type) {
+          case 'ready':
+            gopher2600Ready = true;
+            replayGopher2600State();
+            // A fresh instance has no ROM attached - src/hooks/emulator.js's
+            // listener re-pushes whatever ROM was last compiled, and App.vue's
+            // re-applies the front-panel switches, once this fires.
+            window.dispatchEvent(new Event('gopher2600-ready'));
+            break;
+          case 'debug':
+            window.dispatchEvent(new CustomEvent('emulator-debug', {detail: message}));
+            break;
+          case 'tickDone':
+            gopher2600TicksInFlight = Math.max(0, gopher2600TicksInFlight - 1);
+            break;
+          case 'frame':
+            if (!canvas) break;
+            if (activeEmulatorBackend() === 'stellerator') {
+              drawStelleratorFrame(canvas, message);
+              break;
+            }
+            closeStelleratorDriver();
+            gopher2600SizeCanvas(canvas, message.width, message.height);
+            gopher2600Context().putImageData(
+                new ImageData(new Uint8ClampedArray(message.pixels), message.width, message.height), 0, 0);
+            break;
+          case 'blank':
+            if (!canvas) break;
+            closeStelleratorDriver();
+            if (activeEmulatorBackend() === 'stellerator') {
+              stelleratorSizeCanvas(canvas, message.width, message.height);
+              canvas.width = message.width;
+              canvas.height = message.height;
+            } else {
+              gopher2600SizeCanvas(canvas, message.width, message.height);
+            }
+            // Filled black, not cleared (which leaves it transparent and shows
+            // whatever is behind it instead of a dark "no signal" screen).
+            gopher2600Context().fillStyle = '#000';
+            gopher2600Context().fillRect(0, 0, canvas.width, canvas.height);
+            break;
+          case 'audio':
+            window.playGopher2600AudioChunk(message.frequency, new Float32Array(message.samples));
+            break;
+          case 'crashed':
+          case 'exited':
+            recoverGopher2600Worker(message.message || message.type);
+            break;
+        }
+      };
+
+      let gopher2600RunningBackend = '';
+      // Sent to a worker as soon as it is ready: the key bindings, keypads and front-panel
+      // switches the page has been told about, so a replacement worker matches its predecessor.
+      const replayGopher2600State = () => {
+        const call = (name, args) => gopher2600Worker.postMessage({type: 'call', name, args});
+        call('setKeyMapping', [gopher2600KeyMapping]);
+        ['left', 'right'].forEach((port) => {
+          if (gopher2600KeypadMode[port]) call('setKeypadMode', [port, true]);
+        });
+        if (gopher2600Replay.colorMode !== undefined) call('setColorMode', [gopher2600Replay.colorMode]);
+        Object.keys(gopher2600Replay.difficulty).forEach((port) =>
+          call('setDifficulty', [port, gopher2600Replay.difficulty[port]]));
+      };
+      // Starts the worker of whichever emulator is now wanted, if it is not the one running. The
+      // new worker's 'ready' makes the page re-load the last ROM into it (src/hooks/emulator.js).
+      const switchGopher2600Worker = () => {
+        if (activeEmulatorBackend() === gopher2600RunningBackend) return;
+        gopher2600Worker.terminate();
+        startGopher2600Worker();
+      };
+
+      let gopher2600CrashRecoveries = 0;
+      const GOPHER2600_MAX_CRASH_RECOVERIES = 5;
+      const startGopher2600Worker = () => {
+        gopher2600Ready = false;
+        gopher2600TicksInFlight = 0;
+        gopher2600RunningBackend = activeEmulatorBackend();
+        gopher2600Worker = new Worker(EMULATOR_WORKERS[gopher2600RunningBackend]);
+        gopher2600Worker.onmessage = (event) => handleGopher2600Message(event.data);
+        gopher2600Worker.postMessage({type: 'setting', name: 'adaptiveFrameSkip', value: gopher2600AdaptiveFrameSkip});
+        gopher2600Worker.postMessage({type: 'setting', name: 'cpuAccuracy', value: emulatorSettings.cpuAccuracy});
+        gopher2600Worker.postMessage({type: 'setting', name: 'debugOverlay', value: !!emulatorSettings.debugOverlay});
+        gopher2600Worker.postMessage({type: 'setting', name: 'debugWatch', value: debugWatch});
+        // A fatal trap shows up as an error event on the worker (rate-limited
+        // below: a ROM that crashes the emulator every frame would otherwise
+        // restart it in a tight loop).
+        gopher2600Worker.onerror = (event) => {
+          event.preventDefault();
+          recoverGopher2600Worker((event && event.message) || 'worker error');
+        };
+      };
+      const recoverGopher2600Worker = (reason) => {
+        if (gopher2600CrashRecoveries >= GOPHER2600_MAX_CRASH_RECOVERIES) {
+          console.error(gopher2600RunningBackend + ' emulator stopped (' + reason + ') - giving up after ' +
+            GOPHER2600_MAX_CRASH_RECOVERIES + ' automatic recoveries');
+          return;
+        }
+        gopher2600CrashRecoveries++;
+        console.error(gopher2600RunningBackend + ' emulator crashed (' + reason + ') - starting a fresh instance ' +
+          '(recovery ' + gopher2600CrashRecoveries + '/' + GOPHER2600_MAX_CRASH_RECOVERIES + ')');
+        gopher2600Worker.terminate();
+        startGopher2600Worker();
+      };
+      startGopher2600Worker();
+
+      window.gopher2600 = {};
+      GOPHER2600_API.forEach((name) => {
+        window.gopher2600[name] = (...args) => {
+          if (name === 'setKeyMapping') gopher2600KeyMapping = args[0] || [];
+          if (name === 'setKeypadMode') gopher2600KeypadMode[args[0]] = !!args[1];
+          if (name === 'setColorMode') gopher2600Replay.colorMode = !!args[0];
+          if (name === 'setDifficulty') gopher2600Replay.difficulty[args[0]] = !!args[1];
+          gopher2600Worker.postMessage({type: 'call', name, args});
+        };
+      });
+
+      // The Emulator settings dialog's side: which emulator, and 6502.ts's CPU accuracy and
+      // screen effects. See EMULATOR_SETTINGS_DEFAULTS for the fields.
+      window.gopher2600.setEmulatorSettings = (settings) => {
+        const previous = emulatorSettings;
+        emulatorSettings = {...EMULATOR_SETTINGS_DEFAULTS, ...settings};
+        if (emulatorSettings.cpuAccuracy !== previous.cpuAccuracy) {
+          gopher2600Worker.postMessage({type: 'setting', name: 'cpuAccuracy', value: emulatorSettings.cpuAccuracy});
+        }
+        if (!!emulatorSettings.debugOverlay !== !!previous.debugOverlay) {
+          gopher2600Worker.postMessage({type: 'setting', name: 'debugOverlay', value: !!emulatorSettings.debugOverlay});
+        }
+        if (emulatorSettings.backend !== previous.backend) switchGopher2600Worker();
+        // The next frame redraws with the new effects; a paused or idle emulator has none coming.
+        stelleratorTargetSize = '';
+      };
+      // The variables the debug info shows, as [{name, address}] (the app works the addresses out from the
+      // last build); the worker reads them from RAM once a frame.
+      window.gopher2600.setDebugWatch = (watch) => {
+        debugWatch = Array.isArray(watch) ? watch : [];
+        gopher2600Worker.postMessage({type: 'setting', name: 'debugWatch', value: debugWatch});
+      };
+      // Entering or leaving full screen changes the size the picture is drawn at.
+      document.addEventListener('fullscreenchange', () => {
+        stelleratorTargetSize = '';
+      });
+      window.gopher2600.getEmulatorInfo = () => ({
+        backend: activeEmulatorBackend(),
+        keypadFallback: gopher2600KeypadFallback,
+      });
+
+      window.gopher2600.setPaused = (paused) => {
+        gopher2600Paused = !!paused;
+        // The sound stops with the picture: what is already queued would otherwise play on (and a
+        // build that keeps the page busy would cut it into stutters).
+        if (gopher2600AudioCtx) {
+          if (gopher2600Paused) {
+            gopher2600AudioCtx.suspend();
+          } else {
+            gopher2600AudioNextStart = gopher2600AudioCtx.currentTime + GOPHER2600_AUDIO_CUSHION_SECONDS;
+            gopher2600AudioCtx.resume();
+          }
+        }
+      };
+      window.gopher2600.setAdaptiveFrameSkip = (enabled) => {
+        gopher2600AdaptiveFrameSkip = !!enabled;
+        gopher2600Worker.postMessage({type: 'setting', name: 'adaptiveFrameSkip', value: gopher2600AdaptiveFrameSkip});
+      };
+
+      // One tick per display refresh. A few may wait in the worker (a frame can
+      // take nearly a whole refresh to emulate, and waiting for each one to
+      // finish before sending the next would drop every other frame), but not an
+      // unbounded pile if the worker stalls. Ticks that wait cost nothing: the
+      // worker works out how many frames are due from their timestamps.
+      const GOPHER2600_MAX_TICKS_IN_FLIGHT = 3;
+      const sendGopher2600Tick = (timestamp) => {
+        if (gopher2600Ready && !gopher2600Paused && gopher2600TicksInFlight < GOPHER2600_MAX_TICKS_IN_FLIGHT) {
+          gopher2600TicksInFlight++;
+          gopher2600Worker.postMessage({type: 'tick', timestamp});
+        }
+        window.requestAnimationFrame(sendGopher2600Tick);
+      };
+      window.requestAnimationFrame(sendGopher2600Tick);
+
+      // Keyboard input. The worker has no DOM, so the page decides which keys are
+      // the emulator's and forwards them; keys in text fields are left alone.
+      const gopher2600IsEditableTarget = (event) => {
+        const target = event.target;
+        if (!target) return false;
+        if (target.isContentEditable) return true;
+        return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+      };
+      // A key can be bound as both a joystick and a keypad control for the same
+      // port (the defaults overlap); only the one matching what is plugged in
+      // is live.
+      const gopher2600HasBinding = (code) => gopher2600KeyMapping.some((binding) =>
+        binding.code === code && (binding.kind === 'keypad') === !!gopher2600KeypadMode[binding.port]);
+      const forwardGopher2600Key = (event, down) => {
+        if (gopher2600IsEditableTarget(event) || !gopher2600HasBinding(event.code)) return;
+        event.preventDefault();
+        // Auto-repeat keydowns are not new presses (the joystick toggles on
+        // each real press edge, so repeats would make a held direction stutter).
+        if (down && event.repeat) return;
+        gopher2600Worker.postMessage({type: 'key', code: event.code, down});
+      };
+      document.addEventListener('keydown', (event) => forwardGopher2600Key(event, true));
+      document.addEventListener('keyup', (event) => forwardGopher2600Key(event, false));
+    </script>
    </body>
 </html>

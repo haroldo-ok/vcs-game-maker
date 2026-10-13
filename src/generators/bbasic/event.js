@@ -1,4 +1,6 @@
 'use strict';
+import {runOnceEnterLines} from '../../utils/dpc-ram-flags';
+
 export default (Blockly) => {
   Blockly.BBasic['event_block'] = function(block) {
     // Event block
@@ -20,13 +22,20 @@ export default (Blockly) => {
     const stateName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('STATE'),
         Blockly.VARIABLE_CATEGORY_NAME);
     const targetEvent = `${stateName}_start`;
+    // The start event of a state that changes to that state would start itself over and over, never getting to the state's
+    // update (a green screen on a title screen): the start event is already what leads there, so the block does nothing.
+    let owner = block.getParent();
+    while (owner && owner.type !== 'event_block') owner = owner.getParent();
+    if (owner && owner.getFieldValue('EVENT') === targetEvent) {
+      return `rem Change to ${stateName}: ${targetEvent} already leads there\n`;
+    }
     // A state's "_start" event might live in a different bank than wherever
     // this goto is - see getCurrentBank/bankJumpSuffix.
     const suffix = Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getEventBank(targetEvent));
-    // A statement generator's own return value must include its trailing
+    // A statement generator's  return value must include its trailing
     // newline - Blockly.BBasic.scrub_ (see bbasic.js) concatenates sequential
-    // statements in a stack with no separator of its own, so a plain "goto"
+    // statements in a stack with no separator, so a plain "goto"
     // like this one would otherwise run straight into whatever statement
     // follows it in the same block stack, on the same line. Pre-existing gap
     // (unrelated to bank-switching): found because this is the first time a
@@ -69,24 +78,28 @@ export default (Blockly) => {
     const frameDelta = block.getFieldValue('DELTA');
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
 
-    // "- 1" compensates for commongamelogic's own "framecounter =
+    // "- 1" compensates for commongamelogic's "framecounter =
     // framecounter + 1" (see bbasic.bb.hbs), which always runs before any
     // event body (and so before this check) gets a chance to run each
-    // frame - without it, the very first frame this block's own event body
+    // frame - without it, the very first frame this block's  event body
     // ever executes already sees framecounter = 1, not 0, so "every N
     // frames" never actually fires on that first frame, only starting once
     // framecounter reaches a full interval later. Confirmed as a real
     // reported bug ("should trigger immediately and then wait to repeat").
-    // Safe against framecounter's own eventual wraparound (255 -> 0, a
+    // Safe against framecounter's  eventual wraparound (255 -> 0, a
     // real free-running byte): "framecounter - 1" wraps to 255 exactly the
-    // same way the 6502's own unsigned subtraction does, and since every
+    // same way the 6502's  unsigned subtraction does, and since every
     // MASK option here is 2^n-1 (interval a power of two dividing 256
     // evenly - see FRAME_OPTIONS in blocks/event.js), the resulting
     // periodicity is identical regardless of which representative of
     // framecounter this lands on.
+    // Folded into one constant (the "- 1" and the block's offset): "(framecounter - 1 + 0)"
+    // cost an extra subtract and add every frame the block runs.
+    const offset = (Number(frameDelta) - 1) & 255;
+    const frameValue = offset === 0 ? 'framecounter' : `(framecounter + ${offset})`;
     return '\n' +
     [
-      `temp1 = (framecounter - 1 + ${frameDelta}) & ${frameMask}`,
+      `temp1 = ${frameValue} & ${frameMask}`,
       `if temp1 then goto ${labelEnd}`,
       code,
       `@ ${labelEnd}`,
@@ -98,10 +111,10 @@ export default (Blockly) => {
     // Run once PER ACTIVATION of whatever condition contains this block
     // (e.g. once each time an enclosing "if BGScene = 2" becomes true,
     // again next time it does) - not just once ever. See bbasic.js's
-    // init() for where runOnceCounter/runOnceByteLetters come from (one
+    // init() for where runOnceGroupCounters/runOnceByteLetters come from (one
     // shared byte per 4 instances - low nibble bit p is instance p's
     // "touched" flag, high nibble bit p+4 is its "fired" flag), and
-    // generateRunOnceEdgeReset for the other half of this: this block's own
+    // generateRunOnceEdgeReset for the other half of this: this block's
     // code only ever runs while its gate is true, so it can mark itself
     // "touched" whenever it's reached, but can't itself detect the gate
     // going false - that's what the unconditional per-frame reset (spliced
@@ -110,30 +123,34 @@ export default (Blockly) => {
     const blockNumber = Blockly.BBasic.blockNumbers.next();
     const labelEnd = `_run_once_${blockNumber}_end`;
 
-    const instanceIndex = Blockly.BBasic.runOnceCounter++;
+    const group = Blockly.BBasic.runOnceTitleBlocks.has(block) ? 'title' : 'other';
+    const instanceIndex = Blockly.BBasic.runOnceGroupCounters[group]++;
     const byteIndex = Math.floor(instanceIndex / 4);
     const pairInByte = instanceIndex % 4;
     const touchedBit = pairInByte;
     const firedBit = pairInByte + 4;
     const flagByte = Blockly.BBasic.runOnceByteLetters[byteIndex];
+    const inRam = !!Blockly.BBasic.runOnceRamBytes;
 
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
 
     return '\n' +
     [
-      `${flagByte}{${touchedBit}} = 1`,
-      `if ${flagByte}{${firedBit}} then goto ${labelEnd}`,
-      `${flagByte}{${firedBit}} = 1`,
+      ...(inRam ? [...runOnceEnterLines(byteIndex, touchedBit, firedBit), `if temp2 then goto ${labelEnd}`] : [
+        `${flagByte}{${touchedBit}} = 1`,
+        `if ${flagByte}{${firedBit}} then goto ${labelEnd}`,
+        `${flagByte}{${firedBit}} = 1`,
+      ]),
       code,
       `@ ${labelEnd}`,
     ].join('\n') +
     '\n';
   };
 
-  // "rem" runs to the end of the line, so each of TEXT's own lines (the
+  // "rem" runs to the end of the line, so each of TEXT's  lines (the
   // field is a real multi-line editor - Shift+Enter isn't needed, plain
   // Enter already inserts one, same as any other Blockly multi-line field)
-  // needs its own leading "rem", not just one covering the first line - a
+  // needs its  leading "rem", not just one covering the first line - a
   // naive single "rem" would let every line after the first escape the
   // comment and potentially assemble as code. A stray \r (pasted Windows
   // text) is stripped rather than starting an empty extra line for it.
@@ -145,7 +162,7 @@ export default (Blockly) => {
   };
 
   // Wrapper version - purely a label around whatever's connected inside
-  // "DO", which runs completely unchanged (statementToCode's own output,
+  // "DO", which runs completely unchanged (statementToCode's  output,
   // passed straight through with no gosub/goto/state tracking of any kind -
   // unlike event_block, this doesn't represent a new event, just a labeled
   // section of an existing one).

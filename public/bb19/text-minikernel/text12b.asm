@@ -1,3 +1,32 @@
+ ; vcs-game-maker: row 1 is filled straight from the message table (showtextrowfast below), which starts the text sooner, with the
+ ; score hidden and with 5 score digits (whose sprites need a separate line to move back, see text12a.asm). Said here, before the
+ ; first use: this file comes first in the program, and a symbol defined further on would make the assembler's passes disagree.
+; vcs-game-maker: the fine horizontal motion (HMP0/HMP1) that puts the text, and the 5 score digits above it, in the middle of the
+; playfield. With 5 score digits all of them are a further 6 clocks to the left (the middle of the playfield is x=79.5).
+ ifconst score5digits
+TEXTHMP0 = $30
+TEXTHMP1 = $40
+  ifconst scorefade
+DIGITHMP0 = $B0
+DIGITHMP1 = $C0
+  else
+DIGITHMP0 = $F0
+DIGITHMP1 = $00
+  endif
+ else
+TEXTHMP0 = $D0
+TEXTHMP1 = $E0
+DIGITHMP0 = $90
+DIGITHMP1 = $A0
+ endif
+ ifconst noscoretxt
+textfastrow1 = 1
+ else
+  ifconst score5digits
+textfastrow1 = 1
+  endif
+ endif
+
     ifconst bs_mask
         ifconst FASTFETCH ; using DPC+
 KERNELBANK = 1
@@ -16,7 +45,12 @@ textkernel
     else
         lda TextIndex
     endif
+    ; vcs-game-maker: with the score hidden row 1 starts without the pointer set up (see showtextrowfast); also with 5 score digits.
+    ifconst textfastrow1
+    jsr showtextrowfast
+    else
     jsr showtextrow
+    endif
 
     ; "textkernel2ndrow" is unrelated to the real bB "extendedtxt" const
     ; (text12a.asm's own pointer-math option, unused by this app - see
@@ -114,6 +148,39 @@ gotrow2base
 ; fit inside), so only row 2's start position actually moves - larger in
 ; ROM bytes than the loop form, but this file has no per-project runtime
 ; state to preserve here, so that's a fixed, one-time cost.
+; vcs-game-maker: the same fill as showtextrow, from the message table itself (absolute indexed by X, 4 cycles a byte instead of
+; the 10 of the pointer and Y it takes below, and no pointer to set up first). Row 1 uses it when the score is hidden, to start
+; the text sooner. A is the row's base offset in text_strings, as for showtextrow.
+    ifconst textfastrow1
+showtextrowfast
+    tax
+    lda text_strings+11,x
+    sta scorepointers+11
+    lda text_strings+10,x
+    sta scorepointers+10
+    lda text_strings+9,x
+    sta scorepointers+9
+    lda text_strings+8,x
+    sta scorepointers+8
+    lda text_strings+7,x
+    sta scorepointers+7
+    lda text_strings+6,x
+    sta scorepointers+6
+    lda text_strings+5,x
+    sta scorepointers+5
+    lda text_strings+4,x
+    sta scorepointers+4
+    lda text_strings+3,x
+    sta scorepointers+3
+    lda text_strings+2,x
+    sta scorepointers+2
+    lda text_strings+1,x
+    sta scorepointers+1
+    lda text_strings+0,x
+    sta scorepointers+0
+    jmp drawtextrow
+    endif
+
 showtextrow
     clc
     adc #11
@@ -212,12 +279,28 @@ firstbreak
     lda left_text,x         ; 4     (29)
     ldx scorepointers+11    ; 3     (32)
     ora right_text,x        ; 4     (36)
-    
+
     ldx B                   ; 3     (39) 4 in X
-    ifnconst noscoretxt
-        sleep 5             ; 7     (46)
+    ; vcs-game-maker: was "ifnconst noscoretxt: sleep 5 else: sleep 2" -
+    ; that asymmetry left this build 3 cycles short here relative to the
+    ; score-shown build, with nothing anywhere else in this file compensating
+    ; for it (unlike text12a.asm's own minikernel entry, which DOES need a
+    ; matching correction - see its own "sleep 3" comment) - this shifted
+    ; THIS scanline's own GRP0/GRP1 writes 9 color clocks earlier than
+    ; intended, confirmed as the real cause of a reported "text looks
+    ; garbled only when scrolling with the score hidden" bug (spacing was
+    ; already correct - this corrupts the glyph BITS within an otherwise
+    ; correctly positioned character cell, not its position, so it only
+    ; became obvious once scrolling swept through enough different
+    ; characters to make it visible). Unconditional now - both builds use
+    ; the same cycle count here, same as every other non-noscoretxt-gated
+    ; instruction in this file already does.
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
     else
-        sleep 2
+    sleep 5                 ; 7     (46)
     endif
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
@@ -275,12 +358,16 @@ endl1
     lda left_text+1,x         ; 4     (29)
     ldx scorepointers+11    ; 3     (32)
     ora right_text+1,x        ; 4     (36)
-    
+
     ldx B                   ; 3     (39) 4 in X
-    ifnconst noscoretxt
-        sleep 5             ; 7     (46)
+    ; vcs-game-maker: see the identical comment on this file's first
+    ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
     else
-        sleep 2
+    sleep 5                 ; 7     (46)
     endif
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
@@ -338,12 +425,16 @@ endl2
     lda left_text+2,x         ; 4     (29)
     ldx scorepointers+11    ; 3     (32)
     ora right_text+2,x        ; 4     (36)
-    
+
     ldx B                   ; 3     (39) 4 in X
-     ifnconst noscoretxt
-        sleep 5             ; 7     (46)
+    ; vcs-game-maker: see the identical comment on this file's first
+    ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
     else
-        sleep 2
+    sleep 5                 ; 7     (46)
     endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
@@ -401,12 +492,16 @@ endl2
     lda left_text+3,x         ; 4     (29)
     ldx scorepointers+11    ; 3     (32)
     ora right_text+3,x        ; 4     (36)
-    
+
     ldx B                   ; 3     (39) 4 in X
-    ifnconst noscoretxt
-        sleep 5             ; 7     (46)
+    ; vcs-game-maker: see the identical comment on this file's first
+    ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
     else
-        sleep 2
+    sleep 5                 ; 7     (46)
     endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
@@ -464,12 +559,16 @@ endl2
     lda left_text+4,x         ; 4     (29)
     ldx scorepointers+11    ; 3     (32)
     ora right_text+4,x        ; 4     (36)
-    
+
     ldx B                   ; 3     (39) 4 in X
-    ifnconst noscoretxt
-        sleep 5             ; 7     (46)
+    ; vcs-game-maker: see the identical comment on this file's first
+    ; occurrence of this pattern (right after "ora right_text,x").
+    ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
+    ; four writes that draw it come 2 cycles sooner.
+    ifconst score5digits
+    sleep 3                 ; 5     (44)
     else
-        sleep 2
+    sleep 5                 ; 7     (46)
     endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1

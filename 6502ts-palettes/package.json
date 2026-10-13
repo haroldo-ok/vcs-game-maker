@@ -1,0 +1,25 @@
+{
+  "name": "6502ts-palettes",
+  "displayName": "Atari 2600 (6502.ts) Palettes",
+  "description": "The NTSC and PAL palettes the 6502.ts emulator in VCS Game Maker draws, with each color named by its Atari color byte.",
+  "version": "1.0",
+  "author": {
+    "name": "VCS Game Maker"
+  },
+  "publisher": "vcs-game-maker",
+  "categories": [
+    "Palettes"
+  ],
+  "contributes": {
+    "palettes": [
+      {
+        "id": "Atari 2600 NTSC (6502.ts)",
+        "path": "./6502ts-ntsc.gpl"
+      },
+      {
+        "id": "Atari 2600 PAL (6502.ts)",
+        "path": "./6502ts-pal.gpl"
+      }
+    ]
+  }
+}

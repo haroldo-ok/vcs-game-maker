@@ -1,0 +1,42 @@
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/memory/cartridge/elf/elf.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/memory/cartridge/elf/elf.go
+index cf8ff09..e7d4e7d 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/memory/cartridge/elf/elf.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/memory/cartridge/elf/elf.go
+@@ -92,18 +92,28 @@ func (r *elfReaderAt) ReadAt(p []byte, start int64) (n int, err error) {
+ func NewElf(env *environment.Environment, inACE bool) (mapper.CartMapper, error) {
+ 	r := &elfReaderAt{}
+ 
+-	// open file in the normal way and read all data. close the file
+-	// immediately once all data is rad
+-	o, err := os.Open(env.Loader.Filename)
+-	if err != nil {
+-		return nil, fmt.Errorf("ELF: %w", err)
++	// the data the loader already holds is used when there is any (a loader made from raw data, as
++	// in a browser, has no file to open). otherwise the file is opened in the normal way and all
++	// data read. the file is closed immediately once all data is read
++	var err error
++	if _, seekErr := env.Loader.Seek(0, io.SeekStart); seekErr == nil {
++		r.data, err = io.ReadAll(env.Loader)
++		if err != nil {
++			return nil, fmt.Errorf("ELF: %w", err)
++		}
+ 	}
+-	r.data, err = io.ReadAll(o)
+-	if err != nil {
++	if len(r.data) == 0 {
++		o, err := os.Open(env.Loader.Filename)
++		if err != nil {
++			return nil, fmt.Errorf("ELF: %w", err)
++		}
++		r.data, err = io.ReadAll(o)
++		if err != nil {
++			o.Close()
++			return nil, fmt.Errorf("ELF: %w", err)
++		}
+ 		o.Close()
+-		return nil, fmt.Errorf("ELF: %w", err)
+ 	}
+-	o.Close()
+ 
+ 	// if this is an embedded ELF file in an ACE container we need to extract
+ 	// the ELF contents. we do this by finding the offset of the ELF file. the

@@ -50,3 +50,5 @@ export const COMMENT_ICON = String.fromCodePoint(0x1F4AC);
 export const MUSIC_ICON = String.fromCodePoint(0x1F3B5);
 export const STOP_ICON = String.fromCodePoint(0x23F9) + String.fromCodePoint(0xFE0F);
 export const SEEK_ICON = String.fromCodePoint(0x1F3AF);
+export const LOCK_ICON = String.fromCodePoint(0x1F517);
+export const INERTIA_ICON = String.fromCodePoint(0x1F4A8);

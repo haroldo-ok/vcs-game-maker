@@ -1,5 +1,8 @@
 'use strict';
 
+import {useConfigurationStorage} from '../hooks/project';
+import {tvAudioClockScale} from './tv-standard';
+
 import {DEFAULT_TEMPO} from '../blocks/music';
 import {DEFAULT_ARPEGGIO_DIVISION} from '../blocks/soundfx';
 import {buildEnvelopeCurve} from './envelope';
@@ -18,10 +21,13 @@ import {buildEnvelopeCurve} from './envelope';
 // tones stay smooth while everything else has an audibly gritty character.
 // This is still an approximation, not a faithful emulation of the hardware.
 
-// One shared context, created lazily since browsers require a user gesture
-// before audio can start.
+// One shared context (music-playback.js uses this same one - a second context
+// would be a second audio thread running for the whole session), created
+// lazily since browsers require a user gesture before audio can start.
 let audioContext = null;
-const getAudioContext = () => {
+// The context if one has been created yet, without creating it.
+export const peekAudioContext = () => audioContext;
+export const getAudioContext = () => {
   if (!audioContext) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     audioContext = new AudioContextClass();
@@ -40,10 +46,12 @@ const getAudioContext = () => {
 // is a 31440Hz shift rate but a 15720Hz tone). AUDC 12/13 ("much lower" pure
 // tone) run off CPUclock/114 (10480Hz, exactly a third of 31440) instead.
 const NTSC_SHIFT_CLOCK = 31440;
+// Scaled for the project's TV standard (PAL60's audio clock is slightly lower).
+const shiftClock = () => NTSC_SHIFT_CLOCK * tvAudioClockScale(useConfigurationStorage().value);
 export const shiftClockFor = (audf, {slowClock = false} = {}) =>
-  (slowClock ? NTSC_SHIFT_CLOCK / 3 : NTSC_SHIFT_CLOCK) / (Number(audf) + 1);
+  (slowClock ? shiftClock() / 3 : shiftClock()) / (Number(audf) + 1);
 
-// Every buffer below is built at this rate instead of the AudioContext's own
+// Every buffer below is built at this rate instead of the AudioContext's
 // (typically 44100/48000Hz) - Web Audio resamples an AudioBuffer to the
 // destination rate automatically on playback, so this doesn't lose any
 // audible range, but it does make chipSamples below always land on an EXACT
@@ -51,11 +59,11 @@ export const shiftClockFor = (audf, {slowClock = false} = {}) =>
 // divisor of NTSC_SHIFT_CLOCK, so NTSC_SHIFT_CLOCK / chipClockHz always
 // is too), instead of Math.round()-ing to the nearest 44100Hz/48000Hz
 // sample and landing slightly sharp or flat depending on which pitch and
-// host sample rate happened to be in play. Real hardware's own shift
+// host sample rate happened to be in play. Real hardware's  shift
 // register genuinely only ever changes state this often, never in between -
 // matching that exactly, rather than a host-rate approximation of it, is
 // what actually gets closer to how it sounds on real hardware.
-const TIA_SAMPLE_RATE = NTSC_SHIFT_CLOCK;
+const tiaSampleRate = () => Math.round(shiftClock());
 
 // Advances a Galois LFSR by one step, returning both the new state and the
 // bit that was shifted out (needed by AUDC 3's gated poly5->poly4 below).
@@ -82,7 +90,7 @@ const stepLfsr = (lfsr, bits) => stepLfsrWithBit(lfsr, bits).next;
 // 4-bit poly that only advances on a div31 transition, so it sounds like the
 // same buzz as AUDC 1 but roughly 31x slower rather than a different pattern.
 export const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivider = 1} = {}) => {
-  const sampleRate = TIA_SAMPLE_RATE;
+  const sampleRate = tiaSampleRate();
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -115,7 +123,7 @@ export const buildBuzzBuffer = (context, chipClockHz, seconds, bits, {stepDivide
 const DIV31_HIGH_STEPS = 18;
 const DIV31_TOTAL_STEPS = 31;
 export const buildDiv31Buffer = (context, chipClockHz, seconds) => {
-  const sampleRate = TIA_SAMPLE_RATE;
+  const sampleRate = tiaSampleRate();
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -147,7 +155,7 @@ export const buildDiv31Buffer = (context, chipClockHz, seconds) => {
 // toggling once per chip, so a full high-low cycle is 2 chips, same
 // resulting pitch as before.
 export const buildSquareBuffer = (context, chipClockHz, seconds) => {
-  const sampleRate = TIA_SAMPLE_RATE;
+  const sampleRate = tiaSampleRate();
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -170,9 +178,9 @@ export const buildSquareBuffer = (context, chipClockHz, seconds) => {
 // the actual sound output) only advances on chips where the poly5 bit just
 // shifted out was 1 - on a 0, the output holds whatever it was. This is a
 // genuinely different mechanism from a single gated/divided LFSR, not just a
-// different bit-width, so it gets its own dual-register builder.
+// different bit-width, so it gets its  dual-register builder.
 export const buildGatedBuzzBuffer = (context, chipClockHz, seconds) => {
-  const sampleRate = TIA_SAMPLE_RATE;
+  const sampleRate = tiaSampleRate();
   const length = Math.max(1, Math.ceil(sampleRate * seconds));
   const buffer = context.createBuffer(1, length, sampleRate);
   const data = buffer.getChannelData(0);
@@ -265,7 +273,7 @@ const stopActivePreview = () => {
 // utils/music-playback.js exactly (by ARPEGGIO_RANGE_* index - see
 // blocks/soundfx.js) - duplicated rather than imported since
 // music-playback.js already imports from this module, and importing back
-// would make the two circular (same reasoning as that module's own
+// would make the two circular (same reasoning as that module's
 // duplicate of this sequence).
 const ARPEGGIO_PHASE_SEQUENCES = [
   ['base', 'alt'], // UP 1 OCT
@@ -276,7 +284,7 @@ const ARPEGGIO_PHASE_SEQUENCES = [
   ['base', 'alt', 'upBase', 'upAlt', 'upBase', 'alt'], // UP-DOWN 2 OCT
 ];
 
-// Same derivation as music-playback.js's own arpeggioPitchVariants - AUDF is
+// Same derivation as music-playback.js's  arpeggioPitchVariants - AUDF is
 // a frequency divisor, so alt (base minus interval) sounds higher than base,
 // up is base halved (one octave higher), down is base doubled (one octave
 // lower), all wrapped to the hardware's real 5-bit AUDF range.
@@ -293,17 +301,24 @@ const arpeggioPitchVariants = (audf, arpeggioInterval) => {
   };
 };
 
-// Same per-frame flip rate the compiled ROM's own arpeggio timer uses (see
+// Same per-frame flip rate the compiled ROM's  arpeggio timer uses (see
 // generateMusicChecks in generators/bbasic/music.js) and MAX_ARPEGGIO_SPEED_
 // FRAMES' 4-bit-nibble ceiling there - duplicated for the same
 // avoid-a-circular-import reason as ARPEGGIO_PHASE_SEQUENCES above.
 const FRAMES_PER_SECOND = 60;
 const MAX_ARPEGGIO_SPEED_FRAMES = 15;
-// Same reasoning as music-playback.js's own identical constant: a real,
+// Same reasoning as music-playback.js's  identical constant: a real,
 // instant step from full amplitude to 0 pops harder than the real
-// hardware's own click, so this rounds off just that last sliver instead -
+// hardware's  click, so this rounds off just that last sliver instead -
 // far too short to read as an actual fade.
 const CLICK_GUARD_SECONDS = 0.002;
+
+// Lets another preview (see utils/dpc-preview.js) take the place of the one playing, so Stop and the next preview end it.
+export const registerSoundEffectPreview = (sources, gainNode) => {
+  stopActivePreview();
+  activeSources = sources;
+  activeGainNode = gainNode;
+};
 
 /** Stops whatever sound effect preview is currently playing, if any. */
 export const stopSoundEffectPreview = () => {
@@ -314,7 +329,7 @@ export const stopSoundEffectPreview = () => {
  * Plays a short approximation of a TIA sound effect for previewing in the
  * editor. duration is in NTSC frames (60 per second), matching the generated
  * bBasic code's units. arpeggio/arpeggioDivision/arpeggioInterval/
- * arpeggioRange are the instrument's own Arpeggio fields (see blocks/
+ * arpeggioRange are the instrument's  Arpeggio fields (see blocks/
  * soundfx.js) - when arpeggio is on, the preview steps through the same
  * pitch sequence the compiled ROM would (see generateMusicChecks in
  * generators/bbasic/music.js) instead of holding one static pitch. There's
@@ -324,8 +339,8 @@ export const stopSoundEffectPreview = () => {
  * utils/music-playback.js uses for the same reason.
  */
 export const previewSoundEffect = ({
-  audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeSustain, envelopeRelease,
-  arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
+  audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart,
+  envelopeSustainLength, envelopeRelease, arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
 }) => {
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   const seconds = Math.max(0, Number(duration) || 0) / 60;
@@ -341,26 +356,29 @@ export const previewSoundEffect = ({
   const now = context.currentTime;
   const gainNode = context.createGain();
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
-  // Matches generators/bbasic/soundfx.js's own generateEnvelopeChecks -
+  // Matches generators/bbasic/soundfx.js's  generateEnvelopeChecks -
   // steps through the exact same per-frame AUDV curve (see
   // utils/envelope.js's buildEnvelopeCurve) the compiled ROM writes, scaled
-  // from AUDV's 0-15 range down into this preview's own 0-0.3 gain range,
+  // from AUDV's 0-15 range down into this preview's  0-0.3 gain range,
   // rather than a continuous fade - a stepped preview actually sounds like
   // what plays in game instead of smoothing over the same discrete jumps.
   let endValue;
   if (envelope) {
     const curve = buildEnvelopeCurve({
-      attack: envelopeAttack, decay: envelopeDecay, sustainPercent: envelopeSustain, release: envelopeRelease,
+      attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd,
+      releaseStartPercent: envelopeReleaseStart, sustainLength: envelopeSustainLength, release: envelopeRelease,
       peakVolume: audv, totalFrames: duration,
     });
+    // Only the frames where the level actually changes - a held level
+    // stays put until the next automation point anyway.
     curve.forEach((step, i) => {
-      gainNode.gain.setValueAtTime(step / 15 * 0.3, now + i / 60);
+      if (i === 0 || step !== curve[i - 1]) gainNode.gain.setValueAtTime(step / 15 * 0.3, now + i / 60);
     });
     endValue = curve[curve.length - 1] / 15 * 0.3;
   } else {
     // Held flat for the note's whole duration - real AUDV hardware writes
     // are just as abrupt, holding at whatever level they were last set to
-    // with no smoothing of their own. The guard-window ramp below (not a
+    // with no smoothing. The guard-window ramp below (not a
     // real fade - see CLICK_GUARD_SECONDS) is the only softening applied.
     gainNode.gain.setValueAtTime(peakGain, now);
     endValue = peakGain;
@@ -398,7 +416,7 @@ export const previewSoundEffect = ({
     // A buffer is pre-rendered for one fixed clock, so its pitch can't be
     // automated live like an oscillator's - scheduled as several short
     // back-to-back buffers instead, one per flip, each built at that
-    // phase's own pitch (matches how music-playback.js's own
+    // phase's  pitch (matches how music-playback.js's
     // playInstrumentHit previews a buzzy/noisy arpeggiating instrument).
     const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
     const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
@@ -423,9 +441,13 @@ export const previewSoundEffect = ({
   const lastSource = sources[sources.length - 1];
   if (lastSource) {
     lastSource.onended = () => {
+      // Every segment has finished (they are scheduled back to back), so the
+      // gain node has nothing left to carry - detach it from the output
+      // instead of leaving one connected node behind per preview.
+      gainNode.disconnect();
       // Only clear if this preview's sources are still the active ones - a
       // Stop press (or a newer preview replacing this one) already did its
-      // own cleanup, and this handler firing afterward (stopping a node
+      // cleanup, and this handler firing afterward (stopping a node
       // fires "ended" too) shouldn't clobber whatever's playing now.
       if (activeSources === sources) {
         activeSources = [];

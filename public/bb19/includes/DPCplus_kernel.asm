@@ -2,6 +2,39 @@ drawscreen
      lda #1
      sta CXCLR
      sta COLUBK ; REVENG - don't start with the lastline color
+     ifconst debugscore
+         ; Show the time the frame's code left over (the Options tab's "Show remaining CPU cycles as the score"): the
+         ; timer started above the 128 that fufu waits for, so what it holds beyond 128 is time still left, and below
+         ; 128 the code ran over (shown in red, as the other kernels do).
+         ldx #14
+         lda INTIM
+         bmi dpccycles_left
+         ldx #64
+         eor #$ff ;make negative
+dpccycles_left
+         stx scorecolor
+         and #$7f ; clear sign bit
+         tax
+         lda #0
+         sta score+1
+         sta score+2
+         txa
+         beq dpcdone_debugscore
+         ; each count of the timer is 64 cycles: add that many 64s to the score, in decimal
+         sed
+dpccycles_add
+         lda score+2
+         clc
+         adc #$64
+         sta score+2
+         lda score+1
+         adc #0
+         sta score+1
+         dex
+         bne dpccycles_add
+         cld
+dpcdone_debugscore
+     endif
 
 fufu
      lda INTIM
@@ -860,26 +893,54 @@ noscoreloop
      else
 
      sta HMCLR
+     ; vcs-game-maker: the Score tab's "5 score digits" switch moves the digits 1 color clock to the right, to look centered (HMP1 is set here too: later, it would delay the HMOVE below).
+     ifconst score5digits
+     ldx #$d0
+     else
      ldx #$f0
+     endif
      stx HMP0
+     ifconst score5digits
+     ldx #$e0
+     stx HMP1
+     endif
 
      ; set up fetchers 0-5 to handle score digits
      ldx #<(scoredata)
      stx DF6LOW
      ldx #(>(scoredata)) & $0F
      stx DF6HI
-     ldx #<(scoredata+8)
+     ; vcs-game-maker: the Score tab's "5 score digits" switch drops the leftmost digit: each place reads the digit to its right, and
+     ; the last place reads 8 bytes that hold zeros (set at startup, see generateDpcPlusBankPreamble), so the five digits sit where the
+     ; left five of six would, centered. (An immediate 0 can not be loaded instead: with fast fetch on, LDA #0 reads a data fetcher.)
+     ifconst score5digits
+SCOREBLANK = scoredata+80
+SCOREPLACE0 = scoredata+32
+SCOREPLACE1 = scoredata+8
+SCOREPLACE2 = scoredata+48
+SCOREPLACE3 = scoredata+24
+SCOREPLACE4 = SCOREBLANK
+SCOREPLACE5 = scoredata+40
+     else
+SCOREPLACE0 = scoredata+8
+SCOREPLACE1 = scoredata+16
+SCOREPLACE2 = scoredata+24
+SCOREPLACE3 = scoredata+32
+SCOREPLACE4 = scoredata+40
+SCOREPLACE5 = scoredata+48
+     endif
+     ldx #<(SCOREPLACE0)
      stx DF0LOW
-     ldx #(>(scoredata+8)) & $0F
+     ldx #(>(SCOREPLACE0)) & $0F
      stx DF0HI
-     ldx #<(scoredata+16)
+     ldx #<(SCOREPLACE1)
      stx DF1LOW
      ; cycle 0??
-     ldx #(>(scoredata+16)) & $0F
+     ldx #(>(SCOREPLACE1)) & $0F
      stx DF1HI
-     ldx #<(scoredata+24)
+     ldx #<(SCOREPLACE2)
      stx DF2LOW
-     ldx #(>(scoredata+24)) & $0F
+     ldx #(>(SCOREPLACE2)) & $0F
      stx DF2HI
 
      sta WSYNC
@@ -887,13 +948,13 @@ noscoreloop
      STx GRP0
      STx GRP1 ; seems to be needed because of vdel
 
-     ldx #<(scoredata+32)
+     ldx #<(SCOREPLACE3)
      stx DF3LOW
-     ldx #(>(scoredata+32)) & $0F
+     ldx #(>(SCOREPLACE3)) & $0F
      stx DF3HI
-     ldx #<(scoredata+40)
+     ldx #<(SCOREPLACE4)
      stx DF4LOW
-     ldx #(>(scoredata+40)) & $0F
+     ldx #(>(SCOREPLACE4)) & $0F
      stx DF4HI
 
      LDY #7
@@ -906,9 +967,9 @@ noscoreloop
      STx NUSIZ0
      STx NUSIZ1
      STx VDELP1
-     ldx #<(scoredata+48)
+     ldx #<(SCOREPLACE5)
      stx DF5LOW
-     ldx #(>(scoredata+48)) & $0F
+     ldx #(>(SCOREPLACE5)) & $0F
      stx DF5HI
      STA.w HMOVE ; cycle 73 ?
 scoreloop
