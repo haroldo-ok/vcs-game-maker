@@ -38,7 +38,7 @@ jobs:
       - name: Install the packages the Linux makers need
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
       - name: Build the web app
         run: npm run build
       - name: Make the installers
