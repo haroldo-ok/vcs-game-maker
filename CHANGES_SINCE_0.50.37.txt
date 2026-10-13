@@ -1096,3 +1096,9 @@ macOS builds and GitHub Actions desktop builds
   Apple Silicon and for Intel.
 - Linux packages name the program vcs-game-maker so the deb and rpm makers find it; package.json declares the MIT
   license, which the rpm maker needs.
+
+=== 0.52.13 ===
+No menu bar in desktop builds
+
+- The desktop app has no menu bar on Windows and Linux (the window's menu is removed and its menu bar stays hidden).
+  macOS keeps a hidden Edit menu, since its Cmd+C, Cmd+V and Cmd+A shortcuts come from it.
