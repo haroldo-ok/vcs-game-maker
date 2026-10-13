@@ -66,7 +66,7 @@ jobs:
           path: installers
       - name: Create or update the release
         run: |
-          mapfile -t files < <(find installers -type f \( -name '*.exe' -o -name '*.nupkg' -o -name 'RELEASES' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \))
+          mapfile -t files < <(find installers -type f \( -name '*.exe' -o -name '*.nupkg' -o -name 'RELEASES' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \))
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
           else
