@@ -4,6 +4,9 @@ const {FuseV1Options, FuseVersion} = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    // The deb and rpm makers look for the program under the package name, but the packager names it after the product
+    // name (with spaces) unless told otherwise. Only Linux needs this; Windows and macOS keep the product name.
+    ...(process.platform === 'linux' ? {executableName: 'vcs-game-maker'} : {}),
     // Without the extension: the packager adds .ico on Windows and .icns on
     // macOS (Linux packages get theirs from the makers below).
     icon: 'build/icons/icon',
