@@ -24,6 +24,13 @@ module.exports = {
       platforms: ['darwin'],
     },
     {
+      name: '@electron-forge/maker-dmg',
+      platforms: ['darwin'],
+      config: {
+        icon: 'build/icons/icon.icns',
+      },
+    },
+    {
       name: '@electron-forge/maker-deb',
       config: {
         options: {

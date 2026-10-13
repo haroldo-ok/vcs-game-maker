@@ -54,6 +54,10 @@ jobs:
         run: npm run build
       - name: Make the installers
         run: npm run electron:make
+      # The macOS runner is Apple Silicon; this adds the Intel build next to it.
+      - name: Make the Intel macOS installers
+        if: runner.os == 'macOS'
+        run: npx electron-forge make --arch=x64
       - uses: actions/upload-artifact@v7
         with:
           name: installers-${{ runner.os }}
@@ -72,7 +76,7 @@ jobs:
           path: installers
       - name: Attach the installers to the release
         run: |
-          mapfile -t files < <(find installers -type f \( -name '*.exe' -o -name '*.nupkg' -o -name 'RELEASES' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \))
+          mapfile -t files < <(find installers -type f \( -name '*.exe' -o -name '*.nupkg' -o -name 'RELEASES' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \))
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
