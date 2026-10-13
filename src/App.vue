@@ -550,6 +550,9 @@
             </template>
           </p>
         </v-card-text>
+        <div class="tip-message tip-footnote">
+          <a :href="tip.wikiUrl" target="_blank" rel="noopener">Full documentation</a>
+        </div>
         <v-card-actions>
           <v-checkbox
             v-model="tipDontShowAgain"
@@ -2069,8 +2072,35 @@ export default {
   color: rgba(0, 0, 0, 0.6);
 }
 
+/* The checkbox square is smaller than the Close button beside it and sits centered with it, which leaves its bottom edge
+   higher than the button's. Moving it (and its label) down 5px lines the two bottom edges up. */
+.tip-dont-show {
+  position: relative;
+  top: 5px;
+}
+
+/* The line that goes to the front page of the documentation: the same text as the tip, smaller. */
+/* It sits right above the bottom row of the popup, so it is the same distance from the checkbox and buttons whatever the
+   tip above it is. */
+.tip-message.tip-footnote {
+  font-size: 0.8rem;
+  line-height: 1.25;
+  padding: 0 24px 6px;
+}
+
 .dark-mode.v-application .tip-message {
   color: rgba(255, 255, 255, 0.6);
+}
+
+/* Every checkbox's label sits closer to its box (Vuetify leaves 8px between the box's area and the label). */
+.v-application--is-ltr .v-input--checkbox .v-input--selection-controls__input {
+  margin-right: 2px;
+}
+
+/* The buttons in a popup's bottom row sit the same distance from the bottom edge as from the side edges (Vuetify's default
+   leaves half as much below them as beside them). */
+.v-dialog > .v-card > .v-card__actions {
+  padding-bottom: 16px;
 }
 
 .v-menu__content > .v-card,

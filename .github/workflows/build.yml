@@ -39,6 +39,16 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
       - run: npm ci --legacy-peer-deps
+      # The dmg maker needs appdmg, which npm installs only on macOS and skips without a word when its install fails; one
+      # run built without it ("Cannot find module 'appdmg'"). This tries again, and stops here with the reason if it cannot.
+      - name: Make sure appdmg is installed
+        if: runner.os == 'macOS'
+        run: |
+          for attempt in 1 2 3; do
+            node -e "require('appdmg')" && break
+            npm install --no-save --legacy-peer-deps appdmg@0.6.6
+          done
+          node -e "require('appdmg')"
       - name: Build the web app
         run: npm run build
       - name: Make the installers

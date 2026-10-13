@@ -43,7 +43,7 @@ const tipAt = (index) => {
   // When one of the links is the Actions page it comes last.
   const links = [...pages.filter((link) => link.page !== 'Actions'), ...pages.filter((link) => link.page === 'Actions')];
   // The icon is the one of the tip's first page (not the Actions page that is listed last when there are several).
-  return {index, text: tip.text, links: links.map(linkOf), tab: TAB_ICONS[tip.page] || {icon: 'mdi-help-circle-outline', offset: 0.6, className: ''}};
+  return {index, text: tip.text, wikiUrl: tipsData.wiki, links: links.map(linkOf), tab: TAB_ICONS[tip.page] || {icon: 'mdi-help-circle-outline', offset: 0.6, className: ''}};
 };
 
 // The tip for this start.

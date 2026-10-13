@@ -7,21 +7,21 @@
       "anchor": "block-search"
     },
     {
-      "text": "The Player blocks are one combined block with a Player ID dropdown. The block color follows the player you pick: red for Player 0 and blue for Player 1.",
+      "text": "Player blocks are one combined block with a Player ID dropdown. The block color follows the Player Sprite ID you pick.",
       "page": "Sprites",
       "anchor": "player-blocks"
     },
     {
-      "text": "A new project starts with one background: a border of lit pixels along all four edges.",
+      "text": "The Convert blocks turn a playfield column or row into the matching Player, Missile or Ball X or Y position, and back again.",
       "page": "Background",
-      "anchor": "add-background"
+      "anchor": "convert-playfield-sprite"
     },
     {
       "text": "The Title tab draws full-screen bitmap pages with the Titlescreen Kernel, typically for a title or menu screen.",
       "page": "Title"
     },
     {
-      "text": "The Score tab offers a variety of fonts, as well as tools to make your own and custom fonts.",
+      "text": "The Score tab offers a variety of fonts, as well as tools to make or import your own.",
       "page": "Score",
       "anchor": "score-font"
     },
@@ -54,7 +54,7 @@
       "anchor": "emulator-settings"
     },
     {
-      "text": "ROM size runs from 2k up to 64k. Bigger sizes leave more room for code, graphics and sound.",
+      "text": "ROM size runs from 2k up to 64k. Bigger sizes provide more room for code, graphics and sound.",
       "page": "Options",
       "anchor": "rom-size"
     },
@@ -419,7 +419,7 @@
       "anchor": "resize-emulator-pane"
     },
     {
-      "text": "Set height (H) resizes a graphic. It can scale the contents to fit and apply the new height to every frame of the animation.",
+      "text": "Set height resizes a graphic. It can scale the contents to fit and apply the new height to every frame of the animation.",
       "page": "Graphic-Editor-Toolbar",
       "anchor": "set-height"
     },
@@ -439,14 +439,14 @@
       "anchor": "reorder-backgrounds"
     },
     {
-      "text": "A 48-wide title graphic can have a colored area behind its picture, drawn with the playfield, and each frame can use a different one.",
+      "text": "A 48-wide title graphic can have a colored area behind its picture, drawn with the playfield, and each animation frame can use a different one.",
       "page": "Title",
       "anchor": "picture-background-48-wide-graphics"
     },
     {
-      "text": "Every project needs a \"Draw screen\" block in its main loop. It renders the current frame.",
+      "text": "Distance X and Distance Y between two objects give an always-positive distance, handy for checking whether something is close.",
       "page": "Actions",
-      "anchor": "draw-screen"
+      "anchor": "distance-between-objects"
     },
     {
       "text": "Import animation frames picks several image files at once. Files numbered like walk1.png, walk2.png are ordered by their number.",
@@ -454,12 +454,12 @@
       "anchor": "import-animation-frames"
     },
     {
-      "text": "The Fire block launches a missile or the ball and moves it by itself until it leaves the screen. Pick the direction with an angle or a Joystick direction block.",
+      "text": "The Fire block launches a missile or the ball and moves it by itself until it leaves the screen. Set the direction with an angle or a Joystick direction block.",
       "page": "Actions",
       "anchor": "fire-block"
     },
     {
-      "text": "The Joystick Fire block can read a pattern of presses (tapped, held and so on), counted in frames. 60 frames is one second.",
+      "text": "The Joystick Fire block can read a pattern of presses (tapped, double-tapped, and held), counted in frames. 60 frames is one second.",
       "page": "Actions",
       "anchor": "joystick-fire-pattern"
     },
@@ -474,12 +474,12 @@
       "anchor": "undo-last-move"
     },
     {
-      "text": "Bounce reflects an object off whatever it just collided with. Call it every frame the collision lasts, not just once.",
+      "text": "Bounce reflects an object off whatever it just collided with. Call it every frame the collision lasts.",
       "page": "Actions",
       "anchor": "bounce"
     },
     {
-      "text": "The Seek block moves an object toward a target X/Y and stops on arrival. \"Throttle movement\" paces it to every few frames.",
+      "text": "The Seek block moves an object toward a target X/Y and stops on arrival.",
       "page": "Actions",
       "anchor": "seek"
     },
