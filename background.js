@@ -33,6 +33,9 @@ const createWindow = () => {
     },
   });
 
+  win.removeMenu();
+  win.setMenuBarVisibility(false);
+
   // A link or window.open() to a web page (the About tab's links, for one)
   // opens in the system's browser rather than a new Electron window.
   win.webContents.setWindowOpenHandler(({url}) => {
@@ -173,26 +176,26 @@ ipcMain.handle('project:path-exists', async (event, filePath) => {
   }
 });
 
-// Explicit Edit menu (rather than relying on Electron's implicit default
-// menu) so Ctrl+C/Cut/Paste/Select All accelerators are guaranteed to be
-// wired up - covers plain selectable text (e.g. the error console) as well
-// as editable fields, since role: 'copy' etc. act on whatever's currently
-// selected/focused in the renderer either way. visible: false hides it from
-// the menu bar - the app has no other use for a visible menu bar, and the
-// accelerators stay registered either way (Electron only stops firing an
-// item's accelerator when the item is actually removed, not just hidden).
-Menu.setApplicationMenu(Menu.buildFromTemplate([
-  {
-    label: 'Edit',
-    visible: false,
-    submenu: [
-      {role: 'cut'},
-      {role: 'copy'},
-      {role: 'paste'},
-      {role: 'selectAll'},
-    ],
-  },
-]));
+// The app has no menu bar. Windows and Linux get none at all (their text fields handle Ctrl+C, Ctrl+V and the other
+// editing shortcuts without one). macOS always has a system menu bar and takes its Cmd+C, Cmd+V and Cmd+A from an Edit
+// menu, so there it is kept but hidden (visible: false hides it from the menu bar while its accelerators stay
+// registered, since Electron only stops firing an item's accelerator when the item is removed).
+if (process.platform === 'darwin') {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'Edit',
+      visible: false,
+      submenu: [
+        {role: 'cut'},
+        {role: 'copy'},
+        {role: 'paste'},
+        {role: 'selectAll'},
+      ],
+    },
+  ]));
+} else {
+  Menu.setApplicationMenu(null);
+}
 
 app.whenReady().then(() => {
   createWindow();
