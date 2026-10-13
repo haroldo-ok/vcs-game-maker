@@ -10,7 +10,7 @@ import YAML from 'yaml';
 //
 // To change which repo the examples come from, edit EXAMPLES_SOURCE.
 const EXAMPLES_SOURCE = {
-  owner: 'NickR-Git',
+  owner: 'AbstractPolygon',
   repo: 'vcs-game-maker-content',
   branch: 'main',
   path: 'examples',

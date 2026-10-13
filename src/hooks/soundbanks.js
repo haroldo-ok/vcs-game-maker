@@ -11,7 +11,7 @@ import {soundEffectsInBankFile} from '../utils/sound-bank';
 //
 // To change which repo the sound banks come from, edit SOUND_BANKS_SOURCE.
 const SOUND_BANKS_SOURCE = {
-  owner: 'NickR-Git',
+  owner: 'AbstractPolygon',
   repo: 'vcs-game-maker-content',
   branch: 'main',
   path: 'soundbanks',
