@@ -3203,6 +3203,15 @@ export default (Blockly) => {
     const rawVar = block.getFieldValue('VAR');
     const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
     const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_NONE) || '1';
+    // A DPC+ player is colored by a ROM table per color, so the target of a fade is noted (see colorSectionFor in
+    // generators/bbasic.js); a target worked out while the game runs can not be shown.
+    const literal = /^\s*(?:\$([0-9a-fA-F]{1,2})|(\d+))\s*$/.exec(color);
+    const owner = rawVar.replace('realcolor', '');
+    const fades = Blockly.BBasic.dpcPlusPlayerFades;
+    if (literal && fades) {
+      const byte = literal[1] ? parseInt(literal[1], 16) : Number(literal[2]);
+      if (byte >= 0 && byte <= 255) (fades[owner] = fades[owner] || new Set()).add(byte & 0xFE);
+    }
     return Blockly.BBasic.emitColorFadeTrigger(rawVar, color, frames);
   };
 

@@ -1251,15 +1251,17 @@ export default (Blockly) => {
         tag,
         isWatched: watches.has(backgroundFadeWatchKey(rawVar)),
       });
-      // Under DPC+ a missile has a separate color register (COLUM0/COLUM1), so a player's fade carries it along:
-      // whether the fade was running is noted before its step, and the missile takes the player's color after it
-      // (the step that ends the fade included).
+      // Under DPC+ a player is colored by a table that is loaded again when bit 7 of its size variable is clear, and a
+      // missile has a separate color register (COLUM0/COLUM1): when a step of the fade changes the color, the table is
+      // chosen again and the missile takes the player's color.
       const missileColor = {player0realcolor: 'COLUM0', player1realcolor: 'COLUM1'}[rawVar];
       const configurationStorage = useConfigurationStorage();
       const config = (configurationStorage && configurationStorage.value) || {};
       if (!missileColor || config.kernel !== 'dpcplus') return fadeAsm;
-      const flagBit = `${resolveVar(fadeFlagsVarName(rawVar))}{${fadeActiveBit(rawVar)}}`;
-      return [` temp1 = 0 : if ${flagBit} then temp1 = 1`, ...[fadeAsm].flat(), ` if temp1 then ${missileColor} = ${colorVarName}`];
+      const sizeVar = rawVar.replace('realcolor', 'size');
+      const same = `_bgfadeasm_${tag}_same`;
+      return [` temp1 = ${colorVarName}`, ...[fadeAsm].flat(), ` if temp1 = ${colorVarName} then goto ${same}`,
+        ` ${sizeVar}{7} = 0`, ` ${missileColor} = ${colorVarName}`, same];
     };
 
     return [...fadeVarsUsed].map(checksForVar).flat().join('\n');

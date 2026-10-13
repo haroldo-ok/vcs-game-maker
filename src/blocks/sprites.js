@@ -2124,7 +2124,8 @@ Blockly.defineBlocksWithJsonArray([
       'fades that player\'s missile (missile0 for Player 0, missile1 for Player 1) for free - ' +
       'on real Atari 2600 hardware, a missile always shares its player\'s color register, so ' +
       'there\'s no separate missile color to fade. With the DPC+ kernel a missile has a separate color register ' +
-      '(the Missile Color option), and the fade carries it along with the player\'s.',
+      '(the Missile Color option), and the fade carries it along with the player\'s. A DPC+ player can only fade to a fixed color ' +
+      '(a color block, not a calculated value).',
   },
 ]);
 

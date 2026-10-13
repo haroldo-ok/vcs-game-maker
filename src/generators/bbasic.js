@@ -1389,6 +1389,7 @@ Blockly.BBasic.init = function(workspace) {
   this.dpcPlusExtraPlayers = [];
   this.widePartners = {};
   Blockly.BBasic.dpcPlusPlayerColors = {};
+  Blockly.BBasic.dpcPlusPlayerFades = {};
   if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
     const extra = new Set();
     workspace.getAllBlocks(false).forEach((block) => {
@@ -6797,8 +6798,15 @@ Blockly.BBasic.generateAnimations = function() {
     const colorOwner = slaveOf || name;
     const defaultColor = colorOwner === 'player0' ? 0x40 : colorOwner === 'player1' ? 0x80 :
       Number(colorOwner.slice(6)) * 3 % 16 * 16 + 14;
-    const colors = [defaultColor, ...[...(Blockly.BBasic.dpcPlusPlayerColors[colorOwner] || [])]
+    const given = [defaultColor, ...[...(Blockly.BBasic.dpcPlusPlayerColors[colorOwner] || [])]
         .filter((color) => color !== defaultColor)];
+    // A fade steps the brightness of the color the player has (so any hue the player is given) toward the target, and
+    // lands on the target, so every brightness of those hues and the target itself get a table too.
+    const fades = [...(Blockly.BBasic.dpcPlusPlayerFades[colorOwner] || [])];
+    const colors = fades.length ? [...new Set([...given,
+      ...[...new Set([...given, ...fades].map((color) => color & 0xF0))]
+          .flatMap((hue) => Array.from({length: 8}, (_, i) => hue | (i * 2))),
+      ...fades])] : given;
     const hex = (byte) => '$' + byte.toString(16).toUpperCase().padStart(2, '0');
     const label = (i) => `${name}color${i}`;
     const endLabel = `${name}colorEnd`;
