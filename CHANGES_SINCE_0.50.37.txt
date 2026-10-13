@@ -993,3 +993,106 @@ Text Minikernel on DPC+, and the standard kernel's text code moves out of the ke
 - Backgrounds are no longer padded when the Background tab opens, so changing pfres or the kernel never resizes them.
 - DPC+ background and animation previews build and center their sprite; whole-number row heights are used where a
   block cannot divide by a fraction of a row.
+
+=== 0.52.0 ===
+DPC+ sound chip audio, content repository, search
+
+- The DPC+ kernel plays sounds and music on its sound chip (three voices, each a 32 sample waveform at a pitch from
+  the chip's frequency table); the ARM coprocessor rebuilds each voice's waveform. Sound cards get a waveform editor
+  and a piano key pitch selector, and the Music tab plays on the chip's voices.
+- Example projects and sound banks load from a content repository instead of the app, with a search box on both
+  screens.
+
+=== 0.52.1 ===
+Cycle score on DPC+, search on examples and sound banks
+
+- The cycling score display works with the DPC+ kernel.
+- Search on the Examples and Sound Banks screens.
+
+=== 0.52.2 ===
+Per-background pfres on DPC+, run-once flags in display RAM, labels and goto, DPC+ divide fix, row color eyedropper, variable sharing
+
+- DPC+: every background can have a different number of rows (pfres); the scroll, box, collision and sprite blocks
+  follow the background that is showing.
+- The flags of Run once blocks live in display RAM on DPC+.
+- New Label and Go to label blocks.
+- A DPC+ divide that returned a wrong value is fixed.
+- The eyedropper picks the color of a row on a row color bar.
+- Title Screen variables share slots with variables the project does not use at the same time.
+
+=== 0.52.3 ===
+Text on Title Screen pages, text starts higher with the score hidden, multiselect leaves out wrappers, eraser clears row colors to white
+
+- Title Screen pages can show text.
+- With the score hidden, text starts closer to the playfield.
+- Selecting several blocks leaves out the wrapper blocks around them.
+- The eraser sets a row color back to white.
+
+=== 0.52.4 ===
+5 digit score option
+
+- New switch on the Score tab: the score shows five digits, the leftmost digit is left out and the five that remain
+  are centered. Works with the standard, DPC+ and Text Minikernel score digits.
+
+=== 0.52.5 ===
+DPC+ 5 digit score fix, animation name block
+
+- The 5 digit score is drawn correctly on DPC+.
+- The Animation name block no longer has a player and takes the color of the block it is plugged into.
+
+=== 0.52.6 ===
+Title screen variable sharing, End title screen anywhere, fade block for title graphics
+
+- Title Screen variables share slots with user variables that only run after End title screen, and across pages.
+- End title screen can sit anywhere in a stack.
+- New fade block for title graphics.
+- Importing a graphic replaces the page with the same name.
+- Hiding a sprite keeps its animation going.
+
+=== 0.52.7 ===
+5 digit score centered with the Text Minikernel, Gopher2600 loads ELF/PXE ROMs, debug overlay
+
+- The 5 digit score and the text are centered under the playfield with the Text Minikernel.
+- Gopher2600 loads ELF and PXE ROMs from memory.
+- The debug overlay lists variables in order of address and shows the scanlines used out of 262.
+- Kernel options are listed above the ROM options on the Options tab.
+
+=== 0.52.8 ===
+About text, links
+
+- The About text names both emulators, with links to Blockly, batari Basic, 6502.ts and Gopher2600, and each entry
+  shows its URL on a separate line.
+- Links that leave the app open in a new tab: the About entries open a tab instead of a window, and a click handler
+  catches any other link that leaves the app.
+- README: the description matches the wiki home page.
+
+=== 0.52.9 ===
+Content repository moved
+
+- Examples and sound banks load from AbstractPolygon/vcs-game-maker-content.
+
+=== 0.52.10 ===
+DPC+ missile colors
+
+- With the DPC+ kernel the Missile 0/1 blocks have a Color option (the kernel's COLUM0 and COLUM1 registers); a
+  missile is no longer fixed to its starting color.
+- Fade Player 0/1 color also fades that player's missile under DPC+.
+- A missile height of 0 hides a DPC+ missile and a height of 1 draws it on every other line; the Missile set
+  tooltip says so.
+
+=== 0.52.11 ===
+DPC+ players change color during a fade
+
+- A DPC+ player is colored by a ROM table per color, so a fade used to leave the player in its default color. When a
+  project fades a player to a fixed color, tables are now built for every brightness of the hues the player uses, plus
+  the target, and each step of the fade that changes the color loads the right table. A fade to a calculated color
+  still cannot be shown on a DPC+ player.
+
+=== 0.52.12 ===
+macOS builds and GitHub Actions desktop builds
+
+- A GitHub Actions workflow builds the desktop app on Windows, macOS and Linux and attaches the installers to a
+  release tagged with the version: the Windows installer, the Linux deb and rpm, and for macOS a zip and a dmg for
+  Apple Silicon and for Intel.
+- Linux packages name the program vcs-game-maker so the deb and rpm makers find it; package.json declares the MIT
+  license, which the rpm maker needs.
