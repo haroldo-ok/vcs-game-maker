@@ -354,7 +354,7 @@
         />
         <v-switch
           v-model="colorblindMode"
-          label="Greyscale"
+          label="High Contrast"
           hint="Makes the icons in the left and top toolbars black instead of a color for each, or white in Dark Mode."
           persistent-hint
           class="option-switch"

@@ -233,7 +233,7 @@ export const useHideTopToolbarStorage = () =>
 // theme/category colours are actually in play.
 export const useDesaturateBlocklyColorsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.desaturateBlocklyColors');
-// Greyscale (a standing app preference like Dark Mode): the icons of the left and top toolbars are black, or white
+// High Contrast (a standing app preference like Dark Mode): the icons of the left and top toolbars are black, or white
 // in Dark Mode, instead of a color for each tab. See App.vue's .colorblind-mode class.
 export const useColorblindModeStorage = () =>
   useBooleanAppSetting('vcs-game-maker.colorblindMode');

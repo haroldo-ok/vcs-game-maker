@@ -350,7 +350,7 @@ Fix blocks not loading / not draggable after opening a project; widen the gap be
   in a typical song) took 300+ ms and allocated roughly 170 MB, and playback
   re-rendered it many times a second to move the playhead; the heap reached
   several GB. A render now takes about 45 ms and allocates a few MB: notes,
-  instrument lookups, colours, blocked ranges and the per-note AUDC tables
+  instrument lookups, colors, blocked ranges and the per-note AUDC tables
   are worked out once per render instead of once per cell, and the playhead
   only updates when it reaches another slice, at most 10 times a second.
 - Music and Sound previews: both tabs now share one audio context (they used
@@ -1207,3 +1207,9 @@ Playfield offset block
   holes of a wall drift along, like the shield in Yars' Revenge. An area's left and right edges are whole bytes of the
   playfield (columns 0-7, 8-15, 16-23 and 24-31) and its top and bottom are rows counted from 0. It needs no variables
   and works with the standard kernel (with or without Superchip RAM) and DPC+.
+
+=== 0.52.23 ===
+High Contrast, Expert mode sidebar
+
+- The Greyscale switch is now named High Contrast.
+- In Expert mode the left toolbar has no color bar beside each icon, and its icons are centered in the narrower bar.

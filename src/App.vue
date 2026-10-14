@@ -699,7 +699,7 @@ const EMULATOR_WIDTH_KEY = 'vcs-game-maker.emulatorWidth';
 // Expert mode takes the names away, which leaves just the icons.
 const SIDEBAR_MAX_WIDTH = 200;
 const SIDEBAR_MIN_WIDTH = 64;
-const SIDEBAR_ICONS_ONLY_WIDTH = 64;
+const SIDEBAR_ICONS_ONLY_WIDTH = 56;
 // Dragging the edge left of this makes the sidebar narrow, right of it wide.
 const SIDEBAR_STACKED_WIDTH = 136;
 const SIDEBAR_WIDTH_KEY = 'vcs-game-maker.sidebarWidth';
@@ -3865,13 +3865,17 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   min-height: 56px;
 }
 .hide-description-text .nav-drawer .v-list-item.v-list-item--active {
-  padding-left: 24px;
+  padding-left: 16px;
+}
+/* No color bars beside the icons in Expert mode, so the icons are centered in the bar. */
+.hide-description-text .nav-drawer .v-list-item:not(.v-list-item--active) {
+  border-left: 0 !important;
 }
 .hide-description-text .nav-drawer .v-list-item .v-list-item__icon {
   margin: 0 !important;
   align-self: center;
 }
-/* Greyscale: the icons (and their names) of the left and top toolbars are black, or white in Dark Mode, instead
+/* High Contrast: the icons (and their names) of the left and top toolbars are black, or white in Dark Mode, instead
    of a color for each tab. */
 .v-application.colorblind-mode .top-toolbar .v-btn,
 .v-application.colorblind-mode .top-toolbar .v-btn .v-icon,
