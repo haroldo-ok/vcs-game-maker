@@ -659,6 +659,79 @@ Blockly.Blocks['background_scroll_colors'] = {
   },
 };
 
+// The ways "Playfield offset" can move the pixels of an area (one pixel column or row per block).
+export const BACKGROUND_OFFSET_OPTIONS = [
+  ['alternate rows left and right', 'alternate'],
+  ['all left', 'left'],
+  ['all right', 'right'],
+  ['all up', 'up'],
+  ['all down', 'down'],
+];
+// The playfield is four bytes of eight pixels a row; the area's left and right edges are whole bytes.
+export const BACKGROUND_OFFSET_LEFT_OPTIONS = [['0', '0'], ['8', '1'], ['16', '2'], ['24', '3']];
+export const BACKGROUND_OFFSET_RIGHT_OPTIONS = [['7', '0'], ['15', '1'], ['23', '2'], ['31', '3']];
+
+// Moves the pixels of the whole playfield, or of an area of it, by one pixel (column or row), wrapping around inside
+// the area. Run every few frames it makes the holes of a wall drift sideways, like the shield in Yars' Revenge.
+Blockly.Blocks['background_offset'] = {
+  init: function() {
+    this.appendDummyInput('HEAD')
+        .appendField(`${BACKGROUND_ICON} Playfield offset`)
+        .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_OPTIONS), 'DIRECTION')
+        .appendField(' ')
+        .appendField(new Blockly.FieldCheckbox('TRUE', (value) => {
+          // The area's corners are only there while it isn't the whole playfield.
+          this.updateShape_(value === 'TRUE' || value === true);
+          return value;
+        }), 'WHOLE')
+        .appendField('whole playfield');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(BACKGROUND_COLOR);
+    this.setTooltip(`Moves the pixels of the playfield by one step in the chosen direction, so holes in a wall drift ` +
+        `along (the shield in Yars' Revenge). A pixel that leaves the end of a row carries on at the start of the next row ` +
+        `and one that leaves the last row comes back on the first, and "all up" and "all down" wrap the top and ` +
+        `the bottom. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
+        `pixels run along the rows like a belt. Untick "whole playfield" to move just an area: its left and right edges ` +
+        `are whole bytes of the playfield (columns 0-7, 8-15, 16-23 and 24-31, so its width is a multiple of eight ` +
+        `pixels) and its top and bottom are rows counted from 0 like "Playfield get pixel". Run it every few frames ` +
+        `for a slower drift. Pixels only move; per-row colors stay where they are.`);
+  },
+  mutationToDom: function() {
+    const container = Blockly.utils.xml.createElement('mutation');
+    container.setAttribute('whole', this.getFieldValue('WHOLE') === 'FALSE' ? '0' : '1');
+    return container;
+  },
+  domToMutation: function(xml) {
+    this.updateShape_(xml.getAttribute('whole') !== '0');
+  },
+  // Adds or removes the top left and bottom right corner of the area.
+  updateShape_: function(whole) {
+    const hasArea = !!this.getInput('X1IN');
+    if (whole && hasArea) {
+      ['Y2', 'X2IN', 'Y1', 'X1IN'].forEach((name) => this.removeInput(name));
+    } else if (!whole && !hasArea) {
+      this.appendDummyInput('X1IN')
+          .appendField('from X')
+          .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_LEFT_OPTIONS), 'X1');
+      this.appendValueInput('Y1').setCheck('Number').appendField('Y');
+      this.appendDummyInput('X2IN')
+          .appendField('to X')
+          .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_RIGHT_OPTIONS), 'X2');
+      this.appendValueInput('Y2').setCheck('Number').appendField('Y');
+      [['Y1', 0], ['Y2', 10]].forEach(([name, rows]) => {
+        const shadow = this.workspace.newBlock('math_number');
+        shadow.setShadow(true);
+        shadow.setFieldValue(String(rows), 'NUM');
+        if (this.rendered) shadow.initSvg();
+        this.getInput(name).connection.connect(shadow.outputConnection);
+      });
+      if (this.rendered) this.render();
+    }
+  },
+};
+
 export const DEFAULT_BACKGROUNDS = {
   backgrounds: [
     {

@@ -1197,3 +1197,13 @@ Toolbar switches, Greyscale, Prefabs, toolbox look
 - The resize handles are solid greys in every color mode.
 - The emulator pane's collapse button is 8px from the pane and drawn above the toolbox and its drawers. When the pane
   is too narrow for its tool icons, the Refresh emulator button is centered above them.
+
+=== 0.52.22 ===
+Playfield offset block
+
+- New "Playfield offset" block in the Playfield category: moves the pixels of the whole playfield, or of an area of it,
+  by one pixel in a direction (alternate rows left and right, all left, all right, all up or all down), wrapping round.
+  A pixel that leaves the end of a row carries on at the start of the next row and the last row feeds the first, so the
+  holes of a wall drift along, like the shield in Yars' Revenge. An area's left and right edges are whole bytes of the
+  playfield (columns 0-7, 8-15, 16-23 and 24-31) and its top and bottom are rows counted from 0. It needs no variables
+  and works with the standard kernel (with or without Superchip RAM) and DPC+.
