@@ -308,6 +308,14 @@
           class="option-switch"
         />
         <v-switch
+          id="show-startup-tips-option"
+          v-model="showStartupTips"
+          label="Show Tips at startup"
+          hint="Shows a tip about using the app, with a link to the wiki page it is about, each time the app starts. The tip popup's &quot;Don't show again&quot; checkbox turns this off."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="muteBlocklySounds"
           label="Mute Blockly sounds"
           hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute in-game audio&quot; above for that."
@@ -340,7 +348,30 @@
         <v-switch
           v-model="desaturateBlocklyColors"
           label="Subdued Palette"
-          hint="Mutes block and app colors to half their normal saturation for a calmer, less colorful view."
+          hint="Mutes colors for a calmer, less colorful view."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="colorblindMode"
+          label="High Contrast"
+          hint="Makes the icons in the left and top toolbars black instead of a color for each, or white in Dark Mode."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="hideTopToolbar"
+          :disabled="hideSidebar"
+          label="Never show top toolbar"
+          hint="Always hides the top app toolbar. Not available while the left toolbar is hidden."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="hideSidebar"
+          :disabled="hideTopToolbar"
+          label="Never show left toolbar"
+          hint="Always hides the left app toolbar. Not available while the top toolbar is hidden."
           persistent-hint
           class="option-switch"
         />
@@ -348,14 +379,6 @@
           v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
-          persistent-hint
-          class="option-switch"
-        />
-        <v-switch
-          v-model="hideSidebar"
-          :disabled="!hideDescriptionText"
-          label="Never show the left sidebar"
-          hint="Only available in Expert mode. Turn it on to always hide the left app toolbar."
           persistent-hint
           class="option-switch"
         />
@@ -378,16 +401,17 @@
     </v-card>
 </template>
 <script>
-import {computed, defineComponent, ref, watch} from '@vue/composition-api';
+import {computed, defineComponent, nextTick, onMounted, ref, watch} from '@vue/composition-api';
 import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
-  useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage,
-  useMuteBlocklySoundsStorage,
+  useColorblindModeStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage,
+  useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {useEmulatorSettings} from '../hooks/emulator-settings';
+import {optionToReveal} from '../hooks/option-reveal';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
 
 // 64k compiles correctly (see generators/bbasic.js's  SUPPORTED_ROM_SIZES/
@@ -466,6 +490,7 @@ export default defineComponent({
     // below so it survives clearProjectStorage() and can be checked at
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
+    const showStartupTips = useShowStartupTipsStorage();
     // Same reasoning as loadLastProject above - these three used to round-trip
     // with the project itself via configurationState, silently resetting
     // every time you switched or started a new project.
@@ -474,20 +499,14 @@ export default defineComponent({
     // Frame skipping belongs to the gopher2600 emulator, so its switch only shows with that one chosen.
     const emulatorSettings = useEmulatorSettings();
     const hideSidebar = useHideSidebarStorage();
+    const hideTopToolbar = useHideTopToolbarStorage();
+    // Only one of the two toolbars can be hidden at a time (the switches disable each other), so a saved state with both on
+    // keeps just the left toolbar hidden.
+    if (hideSidebar.value && hideTopToolbar.value) hideTopToolbar.value = false;
     const darkMode = useDarkModeStorage();
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
+    const colorblindMode = useColorblindModeStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
-    // "Never show the left sidebar" is disabled (see its :disabled
-    // binding in the template) whenever Expert mode is off, but disabling
-    // an already-on switch just makes it unreachable, not actually off -
-    // without this, turning Expert mode back off left the sidebar
-    // permanently hidden with no visible way to re-enable it short of
-    // turning Expert mode back on first. Turning hideSidebar off here too
-    // keeps the switch's on/off state consistent with whether it's
-    // actually possible to turn it back on.
-    watch(hideDescriptionText, (expertModeOn) => {
-      if (!expertModeOn) hideSidebar.value = false;
-    });
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
     const stellaPathStorage = useStellaPathStorage();
     // window.electronAPI only exists inside the desktop (Electron) build's
@@ -514,6 +533,29 @@ export default defineComponent({
       if (next.has(key)) next.delete(key); else next.add(key);
       collapsedSections.value = next;
     };
+
+    // Opens the section that holds an option another part of the app linked to, scrolls to it and flashes it.
+    const OPTION_SECTION = {'show-startup-tips-option': 'vcsgm'};
+    const revealRequestedOption = async () => {
+      const id = optionToReveal.value;
+      if (!id) return;
+      optionToReveal.value = null;
+      const section = OPTION_SECTION[id];
+      if (section && collapsedSections.value.has(section)) {
+        const next = new Set(collapsedSections.value);
+        next.delete(section);
+        collapsedSections.value = next;
+      }
+      await nextTick();
+      const input = document.getElementById(id);
+      const element = input && (input.closest('.v-input') || input);
+      if (!element) return;
+      element.scrollIntoView({behavior: 'smooth', block: 'center'});
+      element.classList.add('option-revealed');
+      setTimeout(() => element.classList.remove('option-revealed'), 2500);
+    };
+    onMounted(revealRequestedOption);
+    watch(optionToReveal, revealRequestedOption);
 
     const configurationState = computed({
       // scoreFont is chosen on the Score tab, but is kept here so that
@@ -811,6 +853,7 @@ export default defineComponent({
       configurationState.value = state;
 
       loadLastProject.value = false;
+      showStartupTips.value = true;
       muteBlocklySounds.value = false;
       adaptiveFrameSkip.value = true;
       hideDescriptionText.value = false;
@@ -832,8 +875,8 @@ export default defineComponent({
       kernelIsDpcPlus,
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
-      loadLastProject,
-      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, darkMode, desaturateBlocklyColors,
+      loadLastProject, showStartupTips,
+      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
       stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,
@@ -1060,5 +1103,10 @@ export default defineComponent({
    under that field with or without the description text showing. */
 .pfrowheight-switch {
   margin-top: 2px;
+}
+/* The option the tips popup's link took the user to flashes once. */
+.option-revealed {
+  background-color: rgba(25, 118, 210, 0.15);
+  border-radius: 4px;
 }
 </style>

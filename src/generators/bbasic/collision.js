@@ -11,6 +11,8 @@ import {pairKey, boxHitVarName, isPlayerName} from './sprite-box-width';
 // both places agree on the exact same name.
 export const collisionMoveOldXVar = (playerNum) => `collisionOldX${playerNum}`;
 export const collisionMoveOldYVar = (playerNum) => `collisionOldY${playerNum}`;
+export const collisionMoveOlderXVar = (playerNum) => `collisionOlderX${playerNum}`;
+export const collisionMoveOlderYVar = (playerNum) => `collisionOlderY${playerNum}`;
 // A collisionMoveOldSizeVar (snapshotting/reverting player{N}size alongside
 // X/Y) used to exist here - removed after confirming it never actually
 // worked: player{N}size (NUSIZ) is a value the user's animation/size-
@@ -105,8 +107,12 @@ export default (Blockly) => {
     // reserved during init(), same "already reserved by the time any
     // generator runs" timing as every other reserveDevVarRW consumer (see
     // its comment there).
-    const oldXPair = Blockly.BBasic.superchipRwPairs[collisionMoveOldXVar(playerNum)];
-    const oldYPair = Blockly.BBasic.superchipRwPairs[collisionMoveOldYVar(playerNum)];
+    const lastXPair = Blockly.BBasic.superchipRwPairs[collisionMoveOldXVar(playerNum)];
+    const lastYPair = Blockly.BBasic.superchipRwPairs[collisionMoveOldYVar(playerNum)];
+    // Going back two frames puts the player where it was before the last two moves.
+    const twoFrames = block.getFieldValue('FRAMES') === '2';
+    const oldXPair = twoFrames ? Blockly.BBasic.superchipRwPairs[collisionMoveOlderXVar(playerNum)] : lastXPair;
+    const oldYPair = twoFrames ? Blockly.BBasic.superchipRwPairs[collisionMoveOlderYVar(playerNum)] : lastYPair;
     const blockNumber = Blockly.BBasic.blockNumbers.next(`collision_check_position_${playerNum}`);
     const revertLabel = `_collision_check_${playerNum}_${blockNumber}_revert`;
     const doneLabel = `_collision_check_${playerNum}_${blockNumber}_done`;
@@ -147,8 +153,9 @@ export default (Blockly) => {
       `${player}x = ${oldXPair.read}`,
       `${player}y = ${oldYPair.read}`,
       `@ ${doneLabel}`,
-      `${oldXPair.write} = ${player}x`,
-      `${oldYPair.write} = ${player}y`,
+      ...(twoFrames ? [`${oldXPair.write} = ${lastXPair.read}`, `${oldYPair.write} = ${lastYPair.read}`] : []),
+      `${lastXPair.write} = ${player}x`,
+      `${lastYPair.write} = ${player}y`,
     ].join('\n') + '\n';
   };
 };

@@ -26,7 +26,10 @@ export const collectDebugVariables = (variableUsage, symbolmap) => {
     if (!name || found.has(name) || symbolmap[name] === undefined) return;
     found.set(name, {name, address: symbolmap[name], owner, ...sharing});
   };
-  [...(variableUsage.letterAssignments || []), ...(variableUsage.superchipAssignments || [])].forEach((assignment) => {
+  // The DPC+ bonus slots (var0 to var8 and the bytes of the unused virtual sprites) hold variables too, like the shared byte
+  // of the flag bits (a Boolean each).
+  [...(variableUsage.letterAssignments || []), ...(variableUsage.superchipAssignments || []),
+    ...(variableUsage.dpcPlusAssignments || [])].forEach((assignment) => {
     const owner = assignment.isUserVariable ? 'user' : 'block';
     const sharedWith = assignment.sharedWith || [];
     // The title screen names that live in this variable's slot while the title screen kernel runs.
@@ -34,6 +37,12 @@ export const collectDebugVariables = (variableUsage, symbolmap) => {
     sharedWith.forEach((name) => add(name, 'block', {hostName: assignment.name}));
   });
   (variableUsage.systemAssignments || []).forEach((assignment) => add(assignment.name, 'system'));
+  // Superchip RAM's read/write pool: a variable there is only known in the assembly by its read address (r000).
+  (variableUsage.superchipRwAssignments || []).forEach((assignment) => {
+    const readSlot = String(assignment.slot || '').split('/')[0];
+    if (!assignment.name || found.has(assignment.name) || symbolmap[readSlot] === undefined) return;
+    found.set(assignment.name, {name: assignment.name, address: symbolmap[readSlot], owner: 'block'});
+  });
   // In memory address order, which is the order the debug overlay and its variable list show them in.
   return [...found.values()].sort((a, b) => a.address - b.address || a.name.localeCompare(b.name));
 };

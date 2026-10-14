@@ -1628,8 +1628,8 @@ const buildRomInner = async () => {
             const bank1Error = new Error(
                 `Bank 1 is ${-freeBytes} bytes over capacity, and every relocatable unit is already ` +
                 'in another bank - nothing left to move out of bank 1 to fix this. Reduce bank 1\'s ' +
-                'fixed content (fewer/simpler always-resident events, a shorter startup routine, ' +
-                'the always-included DPC+ score table, etc.) rather than adding more content ' +
+                'own fixed content (fewer/simpler always-resident events, a shorter startup routine, ' +
+                'DPC+\'s own always-included score table, etc.) rather than adding more content ' +
                 'elsewhere.');
             showError(errorStorage, 'Error while compiling bBasic code', code, bank1Error);
             return false;

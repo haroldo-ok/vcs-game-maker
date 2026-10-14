@@ -168,7 +168,7 @@ export const backgroundGetPixelYVarName = () => 'bgGetPixelY';
 // as backgroundGetPixelXVarName/YVarName above, just always used (this
 // block never has a cheaper temp1-temp6 fallback path to begin with, so
 // there's no "only when nested in a function" condition to gate on).
-// The one variable "Background area ... is clear" needs: the left column its scan restarts from on every row.
+// The one variable "Playfield area ... is clear" needs: the left column its scan restarts from on every row.
 export const areaClearLeftVarName = () => 'areaClearLeft';
 export const collisionPixelColumnVarName = () => 'collisionPixelColumn';
 export const collisionPixelRowVarName = () => 'collisionPixelRow';
@@ -512,7 +512,7 @@ export const backgroundsWithOverflowRows = (backgrounds, visibleRows) =>
 // getSubroutineBank call).
 export const BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME = 'bgscrollpatch';
 
-// "Background scroll" with "scroll playfield colors" checked: the row colors
+// "Playfield scroll" with "scroll playfield colors" checked: the row colors
 // scroll along with the pixels. The kernel reads each row's color through a
 // pointer (pfcolortable) into a ROM table with one entry every 4 bytes, so
 // scrolling a row just moves that pointer 4 bytes: each background gets a separate
@@ -597,7 +597,7 @@ Blockly.Extensions.register('background_scroll_direction_sync', function() {
 Blockly.Blocks['background_scroll'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} Background scroll`)
+        .appendField(`${BACKGROUND_ICON} Playfield scroll`)
         .appendField(new Blockly.FieldDropdown(BACKGROUND_PFSCROLL_OPTIONS), 'DIRECTION')
         .appendField(' ')
         .appendField(new Blockly.FieldCheckbox('FALSE'), 'STOPATEDGE')
@@ -620,13 +620,13 @@ Blockly.Blocks['background_scroll'] = {
         `and skips the scroll instead of continuing past the top (row 0) or the bottom (this background's ` +
         `last row). Has no effect on Left/Right, which have no edge to stop at - the standard kernel's ` +
         `playfield is always exactly 32 columns wide, so there's nothing beyond it to scroll into. Position ` +
-        `is tracked regardless of whether this checkbox is on, so "Background scroll position" always ` +
+        `is tracked regardless of whether this checkbox is on, so "Playfield scroll position" always ` +
         `reflects where the current background actually is, even from a scroll block that doesn't stop at ` +
         `the edges itself. "scroll playfield colors", when checked (and per-row playfield colors are on in ` +
         `the Options tab), moves each row's color along with its pixels for Up/Down/Up (2x)/Down (2x), ` +
         `instead of the colors staying where they are on the screen. "scroll background colors" does the same for ` +
         `the background row colors (DPC+ with per-row background colors on). Use them on every scroll block of a ` +
-        `project that scrolls colors. To scroll just the colors, use "Background scroll colors" instead.`);
+        `project that scrolls colors. To scroll just the colors, use "Playfield scroll colors" instead.`);
   },
 };
 
@@ -635,7 +635,7 @@ Blockly.Blocks['background_scroll'] = {
 Blockly.Blocks['background_scroll_colors'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} Background scroll colors`)
+        .appendField(`${BACKGROUND_ICON} Playfield scroll colors`)
         .appendField(new Blockly.FieldDropdown(BACKGROUND_PFSCROLL_OPTIONS.filter(([, value]) =>
           value !== 'left' && value !== 'right')), 'DIRECTION')
         .appendField(' ')
@@ -656,6 +656,79 @@ Blockly.Blocks['background_scroll_colors'] = {
         'time; DPC+ moves them a scanline at a time. The playfield colors and the background colors (DPC+ with ' +
         'per-row background colors) scroll separately: check the ones this block moves. "stop at top/bottom ' +
         'edge", when checked, stops the colors at the top or bottom of the background instead of wrapping around.');
+  },
+};
+
+// The ways "Playfield offset" can move the pixels of an area (one pixel column or row per block).
+export const BACKGROUND_OFFSET_OPTIONS = [
+  ['alternate rows left and right', 'alternate'],
+  ['all left', 'left'],
+  ['all right', 'right'],
+  ['all up', 'up'],
+  ['all down', 'down'],
+];
+// The playfield is four bytes of eight pixels a row; the area's left and right edges are whole bytes.
+export const BACKGROUND_OFFSET_LEFT_OPTIONS = [['0', '0'], ['8', '1'], ['16', '2'], ['24', '3']];
+export const BACKGROUND_OFFSET_RIGHT_OPTIONS = [['7', '0'], ['15', '1'], ['23', '2'], ['31', '3']];
+
+// Moves the pixels of the whole playfield, or of an area of it, by one pixel (column or row), wrapping around inside
+// the area. Run every few frames it makes the holes of a wall drift sideways, like the shield in Yars' Revenge.
+Blockly.Blocks['background_offset'] = {
+  init: function() {
+    this.appendDummyInput('HEAD')
+        .appendField(`${BACKGROUND_ICON} Playfield offset`)
+        .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_OPTIONS), 'DIRECTION')
+        .appendField(' ')
+        .appendField(new Blockly.FieldCheckbox('TRUE', (value) => {
+          // The area's corners are only there while it isn't the whole playfield.
+          this.updateShape_(value === 'TRUE' || value === true);
+          return value;
+        }), 'WHOLE')
+        .appendField('whole playfield');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setColour(BACKGROUND_COLOR);
+    this.setTooltip(`Moves the pixels of the playfield by one step in the chosen direction, so holes in a wall drift ` +
+        `along (the shield in Yars' Revenge). A pixel that leaves the end of a row carries on at the start of the next row ` +
+        `and one that leaves the last row comes back on the first, and "all up" and "all down" wrap the top and ` +
+        `the bottom. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
+        `pixels run along the rows like a belt. Untick "whole playfield" to move just an area: its left and right edges ` +
+        `are whole bytes of the playfield (columns 0-7, 8-15, 16-23 and 24-31, so its width is a multiple of eight ` +
+        `pixels) and its top and bottom are rows counted from 0 like "Playfield get pixel". Run it every few frames ` +
+        `for a slower drift. Pixels only move; per-row colors stay where they are.`);
+  },
+  mutationToDom: function() {
+    const container = Blockly.utils.xml.createElement('mutation');
+    container.setAttribute('whole', this.getFieldValue('WHOLE') === 'FALSE' ? '0' : '1');
+    return container;
+  },
+  domToMutation: function(xml) {
+    this.updateShape_(xml.getAttribute('whole') !== '0');
+  },
+  // Adds or removes the top left and bottom right corner of the area.
+  updateShape_: function(whole) {
+    const hasArea = !!this.getInput('X1IN');
+    if (whole && hasArea) {
+      ['Y2', 'X2IN', 'Y1', 'X1IN'].forEach((name) => this.removeInput(name));
+    } else if (!whole && !hasArea) {
+      this.appendDummyInput('X1IN')
+          .appendField('from X')
+          .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_LEFT_OPTIONS), 'X1');
+      this.appendValueInput('Y1').setCheck('Number').appendField('Y');
+      this.appendDummyInput('X2IN')
+          .appendField('to X')
+          .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_RIGHT_OPTIONS), 'X2');
+      this.appendValueInput('Y2').setCheck('Number').appendField('Y');
+      [['Y1', 0], ['Y2', 10]].forEach(([name, rows]) => {
+        const shadow = this.workspace.newBlock('math_number');
+        shadow.setShadow(true);
+        shadow.setFieldValue(String(rows), 'NUM');
+        if (this.rendered) shadow.initSvg();
+        this.getInput(name).connection.connect(shadow.outputConnection);
+      });
+      if (this.rendered) this.render();
+    }
   },
 };
 
@@ -719,7 +792,7 @@ const buildBackgroundOptions = () => {
 Blockly.Blocks['background_select'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} Background`)
+        .appendField(`${BACKGROUND_ICON} Playfield`)
         .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR');
     this.setOutput(true, 'Number');
     this.setColour(BACKGROUND_COLOR);
@@ -730,7 +803,7 @@ Blockly.Blocks['background_select'] = {
 Blockly.Blocks['background_set_select'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} Background`)
+        .appendField(`${BACKGROUND_ICON} Playfield`)
         .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
@@ -743,7 +816,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the setter.
   {
     'type': `background_set`,
-    'message0': `${BACKGROUND_ICON} Background set to %1`,
+    'message0': `${BACKGROUND_ICON} Playfield set to %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -758,7 +831,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the color setter.
   {
     'type': `background_set_color`,
-    'message0': `${BACKGROUND_ICON} Background set %1 ${COLOR_ICON} color to %2`,
+    'message0': `${BACKGROUND_ICON} Playfield set %1 ${COLOR_ICON} color to %2`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -885,7 +958,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for reading a playfield pixel
   {
     'type': `background_get_pixel`,
-    'message0': `${BACKGROUND_ICON} Background get pixel at X %1 and Y %2`,
+    'message0': `${BACKGROUND_ICON} Playfield get pixel at X %1 and Y %2`,
     'args0': [
       {
         'type': 'input_value',
@@ -906,7 +979,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for checking a whole area of the playfield
   {
     'type': `background_area_clear`,
-    'message0': `${BACKGROUND_ICON} Background area from X %1 Y %2 to X %3 Y %4 is clear`,
+    'message0': `${BACKGROUND_ICON} Playfield area from X %1 Y %2 to X %3 Y %4 is clear`,
     'args0': [
       {'type': 'input_value', 'name': 'X1', 'check': 'Number'},
       {'type': 'input_value', 'name': 'Y1', 'check': 'Number'},
@@ -917,7 +990,7 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Boolean',
     'colour': BACKGROUND_COLOR,
     'tooltip': `True when every playfield pixel in the rectangle between the two corners is off (columns ` +
-      `0-31 and rows from 0, the same numbers as "Background get pixel"). The corners can be given in ` +
+      `0-31 and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in ` +
       `either order, and any part of the rectangle outside the playfield is ignored. It reads the pixels ` +
       `one by one, so a big area takes a while: use it now and then (for example when a brick is cleared), ` +
       `not on every frame. Can't be used inside a custom function.`,
@@ -925,7 +998,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,
-    'message0': `${BACKGROUND_ICON} Background %1 pixel at X %2 and Y %3`,
+    'message0': `${BACKGROUND_ICON} Playfield %1 pixel at X %2 and Y %3`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -952,7 +1025,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for drawing an horizontal/vertical line
   {
     'type': `background_change_hv_line`,
-    'message0': `${BACKGROUND_ICON} Background %1 %2 %3 pixels at X %4 and Y %5`,
+    'message0': `${BACKGROUND_ICON} Playfield %1 %2 %3 pixels at X %4 and Y %5`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -994,7 +1067,7 @@ Blockly.defineBlocksWithJsonArray([
   // the way background_change_hv_line's  straight runs can).
   {
     'type': `background_draw_line`,
-    'message0': `${BACKGROUND_ICON} Background %1 line from X %2 Y %3 to X %4 Y %5`,
+    'message0': `${BACKGROUND_ICON} Playfield %1 line from X %2 Y %3 to X %4 Y %5`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1033,7 +1106,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for reading the playfield's vertical resolution (row count)
   {
     'type': `background_get_resolution`,
-    'message0': `${BACKGROUND_ICON} Background playfield height (rows)`,
+    'message0': `${BACKGROUND_ICON} Playfield height (rows)`,
     'args0': [],
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
@@ -1232,7 +1305,7 @@ Blockly.defineBlocksWithJsonArray([
   // "rainbow colors" block.
   {
     'type': `background_rainbow_colors`,
-    'message0': `${BACKGROUND_ICON} Background rainbow colors, offset %1`,
+    'message0': `${BACKGROUND_ICON} Playfield rainbow colors, offset %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -1253,19 +1326,19 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': `background_rainbow_colors_stop`,
-    'message0': `${BACKGROUND_ICON} Stop background rainbow colors`,
+    'message0': `${BACKGROUND_ICON} Stop playfield rainbow colors`,
     'args0': [],
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
-    'tooltip': `Stops "Background rainbow colors" and puts the playfield rows back to the row colors of the ` +
+    'tooltip': `Stops "Playfield rainbow colors" and puts the playfield rows back to the row colors of the ` +
       `background that is loaded (the colors set for it in the Background tab). The playfield pixels ` +
       `are left alone.`,
   },
   // Block for clearing every playfield pixel at once
   {
     'type': `background_clear`,
-    'message0': `${BACKGROUND_ICON} Background clear all pixels`,
+    'message0': `${BACKGROUND_ICON} Playfield clear all pixels`,
     'args0': [],
     'previousStatement': null,
     'nextStatement': null,
@@ -1280,19 +1353,19 @@ Blockly.defineBlocksWithJsonArray([
   // (Left/Right never touch it, see that block's tooltip).
   {
     'type': `background_scroll_position`,
-    'message0': `${BACKGROUND_ICON} Background scroll position`,
+    'message0': `${BACKGROUND_ICON} Playfield scroll position`,
     'args0': [],
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
     'tooltip': `How many rows Up/Down scrolling has moved the currently shown background from its top ` +
-      `row (0 = top). Only updated by "Background scroll" blocks using Up/Down/Up (2x)/Down (2x) - Left/` +
+      `row (0 = top). Only updated by "Playfield scroll" blocks using Up/Down/Up (2x)/Down (2x) - Left/` +
       `Right don't affect it. Resets to 0 whenever a different background is switched to.`,
   },
   // Jumps the scroll position to a chosen row instead of always starting at
   // the top - see this block's generator in generators/bbasic/background.js.
   {
     'type': `background_scroll_set_row`,
-    'message0': `${BACKGROUND_ICON} Set background scroll to row %1`,
+    'message0': `${BACKGROUND_ICON} Set playfield scroll to row %1`,
     'args0': [
       {
         'type': 'input_value',
@@ -1434,7 +1507,7 @@ Blockly.Blocks['background_fade_finished'] = {
 Blockly.Blocks['background_scroll_edge_reached'] = {
   init: function() {
     this.appendDummyInput()
-        .appendField(`${BACKGROUND_ICON} When background scroll reaches the`)
+        .appendField(`${BACKGROUND_ICON} When playfield scroll reaches the`)
         .appendField(new Blockly.FieldDropdown([
           ['Top', 'top'],
           ['Bottom', 'bottom'],
@@ -1443,7 +1516,7 @@ Blockly.Blocks['background_scroll_edge_reached'] = {
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setColour(BACKGROUND_COLOR);
-    this.setTooltip('Runs the connected blocks once, each time a "Background scroll" (Up/Down) moves the ' +
+    this.setTooltip('Runs the connected blocks once, each time a "Playfield scroll" (Up/Down) moves the ' +
       'view onto the top row or the bottom row of the current background. Reaching the edge by "Set ' +
       'background scroll to row" or by switching backgrounds does not count.');
   },

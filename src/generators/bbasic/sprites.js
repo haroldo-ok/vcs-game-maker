@@ -322,6 +322,10 @@ export const missileFireOwnBit = (name) => ({missile0: 0, missile1: 1, ball: 2,
   player0: 3, player1: 4, player2: 5, player3: 6, player4: 7, player5: 8, player6: 9, player7: 10, player8: 11,
   player9: 12})[name];
 export const missileFireActiveBit = (name) => flagPoolBit(MISSILE_FIRE_FLAGS_FAMILY, missileFireOwnBit(name));
+// One bit for each object a block asks about: set when its Fire stopped because it went off the screen, cleared by the next Fire.
+export const FIRE_OFFSCREEN_FLAGS_FAMILY = 'fireOffscreenFlags';
+export const fireOffscreenFlagsVarName = () => flagPoolVar(FIRE_OFFSCREEN_FLAGS_FAMILY);
+export const fireOffscreenBit = (name) => flagPoolBit(FIRE_OFFSCREEN_FLAGS_FAMILY, missileFireOwnBit(name));
 export const missileFireDirVarName = (name) => `${name}FireDir`;
 export const missileFireSpeedVarName = (name) => `${name}FireSpeed`;
 // Only reserved for a sprite using 16-way Fire (missileFire16UsedFor) - see
@@ -621,7 +625,7 @@ export const generatePlayerHeightLimitChecks = (Blockly) => {
 // use rom_noise anywhere in the project (bbasic.js's init() has to know this
 // BEFORE user variable letters are handed out, well before either
 // generator would otherwise run).
-export const reserveRomNoiseDevVars = (reserveDevVar, usedFor) => {
+export const reserveRomNoiseDevVars = (reserveDevVar, usedFor, constHeights = {}) => {
   if (!usedFor || !usedFor.size) return;
   if ([...usedFor].some((name) => !isRomNoiseExtra(name))) {
     reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
@@ -631,7 +635,9 @@ export const reserveRomNoiseDevVars = (reserveDevVar, usedFor) => {
   }
   usedFor.forEach((name) => {
     reserveDevVar(romNoiseOffsetVarName(name), undefined, 'this player\'s ROM noise: pointer offset');
-    reserveDevVar(romNoiseHeightVarName(name), undefined, 'this player\'s ROM noise: sprite height');
+    if (constHeights[name] === undefined) {
+      reserveDevVar(romNoiseHeightVarName(name), undefined, 'this player\'s ROM noise: sprite height');
+    }
   });
 };
 
@@ -915,7 +921,9 @@ export const generateRomNoiseChecks = (Blockly) => {
     const flagsVar = resolveVar(romNoiseFlagsVarName(name));
     const doneLabel = `_romnoise_${name}_done`;
     const offsetVar = resolveVar(romNoiseOffsetVarName(name));
-    const heightVar = resolveVar(romNoiseHeightVarName(name));
+    const constHeight = (Blockly.BBasic.romNoiseConstHeight || {})[name];
+    const heightVar = constHeight !== undefined ? String(constHeight) : resolveVar(romNoiseHeightVarName(name));
+    const heightRef = dpcPlus ? 'temp4' : heightVar;
     lines.push(
         // "flagsVar{bit} = 0" (an equality comparison against the bit-index
         // syntax) isn't valid here - confirmed by a real compile failure
@@ -932,7 +940,10 @@ export const generateRomNoiseChecks = (Blockly) => {
         // of the sprite can cross a page: subtract the range size when the
         // offset is past it (twice, which covers heights up to 128 fully and
         // larger ones approximately), then clamp.
-        ` temp1 = 255 - ${heightVar}`,
+        // Under DPC+ the rows count in scanlines, and every row of the standard kernel's sprites is two lines tall, so the
+        // same height covers twice the lines.
+        ...(dpcPlus ? [` temp4 = ${heightVar}`, ' if temp4 > 127 then temp4 = 127', ' temp4 = temp4 + temp4'] : []),
+        ` temp1 = 255 - ${heightRef}`,
         ` temp2 = ${offsetVar}`,
         ` temp3 = temp1 + 1`,
         ` if temp2 >= temp3 then temp2 = temp2 - temp3`,
@@ -955,9 +966,10 @@ export const generateRomNoiseChecks = (Blockly) => {
         // this reads real code starting from the very base of bank 1's
         // mapped ROM, offset by 0-255 bytes into it - genuine Yars'
         // Revenge-style "read whatever code is there", zero ROM cost.
-        // Player 0's pointer is a pair of bytes; the other players' are two bytes of display memory, written through data fetcher 0
+        // On the standard kernel both players' pointers are a pair of bytes (player0pointerlo/hi, player1pointerlo/hi). On
+        // DPC+ only Player 0's is; the other players' are two bytes of display memory, written through data fetcher 0
         // (the same way a "player2:" graphic statement does).
-        ...(name === 'player0' ? [
+        ...(name === 'player0' || !dpcPlus ? [
           ` ${name}pointerlo = temp2`,
           ` ${name}pointerhi = ${baseHigh}`,
         ] : [
@@ -972,7 +984,7 @@ export const generateRomNoiseChecks = (Blockly) => {
           '  sta DF0WRITE',
           'end',
         ]),
-        ` ${name}height = ${heightVar}`,
+        ` ${name}height = ${heightRef}`,
         `${doneLabel}`,
     );
   });
@@ -1078,22 +1090,39 @@ const generateDpcPlusBackgroundRainbowChecks = (Blockly) => {
 
 const generateDpcPlusRainbowColorChecks = (Blockly) => {
   const used = Blockly.BBasic.rainbowColorUsedFor;
-  if (!used || !used.has('player0')) return generateDpcPlusBackgroundRainbowChecks(Blockly);
+  if (!used || !used.size) return generateDpcPlusBackgroundRainbowChecks(Blockly);
   const flagsVar = Blockly.BBasic.nameDB_.getName(romNoiseFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-  const doneLabel = '_rainbowcolor_player0_done';
-  const offset = rainbowOffsetExpression(Blockly, (Blockly.BBasic.rainbowSimpleOffset || {}).player0,
-      rainbowColorOffsetVarName('player0'));
-  return [
-    ` if !${flagsVar}{${rainbowColorActiveBit('player0')}} then goto ${doneLabel}`,
-    ` temp1 = ${offset}`,
-    ' asm',
-    '       lda temp1',
-    '       sta player0color',
-    '       lda #$04',
-    '       sta player0color+1',
-    'end',
-    doneLabel,
-  ].join('\n') + '\n' + generateDpcPlusBackgroundRainbowChecks(Blockly);
+  const lines = [];
+  ['player0', 'player1'].forEach((name) => {
+    if (!used.has(name)) return;
+    const doneLabel = `_rainbowcolor_${name}_done`;
+    const offset = rainbowOffsetExpression(Blockly, (Blockly.BBasic.rainbowSimpleOffset || {})[name],
+        rainbowColorOffsetVarName(name));
+    lines.push(
+        ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
+        ` temp1 = ${offset}`,
+        ' asm',
+        // Player 0's color pointer is a pair of variables; Player 1's is two bytes of display memory, written
+        // through data fetcher 0 (the way a "player1color:" statement does).
+        ...(name === 'player0' ? [
+          '       lda temp1',
+          '       sta player0color',
+          '       lda #$04',
+          '       sta player0color+1',
+        ] : [
+          '       lda #<(playerpointers+18)',
+          '       sta DF0LOW',
+          '       lda #(>(playerpointers+18)) & $0F',
+          '       sta DF0HI',
+          '       lda temp1',
+          '       sta DF0WRITE',
+          '       lda #$04',
+          '       sta DF0WRITE',
+        ]),
+        'end',
+        doneLabel);
+  });
+  return lines.join('\n') + '\n' + generateDpcPlusBackgroundRainbowChecks(Blockly);
 };
 
 export const generateRainbowColorChecks = (Blockly) => {
@@ -1211,7 +1240,8 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
   const maxRow = Blockly.BBasic.maxRowText(config);
-  const rowDivisor = Blockly.BBasic.rowDivisorText(config);
+  // Under DPC+ every object's y counts lines, not two-line steps.
+  const rowDivisor = Blockly.BBasic.rowDivisorText(config, true);
   Blockly.BBasic.usesDivMul = true;
   const id = Blockly.BBasic.blockNumbers.next('fireStep');
   const label = (part) => `_missilefire_${name}_${id}_${part}`;
@@ -1291,10 +1321,15 @@ export const generateMissileFireChecks = (Blockly) => {
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const resolveRW = (canonicalName) => Blockly.BBasic.superchipRwPairs[canonicalName];
   const flagsVar = resolveVar(missileFireFlagsVarName());
+  const offscreenUsed = Blockly.BBasic.fireOffscreenUsedFor || new Set();
+  // The first y below the picture: the standard kernel draws 192 lines, DPC+ 212.
+  const bottomY = (useConfigurationStorage().value || {}).kernel === 'dpcplus' ? 212 : 192;
+  const offscreenVar = offscreenUsed.size ? resolveVar(fireOffscreenFlagsVarName()) : null;
   const lines = [];
   ['missile0', 'missile1', 'ball', ...[...used].filter((name) => /^player[0-9]$/.test(name))].forEach((name) => {
     if (!used.has(name)) return;
     const doneLabel = `_missilefire_${name}_done`;
+    const edgeDoneLabel = `_missilefire_${name}_edgedone`;
     const dirVar = resolveVar(missileFireDirVarName(name));
     const constSpeed = (Blockly.BBasic.missileFireConstSpeed || new Map()).get(name);
     const speedPair = constSpeed !== undefined ? null : resolveRW(missileFireSpeedVarName(name));
@@ -1424,7 +1459,16 @@ export const generateMissileFireChecks = (Blockly) => {
         // "< 0" case to check: an out-of-range value from EITHER direction
         // always lands as "> 159"/"> 191" here.
         ...((Blockly.BBasic.missileEdgeBounceUsedFor || new Set()).has(name) ? [] :
-          [` if ${name}x > 159 || ${name}y > 191 then ${flagsVar}{${activeBit}} = 0`]),
+          [
+            // Off screen it stops and is hidden at the top left corner (x of 160 or more would be drawn again on the other
+            // side).
+            ` if ${name}x < 160 && ${name}y < ${bottomY} then goto ${edgeDoneLabel}`,
+            ` ${flagsVar}{${activeBit}} = 0`,
+            ...(offscreenUsed.has(name) ? [` ${offscreenVar}{${fireOffscreenBit(name)}} = 1`] : []),
+            ` ${name}x = 0`,
+            ` ${name}y = 0`,
+            edgeDoneLabel,
+          ]),
         `${doneLabel}`,
     );
   });
@@ -1982,12 +2026,18 @@ export default (Blockly) => {
       return [code, Blockly.BBasic.ORDER_ATOMIC];
     };
 
+    // Players 2 to 9 (DPC+) keep their animation number in a byte the generator reserves itself, so its name is used as
+    // it is: asking the variable names for it handed back a renamed one (player3animation2) that nothing declares.
+    const spriteVarName = (field) => /^player[2-9]animation$/.test(field) ? field :
+      Blockly.BBasic.nameDB_.getName(field, Blockly.VARIABLE_CATEGORY_NAME);
+
+    const dpcPlusThinHeight = /^(missile[01]|ball)height$/;
+
     Blockly.BBasic[`sprite_${name}_set`] = function(block) {
       // Variable setter.
       const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
           Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-      const varName = Blockly.BBasic.nameDB_.getName(
-          block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+      const varName = spriteVarName(block.getFieldValue('VAR'));
       const missileColor = /^missile([01])color$/.exec(varName);
       if (missileColor) {
         return `COLUM${missileColor[1]} = ${argument0}
@@ -2097,10 +2147,17 @@ export default (Blockly) => {
       // scanlines down to the sprite's bottom edge (line 2 * y + 4), and the DPC+ picture starts 4 lines higher, so
       // the same spot is 2 * y minus the sprite's height in lines.
       if (/^player\dy$/.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
-        const lines = Blockly.BBasic.dpcPlusSpriteLines();
+        const lines = Blockly.BBasic.dpcPlusSpriteLines(varName.slice(0, 7));
         const literal = /^\s*(\d+)\s*$/.exec(argument0);
         if (literal) return `${varName} = ${Math.min(255, Math.max(0, 2 * Number(literal[1]) - lines))}\n`;
         return `temp1 = (${argument0}) * 2\n${varName} = temp1 - ${lines}\n`;
+      }
+      if (dpcPlusThinHeight.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
+        // Under DPC+ a missile or the ball one line tall is drawn on every other y only (and its collisions are missed the
+        // same way), so a height of 1 is made 2.
+        const literal = /^\s*(\d+)\s*$/.exec(argument0);
+        if (literal) return `${varName} = ${Number(literal[1]) === 1 ? 2 : literal[1]}\n`;
+        return `${varName} = ${argument0}\nif ${varName} = 1 then ${varName} = 2\n`;
       }
       return varName + ' = ' + argument0 + '\n';
     };
@@ -2109,11 +2166,13 @@ export default (Blockly) => {
     // Add value do a variable.
       const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
           Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-      const varName = Blockly.BBasic.nameDB_.getName(
-          block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+      const varName = spriteVarName(block.getFieldValue('VAR'));
       const isNegativeConstant = /^\s*-\s*\d+\s*$/.test(argument0);
       const operator = isNegativeConstant ? '' : '+';
       const assignment = `${varName} = ${varName} ${operator} ${argument0}\n`;
+      if (dpcPlusThinHeight.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
+        return assignment + `if ${varName} = 1 then ${varName} = 2\n`;
+      }
       if (varName.endsWith('animation') && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
         return assignment + `${varName.replace('animation', 'size')}{7} = 0\n` + animationLoopBitsCode(block, varName);
       }
@@ -2220,7 +2279,8 @@ export default (Blockly) => {
       const resolveVar = (canonicalName) =>
         Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const offsetVar = resolveVar(romNoiseOffsetVarName(name));
-      const heightVar = resolveVar(romNoiseHeightVarName(name));
+      const constHeight = (Blockly.BBasic.romNoiseConstHeight || {})[name];
+      const heightVar = constHeight !== undefined ? String(constHeight) : resolveVar(romNoiseHeightVarName(name));
       const flagsVar = resolveVar(romNoiseFlagsVarName(name));
       // Defaults to framecounter (already ticking every frame regardless
       // of anything else in the project) rather than a plain "0" fallback
@@ -2232,7 +2292,7 @@ export default (Blockly) => {
         'framecounter';
       const height = Blockly.BBasic.valueToCode(block, 'HEIGHT', Blockly.BBasic.ORDER_ASSIGNMENT) || '8';
       return `${offsetVar} = ${offset}\n` +
-        `${heightVar} = ${height}\n` +
+        (constHeight !== undefined ? '' : `${heightVar} = ${height}\n`) +
         `${flagsVar}{${romNoiseActiveBit(name)}} = 1\n`;
     };
 
@@ -2415,6 +2475,9 @@ export default (Blockly) => {
         // seeded from the same interval instead, so the first step waits
         // the full interval too, same as every step after it.
         (throttled ? `${throttlePair.write} = ${interval}\n` : '') +
+        // A new Fire starts the object again, so it has not gone off the screen.
+        (Blockly.BBasic.fireOffscreenUsedFor && Blockly.BBasic.fireOffscreenUsedFor.has(name) ?
+          `${resolveVar(fireOffscreenFlagsVarName())}{${fireOffscreenBit(name)}} = 0\n` : '') +
         `${flagsVar}{${activeBit}} = 1\n`;
     };
   };
@@ -2501,6 +2564,15 @@ export default (Blockly) => {
   // generateSeekChecks sets this bit the moment this object's  Seek
   // reaches its target; object_seek_to's  generator above clears it again
   // the next time that object is given a new target.
+  // True once the object's Fire went off the screen and stopped there; false for an object no Fire block launches.
+  Blockly.BBasic['object_fire_offscreen'] = function(block) {
+    const name = block.getFieldValue('OBJECT');
+    const used = Blockly.BBasic.fireOffscreenUsedFor;
+    if (!used || !used.has(name)) return ['0', Blockly.BBasic.ORDER_ATOMIC];
+    const flagsVar = Blockly.BBasic.nameDB_.getName(fireOffscreenFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return [`${flagsVar}{${fireOffscreenBit(name)}}`, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   Blockly.BBasic['object_seek_arrived'] = function(block) {
     const name = block.getFieldValue('OBJECT');
     const resolveVar = (canonicalName) =>
@@ -2819,7 +2891,8 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
-    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
+    // Under DPC+ every object's y counts lines, not two-line steps.
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config, true);
     Blockly.BBasic.usesDivMul = true;
     const label = (part) => `_bouncepix_${name}_${uid}_${part}`;
     const lab = (part) => `@ ${label(part)}`;

@@ -127,14 +127,15 @@ export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, st
 };
 
 // The Sound tab's preview of a card.
-export const previewDpcPlusSoundEffect = (soundEffect, config) => {
+// dimMultiplier is the DIM percentage as 0-1, applied as the emulator applies it (to the output, not the volume register).
+export const previewDpcPlusSoundEffect = (soundEffect, config, dimMultiplier = 1) => {
   const seconds = Math.max(0, Number(soundEffect.duration) || 0) / FRAMES_PER_SECOND;
   if (seconds <= 0) return;
   const sound = asDpcPlusSound(soundEffect, config);
   const context = getAudioContext();
   const {source, gain} = playDpcPlusSound(context, {
     sound, frequency: Number(sound.dpcFrequency) || 0, volume: Number(soundEffect.audv) || 0, seconds,
-    startTime: context.currentTime,
+    startTime: context.currentTime, dimMultiplier,
   });
   registerSoundEffectPreview([source], gain);
 };

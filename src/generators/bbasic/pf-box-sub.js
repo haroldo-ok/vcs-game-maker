@@ -69,6 +69,7 @@ export const callPfBox = (Blockly, player) => {
       partnerFrameVar: (Blockly.BBasic.widePartners || {})[player] ? `${Blockly.BBasic.widePartners[player]}frame` : undefined,
       partnerHiddenVar: (Blockly.BBasic.sharedPartnerVars || {})[(Blockly.BBasic.widePartners || {})[player]] ?
         `${Blockly.BBasic.widePartners[player]}size{6}` : undefined,
+      directRead: !dpcPlus,
       blankLines: Blockly.BBasic.effectiveShowBlankLines ? !!Blockly.BBasic.effectiveShowBlankLines() : true,
       ...geometry,
     }).join('\n');

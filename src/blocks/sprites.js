@@ -1409,6 +1409,25 @@ Blockly.defineBlocksWithJsonArray([
       'target X/Y, and stays true until that object is given a new Seek target. Always false ' +
       'if no matching Seek block ever runs anywhere in the project.',
   },
+  // True once a Fire block's object has gone off the screen and stopped there.
+  {
+    'type': 'object_fire_offscreen',
+    'message0': `${MISSILE_ICON} Fired %1 has gone off screen`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'OBJECT',
+        'options': SEEK_OBJECT_DROPDOWN_OPTIONS,
+      },
+    ],
+    'output': 'Boolean',
+    'colour': 'purple',
+    'extensions': ['object_seek_colour_sync'],
+    'tooltip': 'True once a missile, ball or player that a "Fire" block launched has gone off the edge of the ' +
+      'screen and stopped (it is put at the top left corner, out of sight), and stays true until a "Fire" block ' +
+      'launches it again. It is not true when "Stop fired" or a collision stopped it. Always false if no "Fire" ' +
+      'block ever launches that object, or while "Bounce off screen edges" keeps it in play.',
+  },
   // Same "one block, OBJECT dropdown covers all 5 names" shape as object_
   // seek_to above, reusing the same SEEK_OBJECT_OPTIONS/object_seek_colour_
   // sync. A runtime on/off toggle (not a compile-time checkbox) - lets a
@@ -1438,7 +1457,7 @@ Blockly.defineBlocksWithJsonArray([
     'colour': 'purple',
     'extensions': ['object_seek_colour_sync'],
     'tooltip': 'Turns automatic playfield-scroll following on or off for this object. While on, every ' +
-      '"Background scroll" block using Up/Down/Up (2x)/Down (2x) also shifts this object\'s Y position ' +
+      '"Playfield scroll" block using Up/Down/Up (2x)/Down (2x) also shifts this object\'s Y position ' +
       'by the same amount, so it stays in the same spot relative to the scrolling background instead of ' +
       'the screen. Has no effect on Left/Right scrolling. Accepts true/false or 1/0.',
   },

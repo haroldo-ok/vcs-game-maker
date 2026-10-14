@@ -24,6 +24,26 @@ export default (Blockly) => {
   // branched on, since a batari Basic condition is not a value.
   const BIT_LITERALS = {'true': '1', '1': '1', 'false': '0', '0': '0'};
 
+  Blockly.BBasic['nibble_get'] = function(block) {
+    const varName = resolveVariable(block);
+    if (block.getFieldValue('HALF') === 'LAST') {
+      return [`${varName} / 16`, Blockly.BBasic.ORDER_DIVISION];
+    }
+    return [`${varName} & 15`, Blockly.BBasic.ORDER_BITWISE_AND];
+  };
+
+  Blockly.BBasic['nibble_set'] = function(block) {
+    const varName = resolveVariable(block);
+    const value = (Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_BITWISE_AND) || '0').trim();
+    const literal = /^\d+$/.test(value) ? Number(value) & 15 : null;
+    if (block.getFieldValue('HALF') === 'LAST') {
+      return `${varName} = (${varName} & 15) | ${literal !== null ? literal * 16 : `((${value} & 15) * 16)`}
+`;
+    }
+    return `${varName} = (${varName} & $F0) | ${literal !== null ? literal : `(${value} & 15)`}
+`;
+  };
+
   // Just the plain built-in name - it's already a real, directly-readable
   // batari Basic variable, no lookup/resolution needed the way bit_get's
   // combined user-variable-or-built-in dropdown does.

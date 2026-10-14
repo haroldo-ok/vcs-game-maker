@@ -1112,7 +1112,9 @@ export default defineComponent({
       const audv = dimSoundFx.value ?
         dimVolume(soundEffect.audv, dimSoundFxPercent.value) : soundEffect.audv;
       if (dpcPlusSoundCards.value && !tia) {
-        previewDpcPlusSoundEffect({...soundEffect, audv}, configurationStorage.value || {});
+        // The DPC+ sound chip has no 0-15 volume steps to round to: the emulator just plays it quieter.
+        const dimMultiplier = dimSoundFx.value ? (Number(dimSoundFxPercent.value) || 0) / 100 : 1;
+        previewDpcPlusSoundEffect(soundEffect, configurationStorage.value || {}, dimMultiplier);
       } else {
         previewSoundEffect({...soundEffect, audv});
       }

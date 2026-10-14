@@ -2,7 +2,7 @@
   <v-menu v-model="open" top :absolute="!!anchor" :position-x="anchor ? anchor.x : 0" :position-y="anchor ? anchor.y : 0">
     <template v-slot:activator="{ on, attrs }">
       <v-btn
-        :title="activatorTitle"
+        :title="activatorTitleWithKey"
         icon
         small
         :class="['delete-icon-btn', iconBtnClass]"
@@ -73,6 +73,13 @@ export default {
       // Where the pointer was when the Delete key opened the confirmation; null when the button was clicked.
       anchor: null,
     };
+  },
+  computed: {
+    // The tooltip names the Delete key when a tab hooks this up to it (it passes `selected`, see above).
+    activatorTitleWithKey() {
+      const hooked = this.$options.propsData && 'selected' in this.$options.propsData;
+      return hooked ? `${this.activatorTitle} (Delete)` : this.activatorTitle;
+    },
   },
   watch: {
     open(value) {

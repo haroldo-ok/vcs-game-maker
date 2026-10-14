@@ -397,9 +397,15 @@ export default (Blockly) => {
       return {x: 'ballx', y: 'bally', stretched: `${shadowVar} & $30 <> 0`, sizeBits: shadowVar, heightVar: 'ballheight',
         pfXOffset: MISSILE_BALL_PF_X_OFFSET};
     }
+    // Under DPC+ a player's y is its top scanline and its height counts scanlines, like a missile's, so the
+    // collision rows come from both.
+    const configurationStorage = useConfigurationStorage();
+    const dpcPlus = !!(configurationStorage && configurationStorage.value && configurationStorage.value.kernel === 'dpcplus');
     const byName = {
-      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET},
-      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET},
+      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+        ...(dpcPlus ? {heightVar: 'player0height'} : {})},
+      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+        ...(dpcPlus ? {heightVar: 'player1height'} : {})},
       missile0: {x: 'missile0x', y: 'missile0y', stretched: 'player0size & $30 <> 0', sizeBits: 'player0size',
         heightVar: 'missile0height', pfXOffset: MISSILE_BALL_PF_X_OFFSET},
       missile1: {x: 'missile1x', y: 'missile1y', stretched: 'player1size & $30 <> 0', sizeBits: 'player1size',
@@ -407,6 +413,12 @@ export default (Blockly) => {
     };
     return byName[sprite];
   };
+
+  // The row-counting y of a sprite's top edge. A player's (and every object's
+  // on the standard kernel) y is one past its top row; under DPC+ a missile's
+  // or the ball's y is its top scanline itself.
+  const topYText = (coords, config) =>
+    (coords.heightVar && config.kernel === 'dpcplus') ? coords.y : `${coords.y} - 1`;
 
   // Given a sprite that just registered a hardware Playfield collision,
   // works out which exact playfield column/row it's touching - see this
@@ -440,7 +452,8 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
-    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
+    // Under DPC+ a missile's or the ball's y counts lines, not the two-line steps of a player's.
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config, !!coords.heightVar);
     Blockly.BBasic.usesDivMul = true;
 
     const col = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
@@ -464,7 +477,7 @@ export default (Blockly) => {
       `${col.write} = (${coords.x} - ${coords.pfXOffset}) / 4`,
       `if ${coords.stretched} then ${col.write} = (${coords.x} - ${coords.pfXOffset - 1}) / 4`,
       `if ${col.read} > 31 then ${col.write} = 31`,
-      `${row.write} = (${coords.y} - 1) / ${rowDivisor}`,
+      `${row.write} = (${topYText(coords, config)}) / ${rowDivisor}`,
       `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
       // Exact cell.
       `if pfread(${col.read}, ${row.read}) then goto ${doneLabel}`,
@@ -520,7 +533,7 @@ export default (Blockly) => {
   // the sprite's right column; temp5 = the sprite's bottom row; temp6 = vertical
   // step, then the row above or below (all of temp3-temp6 survive pfread, which
   // only overwrites temp1/temp2).
-  const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, col, row}) => {
+  const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, topY, col, row}) => {
     const coords = spriteCollisionCoords(sprite);
     const label = (part) => `_fp_${sprite}_${is16 ? 16 : 8}_${part}`;
     const lab = (part) => `@ ${label(part)}`;
@@ -568,7 +581,7 @@ export default (Blockly) => {
           `if temp4 > 31 then temp4 = 31`);
     }
     lines.push(
-        `${row.write} = (${coords.y} - 1) / ${rowDivisor}`,
+        `${row.write} = (${topY}) / ${rowDivisor}`,
         `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
         // The bottom row: a sprite more than one row unit tall can reach into the next row.
         `temp5 = ${row.read}`,
@@ -652,7 +665,8 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
-    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
+    // Under DPC+ a missile's or the ball's y counts lines, not the two-line steps of a player's.
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config, !!spriteCollisionCoords(sprite).heightVar);
     Blockly.BBasic.usesDivMul = true;
 
     const col = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
@@ -683,7 +697,7 @@ export default (Blockly) => {
 
     const name = findPixelSubroutineName(sprite, is16);
     if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = buildFindPixelBody({sprite, is16, maxRow, rowDivisor, col, row});
+      Blockly.BBasic.subroutines[name] = buildFindPixelBody({sprite, is16, maxRow, rowDivisor, topY: topYText(spriteCollisionCoords(sprite), config), col, row});
     }
     const suffix = Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
@@ -1403,6 +1417,203 @@ export default (Blockly) => {
       `temp3 = ${x1}\ntemp4 = ${y1}\ntemp5 = ${x2}\ntemp6 = ${y2}\ngosub ${AREA_CLEAR_SUBROUTINE}${suffix}\ntemp3`,
       Blockly.BBasic.ORDER_ATOMIC,
     ];
+  };
+
+  // "Playfield offset": moves the pixels of the playfield (or of an area of it, whole bytes wide) by one pixel column or
+  // row, wrapping inside the area. A row is four bytes of eight pixels; the first and third have their left pixel in
+  // bit 7 and the second and fourth in bit 0 (the same order pfscroll and pfpixel use), so a shift sideways is a
+  // rotate through the carry from one byte to the next. The standard kernel's rows are four bytes at `playfield`; DPC+
+  // keeps each of the four columns in display RAM at dffraclow/dffrachi, one byte a row, read and written through a
+  // data fetcher. The rows to move go in temp3 (first) and temp4 (last).
+  const leftIsHigh = (byte) => byte % 2 === 0;
+  const offsetSubroutineName = (direction, byte1, byte2, dpcPlus, superchip) =>
+    `_background_offset_${direction}_${byte1}${byte2}${dpcPlus ? 'd' : superchip ? 's' : ''}`;
+
+  const buildOffsetBody = ({direction, byte1, byte2, dpcPlus, superchip}) => {
+    const label = offsetSubroutineName(direction, byte1, byte2, dpcPlus, superchip);
+    const lab = (name) => `${label}_${name}`;
+    const at = (name) => `@${lab(name)}`;
+    const bytes = Array.from({length: byte2 - byte1 + 1}, (_, i) => byte1 + i);
+    // Where a byte of the row lives while it is rotated: the playfield itself (indexed by X, four bytes a row) or, with
+    // DPC+, the scratch variables temp1 to temp4 (one per column, loaded from and written back to the display RAM).
+    // The first and last row are in temp3 and temp4 (standard kernel) or temp5 and temp6 (DPC+).
+    const scratch = (byte) => `temp${byte - byte1 + 1}`;
+    const readAddr = (byte) => (dpcPlus ? scratch(byte) : `playfield+${byte},x`);
+    const rotate = (op, byte) => {
+      if (dpcPlus) return [`${op} ${scratch(byte)}`];
+      if (superchip) return [`lda playfield+${byte},x`, op, `sta playfield-128+${byte},x`];
+      return [`${op} playfield+${byte},x`];
+    };
+    // One pixel left or right with the pixel that leaves going to the next row: the carry flows through the bytes of
+    // the row as it did for a single row, but it starts as the pixel that came out of the previous row (kept in Y, or
+    // X with DPC+) and the pixel this row loses is kept for the next. Left, it is the left pixel that leaves and the
+    // right end is where the new one comes in; right, the other way round.
+    const carryReg = dpcPlus ? 'x' : 'y';
+    const keepExit = dpcPlus ? ['pha'] : ['sta temp6'];
+    const takeExit = dpcPlus ? ['pla', 'tax'] : ['ldy temp6'];
+    const leftLines = () => [
+      `lda ${readAddr(byte1)}`, leftIsHigh(byte1) ? 'asl' : 'lsr', 'lda #0', 'rol', ...keepExit, `t${carryReg}a`, 'lsr',
+      ...[...bytes].reverse().flatMap((byte) => rotate(leftIsHigh(byte) ? 'rol' : 'ror', byte)), ...takeExit,
+    ];
+    const rightLines = () => [
+      `lda ${readAddr(byte2)}`, leftIsHigh(byte2) ? 'lsr' : 'asl', 'lda #0', 'rol', ...keepExit, `t${carryReg}a`, 'lsr',
+      ...bytes.flatMap((byte) => rotate(leftIsHigh(byte) ? 'ror' : 'rol', byte)), ...takeExit,
+    ];
+    // The pixel that leaves a row, as 0 or 1 in the carry register, from the playfield byte `load` loads.
+    const exitLeft = (load) => [load, leftIsHigh(byte1) ? 'asl' : 'lsr', 'lda #0', 'rol', `ta${carryReg}`];
+    const exitRight = (load) => [load, leftIsHigh(byte2) ? 'lsr' : 'asl', 'lda #0', 'rol', `ta${carryReg}`];
+    // DPC+: where the fetchers point for a row, from the row in `row` (an address) or in Y.
+    const pointFetchers = (row, fetchersOf) => [
+      row ? `lda ${row}` : 'tya', 'clc', 'adc #<PF1L',
+      ...bytes.flatMap((byte) => fetchersOf(byte).map((fetcher) => `sta ${fetcher}LOW`)),
+      'lda #0', `adc #((>PF1L)&$0F)+${byte1}`,
+      ...bytes.flatMap((byte, i) => [
+        ...(i ? ['adc #1'] : []), ...fetchersOf(byte).map((fetcher) => `sta ${fetcher}HI`)]),
+    ];
+    // DPC+: DF0 pointed at the byte of a column in a row (row is an address) and read.
+    const peek = (byte, row) => [
+      `lda ${row}`, 'clc', 'adc #<PF1L', 'sta DF0LOW', 'lda #0', `adc #((>PF1L)&$0F)+${byte}`, 'sta DF0HI', 'lda DF0DATA'];
+    const writerOf = (byte) => (byte - byte1 < 3 ? `DF${4 + byte - byte1}` : null);
+    const lines = ['asm'];
+    const horizontal = direction === 'alternate' || direction === 'left' || direction === 'right';
+    if (horizontal && !dpcPlus) {
+      // X is the row times four. Right and alternate go down the rows, left goes up; Y starts as the pixel the first
+      // row to be moved takes in, which is the one the last row to be moved loses.
+      const down = direction !== 'left';
+      if (direction === 'left') {
+        lines.push('lda temp3', 'asl', 'asl', 'sta temp5', 'tax', ...exitLeft(`lda playfield+${byte1},x`),
+            'lda temp4', 'asl', 'asl', 'tax');
+      } else {
+        lines.push('lda temp4', 'asl', 'asl', 'sta temp5', 'tax');
+        if (direction === 'right') {
+          lines.push(...exitRight(`lda playfield+${byte2},x`));
+        } else {
+          lines.push('lda temp4', 'and #1', `bne ${lab('initr')}`, ...exitLeft(`lda playfield+${byte1},x`), `jmp ${lab('initd')}`,
+              at('initr'), ...exitRight(`lda playfield+${byte2},x`), at('initd'));
+        }
+        lines.push('lda temp3', 'asl', 'asl', 'tax');
+      }
+      lines.push(at('row'));
+      if (direction === 'alternate') {
+        lines.push('txa', 'and #4', `bne ${lab('right')}`, ...leftLines(), `jmp ${lab('next')}`, at('right'), ...rightLines());
+      } else {
+        lines.push(...(direction === 'left' ? leftLines() : rightLines()));
+      }
+      lines.push(at('next'), 'cpx temp5', `beq ${lab('done')}`,
+          ...(down ? ['inx', 'inx', 'inx', 'inx'] : ['dex', 'dex', 'dex', 'dex']), `jmp ${lab('row')}`, at('done'));
+    } else if (horizontal && direction !== 'left') {
+      // DPC+ down the rows: DF0 to DF3 read the columns and DF4 to DF6 write the first three of them, so a row costs
+      // no pointer set (a fourth column's fetcher is pointed at its row again). The kernel sets the fetchers
+      // every frame, so the code may use them freely. X carries the pixel from row to row.
+      if (direction === 'right') {
+        lines.push(...peek(byte2, 'temp6'), leftIsHigh(byte2) ? 'lsr' : 'asl', 'lda #0', 'rol', 'tax');
+      } else {
+        lines.push('lda temp6', 'and #1', `bne ${lab('initr')}`, ...peek(byte1, 'temp6'), leftIsHigh(byte1) ? 'asl' : 'lsr',
+            `jmp ${lab('initd')}`, at('initr'), ...peek(byte2, 'temp6'), leftIsHigh(byte2) ? 'lsr' : 'asl', at('initd'),
+            'lda #0', 'rol', 'tax');
+      }
+      lines.push(...pointFetchers('temp5', (byte) => [`DF${byte}`, ...(writerOf(byte) ? [writerOf(byte)] : [])]),
+          'ldy temp5', at('row'),
+          ...bytes.flatMap((byte) => [`lda DF${byte}DATA`, `sta ${scratch(byte)}`]));
+      if (direction === 'alternate') {
+        lines.push('tya', 'and #1', `bne ${lab('right')}`, ...leftLines(), `jmp ${lab('write')}`, at('right'), ...rightLines());
+      } else {
+        lines.push(...rightLines());
+      }
+      lines.push(at('write'));
+      bytes.forEach((byte) => {
+        if (writerOf(byte)) {
+          lines.push(`lda ${scratch(byte)}`, `sta ${writerOf(byte)}WRITE`);
+        } else {
+          // The fourth column: its fetcher has moved on, so it is pointed at the row again (it ends up where it reads next).
+          lines.push('tya', 'clc', 'adc #<PF1L', `sta DF${byte}LOW`, 'lda #0', `adc #((>PF1L)&$0F)+${byte}`, `sta DF${byte}HI`,
+              `lda ${scratch(byte)}`, `sta DF${byte}WRITE`);
+        }
+      });
+      lines.push('cpy temp6', `beq ${lab('done')}`, 'iny', `jmp ${lab('row')}`, at('done'));
+    } else if (horizontal) {
+      // DPC+ ring left, up the rows (a fetcher only counts down the screen, so the fetchers are pointed at each row
+      // to read it and again to write it back).
+      const fetchersOf = (byte) => [`DF${byte}`];
+      lines.push(...peek(byte1, 'temp5'), leftIsHigh(byte1) ? 'asl' : 'lsr', 'lda #0', 'rol', 'tax', 'ldy temp6', at('row'),
+          ...pointFetchers(null, fetchersOf), ...bytes.flatMap((byte) => [`lda DF${byte}DATA`, `sta ${scratch(byte)}`]),
+          ...leftLines(), ...pointFetchers(null, fetchersOf),
+          ...bytes.flatMap((byte) => [`lda ${scratch(byte)}`, `sta DF${byte}WRITE`]),
+          'cpy temp5', `beq ${lab('done')}`, 'dey', `jmp ${lab('row')}`, at('done'));
+    } else if (!dpcPlus) {
+      // Up or down: the bytes of the first row to leave are kept in temp1 to temp4, the rows move one place in a
+      // single pass over the area (X is the row times four) and the kept row goes in at the other end.
+      const up = direction === 'up';
+      const write = (byte) => (superchip ? `playfield-128+${byte},x` : `playfield+${byte},x`);
+      const step = up ? ['inx', 'inx', 'inx', 'inx'] : ['dex', 'dex', 'dex', 'dex'];
+      lines.push(
+          up ? 'lda temp4' : 'lda temp3', 'asl', 'asl', 'sta temp5',
+          up ? 'lda temp3' : 'lda temp4', 'asl', 'asl', 'tax',
+          ...bytes.flatMap((byte) => [`lda playfield+${byte},x`, `sta ${scratch(byte)}`]),
+          'cpx temp5', `beq ${lab('end')}`,
+          at('loop'),
+          ...bytes.flatMap((byte) => [`lda playfield+${byte + (up ? 4 : -4)},x`, `sta ${write(byte)}`]),
+          ...step, 'cpx temp5', `bne ${lab('loop')}`,
+          at('end'),
+          ...bytes.flatMap((byte) => [`lda ${scratch(byte)}`, `sta ${write(byte)}`]));
+    } else {
+      // Up or down, a column at a time (temp3): DF0 reads the column and DF1, started on the same row, writes it
+      // back, so the rows stream through. Up, the writer is a row behind the reader; down, the row read last time
+      // (kept in X) goes in as the next is read.
+      const up = direction === 'up';
+      const pointBoth = (row) => [
+        `lda ${row}`, 'clc', 'adc #<PF1L', 'sta DF0LOW', 'sta DF1LOW',
+        'lda temp3', 'adc #(>PF1L)&$0F', 'sta DF0HI', 'sta DF1HI',
+      ];
+      lines.push(`lda #${byte1}`, 'sta temp3', at('col'));
+      if (up) {
+        // Row r takes row r+1 and the last row takes the first.
+        lines.push(...pointBoth('temp5'), 'lda DF0DATA', 'sta temp1', 'lda temp6', 'sec', 'sbc temp5', 'tay', `beq ${lab('end')}`,
+            at('loop'), 'lda DF0DATA', 'sta DF1WRITE', 'dey', `bne ${lab('loop')}`,
+            at('end'), 'lda temp1', 'sta DF1WRITE');
+      } else {
+        // Row r takes row r-1 and the first row takes the last.
+        lines.push(...pointBoth('temp6'), 'lda DF0DATA', 'tax', ...pointBoth('temp5'), 'lda temp6', 'sec', 'sbc temp5', 'tay', 'iny',
+            at('loop'), 'lda DF0DATA', 'stx DF1WRITE', 'tax', 'dey', `bne ${lab('loop')}`);
+      }
+      lines.push('inc temp3', 'lda temp3', `cmp #${byte2 + 1}`, `beq ${lab('done')}`, `jmp ${lab('col')}`, at('done'));
+    }
+    lines.push('@end');
+    return lines.join('\n');
+  };
+
+  Blockly.BBasic['background_offset'] = function(block) {
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    const dpcPlus = config.kernel === 'dpcplus';
+    const superchip = !dpcPlus && !!config.enableSuperchip;
+    const direction = block.getFieldValue('DIRECTION');
+    const whole = block.getFieldValue('WHOLE') === 'TRUE';
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    let byte1 = 0;
+    let byte2 = 3;
+    if (!whole) {
+      byte1 = Number(block.getFieldValue('X1'));
+      byte2 = Number(block.getFieldValue('X2'));
+      if (byte1 > byte2) [byte1, byte2] = [byte2, byte1];
+    }
+    const name = offsetSubroutineName(direction, byte1, byte2, dpcPlus, superchip);
+    if (!Blockly.BBasic.subroutines[name]) {
+      Blockly.BBasic.subroutines[name] = buildOffsetBody({direction, byte1, byte2, dpcPlus, superchip});
+    }
+    const suffix = Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
+    // The first and last row go in temp3 and temp4 (standard kernel) or temp5 and temp6 (DPC+, whose temp1 to temp4 hold a row).
+    const [first, last] = dpcPlus ? ['temp5', 'temp6'] : ['temp3', 'temp4'];
+    return [
+      whole ? `${first} = 0\n${last} = ${maxRow}` : `${first} = ${arg('Y1')}\n${last} = ${arg('Y2')}`,
+      ...(whole ? [] : [
+        `if ${first} > ${last} then temp1 = ${first} : ${first} = ${last} : ${last} = temp1`,
+        `if ${last} > ${maxRow} then ${last} = ${maxRow}`,
+        `if ${first} > ${maxRow} then ${first} = ${maxRow}`,
+      ]),
+      `gosub ${name}${suffix}`,
+    ].join('\n') + '\n';
   };
 
   Blockly.BBasic[`background_get_pixel`] = function(block) {

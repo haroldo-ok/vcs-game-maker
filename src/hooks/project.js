@@ -223,6 +223,9 @@ const useBooleanAppSetting = (key, defaultValue = false) => {
 // space instead of leaving an empty 200px gap.
 export const useHideSidebarStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideSidebar');
+// The same for the top toolbar (and the logo corner above the left toolbar): removed from the page whenever this is on.
+export const useHideTopToolbarStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.hideTopToolbar');
 // Same "standing app preference" reasoning as the others here - applies a
 // CSS filter across every block (workspace canvas AND the toolbox/flyout,
 // see BlocklyComponent.vue's .blocklyDiv binding) rather than touching
@@ -230,6 +233,10 @@ export const useHideSidebarStorage = () =>
 // theme/category colours are actually in play.
 export const useDesaturateBlocklyColorsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.desaturateBlocklyColors');
+// High Contrast (a standing app preference like Dark Mode): the icons of the left and top toolbars are black, or white
+// in Dark Mode, instead of a color for each tab. See App.vue's .colorblind-mode class.
+export const useColorblindModeStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.colorblindMode');
 // App.vue's .dark-mode class and Vuetify's dark theme - see App.vue's comment on
 // .dark-mode.
 export const useDarkModeStorage = () =>
@@ -243,6 +250,10 @@ export const useProjectShowSoundBanksStorage = () =>
   useBooleanAppSetting('vcs-game-maker.projectShowSoundBanks');
 export const useHideDescriptionTextStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideDescriptionText');
+// Whether a tip pops up when the app starts (see App.vue and hooks/tips.js). The popup's "Don't show again" checkbox
+// turns it off, and the VCSGM Options switch turns it back on.
+export const useShowStartupTipsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.showStartupTips', true);
 export const useMuteBlocklySoundsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.muteBlocklySounds');
 // On by default (see public/js/gopher2600-worker.js's adaptive frame skipping): it only does
