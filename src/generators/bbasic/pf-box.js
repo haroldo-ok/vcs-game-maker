@@ -35,7 +35,7 @@ const DPC_PLUS_FIRST_ROW_LINE = 4;
 // partnerFrameVar: for a 16 pixel wide player, the frame byte of the sprite that shows its right half (255 while it is not shown);
 // the box is twice as wide while it is shown. partnerHiddenVar: a bit that also hides it.
 export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar, resultVar, maxRow, rowDivisor, dpcPlusRows, dpcPlusRowSets, rowFracVar, maxRowVar,
-  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar}) => {
+  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false}) => {
   const lab = (name) => `${label}_${name}`;
   const at = (name) => `@ ${lab(name)}`;
   const rowOf = (expr, divisor) => (divisor === 1 ? `(${expr})` : `(${expr}) / ${divisor}`);
@@ -81,6 +81,61 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar, r
     `${resultVar} = 0`,
     `if ${yVar} > ${heightVar} then ${resultVar} = ${rowOf(`${yVar} - ${heightVar}`, rowDivisor)}`,
   ];
+  // The standard kernel's playfield is 4 bytes a row (the left PF1 and PF2, then the right ones), so the cells are read straight from
+  // those bytes instead of through a pfread() call each: a mask for the column (the same bit order pfread() uses) and the byte of
+  // the row. Columns temp6 to temp5, rows resultVar to temp3; temp4 is left 1 when a cell is lit.
+  const directReadLines = [
+    'asm',
+    `lda ${resultVar}`,
+    'asl',
+    'asl',
+    'sta temp1',
+    'lda temp3',
+    'asl',
+    'asl',
+    'sta temp2',
+    'lda #0',
+    'sta temp4',
+    `@${lab('dr_row')}`,
+    'lda temp6',
+    'sta temp3',
+    `@${lab('dr_col')}`,
+    'lda temp3',
+    'lsr',
+    'lsr',
+    'lsr',
+    'clc',
+    'adc temp1',
+    'tay',
+    'ldx temp3',
+    `lda ${lab('dr_masks')},x`,
+    'and playfield,y',
+    `bne ${lab('dr_hit')}`,
+    'lda temp3',
+    'cmp temp5',
+    `bcs ${lab('dr_nextrow')}`,
+    'inc temp3',
+    `jmp ${lab('dr_col')}`,
+    `@${lab('dr_nextrow')}`,
+    'lda temp1',
+    'cmp temp2',
+    `bcs ${lab('dr_done')}`,
+    'clc',
+    'adc #4',
+    'sta temp1',
+    `jmp ${lab('dr_row')}`,
+    `@${lab('dr_hit')}`,
+    'lda #1',
+    'sta temp4',
+    `@${lab('dr_done')}`,
+    `jmp ${lab('dr_end')}`,
+    `@${lab('dr_masks')}`,
+    '.byte $80,$40,$20,$10,$08,$04,$02,$01,$01,$02,$04,$08,$10,$20,$40,$80',
+    '.byte $80,$40,$20,$10,$08,$04,$02,$01,$01,$02,$04,$08,$10,$20,$40,$80',
+    `@${lab('dr_end')}`,
+    '@end',
+    `if temp4 then goto ${lab('hit')}`,
+  ];
   // One box at xVar: the sprite itself or one of its copies.
   const oneBox = [
     // The width of the box in pixels less one, and where its left edge is: stretched sprites start one clock earlier.
@@ -106,11 +161,13 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar, r
     `temp5 = temp3 : temp6 = temp4`,
     ...rowLines,
     `if ${resultVar} > temp3 then goto ${lab('clear')}`,
-    `for temp6 = temp6 to temp5`,
-    `  for temp4 = ${resultVar} to temp3`,
-    `    if pfread(temp6, temp4) then goto ${lab('hit')}`,
-    `  next`,
-    `next`,
+    ...(directRead ? directReadLines : [
+      `for temp6 = temp6 to temp5`,
+      `  for temp4 = ${resultVar} to temp3`,
+      `    if pfread(temp6, temp4) then goto ${lab('hit')}`,
+      `  next`,
+      `next`,
+    ]),
     at('clear'),
     `${resultVar} = 0`,
     `goto ${lab('done')}`,
@@ -136,12 +193,11 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar, r
     `if ${xVar} >= ${pfXOffset + 160} then ${resultVar} = 0 : goto ${lab('finish')}`,
     `gosub ${lab('one')}`,
     `if ${resultVar} then goto ${lab('finish')}`,
-    `if ${sizeVar} & 7 = 1 then goto ${lab('copies1')}`,
-    `if ${sizeVar} & 7 = 2 then goto ${lab('copies2')}`,
-    `if ${sizeVar} & 7 = 3 then goto ${lab('copies3')}`,
-    `if ${sizeVar} & 7 = 4 then goto ${lab('copies4')}`,
-    `if ${sizeVar} & 7 = 6 then goto ${lab('copies6')}`,
-    `goto ${lab('finish')}`,
+    // The box test used temp1, so the number of copies is read again. A sprite with one copy (the usual case) leaves at once;
+    // the others jump straight to their copies.
+    `temp1 = ${sizeVar} & 7`,
+    `if temp1 = 0 then goto ${lab('finish')}`,
+    `on temp1 goto ${lab('finish')} ${lab('copies1')} ${lab('copies2')} ${lab('copies3')} ${lab('copies4')} ${lab('finish')} ${lab('copies6')} ${lab('finish')}`,
     at('copies3'),
     ...copyStep(16),
     at('copies1'),

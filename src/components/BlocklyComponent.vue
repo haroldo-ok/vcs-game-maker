@@ -448,6 +448,10 @@ if (!Blockly.Variables.flyoutCategory.isExtraBlocksPatch) {
         '<block type="bit_set">' +
         '<value name="VALUE"><shadow type="logic_boolean"><field name="BOOL">TRUE</field></shadow></value>' +
         '</block>' +
+        '<block type="nibble_get"></block>' +
+        '<block type="nibble_set">' +
+        '<value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>' +
+        '</block>' +
         '<block type="system_variable_get"></block>' +
         '<block type="display_ram_set"><value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>' +
         '<block type="display_ram_change"><value name="VALUE"><shadow type="math_number"><field name="NUM">1</field></shadow></value></block>' +

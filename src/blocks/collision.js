@@ -74,9 +74,10 @@ const playerOptions = function() {
 // earlier attempts at this.
 const buildCollisionCheckBlock = () => ({
   'type': 'collision_check_position',
-  'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield`,
+  'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield, going back %2`,
   'args0': [
     {'type': 'field_dropdown', 'name': 'PLAYER', 'options': playerOptions},
+    {'type': 'field_dropdown', 'name': 'FRAMES', 'options': [['1 frame', '1'], ['2 frames', '2']]},
   ],
   'previousStatement': null,
   'nextStatement': null,
@@ -85,7 +86,8 @@ const buildCollisionCheckBlock = () => ({
     'Playfield (the hardware collision flag, or for Players 2 to 9 a software test of the ' +
     'sprite box) and, if it collided, takes back as much of that move as it needs: the ' +
     'part of it along an axis that is clear is kept, so the player slides along a wall, and ' +
-    'it goes back to where it was only when neither axis is clear. Place this before ' +
+    'it goes back to where it was only when neither axis is clear. Going back 2 frames puts the ' +
+    'player where it was two frames ago instead of one. Place this before ' +
     'whatever block(s) actually move the player each frame - it only backs up and restores ' +
     'position, it does not move the player itself.',
 });

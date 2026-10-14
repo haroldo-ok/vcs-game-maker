@@ -66,13 +66,13 @@ import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
   generateJoystickButtonChecks, generateJoystickDoubleTapChecks, SWITCH_EDGE_FAMILY, switchEdgeOwnBits,
   reserveSwitchEdgeDevVars, generateSwitchEdgeChecks} from './bbasic/input';
-import {collisionMoveOldXVar, collisionMoveOldYVar} from './bbasic/collision';
+import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOlderXVar, collisionMoveOlderYVar} from './bbasic/collision';
 import {scoreBkColorVarName, generateScanlinesDebugScoreCode} from './bbasic/score';
 import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generatePlayerHeightLimitChecks,
   reservePlayerHeightLimitDevVars, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
   reserveRomNoiseDevVars, reserveRainbowColorDevVars, reserveBackgroundRainbowDevVars,
-  ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, SEEK_FLAGS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
+  ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, FIRE_OFFSCREEN_FLAGS_FAMILY, fireOffscreenFlagsVarName, SEEK_FLAGS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
   SPRITE_SCROLL_FLAGS_FAMILY, SPRITE_HIDDEN_FLAGS_FAMILY, hasHiddenFlag, hiddenFlagRef, INERTIA_ACCEL_FLAGS_FAMILY, INERTIA_DECEL_FLAGS_FAMILY,
   romNoiseOwnBit, rainbowColorOwnBit, BACKGROUND_RAINBOW_OWN_BIT, BACKGROUND_RAINBOW_LOADED_BIT, backgroundRainbowLoadedBit, romNoiseFlagsVarName, missileFireOwnBit, spriteOwnBit,
   backgroundColorTableLoVarName, backgroundColorTableHiVarName,
@@ -581,6 +581,7 @@ Blockly.BBasic.init = function(workspace) {
   // has to be known before reserveDevVar hands out user variable letters
   // below, well before either block's  generator would otherwise run.
   this.romNoiseUsedFor = new Set();
+  this.dpcPlusNoiseRows = {};
   // DPC+ players that have a "Player set Height" block (see playerHeightLimitVarName).
   this.playerHeightLimitUsedFor = new Set();
   if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
@@ -652,6 +653,31 @@ Blockly.BBasic.init = function(workspace) {
       block.getFieldValue('PLAYER') === player && block.isEnabled())) {
       this.romNoiseUsedFor.add(name);
     }
+    // A player whose ROM noise blocks all give the same plain number as the height needs no byte for it: the number is
+    // built in (the same idea as a Fire block with one speed).
+    this.romNoiseConstHeight = {};
+    const noiseHeights = {};
+    workspace.getAllBlocks(false).forEach((block) => {
+      if (block.type !== 'sprite_player_rom_noise' || !block.isEnabled()) return;
+      const owner = `player${block.getFieldValue('PLAYER')}`;
+      const heightBlock = block.getInputTargetBlock('HEIGHT');
+      const value = !heightBlock ? 8 : heightBlock.type === 'math_number' ? Number(heightBlock.getFieldValue('NUM')) : NaN;
+      (noiseHeights[owner] = noiseHeights[owner] || []).push(value);
+    });
+    Object.keys(noiseHeights).forEach((owner) => {
+      const values = noiseHeights[owner];
+      if (values.every((value) => Number.isInteger(value) && value >= 0 && value <= 255 && value === values[0])) {
+        this.romNoiseConstHeight[owner] = values[0];
+      }
+    });
+    // Under DPC+ a player's y marks its top edge, so a player with ROM noise needs its noise height (not its
+    // graphic's) to put its bottom where the standard kernel does. Only a plain number is known ahead of time.
+    workspace.getAllBlocks(false).forEach((block) => {
+      if (block.type !== 'sprite_player_rom_noise' || !block.isEnabled() || block.getFieldValue('PLAYER') !== player) return;
+      const heightBlock = block.getInputTargetBlock('HEIGHT');
+      const rows = heightBlock && heightBlock.type === 'math_number' ? Number(heightBlock.getFieldValue('NUM')) : 0;
+      if (rows > 0) this.dpcPlusNoiseRows[name] = Math.max(this.dpcPlusNoiseRows[name] || 0, rows);
+    });
     if (workspace.getAllBlocks(false).some((block) =>
       (block.type === 'sprite_player_rainbow_colors' || block.type === 'sprite_player_rainbow_colors_stop') &&
       block.getFieldValue('PLAYER') === player && block.isEnabled())) {
@@ -693,12 +719,18 @@ Blockly.BBasic.init = function(workspace) {
     if (player && !fireObjectNames.includes(block.getFieldValue('MISSILE'))) fireObjectNames.push(block.getFieldValue('MISSILE'));
   });
   this.missileFireUsedFor = new Set();
+  // The objects a "has gone off screen" block asks about (only ones a Fire block launches have anything to report).
+  this.fireOffscreenUsedFor = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (block.type === 'object_fire_offscreen' && block.isEnabled()) this.fireOffscreenUsedFor.add(block.getFieldValue('OBJECT'));
+  });
   fireObjectNames.forEach((name) => {
     if (workspace.getAllBlocks(false).some((block) =>
       fireOrBounceBlockMatchesName(block, name) && block.isEnabled())) {
       this.missileFireUsedFor.add(name);
     }
   });
+  this.fireOffscreenUsedFor = new Set([...this.fireOffscreenUsedFor].filter((name) => this.missileFireUsedFor.has(name)));
 
   // Whether ANY Fire block for this object has the "16 directions" checkbox
   // on (see generateMissileFireChecks' comment in generators/bbasic/
@@ -1335,9 +1367,12 @@ Blockly.BBasic.init = function(workspace) {
   // variable letters are handed out below, same reason as the pre-scans
   // above.
   this.collisionMovePlayers = new Set();
+  // The players whose block goes back two frames, which keep the position from before that too.
+  this.collisionMoveTwoFramePlayers = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'collision_check_position') {
       this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
+      if (block.getFieldValue('FRAMES') === '2') this.collisionMoveTwoFramePlayers.add(block.getFieldValue('PLAYER'));
     }
   });
 
@@ -2072,6 +2107,10 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVarRW(collisionMoveOldXVar(playerNum), 'collision-move\'s "undo" X for this player');
     reserveDevVarRW(collisionMoveOldYVar(playerNum), 'collision-move\'s "undo" Y for this player');
   }
+  for (const playerNum of this.collisionMoveTwoFramePlayers) {
+    reserveDevVarRW(collisionMoveOlderXVar(playerNum), 'the undo X from two frames ago for this player');
+    reserveDevVarRW(collisionMoveOlderYVar(playerNum), 'the undo Y from two frames ago for this player');
+  }
 
   // Same bucket again, for every dev var the music player's  generated
   // code needs (see the projectMusic pre-scan above) - every "does this
@@ -2155,6 +2194,7 @@ Blockly.BBasic.init = function(workspace) {
     ]},
     {family: ROM_NOISE_EXTRA_FAMILY, bits: ownBits([...this.romNoiseUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit)},
     {family: MISSILE_FIRE_FLAGS_FAMILY, bits: ownBits(this.missileFireUsedFor, missileFireOwnBit)},
+    {family: FIRE_OFFSCREEN_FLAGS_FAMILY, bits: ownBits(this.fireOffscreenUsedFor, missileFireOwnBit)},
     {family: SEEK_FLAGS_FAMILY, bits: ownBits(this.seekUsedFor, spriteOwnBit)},
     {family: SEEK_ARRIVED_FLAGS_FAMILY, bits: ownBits(this.seekArrivedWatches, spriteOwnBit)},
     {family: SPRITE_SCROLL_FLAGS_FAMILY, bits: ownBits(this.spriteScrollUsedFor, spriteOwnBit)},
@@ -2197,7 +2237,7 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(titleKernelEndedVar(), undefined, 'Title screen update: "End title screen" has stopped the kernel');
   }
 
-  reserveRomNoiseDevVars(reserveDevVar, this.romNoiseUsedFor);
+  reserveRomNoiseDevVars(reserveDevVar, this.romNoiseUsedFor, this.romNoiseConstHeight);
   reservePlayerHeightLimitDevVars(reserveDevVar, this.playerHeightLimitUsedFor);
 
   // Same bucket again, for the separate rainbow-colors block's  per-
@@ -2212,6 +2252,9 @@ Blockly.BBasic.init = function(workspace) {
   // pre-scan (above) found it used.
   reserveMissileFireDevVars(reserveDevVar, reserveDevVarRW, this.missileFireUsedFor, this.missileFire16UsedFor,
       this.missileFirePfCheckUsedFor, this.missileFireThrottleUsedFor, this.missileFireConstSpeed);
+  if (this.fireOffscreenUsedFor.size) {
+    reserveDevVar(fireOffscreenFlagsVarName(), undefined, 'shared byte of the fired objects that went off the screen (a bit each)');
+  }
 
   // Same bucket again, for "Bounce"'s Combat-style stage/original-
   // direction/last-frame state (see reserveMissileBounceDevVars' comment
@@ -2643,6 +2686,7 @@ Blockly.BBasic.init = function(workspace) {
   // y position into a row, the last row, and (a scrolling playfield) how many rows one scroll is long.
   this.dpcPlusRowFracVar = null;
   this.dpcPlusRowDivVar = null;
+  this.dpcPlusRowLinesVar = null;
   this.dpcPlusRowMaxVar = null;
   this.dpcPlusScrollRowsVar = null;
   this.dpcPlusGeometries = [];
@@ -2666,6 +2710,7 @@ Blockly.BBasic.init = function(workspace) {
       }
       if (rowsUsed) {
         this.dpcPlusRowDivVar = reserveDevVar('_dpcRowDiv', undefined, 'DPC+ playfield: y steps in a row of the background showing');
+        this.dpcPlusRowLinesVar = reserveDevVar('_dpcRowLines', undefined, 'DPC+ playfield: lines in a row of the background showing');
         this.dpcPlusRowMaxVar = reserveDevVar('_dpcRowMax', undefined, 'DPC+ playfield: the last row of the background showing');
       }
       if (this.dpcPlusScroll && new Set(includedBackgrounds.map((background) => this.dpcPlusScrollFor(background).rows)).size > 1) {
@@ -2676,6 +2721,7 @@ Blockly.BBasic.init = function(workspace) {
   }
   Blockly.BBasic.dpcPlusRowFracVar = this.dpcPlusRowFracVar;
   Blockly.BBasic.dpcPlusRowDivVar = this.dpcPlusRowDivVar;
+  Blockly.BBasic.dpcPlusRowLinesVar = this.dpcPlusRowLinesVar;
   Blockly.BBasic.dpcPlusRowMaxVar = this.dpcPlusRowMaxVar;
   Blockly.BBasic.dpcPlusScrollRowsVar = this.dpcPlusScrollRowsVar;
   Blockly.BBasic.dpcPlusGeometries = this.dpcPlusGeometries;
@@ -4818,14 +4864,15 @@ Blockly.BBasic.backgroundRealColorRawTarget = function() {
 // standard kernel keeps its row colors when the kernel is switched).
 // DPC+ only: how many scanlines tall the sprites are (the tallest animation frame, each row drawn two lines
 // tall), which the y conversion needs: the standard kernel's y marks a sprite's bottom edge, DPC+'s its top.
-Blockly.BBasic.dpcPlusSpriteLines = function() {
+Blockly.BBasic.dpcPlusSpriteLines = function(player) {
+  const noiseLines = 2 * ((this.dpcPlusNoiseRows || {})[player] || 0);
   try {
     const animations = processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage()).animations || [];
     const rows = Math.max(0, ...animations.map((animation) =>
       Math.max(0, ...((animation && animation.frames) || []).map((frame) => frame.pixels.length))));
-    return (rows || 8) * 2;
+    return Math.max((rows || 8) * 2, noiseLines);
   } catch (e) {
-    return 16;
+    return Math.max(16, noiseLines);
   }
 };
 
@@ -4967,7 +5014,11 @@ Blockly.BBasic.generateMuteAudio = function() {
 // lines, so they no longer line up with the playfield pixels they belong to.)
 // What the code that works with the playfield rows divides a y position by, and the last row, as text for bB: a variable holding the
 // geometry of the background showing when the backgrounds do not all have the same (see init), else the number.
-Blockly.BBasic.rowDivisorText = function(config) {
+// With lines set (under DPC+, for what counts its y in lines: the missiles and the ball), the number of lines in a row instead.
+Blockly.BBasic.rowDivisorText = function(config, lines) {
+  if (lines && config.kernel === 'dpcplus') {
+    return this.dpcPlusRowLinesVar || String(Math.max(1, Math.round(dpcPlusRowLinesFor(config))));
+  }
   return this.dpcPlusRowDivVar || String(Math.max(1, Math.round(pfRowDivisorFor(config))));
 };
 Blockly.BBasic.maxRowText = function(config) {
@@ -5025,6 +5076,7 @@ Blockly.BBasic.generateDpcPlusSpriteDefaults = function() {
     // Until a background loads, the project's pfres.
     ...[[this.dpcPlusRowFracVar, dpcPlusRowFracOf(dpcPlusRowLinesFor(config))],
       [this.dpcPlusRowDivVar, Math.max(1, Math.round(dpcPlusRowLinesFor(config) / 2))],
+      [this.dpcPlusRowLinesVar, Math.max(1, Math.round(dpcPlusRowLinesFor(config)))],
       [this.dpcPlusRowMaxVar, Math.max(1, dpcPlusPfresOf(config) - 1) - 1],
       [this.dpcPlusScrollRowsVar, this.dpcPlusScroll ? this.dpcPlusScroll.rows : 0]]
         .filter(([name]) => name).map(([name, value]) => ` ${name} = ${value}`),
@@ -5929,6 +5981,7 @@ Blockly.BBasic.generateBackgrounds = function() {
     const rowLines = backgroundRowLinesFor(background, config);
     [[this.dpcPlusRowFracVar, dpcPlusRowFracOf(rowLines)],
       [this.dpcPlusRowDivVar, Math.max(1, Math.round(rowLines / 2))],
+      [this.dpcPlusRowLinesVar, Math.max(1, Math.round(rowLines))],
       [this.dpcPlusRowMaxVar, Math.max(1, backgroundPfresOf(background, config) - 1) - 1],
       [this.dpcPlusScrollRowsVar, scrollOf ? scrollOf.rows : 0]]
         .filter(([name]) => name).forEach(([name, value]) => payloadLines.push(` ${name} = ${value}`));

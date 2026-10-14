@@ -397,9 +397,15 @@ export default (Blockly) => {
       return {x: 'ballx', y: 'bally', stretched: `${shadowVar} & $30 <> 0`, sizeBits: shadowVar, heightVar: 'ballheight',
         pfXOffset: MISSILE_BALL_PF_X_OFFSET};
     }
+    // Under DPC+ a player's y is its top scanline and its height counts scanlines, like a missile's, so the
+    // collision rows come from both.
+    const configurationStorage = useConfigurationStorage();
+    const dpcPlus = !!(configurationStorage && configurationStorage.value && configurationStorage.value.kernel === 'dpcplus');
     const byName = {
-      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET},
-      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET},
+      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+        ...(dpcPlus ? {heightVar: 'player0height'} : {})},
+      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+        ...(dpcPlus ? {heightVar: 'player1height'} : {})},
       missile0: {x: 'missile0x', y: 'missile0y', stretched: 'player0size & $30 <> 0', sizeBits: 'player0size',
         heightVar: 'missile0height', pfXOffset: MISSILE_BALL_PF_X_OFFSET},
       missile1: {x: 'missile1x', y: 'missile1y', stretched: 'player1size & $30 <> 0', sizeBits: 'player1size',
@@ -407,6 +413,12 @@ export default (Blockly) => {
     };
     return byName[sprite];
   };
+
+  // The row-counting y of a sprite's top edge. A player's (and every object's
+  // on the standard kernel) y is one past its top row; under DPC+ a missile's
+  // or the ball's y is its top scanline itself.
+  const topYText = (coords, config) =>
+    (coords.heightVar && config.kernel === 'dpcplus') ? coords.y : `${coords.y} - 1`;
 
   // Given a sprite that just registered a hardware Playfield collision,
   // works out which exact playfield column/row it's touching - see this
@@ -440,7 +452,8 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
-    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
+    // Under DPC+ a missile's or the ball's y counts lines, not the two-line steps of a player's.
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config, !!coords.heightVar);
     Blockly.BBasic.usesDivMul = true;
 
     const col = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
@@ -464,7 +477,7 @@ export default (Blockly) => {
       `${col.write} = (${coords.x} - ${coords.pfXOffset}) / 4`,
       `if ${coords.stretched} then ${col.write} = (${coords.x} - ${coords.pfXOffset - 1}) / 4`,
       `if ${col.read} > 31 then ${col.write} = 31`,
-      `${row.write} = (${coords.y} - 1) / ${rowDivisor}`,
+      `${row.write} = (${topYText(coords, config)}) / ${rowDivisor}`,
       `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
       // Exact cell.
       `if pfread(${col.read}, ${row.read}) then goto ${doneLabel}`,
@@ -520,7 +533,7 @@ export default (Blockly) => {
   // the sprite's right column; temp5 = the sprite's bottom row; temp6 = vertical
   // step, then the row above or below (all of temp3-temp6 survive pfread, which
   // only overwrites temp1/temp2).
-  const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, col, row}) => {
+  const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, topY, col, row}) => {
     const coords = spriteCollisionCoords(sprite);
     const label = (part) => `_fp_${sprite}_${is16 ? 16 : 8}_${part}`;
     const lab = (part) => `@ ${label(part)}`;
@@ -568,7 +581,7 @@ export default (Blockly) => {
           `if temp4 > 31 then temp4 = 31`);
     }
     lines.push(
-        `${row.write} = (${coords.y} - 1) / ${rowDivisor}`,
+        `${row.write} = (${topY}) / ${rowDivisor}`,
         `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
         // The bottom row: a sprite more than one row unit tall can reach into the next row.
         `temp5 = ${row.read}`,
@@ -652,7 +665,8 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
-    const rowDivisor = Blockly.BBasic.rowDivisorText(config);
+    // Under DPC+ a missile's or the ball's y counts lines, not the two-line steps of a player's.
+    const rowDivisor = Blockly.BBasic.rowDivisorText(config, !!spriteCollisionCoords(sprite).heightVar);
     Blockly.BBasic.usesDivMul = true;
 
     const col = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
@@ -683,7 +697,7 @@ export default (Blockly) => {
 
     const name = findPixelSubroutineName(sprite, is16);
     if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = buildFindPixelBody({sprite, is16, maxRow, rowDivisor, col, row});
+      Blockly.BBasic.subroutines[name] = buildFindPixelBody({sprite, is16, maxRow, rowDivisor, topY: topYText(spriteCollisionCoords(sprite), config), col, row});
     }
     const suffix = Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));

@@ -1137,3 +1137,23 @@ Tip popup icons, web build
   box, and no longer slides when the arrows change the tip.
 - The GitHub Action also builds the web version and attaches it to the release as VCS-Game-Maker-web-<version>.zip,
   next to the Windows, macOS and Linux installers.
+
+=== 0.52.18 ===
+DPC+ missiles and fired objects, collision speed, new variable blocks
+
+- DPC+: a missile or the ball one line tall was drawn on every other y only, so shots could be invisible and miss the
+  playfield. Setting a height of 1 now gives 2 on that kernel.
+- Fire: an object that leaves the screen stops, is hidden at the top left corner and no longer shows up on the other
+  side. New block "Fired [object] has gone off screen" (true until the next Fire). DPC+ counts 212 lines for the
+  bottom edge.
+- DPC+: Find playfield pixel, bounce and the playfield check use the missile's and ball's lines for the row, and a
+  player's height; Player 1 ROM noise has the right height and position, and rainbow colors work on Player 1.
+- Undo last move can go back 1 or 2 frames.
+- Playfield box test: the standard kernel reads the playfield bytes directly, and a sprite with one copy skips the copy
+  checks. ROM noise with one fixed height no longer takes a variable.
+- New Variables blocks: first or last 4 bits of a variable (0 to 15), read and set. Display RAM blocks use the variable
+  block color.
+- The debug variable list includes the DPC+ bonus variables (such as the shared flag byte) and Superchip read/write
+  variables.
+- The Sound tab preview of a DPC+ sound follows the DIM percentage the way the emulator does.
+- Fixed a build error when a Set block sets Player 2 to 9's animation on DPC+.

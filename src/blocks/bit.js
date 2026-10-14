@@ -95,7 +95,7 @@ function ensureBitVariableRenameListener(workspace) {
   workspace.bitVariableRenameListener_ = true;
   workspace.addChangeListener((event) => {
     if (event.type !== Blockly.Events.VAR_RENAME) return;
-    [...workspace.getBlocksByType('bit_get', false), ...workspace.getBlocksByType('bit_set', false)]
+    ['bit_get', 'bit_set', 'nibble_get', 'nibble_set'].flatMap((type) => workspace.getBlocksByType(type, false))
         .forEach((block) => {
           const field = block.getField('VAR');
           if (field && field.getValue() === event.varId) {
@@ -142,6 +142,52 @@ Blockly.Blocks['bit_set'] = {
     this.setNextStatement(true, null);
     this.setStyle('variable_blocks');
     this.setTooltip('Sets a single bit of a variable. Accepts true/false or 1/0.');
+    if (this.workspace) ensureBitVariableRenameListener(this.workspace);
+  },
+  // See bit_get.
+  getVarModels: function() {
+    const variable = selectedVariable(this);
+    return variable ? [variable] : [];
+  },
+};
+
+const NIBBLE_OPTIONS = [['first 4 bits', 'FIRST'], ['last 4 bits', 'LAST']];
+
+// The first 4 bits (bits 0 to 3) or the last 4 bits (bits 4 to 7) of a variable as a number from 0 to 15.
+Blockly.Blocks['nibble_get'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BIT_ICON}`)
+        .appendField(new Blockly.FieldDropdown(NIBBLE_OPTIONS), 'HALF')
+        .appendField('of')
+        .appendField(buildVariableField(), 'VAR');
+    this.setOutput(true, 'Number');
+    this.setStyle('variable_blocks');
+    this.setTooltip('Reads half of a variable as a number from 0 to 15: the first 4 bits (bits 0 to 3) or the last 4 ' +
+      'bits (bits 4 to 7).');
+    if (this.workspace) ensureBitVariableRenameListener(this.workspace);
+  },
+  // See bit_get.
+  getVarModels: function() {
+    const variable = selectedVariable(this);
+    return variable ? [variable] : [];
+  },
+};
+
+Blockly.Blocks['nibble_set'] = {
+  init: function() {
+    this.appendValueInput('VALUE')
+        .setCheck('Number')
+        .appendField(`${BIT_ICON} set`)
+        .appendField(new Blockly.FieldDropdown(NIBBLE_OPTIONS), 'HALF')
+        .appendField('of')
+        .appendField(buildVariableField(), 'VAR')
+        .appendField('to');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setStyle('variable_blocks');
+    this.setTooltip('Sets half of a variable to a number from 0 to 15 (the first 4 bits are bits 0 to 3, the last 4 ' +
+      'bits are bits 4 to 7) and leaves the other half as it is. Only the lowest 4 bits of the number are used.');
     if (this.workspace) ensureBitVariableRenameListener(this.workspace);
   },
   // See bit_get.
