@@ -387,6 +387,21 @@ class PatchedScrollbar extends OriginalScrollbar {
 Blockly.Scrollbar = PatchedScrollbar;
 Blockly.Scrollbar.scrollbarThickness = 10;
 
+// The drawer the toolbox opens with a category's blocks is drawn with rounded corners (an 8px arc at the top and bottom of the
+// side facing the workspace). The same box, with square corners: the width and height Blockly passes in leave out the
+// two corners, so they are added back here.
+if (!Blockly.VerticalFlyout.prototype.setBackgroundPath.isSquareCornersPatch) {
+  Blockly.VerticalFlyout.prototype.setBackgroundPath = function(width, height) {
+    const atRight = this.toolboxPosition_ === Blockly.utils.toolbox.Position.RIGHT;
+    const totalWidth = width + this.CORNER_RADIUS;
+    const totalHeight = Math.max(0, height) + 2 * this.CORNER_RADIUS;
+    const path = [`M ${atRight ? totalWidth : 0},0`, 'h', atRight ? -totalWidth : totalWidth, 'v', totalHeight, 'h',
+      atRight ? totalWidth : -totalWidth, 'z'];
+    this.svgBackground_.setAttribute('d', path.join(' '));
+  };
+  Blockly.VerticalFlyout.prototype.setBackgroundPath.isSquareCornersPatch = true;
+}
+
 // Stock Blockly's "Set [variable] to" flyout block starts with its VALUE
 // input empty - unlike math_change (see flyoutCategoryBlocks below, in
 // node_modules/blockly/core/variables.js) it doesn't get its  math_number

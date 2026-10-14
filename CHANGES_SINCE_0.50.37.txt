@@ -1182,3 +1182,18 @@ Toolbar and emulator pane polish
 - When the emulator pane is too narrow for its tool icons next to the Refresh emulator button, all of them move to a
   line below it, centered.
 - In Dark Mode, the text typed into the block search field of the toolbox is light, so it can be read.
+
+=== 0.52.21 ===
+Toolbar switches, Greyscale, Prefabs, toolbox look
+
+- The Colorblind Mode switch is now named Greyscale. Subdued Palette and Greyscale have shorter descriptions, and with
+  Dark Mode on, Subdued Palette also makes the Actions toolbox text a softer grey.
+- New "Never show top toolbar" switch above "Never show left toolbar" (renamed from "Never show the left sidebar").
+  Neither needs Expert mode any more, only one of the two can be on at a time (each greys out the other), and Expert
+  mode's switch is below them. The left toolbar is never hidden because of the window's width.
+- Blockly toolbox: the Examples category is now Prefabs, its arrows are thin chevrons, there is a line down the right edge
+  in the toolbar border color, the drawer of blocks has square corners, and the text typed into the search field is
+  readable in Dark Mode.
+- The resize handles are solid greys in every color mode.
+- The emulator pane's collapse button is 8px from the pane and drawn above the toolbox and its drawers. When the pane
+  is too narrow for its tool icons, the Refresh emulator button is centered above them.

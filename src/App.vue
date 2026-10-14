@@ -1,11 +1,12 @@
 <template>
-  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode, 'colorblind-mode': colorblindMode}">
-    <div class="app-logo">
+  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode, 'colorblind-mode': colorblindMode, 'no-top-toolbar': hideTopToolbar}">
+    <div v-if="!hideTopToolbar" class="app-logo">
       <img src="./assets/logo.svg" alt="VCS Game Maker" class="app-logo-img" />
       <div class="app-logo-version">{{ version }}</div>
     </div>
 
     <v-app-bar
+      v-if="!hideTopToolbar"
       app
       clipped-right
       flat
@@ -85,6 +86,7 @@
       app
       clipped
       :width="effectiveSidebarWidth"
+      :mobile-breakpoint="0"
       class="nav-drawer"
       :class="{'sidebar-stacked': sidebarStacked}"
     >
@@ -278,7 +280,7 @@
     </v-navigation-drawer>
 
     <div
-      v-if="!hideSidebar && !hideDescriptionText && !$vuetify.breakpoint.mobile"
+      v-if="!hideSidebar && !hideDescriptionText"
       class="sidebar-resize-handle"
       title="Drag to resize the sidebar"
       :style="{left: (sidebarWidth - 5) + 'px', bottom: errorHeight + 'px'}"
@@ -655,7 +657,7 @@
 
 <script>
 import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
@@ -799,6 +801,7 @@ export default {
       buildInProgress: useBuildInProgress(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
       hideSidebarStorage: useHideSidebarStorage(),
+      hideTopToolbarStorage: useHideTopToolbarStorage(),
       desaturateAppColorsStorage: useDesaturateBlocklyColorsStorage(),
       darkModeStorage: useDarkModeStorage(),
       colorblindModeStorage: useColorblindModeStorage(),
@@ -874,6 +877,9 @@ export default {
     // useHideSidebarStorage's  comment in hooks/project.js.
     hideSidebar() {
       return !!this.hideSidebarStorage;
+    },
+    hideTopToolbar() {
+      return !!this.hideTopToolbarStorage;
     },
     // Same "Soft Colors" preference the Blockly canvas itself desaturates
     // by (see BlocklyComponent.vue's parseBlockColour patch) - bound as
@@ -3462,6 +3468,35 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   color: rgba(255, 255, 255, 0.6) !important;
 }
 
+/* The expand/collapse arrow of the Examples category in the Blockly toolbox: a thin chevron (instead of Blockly's sprite
+   arrow) in the color of the category's name, pointing right when closed and down when open. */
+.blocklyToolboxDiv .blocklyTreeIcon {
+  background-image: none !important;
+  position: relative;
+  filter: none !important;
+}
+.blocklyToolboxDiv .blocklyTreeIcon::before {
+  content: '';
+  position: absolute;
+  /* 2px to the right of the icon's box, which the label's position depends on. */
+  inset: 0 -2px 0 2px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'/></svg>") center / 18px 18px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'/></svg>") center / 18px 18px no-repeat;
+}
+.blocklyToolboxDiv .blocklyTreeIconOpen::before {
+  transform: rotate(90deg);
+}
+
+/* A line down the right edge of the Blockly toolbox, in the color of the toolbars' borders (drawn inside the box, so the
+   toolbox keeps its width and the flyout its position). */
+.blocklyToolboxDiv {
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.24);
+}
+.dark-mode .blocklyToolboxDiv {
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.24);
+}
+
 /* Blockly's toolbox and its small control icons (which are dark images). */
 .dark-mode .blocklyToolboxDiv {
   background-color: #1e1e1e !important;
@@ -3477,10 +3512,18 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* The expand/collapse arrow beside a toolbox category with sub-categories
-   (Examples) is a dark image, so it is inverted to white. */
-.dark-mode .blocklyTreeIcon {
-  filter: invert(1);
+
+/* With Subdued Palette on as well, the toolbox's text is the same softer grey the About tab has there, not bright white. */
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv .blocklyTreeRow,
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv .blocklyTreeLabel,
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv input[type="search"] {
+  color: #b0b0b0 !important;
+}
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv input[type="search"] {
+  caret-color: #b0b0b0;
+}
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv input[type="search"]::placeholder {
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .dark-mode .blocklyTreeRow:hover,
@@ -3744,10 +3787,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   width: 3px;
   height: 40px;
   border-radius: 2px;
-  background-color: rgba(0, 0, 0, 0.24);
+  background-color: #bdbdbd;
 }
 .sidebar-resize-handle:hover::after {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: #757575;
 }
 .nav-drawer .nav-drawer-inner {
   overflow-x: hidden;
@@ -3828,7 +3871,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   margin: 0 !important;
   align-self: center;
 }
-/* Colorblind Mode: the icons (and their names) of the left and top toolbars are black, or white in Dark Mode, instead
+/* Greyscale: the icons (and their names) of the left and top toolbars are black, or white in Dark Mode, instead
    of a color for each tab. */
 .v-application.colorblind-mode .top-toolbar .v-btn,
 .v-application.colorblind-mode .top-toolbar .v-btn .v-icon,
@@ -3855,6 +3898,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .v-application.colorblind-mode.dark-mode.desaturate-app-colors .nav-drawer .v-list-item > .v-list-item__icon > .v-icon,
 .v-application.colorblind-mode.dark-mode.desaturate-app-colors .nav-drawer .v-list-item > .v-list-item__content {
   color: #b0b0b0 !important;
+}
+/* Without the top toolbar (Options: Never show top toolbar) the sidebar and the emulator pane start at the top of the
+   window, so what is placed below the toolbar moves up with them. */
+.v-application.no-top-toolbar .sidebar-resize-handle,
+.v-application.no-top-toolbar .emulator-resize-handle {
+  top: 0;
+}
+.v-application.no-top-toolbar .emulator-hide-button,
+.v-application.no-top-toolbar .emulator-show-button {
+  top: 8px;
 }
 </style>
 <style scoped>
@@ -4121,11 +4174,11 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   width: 3px;
   height: 40px;
   border-radius: 2px;
-  background-color: rgba(0, 0, 0, 0.24);
+  background-color: #bdbdbd;
 }
 
 .emulator-resize-handle:hover::after {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: #757575;
 }
 
 .emulator-toolbar-row {
@@ -4153,6 +4206,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 .emulator-toolbar-wrapped .emulator-toolbar-icons {
   margin-right: auto;
+}
+/* Both lines are centered when the icons are on a line below the button. */
+.emulator-toolbar-wrapped {
+  justify-content: center;
 }
 
 .emulator-toolbar-divider {
@@ -4187,8 +4244,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-hide-button {
   position: fixed;
   top: 80px;
-  transform: translateX(calc(-50% - 4px));
-  z-index: 20;
+  /* Its right edge 8px from the emulator pane, the same as the space above it (80px down, 72px toolbar). */
+  transform: translateX(-8px);
+  /* Above the toolbox and its drawer of blocks (the toolbox is 70), which reach over to this edge. */
+  z-index: 80;
   box-shadow: none !important;
 }
 
@@ -4203,7 +4262,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   position: fixed;
   top: 80px;
   right: 21px;
-  z-index: 20;
+  z-index: 80;
   box-shadow: none !important;
 }
 
@@ -4867,11 +4926,11 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   width: 40px;
   height: 3px;
   border-radius: 2px;
-  background-color: rgba(0, 0, 0, 0.24);
+  background-color: #bdbdbd;
 }
 
 .error-resize-handle:hover::after {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: #757575;
 }
 
 /* White-based, not the plain black-based rgba() every rest-state rule above
@@ -4898,12 +4957,12 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode .error-resize-handle::after,
 .dark-mode .emulator-resize-handle::after,
 .dark-mode .sidebar-resize-handle::after {
-  background-color: rgba(255, 255, 255, 0.24);
+  background-color: #606060;
 }
 
 .dark-mode .error-resize-handle:hover::after,
 .dark-mode .emulator-resize-handle:hover::after,
 .dark-mode .sidebar-resize-handle:hover::after {
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: #a8a8a8;
 }
 </style>

@@ -348,14 +348,30 @@
         <v-switch
           v-model="desaturateBlocklyColors"
           label="Subdued Palette"
-          hint="Mutes block and app colors to half their normal saturation for a calmer, less colorful view."
+          hint="Mutes colors for a calmer, less colorful view."
           persistent-hint
           class="option-switch"
         />
         <v-switch
           v-model="colorblindMode"
-          label="Colorblind Mode"
-          hint="Makes the icons in the left and top toolbars black instead of a color for each tab, or white in Dark Mode."
+          label="Greyscale"
+          hint="Makes the icons in the left and top toolbars black instead of a color for each, or white in Dark Mode."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="hideTopToolbar"
+          :disabled="hideSidebar"
+          label="Never show top toolbar"
+          hint="Always hides the top app toolbar. Not available while the left toolbar is hidden."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="hideSidebar"
+          :disabled="hideTopToolbar"
+          label="Never show left toolbar"
+          hint="Always hides the left app toolbar. Not available while the top toolbar is hidden."
           persistent-hint
           class="option-switch"
         />
@@ -363,14 +379,6 @@
           v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
-          persistent-hint
-          class="option-switch"
-        />
-        <v-switch
-          v-model="hideSidebar"
-          :disabled="!hideDescriptionText"
-          label="Never show the left sidebar"
-          hint="Only available in Expert mode. Turn it on to always hide the left app toolbar."
           persistent-hint
           class="option-switch"
         />
@@ -399,7 +407,7 @@ import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
   useColorblindModeStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage,
   useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {useEmulatorSettings} from '../hooks/emulator-settings';
@@ -491,21 +499,14 @@ export default defineComponent({
     // Frame skipping belongs to the gopher2600 emulator, so its switch only shows with that one chosen.
     const emulatorSettings = useEmulatorSettings();
     const hideSidebar = useHideSidebarStorage();
+    const hideTopToolbar = useHideTopToolbarStorage();
+    // Only one of the two toolbars can be hidden at a time (the switches disable each other), so a saved state with both on
+    // keeps just the left toolbar hidden.
+    if (hideSidebar.value && hideTopToolbar.value) hideTopToolbar.value = false;
     const darkMode = useDarkModeStorage();
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
     const colorblindMode = useColorblindModeStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
-    // "Never show the left sidebar" is disabled (see its :disabled
-    // binding in the template) whenever Expert mode is off, but disabling
-    // an already-on switch just makes it unreachable, not actually off -
-    // without this, turning Expert mode back off left the sidebar
-    // permanently hidden with no visible way to re-enable it short of
-    // turning Expert mode back on first. Turning hideSidebar off here too
-    // keeps the switch's on/off state consistent with whether it's
-    // actually possible to turn it back on.
-    watch(hideDescriptionText, (expertModeOn) => {
-      if (!expertModeOn) hideSidebar.value = false;
-    });
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
     const stellaPathStorage = useStellaPathStorage();
     // window.electronAPI only exists inside the desktop (Electron) build's
@@ -875,7 +876,7 @@ export default defineComponent({
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
       loadLastProject, showStartupTips,
-      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, darkMode, desaturateBlocklyColors, colorblindMode,
+      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
       stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,
