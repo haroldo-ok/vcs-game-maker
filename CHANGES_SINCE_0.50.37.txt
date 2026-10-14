@@ -1157,3 +1157,19 @@ DPC+ missiles and fired objects, collision speed, new variable blocks
   variables.
 - The Sound tab preview of a DPC+ sound follows the DIM percentage the way the emulator does.
 - Fixed a build error when a Set block sets Player 2 to 9's animation on DPC+.
+
+=== 0.52.19 ===
+Playfield rename, toolbar labels and sidebar sizes, Colorblind Mode
+
+- The Background menu is now Playfield: the toolbar category, the tab's menu entries and the labels of its blocks. Saved
+  projects load as before, and the dropdowns are unchanged.
+- The top toolbar shows each tab's name in small type under its icon. The left sidebar can be dragged between wide
+  (names beside the icons) and narrow (names under them). Expert mode takes all of these names away and the sidebar
+  shows only the icons.
+- New Colorblind Mode switch under Subdued Palette: the icons and names in the left and top toolbars are black, or
+  white in Dark Mode (a softer grey with Subdued Palette).
+- Thinner scrollbars everywhere, the Blockly ones the same width as the rest.
+- The resize handles (sidebar, emulator, console) use the outline color at rest and a stronger one on hover, in Dark
+  Mode as well.
+- The tip popup shows "Tip X / Y" next to its arrows, its checkbox lines up with the arrows and the text above it, and
+  there is a new tip about Dark Mode and Subdued Palette.

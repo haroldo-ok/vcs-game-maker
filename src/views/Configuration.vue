@@ -353,6 +353,13 @@
           class="option-switch"
         />
         <v-switch
+          v-model="colorblindMode"
+          label="Colorblind Mode"
+          hint="Makes the icons in the left and top toolbars black instead of a color for each tab, or white in Dark Mode."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
@@ -391,7 +398,7 @@ import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
-  useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
+  useColorblindModeStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useLoadLastProjectStorage,
   useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
@@ -486,6 +493,7 @@ export default defineComponent({
     const hideSidebar = useHideSidebarStorage();
     const darkMode = useDarkModeStorage();
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
+    const colorblindMode = useColorblindModeStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
     // "Never show the left sidebar" is disabled (see its :disabled
     // binding in the template) whenever Expert mode is off, but disabling
@@ -867,7 +875,7 @@ export default defineComponent({
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
       loadLastProject, showStartupTips,
-      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, darkMode, desaturateBlocklyColors,
+      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
       stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,

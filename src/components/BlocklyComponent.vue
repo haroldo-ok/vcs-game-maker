@@ -331,9 +331,7 @@ if (!Blockly.WorkspaceSvg.prototype.setScale.isKeepFlyoutOpenPatch) {
   Blockly.WorkspaceSvg.prototype.setScale.isKeepFlyoutOpenPatch = true;
 }
 
-// Deliberately thinner than App.vue's global ::-webkit-scrollbar (16px) -
-// the Blockly canvas is dense with blocks, so a scrollbar that size reads as
-// too heavy specifically here, even though it matches the rest of the app.
+// The same width as App.vue's global ::-webkit-scrollbar (10px), so the editor's scrollbars match the rest of the app.
 
 // The handle's cross-axis size/offset (normally (thickness - 5) wide with a
 // fixed 2.5px offset from each edge) doesn't land on the app's 12px thumb
@@ -387,7 +385,7 @@ class PatchedScrollbar extends OriginalScrollbar {
 // separate Object.assign needed (unlike the old plain-function version,
 // which had no prototype chain to inherit through).
 Blockly.Scrollbar = PatchedScrollbar;
-Blockly.Scrollbar.scrollbarThickness = 13;
+Blockly.Scrollbar.scrollbarThickness = 10;
 
 // Stock Blockly's "Set [variable] to" flyout block starts with its VALUE
 // input empty - unlike math_change (see flyoutCategoryBlocks below, in

@@ -1457,7 +1457,7 @@ Blockly.defineBlocksWithJsonArray([
     'colour': 'purple',
     'extensions': ['object_seek_colour_sync'],
     'tooltip': 'Turns automatic playfield-scroll following on or off for this object. While on, every ' +
-      '"Background scroll" block using Up/Down/Up (2x)/Down (2x) also shifts this object\'s Y position ' +
+      '"Playfield scroll" block using Up/Down/Up (2x)/Down (2x) also shifts this object\'s Y position ' +
       'by the same amount, so it stays in the same spot relative to the scrolling background instead of ' +
       'the screen. Has no effect on Left/Right scrolling. Accepts true/false or 1/0.',
   },

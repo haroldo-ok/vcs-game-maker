@@ -161,6 +161,12 @@
       "anchor": "expert-mode"
     },
     {
+      "text": "**Dark Mode** and **Subdued Palette** are separate switches under VCSGM Options: use either one, or turn both on for a dark, muted look.",
+      "page": "Options",
+      "label": "Dark Mode",
+      "anchor": "dark-mode"
+    },
+    {
       "text": "**Hold Shift** while dragging a line to snap it to 45 degrees, or a rectangle or oval to make a square or circle.",
       "page": "Graphic-Editor-Toolbar",
       "label": "Line, Rectangle and Oval tools",
@@ -269,9 +275,9 @@
       "anchor": "preview-animation"
     },
     {
-      "text": "**Background area is clear** tells you whether every playfield pixel in a rectangle is off, for example to see whether all the bricks are gone.",
+      "text": "**Playfield area is clear** tells you whether every playfield pixel in a rectangle is off, for example to see whether all the bricks are gone.",
       "page": "Background",
-      "label": "Background area is clear",
+      "label": "Playfield area is clear",
       "anchor": "background-area-clear"
     },
     {
@@ -425,9 +431,9 @@
       "anchor": "per-row-sprite-colors"
     },
     {
-      "text": "A background can be taller than the screen. **Background scroll** with \"stop at edge\" ticked stops cleanly on its first and last row.",
+      "text": "A background can be taller than the screen. **Playfield scroll** with \"stop at edge\" ticked stops cleanly on its first and last row.",
       "page": "Background",
-      "label": "Background scroll",
+      "label": "Playfield scroll",
       "anchor": "background-scroll"
     },
     {
@@ -527,7 +533,7 @@
       "anchor": "reorder-backgrounds"
     },
     {
-      "text": "A **48-wide title graphic** can have a colored area behind its picture, drawn with the playfield, and each animation frame can use a different one.",
+      "text": "A **48-wide title graphic** can have a colored area behind its picture.",
       "page": "Title",
       "label": "Picture background",
       "anchor": "picture-background-48-wide-graphics"
