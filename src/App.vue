@@ -2053,6 +2053,8 @@ export default {
    get the title's color. */
 .tip-title-icon.v-icon {
   position: relative;
+  /* Vuetify animates every change of a v-icon's position, which made the icon slide when the arrows change the tip. */
+  transition: none;
 }
 
 .tip-title-icon.v-icon:not([class*="-item"]) {

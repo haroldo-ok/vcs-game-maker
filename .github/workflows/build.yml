@@ -63,8 +63,31 @@ jobs:
           path: out/make/**
           if-no-files-found: error
 
+  # The web version: the built site as a zip, to put on any web server.
+  web:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # vuetify-loader asks for Vue 2.7 while the project is on Vue 2.6.
+      - run: npm ci --legacy-peer-deps
+      - run: npm run build
+      - name: Zip the site
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: (cd dist && zip -qr "../VCS-Game-Maker-web-$VERSION.zip" .)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web
+          path: VCS-Game-Maker-web-*.zip
+          if-no-files-found: error
+
   release:
-    needs: [version, build]
+    needs: [version, build, web]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}

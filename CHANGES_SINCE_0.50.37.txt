@@ -1129,3 +1129,11 @@ Tip popup polish, Ctrl+Y for redo, Delete key hint
 - Popups: the buttons in the bottom row are as far from the bottom edge as from the sides, and the label of every
   checkbox sits closer to its box.
 - The macOS build installs appdmg again when npm skipped it.
+
+=== 0.52.17 ===
+Tip popup icons, web build
+
+- The icon in the tip popup's title is centered with the "Tip" text by the middle of its drawing as well as of its
+  box, and no longer slides when the arrows change the tip.
+- The GitHub Action also builds the web version and attaches it to the release as VCS-Game-Maker-web-<version>.zip,
+  next to the Windows, macOS and Linux installers.
