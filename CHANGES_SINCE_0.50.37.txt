@@ -1,7 +1,7 @@
 === 0.50.37 ===
 Merge remote-tracking branch 'origin/main'
 
-Reword the Title tab's Score card hint text
+Scrub "own" from the Title tab's Score card hint text
 
 === 0.50.38 ===
 Add sprite Inertia/Bounce, 16-way Fire directions, music/cycle optimizations; bump version
@@ -52,7 +52,7 @@ this project's earlier Javatari-based key remapping.
 Also fixes a hover-highlight bug on every "No, don't delete" confirmation
 list item across the editors (missing the `link` prop Vuetify needs to
 apply its interactive/hover styling), and folds in the accumulated
-Wording cleanup and dev-var cleanup from recent sessions.
+"own"-wording scrub and dev-var cleanup from recent sessions.
 
 Add unified GraphicEditorToolbar across all tabs; sound bank import picker; nav-drawer polish
 
@@ -75,12 +75,12 @@ Add Title screen animation/scroll fix, Quick colors + frame import on Title/Spri
 - Add a per-card "Test this title screen" preview button using an isolated build pipeline that can't corrupt the real project's compiled ROM
 - Add a "Soft Colors" desaturated theme option
 - Fix keyboard mapping not applying until the Keyboard Mapping dialog was opened once
-- Give the Text/Score font tabs a separate default zoom level
+- Give the Text/Score font tabs their own default zoom level
 
 === 0.51.1 ===
 Fix Title Screen preview builds, project save/load, and reload-triggered UI resets; port shared undo/tool state and swatch styling
 
-- Give the Title Screen preview build a dedicated bank (matching the Titlescreen Kernel docs) and only bump romsize when the project's real setting can't fit it
+- Give the Title Screen preview build its own dedicated bank (matching the Titlescreen Kernel docs) and only bump romsize when the project's real setting can't fit it
 - Fix .vcsgm save/load silently dropping Title Screen pages/graphics
 - Persist the last-loaded ROM across a page reload so "Refresh emulator" doesn't blank the preview
 - Fix collapse-all-on-first-visit re-collapsing every card after a page reload
@@ -99,7 +99,7 @@ Adds a flood-fill Bucket tool, a Shift-to-45-degree Line tool, and Shift-to-squa
 
 Rework Music tab to a single-song editor with a dedicated toolbar; fix note volume/envelope-graph/instrument defaults; darken Subdued Palette cards
 
-Replaces the Music tab's list of song cards with a single active-song editor (song select/add/duplicate combobox mirroring the existing pattern picker, persisted activeSongId), moves Export/Import/playback controls into a sticky toolbar above a full-width divider, and turns the pattern editor into a collapsible section matching the Options screen's header style instead of a nested card. Fixes a new pattern/song always starting collapsed, a newly placed note inheriting an unrelated instrument's custom volume instead of the base volume of the instrument itself, the envelope graph drawing a redundant overlapping point when Decay or Sustain length is zero, and the default sound card not being usable as a Music tab instrument out of the box. Also darkens Subdued Palette's card background ~2%.
+Replaces the Music tab's list of song cards with a single active-song editor (song select/add/duplicate combobox mirroring the existing pattern picker, persisted activeSongId), moves Export/Import/playback controls into their own sticky toolbar above a full-width divider, and turns the pattern editor into a collapsible section matching the Options screen's own header style instead of a nested card. Fixes a new pattern/song always starting collapsed, a newly placed note inheriting an unrelated instrument's custom volume instead of its own instrument's base volume, the envelope graph drawing a redundant overlapping point when Decay or Sustain length is zero, and the default sound card not being usable as a Music tab instrument out of the box. Also darkens Subdued Palette's card background ~2%.
 
 === 0.51.5 ===
 Add Move/marquee selection tools, graphic flip, and background aspect-ratio fix
@@ -139,7 +139,7 @@ Add piano roll Move/Draw/Erase/Select tools; fix Blockly undo wiping all blocks;
   stack; now wrapped in Blockly.Events.disable()/enable()
 - Fix sprite "Player 1 set" blocks silently writing to Player 0's
   variables when switching the Player dropdown after duplicating a block,
-  including Horizontal flip specifically missing a translation
+  including Horizontal flip specifically missing its own translation
 - Fix sprite pixel aspect ratio (square at 1x) and background pixel
   aspect ratio (now derived from the real per-background row count and
   scanline height, not a flat constant)
@@ -350,7 +350,7 @@ Fix blocks not loading / not draggable after opening a project; widen the gap be
   in a typical song) took 300+ ms and allocated roughly 170 MB, and playback
   re-rendered it many times a second to move the playhead; the heap reached
   several GB. A render now takes about 45 ms and allocates a few MB: notes,
-  instrument lookups, colours, blocked ranges and the per-note AUDC tables
+  instrument lookups, colors, blocked ranges and the per-note AUDC tables
   are worked out once per render instead of once per cell, and the playhead
   only updates when it reaches another slice, at most 10 times a second.
 - Music and Sound previews: both tabs now share one audio context (they used
@@ -909,7 +909,7 @@ Title screen animation blocks and smaller stored data, emulator debug info, Play
   "Play animation once" plays it through once; an animation only runs while its page is the one drawn.
   Animations can last 255 ticks in all; the build says so when one is longer.
 - Title tab: frames can be dragged into a new order; Add frame copies the selected frame; frames copy
-  their picture background along with pixels; row colors can be copied and pasted by themselves; Fill
+  their picture background along with pixels; row colors can be copied and pasted on their own; Fill
   works on the row color bar; Set height and the selection act on the right graphic when several pages
   use the same ids; the import popups have a "Keep row and box colors" switch next to "Replace frames".
 - Title screen data takes less ROM: a graphic that repeats one picture under different row colors stores the
@@ -993,7 +993,6 @@ Text Minikernel on DPC+, and the standard kernel's text code moves out of the ke
 - Backgrounds are no longer padded when the Background tab opens, so changing pfres or the kernel never resizes them.
 - DPC+ background and animation previews build and center their sprite; whole-number row heights are used where a
   block cannot divide by a fraction of a row.
-
 
 === 0.52.0 ===
 DPC+ sound chip audio, content repository, search
@@ -1103,3 +1102,114 @@ No menu bar in desktop builds
 
 - The desktop app has no menu bar on Windows and Linux (the window's menu is removed and its menu bar stays hidden).
   macOS keeps a hidden Edit menu, since its Cmd+C, Cmd+V and Cmd+A shortcuts come from it.
+
+=== 0.52.14 ===
+Startup tips, and links on the About tab
+
+- A tip pops up when the app starts, a different one each time (99 to begin with). Each tip links to the wiki page and
+  the exact entry it is about. The tips are in src/data/tips.json, so they are easy to edit. The popup has previous and
+  next arrows, the icon of the tab the tip is about, and a "Don't show again" checkbox.
+- New "Show Tips at startup" switch under VCSGM Options. The checkbox turns it off and then opens a notice with a
+  link that goes to that switch.
+- The About tab has a Documentation/Wiki link, and the space after each label is no longer part of its link.
+
+=== 0.52.15 ===
+Show Tips at startup
+
+- The Options switch for the startup tips is named "Show Tips at startup".
+
+=== 0.52.16 ===
+Tip popup polish, Ctrl+Y for redo, Delete key hint
+
+- Each tip shows what it is about in bold, and its link is named after the entry it goes to (for example "Define
+  function" instead of "Actions"). The popup also has a "Full documentation" link in a fixed spot, previous and next
+  arrows, and the "Don't show again" checkbox sits level with the buttons.
+- Redo is Ctrl+Y (Cmd+Y) on every tab, the same as on the Actions tab; Ctrl+Shift+Z no longer redoes outside it.
+- The tooltip of a delete button names the Delete key where the key deletes the selected card or frame.
+- Popups: the buttons in the bottom row are as far from the bottom edge as from the sides, and the label of every
+  checkbox sits closer to its box.
+- The macOS build installs appdmg again when npm skipped it.
+
+=== 0.52.17 ===
+Tip popup icons, web build
+
+- The icon in the tip popup's title is centered with the "Tip" text by the middle of its drawing as well as of its
+  box, and no longer slides when the arrows change the tip.
+- The GitHub Action also builds the web version and attaches it to the release as VCS-Game-Maker-web-<version>.zip,
+  next to the Windows, macOS and Linux installers.
+
+=== 0.52.18 ===
+DPC+ missiles and fired objects, collision speed, new variable blocks
+
+- DPC+: a missile or the ball one line tall was drawn on every other y only, so shots could be invisible and miss the
+  playfield. Setting a height of 1 now gives 2 on that kernel.
+- Fire: an object that leaves the screen stops, is hidden at the top left corner and no longer shows up on the other
+  side. New block "Fired [object] has gone off screen" (true until the next Fire). DPC+ counts 212 lines for the
+  bottom edge.
+- DPC+: Find playfield pixel, bounce and the playfield check use the missile's and ball's lines for the row, and a
+  player's height; Player 1 ROM noise has the right height and position, and rainbow colors work on Player 1.
+- Undo last move can go back 1 or 2 frames.
+- Playfield box test: the standard kernel reads the playfield bytes directly, and a sprite with one copy skips the copy
+  checks. ROM noise with one fixed height no longer takes a variable.
+- New Variables blocks: first or last 4 bits of a variable (0 to 15), read and set. Display RAM blocks use the variable
+  block color.
+- The debug variable list includes the DPC+ bonus variables (such as the shared flag byte) and Superchip read/write
+  variables.
+- The Sound tab preview of a DPC+ sound follows the DIM percentage the way the emulator does.
+- Fixed a build error when a Set block sets Player 2 to 9's animation on DPC+.
+
+=== 0.52.19 ===
+Playfield rename, toolbar labels and sidebar sizes, Colorblind Mode
+
+- The Background menu is now Playfield: the toolbar category, the tab's menu entries and the labels of its blocks. Saved
+  projects load as before, and the dropdowns are unchanged.
+- The top toolbar shows each tab's name in small type under its icon. The left sidebar can be dragged between wide
+  (names beside the icons) and narrow (names under them). Expert mode takes all of these names away and the sidebar
+  shows only the icons.
+- New Colorblind Mode switch under Subdued Palette: the icons and names in the left and top toolbars are black, or
+  white in Dark Mode (a softer grey with Subdued Palette).
+- Thinner scrollbars everywhere, the Blockly ones the same width as the rest.
+- The resize handles (sidebar, emulator, console) use the outline color at rest and a stronger one on hover, in Dark
+  Mode as well.
+- The tip popup shows "Tip X / Y" next to its arrows, its checkbox lines up with the arrows and the text above it, and
+  there is a new tip about Dark Mode and Subdued Palette.
+
+=== 0.52.20 ===
+Toolbar and emulator pane polish
+
+- In the top toolbar, the highlight of the current tab is wide enough for the name under its icon, and the icons stay
+  evenly spaced.
+- When the emulator pane is too narrow for its tool icons next to the Refresh emulator button, all of them move to a
+  line below it, centered.
+- In Dark Mode, the text typed into the block search field of the toolbox is light, so it can be read.
+
+=== 0.52.21 ===
+Toolbar switches, Greyscale, Prefabs, toolbox look
+
+- The Colorblind Mode switch is now named Greyscale. Subdued Palette and Greyscale have shorter descriptions, and with
+  Dark Mode on, Subdued Palette also makes the Actions toolbox text a softer grey.
+- New "Never show top toolbar" switch above "Never show left toolbar" (renamed from "Never show the left sidebar").
+  Neither needs Expert mode any more, only one of the two can be on at a time (each greys out the other), and Expert
+  mode's switch is below them. The left toolbar is never hidden because of the window's width.
+- Blockly toolbox: the Examples category is now Prefabs, its arrows are thin chevrons, there is a line down the right edge
+  in the toolbar border color, the drawer of blocks has square corners, and the text typed into the search field is
+  readable in Dark Mode.
+- The resize handles are solid greys in every color mode.
+- The emulator pane's collapse button is 8px from the pane and drawn above the toolbox and its drawers. When the pane
+  is too narrow for its tool icons, the Refresh emulator button is centered above them.
+
+=== 0.52.22 ===
+Playfield offset block
+
+- New "Playfield offset" block in the Playfield category: moves the pixels of the whole playfield, or of an area of it,
+  by one pixel in a direction (alternate rows left and right, all left, all right, all up or all down), wrapping round.
+  A pixel that leaves the end of a row carries on at the start of the next row and the last row feeds the first, so the
+  holes of a wall drift along, like the shield in Yars' Revenge. An area's left and right edges are whole bytes of the
+  playfield (columns 0-7, 8-15, 16-23 and 24-31) and its top and bottom are rows counted from 0. It needs no variables
+  and works with the standard kernel (with or without Superchip RAM) and DPC+.
+
+=== 0.52.23 ===
+High Contrast, Expert mode sidebar
+
+- The Greyscale switch is now named High Contrast.
+- In Expert mode the left toolbar has no color bar beside each icon, and its icons are centered in the narrower bar.

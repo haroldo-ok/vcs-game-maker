@@ -331,9 +331,7 @@ if (!Blockly.WorkspaceSvg.prototype.setScale.isKeepFlyoutOpenPatch) {
   Blockly.WorkspaceSvg.prototype.setScale.isKeepFlyoutOpenPatch = true;
 }
 
-// Deliberately thinner than App.vue's global ::-webkit-scrollbar (16px) -
-// the Blockly canvas is dense with blocks, so a scrollbar that size reads as
-// too heavy specifically here, even though it matches the rest of the app.
+// The same width as App.vue's global ::-webkit-scrollbar (10px), so the editor's scrollbars match the rest of the app.
 
 // The handle's cross-axis size/offset (normally (thickness - 5) wide with a
 // fixed 2.5px offset from each edge) doesn't land on the app's 12px thumb
@@ -387,7 +385,22 @@ class PatchedScrollbar extends OriginalScrollbar {
 // separate Object.assign needed (unlike the old plain-function version,
 // which had no prototype chain to inherit through).
 Blockly.Scrollbar = PatchedScrollbar;
-Blockly.Scrollbar.scrollbarThickness = 13;
+Blockly.Scrollbar.scrollbarThickness = 10;
+
+// The drawer the toolbox opens with a category's blocks is drawn with rounded corners (an 8px arc at the top and bottom of the
+// side facing the workspace). The same box, with square corners: the width and height Blockly passes in leave out the
+// two corners, so they are added back here.
+if (!Blockly.VerticalFlyout.prototype.setBackgroundPath.isSquareCornersPatch) {
+  Blockly.VerticalFlyout.prototype.setBackgroundPath = function(width, height) {
+    const atRight = this.toolboxPosition_ === Blockly.utils.toolbox.Position.RIGHT;
+    const totalWidth = width + this.CORNER_RADIUS;
+    const totalHeight = Math.max(0, height) + 2 * this.CORNER_RADIUS;
+    const path = [`M ${atRight ? totalWidth : 0},0`, 'h', atRight ? -totalWidth : totalWidth, 'v', totalHeight, 'h',
+      atRight ? totalWidth : -totalWidth, 'z'];
+    this.svgBackground_.setAttribute('d', path.join(' '));
+  };
+  Blockly.VerticalFlyout.prototype.setBackgroundPath.isSquareCornersPatch = true;
+}
 
 // Stock Blockly's "Set [variable] to" flyout block starts with its VALUE
 // input empty - unlike math_change (see flyoutCategoryBlocks below, in
@@ -447,6 +460,10 @@ if (!Blockly.Variables.flyoutCategory.isExtraBlocksPatch) {
         '<block type="bit_get"></block>' +
         '<block type="bit_set">' +
         '<value name="VALUE"><shadow type="logic_boolean"><field name="BOOL">TRUE</field></shadow></value>' +
+        '</block>' +
+        '<block type="nibble_get"></block>' +
+        '<block type="nibble_set">' +
+        '<value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>' +
         '</block>' +
         '<block type="system_variable_get"></block>' +
         '<block type="display_ram_set"><value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>' +

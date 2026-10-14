@@ -1,14 +1,13 @@
-name: Desktop builds
+name: Build and release
 
-# Builds the desktop app (Electron Forge) for Windows, macOS and Linux and attaches the installers to a GitHub Release.
-#
-# - When a release is published, the installers are attached to that release.
-# - Run manually from the Actions tab to build the version in package.json: the installers go to the release tagged
-#   v<version> (it is created, with generated notes, if it does not exist yet).
+# Builds the desktop app for Windows, macOS and Linux (Intel/AMD and ARM, which covers a 64-bit Raspberry Pi) and publishes the installers as a GitHub Release tagged with the
+# app version in package.json (0.52.11 for version 0.52.11). Runs when a push to main changes package.json (a version
+# bump) and on demand from the Actions tab. A release that already exists for the version gets its files replaced.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [package.json]
 
 permissions:
   contents: write
@@ -17,30 +16,21 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.read.outputs.tag }}
+      version: ${{ steps.read.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - id: read
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          if [ -n "$RELEASE_TAG" ]; then
-            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.release.tag_name || github.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -48,8 +38,17 @@ jobs:
       - name: Install the packages the Linux makers need
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
-      # vuetify-loader asks for Vue 2.7 while the project is on Vue 2.6.
       - run: npm ci --legacy-peer-deps
+      # The dmg maker needs appdmg, which npm installs only on macOS and skips without a word when its install fails; one
+      # run built without it ("Cannot find module 'appdmg'"). This tries again, and stops here with the reason if it cannot.
+      - name: Make sure appdmg is installed
+        if: runner.os == 'macOS'
+        run: |
+          for attempt in 1 2 3; do
+            node -e "require('appdmg')" && break
+            npm install --no-save --legacy-peer-deps appdmg@0.6.6
+          done
+          node -e "require('appdmg')"
       - name: Build the web app
         run: npm run build
       - name: Make the installers
@@ -60,25 +59,66 @@ jobs:
         run: npx electron-forge make --arch=x64
       - uses: actions/upload-artifact@v7
         with:
-          name: installers-${{ runner.os }}
+          name: installers-${{ matrix.os }}
           path: out/make/**
           if-no-files-found: error
 
+  # The web version: the built site as a zip, to put on any web server.
+  web:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # vuetify-loader asks for Vue 2.7 while the project is on Vue 2.6.
+      - run: npm ci --legacy-peer-deps
+      - run: npm run build
+      - name: Zip the site
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: (cd dist && zip -qr "../VCS-Game-Maker-web-$VERSION.zip" .)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web
+          path: VCS-Game-Maker-web-*.zip
+          if-no-files-found: error
+
   release:
-    needs: [version, build]
+    needs: [version, build, web]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ needs.version.outputs.tag }}
+      TAG: ${{ needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: installers
-      - name: Attach the installers to the release
+      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb and rpm, the web zip); the
+      # update files Squirrel makes beside the Windows installer (RELEASES, *.nupkg) are left out.
+      - name: Create or update the release
         run: |
-          mapfile -t files < <(find installers -type f \( -name '*.exe' -o -name '*.nupkg' -o -name 'RELEASES' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \))
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          # Each file gets a name that says which system it is for.
+          mkdir release-files
+          while IFS= read -r file; do
+            name=$(basename "$file")
+            case "$name" in
+              *.exe) new="VCS-Game-Maker-$TAG-Windows-Setup.exe" ;;
+              *.deb) case "$name" in *arm64*) arch=arm64 ;; *) arch=amd64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.deb" ;;
+              *.rpm) case "$name" in *aarch64*) arch=aarch64 ;; *) arch=x86_64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.rpm" ;;
+              VCS-Game-Maker-web-*.zip) new="VCS-Game-Maker-$TAG-Web.zip" ;;
+              *.dmg) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-macOS-$arch.dmg" ;;
+              *.zip) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-macOS-$arch.zip" ;;
+              *) continue ;;
+            esac
+            cp "$file" "release-files/$new"
+          done < <(find installers -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \))
+          mapfile -t files < <(find release-files -type f)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
           else
-            gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --title "VCS Game Maker ${TAG#v}" --generate-notes
+            gh release create "$TAG" "${files[@]}" --target "$GITHUB_SHA" --title "VCS Game Maker $TAG" --generate-notes
           fi

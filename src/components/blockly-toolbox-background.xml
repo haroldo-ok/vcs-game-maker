@@ -1,4 +1,4 @@
-<category name="Background" colour="rgb(255, 152, 0)">
+<category name="Playfield" colour="rgb(255, 152, 0)">
     <category name="Select next background" colour="#ffa500">
         <block type="event_block">
         <field name="EVENT">gameplay_start</field>

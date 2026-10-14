@@ -1,11 +1,12 @@
 <template>
-  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode}">
-    <div class="app-logo">
+  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode, 'colorblind-mode': colorblindMode, 'no-top-toolbar': hideTopToolbar}">
+    <div v-if="!hideTopToolbar" class="app-logo">
       <img src="./assets/logo.svg" alt="VCS Game Maker" class="app-logo-img" />
       <div class="app-logo-version">{{ version }}</div>
     </div>
 
     <v-app-bar
+      v-if="!hideTopToolbar"
       app
       clipped-right
       flat
@@ -15,54 +16,67 @@
     >
         <v-btn to="/" link text class="actions-item" title="Actions" elevation="0">
           <v-icon>mdi-chart-scatter-plot</v-icon>
+          <span class="top-toolbar-label">Actions</span>
         </v-btn>
 
         <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title" elevation="0">
           <v-icon>mdi-image-frame</v-icon>
+          <span class="top-toolbar-label">Title</span>
         </v-btn>
 
         <v-btn to="/player" link text class="player-item" title="Sprites" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
+          <span class="top-toolbar-label">Sprites</span>
         </v-btn>
 
-        <v-btn to="/background" link text class="background-item" title="Background" elevation="0">
+        <v-btn to="/background" link text class="background-item" title="Playfield" elevation="0">
           <v-icon>mdi-map</v-icon>
+          <span class="top-toolbar-label">Playfield</span>
         </v-btn>
 
         <v-btn to="/soundfx" link text class="sound-item" title="Sound" elevation="0">
           <v-icon>mdi-waveform</v-icon>
+          <span class="top-toolbar-label">Sound</span>
         </v-btn>
 
         <v-btn to="/music" link text class="music-item" title="Music" elevation="0">
           <v-icon>mdi-music-note</v-icon>
+          <span class="top-toolbar-label">Music</span>
         </v-btn>
 
         <v-btn to="/scorefont" link text class="scorefont-item" title="Score" elevation="0">
           <v-icon>mdi-numeric</v-icon>
+          <span class="top-toolbar-label">Score</span>
         </v-btn>
 
         <v-btn to="/text" link text class="text-tab-item" title="Text" elevation="0">
           <v-icon>mdi-card-text-outline</v-icon>
+          <span class="top-toolbar-label">Text</span>
         </v-btn>
 
         <v-btn to="/data" link text class="data-item" title="Data" elevation="0">
           <v-icon>mdi-table</v-icon>
+          <span class="top-toolbar-label">Data</span>
         </v-btn>
 
         <v-btn to="/generated" link text class="generated-item" title="Generated" elevation="0">
           <v-icon>mdi-card-text</v-icon>
+          <span class="top-toolbar-label">Generated</span>
         </v-btn>
 
         <v-btn to="/configuration" link text class="configuration-item" title="Options" elevation="0">
           <v-icon>mdi-cog</v-icon>
+          <span class="top-toolbar-label">Options</span>
         </v-btn>
 
         <v-btn to="/project" link text class="project-item" title="Project" elevation="0">
           <v-icon>mdi-pencil-ruler</v-icon>
+          <span class="top-toolbar-label">Project</span>
         </v-btn>
 
         <v-btn to="/about" link text class="about-item" title="About" elevation="0">
           <v-icon>mdi-information-outline</v-icon>
+          <span class="top-toolbar-label">About</span>
         </v-btn>
     </v-app-bar>
 
@@ -71,8 +85,10 @@
       v-model="drawer"
       app
       clipped
-      width="200"
+      :width="effectiveSidebarWidth"
+      :mobile-breakpoint="0"
       class="nav-drawer"
+      :class="{'sidebar-stacked': sidebarStacked}"
     >
       <div class="nav-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
       <v-list
@@ -82,6 +98,7 @@
           to="/"
           link
           class="actions-item"
+          :title="hideDescriptionText ? 'Actions' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-chart-scatter-plot</v-icon>
@@ -95,6 +112,7 @@
           to="/titlescreen"
           link
           class="titlescreen-item"
+          :title="hideDescriptionText ? 'Title α' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-image-frame</v-icon>
@@ -108,6 +126,7 @@
           to="/player"
           link
           class="player-item"
+          :title="hideDescriptionText ? 'Sprites' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-human-handsup</v-icon>
@@ -121,12 +140,13 @@
           to="/background"
           link
           class="background-item"
+          :title="hideDescriptionText ? 'Playfield' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-map</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Background</v-list-item-title>
+            <v-list-item-title>Playfield</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -134,6 +154,7 @@
           to="/soundfx"
           link
           class="sound-item"
+          :title="hideDescriptionText ? 'Sound' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-waveform</v-icon>
@@ -147,6 +168,7 @@
           to="/music"
           link
           class="music-item"
+          :title="hideDescriptionText ? 'Music α' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-music-note</v-icon>
@@ -160,6 +182,7 @@
           to="/scorefont"
           link
           class="scorefont-item"
+          :title="hideDescriptionText ? 'Score' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-numeric</v-icon>
@@ -173,6 +196,7 @@
           to="/text"
           link
           class="text-tab-item"
+          :title="hideDescriptionText ? 'Text' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-card-text-outline</v-icon>
@@ -186,6 +210,7 @@
           to="/data"
           link
           class="data-item"
+          :title="hideDescriptionText ? 'Data' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-table</v-icon>
@@ -199,6 +224,7 @@
           to="/generated"
           link
           class="generated-item"
+          :title="hideDescriptionText ? 'Generated' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-card-text</v-icon>
@@ -212,6 +238,7 @@
           to="/configuration"
           link
           class="configuration-item"
+          :title="hideDescriptionText ? 'Options' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-cog</v-icon>
@@ -225,6 +252,7 @@
           to="/project"
           link
           class="project-item"
+          :title="hideDescriptionText ? 'Project' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-pencil-ruler</v-icon>
@@ -238,6 +266,7 @@
           to="/about"
           link
           class="about-item"
+          :title="hideDescriptionText ? 'About' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-information-outline</v-icon>
@@ -250,6 +279,14 @@
       </div>
     </v-navigation-drawer>
 
+    <div
+      v-if="!hideSidebar && !hideDescriptionText"
+      class="sidebar-resize-handle"
+      title="Drag to resize the sidebar"
+      :style="{left: (sidebarWidth - 5) + 'px', bottom: errorHeight + 'px'}"
+      @mousedown.prevent="startResizeSidebar"
+    ></div>
+
     <v-navigation-drawer
       v-model="emulatorVisible"
       app
@@ -260,7 +297,7 @@
       :mobile-breakpoint="0"
     >
       <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
-        <div class="emulator-toolbar-row">
+        <div class="emulator-toolbar-row" :class="{'emulator-toolbar-wrapped': emulatorToolbarWrapped}">
           <v-btn
             small
             class="emulator-refresh-button"
@@ -537,6 +574,64 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="tipOpen" max-width="520">
+      <v-card v-if="tip">
+        <v-card-title><v-icon :class="['tip-title-icon', 'mr-2', tip.tab.className]" :style="{top: tip.tab.offset + 'px'}">{{ tip.tab.icon }}</v-icon>Tip</v-card-title>
+        <v-card-text>
+          <p class="tip-message tip-text"><template v-for="(part, i) in tip.segments"><strong v-if="part.bold" :key="i">{{ part.text }}</strong><span v-else :key="i">{{ part.text }}</span></template></p>
+          <p class="tip-message">
+            Learn more:
+            <template v-for="link in tip.links">
+              <br :key="link.url + 'br'" />
+              <a :key="link.url" :href="link.url" target="_blank" rel="noopener">{{ link.label }}</a>
+            </template>
+          </p>
+        </v-card-text>
+        <div class="tip-message tip-footnote">
+          <a :href="tip.wikiUrl" target="_blank" rel="noopener">Full documentation</a>
+        </div>
+        <v-card-actions>
+          <v-checkbox
+            v-model="tipDontShowAgain"
+            label="Don't show again"
+            dense
+            hide-details
+            class="tip-dont-show mt-0 pt-0"
+          ></v-checkbox>
+          <v-spacer></v-spacer>
+          <div class="tip-arrows">
+            <span class="tip-counter">Tip {{ tip.index + 1 }} / {{ tip.count }}</span>
+            <v-btn icon small class="tip-arrow-btn" title="Previous tip" @click="tip = tipNear(tip, -1)">
+              <v-icon>mdi-chevron-left</v-icon>
+            </v-btn>
+            <v-btn icon small class="tip-arrow-btn" title="Next tip" @click="tip = tipNear(tip, 1)">
+              <v-icon>mdi-chevron-right</v-icon>
+            </v-btn>
+          </div>
+          <v-btn text color="primary" @click="tipOpen = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="tipsOffNoticeOpen" max-width="520">
+      <v-card>
+        <v-card-title>Tips are turned off</v-card-title>
+        <v-card-text>
+          <p class="tip-message">
+            You can turn them back on any time with the "Show Tips at startup" switch under VCSGM Options on the
+            Options tab.
+          </p>
+          <p class="tip-message">
+            <a href="#" @click.prevent="goToStartupTipsSetting">Go to VCSGM Options</a>
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn text color="primary" @click="tipsOffNoticeOpen = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-footer class="error-message" :style="{height: errorHeight + 'px', maxHeight: errorHeight + 'px'}">
       <div
         class="error-resize-handle"
@@ -561,8 +656,8 @@
 </template>
 
 <script>
-import {useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useStellaPathStorage, useSoundEffectsStorage,
+import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
@@ -576,6 +671,8 @@ import {startGamepadInput} from './hooks/gamepad';
 import {startTapHold} from './hooks/tap-hold';
 import {syncSoundBanks} from './hooks/soundbanks';
 import {soundKernelNotice, syncSoundsToKernel} from './hooks/sound-kernel';
+import {nextTip, tipNear} from './hooks/tips';
+import {optionToReveal} from './hooks/option-reveal';
 import KeyMappingDialog from './components/KeyMappingDialog.vue';
 import EmulatorSettingsDialog from './components/EmulatorSettingsDialog.vue';
 import DebugSettingsDialog from './components/DebugSettingsDialog.vue';
@@ -598,6 +695,14 @@ const EMULATOR_MAX_WIDTH = 900;
 // Keep enough room for the editor when dragging on smaller screens.
 const EDITOR_MIN_WIDTH = 320;
 const EMULATOR_WIDTH_KEY = 'vcs-game-maker.emulatorWidth';
+// The left sidebar is either wide (names beside the icons) or a narrow bar with each name under its icon.
+// Expert mode takes the names away, which leaves just the icons.
+const SIDEBAR_MAX_WIDTH = 200;
+const SIDEBAR_MIN_WIDTH = 64;
+const SIDEBAR_ICONS_ONLY_WIDTH = 56;
+// Dragging the edge left of this makes the sidebar narrow, right of it wide.
+const SIDEBAR_STACKED_WIDTH = 136;
+const SIDEBAR_WIDTH_KEY = 'vcs-game-maker.sidebarWidth';
 // Whether the emulator drawer is shown at all - separate from emulatorWidth
 // (which only ever remembers its width while visible), so hiding it to free
 // up space for the block editor survives a reload instead of resetting
@@ -637,6 +742,11 @@ const readStoredWidth = () => {
   return Number.isFinite(stored) ? stored : EMULATOR_DEFAULT_WIDTH;
 };
 
+const readStoredSidebarWidth = () => {
+  const stored = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY), 10);
+  return Number.isFinite(stored) && stored < SIDEBAR_STACKED_WIDTH ? SIDEBAR_MIN_WIDTH : SIDEBAR_MAX_WIDTH;
+};
+
 const readStoredErrorHeight = () => {
   const stored = parseInt(localStorage.getItem(ERROR_HEIGHT_KEY), 10);
   return Number.isFinite(stored) ? stored : ERROR_DEFAULT_HEIGHT;
@@ -657,6 +767,9 @@ export default {
   data: () => ({
     drawer: null,
     emulatorWidth: readStoredWidth(),
+    emulatorToolbarWrapped: false,
+    sidebarWidth: readStoredSidebarWidth(),
+    resizingSidebar: false,
     emulatorVisible: readStoredEmulatorVisible(),
     emulatorScale: 1,
     emulatorHeight: null,
@@ -688,16 +801,25 @@ export default {
       buildInProgress: useBuildInProgress(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
       hideSidebarStorage: useHideSidebarStorage(),
+      hideTopToolbarStorage: useHideTopToolbarStorage(),
       desaturateAppColorsStorage: useDesaturateBlocklyColorsStorage(),
       darkModeStorage: useDarkModeStorage(),
+      colorblindModeStorage: useColorblindModeStorage(),
       adaptiveFrameSkipStorage: useAdaptiveFrameSkipStorage(),
       configurationStorage: useConfigurationStorage(),
       soundKernelNotice, soundEffectsStorage: soundEffectsRef, syncSounds,
       romSaveMenuOpen: false,
+      showStartupTipsStorage: useShowStartupTipsStorage(), tipOpen: false, tip: null, tipDontShowAgain: false,
+      tipNear, tipsOffNoticeOpen: false,
       stellaPathStorage: useStellaPathStorage(),
     };
   },
   mounted() {
+    // A different tip shows on every start while the startup tips setting is on.
+    if (this.showStartupTipsStorage) {
+      this.tip = nextTip();
+      this.tipOpen = !!this.tip;
+    }
     // Once per page load: fetch new/changed example projects (see hooks/examples.js).
     syncExamples();
     syncSoundBanks();
@@ -734,6 +856,13 @@ export default {
     // reach every hint/description paragraph in the app from one place,
     // now that they all consistently use that same class (see TextEditor.vue's
     // hint paragraph for the pattern every other tab's hint text follows).
+    // Expert mode leaves only the icons; otherwise the width the user dragged it to.
+    effectiveSidebarWidth() {
+      return this.hideDescriptionText ? SIDEBAR_ICONS_ONLY_WIDTH : this.sidebarWidth;
+    },
+    sidebarStacked() {
+      return !this.hideDescriptionText && this.sidebarWidth < SIDEBAR_STACKED_WIDTH;
+    },
     hideDescriptionText() {
       // this.hideDescriptionTextStorage is a computed RETURNED from setup() -
       // Vue's Composition API auto-unwraps that when accessed through the
@@ -749,6 +878,9 @@ export default {
     hideSidebar() {
       return !!this.hideSidebarStorage;
     },
+    hideTopToolbar() {
+      return !!this.hideTopToolbarStorage;
+    },
     // Same "Soft Colors" preference the Blockly canvas itself desaturates
     // by (see BlocklyComponent.vue's parseBlockColour patch) - bound as
     // a class on the root v-app below so the tab bar/nav-drawer's
@@ -762,6 +894,9 @@ export default {
     // the unscoped <style> block) for how it actually recolors the app.
     darkMode() {
       return !!this.darkModeStorage;
+    },
+    colorblindMode() {
+      return !!this.colorblindModeStorage;
     },
     // Same "window.electronAPI's mere presence" check as Configuration.vue's
     // isElectron - see preload.js's  comment. Gates the "Test in
@@ -972,6 +1107,16 @@ export default {
     },
   },
   watch: {
+    // Closing the tip popup with the checkbox ticked turns the startup tips setting off.
+    tipOpen(open) {
+      if (open || !this.tipDontShowAgain) return;
+      this.showStartupTipsStorage = false;
+      this.tipDontShowAgain = false;
+      // Opened once the tip popup and its dark backdrop have finished fading out, or the notice opens beneath them.
+      setTimeout(() => {
+        this.tipsOffNoticeOpen = true;
+      }, 400);
+    },
     // Sounds follow the kernel: Standard sounds become DPC+ sounds when DPC+ is chosen (and back again), including
     // sounds that arrive from an imported project or sound bank.
     'configurationStorage.kernel': {
@@ -1029,6 +1174,12 @@ export default {
     },
   },
   methods: {
+    // The link in the notice that follows turning tips off: opens the Options tab at the switch that turns them on.
+    goToStartupTipsSetting() {
+      this.tipsOffNoticeOpen = false;
+      optionToReveal.value = 'show-startup-tips-option';
+      if (this.$route.path !== '/configuration') this.$router.push('/configuration');
+    },
     // Shared by romBlockVariableAssignments/romUserVariableAssignments above -
     // a plain method (not two near-identical computeds) since the only
     // difference between them is which side of isUserVariable they keep.
@@ -1219,7 +1370,17 @@ export default {
     handleWindowResize() {
       this.updateEmulatorScale();
     },
+    // Whether the emulator's tool icons are on a line below the refresh button (the pane is too narrow for both on one line),
+    // where they are centered instead of at the right.
+    updateToolbarWrap() {
+      const row = this.$el && this.$el.querySelector && this.$el.querySelector('.emulator-toolbar-row');
+      const button = row && row.querySelector('.emulator-refresh-button');
+      const icons = row && row.querySelector('.emulator-toolbar-icons');
+      if (!button || !icons) return;
+      this.emulatorToolbarWrapped = icons.offsetTop >= button.offsetTop + button.offsetHeight;
+    },
     updateEmulatorScale(retriesLeft = EMULATOR_MEASURE_RETRIES) {
+      this.updateToolbarWrap();
       if (document.fullscreenElement) this.syncFullscreenAspect();
       const container = document.getElementById('gopher2600-target-container');
       const screen = document.getElementById('gopher2600-screen');
@@ -1274,6 +1435,29 @@ export default {
       // its container, and only reflows on a window resize). This has to wait
       // for the drawer's new width to be applied to the DOM, otherwise they
       // measure the previous layout.
+      this.$nextTick(() => window.dispatchEvent(new Event('resize')));
+    },
+    startResizeSidebar() {
+      this.resizingSidebar = true;
+      window.addEventListener('mousemove', this.doResizeSidebar);
+      window.addEventListener('mouseup', this.stopResizeSidebar);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ew-resize';
+    },
+    doResizeSidebar(event) {
+      // Only two sizes: wide (names beside the icons) or narrow (names under them), by which side of the middle the
+      // pointer is on.
+      this.sidebarWidth = event.clientX < SIDEBAR_STACKED_WIDTH ? SIDEBAR_MIN_WIDTH : SIDEBAR_MAX_WIDTH;
+    },
+    stopResizeSidebar() {
+      if (!this.resizingSidebar) return;
+      this.resizingSidebar = false;
+      window.removeEventListener('mousemove', this.doResizeSidebar);
+      window.removeEventListener('mouseup', this.stopResizeSidebar);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(this.sidebarWidth));
+      // The editors size themselves from their container, which only changes once the drawer's width is applied.
       this.$nextTick(() => window.dispatchEvent(new Event('resize')));
     },
     startResizeError() {
@@ -1925,6 +2109,119 @@ export default {
   border: 1px solid rgba(0, 0, 0, 0.24);
 }
 
+/* The tip popup's previous/next arrows look and react like the graphic editor toolbar's icon buttons: no box, 26px
+   squares 4px apart, a muted 19px icon that darkens on hover and shrinks a little while pressed. */
+.tip-arrows {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+/* "Tip X / Y" to the left of the arrows, in small type. */
+.tip-counter {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.dark-mode.v-application .tip-counter {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.tip-arrow-btn.v-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+  margin: 0;
+}
+
+.tip-arrow-btn.v-btn::before {
+  display: none;
+}
+
+.tip-arrow-btn.v-btn .v-icon {
+  font-size: 19px;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.tip-arrow-btn.v-btn:not(.v-btn--disabled):active .v-icon {
+  transform: scale(0.82);
+}
+
+.dark-mode.v-application .tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: #fff !important;
+}
+
+/* The icon in the tip popup's title is the icon of the tab the tip is about, in that tab's color. The tab classes (.actions-item
+   and so on) set the color on the element itself, so they win here; the three pages that are not a tab have none and
+   get the title's color. */
+.tip-title-icon.v-icon {
+  position: relative;
+  /* Vuetify animates every change of a v-icon's position, which made the icon slide when the arrows change the tip. */
+  transition: none;
+}
+
+.tip-title-icon.v-icon:not([class*="-item"]) {
+  color: inherit !important;
+}
+
+/* A line break in a tip's text starts a new line, for lists such as hotkeys. */
+.tip-text {
+  white-space: pre-line;
+}
+
+/* The tip popup's text: the grey of the popups' helper text at a larger size. It does not use the helper text classes
+   (.v-messages), which Expert mode hides. */
+.tip-message {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+/* The checkbox square is smaller than the Close button beside it and sits centered with it, which leaves its bottom edge
+   higher than the button's. Moving it (and its label) down 5px lines the two bottom edges up. */
+.tip-dont-show {
+  position: relative;
+  top: 0;
+  /* The checkbox square is drawn 3px inside its 24px icon box and the card's actions row is 8px less indented
+     than the text above it, so this puts the square's left edge in line with the text's. */
+  margin-left: 5px !important;
+}
+
+/* The line that goes to the front page of the documentation: the same text as the tip, smaller. */
+/* It sits right above the bottom row of the popup, so it is the same distance from the checkbox and buttons whatever the
+   tip above it is. */
+.tip-message.tip-footnote {
+  font-size: 0.8rem;
+  line-height: 1.25;
+  padding: 0 24px 6px;
+}
+
+.dark-mode.v-application .tip-message {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Every checkbox's label sits closer to its box (Vuetify leaves 8px between the box's area and the label). */
+.v-application--is-ltr .v-input--checkbox .v-input--selection-controls__input {
+  margin-right: 2px;
+}
+
+/* The buttons in a popup's bottom row sit the same distance from the bottom edge as from the side edges (Vuetify's default
+   leaves half as much below them as beside them). */
+.v-dialog > .v-card > .v-card__actions {
+  padding-bottom: 16px;
+}
+
 .v-menu__content > .v-card,
 .v-dialog > .v-card {
   border: 1px solid rgba(0, 0, 0, 0.24);
@@ -2132,11 +2429,14 @@ export default {
 
 * {
   scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+  scrollbar-width: thin;
 }
 
+/* 10px wide with a 2px margin each side leaves a 6px thumb; the Blockly scrollbars use the same width
+   (Blockly.Scrollbar.scrollbarThickness in BlocklyComponent.vue). */
 ::-webkit-scrollbar {
-  width: 16px;
-  height: 16px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -3168,15 +3468,62 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   color: rgba(255, 255, 255, 0.6) !important;
 }
 
+/* The expand/collapse arrow of the Examples category in the Blockly toolbox: a thin chevron (instead of Blockly's sprite
+   arrow) in the color of the category's name, pointing right when closed and down when open. */
+.blocklyToolboxDiv .blocklyTreeIcon {
+  background-image: none !important;
+  position: relative;
+  filter: none !important;
+}
+.blocklyToolboxDiv .blocklyTreeIcon::before {
+  content: '';
+  position: absolute;
+  /* 2px to the right of the icon's box, which the label's position depends on. */
+  inset: 0 -2px 0 2px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'/></svg>") center / 18px 18px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z'/></svg>") center / 18px 18px no-repeat;
+}
+.blocklyToolboxDiv .blocklyTreeIconOpen::before {
+  transform: rotate(90deg);
+}
+
+/* A line down the right edge of the Blockly toolbox, in the color of the toolbars' borders (drawn inside the box, so the
+   toolbox keeps its width and the flyout its position). */
+.blocklyToolboxDiv {
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.24);
+}
+.dark-mode .blocklyToolboxDiv {
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.24);
+}
+
 /* Blockly's toolbox and its small control icons (which are dark images). */
 .dark-mode .blocklyToolboxDiv {
   background-color: #1e1e1e !important;
 }
 
-/* The expand/collapse arrow beside a toolbox category with sub-categories
-   (Examples) is a dark image, so it is inverted to white. */
-.dark-mode .blocklyTreeIcon {
-  filter: invert(1);
+/* The block search field in the toolbox: its typed text is the browser's black, which cannot be read on the dark
+   toolbox, so it is a light grey (the same one the toolbox's category names have), with a lighter placeholder. */
+.dark-mode .blocklyToolboxDiv input[type="search"] {
+  color: #e0e0e0;
+  caret-color: #e0e0e0;
+}
+.dark-mode .blocklyToolboxDiv input[type="search"]::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+
+/* With Subdued Palette on as well, the toolbox's text is the same softer grey the About tab has there, not bright white. */
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv .blocklyTreeRow,
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv .blocklyTreeLabel,
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv input[type="search"] {
+  color: #b0b0b0 !important;
+}
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv input[type="search"] {
+  caret-color: #b0b0b0;
+}
+.dark-mode.desaturate-app-colors .blocklyToolboxDiv input[type="search"]::placeholder {
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .dark-mode .blocklyTreeRow:hover,
@@ -3381,6 +3728,190 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .dark-mode.desaturate-app-colors.v-application .compile-log-error {
   color: #e05555 !important;
+}
+/* A short name under each icon of the top toolbar, in a smaller font than the sidebar's and the color of its icon.
+   The name is placed under the icon without taking any width, so the buttons keep the spacing they have without
+   names (neighbors' names are narrower than the gap). Expert mode (the root's hide-description-text class) takes the
+   names away and the buttons go back to icon height. */
+.v-application .top-toolbar.v-app-bar .v-btn {
+  height: 52px !important;
+  /* As wide as the space between two icons, so the highlight of the current tab covers even the widest name and the
+     icons are evenly 54px apart. */
+  min-width: 54px !important;
+  margin: 0 !important;
+}
+.top-toolbar .v-btn .v-btn__content {
+  padding-bottom: 16px;
+}
+.top-toolbar .top-toolbar-label {
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: inherit;
+}
+.hide-description-text .top-toolbar .top-toolbar-label {
+  display: none;
+}
+.v-application.hide-description-text .top-toolbar.v-app-bar .v-btn {
+  height: 36px !important;
+  min-width: 36px !important;
+  margin: 0 4px !important;
+}
+.hide-description-text .top-toolbar .v-btn .v-btn__content {
+  padding-bottom: 0;
+}
+/* The left sidebar's drag handle: the same strip and grip as the emulator's, on the sidebar's right edge. */
+.sidebar-resize-handle {
+  position: fixed;
+  top: 72px;
+  width: 10px;
+  cursor: ew-resize;
+  z-index: 20;
+}
+.sidebar-resize-handle:hover {
+  background-color: rgba(0, 0, 0, 0.15);
+}
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 40px;
+  border-radius: 2px;
+  background-color: #bdbdbd;
+}
+.sidebar-resize-handle:hover::after {
+  background-color: #757575;
+}
+.nav-drawer .nav-drawer-inner {
+  overflow-x: hidden;
+}
+.nav-drawer .v-list-item {
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* Narrowed: each name goes under its icon, small like the top toolbar's. The icons stay exactly where they are in the
+   wide sidebar (8px color bar, 16px, icon), and each name is centered under its icon. */
+.nav-drawer.sidebar-stacked .v-list-item {
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 4px 0;
+  /* The same row height as the full width sidebar. */
+  min-height: 56px;
+}
+.nav-drawer.sidebar-stacked .v-list-item::after {
+  /* Vuetify's min-height spacer would become a second row in a column. */
+  display: none;
+}
+.nav-drawer.sidebar-stacked .v-list-item .v-list-item__icon {
+  margin: 0 0 0 16px !important;
+  align-self: flex-start;
+}
+.nav-drawer.sidebar-stacked .v-list-item .v-list-item__content {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 24px;
+  margin-left: 16px;
+  padding: 0;
+  overflow: visible;
+}
+.nav-drawer.sidebar-stacked .v-list-item .v-list-item__title {
+  /* Centered on the 24px box under the icon, however wide the name is. */
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  flex: none;
+  overflow: visible;
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 400;
+}
+/* The current tab has no color bar (the inactive ones have an 8px one), so it gets the same width as padding: the icons
+   are in the same place on every row, in the wide, narrow and icon-only sidebars. */
+.nav-drawer .v-list-item.v-list-item--active {
+  padding-left: 24px;
+}
+.nav-drawer.sidebar-stacked .v-list-item.v-list-item--active {
+  padding-left: 8px;
+}
+/* The narrow and icon-only sidebars scroll without a scrollbar, so their width is the same on every row. */
+.nav-drawer.sidebar-stacked .nav-drawer-inner,
+.hide-description-text .nav-drawer .nav-drawer-inner {
+  scrollbar-width: none;
+}
+.nav-drawer.sidebar-stacked .nav-drawer-inner::-webkit-scrollbar,
+.hide-description-text .nav-drawer .nav-drawer-inner::-webkit-scrollbar {
+  display: none;
+}
+/* Expert mode: no names in the sidebar at all, just the icons, in the same place as in the wide sidebar. */
+.hide-description-text .nav-drawer .v-list-item .v-list-item__content {
+  display: none;
+}
+.hide-description-text .nav-drawer .v-list-item {
+  justify-content: flex-start;
+  padding: 0 0 0 16px;
+  /* The same row height as the other sidebar sizes. */
+  min-height: 56px;
+}
+.hide-description-text .nav-drawer .v-list-item.v-list-item--active {
+  padding-left: 16px;
+}
+/* No color bars beside the icons in Expert mode, so the icons are centered in the bar. */
+.hide-description-text .nav-drawer .v-list-item:not(.v-list-item--active) {
+  border-left: 0 !important;
+}
+.hide-description-text .nav-drawer .v-list-item .v-list-item__icon {
+  margin: 0 !important;
+  align-self: center;
+}
+/* High Contrast: the icons (and their names) of the left and top toolbars are black, or white in Dark Mode, instead
+   of a color for each tab. */
+.v-application.colorblind-mode .top-toolbar .v-btn,
+.v-application.colorblind-mode .top-toolbar .v-btn .v-icon,
+.v-application.colorblind-mode .top-toolbar .v-btn .top-toolbar-label,
+.v-application.colorblind-mode .nav-drawer .v-list-item,
+.v-application.colorblind-mode .nav-drawer .v-list-item > .v-list-item__icon > .v-icon,
+.v-application.colorblind-mode .nav-drawer .v-list-item > .v-list-item__content {
+  color: #000 !important;
+  filter: none !important;
+}
+.v-application.colorblind-mode.dark-mode .top-toolbar .v-btn,
+.v-application.colorblind-mode.dark-mode .top-toolbar .v-btn .v-icon,
+.v-application.colorblind-mode.dark-mode .top-toolbar .v-btn .top-toolbar-label,
+.v-application.colorblind-mode.dark-mode .nav-drawer .v-list-item,
+.v-application.colorblind-mode.dark-mode .nav-drawer .v-list-item > .v-list-item__icon > .v-icon,
+.v-application.colorblind-mode.dark-mode .nav-drawer .v-list-item > .v-list-item__content {
+  color: #fff !important;
+}
+/* With Subdued Palette on as well, the white is the same softer grey the About tab has there. */
+.v-application.colorblind-mode.dark-mode.desaturate-app-colors .top-toolbar .v-btn,
+.v-application.colorblind-mode.dark-mode.desaturate-app-colors .top-toolbar .v-btn .v-icon,
+.v-application.colorblind-mode.dark-mode.desaturate-app-colors .top-toolbar .v-btn .top-toolbar-label,
+.v-application.colorblind-mode.dark-mode.desaturate-app-colors .nav-drawer .v-list-item,
+.v-application.colorblind-mode.dark-mode.desaturate-app-colors .nav-drawer .v-list-item > .v-list-item__icon > .v-icon,
+.v-application.colorblind-mode.dark-mode.desaturate-app-colors .nav-drawer .v-list-item > .v-list-item__content {
+  color: #b0b0b0 !important;
+}
+/* Without the top toolbar (Options: Never show top toolbar) the sidebar and the emulator pane start at the top of the
+   window, so what is placed below the toolbar moves up with them. */
+.v-application.no-top-toolbar .sidebar-resize-handle,
+.v-application.no-top-toolbar .emulator-resize-handle {
+  top: 0;
+}
+.v-application.no-top-toolbar .emulator-hide-button,
+.v-application.no-top-toolbar .emulator-show-button {
+  top: 8px;
 }
 </style>
 <style scoped>
@@ -3647,18 +4178,24 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   width: 3px;
   height: 40px;
   border-radius: 2px;
-  background-color: rgba(0, 0, 0, 0.25);
+  background-color: #bdbdbd;
 }
 
 .emulator-resize-handle:hover::after {
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: #757575;
 }
 
 .emulator-toolbar-row {
   display: flex;
   align-items: center;
+  /* A pane too narrow for the tool icons next to the refresh button puts all of them together on a line below it. */
+  flex-wrap: wrap;
+  row-gap: 2px;
   margin-top: 8px;
   margin-bottom: 4px;
+}
+.emulator-toolbar-row .emulator-refresh-button {
+  flex: 0 0 auto;
 }
 
 /* Holds the screenshot and keyboard-mapping buttons together at the row's far
@@ -3667,8 +4204,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-toolbar-icons {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 4px;
   margin-left: auto;
+}
+.emulator-toolbar-wrapped .emulator-toolbar-icons {
+  margin-right: auto;
+}
+/* Both lines are centered when the icons are on a line below the button. */
+.emulator-toolbar-wrapped {
+  justify-content: center;
 }
 
 .emulator-toolbar-divider {
@@ -3703,8 +4248,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-hide-button {
   position: fixed;
   top: 80px;
-  transform: translateX(calc(-50% - 4px));
-  z-index: 20;
+  /* Its right edge 8px from the emulator pane, the same as the space above it (80px down, 72px toolbar). */
+  transform: translateX(-8px);
+  /* Above the toolbox and its drawer of blocks (the toolbox is 70), which reach over to this edge. */
+  z-index: 80;
   box-shadow: none !important;
 }
 
@@ -3719,7 +4266,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   position: fixed;
   top: 80px;
   right: 21px;
-  z-index: 20;
+  z-index: 80;
   box-shadow: none !important;
 }
 
@@ -4383,11 +4930,11 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   width: 40px;
   height: 3px;
   border-radius: 2px;
-  background-color: rgba(0, 0, 0, 0.25);
+  background-color: #bdbdbd;
 }
 
 .error-resize-handle:hover::after {
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: #757575;
 }
 
 /* White-based, not the plain black-based rgba() every rest-state rule above
@@ -4406,17 +4953,20 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    in Dark Mode (with or without Subdued Palette). With Subdued Palette alone the
    surfaces stay light grey, so the black-based rest-state values above apply. */
 .dark-mode .error-resize-handle:hover,
-.dark-mode .emulator-resize-handle:hover {
+.dark-mode .emulator-resize-handle:hover,
+.dark-mode .sidebar-resize-handle:hover {
   background-color: rgba(255, 255, 255, 0.15);
 }
 
 .dark-mode .error-resize-handle::after,
-.dark-mode .emulator-resize-handle::after {
-  background-color: rgba(255, 255, 255, 0.25);
+.dark-mode .emulator-resize-handle::after,
+.dark-mode .sidebar-resize-handle::after {
+  background-color: #606060;
 }
 
 .dark-mode .error-resize-handle:hover::after,
-.dark-mode .emulator-resize-handle:hover::after {
-  background-color: rgba(255, 255, 255, 0.4);
+.dark-mode .emulator-resize-handle:hover::after,
+.dark-mode .sidebar-resize-handle:hover::after {
+  background-color: #a8a8a8;
 }
 </style>

@@ -470,7 +470,7 @@ export default defineComponent({
       handleChildChange();
     };
 
-    // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) put a reordered card back; nothing else on this tab has an
+    // Ctrl+Z / Ctrl+Y put a reordered card back; nothing else on this tab has an
     // undo.
     const handleHistoryHotkey = (event) => {
       const history = undoRedoKind(event);
