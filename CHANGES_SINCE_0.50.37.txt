@@ -1173,3 +1173,12 @@ Playfield rename, toolbar labels and sidebar sizes, Colorblind Mode
   Mode as well.
 - The tip popup shows "Tip X / Y" next to its arrows, its checkbox lines up with the arrows and the text above it, and
   there is a new tip about Dark Mode and Subdued Palette.
+
+=== 0.52.20 ===
+Toolbar and emulator pane polish
+
+- In the top toolbar, the highlight of the current tab is wide enough for the name under its icon, and the icons stay
+  evenly spaced.
+- When the emulator pane is too narrow for its tool icons next to the Refresh emulator button, all of them move to a
+  line below it, centered.
+- In Dark Mode, the text typed into the block search field of the toolbox is light, so it can be read.

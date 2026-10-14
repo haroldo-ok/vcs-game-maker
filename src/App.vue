@@ -295,7 +295,7 @@
       :mobile-breakpoint="0"
     >
       <div class="emulator-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
-        <div class="emulator-toolbar-row">
+        <div class="emulator-toolbar-row" :class="{'emulator-toolbar-wrapped': emulatorToolbarWrapped}">
           <v-btn
             small
             class="emulator-refresh-button"
@@ -765,6 +765,7 @@ export default {
   data: () => ({
     drawer: null,
     emulatorWidth: readStoredWidth(),
+    emulatorToolbarWrapped: false,
     sidebarWidth: readStoredSidebarWidth(),
     resizingSidebar: false,
     emulatorVisible: readStoredEmulatorVisible(),
@@ -1363,7 +1364,17 @@ export default {
     handleWindowResize() {
       this.updateEmulatorScale();
     },
+    // Whether the emulator's tool icons are on a line below the refresh button (the pane is too narrow for both on one line),
+    // where they are centered instead of at the right.
+    updateToolbarWrap() {
+      const row = this.$el && this.$el.querySelector && this.$el.querySelector('.emulator-toolbar-row');
+      const button = row && row.querySelector('.emulator-refresh-button');
+      const icons = row && row.querySelector('.emulator-toolbar-icons');
+      if (!button || !icons) return;
+      this.emulatorToolbarWrapped = icons.offsetTop >= button.offsetTop + button.offsetHeight;
+    },
     updateEmulatorScale(retriesLeft = EMULATOR_MEASURE_RETRIES) {
+      this.updateToolbarWrap();
       if (document.fullscreenElement) this.syncFullscreenAspect();
       const container = document.getElementById('gopher2600-target-container');
       const screen = document.getElementById('gopher2600-screen');
@@ -3456,6 +3467,16 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   background-color: #1e1e1e !important;
 }
 
+/* The block search field in the toolbox: its typed text is the browser's black, which cannot be read on the dark
+   toolbox, so it is a light grey (the same one the toolbox's category names have), with a lighter placeholder. */
+.dark-mode .blocklyToolboxDiv input[type="search"] {
+  color: #e0e0e0;
+  caret-color: #e0e0e0;
+}
+.dark-mode .blocklyToolboxDiv input[type="search"]::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
 /* The expand/collapse arrow beside a toolbox category with sub-categories
    (Examples) is a dark image, so it is inverted to white. */
 .dark-mode .blocklyTreeIcon {
@@ -3671,8 +3692,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    names away and the buttons go back to icon height. */
 .v-application .top-toolbar.v-app-bar .v-btn {
   height: 52px !important;
-  /* Evenly further apart than without names (4px each side) so the names do not touch. */
-  margin: 0 9px !important;
+  /* As wide as the space between two icons, so the highlight of the current tab covers even the widest name and the
+     icons are evenly 54px apart. */
+  min-width: 54px !important;
+  margin: 0 !important;
 }
 .top-toolbar .v-btn .v-btn__content {
   padding-bottom: 16px;
@@ -3695,6 +3718,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 .v-application.hide-description-text .top-toolbar.v-app-bar .v-btn {
   height: 36px !important;
+  min-width: 36px !important;
   margin: 0 4px !important;
 }
 .hide-description-text .top-toolbar .v-btn .v-btn__content {
@@ -4107,8 +4131,14 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-toolbar-row {
   display: flex;
   align-items: center;
+  /* A pane too narrow for the tool icons next to the refresh button puts all of them together on a line below it. */
+  flex-wrap: wrap;
+  row-gap: 2px;
   margin-top: 8px;
   margin-bottom: 4px;
+}
+.emulator-toolbar-row .emulator-refresh-button {
+  flex: 0 0 auto;
 }
 
 /* Holds the screenshot and keyboard-mapping buttons together at the row's far
@@ -4117,8 +4147,12 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .emulator-toolbar-icons {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 4px;
   margin-left: auto;
+}
+.emulator-toolbar-wrapped .emulator-toolbar-icons {
+  margin-right: auto;
 }
 
 .emulator-toolbar-divider {
