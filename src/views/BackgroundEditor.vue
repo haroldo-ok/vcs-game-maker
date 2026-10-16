@@ -63,7 +63,7 @@
                         <v-slider
                           v-model="heightMenuValue"
                           :min="1"
-                          :max="64"
+                          :max="maxBackgroundRows"
                           label="Height"
                           class="align-center"
                           style="width: 400px"
@@ -531,6 +531,8 @@ export default defineComponent({
 
     // DPC+: a background can set the number of rows on screen (pfres); left empty it follows the project's (Options tab).
     const kernelIsDpcPlus = computed(() => !!(configurationStorage.value && configurationStorage.value.kernel === 'dpcplus'));
+    // DPC+ keeps up to 255 rows of playfield; a background taller than fits with the screen scrolls without wrapping.
+    const maxBackgroundRows = computed(() => kernelIsDpcPlus.value ? 255 : 64);
     const defaultPfres = computed(() => dpcPlusPfresOf(configurationStorage.value));
     const handleChangeBackgroundPfres = (background, value) => {
       const rows = Math.round(Number(value));
@@ -606,7 +608,7 @@ export default defineComponent({
     const handleUnifiedSetHeight = () => {
       const background = selectedBackground.value;
       if (!background) return;
-      heightMenuValue.value = Math.max(1, Math.min(64, heightMenuValue.value || 0));
+      heightMenuValue.value = Math.max(1, Math.min(maxBackgroundRows.value, heightMenuValue.value || 0));
       const before = heightSnapshot(background);
       if (heightMenuValue.value !== background.pixels.length) {
         // Same customHeight flag handleBackgroundPixelsInput/
@@ -933,7 +935,7 @@ export default defineComponent({
       activeEditor, setActiveEditor, selectedBackground,
       effectiveEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
-      handleSetHeightHotkey, kernelIsDpcPlus, defaultPfres, handleChangeBackgroundPfres};
+      handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres};
   },
 });
 </script>

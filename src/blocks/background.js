@@ -1,5 +1,6 @@
 'use strict';
 
+import {superchipOn} from '../utils/superchip';
 import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
@@ -305,7 +306,7 @@ export const dpcPlusPfresOf = (config) => {
   const cfg = config || {};
   if (Number(cfg.dpcPlusPfres) > 0) return Math.round(Number(cfg.dpcPlusPfres));
   // A project that never set it follows the standard kernel's settings it came from.
-  const superchip = cfg.enableSuperchipStandard !== undefined ? cfg.enableSuperchipStandard : cfg.enableSuperchip;
+  const superchip = cfg.enableSuperchipStandard !== undefined ? cfg.enableSuperchipStandard : !!cfg.enableSuperchip;
   return superchip ? Math.max(1, Number(cfg.pfres) || 12) : 12;
 };
 
@@ -322,7 +323,7 @@ export const effectiveBackgroundRows = (config) => {
   // DPC+ sets a number of playfield rows (the one extra row below the screen is counted in
   // backgroundDataRows, like without Superchip).
   if (cfg.kernel === 'dpcplus') return Math.max(1, dpcPlusPfresOf(cfg) - 1);
-  return cfg.enableSuperchip ? Math.max(1, Number(cfg.pfres) || DEFAULT_BACKGROUND_ROWS) :
+  return superchipOn(cfg) ? Math.max(1, Number(cfg.pfres) || DEFAULT_BACKGROUND_ROWS) :
     DEFAULT_BACKGROUND_ROWS;
 };
 
@@ -331,7 +332,7 @@ export const effectiveBackgroundRows = (config) => {
 // keeps below the 11 you can see (its implicit pfres is 12). It scrolls into
 // view with pfscroll. With Superchip, pfres already counts that row.
 export const backgroundDataRows = (config) =>
-  effectiveBackgroundRows(config) + ((config && config.enableSuperchip) ? 0 : 1);
+  effectiveBackgroundRows(config) + ((config && superchipOn(config)) ? 0 : 1);
 
 // Pads every background's pixel matrix (and per-row colors, if set) up to
 // targetRows. Used when the global playfield resolution (pfres) changes, since
@@ -580,7 +581,7 @@ Blockly.Extensions.register('background_scroll_direction_sync', function() {
   if (!field) return;
   const optionsForCurrentConfig = () => {
     const cfg = useConfigurationStorage().value || {};
-    if (!cfg.enableSuperchip) return BACKGROUND_PFSCROLL_OPTIONS;
+    if (!superchipOn(cfg)) return BACKGROUND_PFSCROLL_OPTIONS;
     return BACKGROUND_PFSCROLL_OPTIONS.filter(([, value]) => value !== 'left' && value !== 'right');
   };
   field.menuGenerator_ = optionsForCurrentConfig;

@@ -39,6 +39,17 @@ module.exports = {
       },
     },
     {
+      // One file that runs on any Linux distribution, with no install (needs mksquashfs when it is made).
+      name: '@reforged/maker-appimage',
+      platforms: ['linux'],
+      config: {
+        options: {
+          icon: 'build/icons/512x512.png',
+          categories: ['Development', 'Game'],
+        },
+      },
+    },
+    {
       name: '@electron-forge/maker-rpm',
       config: {
         options: {

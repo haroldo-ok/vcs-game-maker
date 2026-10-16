@@ -250,6 +250,10 @@ export const useProjectShowSoundBanksStorage = () =>
   useBooleanAppSetting('vcs-game-maker.projectShowSoundBanks');
 export const useHideDescriptionTextStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideDescriptionText');
+// Expert mode only (see App.vue): the left and top toolbars show just their icons, without the names. On unless turned off, so Expert
+// mode keeps looking the way it did before there was a switch for this.
+export const useHideToolbarLabelsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.hideToolbarLabels', true);
 // Whether a tip pops up when the app starts (see App.vue and hooks/tips.js). The popup's "Don't show again" checkbox
 // turns it off, and the VCSGM Options switch turns it back on.
 export const useShowStartupTipsStorage = () =>

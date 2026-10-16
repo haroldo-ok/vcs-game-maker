@@ -17,3 +17,7 @@ export const getFastMathSiblingFiles = (kernel) => {
   }
   return cache[key];
 };
+
+// On DPC+ the coprocessor does the big divisions and no table has to be kept, so it is always used there (when a block multiplies or
+// divides by something that is not a power of 2); the other kernels use it when the Options tab's switch is on.
+export const fastMathOn = (configuration) => configuration.kernel === 'dpcplus' || !!configuration.enableFastMath;

@@ -10,6 +10,7 @@
  */
 'use strict';
 
+import {superchipOn} from '../utils/superchip';
 import Blockly from 'blockly/core';
 import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
@@ -17,6 +18,7 @@ import {sumBy, chunk} from 'lodash';
 
 import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage,
   usePlayerAnimationsStorage, useSongsStorage, useTitleScreenStorage} from '../hooks/project';
+import {useRomCapacity} from '../hooks/rom-capacity';
 import {processSongsStorageDefaults} from '../blocks/music';
 import {getRelocationBanks} from '../hooks/relocation-banks';
 import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
@@ -32,6 +34,7 @@ import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, resolveUsedBackgroundIds,
   ROW_FADE_IDLE_STEP, rowFadeStartColor, multicolorFadeVarName,
   backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME, FADE_STEPS} from '../blocks/background';
+import {chooseSpill, applySpill, remainingUses} from './bbasic/spill';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
@@ -198,6 +201,25 @@ export const USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP =
 // to the letter pool exactly as it always did, so a Superchip project's real
 // total budget is 32 + 26 = 58 slots, not a hard 32-slot ceiling.
 export const SUPERCHIP_VAR_START = 12;
+
+// The blocks whose generated code reads the display memory into a scratch byte (see readScratchNames in init()), and how many extra
+// scratch bytes a statement with many such reads can be given.
+const READ_SCRATCH_BLOCK_TYPES = ['display_ram_get', 'data_stream_read'];
+const MAX_EXTRA_READ_SCRATCH = 6;
+
+// The Variables blocks a user variable may be used by and still live in the display memory (see displayRamEligibleNames in init()),
+// and how many bytes of it there are for them: six areas of 128.
+const DISPLAY_RAM_VARIABLE_BLOCK_TYPES = ['variables_get', 'variables_set', 'math_change'];
+// How many uses of the variables spilled beyond the ones that have to be (see chooseSpill) the code may have: a few when the last
+// build was nearly full, many when it left room.
+const spillUseBudget = () => {
+  // A build that keeps overflowing has no room for variables that did not have to move.
+  if (Blockly.BBasic.spillTight) return 60;
+  const capacity = useRomCapacity().value;
+  return capacity && capacity.total && capacity.total.freeBytes > SPILL_ROOM_BYTES ? 2000 : 300;
+};
+const SPILL_ROOM_BYTES = 3000;
+const DISPLAY_RAM_VAR_CAPACITY = 768;
 export const SUPERCHIP_VAR_END = 43;
 
 // DPC+'s own always-on bonus RAM pool - 9 plain zero-page bytes (var0-var8),
@@ -260,7 +282,21 @@ const TEXT_MINIKERNEL_RESERVED_LETTERS = ['b'];
 const RUN_ONCE_EDGE_RESET_NAME = '_run_once_edge_reset';
 // The color fade routines (hand-written state machines, the biggest block of fixed per-frame code) run as an
 // ordinary subroutine the same way, so a project that does not fit in bank 1 can move them out of it.
+// How many digits the score has: the Score tab's choice, except that the cycle score (the remaining CPU cycles shown as the score)
+// always has all six.
+const scoreDigitsOf = (config) => config.enableCycleScore ? 6 : config.scoreDigits;
 const BG_FADE_CHECKS_NAME = '_bg_fade_checks';
+const ROW_FADE_CHECKS_NAME = '_row_fade_checks';
+const BACKGROUND_LOAD_NAME = '_background_load';
+// The routines were written to be spliced in as they are; as a subroutine the code goes through
+// normalizeIndents, which wants labels marked with "@" and the closing "end" as "@end".
+const asSubroutineBody = (code) => code.split('\n').map((line) => {
+  const text = line.trim();
+  if (text === '') return '';
+  if (text === 'asm') return 'asm';
+  if (text === 'end') return '@end';
+  return /^[ ]/.test(line) ? text : '@' + text;
+}).join('\n');
 // Where the DPC+ kernel keeps the arguments of a Data table lookup by a runtime id (see reserveDevVarRW in init()).
 const DPCPLUS_SCRATCH_ARGS = {tableLookupArg1: 'temp5', tableLookupArg2: 'temp6', tableLookupArg3: 'temp4'};
 
@@ -1704,7 +1740,7 @@ Blockly.BBasic.init = function(workspace) {
     }
     if (routedDevVarNames.has(name)) return name;
     routedDevVarNames.add(name);
-    if (config.enableSuperchip && this.superchipVars.length < superchipVarBudget) {
+    if (superchipOn(config) && this.superchipVars.length < superchipVarBudget) {
       this.superchipVars.push(name);
     } else if (this.dpcPlusVars.length < dpcPlusVarBudget) {
       this.dpcPlusVars.push(name);
@@ -2082,8 +2118,15 @@ Blockly.BBasic.init = function(workspace) {
   if (this.dataBitDispatchByIdUsed) {
     reserveDevVarRW(dataBitDispatchArg3VarName(), 'a Data table bit lookup by runtime id: the bit-index argument');
   }
+  // Only as many argument slots as a call can fill or a Function can read: a call hands over the arguments its blocks connect, and a
+  // Function reads the ones its Function argument blocks name (a slot nobody reads or fills costs a variable, and a store in every call).
+  this.functionCallArgCount = 0;
   if (this.functionCallStatementUsed) {
-    for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
+    const connected = workspace.getBlocksByType('function_call', false).concat(workspace.getBlocksByType('function_call_statement', false))
+        .map((block) => Math.max(0, ...Array.from({length: MAX_FUNCTION_ARGS}, (_, i) => i + 1)
+            .filter((i) => block.getInputTargetBlock(`ARG${i}`))));
+    this.functionCallArgCount = Math.max(0, ...connected, ...(this.functionParamIndicesUsed || []));
+    for (let i = 1; i <= this.functionCallArgCount; i++) {
       reserveDevVarRW(functionCallArgVarName(i), `calling a Function as a bare statement passes argument ${i} through here`);
     }
   }
@@ -2679,6 +2722,31 @@ Blockly.BBasic.init = function(workspace) {
       break;
     }
   }
+  // A background too tall to wrap seamlessly (its rows plus the rows on screen do not fit in the 255) scrolls without wrapping
+  // instead: it is laid out once from the top of the playfield memory, and the scroll stops at either end.
+  if (dpcPlusScroll && !this.dpcPlusScroll && (this.backgroundScrollUsed || colorsScrollUsed) && includedBackgrounds.length &&
+      includedBackgrounds.every((background) => (background.pixels || []).length)) {
+    for (const fine of [1, 2, 4, 8, 16, 32, 64, 128, 255]) {
+      if (!includedBackgrounds.every((background) => {
+        const lines = backgroundLines(background);
+        return fine <= lines && lines % fine === 0 && background.pixels.length * (lines / fine) <= 255;
+      })) continue;
+      const enabledBlocks = workspace.getAllBlocks(false).filter((block) => block.isEnabled());
+      const pfColors = enabledBlocks.some(scrollsPfColors);
+      const bkColors = enabledBlocks.some(scrollsBkColors);
+      const common = {fine, colors: pfColors || bkColors, pfColors, bkColors, noWrap: true};
+      this.dpcPlusScrollFor = (background) => {
+        const repeats = backgroundLines(background) / fine;
+        const rows = background.pixels.length * repeats;
+        // The rows on screen, and so how far down the picture the top of the view can go.
+        const screenLines = Math.min(DPC_PLUS_SCREEN_LINES, Math.max(1, backgroundPfresOf(background, config)) * backgroundLines(background));
+        const windowRows = Math.ceil(screenLines / fine);
+        return {...common, repeats, rows, windowRows, limit: Math.max(0, rows - windowRows)};
+      };
+      this.dpcPlusScroll = this.dpcPlusScrollFor(includedBackgrounds[0]);
+      break;
+    }
+  }
   this.dpcPlusScrollRows = this.dpcPlusScroll ? this.dpcPlusScroll.rows : 0;
   // Backgrounds that set a pfres differ in row height and row count. What the code that works with the playfield
   // rows needs to know about the background showing is kept in variables that each background's load sets (only the ones a block of the
@@ -2713,7 +2781,7 @@ Blockly.BBasic.init = function(workspace) {
         this.dpcPlusRowLinesVar = reserveDevVar('_dpcRowLines', undefined, 'DPC+ playfield: lines in a row of the background showing');
         this.dpcPlusRowMaxVar = reserveDevVar('_dpcRowMax', undefined, 'DPC+ playfield: the last row of the background showing');
       }
-      if (this.dpcPlusScroll && new Set(includedBackgrounds.map((background) => this.dpcPlusScrollFor(background).rows)).size > 1) {
+      if (this.dpcPlusScroll && new Set(includedBackgrounds.map((background) => dpcPlusScrollTravel(this.dpcPlusScrollFor(background)))).size > 1) {
         this.dpcPlusScrollRowsVar = reserveDevVar('_dpcScrollRows', undefined,
             'DPC+ playfield scroll: how many rows the background showing takes, which is how far a scroll wraps');
       }
@@ -2809,6 +2877,46 @@ Blockly.BBasic.init = function(workspace) {
     this.userVarNames.add(userVarName);
     userVarNameById[variables[i].getId()] = userVarName;
   }
+  // The user variables that can live in the display memory when the project runs out of ordinary variable space (see where they
+  // are taken out of defvars below): the ones only the Variables blocks that read, set and change a variable use, and not in the
+  // condition of a "while" (which is checked again every time round, where the byte a read leaves ahead of the statement would be stale).
+  const displayRamNotIds = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    const plain = DISPLAY_RAM_VARIABLE_BLOCK_TYPES.includes(block.type);
+    block.inputList.forEach((input) => input.fieldRow.forEach((field) => {
+      if (!field.referencesVariables || !field.referencesVariables()) return;
+      if (!plain) displayRamNotIds.add(field.getValue());
+    }));
+    if (block.type === 'variables_get') {
+      let child = block;
+      for (let parent = block.getParent(); parent; child = parent, parent = parent.getParent()) {
+        if (parent.type === 'controls_whileUntil' && parent.getInputTargetBlock('BOOL') === child) {
+          displayRamNotIds.add(block.getFieldValue('VAR'));
+          break;
+        }
+      }
+    }
+  });
+  this.displayRamEligibleNames = new Set(Object.entries(userVarNameById)
+      .filter(([id, name]) => !displayRamNotIds.has(id) && !(this.displayRamExcluded && this.displayRamExcluded.has(name))).map(([, name]) => name));
+
+  // Blocks that read the display memory (Display RAM get, Data stream read, a spilled variable) hand the byte over in a scratch byte:
+  // temp5, temp6, and for a statement that has more of them than that, bytes reserved here. The most any one statement needs is
+  // counted by walking up from each such block to the statement it sits in.
+  const readsPerStatement = new Map();
+  workspace.getAllBlocks(false).filter((block) => block.isEnabled() &&
+      (READ_SCRATCH_BLOCK_TYPES.includes(block.type) ||
+      (block.type === 'variables_get' && this.displayRamEligibleNames.has(userVarNameById[block.getFieldValue('VAR')])))).forEach((block) => {
+    let statement = block;
+    while (statement.outputConnection && statement.getParent()) statement = statement.getParent();
+    readsPerStatement.set(statement, (readsPerStatement.get(statement) || 0) + 1);
+  });
+  const mostReads = Math.max(0, ...readsPerStatement.values());
+  Blockly.BBasic.readScratchNames = ['temp5', 'temp6'];
+  for (let i = 0; i < Math.min(mostReads - 2, MAX_EXTRA_READ_SCRATCH); i++) {
+    Blockly.BBasic.readScratchNames.push(reserveDevVar(`_readScratch${i}`, undefined,
+        'holds a byte read from the display memory while the rest of a long expression is worked out'));
+  }
 
   // Add the run-once flag bytes computed above, after user variables so an
   // unrelated change in how many "Run once" blocks a project uses never
@@ -2817,7 +2925,7 @@ Blockly.BBasic.init = function(workspace) {
   // canonical IDs needing nameDB_'s  sanitizing/dedup pass - unlike every
   // category above), so they go through routeDevVar directly, same as the
   // original code pushed them into defvars directly.
-  const runOnceDefvarsStart = defvars.length;
+  let runOnceDefvarsStart = defvars.length;
   const runOnceSuperchipStart = this.superchipVars.length;
   runOnceByteNames.forEach((name) => routeDevVar(name));
   // Split matches exactly how routeDevVar just placed them: whichever ran
@@ -2897,10 +3005,12 @@ Blockly.BBasic.init = function(workspace) {
   // top regardless of Superchip - see its  comment for why.
   // A system variable this build does without hands its slot to this pool (at the end of it).
   const omittedSystemVars = this.omittedSystemVars || new Set();
+  const spilledSystemVars = new Set(this.spillPlan ? SYSTEM_VARIABLES.map(([name]) => name).filter((name) => this.spillPlan.has(name)) : []);
   const freedSystemSlots = SYSTEM_VARIABLES
-      .map(([name, letter], i) => omittedSystemVars.has(name) ? (config.enableSuperchip ? `var${i}` : letter) : null)
+      .map(([name, letter], i) => (omittedSystemVars.has(name) || spilledSystemVars.has(name)) ?
+        (superchipOn(config) ? `var${i}` : letter) : null)
       .filter(Boolean);
-  const baseAvailableLetters = (config.enableSuperchip ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP)
+  const baseAvailableLetters = (superchipOn(config) ? ALL_LETTERS : USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP)
       .concat(freedSystemSlots);
   const availableLetters = this.isTextMinikernelActive() ?
     baseAvailableLetters.filter((letter) => !TEXT_MINIKERNEL_RESERVED_LETTERS.includes(letter)) :
@@ -2912,13 +3022,43 @@ Blockly.BBasic.init = function(workspace) {
   // already describe. Computed unconditionally (even when defvars.length is
   // 0, e.g. every dev var fit inside the Superchip pool alone) so the display
   // still has real numbers rather than needing its  fallback logic.
-  // Past the letters, a DPC+ project's variables go in the memory the kernel leaves free (DPCPLUS_FREED_SPRITE_RAM).
+  // Before the letters, a DPC+ project's variables go in the memory the kernel leaves free (DPCPLUS_FREED_SPRITE_RAM).
   const freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, this.isTextMinikernelActive(), this.titleScreenDrawUsed);
   this.dpcPlusSpriteVars = [];
-  if (config.kernel === 'dpcplus' && defvars.length > availableLetters.length) {
-    this.dpcPlusSpriteVars = defvars.splice(availableLetters.length, freedSpriteRam.length);
+  // They are used before the letters, not after: the first variables take them (not the run-once bytes at the end, which keep their order).
+  if (config.kernel === 'dpcplus' && freedSpriteRam.length) {
+    const movable = Math.min(freedSpriteRam.length, runOnceDefvarsStart);
+    this.dpcPlusSpriteVars = defvars.splice(0, movable);
+    runOnceDefvarsStart -= movable;
   }
   this.dpcPlusSpriteVarSlot = (name) => freedSpriteRam[this.dpcPlusSpriteVars.indexOf(name)];
+  // Still more variables than there is room for: some user variables go in the display memory instead (DPC+ only), when it has the
+  // spare bytes (see displayRamProblem in generators/bbasic/variables.js). They are given the bytes from the top of the last area down, the
+  // opposite end to the one the Display RAM blocks are meant for, and every use of one reads and writes the byte through a data fetcher.
+  this.displayRamVars = new Map();
+  Blockly.BBasic.displayRamVars = this.displayRamVars;
+  if (this.spillPlan && config.kernel === 'dpcplus' && !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127) {
+    [...this.spillPlan].forEach((name) => {
+      const i = defvars.indexOf(name);
+      if (this.displayRamVars.size >= DISPLAY_RAM_VAR_CAPACITY) return;
+      if (i === -1 && !spilledSystemVars.has(name)) return;
+      if (i !== -1) defvars.splice(i, 1);
+      const index = this.displayRamVars.size;
+      this.displayRamVars.set(name, {area: 5 - Math.floor(index / 128), byte: 127 - (index % 128)});
+      if (i !== -1 && i < runOnceDefvarsStart) runOnceDefvarsStart--;
+    });
+  }
+  // The display memory comes before the letters: every variable that can live there does, so the letters stay free.
+  if (config.kernel === 'dpcplus' && !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127) {
+    for (let i = defvars.length - 1; i >= 0 && this.displayRamVars.size < DISPLAY_RAM_VAR_CAPACITY; i--) {
+      if (!this.displayRamEligibleNames.has(defvars[i])) continue;
+      if (this.titleSharedSlots.some(({target}) => target === defvars[i])) continue;
+      const [name] = defvars.splice(i, 1);
+      const index = this.displayRamVars.size;
+      this.displayRamVars.set(name, {area: 5 - Math.floor(index / 128), byte: 127 - (index % 128)});
+      if (i < runOnceDefvarsStart) runOnceDefvarsStart--;
+    }
+  }
   this.letterVarsUsed = defvars.length;
   // DISPLAY-only total - deliberately NOT availableLetters.length (the real
   // internal cap the "Too many variables" check just above/below actually
@@ -2935,7 +3075,7 @@ Blockly.BBasic.init = function(workspace) {
   this.letterVarsAvailable = this.isTextMinikernelActive() ?
     ALL_LETTERS.length - TEXT_MINIKERNEL_RESERVED_LETTERS.length : ALL_LETTERS.length;
   this.superchipVarsUsed = this.superchipVars.length;
-  this.superchipVarsAvailable = config.enableSuperchip ? superchipVarBudget : 0;
+  this.superchipVarsAvailable = superchipOn(config) ? superchipVarBudget : 0;
   // Same zip order the actual "dim" declarations below (and
   // generateSuperchipVarDims) use - defvars[i]/superchipVars[i] pairs with
   // availableLetters[i]/var${SUPERCHIP_VAR_START + i} respectively. Exposed
@@ -2952,6 +3092,10 @@ Blockly.BBasic.init = function(workspace) {
   this.superchipVarAssignments = this.superchipVars.map((name, i) =>
     ({name, slot: `var${SUPERCHIP_VAR_START + i}`, description: this.devVarDescriptions[name], isUserVariable: this.userVarNames.has(name),
       sharedWith: sharedWithOf(name)}));
+  // Where each variable that went in the display memory is, for the ROM capacity display (the same area and byte numbers the Display RAM blocks use).
+  this.displayRamVarAssignments = [...this.displayRamVars].map(([name, {area, byte}]) =>
+    ({name, slot: `Display RAM area ${area + 1}, byte ${byte}`, description: this.devVarDescriptions[name],
+      isUserVariable: this.userVarNames.has(name), sharedWith: []}));
   this.dpcPlusVarsUsed = this.dpcPlusVars.length + this.dpcPlusSpriteVars.length;
   const dpcPlusVarsAvailableTotal = dpcPlusVarBudget + freedSpriteRam.length;
   this.dpcPlusVarsAvailable = dpcPlusVarBudget ? dpcPlusVarsAvailableTotal : 0;
@@ -2961,16 +3105,23 @@ Blockly.BBasic.init = function(workspace) {
     ({name, slot: this.dpcPlusSpriteVarSlot(name), description: this.devVarDescriptions[name],
       isUserVariable: this.userVarNames.has(name), sharedWith: sharedWithOf(name)})));
   if (defvars.length) {
+    if (defvars.length > availableLetters.length && this.spillProbe) {
+      // A first look at the generated code (see workspaceToCode at the end of this file): it only needs the code, which does not depend
+      // on which names have a slot, so what does not fit is left out here and noted.
+      this.spillProbeInfo = {over: defvars.length - availableLetters.length, names: defvars.slice(), userNames: [...this.userVarNames]};
+      defvars.length = availableLetters.length;
+    }
     if (defvars.length > availableLetters.length) {
       const totalDefined = defvars.length + this.superchipVars.length + this.dpcPlusVars.length +
-        this.dpcPlusSpriteVars.length;
+        this.dpcPlusSpriteVars.length + this.displayRamVars.size;
       const totalAvailable = availableLetters.length +
-        (config.enableSuperchip ? superchipVarBudget : 0) + (dpcPlusVarBudget ? dpcPlusVarsAvailableTotal : 0);
+        (superchipOn(config) ? superchipVarBudget : 0) + (dpcPlusVarBudget ? dpcPlusVarsAvailableTotal : 0) +
+        this.displayRamVars.size;
       // DPC+'s bonus pool has no toggle to suggest enabling (it's already
       // always on), and Superchip is never available alongside DPC+ at all
       // (see Configuration.vue) - the hint only makes sense for the
       // standard kernel with Superchip still off.
-      const hint = (!config.enableSuperchip && config.kernel !== 'dpcplus') ?
+      const hint = (!superchipOn(config) && config.kernel !== 'dpcplus') ?
         ' (enable Superchip RAM on the Options tab to unlock more)' : '';
       throw new Error(`Too many variables: this project defines ${totalDefined}, ` +
         `but only ${totalAvailable} are available${hint}.`);
@@ -3007,7 +3158,7 @@ Blockly.BBasic.init = function(workspace) {
   // gameplay starts, since each side finds the other's leftovers there.
   const slotOf = (name) => {
     const systemIndex = SYSTEM_VARIABLES.findIndex(([systemName]) => systemName === name);
-    if (systemIndex !== -1) return config.enableSuperchip ? `var${systemIndex}` : SYSTEM_VARIABLES[systemIndex][1];
+    if (systemIndex !== -1) return superchipOn(config) ? `var${systemIndex}` : SYSTEM_VARIABLES[systemIndex][1];
     const letterIndex = defvars.indexOf(name);
     if (letterIndex !== -1) return availableLetters[letterIndex];
     if (this.dpcPlusSpriteVars.includes(name)) return this.dpcPlusSpriteVarSlot(name);
@@ -3948,16 +4099,8 @@ Blockly.BBasic.finish = function(code) {
   const generatedBackgroundColorScrollTables = Blockly.BBasic.backgroundColorScrollTopBank ? '' :
     (Blockly.BBasic.backgroundColorScrollTablesAsm || '');
   const fadeChecksAsm = Blockly.BBasic.generateBackgroundFadeChecks();
-  if (fadeChecksAsm) {
-    // The routines were written to be spliced in as they are; as a subroutine the code goes through
-    // normalizeIndents, which wants labels marked with "@" and the closing "end" as "@end".
-    this.subroutines[BG_FADE_CHECKS_NAME] = fadeChecksAsm.split('\n').map((line) => {
-      const text = line.trim();
-      if (text === 'asm') return 'asm';
-      if (text === 'end') return '@end';
-      return /^[ ]/.test(line) ? text : '@' + text;
-    }).join('\n');
-  }
+  if (fadeChecksAsm) this.subroutines[BG_FADE_CHECKS_NAME] = asSubroutineBody(fadeChecksAsm);
+  const rowFadeChecks = Blockly.BBasic.generateRowFadeChecks();
   // The DPC+ sound engine's routine, called at the end of commongamelogic once the frame's sound code has run.
   let generatedDpcPlusAudio = '';
   let dpcAudioNames = null;
@@ -4000,9 +4143,16 @@ Blockly.BBasic.finish = function(code) {
   // side effect already happened during the main workspaceToCode() pass
   // (this file's  blockToCode call, well before finish() runs), same as
   // every other block's  side effects generateDivMul() below depends on.
-  const fadeChecksCall = fadeChecksAsm ? ` gosub ${BG_FADE_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
-      Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(BG_FADE_CHECKS_NAME))}\n` : '';
-  const generatedBackgroundFadeChecks = fadeChecksCall + Blockly.BBasic.generateRowFadeChecks();
+  // The checks do nothing while no fade runs, and a call into another bank costs about a hundred cycles, so the call is only made when
+  // one of the fades is active (the first thing the routine itself looks at).
+  const activeFadeBits = fadeChecksAsm ? [...(Blockly.BBasic.backgroundFadeVarsUsed || [])].map((rawVar) =>
+    `${Blockly.BBasic.nameDB_.getName(fadeFlagsVarName(rawVar), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${fadeActiveBit(rawVar)}}`) : [];
+  const fadeChecksCall = fadeChecksAsm ? (activeFadeBits.length && activeFadeBits.length <= 4 ?
+    [...activeFadeBits.map((bit) => ` if ${bit} then goto _bgfade_checks_run`), ' goto _bgfade_checks_skip', '_bgfade_checks_run'] : []
+  ).concat([` gosub ${BG_FADE_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
+      Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(BG_FADE_CHECKS_NAME))}`],
+  activeFadeBits.length && activeFadeBits.length <= 4 ? ['_bgfade_checks_skip'] : []).join('\n') + '\n' : '';
+  const generatedBackgroundFadeChecks = fadeChecksCall + rowFadeChecks;
   // Also has to run before generateRelocatedSections() below: it registers
   // its "musicEngine" unit into relocatableGraphicsUnits (see its
   // comment, right where it calls wrapRelocatableGraphics), which that call
@@ -4146,6 +4296,23 @@ Blockly.BBasic.finish = function(code) {
 // statements this replaced reloaded its  operand from memory
 // independently, where this keeps the touched nibble in temp1 and the rest
 // of the work in A throughout, without those redundant reloads.
+// Zeroes the display memory bytes user variables were given (see displayRamVars in init()): the memory powers up with random contents.
+// A bB loop per area that holds any, writing through data fetcher 6.
+Blockly.BBasic.generateDisplayRamVarClears = function() {
+  const count = this.displayRamVars ? this.displayRamVars.size : 0;
+  if (!count) return '';
+  const tables = ['PF1L', 'PF2L', 'PF1R', 'PF2R', 'PFCOLS', 'BKCOLS'];
+  const lines = [];
+  for (let step = 0; step * 128 < count; step++) {
+    const bytes = Math.min(128, count - step * 128);
+    const table = tables[5 - step];
+    lines.push(' asm', ` lda #<(${table}+${128 - bytes + 128})`, ' sta DF6LOW', ` lda #(>(${table}+${128 - bytes + 128})) & $0F`, ' sta DF6HI',
+        'end', ` temp1 = ${bytes}`, `_displayramclear_${step}`, ' asm', ' ldx #0', ' stx DF6WRITE', 'end', ' temp1 = temp1 - 1',
+        ` if temp1 > 0 then goto _displayramclear_${step}`);
+  }
+  return lines.join('\n') + '\n';
+};
+
 Blockly.BBasic.generateRunOnceEdgeReset = function() {
   if (this.runOnceRamBytes) return runOnceResetLines(this.runOnceRamBytes).join('\n');
   const bytes = this.runOnceByteLetters || [];
@@ -4198,7 +4365,16 @@ Blockly.BBasic.generateRunOnceEdgeResetCall = function() {
   if (!this.subroutines[RUN_ONCE_EDGE_RESET_NAME]) return '';
   const suffix = Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(RUN_ONCE_EDGE_RESET_NAME));
-  return ` gosub ${RUN_ONCE_EDGE_RESET_NAME}${suffix}`;
+  const call = ` gosub ${RUN_ONCE_EDGE_RESET_NAME}${suffix}`;
+  // The reset leaves a byte of flags that is 0 as it is, and on most frames none is set: a few cycles to see that instead of a
+  // call that may cross into another bank (about a hundred). Only for plain bytes (the ones that hold Title Screen variables
+  // while the title loop runs, and the ones in display memory, are handled inside the routine).
+  const bytes = this.runOnceByteLetters || [];
+  const hostedNames = this.runOnceHostedBytes || new Set();
+  const names = this.runOnceByteNames || [];
+  if (this.runOnceRamBytes || !bytes.length || bytes.length > 4 || names.some((name) => hostedNames.has(name))) return call;
+  return [...bytes.map((byte) => ` if ${byte} <> 0 then goto _runonce_reset_run`), ' goto _runonce_reset_skip',
+    '_runonce_reset_run', call, '_runonce_reset_skip'].join('\n');
 };
 
 // "*"/"/" by a non-power-of-2 constant or a runtime variable compiles to
@@ -4839,7 +5015,7 @@ Blockly.BBasic.backgroundRealColorRawTarget = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
   const index = SYSTEM_VARIABLES.findIndex(([name]) => name === 'backgroundrealcolor');
-  return config.enableSuperchip ? `var${index}` : SYSTEM_VARIABLES[index][1];
+  return superchipOn(config) ? `var${index}` : SYSTEM_VARIABLES[index][1];
 };
 
 // Whether generated code should include per-row playfield colors (pfcolors).
@@ -5078,7 +5254,7 @@ Blockly.BBasic.generateDpcPlusSpriteDefaults = function() {
       [this.dpcPlusRowDivVar, Math.max(1, Math.round(dpcPlusRowLinesFor(config) / 2))],
       [this.dpcPlusRowLinesVar, Math.max(1, Math.round(dpcPlusRowLinesFor(config)))],
       [this.dpcPlusRowMaxVar, Math.max(1, dpcPlusPfresOf(config) - 1) - 1],
-      [this.dpcPlusScrollRowsVar, this.dpcPlusScroll ? this.dpcPlusScroll.rows : 0]]
+      [this.dpcPlusScrollRowsVar, this.dpcPlusScroll ? dpcPlusScrollTravel(this.dpcPlusScroll) : 0]]
         .filter(([name]) => name).map(([name, value]) => ` ${name} = ${value}`),
     ...extraStarts,
   ].join('\n') + '\n';
@@ -5150,9 +5326,11 @@ Blockly.BBasic.generateDpcPlusBankPreamble = function() {
     ' s = 0 : t = 0 : u = 0 : v = 0 : w = 0 : x = 0 : y = 0 : z = 0\n' +
     ' var0 = 0 : var1 = 0 : var2 = 0 : var3 = 0 : var4 = 0\n' +
     ' var5 = 0 : var6 = 0 : var7 = 0 : var8 = 0\n' +
+    // The variables that went in the display memory start at 0 too (see displayRamVars in init()).
+    this.generateDisplayRamVarClears() +
     // The Score tab's 5 digits option: the leftmost digit reads these 8 bytes of display memory, which have to hold zeros (see
     // SCOREBLANK in DPCplus_kernel.asm; an immediate load of 0 would read a data fetcher in the kernel).
-    (config.scoreDigits === 5 ? [' asm', ' lda #<(scoredata+80)', ' sta DF0LOW', ' lda #(>(scoredata+80)) & $0F', ' sta DF0HI',
+    (scoreDigitsOf(config) === 5 ? [' asm', ' lda #<(scoredata+80)', ' sta DF0LOW', ' lda #(>(scoredata+80)) & $0F', ' sta DF0HI',
       ' ldx #0', ...Array(8).fill(' stx DF0WRITE'), 'end'].join('\n') + '\n' : '');
 };
 
@@ -5482,7 +5660,7 @@ Blockly.BBasic.generateConfiguration = function() {
   // the actual configured value visible in the generated source.
   const scorePaddingConfigurationCode = `const scorepaddinglines = ${config.scorePaddingLines || 0}` +
     // The Score tab's 5 digits option: the standard and DPC+ kernels leave the leftmost digit of the score blank.
-    (config.scoreDigits === 5 ? '\n const score5digits = 1' : '');
+    (scoreDigitsOf(config) === 5 ? '\n const score5digits = 1' : '');
   // The bundled compiler ignores this and gets its digits swapped in directly
   // instead, but it keeps the generated source correct for real batari Basic.
   // Custom digits live in the compiler's include, so there is no directive that
@@ -5660,7 +5838,7 @@ Blockly.BBasic.generateRomSize = function() {
   const romSize = SUPPORTED_ROM_SIZES.includes(config.romSize) ? config.romSize : '4k';
   // Superchip RAM (needed for pfres above the standard kernel's default) is
   // enabled by appending SC to the rom size, e.g. "set romsize 8kSC".
-  const superchipSuffix = config.enableSuperchip ? 'SC' : '';
+  const superchipSuffix = superchipOn(config) ? 'SC' : '';
   return `set romsize ${romSize}${superchipSuffix}`;
 };
 
@@ -5676,8 +5854,9 @@ Blockly.BBasic.generateSystemDims = function() {
   const omitted = this.omittedSystemVars || new Set();
   const systemDims = SYSTEM_VARIABLES
       .map(([name, letter, description], i) => {
+        if ((this.displayRamVars || new Map()).has(name)) return '';
         if (!omitted.has(name)) {
-          return ` dim ${name} = ${config.enableSuperchip ? `var${i}` : letter}` +
+          return ` dim ${name} = ${superchipOn(config) ? `var${i}` : letter}` +
             (showVariableComments ? `  ; ${description}` : '');
         }
         const constant = OMITTABLE_SYSTEM_VARIABLES[name];
@@ -5766,19 +5945,29 @@ const buildPfcolorsBlock = (rowCount, rowColors, blankLinesShown) => {
 // one cut into `repeats` thinner rows, so stepping a whole background-height either way shows the same picture
 // again. The row colors get the same layout, so the colors on screen are the same whether or not they scroll.
 const DPC_PLUS_SCROLL_ROWS = 255;
+// How many lines of playfield the DPC+ kernel draws (measured on the emulator), whatever pfres says; the picture's last lines are
+// only reached by a scroll that goes this far.
+const DPC_PLUS_SCREEN_LINES = 176;
 // The ROM keeps only this many rows when it can (a whole number of repeats of the picture, at least this many so the copies that
 // fill the rest at load time stay few): the code in utils/dpc-tile.js has the coprocessor copy them over the rest of the 255 rows.
 const DPC_PLUS_MIN_STORED_ROWS = 64;
+// How far a scroll goes, the number the scroll code's row variable holds: a wrapping one goes round the background's rows, a
+// no-wrap one (see init) stops after the rows that do not fit on screen.
+const dpcPlusScrollTravel = (scroll) => scroll.noWrap ? scroll.limit : scroll.rows;
 const dpcPlusStoredRows = (scroll) => {
+  if (scroll.noWrap) return DPC_PLUS_SCROLL_ROWS;
   const stored = scroll.rows * Math.max(1, Math.ceil(DPC_PLUS_MIN_STORED_ROWS / scroll.rows));
   return stored >= DPC_PLUS_SCROLL_ROWS ? DPC_PLUS_SCROLL_ROWS : stored;
 };
 const tileForDpcPlusScroll = (pixels, rowColors, scroll, bkRowColors, count = DPC_PLUS_SCROLL_ROWS) => {
   const height = pixels.length;
-  const source = (i) => Math.floor(i / scroll.repeats) % height;
+  // A no-wrap scroll lays the background out once, with empty rows (and the last row's colors) after it.
+  const filled = (i) => !scroll.noWrap || i < height * scroll.repeats;
+  const source = (i) => filled(i) ? Math.floor(i / scroll.repeats) % height : height - 1;
+  const blank = pixels.length ? pixels[0].map(() => 0) : [];
   const tile = (colors) => colors ? Array.from({length: count}, (_, i) => colors[source(i)]) : colors;
   return {
-    pixels: Array.from({length: count}, (_, i) => pixels[source(i)]),
+    pixels: Array.from({length: count}, (_, i) => filled(i) ? pixels[source(i)] : blank),
     rowColors: tile(rowColors),
     bkRowColors: tile(bkRowColors),
   };
@@ -5927,7 +6116,12 @@ Blockly.BBasic.generateBackgrounds = function() {
     return ` gosub ${name}${suffix}\n${rest.replace(/\n$/, '')}`;
   };
 
-  return backgrounds.map((background, index) => {
+  // With DPC+ the pictures themselves are kept in the graphics bank, so what is left of a background here is a short run of loading
+  // statements. All of them go in one subroutine that can sit in any bank, called only on the frame a background is changed, instead
+  // of a piece in the main bank for every background. (Where a background has scroll tracking or color scrolling the pieces call
+  // other subroutines with a bank tag that depends on where the code is, so those keep the separate pieces.)
+  const loadAsSubroutine = dpcPlusDrawsAllRows && !scrollTrackingUsed && !colorScroll && backgrounds.length > 0;
+  const loadCode = backgrounds.map((background, index) => {
     const {id, pixels: rawPixels, rowColors: rawRowColors, bkRowColors: rawBkRowColors} = background;
     // How this background's rows are cut up for scrolling (the rows of every background have the same thickness, see init).
     const scrollOf = (dpcPlusDrawsAllRows && this.dpcPlusScrollFor) ? this.dpcPlusScrollFor(background) : null;
@@ -5983,7 +6177,7 @@ Blockly.BBasic.generateBackgrounds = function() {
       [this.dpcPlusRowDivVar, Math.max(1, Math.round(rowLines / 2))],
       [this.dpcPlusRowLinesVar, Math.max(1, Math.round(rowLines))],
       [this.dpcPlusRowMaxVar, Math.max(1, backgroundPfresOf(background, config) - 1) - 1],
-      [this.dpcPlusScrollRowsVar, scrollOf ? scrollOf.rows : 0]]
+      [this.dpcPlusScrollRowsVar, scrollOf ? dpcPlusScrollTravel(scrollOf) : 0]]
         .filter(([name]) => name).forEach(([name, value]) => payloadLines.push(` ${name} = ${value}`));
     if (storedTileRows < DPC_PLUS_SCROLL_ROWS) {
       const parts = `p${pfcolorsBlock ? 'c' : ''}${bkcolorsBlock ? 'b' : ''}`;
@@ -5999,10 +6193,11 @@ Blockly.BBasic.generateBackgrounds = function() {
       const offsetVar = Blockly.BBasic.nameDB_.getName('_dpcScrollOffset', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const colorOnly = Blockly.BBasic.dpcPlusColorOnlyScrollUsed || {};
       [['pf', '_dpcColorScrollOffset'], ['bk', '_dpcBkColorScrollOffset']].filter(([kind]) => colorOnly[kind]).forEach(([, name]) =>
-        payloadLines.push(` ${Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${scrollOf.rows}`));
-      payloadLines.push(` ${offsetVar} = ${scrollOf.rows}`,
-          ...Blockly.BBasic.dpcPlusScrollQueues(config, scrollOf.pfColors, scrollOf.bkColors)
-              .map((queues) => ` pfscroll ${scrollOf.rows}${queues}`));
+        payloadLines.push(` ${Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${scrollOf.noWrap ? 0 : scrollOf.rows}`));
+      // A no-wrap scroll starts at the top of the playfield memory, a wrapping one a background-height into it.
+      payloadLines.push(` ${offsetVar} = ${scrollOf.noWrap ? 0 : scrollOf.rows}`,
+          ...(scrollOf.noWrap ? [] : Blockly.BBasic.dpcPlusScrollQueues(config, scrollOf.pfColors, scrollOf.bkColors)
+              .map((queues) => ` pfscroll ${scrollOf.rows}${queues}`)));
     }
     const payload = payloadLines.join('\n');
     // In overflow mode the background's index is stored in the row
@@ -6065,11 +6260,15 @@ Blockly.BBasic.generateBackgrounds = function() {
     return ` if newbackground <> ${id} then goto ${endLabel}` + '\n' +
       rowFadeLines +
       scrollTrackingLines +
-      Blockly.BBasic.wrapRelocatableGraphics(`background${id}`, payload) + '\n' +
+      (loadAsSubroutine ? payload : Blockly.BBasic.wrapRelocatableGraphics(`background${id}`, payload)) + '\n' +
       colorScrollLines +
       colorTableSaveLines +
       endLabel;
   }).join('\n\n');
+  if (!loadAsSubroutine) return loadCode;
+  this.subroutines[BACKGROUND_LOAD_NAME] = asSubroutineBody(loadCode);
+  return ` gosub ${BACKGROUND_LOAD_NAME}${Blockly.BBasic.bankJumpSuffix(
+      Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(BACKGROUND_LOAD_NAME))}`;
 };
 
 // The bB lines that run the color scroll routine for the current
@@ -6239,7 +6438,6 @@ Blockly.BBasic.generateMulticolorFadeChecks = function(kind) {
   const number = this.blockNumbers.next();
   const endLabel = `_rowfade_${number}_end`;
   const applyLabel = `_rowfade_${number}_apply`;
-  let skipCounter = 0;
   const lines = [
     ` if ${stepVar} > 4 then goto ${endLabel}`,
     ` ${timerVar} = ${timerVar} + 1`,
@@ -6253,13 +6451,16 @@ Blockly.BBasic.generateMulticolorFadeChecks = function(kind) {
     return ` ${kind === 'bk' ? 'bkcolors' : 'pfcolors'}:\n` +
       colors.map((color) => '  ' + colorByteToBuildBBasic(color)).join('\n') + '\nend';
   };
-  const emitTable = (conditions, rowColors, rowCount) => {
-    const skipLabel = `_rowfade_${number}_skip${skipCounter++}`;
-    conditions.forEach((condition) => lines.push(` if ${condition} then goto ${skipLabel}`));
-    lines.push(tableFor(rowColors, rowCount));
-    lines.push(` goto ${applyLabel}`);
-    lines.push(skipLabel);
+  // Every table is kept once however many backgrounds, colors and steps show it (backgrounds often share their row colors, and so
+  // their fade steps do), and the pick of the table is one short run of comparisons per background and color, not three for every
+  // table.
+  const tables = new Map();
+  const tableLabelFor = (rowColors, rowCount) => {
+    const key = `${rowCount}:${rowColors.join(',')}`;
+    if (!tables.has(key)) tables.set(key, {label: `_rowfade_${number}_t${tables.size}`, rowColors, rowCount});
+    return tables.get(key).label;
   };
+  const groups = [];
   // One step of a fade: from brightness a to brightness b (0 to 7) a fraction of the way, the hue the row's until the last one.
   const stepColor = (row, color, mode, step) => {
     if (mode === 'from') {
@@ -6280,22 +6481,42 @@ Blockly.BBasic.generateMulticolorFadeChecks = function(kind) {
     const rowColors = kind === 'bk' ? (tiled.bkRowColors || tiled.rowColors) : tiled.rowColors;
     const rowCount = dpcPlus ? pixels.length : Math.min(pixels.length, visibleRows);
     const realColor = (row) => (rowColors && rowColors[row] != null) ? rowColors[row] : DEFAULT_ROW_COLOR;
+    const group = {index, entries: []};
+    groups.push(group);
     entries.forEach(({mode, color}, entryIndex) => {
+      const picks = [];
       for (let step = 0; step < 4; step++) {
         const colors = [];
         for (let row = 0; row < rowCount; row++) colors.push(stepColor(realColor(row), color, mode, step));
-        emitTable([`${bgVar} <> ${index}`, `${startVar} <> ${entryIndex}`, `${stepVar} <> ${step}`], colors, rowCount);
+        picks.push({step, label: tableLabelFor(colors, rowCount)});
       }
       // The last step: the rows' colors for a fade from a color, the color itself for a fade to one.
       if (mode === 'to') {
         const colors = [];
         for (let row = 0; row < rowCount; row++) colors.push(stepColor(realColor(row), color, mode, 3));
-        emitTable([`${bgVar} <> ${index}`, `${startVar} <> ${entryIndex}`, `${stepVar} <> 4`], colors, rowCount);
+        picks.push({step: 4, label: tableLabelFor(colors, rowCount)});
       }
+      group.entries.push({index: entryIndex, picks});
     });
     const real = [];
     for (let row = 0; row < rowCount; row++) real.push(realColor(row));
-    emitTable([`${bgVar} <> ${index}`, `${stepVar} <> 4`], real, rowCount);
+    group.realLabel = tableLabelFor(real, rowCount);
+  });
+  // The pick: background, then color, then step (a step 4 that no color's table answers shows the background's own rows).
+  groups.forEach((group) => {
+    const nextBackground = `_rowfade_${number}_bg${group.index}`;
+    lines.push(` if ${bgVar} <> ${group.index} then goto ${nextBackground}`);
+    group.entries.forEach((entry) => {
+      const nextEntry = `_rowfade_${number}_bg${group.index}_e${entry.index}`;
+      lines.push(` if ${startVar} <> ${entry.index} then goto ${nextEntry}`);
+      entry.picks.forEach(({step, label}) => lines.push(` if ${stepVar} = ${step} then goto ${label}`));
+      lines.push(nextEntry);
+    });
+    lines.push(` if ${stepVar} = 4 then goto ${group.realLabel}`, nextBackground);
+  });
+  lines.push(` goto ${applyLabel}`);
+  tables.forEach(({label, rowColors, rowCount}) => {
+    lines.push(label, tableFor(rowColors, rowCount), ` goto ${applyLabel}`);
   });
   lines.push(applyLabel);
   // A playfield that scrolls with its colors: the table just loaded starts at its first row, so its colors are moved on to where the
@@ -6324,6 +6545,16 @@ Blockly.BBasic.generateMulticolorFadeChecks = function(kind) {
     }
   }
   lines.push(endLabel);
+  if (dpcPlus) {
+    // A subroutine can be placed in any bank, and DPC+ keeps the tables themselves in the graphics bank wherever the statement is
+    // (the standard kernel keeps them in its last bank, so there the code stays inline). The fade is idle most frames, so the
+    // call is only made while a step is left to show.
+    const name = `${ROW_FADE_CHECKS_NAME}_${kind}`;
+    this.subroutines[name] = asSubroutineBody(lines.join('\n'));
+    const skipLabel = `_rowfade_${number}_skip`;
+    return ` if ${stepVar} > 4 then goto ${skipLabel}\n gosub ${name}${Blockly.BBasic.bankJumpSuffix(
+        Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(name))}\n${skipLabel}\n`;
+  }
   return lines.join('\n') + '\n';
 };
 
@@ -6408,7 +6639,7 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
   // pixels ever showed. Y is the table offset (row * 4), X the byte index.
   const configurationStorage = useConfigurationStorage();
   const superchip = !!(configurationStorage && configurationStorage.value &&
-    configurationStorage.value.enableSuperchip);
+    superchipOn(configurationStorage.value));
   // ONE routine for every background: the active background's table address
   // is looked up (by background index, kept in the row variable's high bits -
   // see backgroundScrollPacking) from the small per-background tables
@@ -7287,10 +7518,45 @@ const findUnusedSystemVars = (code) => {
 // touched by the fixed template, a second pass leaves them out, so their slots (or, for the colours, a
 // plain constant) replace the RAM they would have taken.
 const generateWithoutUnusedSystemVars = Blockly.BBasic.workspaceToCode;
+const isTooManyVariables = (error) => !!error && /^Too many variables/.test(error.message || '');
+// One pass of generation. When the project has more variables than slots the pass is run again as a probe, which carries on without
+// the ones that do not fit (see spillProbe in init), so the code can still be looked at: the unused system variables it shows free
+// slots, and what is left over can be told apart (see this.tooMany).
+Blockly.BBasic.generateOnce = function(workspace) {
+  this.spillProbe = false;
+  this.tooMany = null;
+  try {
+    return generateWithoutUnusedSystemVars.call(this, workspace);
+  } catch (error) {
+    if (!isTooManyVariables(error)) throw error;
+    this.spillProbe = true;
+    try {
+      const probeCode = generateWithoutUnusedSystemVars.call(this, workspace);
+      this.tooMany = error;
+      return probeCode;
+    } finally {
+      this.spillProbe = false;
+    }
+  }
+};
+// A variable the generated code still names after it was given a place in the display memory is used in a way that cannot be
+// handled there (see generators/bbasic/spill.js): it is left out of the ones that go there, and the code is generated again.
 Blockly.BBasic.workspaceToCode = function(workspace) {
+  // (The names found unfit in an earlier build of the same project, when the caller kept them, so they are not found out again.)
+  this.displayRamExcluded = new Set(this.displayRamExcludedSeed || []);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = this.workspaceToCodeOnce(workspace);
+    const left = (typeof code === 'string' && this.displayRamVars) ? remainingUses(code, [...this.displayRamVars.keys()]) : [];
+    if (!left.length) return code;
+    left.forEach((name) => this.displayRamExcluded.add(name));
+  }
+  return this.workspaceToCodeOnce(workspace);
+};
+Blockly.BBasic.workspaceToCodeOnce = function(workspace) {
   this.omittedSystemVars = new Set();
   this.gameplayOnlyHints = null;
-  const code = generateWithoutUnusedSystemVars.call(this, workspace);
+  this.spillPlan = null;
+  let code = this.generateOnce(workspace);
   if (typeof code !== 'string') return code;
   // Title Screen variables still taking a slot for themselves: the generated code shows which other variables only gameplay
   // touches, and those can take the title variables' place (see the hints in init).
@@ -7300,10 +7566,80 @@ Blockly.BBasic.workspaceToCode = function(workspace) {
   if (this.isTextMinikernelActive() && this.scoreBkColorIsBackground((useConfigurationStorage().value || {}).scoreBkColor)) {
     unused.delete('backgroundrealcolor');
   }
-  if (!unused.size && !(hints && hints.names.size)) return code;
-  this.omittedSystemVars = unused;
-  this.gameplayOnlyHints = hints;
-  return generateWithoutUnusedSystemVars.call(this, workspace);
+  if (unused.size || (hints && hints.names.size)) {
+    this.omittedSystemVars = unused;
+    this.gameplayOnlyHints = hints;
+    code = this.generateOnce(workspace);
+  }
+  return this.tooMany ? this.spillInternalVariables(workspace, code) : this.spillInternalVariablesFirst(workspace, code);
+};
+
+// With DPC+ the display memory is used before the letters: the internal variables the generated code uses in plain places only (see
+// generators/bbasic/spill.js) go there whether or not the letters would have been enough, so the letters are left to the
+// variables of the project (which still take the letters first, and go in the display memory only when they run out).
+// The system variables (see SYSTEM_VARIABLES) that can be in the display memory too: the ones the build keeps, that no other variable
+// shares a slot with, and that no hand-written assembly outside the generated code reads by name.
+// Another name is the same slot as this one (a Title Screen variable), so it has to stay where it is.
+Blockly.BBasic.isSlotHost = function(name) {
+  return (this.titleSharedSlots || []).some(({target}) => target === name);
+};
+
+Blockly.BBasic.spillableSystemVars = function(config) {
+  const omitted = this.omittedSystemVars || new Set();
+  const shared = new Set((this.titleSharedSlots || []).map(({target}) => target));
+  const partnered = Object.keys(this.sharedPartnerVars || {}).length > 0;
+  return SYSTEM_VARIABLES.map(([name]) => name).filter((name) => !omitted.has(name) && !shared.has(name) &&
+    !(partnered && /^player[01](animation|frame|realcolor)$/.test(name)) &&
+    // (The text cursor's blink reads the frame counter by name.)
+    !(name === 'framecounter' && config.enableTextScrollCursor));
+};
+
+Blockly.BBasic.spillInternalVariablesFirst = function(workspace, code) {
+  const config = (useConfigurationStorage().value) || {};
+  if (config.kernel !== 'dpcplus' || this.dpcPlusScroll || dpcPlusPfresOf(config) > 127) return code;
+  const readByAsm = new Set([textRow2ColorVarName, textLinesBaseVarName, textLinesMaxVarName, textScrollCursorColorVarName,
+    textEndIconColorVarName].map((varName) => this.nameDB_.getName(varName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)));
+  // (A variable of the project that init() left on a letter, because a block uses it in a way its own Display RAM handling does not
+  // cover, is looked at in the generated code like any other: if every use is in a plain place it goes too.)
+  const internal = (this.letterVarAssignments || []).map(({name}) => name)
+      .concat(this.spillableSystemVars(config))
+      .filter((name) => !this.displayRamExcluded.has(name) && !readByAsm.has(name) && !this.isSlotHost(name));
+  const room = DISPLAY_RAM_VAR_CAPACITY - this.displayRamVars.size;
+  const plan = internal.length ? chooseSpill(code, internal, room, true, spillUseBudget(), 0) : null;
+  if (!plan || !plan.size) return code;
+  this.spillPlan = plan;
+  const spilled = this.generateOnce(workspace);
+  if (this.tooMany || typeof spilled !== 'string') {
+    this.spillPlan = null;
+    return code;
+  }
+  const slots = new Map([...this.displayRamVars].filter(([name]) => plan.has(name)));
+  return applySpill(spilled, slots);
+};
+
+// The project has more variables than slots, even after the unused system variables gave theirs up (DPC+ only): the internal variables
+// the generated code uses in plain places only (see generators/bbasic/spill.js) go in the display memory too, along with the user
+// variables that init() moves there itself. `probeCode` is the code of the probing pass that told how many do not fit.
+Blockly.BBasic.spillInternalVariables = function(workspace, probeCode) {
+  const tooMany = this.tooMany;
+  const config = (useConfigurationStorage().value) || {};
+  const info = this.spillProbeInfo;
+  if (config.kernel !== 'dpcplus' || !info || this.dpcPlusScroll || dpcPlusPfresOf(config) > 127) throw tooMany;
+  // The Text Minikernel's hand-written asm reads these by name, which the text analysis cannot see.
+  const readByAsm = new Set([textRow2ColorVarName, textLinesBaseVarName, textLinesMaxVarName, textScrollCursorColorVarName,
+    textEndIconColorVarName].map((varName) => this.nameDB_.getName(varName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)));
+  const internal = info.names.concat(this.spillableSystemVars(config))
+      .filter((name) => !this.displayRamExcluded.has(name) && !readByAsm.has(name) && !this.isSlotHost(name));
+  const userRoom = info.userNames.filter((name) => info.names.includes(name) && this.displayRamEligibleNames.has(name)).length;
+  // Not only as many as it takes: the display memory is used before the letters (see spillInternalVariablesFirst).
+  const needed = Math.max(0, info.over - userRoom);
+  const plan = chooseSpill(probeCode, internal, DISPLAY_RAM_VAR_CAPACITY - this.displayRamVars.size, true, spillUseBudget(), needed);
+  if (!plan || plan.size < needed) throw tooMany;
+  this.spillPlan = plan;
+  const code = this.generateOnce(workspace);
+  if (this.tooMany) throw this.tooMany;
+  const slots = new Map([...this.displayRamVars].filter(([name]) => plan.has(name)));
+  return applySpill(code, slots);
 };
 
 export default Blockly.BBasic;

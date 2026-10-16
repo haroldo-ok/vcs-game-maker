@@ -10,7 +10,7 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
   backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName} from '../../blocks/background';
-import {pfRowDivisorFor as exactRowDivisorFor, PLAYER_PF_X_OFFSET, MISSILE_BALL_PF_X_OFFSET} from '../../utils/playfield-coords';
+import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset} from '../../utils/playfield-coords';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps (28 rows of 6.857 lines), so those blocks use the nearest whole number of steps.
@@ -391,25 +391,28 @@ export default (Blockly) => {
   // comment there. Not a static map - ball's  entry needs nameDB_ to
   // resolve the shadow var's real letter, so this has to be a function.
   const spriteCollisionCoords = (sprite) => {
+    const pfConfig = (useConfigurationStorage() || {}).value;
+    const missileOffset = missileBallPfXOffset(pfConfig);
+    const playerOffset = playerPfXOffset(pfConfig);
     if (sprite === 'ball') {
       const shadowVar = Blockly.BBasic.nameDB_.getName(
           ctrlpfShadowVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       return {x: 'ballx', y: 'bally', stretched: `${shadowVar} & $30 <> 0`, sizeBits: shadowVar, heightVar: 'ballheight',
-        pfXOffset: MISSILE_BALL_PF_X_OFFSET};
+        pfXOffset: missileOffset};
     }
     // Under DPC+ a player's y is its top scanline and its height counts scanlines, like a missile's, so the
     // collision rows come from both.
     const configurationStorage = useConfigurationStorage();
     const dpcPlus = !!(configurationStorage && configurationStorage.value && configurationStorage.value.kernel === 'dpcplus');
     const byName = {
-      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: playerOffset,
         ...(dpcPlus ? {heightVar: 'player0height'} : {})},
-      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: playerOffset,
         ...(dpcPlus ? {heightVar: 'player1height'} : {})},
       missile0: {x: 'missile0x', y: 'missile0y', stretched: 'player0size & $30 <> 0', sizeBits: 'player0size',
-        heightVar: 'missile0height', pfXOffset: MISSILE_BALL_PF_X_OFFSET},
+        heightVar: 'missile0height', pfXOffset: missileOffset},
       missile1: {x: 'missile1x', y: 'missile1y', stretched: 'player1size & $30 <> 0', sizeBits: 'player1size',
-        heightVar: 'missile1height', pfXOffset: MISSILE_BALL_PF_X_OFFSET},
+        heightVar: 'missile1height', pfXOffset: missileOffset},
     };
     return byName[sprite];
   };
@@ -1850,6 +1853,25 @@ export default (Blockly) => {
         const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         const scrollLines = (amount) => queueSets.map((queues) => ` pfscroll ${amount}${queues}`);
         const stepDone = `_dpcscroll_${uid}_${sequenceIndex}_done`;
+        // A background too tall to wrap (see init in generators/bbasic.js) always stops at its ends: the offset is how many rows
+        // the top of the view is down the picture, from 0 to the rows that do not fit on screen.
+        if (scroll.noWrap) {
+          const limit = rowsVar || scroll.limit;
+          if (delta > 0) {
+            lines.push(` if ${offset} < ${stepRows} then goto ${stepDone}`);
+          } else if (rowsVar) {
+            lines.push(` if ${rowsVar} < ${stepRows} then goto ${stepDone}`, ` temp1 = ${rowsVar} - ${stepRows}`,
+                ` if ${offset} > temp1 then goto ${stepDone}`);
+          } else if (scroll.limit < stepRows) {
+            lines.push(` goto ${stepDone}`);
+          } else {
+            lines.push(` if ${offset} > ${limit - stepRows} then goto ${stepDone}`);
+          }
+          lines.push(...scrollLines(value));
+          if (main) lines.push(...nudgeSprites(stepRows * scroll.fine));
+          lines.push(` ${offset} = ${offset} ${delta > 0 ? '-' : '+'} ${stepRows}`, `@ ${stepDone}`);
+          return;
+        }
         // Stopping at the edge: the view is about to run past either end of the background.
         if (block.getFieldValue('STOPATEDGE') === 'TRUE') {
           if (delta > 0) lines.push(` if ${offset} <= ${stepRows} then goto ${stepDone}`);

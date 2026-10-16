@@ -4,6 +4,10 @@ const fs = require('fs');
 const os = require('os');
 const {execFile} = require('child_process');
 
+// The Windows installer (Squirrel) runs the app once with a --squirrel-* argument on install, update and uninstall, and expects
+// it to make or remove the Start Menu and Desktop shortcuts then quit. Without this the installer adds no menu item to launch the app.
+if (require('electron-squirrel-startup')) app.quit();
+
 // Electron doesn't show a right-click context menu on its own - build one
 // per-click from the params Electron already computes (isEditable/selection
 // text/editFlags) rather than a fixed one, so it only offers actions that

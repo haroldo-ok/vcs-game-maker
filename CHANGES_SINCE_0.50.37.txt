@@ -1213,3 +1213,92 @@ High Contrast, Expert mode sidebar
 
 - The Greyscale switch is now named High Contrast.
 - In Expert mode the left toolbar has no color bar beside each icon, and its icons are centered in the narrower bar.
+
+=== next ===
+DPC+ data streams, Display RAM fill and copy, taller scrolling backgrounds
+
+- New Data stream blocks (Variables category, DPC+ only): point stream 1, 2 or 3 at a Display RAM area and byte, then
+  read or write the bytes one after another; the stream moves on by one byte each time. A stream is lost at drawscreen.
+- New Display RAM fill and Display RAM copy blocks fill or copy a run of up to 255 Display RAM bytes in one block.
+- With DPC+, a background can have up to 255 rows. One that is too tall to wrap seamlessly with the rows on screen
+  scrolls without wrapping and stops at its top and bottom.
+- A DPC+ project that runs out of variable space now keeps the extra variables in Display RAM automatically (only variables used by
+  the Set, Get and Change blocks, and not in a Repeat while condition). The ROM capacity list shows where each one is.
+- Display RAM get and Data stream read: a statement can now have more than two of them (extra scratch bytes are reserved when needed).
+- Score bar "set health" / "set lives" / "change" with 0 leave nothing behind (a batari Basic for loop always runs its body once).
+- Fired objects in 16 directions: the halfway angles keep their leftover sixteenths of a pixel in a byte of their own, so they move at
+  the speed of a diagonal and smoothly, also when the movement is throttled; with "Check playfield while moving" the cell is looked at
+  after each axis moves, so an object cannot slip between two lit cells that touch at a corner.
+- "Fade playfield rows from color" keeps each row color table once, however many backgrounds and fades use it, and finds the table
+  with far fewer comparisons: a project with 9 backgrounds went from 59 tables to 13 and builds in 32k again.
+- The cycle score always has six digits (the 5 score digits switch is off and disabled while it is on).
+- Fewer cycles on every frame: the background color fade checks and the "Run once" flag reset are only called when there is
+  something to do (a call into another bank costs about a hundred cycles each). The Passage title screen has 256 more cycles
+  to spare.
+- Variables kept in Display RAM (DPC+) start at 0, like the others (the memory powers up with random contents).
+- A binary file given to the compiler along with the program (the DPC+ coprocessor program of the sound engine or of Faster multiply
+  and divide) reaches the assembler as it is: it used to be read back as text between the compiler's steps, which damaged its bytes.
+- Options: "Hide toolbar text labels", a switch under Expert mode (only available while Expert mode is on), takes the names away from
+  the left and top toolbars; Expert mode alone now keeps them.
+- Linux releases include an AppImage (x64 and arm64), packed in a .tar.gz so it stays executable.
+- Dividing by a number that is not a power of 2 on DPC+ always uses the coprocessor (Faster multiply and divide is always on there):
+  big answers take a fixed, short time instead of a long count.
+- DPC+: when the project has more variables than room, the generated code is looked at first: the unused system variables give their
+  slots up, and variables the code only sets and tests in plain statements (fade timers, wait counters, ...) are kept in Display RAM too,
+  along with the user variables, instead of stopping with "Too many variables". A variable used in any other way stays where it is.
+- Large DPC+ projects fit again: the playfield and background row fades run as a subroutine that can sit in any bank (called only
+  while a fade is running), a bank that holds no music is no longer set aside for it, and units are placed in the banks by their
+  size in bytes, not by how many there are. When the assembler reports that a bank is over, units move out of that bank, and
+  several move at once when the main bank is far over, so a big build takes seconds instead of minutes.
+- Variables the Text Minikernel's own code reads are no longer moved into Display RAM when a DPC+ project has too many variables.
+- Every unit that can leave the main bank now does, before the first build: events, backgrounds, animations, subroutines. The units
+  go to the other banks by size, and the main bank only gets the ones that do not fit anywhere else. With DPC+ the code that loads
+  the backgrounds is one subroutine in another bank, called only on the frame a background changes.
+- The Superchip RAM setting stays as it is when the kernel is changed to DPC+, and is ignored there.
+- The free space shown for a DPC+ ROM counts all of its banks and the display data's region (about 28K), where it showed about half.
+- After a build that works, the units still in the main bank are tried in the free room the other banks measured; a move that does
+  not fit is taken back.
+- DPC+: the internal variables that can live in Display RAM go there first, whether or not the letters would have run out, so the
+  letters are left to the variables of the project.
+- Calling a Function from a block now passes only as many arguments as a call connects or a Function reads, not always six: the
+  unused argument slots no longer take a variable each, and a call no longer stores zeros into them.
+- Units are packed into as few banks as possible: every bank that holds code also holds a copy of the data tables it reads.
+- DPC+: your variables go in Display RAM before the letters too, when they can (the letters are only used for the ones that cannot).
+- DPC+: the system variables (frame counter, colors, sizes, animations, frames, the selected background) can be in Display RAM too, when
+  they are used in plain places and not many times (each use of one costs about a dozen bytes and cycles). The Display RAM spill now
+  also handles a bit of a variable, an if that does one plain statement (with an else), and writes that sit next to other uses of
+  the scratch bytes.
+- DPC+: a variable of the project that a block uses in a way the Display RAM handling of its own does not cover is looked at in the
+  generated code like any internal variable, and goes to Display RAM when every use is in a plain place. How many uses of the
+  system variables may be spilled depends on how much room the last build left (a few when it was nearly full, many when not).
+- DPC+: the memory the kernel leaves free (the unused virtual sprites' bytes) is used for variables before the letters, not after.
+- A variable used as an array index (table[variable]) is now seen by the Display RAM spill, so it can move there too.
+- The Display RAM spill is held to a number of uses (each costs about a dozen bytes and cycles): a few when the last build was nearly
+  full, many when it left room.
+- Variables in Display RAM take less code and fewer cycles: a run of tests of the same variable one after another (the fades make long
+  ones) reads it once, a variable set to a number is loaded straight from the number, "x = x + 1" and "x = x - 1" read and write in one
+  go, and setting or clearing a bit is done in the accumulator. That made room for more variables there (Passage: 15 of 25 letters).
+- Compiling a big project no longer runs the browser out of memory: the compiler's output is kept in chunks instead of an array of numbers, the
+  assembler's listing (which nothing read) is no longer written, and the variables the first pass found unfit for Display RAM are
+  remembered for the later passes.
+- Nothing else goes in the bank the Title Screen Kernel is in, and when a build keeps overflowing, the variables that did not have to
+  go in Display RAM stay on their letters, so a project with a title screen fits on DPC+.
+- With the top toolbar hidden and the sidebar narrow, the round logo is at the top of the sidebar with the version under it.
+- The bytes free list shows what is in bank 1 (and DPC+'s bank 2): the main loop and common game logic, and the kernel.
+- Expert mode hides the colored bars beside the sidebar's options by itself (the active option keeps its bar); the Hide toolbar text labels switch no longer decides it.
+- The Options switches Never show top toolbar and Never show left toolbar are now called Hide top toolbar and Hide left toolbar.
+- Fixed fired objects (the ball and the missiles) getting stuck in playfield blocks when Check playfield while moving is on: a Bounce turned
+  the object round, but the movement stopped it on the first step out of the block (the cell it was leaving is lit too), so it crept out one
+  pixel a frame and the Bounce gave up and turned it back into the wall. While a Bounce is still working on an object it no longer stops on
+  a lit cell. The Bounce also finds the cell outside the wall by stepping back along the axis the object came in on, not both, so a
+  halfway (lean) direction no longer turns the wrong way at a wall.
+- DPC+: the ball and the missiles are drawn two pixels further left than with the standard kernel for the same x, so the playfield column they
+  are in is (x - 20) / 4, not (x - 18) / 4. Check playfield while moving, Bounce and the playfield collision blocks looked two pixels too far
+  ahead and stopped the object short of a wall.
+- Fixed a Bounce turning an object round again on every frame it was still touching the wall (a small ball stuck jittering in a block): the
+  start-of-frame step that clears the "a Bounce ran last frame" mark also cleared the stage, so the stage could never get past the first one.
+  It now clears only the mark.
+- With the top toolbar hidden, the wide sidebar shows the full VCS Game Maker logo and the version under it, as the top toolbar does.
+- Under DPC+ a player is drawn one pixel further right than on the standard kernel for the same X, so the Playfield collision blocks (sprite touches playfield, row/column of a player) now use the column (X - 16) / 4 for a player on DPC+.
+- The left sidebar's drag handle and its highlight sit on the sidebar's edge in Expert mode when the sidebar is narrow (it was left at the old width).
+- The Windows installer now adds the app to the Start Menu (and the Desktop) with its icon, so it can be launched after installing; the app handles the installer's install, update and uninstall events.

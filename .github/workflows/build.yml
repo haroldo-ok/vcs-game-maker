@@ -37,7 +37,7 @@ jobs:
           cache: npm
       - name: Install the packages the Linux makers need
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg squashfs-tools
       - run: npm ci --legacy-peer-deps
       # The dmg maker needs appdmg, which npm installs only on macOS and skips without a word when its install fails; one
       # run built without it ("Cannot find module 'appdmg'"). This tries again, and stops here with the reason if it cannot.
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: installers
-      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb and rpm, the web zip); the
+      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb, rpm and AppImage, the web zip); the
       # update files Squirrel makes beside the Windows installer (RELEASES, *.nupkg) are left out.
       - name: Create or update the release
         run: |
@@ -108,6 +108,7 @@ jobs:
             case "$name" in
               *.exe) new="VCS-Game-Maker-$TAG-Windows-Setup.exe" ;;
               *.deb) case "$name" in *arm64*) arch=arm64 ;; *) arch=amd64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.deb" ;;
+              *.AppImage) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.AppImage" ;;
               *.rpm) case "$name" in *aarch64*) arch=aarch64 ;; *) arch=x86_64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.rpm" ;;
               VCS-Game-Maker-web-*.zip) new="VCS-Game-Maker-$TAG-Web.zip" ;;
               *.dmg) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-macOS-$arch.dmg" ;;
@@ -115,7 +116,15 @@ jobs:
               *) continue ;;
             esac
             cp "$file" "release-files/$new"
-          done < <(find installers -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \))
+            # A file downloaded from a release loses its executable bit, so the AppImage goes in a tar.gz, which keeps it: unpacked
+            # it can be run as it is.
+            case "$new" in
+              *.AppImage)
+                chmod 755 "release-files/$new"
+                tar -czf "release-files/$new.tar.gz" -C release-files "$new"
+                rm "release-files/$new" ;;
+            esac
+          done < <(find installers -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \))
           mapfile -t files < <(find release-files -type f)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber

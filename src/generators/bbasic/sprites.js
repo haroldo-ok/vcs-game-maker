@@ -1,9 +1,10 @@
 'use strict';
 
+import {superchipOn} from '../../utils/superchip';
 import {playfieldToMatrix} from '../../utils/pixels';
 import {useConfigurationStorage} from '../../hooks/project';
 import {fireObjectName} from '../../utils/fire-object';
-import {pfRowDivisorFor as exactRowDivisorFor, MISSILE_BALL_PF_X_OFFSET} from '../../utils/playfield-coords';
+import {pfRowDivisorFor as exactRowDivisorFor, missileBallPfXOffset} from '../../utils/playfield-coords';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps, so the nearest whole number of steps is used.
@@ -239,7 +240,7 @@ const ROM_NOISE_BASE_HIGH_BYTE_BY_ROMSIZE = {
 // no such padding, so this only applies conditionally.
 const romNoiseBaseHighByteHex = (config) => {
   const high = ROM_NOISE_BASE_HIGH_BYTE_BY_ROMSIZE[config && config.romSize] ?? 0xF0;
-  const paddingPages = config && config.enableSuperchip ? 1 : 0;
+  const paddingPages = config && superchipOn(config) ? 1 : 0;
   return `$${(high + paddingPages).toString(16).toUpperCase()}`;
 };
 
@@ -343,10 +344,7 @@ export const missileFireHalfSpeedVarName = (name) => `${name}FireHalfSpeed`;
 // diagonal, at 22.5 degrees from their main axis: the main axis at speed * sqrt(2) * cos(22.5)
 // pixels per frame and the other axis at speed * sqrt(2) * sin(22.5). Those are not whole
 // pixels, so the extra fractions are worked out in sixteenths of a pixel, 0 to 15 of them each
-// frame. A fixed speed that is not throttled gets them from the frame counter, so no variable is
-// needed; a speed that is a variable, or movement that is throttled (which runs on only some
-// frames of the counter), keeps the leftover sixteenths of each axis in a byte for the object
-// (see missileFireFracSlots).
+// frame. The leftover sixteenths of each axis are kept in a byte for the object (see missileFireFracSlots).
 const LEAN_MAIN_PER_SPEED = Math.SQRT2 * Math.cos(Math.PI / 8);
 const LEAN_OTHER_PER_SPEED = Math.SQRT2 * Math.sin(Math.PI / 8);
 export const leanSixteenths = (speed) => ({
@@ -358,9 +356,13 @@ export const missileFireFracVarName = (index) => `missileFireFrac${index}`;
 // number or movement that is throttled), in the order missile0, missile1, ball. Each takes a
 // byte: the low nibble is the main axis's leftover and the high nibble the other axis's, and the
 // slot is the index of the byte (missileFireFracVarName).
-export const missileFireFracSlots = (usedFor, used16, usedPfCheck, usedThrottle, constSpeed) => {
-  // The halfway directions move whole pixels every frame now, so nothing is kept between frames.
-  return new Map();
+export const missileFireFracSlots = (usedFor, used16) => {
+  // Every object that fires in 16 directions keeps its leftover sixteenths in a byte of its own. That makes the movement smooth
+  // for any speed and however often the object moves; working them out from the frame counter made the halfway directions
+  // slower and jerky when the movement is throttled (it only runs on some frames of the counter).
+  const slots = new Map();
+  [...(usedFor || [])].filter((name) => used16 && used16.has(name)).forEach((name) => slots.set(name, slots.size));
+  return slots;
 };
 
 // sprite_*_seek_to's  dev vars (see its  trigger generator and
@@ -1246,6 +1248,22 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   const id = Blockly.BBasic.blockNumbers.next('fireStep');
   const label = (part) => `_missilefire_${name}_${id}_${part}`;
   const step = (axis, sign) => ` ${name}${axis} = ${name}${axis} ${sign} 1`;
+  // The cell the object is in now. x/y are unsigned bytes, so a value that wrapped below 0 shows up as too large here and is
+  // skipped. A lit cell ends the movement there.
+  // While a Bounce has just turned the object round and it is still touching the wall (its stage byte, bits 4 and 5, is not 0), the
+  // lit cell it is inside does not stop it: it takes its steps and gets out of the wall. Stopping on the first step out (the cell
+  // it leaves is lit too) left it one pixel a frame in the wall, long enough for the Bounce to give up and turn it back round.
+  const stagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ?
+    Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
+  const cellCheck = (tag) => [
+    ...(stagePair ? [` if ${stagePair.read}{4} then goto ${label(`skip${tag}`)}`, ` if ${stagePair.read}{5} then goto ${label(`skip${tag}`)}`] : []),
+    ` temp1 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
+    ` temp2 = (${name}y - 1) / ${rowDivisor}`,
+    ` if temp1 > 31 then goto ${label(`skip${tag}`)}`,
+    ` if temp2 > ${maxRow} then goto ${label(`skip${tag}`)}`,
+    ` if pfread(temp1, temp2) then goto ${label('end')}`,
+    label(`skip${tag}`),
+  ];
   const lines = [];
   if (is16) {
     lines.push(' temp6 = temp3', ' temp5 = 0', label('sub'));
@@ -1258,14 +1276,17 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
         (isHalfStep(mine, other) ? minor : lines).push(line);
       });
     });
-    // The other axis of a halfway direction moves on some of the steps.
+    // The other axis of a halfway direction moves on some of the steps. The cell is looked at after the main axis moved and again
+    // after the other one did: with both axes moving at once the object could slip through the corner between two lit cells that
+    // touch diagonally.
     lines.push(
-        ` if !${dirVar}{0} then goto ${label('nominor')}`,
+        ` if !${dirVar}{0} then goto ${label('final')}`,
+        ...cellCheck('a'),
         ' temp5 = temp5 + temp4',
-        ` if temp5 < temp6 then goto ${label('nominor')}`,
+        ` if temp5 < temp6 then goto ${label('next')}`,
         ' temp5 = temp5 - temp6',
         ...minor,
-        label('nominor'));
+        label('final'));
   } else {
     lines.push(` ${stepsVar} = ${speedVar}`, label('sub'));
     [[1, 'x', '+'], [2, 'x', '+'], [3, 'x', '+'], [5, 'x', '-'], [6, 'x', '-'], [7, 'x', '-'],
@@ -1273,13 +1294,7 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
         .forEach(([dir, axis, sign]) => lines.push(` if ${dirVar} = ${dir} then ${step(axis, sign).trim()}`));
   }
   lines.push(
-      // The cell the object is in now. x/y are unsigned bytes, so a value
-      // that wrapped below 0 shows up as too large here and is skipped.
-      ` temp1 = (${name}x - ${MISSILE_BALL_PF_X_OFFSET}) / 4`,
-      ` temp2 = (${name}y - 1) / ${rowDivisor}`,
-      ` if temp1 > 31 then goto ${label('next')}`,
-      ` if temp2 > ${maxRow} then goto ${label('next')}`,
-      ` if pfread(temp1, temp2) then goto ${label('end')}`,
+      ...cellCheck('b'),
       label('next'),
       ` ${stepsVar} = ${stepsVar} - 1`,
       ` if ${stepsVar} > 0 then goto ${label('sub')}`,
@@ -1303,7 +1318,9 @@ export const generateBounceStageChecks = (Blockly) => {
     const doneLabel = `_bouncestage_${name}_done`;
     lines.push(
         ` if !${pair.read}{6} then goto ${clearLabel}`,
-        ` ${pair.write} = ${pair.read} & 79`,
+        // Only the mark goes (bit 6): the stage (bits 4 and 5) and the heading it started from (bits 0 to 3) stay, so the stage can go on to
+        // the next one. (The mask here used to keep bit 6 and clear the stage, which put every frame of a collision back at the first stage.)
+        ` ${pair.write} = ${pair.read} & 63`,
         ` goto ${doneLabel}`,
         clearLabel,
         ` ${pair.write} = ${pair.read} & 15`,
@@ -1325,6 +1342,7 @@ export const generateMissileFireChecks = (Blockly) => {
   // The first y below the picture: the standard kernel draws 192 lines, DPC+ 212.
   const bottomY = (useConfigurationStorage().value || {}).kernel === 'dpcplus' ? 212 : 192;
   const offscreenVar = offscreenUsed.size ? resolveVar(fireOffscreenFlagsVarName()) : null;
+  const fracSlots = missileFireFracSlots(used, used16);
   const lines = [];
   ['missile0', 'missile1', 'ball', ...[...used].filter((name) => /^player[0-9]$/.test(name))].forEach((name) => {
     if (!used.has(name)) return;
@@ -1386,22 +1404,23 @@ export const generateMissileFireChecks = (Blockly) => {
       if (pfChecked) leanLines.push(` temp3 = ${speedVar}`);
       leanLines.push(` if !${dirVar}{0} then goto ${leanDone}`);
       // A halfway direction moves at the same total speed as a diagonal (speed * 1.41), 22.5 degrees from
-      // its main axis: the main axis at speed * 1.31 and the other at speed * 0.54. Whole pixels every
-      // frame, with the fractions spread over four frames: with k the frame count's low two bits times 4,
-      // main = (21 * speed + k) / 16 and other = (9 * speed + k) / 16 (a speed of 1 gives 1, 1, 1, 2 and
-      // 0, 0, 1, 1: close to 1.31 and 0.54, and different from a diagonal).
+      // its main axis: the main axis at speed * 1.31 (speed + 5/16 of speed) and the other at speed * 0.54
+      // (9/16 of speed). Whole pixels every move; the sixteenths left over each time are kept in the object's
+      // byte (low nibble: main axis, high nibble: the other axis) and added to the next move's.
+      const fracPair = resolveRW(missileFireFracVarName(fracSlots.get(name)));
       leanLines.push(
-          ' temp5 = framecounter & 3',
-          ' temp5 = temp5 * 4');
-      if (constSpeed !== undefined) {
-        leanLines.push(` temp3 = ${21 * constSpeed}`, ` temp4 = ${9 * constSpeed}`);
-      } else {
-        leanLines.push(` temp3 = ${speedVar} * 21`, ` temp4 = ${speedVar} * 9`);
-      }
-      leanLines.push(
+          ` temp3 = ${constSpeed !== undefined ? 5 * constSpeed : `${speedVar} * 5`}`,
+          ` temp4 = ${constSpeed !== undefined ? 9 * constSpeed : `${speedVar} * 9`}`,
+          ` temp5 = ${fracPair.read} & 15`,
           ' temp3 = temp3 + temp5',
-          ' temp3 = temp3 / 16',
+          ` temp5 = ${fracPair.read} / 16`,
           ' temp4 = temp4 + temp5',
+          ' temp5 = temp3 & 15',
+          ' temp6 = temp4 & 15',
+          ' temp6 = temp6 * 16',
+          ` ${fracPair.write} = temp5 | temp6`,
+          ' temp3 = temp3 / 16',
+          ` temp3 = temp3 + ${speedVar}`,
           ' temp4 = temp4 / 16');
       leanLines.push(leanDone);
     }
@@ -2801,7 +2820,7 @@ export default (Blockly) => {
   const buildEdgeBounce = (block, name, resolveVar, hasFire, hasInertia) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const visibleRows = effectiveBackgroundRows(config) - (config.enableSuperchip ? 1 : 0);
+    const visibleRows = effectiveBackgroundRows(config) - (superchipOn(config) ? 1 : 0);
     // The backgrounds do not all have the same rows under DPC+ when they set a pfres: the bottom is worked out from the
     // geometry of the one showing, into temp6.
     const bottomVaries = !!Blockly.BBasic.dpcPlusRowMaxVar;
@@ -2909,24 +2928,47 @@ export default (Blockly) => {
       lab('diagonal'),
       // the object's cell (clamped), stepping back out of it when it is
       // already inside the wall
-      ` temp3 = (${name}x - ${MISSILE_BALL_PF_X_OFFSET}) / 4`,
+      ` temp3 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
       ` temp4 = (${name}y - 1) / ${rowDivisor}`,
       ` if temp3 > 31 then temp3 = 31`,
       ` if temp4 > ${maxRow} then temp4 = ${maxRow}`,
       ` if pfread(temp3, temp4) then goto ${label('inside')}`,
       ` goto ${label('base')}`,
       lab('inside'),
+      // Inside a wall: the base is the cell just outside it, found by stepping back along the axis the object came in on (a Check
+      // playfield movement ends the moment a cell is lit, so the object came in on one axis, and stepping back along both would
+      // land on the wrong cell beside a wall, which made the bounce turn the wrong way and the object hug the wall).
+      // x first: if the cell behind it along x is clear, that is the way in.
+      ` temp6 = temp3`,
       ` if temp5{1} then goto ${label('bxplus')}`,
-      ` if temp3 > 0 then temp3 = temp3 - 1`,
-      ` goto ${label('bxdone')}`,
+      ` if temp6 > 0 then temp6 = temp6 - 1`,
+      ` goto ${label('bxtest')}`,
       lab('bxplus'),
-      ` if temp3 < 31 then temp3 = temp3 + 1`,
-      lab('bxdone'),
-      ` if temp5{3} then goto ${label('byplus')}`,
-      ` if temp4 > 0 then temp4 = temp4 - 1`,
+      ` if temp6 < 31 then temp6 = temp6 + 1`,
+      lab('bxtest'),
+      ` if pfread(temp6, temp4) then goto ${label('inside_y')}`,
+      ` temp3 = temp6`,
       ` goto ${label('base')}`,
+      // Not along x: along y if the cell behind it is clear, else (a corner) along both.
+      lab('inside_y'),
+      ` temp6 = temp4`,
+      ` if temp5{3} then goto ${label('byplus')}`,
+      ` if temp6 > 0 then temp6 = temp6 - 1`,
+      ` goto ${label('bytest')}`,
       lab('byplus'),
-      ` if temp4 < ${maxRow} then temp4 = temp4 + 1`,
+      ` if temp6 < ${maxRow} then temp6 = temp6 + 1`,
+      lab('bytest'),
+      ` if pfread(temp3, temp6) then goto ${label('inside_both')}`,
+      ` temp4 = temp6`,
+      ` goto ${label('base')}`,
+      lab('inside_both'),
+      ` if temp5{1} then goto ${label('bxplus2')}`,
+      ` if temp3 > 0 then temp3 = temp3 - 1`,
+      ` goto ${label('bxdone2')}`,
+      lab('bxplus2'),
+      ` if temp3 < 31 then temp3 = temp3 + 1`,
+      lab('bxdone2'),
+      ` temp4 = temp6`,
       lab('base'),
       // A: the pixel next to the base cell along x
       ` temp6 = temp3`,

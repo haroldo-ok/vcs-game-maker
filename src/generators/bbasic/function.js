@@ -37,7 +37,7 @@ export default (Blockly) => {
         `_call_${targetName}`, Blockly.PROCEDURE_CATEGORY_NAME);
     if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
     const args = Array.from(
-        {length: MAX_FUNCTION_ARGS}, (_, i) => resolveRW(functionCallArgVarName(i + 1)).read);
+        {length: Blockly.BBasic.functionCallArgCount}, (_, i) => resolveRW(functionCallArgVarName(i + 1)).read);
     Blockly.BBasic.subroutines[wrapperName] =
       `${resolveRW(functionCallDiscardVarName()).write} = ${targetName}(${args.join(', ')})`;
     // Tracked so hooks/rom.js's computeFunctionFamilies can recognize this
@@ -152,7 +152,11 @@ export default (Blockly) => {
     const name = Blockly.BBasic.nameDB_.getName(
         fieldValue, Blockly.PROCEDURE_CATEGORY_NAME);
     const args = [];
-    for (let i = 1; i <= MAX_FUNCTION_ARGS; i++) {
+    // As many arguments as a call or a Function uses anywhere (see functionCallArgCount in init); the others are left off.
+    const highest = Math.max(0, ...Array.from({length: MAX_FUNCTION_ARGS}, (_, i) => i + 1)
+        .filter((i) => block.getInputTargetBlock(`ARG${i}`)), ...(Blockly.BBasic.functionParamIndicesUsed || []));
+    const count = block.type === 'function_call_statement' ? Blockly.BBasic.functionCallArgCount : highest;
+    for (let i = 1; i <= count; i++) {
       args.push(Blockly.BBasic.valueToCode(block, `ARG${i}`, Blockly.BBasic.ORDER_NONE) || '0');
     }
     return {name, args};

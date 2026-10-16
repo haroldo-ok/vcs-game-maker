@@ -469,6 +469,15 @@ if (!Blockly.Variables.flyoutCategory.isExtraBlocksPatch) {
         '<block type="display_ram_set"><value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>' +
         '<block type="display_ram_change"><value name="VALUE"><shadow type="math_number"><field name="NUM">1</field></shadow></value></block>' +
         '<block type="display_ram_get"></block>' +
+        '<block type="data_stream_point"><value name="INDEX"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>' +
+        '<block type="display_ram_fill"><value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>' +
+        '<value name="START"><shadow type="math_number"><field name="NUM">0</field></shadow></value>' +
+        '<value name="COUNT"><shadow type="math_number"><field name="NUM">16</field></shadow></value></block>' +
+        '<block type="display_ram_copy"><value name="COUNT"><shadow type="math_number"><field name="NUM">16</field></shadow></value>' +
+        '<value name="FROM"><shadow type="math_number"><field name="NUM">0</field></shadow></value>' +
+        '<value name="TO"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>' +
+        '<block type="data_stream_read"></block>' +
+        '<block type="data_stream_write"><value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>' +
         '</xml>',
     ).children;
     return [xmlList[0], ...extraBlocks, ...xmlList.slice(1)];
