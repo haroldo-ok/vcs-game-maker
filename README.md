@@ -35,6 +35,6 @@ See [Configuration Reference](https://cli.vuejs.org/config/).
 
 ## License
 
-This fork of VCS Game Maker is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
+AbstractPolygon updates to VCS Game Maker are licensed under the [PolyForm Shield License 1.0.0](LICENSE).
 
 Original code by [Haroldo de Oliveira Pinheiro](https://github.com/haroldo-ok) is under the [MIT License](LICENSE-MIT-haroldo).
