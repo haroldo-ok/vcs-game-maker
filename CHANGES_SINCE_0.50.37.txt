@@ -1349,3 +1349,8 @@ Sound loops, sweeps, frequency envelopes and staircase volume, smaller music eng
 - Sound cards: the Duration stops at 255 frames (the frames a sound has left are one byte); a longer sound from an older project is cut at 255 instead of wrapping round.
 - Sound and music envelopes: when all the shapes of a project fit in 256 bytes together they are one table and each channel keeps just its place in it, so a channel needs no variable for the shape number and about 20 cycles a frame less are used (the old way is kept for projects with more shapes than that).
 - Sound envelopes (when the shapes are too many for the one table): a channel that only Sound blocks put envelopes on and that has loops or pitch changes takes the shape from the number of the sound playing, one variable fewer a channel, and the same audio register writes in the ROM trace.
+
+=== 0.52.25 ===
+Smaller arpeggio code in the music engine
+
+- Music engine: the arpeggio range and phase tests are one compare and branch each on a value loaded once, 38 bytes smaller and about 6 cycles less a test (audio register writes unchanged for all six arpeggio ranges).

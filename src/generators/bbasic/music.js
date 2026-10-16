@@ -3238,15 +3238,26 @@ export default (Blockly) => {
         // below) and arpCounterPhaseVar's  high nibble (so the clamp
         // actually persists into the NEXT flip's "combined / 16" read,
         // matching the old single persistent var's  behavior exactly).
+        // A run of "is it this value" tests on one variable as assembly: the variable is loaded once, and each test is a compare and a branch
+        // over a jump (which reaches any label). The labels of bB statements are written with the dot bB gives them.
+        const dispatchAsm = (variable, pairs, otherwise) => [
+          ' asm',
+          `       lda ${variable}`,
+          ...pairs.flatMap(([value, label]) => [
+            `       cmp #${value}`, `       bne ${label}_nx`, `       jmp .${label}`, `${label}_nx`,
+          ]),
+          `       jmp .${otherwise}`,
+          'end',
+        ];
         const rangeBlocks = ARPEGGIO_PHASE_SEQUENCES.flatMap((sequence, rangeIndex) => {
-          const phaseChecks = [];
+          const phasePairs = [];
           const phaseBlocks = [];
           const rangeLabel = `_music${channel}_arp_range${rangeIndex}`;
           const resetLabel = `${rangeLabel}_phasereset`;
           const okLabel = `${rangeLabel}_phaseok`;
           sequence.forEach((token, phaseIndex) => {
             const label = `_music${channel}_arp_r${rangeIndex}p${phaseIndex}`;
-            phaseChecks.push(` if temp1 = ${phaseIndex} then goto ${label}`);
+            phasePairs.push([phaseIndex, label]);
             phaseBlocks.push(label, ...computeLines(token, `arpr${rangeIndex}p${phaseIndex}`), ` goto _music${channel}_arp_skip`);
           });
           return [
@@ -3257,8 +3268,7 @@ export default (Blockly) => {
             ` temp1 = 0`,
             ` ${arpCounterPhaseVar} = ${arpCounterPhaseVar} & 15`,
             okLabel,
-            ...phaseChecks,
-            ` goto _music${channel}_arp_skip`,
+            ...dispatchAsm('temp1', phasePairs, `_music${channel}_arp_skip`),
             ...phaseBlocks,
           ];
         });
@@ -3266,10 +3276,9 @@ export default (Blockly) => {
         // comment) - extracted into temp2 right here, only on the rare
         // frame a flip actually happens, right before the dispatch that's
         // the only thing that needs it.
-        const rangeDispatch = ARPEGGIO_PHASE_SEQUENCES.map((_, rangeIndex) =>
-          rangeIndex === ARPEGGIO_PHASE_SEQUENCES.length - 1 ?
-            ` goto _music${channel}_arp_range${rangeIndex}` :
-            ` if temp2 = ${rangeIndex} then goto _music${channel}_arp_range${rangeIndex}`);
+        const rangeDispatch = dispatchAsm('temp2',
+            ARPEGGIO_PHASE_SEQUENCES.slice(0, -1).map((_, rangeIndex) => [rangeIndex, `_music${channel}_arp_range${rangeIndex}`]),
+            `_music${channel}_arp_range${ARPEGGIO_PHASE_SEQUENCES.length - 1}`);
         return [
           // Suppressed (skipped entirely, counters included) for as long as
           // a sound effect sharing this channel owns its hardware output -
