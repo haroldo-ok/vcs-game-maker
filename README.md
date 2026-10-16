@@ -37,4 +37,4 @@ See [Configuration Reference](https://cli.vuejs.org/config/).
 
 VCS Game Maker is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
 
-The original code, by Haroldo de Oliveira Pinheiro ([haroldo-ok](https://github.com/haroldo-ok/vcs-game-maker)), is under the MIT License: see [LICENSE-MIT-haroldo](LICENSE-MIT-haroldo). That code stays available under the MIT License, and its copyright and permission notice go with every copy of it.
+Rriginal code by Haroldo de Oliveira Pinheiro ([haroldo-ok](https://github.com/haroldo-ok/vcs-game-maker)), is under the MIT License: see [LICENSE-MIT-haroldo](LICENSE-MIT-haroldo).
