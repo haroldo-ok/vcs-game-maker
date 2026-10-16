@@ -12,6 +12,27 @@ export const soundEffectsInBankFile = (bankData) => {
   throw new Error('File does not contain valid sound bank data');
 };
 
+// Which kernels a sound has settings for: Standard (a sound type and a frequency) and DPC+ (a waveform and a pitch). A sound made under
+// DPC+ keeps its Standard settings next to the DPC+ ones (see utils/dpc-sound.js), so it has both; one made under the Standard kernel and
+// never converted has only the Standard ones.
+export const kernelSettingsOf = (sound) => {
+  const kernels = [];
+  if (sound && 'audc' in sound) kernels.push('standard');
+  if (sound && (sound.dpcShape || Array.isArray(sound.dpcWave))) kernels.push('dpcplus');
+  return kernels.length ? kernels : ['standard'];
+};
+
+// The kernels of a file's sounds together: every kernel any of them has settings for.
+export const kernelSettingsOfSounds = (sounds) => {
+  const found = new Set();
+  (sounds || []).forEach((sound) => kernelSettingsOf(sound).forEach((kernel) => found.add(kernel)));
+  return ['standard', 'dpcplus'].filter((kernel) => found.has(kernel));
+};
+
+const KERNEL_LABELS = {standard: 'Standard', dpcplus: 'DPC+'};
+// "Standard", "DPC+" or "Standard and DPC+".
+export const kernelSettingsLabel = (kernels) => (kernels || []).map((kernel) => KERNEL_LABELS[kernel] || kernel).join(' and ');
+
 // The rows of the import popup, one per sound in the file. isExisting marks a
 // sound whose name matches one already in the project (importing it replaces
 // that one's parameters).
@@ -19,6 +40,8 @@ export const buildSoundBankImportEntries = (bankData, soundEffects) =>
   soundEffectsInBankFile(bankData).map((imported) => ({
     data: imported,
     name: imported.name || 'Unnamed sound effect',
+    // The kernels the sound has settings for (shown beside its name).
+    kernels: kernelSettingsOf(imported),
     selected: true,
     // Whether a sound that matches an existing one's name replaces it (the
     // popup offers this as "Replace existing" when there is only one sound);

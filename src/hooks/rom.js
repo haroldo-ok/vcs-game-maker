@@ -1457,7 +1457,7 @@ const buildRomInner = async () => {
       const sharedSource = (configurationStorage.value || {}).kernel === 'dpcplus' ? shareDpcPlusPlayerSource(code) : null;
       const preprocessed = await preprocessBatariBasic(sharedSource ? sharedSource.code : code, log);
       appendCompileLog('Compiling to assembly...', 'stage');
-      Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles));
+      Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles, BlocklyBB.dpcAudioMidLevel));
       // The text builds' kernels are made above, with the Squish loop in them.
       if (dpcPlusSquish && !BlocklyBB.isTextMinikernelActive()) {
         Object.assign(siblingFiles, await getDpcPlusSquishSiblingFiles(siblingFiles));
@@ -1878,6 +1878,44 @@ const buildRomInner = async () => {
             appendCompileLog(`Also relocating ${more.kind.replace('Banks', '')} "${more.name}" to bank ${moreBank}.`);
             stillOver -= scaledBytes(more);
           }
+          // The same for a bank other than the one the units start in: the unit just moved came out of the bank the assembler says is
+          // over, so more of the biggest units in that bank follow it until about the overflow is out. Families and music stay
+          // for the one-at-a-time path above.
+          if (emptyThisBank !== null && candidate.kind !== 'musicBanks') {
+            const unitBytes = (kind, name) => (
+              kind === 'eventBanks' ? BlocklyBB.estimateEventSize(name) * COMPILED_BYTES_PER_EVENT_CHAR :
+              kind === 'graphicsBanks' ? BlocklyBB.estimateGraphicsUnitSize(name) * COMPILED_BYTES_PER_GRAPHICS_CHAR :
+              BlocklyBB.estimateSubroutineSize(name) * COMPILED_BYTES_PER_SUBROUTINE_CHAR);
+            let over = parseBankOverflowBytes(e.dasmStdout, emptyThisBank) -
+              (candidate.kind === 'family' ? estimateFamilySize(candidate.members) : unitBytes(candidate.kind, candidate.name));
+            const wrapperNames = BlocklyBB.functionCallWrapperNames || new Set();
+            const occupants = [];
+            const banksNow = getRelocationBanks();
+            ['eventBanks', 'graphicsBanks', 'subroutineBanks'].forEach((kind) => {
+              Object.entries(banksNow[kind] || {}).forEach(([name, unitBank]) => {
+                if (unitBank !== emptyThisBank || (kind === 'subroutineBanks' && wrapperNames.has(name)) ||
+                  (candidate.kind === kind && candidate.name === name)) return;
+                occupants.push({kind, name, size: unitBytes(kind, name)});
+              });
+            });
+            occupants.sort((a, b) => b.size - a.size);
+            for (const unit of occupants) {
+              if (over <= 0) break;
+              const unitKey = `${unit.kind}:${unit.name}`;
+              if (!retriedBanksByUnit.has(unitKey)) retriedBanksByUnit.set(unitKey, new Set());
+              const triedBanks = retriedBanksByUnit.get(unitKey);
+              triedBanks.add(emptyThisBank);
+              const toBank = pickNextBank(getRelocationBanks(), maxBanks, textMinikernelActive,
+                  new Set([reservedMusicBank, ...triedBanks].filter(Boolean)), minRelocationBankFor(config), [unit.kind],
+                  primaryBankFor(config));
+              if (!toBank) continue;
+              setRelocationBank(unit.kind, unit.name, toBank);
+              stuckBankTriedUnits.add(unitKey);
+              relocatedThisBuild.push({kind: unit.kind, name: unit.name, bank: toBank});
+              appendCompileLog(`Also relocating ${unit.kind.replace('Banks', '')} "${unit.name}" to bank ${toBank}.`);
+              over -= unit.size;
+            }
+          }
           continue;
         }
       }
@@ -2259,7 +2297,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       const sharedSource = (configurationStorage.value || {}).kernel === 'dpcplus' ? shareDpcPlusPlayerSource(code) : null;
       const preprocessed = await preprocessBatariBasic(sharedSource ? sharedSource.code : code, log);
       appendCompileLog('Compiling to assembly...', 'stage');
-      Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles));
+      Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles, BlocklyBB.dpcAudioMidLevel));
       // A hidden score gives its scanlines to the picture (the Text Minikernel's score row stays, it draws the text).
       if ((configurationStorage.value || {}).kernel === 'dpcplus' && ((configurationStorage.value || {}).showScore ?? true) === false &&
         !BlocklyBB.isTextMinikernelActive()) {

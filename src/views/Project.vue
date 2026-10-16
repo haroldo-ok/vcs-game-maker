@@ -297,7 +297,7 @@
             <div v-if="soundBankWebsiteLink(bank)" class="example-card-line">
               <a :href="soundBankWebsiteLink(bank)" target="_blank" rel="noopener noreferrer" @click.stop>{{ bank.website }}</a>
             </div>
-            <div class="example-card-line example-card-kernel">{{ soundBankKernelLabel(bank) }} Kernel</div>
+            <div class="example-card-line example-card-kernel">{{ soundBankKernelLabel(bank) }} {{ bank.kernels && bank.kernels.length > 1 ? 'Kernels' : 'Kernel' }}</div>
           </div>
         </v-card>
       </div>
@@ -480,7 +480,7 @@ import {useDebugVariables, setDebugVariables} from '../hooks/debug-symbols';
 import {useEmulatorSettings, saveEmulatorSettings} from '../hooks/emulator-settings';
 import {soundBanksState} from '../hooks/soundbanks';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
-import {buildSoundBankImportEntries, importSoundBankEntries, soundEffectsInBankFile} from '../utils/sound-bank';
+import {buildSoundBankImportEntries, importSoundBankEntries, soundEffectsInBankFile, kernelSettingsLabel} from '../utils/sound-bank';
 import {KERNEL_NAMES} from '../utils/dpc-sound';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
@@ -1439,7 +1439,8 @@ export default defineComponent({
       return /^https?:\/\/[^\s]+$/i.test(url) ? url : '';
     },
     soundBankKernelLabel(bank) {
-      return KERNEL_NAMES[bank.kernel] || bank.kernel;
+      // A bank or sound with settings for both kernels says so ("Standard and DPC+"); one without the list goes by its header.
+      return bank.kernels && bank.kernels.length ? kernelSettingsLabel(bank.kernels) : (KERNEL_NAMES[bank.kernel] || bank.kernel);
     },
     soundBankKindLabel(bank) {
       return {bank: 'Sound bank', instrument: 'Instrument', percussion: 'Percussion'}[bank.kind] || 'Sound';

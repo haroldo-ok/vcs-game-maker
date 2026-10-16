@@ -60,17 +60,19 @@
 // soundfx.js).
 export const clampEnvelopeStages = ({attack, decay, sustainLength, release, totalFrames, loopSustain = false}) => {
   const frames = Math.max(1, Math.round(Number(totalFrames) || 0));
+  // The stages together are counted down in a byte, so they never run past 255 frames (four stages of 64 would be 256).
+  const limit = Math.min(frames, 255);
   let a = Math.max(0, Math.round(Number(attack) || 0));
   let d = Math.max(0, Math.round(Number(decay) || 0));
   let s = Math.max(0, Math.round(Number(sustainLength) || 0));
   let r = Math.max(0, Math.round(Number(release) || 0));
   const stagesTotal = a + d + s + r;
-  if (stagesTotal > frames) {
-    const scale = frames / stagesTotal;
+  if (stagesTotal > limit) {
+    const scale = limit / stagesTotal;
     a = Math.round(a * scale);
     d = Math.round(d * scale);
     s = Math.round(s * scale);
-    r = Math.max(0, frames - a - d - s);
+    r = Math.max(0, limit - a - d - s);
   } else if (loopSustain && stagesTotal < frames) {
     s += frames - stagesTotal;
   }

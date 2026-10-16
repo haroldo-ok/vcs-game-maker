@@ -45,7 +45,10 @@ const SAME_PITCH_CENTS = 3;
 
 // The variables the routine reads (what AUDC0/AUDF0/AUDV0 and AUDC1/AUDF1/AUDV1 become), and the one per voice
 // that remembers which waveform and volume the voice's RAM holds.
-export const dpcAudioVars = (channels) => channels.flatMap((channel) => [`dpcAudc${channel}`, `dpcAudv${channel}`]);
+export const dpcAudioVars = (channels) => channels.flatMap((channel) => [`dpcAudc${channel}`, `dpcAudv${channel}`])
+    // With more than one voice, the middle level the volume register holds when the picture is over (see midLevelLines) is worked
+    // out by the routine once a frame and kept in a variable, which is smaller than working it out in the kernel's exit.
+    .concat(channels.length > 1 ? ['dpcAudMid'] : []);
 
 const cents = (a, b) => Math.abs(1200 * Math.log2(a / b));
 const distance = (a, b) => a.reduce((sum, value, i) => sum + Math.abs(value - b[i]), 0);
@@ -108,6 +111,11 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
     return waveIdFor(tia ? tia.samples.map((value) => value * DPC_WAVE_MAX) : Array(DPC_WAVE_LENGTH).fill(0));
   };
   const pitchIdForTia = (audc, audf) => pitchIdFor(frequencyForTia(audc, audf, config));
+  // The frequency (Hz) a sound plays at, and the table entry of that frequency moved up or down by each of the given numbers of
+  // semitones (a sweep, a frequency envelope or an arpeggio is such a list, one for each frame): whole semitones from a piano key are
+  // piano keys, so they cost no entries.
+  const soundFrequency = (sound) => Number(asDpcPlusSound(sound).dpcFrequency) || 0;
+  const pitchIdsForOffsets = (hz, offsets) => offsets.map((semitones) => pitchIdFor(hz * Math.pow(2, semitones / 12)));
 
 
   const byteLines = (label, values) => {
@@ -192,6 +200,10 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
           ' sta temp5');
       if (channels.length > 2) lines.push(' lda DF0DATA', ' sta temp6');
       lines.push('@_dpcmixdone');
+      // The voices' volumes after the mix add up to at most 15: half of that is the middle level.
+      lines.push(' lda temp4', ' clc', ' adc temp5');
+      if (channels.length > 2) lines.push(' adc temp6');
+      lines.push(' lsr', ` sta ${names.dpcAudMid}`);
     }
     channels.forEach((channel, position) => {
       const voice = VOICE_OF_CHANNEL[channel];
@@ -281,7 +293,7 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
   };
 
   return {channels, isChannel: (channel) => channels.includes(Number(channel)),
-    waveIdForSound, pitchIdForSound, waveIdForTia, pitchIdFor, pitchIdForTia, frequencyFile, routine,
+    waveIdForSound, pitchIdForSound, waveIdForTia, pitchIdFor, pitchIdForTia, soundFrequency, pitchIdsForOffsets, frequencyFile, routine,
     get waveCount() {
       return waves.length;
     }};
@@ -289,6 +301,9 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
 
 // Points the generated code's writes to the sound registers of the chip's channels at the variables above (the TIA's channel
 // 1 stays as it is).
+// The register the pitch of a chip channel is written to (what AUDF0, AUDF2 and AUDF3 become).
+export const chipNoteRegister = (channel) => `NOTE${VOICE_OF_CHANNEL[channel]}`;
+
 export const redirectSoundRegisters = (code, names) =>
   code.replace(/\bAUD([CFV])([023])\b/g, (match, kind, channel) => (kind === 'F' ?
     `NOTE${VOICE_OF_CHANNEL[channel]}` : names[`dpcAud${kind.toLowerCase()}${channel}`] || match));
@@ -298,7 +313,7 @@ const KERNEL_EXIT = /^(exitkernel[^\r\n]*\r?\n)( *)/m;
 
 // The kernel reads the chip's mixed output into the volume register on each scanline it has the 5 cycles to spare
 // (the same 5 cycles that were a sleep), and silences it when the picture ends.
-export const withDpcPlusAudioHook = (kernel) => {
+export const withDpcPlusAudioHook = (kernel, midLevel = null) => {
   if (!KERNEL_LOOP_SLOT.test(kernel) || !KERNEL_EXIT.test(kernel)) {
     throw new Error('The DPC+ kernel does not have the places the sound engine hooks into');
   }
@@ -306,9 +321,18 @@ export const withDpcPlusAudioHook = (kernel) => {
       .replace(KERNEL_LOOP_SLOT, (match, i1, i2, i3) =>
         `${i1}ifnconst DPC_kernel_options\r\n${i2};sleep 8 ; REVENG - timing is off - results in a garbled screen\r\n` +
         `${i3}lda #<AMPLITUDE ; the sound engine (see generators/bbasic/dpcplus-audio.js)\r\n${i3}sta AUDV0\r\n`)
-      .replace(KERNEL_EXIT, (match, label, indent) => `${label}${indent}stx AUDV0 ; X is 0 here: the sound stops with the picture
-${indent}`);
+      .replace(KERNEL_EXIT, (match, label, indent) => (midLevel ?
+        // The picture is over: the volume register goes to the middle of what the voices play (the level their waveforms average out
+        // at), not to 0, so the frame's silent lines are not a 60 Hz gap in the sound. A is free here and X is not used.
+        `${label}${indent}${midLevelLines(midLevel.channels, midLevel.names).join(`\r\n${indent}`)}\r\n${indent}` :
+        `${label}${indent}stx AUDV0 ; X is 0 here: the sound stops with the picture\r\n${indent}`));
 };
+
+// The assembly that puts the middle level of the chip's voices in the TIA's volume register: the voices' volumes added up (at most 15, as
+// the chip's mix is), halved. channels are the chip's channels the project plays on, names the variables of dpcAudioVars.
+export const midLevelLines = (channels, names) => (channels.length > 1 ?
+  [`lda ${names.dpcAudMid} ; the middle level of the voices: the picture's silent lines hold it`, 'sta AUDV0'] :
+  [`lda ${names[`dpcAudv${channels[0]}`]} ; the middle level of the voice: the picture's silent lines hold it`, 'lsr', 'sta AUDV0']);
 
 // The chip's channels (see CHIP_CHANNELS) the project plays something on: a sound block with that channel, or a Music tab
 // track with notes on it.
@@ -331,9 +355,9 @@ export const collectChipChannels = (workspace, songs) => {
 
 // The files a build with the DPC+ sound engine adds next to the compiled source: the project's frequency table and
 // the kernel with its hook (on top of the kernel the Text Minikernel already changed, if it did).
-export const getDpcPlusAudioSiblingFiles = async (siblingFiles, audioFiles) => {
+export const getDpcPlusAudioSiblingFiles = async (siblingFiles, audioFiles, midLevel = null) => {
   if (!audioFiles || !Object.keys(audioFiles).length) return {};
   const kernel = siblingFiles['DPCplus_kernel.asm'] ||
     await fetch('bb19/includes/DPCplus_kernel.asm').then((response) => response.text());
-  return {...audioFiles, 'DPCplus_kernel.asm': withDpcPlusAudioHook(kernel)};
+  return {...audioFiles, 'DPCplus_kernel.asm': withDpcPlusAudioHook(kernel, midLevel)};
 };

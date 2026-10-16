@@ -39,6 +39,16 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg squashfs-tools
       - run: npm ci --legacy-peer-deps
+      # The Windows installer is an .msi, which the WiX Toolset (candle.exe and light.exe on the PATH) builds. The runner image has
+      # had it; this installs it when it is missing.
+      - name: Make sure the WiX Toolset is installed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset -y --no-progress
+            echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
       # The dmg maker needs appdmg, which npm installs only on macOS and skips without a word when its install fails; one
       # run built without it ("Cannot find module 'appdmg'"). This tries again, and stops here with the reason if it cannot.
       - name: Make sure appdmg is installed
@@ -97,8 +107,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: installers
-      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb, rpm and AppImage, the web zip); the
-      # update files Squirrel makes beside the Windows installer (RELEASES, *.nupkg) are left out.
+      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb, rpm and AppImage, the web zip).
       - name: Create or update the release
         run: |
           # Each file gets a name that says which system it is for.
@@ -106,7 +115,7 @@ jobs:
           while IFS= read -r file; do
             name=$(basename "$file")
             case "$name" in
-              *.exe) new="VCS-Game-Maker-$TAG-Windows-Setup.exe" ;;
+              *.msi) new="VCS-Game-Maker-$TAG-Windows-Setup.msi" ;;
               *.deb) case "$name" in *arm64*) arch=arm64 ;; *) arch=amd64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.deb" ;;
               *.AppImage) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.AppImage" ;;
               *.rpm) case "$name" in *aarch64*) arch=aarch64 ;; *) arch=x86_64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.rpm" ;;
@@ -124,7 +133,7 @@ jobs:
                 tar -czf "release-files/$new.tar.gz" -C release-files "$new"
                 rm "release-files/$new" ;;
             esac
-          done < <(find installers -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \))
+          done < <(find installers -type f \( -name '*.msi' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \))
           mapfile -t files < <(find release-files -type f)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber

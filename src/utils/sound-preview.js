@@ -3,9 +3,9 @@
 import {useConfigurationStorage} from '../hooks/project';
 import {tvAudioClockScale} from './tv-standard';
 
-import {DEFAULT_TEMPO} from '../blocks/music';
-import {DEFAULT_ARPEGGIO_DIVISION} from '../blocks/soundfx';
 import {buildEnvelopeCurve} from './envelope';
+import {buildPitchTable} from './pitch-table';
+import {buildVolumeStaircase} from './staircase';
 
 // Approximates what a TIA (Atari 2600 sound chip) AUDC/AUDF/AUDV combination
 // would sound like, for previewing sound effect presets in the browser.
@@ -269,44 +269,7 @@ const stopActivePreview = () => {
   activeGainNode = null;
 };
 
-// Mirrors ARPEGGIO_PHASE_SEQUENCES in generators/bbasic/music.js and
-// utils/music-playback.js exactly (by ARPEGGIO_RANGE_* index - see
-// blocks/soundfx.js) - duplicated rather than imported since
-// music-playback.js already imports from this module, and importing back
-// would make the two circular (same reasoning as that module's
-// duplicate of this sequence).
-const ARPEGGIO_PHASE_SEQUENCES = [
-  ['base', 'alt'], // UP 1 OCT
-  ['alt', 'base'], // DOWN 1 OCT
-  ['base', 'alt', 'upBase', 'upAlt'], // UP 2 OCT
-  ['base', 'alt', 'downBase', 'downAlt'], // DOWN 2 OCT
-  ['base', 'alt', 'base'], // UP-DOWN 1 OCT
-  ['base', 'alt', 'upBase', 'upAlt', 'upBase', 'alt'], // UP-DOWN 2 OCT
-];
-
-// Same derivation as music-playback.js's  arpeggioPitchVariants - AUDF is
-// a frequency divisor, so alt (base minus interval) sounds higher than base,
-// up is base halved (one octave higher), down is base doubled (one octave
-// lower), all wrapped to the hardware's real 5-bit AUDF range.
-const arpeggioPitchVariants = (audf, arpeggioInterval) => {
-  const base = audf & 31;
-  const alt = (base - arpeggioInterval) & 31;
-  return {
-    base,
-    alt,
-    upBase: Math.floor(base / 2),
-    upAlt: Math.floor(alt / 2),
-    downBase: (base * 2) & 31,
-    downAlt: (alt * 2) & 31,
-  };
-};
-
-// Same per-frame flip rate the compiled ROM's  arpeggio timer uses (see
-// generateMusicChecks in generators/bbasic/music.js) and MAX_ARPEGGIO_SPEED_
-// FRAMES' 4-bit-nibble ceiling there - duplicated for the same
-// avoid-a-circular-import reason as ARPEGGIO_PHASE_SEQUENCES above.
 const FRAMES_PER_SECOND = 60;
-const MAX_ARPEGGIO_SPEED_FRAMES = 15;
 // Same reasoning as music-playback.js's  identical constant: a real,
 // instant step from full amplitude to 0 pops harder than the real
 // hardware's  click, so this rounds off just that last sliver instead -
@@ -319,6 +282,9 @@ export const registerSoundEffectPreview = (sources, gainNode) => {
   activeSources = sources;
   activeGainNode = gainNode;
 };
+
+// Whether these sources are still the preview that is playing (not stopped, not replaced by another).
+export const isSoundEffectPreviewActive = (sources) => activeSources === sources;
 
 /** Stops whatever sound effect preview is currently playing, if any. */
 export const stopSoundEffectPreview = () => {
@@ -336,12 +302,14 @@ export const stopSoundEffectPreview = () => {
  * no song/pattern tempo to convert arpeggioDivision against here (this is a
  * standalone preset preview, not a placed note), so it's anchored to
  * DEFAULT_TEMPO instead - the same fallback previewPatternNote in
- * utils/music-playback.js uses for the same reason.
+ * utils/music-playback.js uses for the same reason. With loop on it plays again each time it ends, until it is stopped.
+ * @param {Object} params the sound effect preset's fields, and loop
  */
-export const previewSoundEffect = ({
-  audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart,
-  envelopeSustainLength, envelopeRelease, arpeggio, arpeggioDivision, arpeggioInterval, arpeggioRange,
-}) => {
+export const previewSoundEffect = (params) => {
+  const {
+    audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart,
+    envelopeSustainLength, envelopeRelease, loop,
+  } = params;
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
   const seconds = Math.max(0, Number(duration) || 0) / 60;
   if (!approximation || seconds <= 0) {
@@ -363,8 +331,10 @@ export const previewSoundEffect = ({
   // rather than a continuous fade - a stepped preview actually sounds like
   // what plays in game instead of smoothing over the same discrete jumps.
   let endValue;
-  if (envelope) {
-    const curve = buildEnvelopeCurve({
+  // A staircase volume (the volume of each frame) takes the place of the envelope.
+  const staircase = buildVolumeStaircase({...params, audv});
+  if (envelope || staircase) {
+    const curve = staircase || buildEnvelopeCurve({
       attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd,
       releaseStartPercent: envelopeReleaseStart, sustainLength: envelopeSustainLength, release: envelopeRelease,
       peakVolume: audv, totalFrames: duration,
@@ -390,11 +360,9 @@ export const previewSoundEffect = ({
   }
   gainNode.connect(context.destination);
 
-  const stepSeconds = 30 / DEFAULT_TEMPO;
-  const arpeggioSpeedFrames = arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES, Math.round(
-      (stepSeconds / (Number(arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * FRAMES_PER_SECOND,
-  ))) : 0;
-  const flipSeconds = arpeggioSpeedFrames / FRAMES_PER_SECOND;
+  // A sound whose pitch changes (a sweep, a frequency envelope or an arpeggio) is a table of the pitch of every frame, the same one
+  // the ROM plays (utils/pitch-table.js).
+  const pitchTable = buildPitchTable(params);
 
   const sources = [];
 
@@ -405,7 +373,7 @@ export const previewSoundEffect = ({
     return buildBuzzBuffer(context, chipClockHz, segmentSeconds, approximation.bits,
         {stepDivider: approximation.stepDivider});
   };
-  if (!arpeggioSpeedFrames) {
+  if (!pitchTable) {
     const source = context.createBufferSource();
     source.buffer = buildBuffer(shiftClockFor(audf, {slowClock: approximation.slowClock}), seconds);
     source.connect(gainNode);
@@ -413,26 +381,23 @@ export const previewSoundEffect = ({
     source.stop(now + seconds);
     sources.push(source);
   } else {
-    // A buffer is pre-rendered for one fixed clock, so its pitch can't be
-    // automated live like an oscillator's - scheduled as several short
-    // back-to-back buffers instead, one per flip, each built at that
-    // phase's  pitch (matches how music-playback.js's
+    // A buffer is pre-rendered for one fixed clock, so its pitch can't be automated live like an oscillator's - scheduled as several
+    // short back-to-back buffers instead, one for each run of frames with the same pitch (matches how music-playback.js's
     // playInstrumentHit previews a buzzy/noisy arpeggiating instrument).
-    const variants = arpeggioPitchVariants(audf, Number(arpeggioInterval) || 0);
-    const sequence = ARPEGGIO_PHASE_SEQUENCES[Number(arpeggioRange) || 0] || ARPEGGIO_PHASE_SEQUENCES[0];
-    let t = now;
-    let phase = 0;
-    while (t < now + seconds) {
-      const segmentSeconds = Math.min(flipSeconds, now + seconds - t);
-      const pitchAudf = variants[sequence[phase % sequence.length]];
-      const source = context.createBufferSource();
-      source.buffer = buildBuffer(shiftClockFor(pitchAudf, {slowClock: approximation.slowClock}), segmentSeconds);
-      source.connect(gainNode);
-      source.start(t);
-      source.stop(t + segmentSeconds);
-      sources.push(source);
-      phase++;
-      t += flipSeconds;
+    for (let frame = 0; frame < pitchTable.length;) {
+      let end = frame + 1;
+      while (end < pitchTable.length && pitchTable[end] === pitchTable[frame]) end++;
+      const start = now + frame / FRAMES_PER_SECOND;
+      const segmentSeconds = Math.min((end - frame) / FRAMES_PER_SECOND, now + seconds - start);
+      if (segmentSeconds > 0) {
+        const source = context.createBufferSource();
+        source.buffer = buildBuffer(shiftClockFor(pitchTable[frame], {slowClock: approximation.slowClock}), segmentSeconds);
+        source.connect(gainNode);
+        source.start(start);
+        source.stop(start + segmentSeconds);
+        sources.push(source);
+      }
+      frame = end;
     }
   }
 
@@ -452,6 +417,8 @@ export const previewSoundEffect = ({
       if (activeSources === sources) {
         activeSources = [];
         activeGainNode = null;
+        // Loop: still the preview that was playing (not stopped or replaced), so it starts again.
+        if (loop) previewSoundEffect(params);
       }
     };
   }

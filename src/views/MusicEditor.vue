@@ -814,7 +814,8 @@ import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {channelOptions} from '../blocks/sound';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
-import {audfByMidiForAudc, getCanonicalNoteRows, noteAudv, soundHasTunableNotes} from '../utils/music-notes';
+import {audfByMidiForAudc, getCanonicalNoteRows, noteAudv, soundHasTunableNotes, RAW_FREQUENCY_ROWS,
+  rawFrequencyOf} from '../utils/music-notes';
 import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
 import {autoInstrumentColor, instrumentColorFor, isLightColor,
@@ -871,15 +872,17 @@ const clampPianoRollHeight = (value) =>
 // gets - it has no clean pitch to offer a real piano roll for, just an
 // on/off hit per note event.
 const HIT_ROW = [{midi: 'hit', label: 'Hit'}];
+// Below the Hit row: a row for each frequency (see RAW_FREQUENCY_ROWS in utils/music-notes.js), for a sound type with no in-tune notes.
+const FREQUENCY_ROWS = RAW_FREQUENCY_ROWS;
 
 // Same array the template's "sharedNoteRows" binding builds (see the
 // return statement below) - hoisted to module scope so the Move tool's
 // drag logic can look up a row by index/offset too, not just render them.
 // The pitched rows depend on the kernel (see getCanonicalNoteRows), so this is read when needed, not kept.
-let sharedNoteRowsCache = {source: null, rows: HIT_ROW};
+let sharedNoteRowsCache = {source: null, rows: [...HIT_ROW, ...FREQUENCY_ROWS]};
 const currentSharedNoteRows = () => {
   const source = getCanonicalNoteRows();
-  if (sharedNoteRowsCache.source !== source) sharedNoteRowsCache = {source, rows: [...source, ...HIT_ROW]};
+  if (sharedNoteRowsCache.source !== source) sharedNoteRowsCache = {source, rows: [...source, ...HIT_ROW, ...FREQUENCY_ROWS]};
   return sharedNoteRowsCache.rows;
 };
 // .piano-roll-cell's fixed CSS height (see its rule further down) -
@@ -2727,6 +2730,13 @@ export default defineComponent({
       // offering a redundant, pitch-less way to trigger the same sound.
       const tia = trackUsesTia(track);
       if (row.midi === 'hit') return !soundHasTunableNotes(soundEffect, tia);
+      // A frequency row: for any sound that is not a percussion sound (which only has the Hit row) and is not played by the DPC+ chip
+      // (whose pitch is a key of the piano). A sound type with in-tune notes has its piano rows as well.
+      if (rawFrequencyOf(row.midi) !== null) {
+        const config = (configurationStorage && configurationStorage.value) || {};
+        const chip = !tia && config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false;
+        return !soundEffect.isPercussion && !chip;
+      }
       return soundHasTunableNotes(soundEffect, tia) && audfByMidiForAudc(soundEffect.audc, tia).has(row.midi);
     };
     // Same "not available to the currently active track" check
@@ -2743,6 +2753,7 @@ export default defineComponent({
       if (row.midi === 'hit') return null;
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect) return null;
+      if (rawFrequencyOf(row.midi) !== null) return rawFrequencyOf(row.midi);
       const tia = trackUsesTia(track);
       return soundHasTunableNotes(soundEffect, tia) ? audfByMidiForAudc(soundEffect.audc, tia).get(row.midi) : null;
     };

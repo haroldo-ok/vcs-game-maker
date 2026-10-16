@@ -4,7 +4,9 @@ import {findSoundEffectById, processSoundEffectsStorageDefaults} from '../../blo
 import {useConfigurationStorage,
   useSoundEffectsStorage} from '../../hooks/project';
 import {buildEnvelopeCurve, clampEnvelopeStages} from '../../utils/envelope';
-import {fixedFreeVariable} from '../../utils/fixed-vars';
+import {buildPitchTable, buildDpcPitchOffsets, pitchTableByFramesLeft} from '../../utils/pitch-table';
+import {buildVolumeStaircase} from '../../utils/staircase';
+import {chipNoteRegister} from './dpcplus-audio';
 
 // The DIM toggle's default percentage, used until the user picks a value
 // on the slider next to it.
@@ -16,16 +18,11 @@ export const DEFAULT_DIM_PERCENT = 25;
 export const dimVolume = (audv, percent) =>
   Math.round(Number(audv) * (Number(percent) / 100));
 
-// 15 is never a meaningful envelope-config INDEX (a project realistically
-// only ever generates a handful of distinct envelope shapes - see
-// registerEnvelopeConfig below - and a nibble's  range, 0-15, comfortably
-// covers however many it grows to), so it doubles as the "this channel's
-// current sound has no envelope" sentinel - seeing it lets the per-frame
-// check (generateEnvelopeChecks) skip leaving AUDV alone for ordinary,
-// non-enveloped sounds sharing the same channel. Exported so
-// generators/bbasic/music.js's  envelope-change marker can use the exact
-// same sentinel value for "envelope off" on a music channel.
-export const NO_ENVELOPE_SENTINEL = 15;
+// 255 is never a real envelope-config INDEX (a project has at most 255 distinct volume shapes, numbered 0 to 254 - see
+// registerEnvelopeConfig below), so it is the "this channel's current sound has no envelope" value: seeing it lets the per-frame check
+// (generateEnvelopeChecks) leave AUDV alone for ordinary, non-enveloped sounds sharing the same channel. Exported so
+// generators/bbasic/music.js's  envelope-change marker can use the exact same value for "envelope off" on a music channel.
+export const NO_ENVELOPE_SENTINEL = 255;
 
 // Whether ANY sound effect preset on the SoundFX tab has its envelope
 // enabled - checked directly against the tab's  stored data, rather than
@@ -47,7 +44,7 @@ export const anySoundEffectHasEnvelope = () => {
     const configurationStorage = useConfigurationStorage();
     if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return false;
     const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
-    return data.soundEffects.some((soundEffect) => !!soundEffect.envelope);
+    return data.soundEffects.some((soundEffect) => !!(soundEffect.envelope || soundEffect.staircase));
   } catch (e) {
     return false;
   }
@@ -73,21 +70,10 @@ export const soundEffectChannelHasEnvelope = (workspace, channel) => {
       block.type === 'soundfx_play' && block.isEnabled() &&
       `${block.getFieldValue('CHANNEL')}` === `${channel}` &&
       data.soundEffects.some((soundEffect) =>
-        `${soundEffect.id}` === `${block.getFieldValue('SOUNDFX')}` && !!soundEffect.envelope));
+        `${soundEffect.id}` === `${block.getFieldValue('SOUNDFX')}` && !!(soundEffect.envelope || soundEffect.staircase)));
   } catch (e) {
     return false;
   }
-};
-
-// Whether any Music-tab channel actually plays an envelope-enabled
-// instrument note - reads this.projectMusic (set once in
-// generators/bbasic.js's  init(), before any of the functions below ever
-// run) rather than importing anything from generators/bbasic/music.js
-// directly, specifically to avoid a circular module dependency between the
-// two files (music.js already imports from this file).
-const anyMusicChannelHasEnvelope = (generatorThis) => {
-  const channelHasEnvelope = (generatorThis.projectMusic || {}).channelHasEnvelope || {};
-  return Object.values(channelHasEnvelope).some(Boolean);
 };
 
 // Every DISTINCT (attack, decay, release, decayEndPercent,
@@ -103,9 +89,26 @@ const anyMusicChannelHasEnvelope = (generatorThis) => {
 // through every intermediate function signature. Reset per compile by
 // resetEnvelopeConfigs, called from generators/bbasic.js's  init().
 let envelopeConfigs = new Map();
+// The shapes' tables laid one after the other in one table (see envelopeFlatOn): where the next one starts, and whether they no longer
+// fit in the 256 places a one byte position can reach.
+let envelopeFlatNext = 0;
+let envelopeFlatOverflow = false;
 export const resetEnvelopeConfigs = () => {
   envelopeConfigs = new Map();
+  envelopeFlatNext = 0;
+  envelopeFlatOverflow = false;
 };
+export const envelopeFlatOverflowed = () => envelopeFlatOverflow;
+// Whether the channels count down through one table holding every shape (the position a channel is at is its one variable, so it needs
+// no shape number and no choosing of the shape's table) instead of a countdown and a shape number for each channel. Used when all the
+// shapes together fit in 256 bytes; the build is generated again without it when they do not (see workspaceToCode).
+let envelopeFlatDisabled = false;
+export const setEnvelopeFlatDisabled = (disabled) => {
+  envelopeFlatDisabled = disabled;
+};
+export const envelopeFlatOn = () => !envelopeFlatDisabled;
+// Where a channel's countdown starts for a shape: the end of its part of the table (0, nothing to play, for a shape with no frames).
+export const envelopeStartPosition = (config) => (config.envelopeLength ? config.flatBase + config.envelopeLength : 0);
 
 // Builds (and registers, deduped - see registerEnvelopeConfig below) the
 // one data table one distinct envelope SHAPE needs. Unlike before
@@ -145,7 +148,11 @@ export const resetEnvelopeConfigs = () => {
 // actually read - AUDV just stays wherever the last real write left it,
 // same "leave it alone" convention Sustain's gap already relied on).
 const buildEnvelopeConfigTables = ({attack, decay, sustainLength, release, decayEndPercent, releaseStartPercent,
-  peakVolume, totalFrames, loopSustain}) => {
+  peakVolume, totalFrames, loopSustain, staircase = null}) => {
+  // A staircase volume is a table of the volume of each frame, used as it is.
+  if (staircase) {
+    return {envelopeLength: staircase.length, envelopeTable: [0, ...staircase.slice().reverse()]};
+  }
   const {attack: a, decay: d, sustainLength: s, release: r} =
     clampEnvelopeStages({attack, decay, sustainLength, release, totalFrames, loopSustain});
   const envelopeLength = a + d + s + r;
@@ -159,20 +166,20 @@ const buildEnvelopeConfigTables = ({attack, decay, sustainLength, release, decay
 };
 
 // Registers (deduped by exact clamped shape) one envelope config into the
-// shared pool above, returning its project-wide index (0-based, packed into
-// a nibble per channel - see soundfx_play below/generateEnvelopeChecks).
-// Index 0-14 only - 15 is NO_ENVELOPE_SENTINEL, reserved - so a project
+// shared pool above, returning its project-wide index (0-based, a byte per
+// channel - see soundfx_play below/generateEnvelopeChecks).
+// Index 0-254 only - 255 is NO_ENVELOPE_SENTINEL, reserved - so a project
 // mixing enough distinct (attack, decay, release, sustain, peakVolume)
 // shapes across every Sound Effect AND Music instrument combined (Music
 // notes register one PER DISTINCT VOLUME they're played at on a given
 // instrument - see music.js's  eventsToPages - so this is far easier to
 // hit than it ever was with Sound Effects alone) would otherwise silently
-// wrap/collide in that shared nibble, corrupting playback for whichever
+// wrap/collide in that byte, corrupting playback for whichever
 // sound loses the collision. Caught here instead, at compile time.
 export const registerEnvelopeConfig = ({attack, decay, sustainLength, release, decayEndPercent, releaseStartPercent,
-  peakVolume, totalFrames, loopSustain = false}) => {
-  const key = `${attack}:${decay}:${sustainLength}:${release}:${decayEndPercent}:${releaseStartPercent}:` +
-    `${peakVolume}:${totalFrames}:${loopSustain}`;
+  peakVolume, totalFrames, loopSustain = false, staircase = null}) => {
+  const key = staircase ? `staircase:${staircase.join(',')}` : `${attack}:${decay}:${sustainLength}:${release}:${decayEndPercent}:` +
+    `${releaseStartPercent}:${peakVolume}:${totalFrames}:${loopSustain}`;
   if (envelopeConfigs.has(key)) return envelopeConfigs.get(key).index;
   if (envelopeConfigs.size >= NO_ENVELOPE_SENTINEL) {
     throw new Error(`This project uses ${envelopeConfigs.size + 1} distinct envelope shapes (combinations of ` +
@@ -181,8 +188,14 @@ export const registerEnvelopeConfig = ({attack, decay, sustainLength, release, d
       'envelope-enabled Music instruments, or sharing the same envelope settings across more Sound Effects.');
   }
   const index = envelopeConfigs.size;
-  envelopeConfigs.set(key, {index, key, ...buildEnvelopeConfigTables({attack, decay, sustainLength, release,
-    decayEndPercent, releaseStartPercent, peakVolume, totalFrames, loopSustain})});
+  const built = buildEnvelopeConfigTables({attack, decay, sustainLength, release,
+    decayEndPercent, releaseStartPercent, peakVolume, totalFrames, loopSustain, staircase});
+  const flatBase = envelopeFlatNext;
+  if (built.envelopeTable) {
+    envelopeFlatNext += built.envelopeTable.length;
+    if (flatBase + built.envelopeLength > 255) envelopeFlatOverflow = true;
+  }
+  envelopeConfigs.set(key, {index, key, flatBase, ...built});
   return index;
 };
 
@@ -203,12 +216,114 @@ export const registerEnvelopeConfig = ({attack, decay, sustainLength, release, d
 // costs no cross-bank data reference at all.
 export const getEnvelopeConfigs = () => [...envelopeConfigs.values()];
 
+// The sounds that loop or change pitch. Each channel that has such a sound has one variable (soundId0, soundId1, ...), the one these
+// features share: a sound is started with the number of its description put in it (0 for a sound that does neither). The description
+// is the code that starts the sound over when its duration runs out, if it loops (assembly: the registers it writes are renamed for
+// the DPC+ sound chip like the rest of the generated code), and the number of the pitch table it plays, if its pitch changes.
+// generateChannelDurationChecks (generators/bbasic.js) and generateEnvelopeChecks look the number up. A sound used by several
+// blocks is one number.
+let soundDescriptions = [];
+export const resetSoundDescriptions = () => {
+  soundDescriptions = [];
+};
+// envelopeConfig is the number of the shape the sound plays, on a channel that has no variable of its own for it (see
+// envelopeMergedChannels in generators/bbasic.js): the sound's number then says which shape the envelope check plays.
+export const registerSoundDescription = (channel, {loopLines = null, pitchTableId = 0, envelopeConfig = null}) => {
+  if (!loopLines && !pitchTableId && envelopeConfig === null) return 0;
+  const key = `${channel}|${pitchTableId}|${envelopeConfig}|${loopLines ? loopLines.join('\n') : ''}`;
+  const found = soundDescriptions.find((description) => description.key === key);
+  if (found) return found.id;
+  const id = soundDescriptions.length + 1;
+  soundDescriptions.push({id, key, channel: `${channel}`, loopLines, pitchTableId, envelopeConfig});
+  return id;
+};
+export const getSoundDescriptions = () => soundDescriptions;
+
+// The tables of sounds whose pitch changes (see utils/pitch-table.js), numbered from 1, one for each different table (two sounds
+// with the same pitch every frame share one). A sound started with a table sets its channel's pitch variable to the number.
+let pitchTables = [];
+export const resetPitchTables = () => {
+  pitchTables = [];
+};
+export const registerPitchTable = (values) => {
+  const key = values.join(',');
+  const found = pitchTables.find((table) => table.key === key);
+  if (found) return found.id;
+  const id = pitchTables.length + 1;
+  pitchTables.push({id, key, values});
+  return id;
+};
+export const getPitchTables = () => pitchTables;
+
+// The pitch of each frame of a sound whose pitch changes (a sweep, a frequency envelope, an arpeggio), null for one whose pitch stays put:
+// the AUDF of each frame, or for a channel the DPC+ chip plays (dpcPlan is the plan of the DPC+ sound engine, else null) the entry of
+// the chip's frequency table. startHz is the frequency of the note on the Music tab, for a sound of the chip.
+export const soundPitchValues = (soundEffect, dpcPlan, {arpeggioFrames = 0, startHz = null} = {}) => {
+  if (!dpcPlan) return buildPitchTable(soundEffect, {arpeggioFrames});
+  const hz = startHz || dpcPlan.soundFrequency(soundEffect);
+  const offsets = buildDpcPitchOffsets(soundEffect, hz, {arpeggioFrames});
+  return offsets ? dpcPlan.pitchIdsForOffsets(hz, offsets) : null;
+};
+
+// The channels where a sound from a block has a changing pitch (a sweep, a frequency envelope or an arpeggio), which each get a
+// pitch variable. The DPC+ chip's channels are left out: their pitch is an entry of the chip's frequency table.
+export const soundPitchChannels = (workspace, dpcAudioPlan) => {
+  const channels = new Set();
+  try {
+    const configurationStorage = useConfigurationStorage();
+    if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return channels;
+    const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
+    workspace.getAllBlocks(false).forEach((block) => {
+      if (block.type !== 'soundfx_play' || !block.isEnabled()) return;
+      const channel = `${block.getFieldValue('CHANNEL')}`;
+      const soundEffect = data.soundEffects.find(({id}) => `${id}` === `${block.getFieldValue('SOUNDFX')}`);
+      const plan = dpcAudioPlan && dpcAudioPlan.isChannel(channel) ? dpcAudioPlan : null;
+      if (soundEffect && soundPitchValues(soundEffect, plan)) channels.add(`${Number(channel)}`);
+    });
+  } catch (e) {
+    return channels;
+  }
+  return channels;
+};
+
+// The instructions that keep the volume in the accumulator at or under the loudest allowed one (15 minus soundVolumeCut), with
+// the result in X; X is also what the lines after it should store. labelBase makes the branch label private to the call site.
+export const volumeLimitAsm = (cutVar, labelBase) => [
+  '       tax',
+  '       clc',
+  `       adc ${cutVar}`,
+  '       cmp #16',
+  `       bcc ${labelBase}_ok`,
+  '       lda #15',
+  '       sec',
+  `       sbc ${cutVar}`,
+  '       tax',
+  `${labelBase}_ok`,
+];
+
 export default (Blockly) => {
+  // Stops what a channel plays: the sound ends, a Loop with it, and music on the channel carries on with its next note.
+  Blockly.BBasic['soundfx_stop'] = function(block) {
+    const configurationStorage = useConfigurationStorage();
+    if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return 'rem Sound muted\n';
+    const channel = Blockly.BBasic.normalizeChannel(block.getFieldValue('CHANNEL'));
+    const name = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    let code = `AUDV${channel}=0\n${name(`channnel${channel}duration`)}=0\n`;
+    if (Blockly.BBasic[`envelopeStage${channel}Used`]) code += `${name(`envelopeStage${channel}`)}=0\n`;
+    return code;
+  };
+
+  // Sets the loudest volume a sound or a music note may play at (the writes of the volume look at it).
+  Blockly.BBasic['soundfx_max_volume'] = function(block) {
+    const configurationStorage = useConfigurationStorage();
+    if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return 'rem Sound muted\n';
+    const value = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '15';
+    const cut = Blockly.BBasic.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return `temp1 = ${value}\nif temp1 > 15 then temp1 = 15\n${cut} = 15 - temp1\n`;
+  };
+
   Blockly.BBasic['soundfx_play'] = function(block) {
     const channel = Blockly.BBasic.normalizeChannel(block.getFieldValue('CHANNEL'));
-    // Channels 0 and 1 keep their envelope config in one byte (low and high nibble), channels 2 and 3 in another.
-    const high = Number(channel) % 2 === 1;
-    const configVar = Number(channel) < 2 ? 'envelopeConfig' : 'envelopeConfigB';
     const soundEffect = findSoundEffectById(block.getFieldValue('SOUNDFX'));
     if (!soundEffect) {
       return `rem Sound effect not found\n`;
@@ -225,8 +340,13 @@ export default (Blockly) => {
     // in the compiled ROM.
     if (config.muteAllAudio) return 'rem Sound muted\n';
 
-    const {audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd,
+    const {audc, audf, audv, envelopeAttack, envelopeDecay, envelopeDecayEnd,
       envelopeReleaseStart, envelopeSustainLength, envelopeRelease} = soundEffect;
+    // The frames a sound has left are one byte, so a longer sound is cut at 255 frames (the Duration field stops there too).
+    const duration = Math.min(255, Number(soundEffect.duration) || 0);
+    // A staircase volume (the volume of each frame) is played through the same table as an envelope, and takes its place.
+    const staircase = buildVolumeStaircase(soundEffect);
+    const envelope = !!(soundEffect.envelope || staircase);
     // App-wide preference (see useDimSoundFxStorage's  comment), not part
     // of this project's  saved configuration.
     const effectiveAudv = audv;
@@ -239,6 +359,10 @@ export default (Blockly) => {
     // that stale envelope config once its  duration counts down far
     // enough to match it.
     let envelopeLines = '';
+    // The same envelope setup as assembly, for the code that starts a looping sound over (see registerSoundLoop).
+    let envelopeAsm = [];
+    // The shape this sound plays, when the channel's variable for its number is the sound's number (see envelopeMergedChannels).
+    let mergedConfig = null;
     // The per-channel envelope state (the stage countdown, and the check that
     // reads it every frame) only exists when generators/bbasic.js reserved it for
     // this channel, which needs a sound or music note on that channel that has an
@@ -247,7 +371,6 @@ export default (Blockly) => {
     // stage variable (it was never declared: "Unknown Mnemonic").
     const stageReserved = !!Blockly.BBasic[`envelopeStage${channel}Used`];
     if (anySoundEffectHasEnvelope() && stageReserved) {
-      Blockly.BBasic.usesDivMul = true;
       // Blockly.BBasic.nameDB_, not this.nameDB_ - a block generator like
       // this one is invoked as "func.call(block, block)" by Blockly's
       // blockToCode (see node_modules/blockly/core/generator.js), so `this`
@@ -260,6 +383,11 @@ export default (Blockly) => {
       // branch at all.
       const stageVar = Blockly.BBasic.nameDB_.getName(
           `envelopeStage${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      // The number of the shape the channel plays: a byte of its own, 255 for no envelope.
+      const merged = !!(Blockly.BBasic.envelopeMergedChannels && Blockly.BBasic.envelopeMergedChannels.has(`${channel}`));
+      const flat = envelopeFlatOn();
+      const configVar = (flat || merged) ? null : Blockly.BBasic.nameDB_.getName(
+          `envelopeConfig${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       if (envelope) {
         // Still clamped here (not just left to registerEnvelopeConfig's
         // internal clamp) because this needs the resulting stage lengths
@@ -268,30 +396,43 @@ export default (Blockly) => {
         // too-short Duration (see utils/envelope.js's comment on
         // clampEnvelopeStages), the same default registerEnvelopeConfig
         // itself uses, so both calls agree.
-        const {attack, decay, sustainLength, release} = clampEnvelopeStages({
-          attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
-          release: envelopeRelease, totalFrames: duration,
-        });
-        // The RAW envelopeAttack/Decay/SustainLength/Release values (not
-        // the clamped ones just above), plus totalFrames - not a redundant
-        // repeat of the clamp above, since buildEnvelopeConfigTables needs
-        // to do that clamp itself to tell "configured length" apart from
-        // "extended length" (see its comment); passing already-clamped
-        // values in would erase that distinction.
-        const configIndex = registerEnvelopeConfig({
-          attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
-          release: envelopeRelease, decayEndPercent: envelopeDecayEnd, releaseStartPercent: envelopeReleaseStart,
-          peakVolume: effectiveAudv, totalFrames: duration,
-        });
-        envelopeLines = (high ?
-          `${configVar} = (${configVar} & $0F) | ${configIndex * 16}\n` :
-          `${configVar} = (${configVar} & $F0) | ${configIndex}\n`) +
-          `${stageVar} = ${attack + decay + sustainLength + release}\n`;
+        let configIndex;
+        let stageLength;
+        if (staircase) {
+          configIndex = registerEnvelopeConfig({staircase});
+          stageLength = staircase.length;
+        } else {
+          const {attack, decay, sustainLength, release} = clampEnvelopeStages({
+            attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
+            release: envelopeRelease, totalFrames: duration,
+          });
+          configIndex = registerEnvelopeConfig({
+            attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
+            release: envelopeRelease, decayEndPercent: envelopeDecayEnd, releaseStartPercent: envelopeReleaseStart,
+            peakVolume: effectiveAudv, totalFrames: duration,
+          });
+          stageLength = attack + decay + sustainLength + release;
+        }
+        if (flat) {
+          const start = envelopeStartPosition(getEnvelopeConfigs()[configIndex]);
+          envelopeLines = `${stageVar} = ${start}\n`;
+          envelopeAsm = [`       lda #${start}`, `       sta ${stageVar}`];
+        } else if (merged) {
+          mergedConfig = configIndex;
+          envelopeLines = `${stageVar} = ${stageLength}\n`;
+          envelopeAsm = [`       lda #${stageLength}`, `       sta ${stageVar}`];
+        } else {
+          envelopeLines = `${configVar} = ${configIndex}\n${stageVar} = ${stageLength}\n`;
+          envelopeAsm = [`       lda #${configIndex}`, `       sta ${configVar}`,
+            `       lda #${stageLength}`, `       sta ${stageVar}`];
+        }
+      } else if (flat || merged) {
+        envelopeLines = `${stageVar} = 0\n`;
+        envelopeAsm = ['       lda #0', `       sta ${stageVar}`];
       } else {
-        envelopeLines = (high ?
-          `${configVar} = (${configVar} & $0F) | ${NO_ENVELOPE_SENTINEL * 16}\n` :
-          `${configVar} = (${configVar} & $F0) | ${NO_ENVELOPE_SENTINEL}\n`) +
-          `${stageVar} = 0\n`;
+        envelopeLines = `${configVar} = ${NO_ENVELOPE_SENTINEL}\n${stageVar} = 0\n`;
+        envelopeAsm = [`       lda #${NO_ENVELOPE_SENTINEL}`, `       sta ${configVar}`,
+          '       lda #0', `       sta ${stageVar}`];
       }
     }
 
@@ -307,11 +448,47 @@ export default (Blockly) => {
     // The chip's channels are played by the chip; channel 1 stays on the TIA with the sound's Standard type and frequency.
     const dpcPlan = Blockly.BBasic.dpcAudioPlan && Blockly.BBasic.dpcAudioPlan.isChannel(channel) ?
       Blockly.BBasic.dpcAudioPlan : null;
+    const audcValue = dpcPlan ? dpcPlan.waveIdForSound(soundEffect) : audc;
+    // A sound whose pitch changes (a sweep, a frequency envelope or an arpeggio) starts on the first entry of its table; the check that
+    // runs every frame (see generateEnvelopeChecks) plays the rest. Not on the DPC+ chip's channels.
+    const pitchTable = soundPitchValues(soundEffect, dpcPlan);
+    const audfValue = pitchTable ? pitchTable[0] : (dpcPlan ? dpcPlan.pitchIdForSound(soundEffect) : audf);
+    const cutVar = Blockly.BBasic.soundMaxVolumeUsed ?
+      Blockly.BBasic.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+    // A channel that has a looping sound or one that changes pitch has the one variable for both: every sound started on it sets it
+    // to the number of its description, 0 for a sound that does neither.
+    let idLines = '';
+    // A sound that loops counts one frame more: the frame its duration runs out is the first frame of the next time round, so the
+    // sound plays all of its frames every time.
+    const loops = block.getFieldValue('LOOP') === 'TRUE';
+    const loopDuration = Math.min(255, Number(duration) + 1);
+    if (Blockly.BBasic.soundIdChannels && Blockly.BBasic.soundIdChannels.has(`${Number(channel)}`)) {
+      const idVar = Blockly.BBasic.nameDB_.getName(`soundId${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const id = registerSoundDescription(channel, {
+        pitchTableId: pitchTable ? registerPitchTable(pitchTableByFramesLeft(pitchTable, loops)) : 0,
+        envelopeConfig: mergedConfig,
+        loopLines: !loops ? null : [
+          '       lda #0', `       sta AUDV${channel}`,
+          `       lda #${audcValue}`, `       sta AUDC${channel}`,
+          `       lda #${audfValue}`, `       sta AUDF${channel}`,
+          `       lda #${effectiveAudv}`,
+          ...(cutVar ? [...volumeLimitAsm(cutVar, `_soundloop${channel}_@@ID@@`), `       stx AUDV${channel}`] :
+            [`       sta AUDV${channel}`]),
+          `       lda #${loopDuration}`, `       sta ${durationVar}`,
+          ...envelopeAsm,
+        ],
+      });
+      idLines = `${idVar}=${id}\n`;
+    }
+    const volumeLines = cutVar ?
+      `asm\nlda #15\nsec\nsbc ${cutVar}\ncmp #${effectiveAudv}\nbcc *+4\nlda #${effectiveAudv}\nsta AUDV${channel}\n@end\n` :
+      `AUDV${channel}=${effectiveAudv}\n`;
     return `AUDV${channel}=0\n` +
-      `AUDC${channel}=${dpcPlan ? dpcPlan.waveIdForSound(soundEffect) : audc}\n` +
-      `AUDF${channel}=${dpcPlan ? dpcPlan.pitchIdForSound(soundEffect) : audf}\n` +
-      `AUDV${channel}=${effectiveAudv}\n` +
-      `${durationVar}=${duration}\n` +
+      `AUDC${channel}=${audcValue}\n` +
+      `AUDF${channel}=${audfValue}\n` +
+      volumeLines +
+      `${durationVar}=${loops ? loopDuration : duration}\n` +
+      idLines +
       envelopeLines;
   };
 
@@ -324,14 +501,10 @@ export default (Blockly) => {
   // high byte when the Text Minikernel's score-bar integration is also on,
   // which this would collide with in that specific combination; there is no
   // further safe slot to fall back to within the same 4-byte margin.
+  // (The number of the shape each channel plays is a variable of its own now, envelopeConfig0 to envelopeConfig3, reserved with the
+  // channel's envelope countdown: nothing is dimmed here any more.)
   Blockly.BBasic.generateEnvelopeDims = function() {
-    if (!anySoundEffectHasEnvelope() && !anyMusicChannelHasEnvelope(this)) return '';
-    const configurationStorage = useConfigurationStorage();
-    const config = (configurationStorage && configurationStorage.value) || {};
-    const comment = (config.showVariableComments ?? true) ?
-      '  ; both channels\' envelope-config index (see registerEnvelopeConfig), packed one nibble each' : '';
-    if (config.kernel === 'dpcplus') return '';
-    return `\n dim envelopeConfig = ${fixedFreeVariable(config, 47)}${comment}`;
+    return '';
   };
 
   // Every distinct envelope config's single combined data table (see
@@ -347,6 +520,15 @@ export default (Blockly) => {
   const buildEnvelopeDataTables = () => {
     const configs = [...envelopeConfigs.values()];
     if (!configs.length) return '';
+    if (envelopeFlatOn()) {
+      // One table with the part of every shape after the other. The first place of each part (never played) holds 255, which a channel
+      // reads when its countdown has run through the shape, and so knows the shape is over.
+      const all = configs.flatMap(({envelopeTable}) => (envelopeTable ? [255, ...envelopeTable.slice(1)] : []));
+      if (!all.length) return '';
+      const rows = [];
+      for (let i = 0; i < all.length; i += 16) rows.push(`  ${all.slice(i, i + 16).join(', ')}`);
+      return `\n data _envelopeall\n${rows.join('\n')}\nend`;
+    }
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const showVariableComments = config.showVariableComments ?? true;
@@ -399,7 +581,10 @@ export default (Blockly) => {
   // release branch or remaining-duration lookup.
   Blockly.BBasic.generateEnvelopeChecks = function() {
     const configs = [...envelopeConfigs.values()];
-    if (!configs.length) return '';
+    const pitchTables = getPitchTables();
+    // The sound's duration checks with loops (see generateChannelDurationChecks) run first, in the same unit.
+    const durationAsm = this.channelDurationAsm || '';
+    if (!configs.length && !pitchTables.length) return durationAsm ? Blockly.BBasic.wrapRelocatableGraphics('soundfxEnvelopeChecks', durationAsm) : '';
     // Lazy (not resolved up front) - resolveVar/nameDB_.getName allocates a
     // real letter the first time it's called, independent of whether
     // generators/bbasic.js's  reservation gate (envelopeStage0Used/
@@ -412,8 +597,36 @@ export default (Blockly) => {
     // against X (the unpacked index); the matching config's  block reads
     // its  combined table while this channel's  countdown is still
     // nonzero.
+    // From this many shapes up, the shape's table is found through a table of pointers (about 35 cycles whatever the number of
+    // shapes, and no code for each shape) instead of by comparing the number with each shape's (5 cycles a shape).
+    const POINTER_DISPATCH_FROM = 4;
+    const tabled = configs.filter(({envelopeLength}) => envelopeLength);
+    const usePointers = !envelopeFlatOn() && tabled.length >= POINTER_DISPATCH_FROM;
+    const pointerCount = Math.max(...configs.map(({index}) => index), 0) + 1;
+    const limitedWrite = (audvReg, label) => (this.soundMaxVolumeUsed ?
+      [...volumeLimitAsm(this.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE), label + '_vol'),
+        '       stx AUDV' + audvReg] :
+      ['       sta AUDV' + audvReg]);
+
     const buildChannelDispatch = (tag, audvReg, stageVar) => {
       const lines = [];
+      if (usePointers) {
+        // temp1 and temp2 (next to each other, free between statements) hold the table's address for the indirect read.
+        lines.push(
+            '       lda ' + stageVar,
+            `       beq _envelope${tag}_done`,
+            '       tay',
+            '       lda _envelopeptrlo,x',
+            '       sta temp1',
+            '       lda _envelopeptrhi,x',
+            '       sta temp2',
+            '       lda (temp1),y',
+            ...limitedWrite(audvReg, `_envelope${tag}_ptr`),
+            '       dec ' + stageVar,
+        );
+        lines.push('_envelope' + tag + '_done');
+        return lines;
+      }
       configs.forEach(({index, envelopeLength}, i) => {
         const isLast = i === configs.length - 1;
         const label = `_envelope${tag}_cfg${index}`;
@@ -424,7 +637,8 @@ export default (Blockly) => {
               '       beq ' + label + '_done',
               '       tay',
               '       lda _envelope' + index + ',y',
-              '       sta AUDV' + audvReg,
+              // With a "Set max sound volume" in the project the volume is held to it before it is written.
+              ...limitedWrite(audvReg, label),
               '       dec ' + stageVar,
               label + '_done',
           );
@@ -437,6 +651,23 @@ export default (Blockly) => {
       return lines;
     };
 
+    // The address of each shape's table, low bytes then high bytes, numbered like the shapes (a number with no table points at the
+    // first table, which is never read: its countdown is 0).
+    const pointerTables = () => {
+      if (!usePointers) return '';
+      const byIndex = new Map(tabled.map(({index}) => [index, index]));
+      const label = (i) => `_envelope${byIndex.has(i) ? i : tabled[0].index}`;
+      const row = (prefix) => Array.from({length: pointerCount}, (_, i) => `${prefix}${label(i)}`);
+      const rows = (prefix) => {
+        const out = [];
+        const all = row(prefix);
+        for (let i = 0; i < all.length; i += 6) out.push(` .byte ${all.slice(i, i + 6).join(', ')}`);
+        return out;
+      };
+      return [' asm', '       jmp _envelopeptr_over', '_envelopeptrlo', ...rows('<'), '_envelopeptrhi', ...rows('>'),
+        '_envelopeptr_over', 'end'].join('\n');
+    };
+
     // Each channel's  section (the runtime "is this channel's  nibble
     // actually a real config, or NO_ENVELOPE_SENTINEL" guard, plus its
     // dispatch) is only built at all - and so only ever resolves that
@@ -446,16 +677,84 @@ export default (Blockly) => {
     // channel never references (or reserves) the other channel's  var.
     // One channel's section. Channels 0 and 1 share envelopeConfig (low and high nibble) and channels 2 and 3 (the DPC+
     // chip's second and third voices) share envelopeConfigB.
+    const mergedPointerTables = [];
     const channelSection = (channel) => {
       if (!this[`envelopeStage${channel}Used`]) return [];
-      const high = channel % 2 === 1;
-      const configVar = channel < 2 ? 'envelopeConfig' : 'envelopeConfigB';
+      if (envelopeFlatOn()) {
+        // The countdown is the place in the one table of every shape: read it, write it as the volume, count down. A 255 is the end of
+        // the shape: the countdown stops, the volume stays where the shape left it.
+        const stageVar = this.nameDB_.getName(`envelopeStage${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return configs.some(({envelopeLength}) => envelopeLength) ? [
+          `       ldy ${stageVar}`,
+          `       bne _envelope${channel}_on`,
+          `       jmp _envelope${channel}_done`,
+          `_envelope${channel}_on`,
+          '       lda _envelopeall,y',
+          '       cmp #255',
+          `       bne _envelope${channel}_play`,
+          '       lda #0',
+          `       sta ${stageVar}`,
+          `       jmp _envelope${channel}_done`,
+          `_envelope${channel}_play`,
+          ...(this.soundMaxVolumeUsed ?
+            [...volumeLimitAsm(this.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE),
+                `_envelope${channel}_vol`), `       stx AUDV${channel}`] :
+            [`       sta AUDV${channel}`]),
+          `       dec ${stageVar}`,
+          `_envelope${channel}_done`,
+        ] : [];
+      }
+      if (this.envelopeMergedChannels && this.envelopeMergedChannels.has(`${channel}`)) {
+        // The channel has no variable for the shape: the number of the sound playing (soundId) says which shape it is, so the shape is
+        // looked for among the sounds of the channel that have one.
+        const stageVar = this.nameDB_.getName(`envelopeStage${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        const idVar = this.nameDB_.getName(`soundId${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        const shaped = getSoundDescriptions().filter((description) => description.channel === `${channel}` &&
+          description.envelopeConfig !== null && configs[description.envelopeConfig] && configs[description.envelopeConfig].envelopeLength);
+        if (!shaped.length) return [];
+        const write = this.soundMaxVolumeUsed ?
+          [...volumeLimitAsm(this.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE),
+              `_envelope${channel}_vol`), `       stx AUDV${channel}`] : [`       sta AUDV${channel}`];
+        const lines = [
+          `       ldx ${idVar}`,
+          `       bne _envelope${channel}_hasid`,
+          `       jmp _envelope${channel}_done`,
+          `_envelope${channel}_hasid`,
+          `       lda ${stageVar}`,
+          `       bne _envelope${channel}_hasstage`,
+          `       jmp _envelope${channel}_done`,
+          `_envelope${channel}_hasstage`,
+          '       tay',
+        ];
+        if (shaped.length >= POINTER_DISPATCH_FROM) {
+          // From four sounds up the shape's table is found through a table of addresses indexed by the sound's number.
+          lines.push(`       lda _envelopeid${channel}lo,x`, '       sta temp1', `       lda _envelopeid${channel}hi,x`, '       sta temp2',
+              '       lda (temp1),y', ...write, `       dec ${stageVar}`);
+          const size = Math.max(...shaped.map(({id}) => id)) + 1;
+          const tableOf = new Map(shaped.map(({id, envelopeConfig}) => [id, envelopeConfig]));
+          const label = (i) => `_envelope${tableOf.has(i) ? tableOf.get(i) : configs[shaped[0].envelopeConfig].index}`;
+          const rows = (prefix) => {
+            const all = Array.from({length: size}, (_, i) => `${prefix}${label(i)}`);
+            const out = [];
+            for (let i = 0; i < all.length; i += 6) out.push(` .byte ${all.slice(i, i + 6).join(', ')}`);
+            return out;
+          };
+          mergedPointerTables.push([' asm', `       jmp _envelopeid${channel}_over`, `_envelopeid${channel}lo`, ...rows('<'),
+            `_envelopeid${channel}hi`, ...rows('>'), `_envelopeid${channel}_over`, 'end'].join('\n'));
+        } else {
+          shaped.forEach(({id, envelopeConfig}) => {
+            lines.push(`       cpx #${id}`, `       bne _envelope${channel}_id${id}_next`,
+                `       lda _envelope${envelopeConfig},y`, ...write, `       dec ${stageVar}`,
+                `       jmp _envelope${channel}_done`, `_envelope${channel}_id${id}_next`);
+          });
+        }
+        lines.push(`_envelope${channel}_done`);
+        return lines;
+      }
+      const configVar = this.nameDB_.getName(`envelopeConfig${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       return [
-        // X holds the unpacked nibble from here through buildChannelDispatch below - tax'd immediately (instead of
-        // re-reading/re-masking the config a second time right before the dispatch).
-        `       lda ${configVar}`,
-        ...(high ? ['       lsr', '       lsr', '       lsr', '       lsr'] : ['       and #$0F']),
-        '       tax',
+        // X holds the shape's number from here through buildChannelDispatch below.
+        `       ldx ${configVar}`,
         '       cpx #' + NO_ENVELOPE_SENTINEL,
         // A plain BEQ over the dispatch used to run out of range once a project registered enough configs ("Branch
         // out of range"): the inverted branch over a JMP has no such limit.
@@ -467,9 +766,71 @@ export default (Blockly) => {
       ];
     };
 
+    // A sound whose pitch changes (a sweep, a frequency envelope, an arpeggio) sets its channel's variable to the number of its
+    // description (see registerSoundDescription), which has the number of its pitch table; while it plays, each frame the pitch is the
+    // table's entry for the frames it has left, read with the duration counter as the index (this runs after the countdown of that
+    // frame, so a sound that starts with a duration D reads entries D-1, D-2, ... 1).
+    // From four sounds with a pitch table up, the table is found through a table of addresses indexed by the sound's number, as for the
+    // envelopes (about 35 cycles whatever the number of sounds), instead of by comparing with each sound's number.
+    const pitchDescriptions = getSoundDescriptions().filter((description) => description.pitchTableId);
+    const pitchPointers = pitchDescriptions.length >= POINTER_DISPATCH_FROM;
+    const pitchPointerTables = () => {
+      if (!pitchPointers) return '';
+      const size = Math.max(...pitchDescriptions.map(({id}) => id)) + 1;
+      const tableOf = new Map(pitchDescriptions.map(({id, pitchTableId}) => [id, pitchTableId]));
+      const label = (i) => `_soundpitch${tableOf.get(i) || pitchDescriptions[0].pitchTableId}`;
+      const rows = (prefix) => {
+        const all = Array.from({length: size}, (_, i) => `${prefix}${label(i)}`);
+        const out = [];
+        for (let i = 0; i < all.length; i += 6) out.push(` .byte ${all.slice(i, i + 6).join(', ')}`);
+        return out;
+      };
+      return [' asm', '       jmp _soundpitchptr_over', '_soundpitchptrlo', ...rows('<'), '_soundpitchptrhi', ...rows('>'),
+        '_soundpitchptr_over', 'end'].join('\n');
+    };
+    const pitchSection = (channel) => {
+      const described = getSoundDescriptions().filter((description) =>
+        description.channel === `${channel}` && description.pitchTableId);
+      if (!described.length) return [];
+      const idVar = this.nameDB_.getName(`soundId${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const durationVar = this.nameDB_.getName(`channnel${channel}duration`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      // The pitch of a chip channel goes to the chip's note register (written here by name: this unit may sit in a bank the register
+      // renaming of the main code does not reach).
+      const pitchRegister = this.dpcAudioPlan && this.dpcAudioPlan.isChannel(channel) ? chipNoteRegister(channel) : `AUDF${channel}`;
+      const lines = [
+        `       lda ${idVar}`,
+        `       bne _soundpitch${channel}_on`,
+        `       jmp _soundpitch${channel}_done`,
+        `_soundpitch${channel}_on`,
+        '       tax',
+        `       ldy ${durationVar}`,
+        `       bne _soundpitch${channel}_has`,
+        `       jmp _soundpitch${channel}_done`,
+        `_soundpitch${channel}_has`,
+      ];
+      if (pitchPointers) {
+        lines.push(
+            `       lda _soundpitchptrlo,x`, '       sta temp1',
+            `       lda _soundpitchptrhi,x`, '       sta temp2',
+            '       lda (temp1),y', `       sta ${pitchRegister}`,
+        );
+        lines.push(`_soundpitch${channel}_done`);
+        return lines;
+      }
+      described.forEach(({id, pitchTableId}, i) => {
+        const isLast = i === described.length - 1;
+        if (!isLast) lines.push(`       cpx #${id}`, `       bne _soundpitch${channel}_d${id}_next`);
+        lines.push(`       lda _soundpitch${pitchTableId},y`, `       sta ${pitchRegister}`);
+        if (!isLast) lines.push(`       jmp _soundpitch${channel}_done`, `_soundpitch${channel}_d${id}_next`);
+      });
+      lines.push(`_soundpitch${channel}_done`);
+      return lines;
+    };
+
     const asmBlock = [
       ' asm',
       ...[0, 1, 2, 3].flatMap(channelSection),
+      ...[0, 1, 2, 3].flatMap(pitchSection),
       'end',
     ].join('\n');
     // One combined payload (code + its  data tables) wrapped as a single
@@ -477,7 +838,12 @@ export default (Blockly) => {
     // the graphics pool (not a new one, and not music's  separate pool -
     // this is a single small unit, not something that needs its
     // reserved bank the way music's  per-project engine does).
-    const payload = [asmBlock, buildEnvelopeDataTables()].filter(Boolean).join('\n\n');
+    const pitchData = pitchTables.map(({id, values}) => {
+      const lines = [];
+      for (let i = 0; i < values.length; i += 16) lines.push(`  ${values.slice(i, i + 16).join(', ')}`);
+      return `\n data _soundpitch${id}\n${lines.join('\n')}\nend`;
+    }).join('\n');
+    const payload = [durationAsm, asmBlock, buildEnvelopeDataTables(), pointerTables(), ...mergedPointerTables, pitchPointerTables(), pitchData].filter(Boolean).join('\n\n');
     return Blockly.BBasic.wrapRelocatableGraphics('soundfxEnvelopeChecks', payload);
   };
 };

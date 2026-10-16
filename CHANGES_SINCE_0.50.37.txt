@@ -1214,8 +1214,8 @@ High Contrast, Expert mode sidebar
 - The Greyscale switch is now named High Contrast.
 - In Expert mode the left toolbar has no color bar beside each icon, and its icons are centered in the narrower bar.
 
-=== next ===
-DPC+ data streams, Display RAM fill and copy, taller scrolling backgrounds
+=== 0.52.24 ===
+Sound loops, sweeps, frequency envelopes and staircase volume, smaller music engine, Windows installer, DPC+ data streams and Display RAM blocks, PolyForm Shield license
 
 - New Data stream blocks (Variables category, DPC+ only): point stream 1, 2 or 3 at a Display RAM area and byte, then
   read or write the bytes one after another; the stream moves on by one byte each time. A stream is lost at drawscreen.
@@ -1301,4 +1301,51 @@ DPC+ data streams, Display RAM fill and copy, taller scrolling backgrounds
 - With the top toolbar hidden, the wide sidebar shows the full VCS Game Maker logo and the version under it, as the top toolbar does.
 - Under DPC+ a player is drawn one pixel further right than on the standard kernel for the same X, so the Playfield collision blocks (sprite touches playfield, row/column of a player) now use the column (X - 16) / 4 for a player on DPC+.
 - The left sidebar's drag handle and its highlight sit on the sidebar's edge in Expert mode when the sidebar is narrow (it was left at the old width).
-- The Windows installer now adds the app to the Start Menu (and the Desktop) with its icon, so it can be launched after installing; the app handles the installer's install, update and uninstall events.
+- The Windows installer is now an .msi package that installs for all users into Program Files and adds a Start Menu shortcut with the icon (it was a per user installer in the AppData folder).
+- The Linux deb and rpm packages add a menu entry with the app's icon, in the Development and Game sections (the AppImage is run as it is and adds none).
+- A big DPC+ build that has to move units out of a bank other than the main one moves several at once (the biggest first, until about the overflow the assembler reports is out), so a cold Bricks build takes 11 attempts and about 4 seconds, where it took 20 and 14.
+- The Windows installer has a Customize page where the Desktop shortcut can be left out (it is on by default; the Start Menu shortcut is always added).
+- The Sound tab's playback controls have a loop button after Stop (like the Music tab's): the preview plays again each time it ends until Stop is pressed.
+- Sound blocks: "Play sound effect" and "Play sound" have a Loop checkbox (off by default): the sound starts over each time it ends, until
+  another sound is played on its channel or a new "Stop sound on" block ends it. A new "Set max sound volume to" block (0 to 15) holds the
+  volume of every sound and music note to that number until it is set again.
+- Sound cards have a Frequency sweep (the pitch moves from the Frequency to an end frequency, one step every 1 to 8 frames, once or repeating)
+  and a Frequency envelope (the pitch moves by up to an amount, following Attack/Decay/Sustain/Release like the volume envelope). The
+  Arpeggio of a sound card also plays when the sound is played from a block, not only on the Music tab. All of them are in the Sound tab's
+  preview and in the ROM (standard kernel and the TIA channel under DPC+); a sound that loops or changes pitch uses one variable on its
+  channel for both, and "Set max sound volume" one variable. The sounds of the DPC+ sound chip do not use sweeps or frequency envelopes.
+- The Frequency envelope of a sound card has a graph like the volume envelope's, to drag its Attack, Decay End, Release Start and Release.
+- The Music tab plays everything set on the sound card: a note of an instrument with a Frequency sweep or a Frequency envelope plays with the
+  pitch (and the volume envelope) of each frame, in the preview and in the ROM (as one event for each stretch of frames with the same
+  pitch and volume; not for the sounds of the DPC+ chip).
+- The Frequency sweep has a Wrap option: it goes the other way round, through 31 and 0 (30 to 20 plays 30, 31, 0, 1 ... 20).
+- The envelope's Attack, Decay, Sustain length and Release can be 64 frames (they stopped at 32, Decay at 16); the stages together are held to 255 frames.
+- A sound that loops plays all of its frames every time round (it repeated every duration minus 1 frames). A note that lands on a note of
+  a Music tab instrument with a sweep or frequency envelope cuts it and lets it carry on afterwards, where it was dropped. The Music tab's click preview of
+  a note plays the sweep and frequency envelope. The frequency envelope has Reset, Undo and Redo, sharing the volume envelope's history.
+- Sounds of the DPC+ sound chip have the Frequency sweep, the Frequency envelope and the Arpeggio when played from blocks and on the Music tab: the
+  sweep goes from the card's note to an end note in semitones (Step is a number of semitones), the frequency envelope moves the pitch by up
+  to an amount of semitones, and each frame's pitch is an entry of the chip's frequency table (a whole semitone from a piano key is a piano key,
+  so it costs no entry). In the card, the preview and the ROM (built, and the pitch written to the chip's note register; not heard).
+- The volume Envelope of a sound card has a Staircase option: the envelope plays in steps instead of gliding, each level held for 1 to 32 frames
+  and the levels multiples of a step (the hum of Yars' Revenge is a 64 frame Attack with a step of 2 held 8 frames). The envelope graph shows the
+  steps. It plays from blocks, on the Music tab (a note of such an instrument plays the steps of its envelope) and in both previews, and it
+  uses one of the 15 envelope shapes a project can have.
+- The Music tab's piano roll has a Freq 0 to Freq 31 row under the Hit row (for every sound but percussion; a sound type with in-tune notes keeps its piano rows too): a note on
+  a row plays that frequency, in the preview and in the ROM (the Hit row stays, with the sound's own frequency). Not for percussion sounds or the DPC+ chip.
+- A project can have up to 254 different volume shapes (envelopes and staircases together) instead of 14: the number of the shape each channel plays is
+  a byte of its own (envelopeConfig0 to envelopeConfig3, one more variable than before for two channels) instead of half a byte.
+- Sound banks show the kernels their sounds have settings for: a sound made under DPC+ has Standard and DPC+ settings, so a bank of them (and the
+  sound in the Import Sound Bank popup) says "Standard and DPC+" where it said the one kernel in its header; a bank of sounds never converted says "Standard".
+- Sound cards under the DPC+ kernel have a "TIA" / "ARM" switch at the top: the Standard side shows the Standard sound type, frequency, sweep and envelope settings (for sounds played by the TIA on channel 1) and the Play button previews the way the TIA plays it.
+- DPC+ sounds: after the picture the sound chip voices hold their middle volume level instead of dropping to 0, which removes a 60 Hz hum under every sound and brings them closer to the Standard kernel (display and other registers checked unchanged in the 6502.ts DPC+ harness).
+- Sound and music envelopes: with four or more envelope shapes in a project, the shape of a sound is found through a table of addresses (about 35 cycles a frame per channel whatever the number of shapes, and no code for each shape) instead of comparing with each shape in turn (5 cycles a shape, and code for each); the audio register writes were checked unchanged on the standard kernel.
+- Sound loops and pitch tables: with four or more looping sounds on a channel, or four or more sounds that change pitch in a project, the code or table of a sound is found through a table of addresses (about the same cycles whatever the number of sounds) instead of by comparing with each sound in turn; checked on the standard kernel over 450 frames with a looping sweep restarting on channel 0 (audio register writes unchanged).
+- DPC+ and other builds with sound envelopes no longer fail with "Bank 1 is over capacity": every project with an envelope sound included the multiply and divide routines (about 100 bytes of bank 1) for a nibble packing that no longer exists; they are now left out unless something else needs them. The sound duration checks of looping sounds also go in the same moved unit as the envelope checks.
+- Music engine: reading a note's two bytes from a song's data is now assembly instead of three batari Basic statements, 6 to 30 bytes smaller a song (audio register writes of the Hum and Blast songs checked unchanged over 900 frames).
+- Music engine: the arpeggio tick (counter, phase and range each frame) is now assembly, about 110 bytes of batari Basic down to 55, and no longer calls the multiply routine on each flip, so a project whose arpeggio was the only user of multiply and divide leaves that routine (about 100 bytes) out; a looping arpeggio song gave the same audio register writes over 400 frames, 63 bytes of ROM smaller.
+- Sound blocks with Set max sound volume: the volume of a started sound is limited with a few assembly instructions instead of four batari Basic statements and two temp variables (same register writes in the ROM trace).
+- DPC+ sounds with more than one chip voice: the middle level held when the picture is over is worked out once a frame in the sound routine (in a bank that can move) and the kernel only copies it, 12 to 18 bytes smaller in the kernel bank than adding up the voices there.
+- Sound cards: the Duration stops at 255 frames (the frames a sound has left are one byte); a longer sound from an older project is cut at 255 instead of wrapping round.
+- Sound and music envelopes: when all the shapes of a project fit in 256 bytes together they are one table and each channel keeps just its place in it, so a channel needs no variable for the shape number and about 20 cycles a frame less are used (the old way is kept for projects with more shapes than that).
+- Sound envelopes (when the shapes are too many for the one table): a channel that only Sound blocks put envelopes on and that has loops or pitch changes takes the shape from the number of the sound playing, one variable fewer a channel, and the same audio register writes in the ROM trace.

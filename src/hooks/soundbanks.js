@@ -1,5 +1,5 @@
 import {reactive} from '@vue/composition-api';
-import {soundEffectsInBankFile} from '../utils/sound-bank';
+import {soundEffectsInBankFile, kernelSettingsOfSounds} from '../utils/sound-bank';
 
 // Sound banks and single sounds (.vcssnd for single sounds, .vcsbnk for banks, or .json files) are kept in a folder
 // of a GitHub repo and copied into this browser's IndexedDB once per page
@@ -99,6 +99,17 @@ const kernelOf = (text) => {
   }
 };
 
+// The kernels a file's sounds have settings for (see kernelSettingsOf in utils/sound-bank.js): a bank of sounds made under DPC+ has both
+// Standard and DPC+ settings, a bank of Standard ones only the Standard ones. A file that cannot be read goes by the kernel it says.
+const kernelsOf = (text) => {
+  try {
+    const parsed = JSON.parse(text);
+    return kernelSettingsOfSounds(soundEffectsInBankFile(parsed));
+  } catch (e) {
+    return [kernelOf(text)];
+  }
+};
+
 // The developer and website a file was exported with (see the Sound tab's export), or '' for each it does not have.
 const creditOf = (text) => {
   try {
@@ -115,6 +126,7 @@ const toEntry = (record) => ({
   ...record.summary,
   kind: kindOf(record.text, record.summary && record.summary.isBank),
   kernel: kernelOf(record.text),
+  kernels: kernelsOf(record.text),
   ...creditOf(record.text),
 });
 

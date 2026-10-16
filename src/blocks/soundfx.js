@@ -6,6 +6,11 @@ import * as Blockly from 'blockly/core';
 import {useSoundEffectsStorage} from '../hooks/project';
 import {channelOptions} from './sound';
 import {SOUND_ICON} from './icon';
+import {STAIRCASE_FRAME_OPTIONS, DEFAULT_STAIRCASE_STEP, DEFAULT_STAIRCASE_FRAMES, MAX_STAIRCASE_STEP} from '../utils/staircase';
+import {SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_END, DEFAULT_SWEEP_STEP, DEFAULT_SWEEP_FRAMES, MAX_SWEEP_STEP,
+  DEFAULT_PITCH_ENVELOPE_AMOUNT, MAX_PITCH_ENVELOPE_AMOUNT, DEFAULT_PITCH_ENVELOPE_ATTACK, DEFAULT_PITCH_ENVELOPE_DECAY,
+  DEFAULT_PITCH_ENVELOPE_DECAY_END, DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH, DEFAULT_PITCH_ENVELOPE_RELEASE_START,
+  DEFAULT_PITCH_ENVELOPE_RELEASE} from '../utils/pitch-table';
 
 const SOUND_COLOR = 'rgb(156, 39, 176)';
 
@@ -80,7 +85,7 @@ export const ARPEGGIO_RANGE_OPTIONS = [
 // project can generate small, which keeps the compiled ROM's per-config
 // data tables small too (see generateEnvelopeChecks in
 // generators/bbasic/soundfx.js).
-export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16];
+export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32, 64];
 // Attack/Release specifically (not Decay, which stays on the smaller set
 // above) get a wider range up to 32 frames - confirmed with the user: only
 // those two needed expanding, not Decay. Each stage's  table cost (see
@@ -88,7 +93,7 @@ export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16];
 // one ROM byte per frame of that specific stage, so this only makes an
 // envelope that actually USES a longer attack/release slightly bigger, not
 // every envelope in the project.
-export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32];
+export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32, 64];
 export const DEFAULT_ENVELOPE_ATTACK = 0;
 export const DEFAULT_ENVELOPE_DECAY = 0;
 export const DEFAULT_ENVELOPE_RELEASE = 4;
@@ -112,7 +117,7 @@ export const DEFAULT_ENVELOPE_VOLUME_PERCENT = 100;
 // the max option (32) so an existing preset saved before this field existed
 // (see its migration clamp below) keeps sounding close to its old
 // "holds until Release" behavior rather than suddenly cutting off early.
-export const ENVELOPE_SUSTAIN_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32];
+export const ENVELOPE_SUSTAIN_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32, 64];
 export const DEFAULT_ENVELOPE_SUSTAIN_FRAMES = 32;
 
 // Only meaningful once a note actually overlaps another note on the same
@@ -154,6 +159,30 @@ export const DEFAULT_SOUND_EFFECTS = {
       arpeggioRange: DEFAULT_ARPEGGIO_RANGE,
       // See NOISE_PRIORITY_OPTIONS' comment.
       priority: DEFAULT_NOISE_PRIORITY,
+      // A frequency sweep (utils/pitch-table.js): from the frequency above towards sweepEnd, sweepStep at a time every sweepFrames
+      // frames, going back to the start when sweepRepeat is on. Only for a sound played from blocks, not on the Music tab.
+      sweep: false,
+      sweepEnd: DEFAULT_SWEEP_END,
+      sweepStep: DEFAULT_SWEEP_STEP,
+      sweepFrames: DEFAULT_SWEEP_FRAMES,
+      sweepRepeat: false,
+      // Goes the other way round, through 31 and 0.
+      sweepWrap: false,
+      // The sweep of a sound of the DPC+ chip ends on this note (a MIDI number; 0 for none yet) and steps in semitones.
+      dpcSweepEnd: 0,
+      // A staircase volume (utils/staircase.js): the volume envelope in steps of staircaseStep levels, each held staircaseFrames frames.
+      staircase: false,
+      staircaseStep: DEFAULT_STAIRCASE_STEP,
+      staircaseFrames: DEFAULT_STAIRCASE_FRAMES,
+      // A frequency envelope: the pitch moves by up to pitchEnvelopeAmount (AUDF steps, up or down) following the envelope's shape.
+      pitchEnvelope: false,
+      pitchEnvelopeAmount: DEFAULT_PITCH_ENVELOPE_AMOUNT,
+      pitchEnvelopeAttack: DEFAULT_PITCH_ENVELOPE_ATTACK,
+      pitchEnvelopeDecay: DEFAULT_PITCH_ENVELOPE_DECAY,
+      pitchEnvelopeDecayEnd: DEFAULT_PITCH_ENVELOPE_DECAY_END,
+      pitchEnvelopeSustainLength: DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH,
+      pitchEnvelopeReleaseStart: DEFAULT_PITCH_ENVELOPE_RELEASE_START,
+      pitchEnvelopeRelease: DEFAULT_PITCH_ENVELOPE_RELEASE,
       // A TIA color byte (utils/palette.js's index<<1 convention), or null
       // for "auto-assigned" - see utils/instrument-colors.js. Used by the
       // Music tab to color this sound's notes in the piano roll.
@@ -268,6 +297,38 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     // the default.
     const priority = Number(soundEffect.priority);
     soundEffect.priority = NOISE_PRIORITY_OPTIONS.includes(priority) ? priority : DEFAULT_NOISE_PRIORITY;
+    // Presets saved before the frequency sweep and the frequency envelope existed have neither: off, with their settings at the
+    // defaults. Numbers are coerced like the fields above (a v-select can hand back a string).
+    const whole = (value, fallback, min, max) => {
+      const number = Math.round(Number(value));
+      return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+    };
+    const oneOf = (value, options, fallback) => (options.includes(Number(value)) ? Number(value) : fallback);
+    Vue.set(soundEffect, 'sweep', !!soundEffect.sweep);
+    Vue.set(soundEffect, 'sweepRepeat', !!soundEffect.sweepRepeat);
+    Vue.set(soundEffect, 'sweepWrap', !!soundEffect.sweepWrap);
+    Vue.set(soundEffect, 'dpcSweepEnd', whole(soundEffect.dpcSweepEnd, 0, 0, 108));
+    Vue.set(soundEffect, 'sweepEnd', whole(soundEffect.sweepEnd, DEFAULT_SWEEP_END, 0, 31));
+    Vue.set(soundEffect, 'sweepStep', whole(soundEffect.sweepStep, DEFAULT_SWEEP_STEP, 1, MAX_SWEEP_STEP));
+    Vue.set(soundEffect, 'sweepFrames', oneOf(soundEffect.sweepFrames, SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_FRAMES));
+    Vue.set(soundEffect, 'staircase', !!soundEffect.staircase);
+    Vue.set(soundEffect, 'staircaseStep', whole(soundEffect.staircaseStep, DEFAULT_STAIRCASE_STEP, 1, MAX_STAIRCASE_STEP));
+    Vue.set(soundEffect, 'staircaseFrames', oneOf(soundEffect.staircaseFrames, STAIRCASE_FRAME_OPTIONS, DEFAULT_STAIRCASE_FRAMES));
+    Vue.set(soundEffect, 'pitchEnvelope', !!soundEffect.pitchEnvelope);
+    Vue.set(soundEffect, 'pitchEnvelopeAmount', whole(soundEffect.pitchEnvelopeAmount, DEFAULT_PITCH_ENVELOPE_AMOUNT,
+        -MAX_PITCH_ENVELOPE_AMOUNT, MAX_PITCH_ENVELOPE_AMOUNT));
+    Vue.set(soundEffect, 'pitchEnvelopeAttack', oneOf(soundEffect.pitchEnvelopeAttack,
+        ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_ATTACK));
+    Vue.set(soundEffect, 'pitchEnvelopeDecay', oneOf(soundEffect.pitchEnvelopeDecay,
+        ENVELOPE_STAGE_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_DECAY));
+    Vue.set(soundEffect, 'pitchEnvelopeDecayEnd', oneOf(soundEffect.pitchEnvelopeDecayEnd,
+        ENVELOPE_VOLUME_PERCENT_OPTIONS, DEFAULT_PITCH_ENVELOPE_DECAY_END));
+    Vue.set(soundEffect, 'pitchEnvelopeSustainLength', oneOf(soundEffect.pitchEnvelopeSustainLength,
+        ENVELOPE_SUSTAIN_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH));
+    Vue.set(soundEffect, 'pitchEnvelopeReleaseStart', oneOf(soundEffect.pitchEnvelopeReleaseStart,
+        ENVELOPE_VOLUME_PERCENT_OPTIONS, DEFAULT_PITCH_ENVELOPE_RELEASE_START));
+    Vue.set(soundEffect, 'pitchEnvelopeRelease', oneOf(soundEffect.pitchEnvelopeRelease,
+        ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_RELEASE));
   });
   return soundEffects;
 };
@@ -307,10 +368,40 @@ Blockly.Blocks['soundfx_play'] = {
         .appendField(`${SOUND_ICON} Play sound effect`)
         .appendField(new Blockly.FieldDropdown(buildSoundEffectOptions), 'SOUNDFX')
         .appendField('on')
+        .appendField(new Blockly.FieldDropdown(() => channelOptions()), 'CHANNEL')
+        .appendField(new Blockly.FieldCheckbox('FALSE'), 'LOOP')
+        .appendField('loop');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(SOUND_COLOR);
+    this.setTooltip('Plays a named sound effect preset, set up on the SoundFX tab. Ticked: the sound plays again each time it ends, until another sound takes its channel or a Stop sound block.');
+  },
+};
+
+// Silences whatever sound is playing on a channel (a Loop ends too). Music on the channel carries on with its next note.
+Blockly.Blocks['soundfx_stop'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${SOUND_ICON} Stop sound on`)
         .appendField(new Blockly.FieldDropdown(() => channelOptions()), 'CHANNEL');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(SOUND_COLOR);
-    this.setTooltip('Plays a named sound effect preset, set up on the SoundFX tab.');
+    this.setTooltip('Stops the sound playing on the channel, including one that is looping.');
+  },
+};
+
+// The loudest any sound or music note may be, 0 to 15 (15, no limit, until this sets it). It follows the game, so a sound can
+// get quieter while something happens.
+Blockly.Blocks['soundfx_max_volume'] = {
+  init: function() {
+    this.appendValueInput('VALUE')
+        .setCheck('Number')
+        .appendField(`${SOUND_ICON} Set max sound volume to`);
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(SOUND_COLOR);
+    this.setTooltip('Sets the loudest volume (0 to 15) any sound or music note can play at, on every channel. 15 is no limit.');
   },
 };

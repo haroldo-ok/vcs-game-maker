@@ -1577,15 +1577,31 @@ Blockly.BBasic.init = function(workspace) {
   this.channelDurationChannels = new Set();
   // With every sound muted (the Options tab), those blocks write nothing, so they need no duration byte.
   const soundsMuted = !!((useConfigurationStorage().value || {}).muteAllAudio);
+  // The channels that have a looping sound (their loop number is a variable), and whether "Set max sound volume" is used (its
+  // limit is a variable). A "Stop sound" block clears a channel's duration, so it needs that variable too.
+  this.soundLoopChannels = new Set();
+  this.soundMaxVolumeUsed = false;
   workspace.getAllBlocks(false).forEach((block) => {
-    if (!soundsMuted && (block.type === 'soundfx_play' || block.type === 'simple_sound_set') && block.isEnabled()) {
+    if (soundsMuted || !block.isEnabled()) return;
+    if (block.type === 'soundfx_play' || block.type === 'simple_sound_set') {
       this.channelDurationChannels.add(this.normalizeChannel(block.getFieldValue('CHANNEL')));
+      if (block.getFieldValue('LOOP') === 'TRUE') this.soundLoopChannels.add(this.normalizeChannel(block.getFieldValue('CHANNEL')));
+    } else if (block.type === 'soundfx_stop') {
+      this.channelDurationChannels.add(this.normalizeChannel(block.getFieldValue('CHANNEL')));
+    } else if (block.type === 'soundfx_max_volume') {
+      this.soundMaxVolumeUsed = true;
     }
   });
+  resetSoundDescriptions();
   if (this.projectMusic) this.projectMusic.channels.forEach((channel) => this.channelDurationChannels.add(`${channel}`));
   this.channelDurationUsed = this.channelDurationChannels.size > 0;
   // A project with no sound has nothing for the chip to play.
   if (!this.channelDurationUsed) this.dpcAudioPlan = null;
+  // The channels with a sound that loops or whose pitch changes (a sweep, a frequency envelope, an arpeggio) get one variable, shared by
+  // both (see registerSoundDescription).
+  resetPitchTables();
+  this.soundIdChannels = new Set([...this.soundLoopChannels, ...soundPitchChannels(workspace, this.dpcAudioPlan)]
+      .map((channel) => `${Number(channel)}`));
 
   // Every one-shot music event watch - "sequence chip finished"
   // (music_sequence_chip_finished/_by_id) AND "note played by instrument"
@@ -2445,11 +2461,23 @@ Blockly.BBasic.init = function(workspace) {
     });
   }
 
+  // What the sound playing on a channel does (0 for nothing): the number of its description, which says whether it loops and which
+  // pitch table it plays. And how far below 15 the loudest allowed volume is (0 for no limit, so a variable that starts at 0 means
+  // "no limit").
+  if (this.channelDurationUsed) {
+    this.soundIdChannels.forEach((channel) =>
+      reserveDevVar(`soundId${channel}`, undefined, `what the sound on channel ${channel} does: loop and pitch table (0 for none)`));
+  }
+  if (this.soundMaxVolumeUsed) {
+    reserveDevVar('soundVolumeCut', undefined, '15 minus the loudest volume a sound or note may play at');
+  }
+
   // What the sound registers of the chip's channels become under DPC+ (see generators/bbasic/dpcplus-audio.js).
   if (this.dpcAudioPlan) {
     const labels = {dpcAudc: 'waveform (AUDC)', dpcAudv: 'volume (AUDV)'};
     dpcAudioVars(this.dpcAudioPlan.channels).forEach((name) =>
-      reserveDevVar(name, undefined, `channel ${name.slice(-1)} ${labels[name.slice(0, -1)]}`));
+      reserveDevVar(name, undefined, name === 'dpcAudMid' ? 'the middle volume of the chip voices, held when the picture is over' :
+        `channel ${name.slice(-1)} ${labels[name.slice(0, -1)]}`));
   }
 
   // Each channel's  attack+decay frame countdown (see
@@ -2490,15 +2518,22 @@ Blockly.BBasic.init = function(workspace) {
   if (this.envelopeStage1Used) {
     reserveDevVar('envelopeStage1', undefined, 'channel 1\'s attack+decay frame countdown');
   }
-  // DPC+ has no spare fixed bytes (the virtual sprites' memory is only free while those sprites are not used),
-  // so there the shared envelope byte is an ordinary variable.
-  if (config.kernel === 'dpcplus' && (this.envelopeStage0Used || this.envelopeStage1Used)) {
-    reserveDevVar('envelopeConfig', undefined, 'both channels\' envelope-config index, packed one nibble each');
-  }
-  // The same for channels 2 and 3 (low and high nibble).
-  if (this.envelopeStage2Used || this.envelopeStage3Used) {
-    reserveDevVar('envelopeConfigB', undefined, 'channel 2 and 3 envelope-config index, packed one nibble each');
-  }
+  // The number of the volume shape each channel plays (a byte of its own; 255 is no envelope).
+  // (Not with the one table of every shape: there the countdown also says which shape a channel plays. Nor on a channel that only
+  // Sound blocks play an envelope on and that has the variable of the loops and pitch tables anyway: the number of the sound playing,
+  // which is in that variable, says which shape it is.)
+  this.envelopeMergedChannels = new Set();
+  [0, 1, 2, 3].forEach((channel) => {
+    if (!envelopeFlatOn() && this[`envelopeStage${channel}Used`] && this.soundIdChannels && this.soundIdChannels.has(`${channel}`) &&
+        !(this.projectMusic && this.projectMusic.channelHasEnvelope[channel])) {
+      this.envelopeMergedChannels.add(`${channel}`);
+    }
+  });
+  [0, 1, 2, 3].forEach((channel) => {
+    if (this[`envelopeStage${channel}Used`] && !envelopeFlatOn() && !this.envelopeMergedChannels.has(`${channel}`)) {
+      reserveDevVar(`envelopeConfig${channel}`, undefined, `number of the volume shape channel ${channel} plays (255 for none)`);
+    }
+  });
 
   // "rand16" is a real batari Basic feature (see std_routines.asm's
   // "ifconst rand16" check), not an app invention - simply DIMming a
@@ -4109,6 +4144,8 @@ Blockly.BBasic.finish = function(code) {
       [name, this.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE)]));
     this.subroutines[DPC_AUDIO_SUBROUTINE_NAME] = this.dpcAudioPlan.routine(dpcAudioNames);
     this.dpcAudioFiles = {'DPC_frequencies.h': this.dpcAudioPlan.frequencyFile()};
+    // What the kernel's exit needs to leave the volume register at the voices' middle level (see withDpcPlusAudioHook).
+    this.dpcAudioMidLevel = {channels: this.dpcAudioPlan.channels, names: dpcAudioNames};
     generatedDpcPlusAudio = ` gosub ${DPC_AUDIO_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(DPC_AUDIO_SUBROUTINE_NAME))}
 `;
@@ -5373,16 +5410,80 @@ Blockly.BBasic.generateDpcPlusInitialDrawscreen = function() {
 // decrement itself is one DEC on the zero-page dim var instead of bB's
 // load/subtract/store expression evaluation.
 Blockly.BBasic.generateChannelDurationChecks = function() {
+  this.channelDurationAsm = null;
   if (!this.channelDurationUsed) return '';
   const lines = [' asm'];
   ['0', '1', '2', '3'].forEach((channel) => {
     if (!this.channelDurationChannels.has(channel)) return;
     const duration = this.nameDB_.getName(`channnel${channel}duration`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // A looping sound starts over the frame its duration runs out (when it reaches 1) instead of going silent: the code its
+    // description stands for (see registerSoundDescription) sets the registers and the duration again, and the countdown goes on from
+    // it as it does on the frame a sound is played.
+    const loops = this.soundIdChannels && this.soundIdChannels.has(channel) ?
+      getSoundDescriptions().filter((description) => description.channel === channel && description.loopLines) : [];
+    const loopLines = [];
+    if (loops.length) {
+      const loopVar = this.nameDB_.getName(`soundId${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      // Branches over this much code can go out of range, so they jump (a branch over a jump has no limit).
+      loopLines.push(
+          '       ldx ' + loopVar,
+          `       bne _channeldurationasm${channel}_hasloop`,
+          `       jmp _channeldurationasm${channel}_noloop`,
+          `_channeldurationasm${channel}_hasloop`,
+      );
+      // From four loops up the restart code is reached through a table of addresses indexed by the sound's number (an indirect jump
+      // through temp1 and temp2, about 40 cycles whatever the number of loops) instead of comparing with each number in turn.
+      const pointers = loops.length >= 4;
+      if (pointers) {
+        loopLines.push(
+            `       lda _channeldurationasm${channel}_looplo,x`, '       sta temp1',
+            `       lda _channeldurationasm${channel}_loophi,x`, '       sta temp2',
+            '       jmp (temp1)',
+        );
+      }
+      loops.forEach((loop) => {
+        loopLines.push(
+            ...(pointers ? [`_channeldurationasm${channel}_loop${loop.id}`] : [
+              `       cpx #${loop.id}`,
+              `       bne _channeldurationasm${channel}_loop${loop.id}_next`,
+            ]),
+            ...loop.loopLines.map((line) => line.replace(/@@ID@@/g, `${loop.id}`)),
+            // Down to the countdown: the restart frame counts as the first frame of the sound, like the frame it was played on.
+            `       jmp _channeldurationasm${channel}_mute_skip`,
+            ...(pointers ? [] : [`_channeldurationasm${channel}_loop${loop.id}_next`]),
+        );
+      });
+      if (pointers) {
+        // A number that is not a loop (a sound that only changes pitch) goes on to the countdown like a sound with no loop.
+        const size = Math.max(...getSoundDescriptions().filter((description) => description.channel === channel)
+            .map(({id}) => id)) + 1;
+        const target = (i) => `_channeldurationasm${channel}_${loops.some(({id}) => id === i) ? `loop${i}` : 'noloop'}`;
+        const rows = (prefix) => {
+          const all = Array.from({length: size}, (_, i) => `${prefix}${target(i)}`);
+          const out = [];
+          for (let i = 0; i < all.length; i += 3) out.push(` .byte ${all.slice(i, i + 3).join(', ')}`);
+          return out;
+        };
+        loopLines.push(`_channeldurationasm${channel}_looplo`, ...rows('<'), `_channeldurationasm${channel}_loophi`, ...rows('>'));
+      }
+      loopLines.push(`_channeldurationasm${channel}_noloop`);
+    }
     lines.push(
         '       lda ' + duration,
-        `       beq _channeldurationasm${channel}_skip`,
-        '       cmp #1',
-        `       bne _channeldurationasm${channel}_mute_skip`,
+        ...(loops.length ? [
+          `       bne _channeldurationasm${channel}_active`,
+          `       jmp _channeldurationasm${channel}_skip`,
+          `_channeldurationasm${channel}_active`,
+          '       cmp #1',
+          `       beq _channeldurationasm${channel}_expiring`,
+          `       jmp _channeldurationasm${channel}_mute_skip`,
+          `_channeldurationasm${channel}_expiring`,
+        ] : [
+          `       beq _channeldurationasm${channel}_skip`,
+          '       cmp #1',
+          `       bne _channeldurationasm${channel}_mute_skip`,
+        ]),
+        ...loopLines,
         '       lda #0',
         `       sta AUDV${channel}`,
         `_channeldurationasm${channel}_mute_skip`,
@@ -5391,7 +5492,14 @@ Blockly.BBasic.generateChannelDurationChecks = function() {
     );
   });
   lines.push('end');
-  return lines.join('\n');
+  // The restart code of looping sounds can be long, so with any it is a unit the allocator can move out of a full bank 1.
+  const hasLoops = [...this.channelDurationChannels].some((channel) => this.soundIdChannels && this.soundIdChannels.has(channel) &&
+    getSoundDescriptions().some((description) => description.channel === channel && description.loopLines));
+  if (!hasLoops) return lines.join('\n');
+  // It goes into the unit of the envelope checks (generateEnvelopeChecks, right after this in the program), which calls it first: one
+  // call into another bank instead of two, which saves bytes of bank 1.
+  this.channelDurationAsm = lines.join('\n');
+  return '';
 };
 
 // ROM sizes the standard kernel actually bankswitches (see
@@ -7487,7 +7595,8 @@ import music from './bbasic/music';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
-import soundfx, {soundEffectChannelHasEnvelope, resetEnvelopeConfigs} from './bbasic/soundfx';
+import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
+  soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
@@ -7544,8 +7653,14 @@ Blockly.BBasic.generateOnce = function(workspace) {
 Blockly.BBasic.workspaceToCode = function(workspace) {
   // (The names found unfit in an earlier build of the same project, when the caller kept them, so they are not found out again.)
   this.displayRamExcluded = new Set(this.displayRamExcludedSeed || []);
+  setEnvelopeFlatDisabled(false);
   for (let attempt = 0; attempt < 8; attempt++) {
     const code = this.workspaceToCodeOnce(workspace);
+    // The shapes did not all fit in the one table of every shape: generated again the way that has a shape number for each channel.
+    if (envelopeFlatOn() && envelopeFlatOverflowed()) {
+      setEnvelopeFlatDisabled(true);
+      continue;
+    }
     const left = (typeof code === 'string' && this.displayRamVars) ? remainingUses(code, [...this.displayRamVars.keys()]) : [];
     if (!left.length) return code;
     left.forEach((name) => this.displayRamExcluded.add(name));
