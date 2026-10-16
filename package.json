@@ -5,7 +5,7 @@
   "private": true,
   "description": "A no-code environment for creating Atari 2600 games using Blockly and batari Basic.",
   "author": "haroldo-ok, with contributions by AbstractPolygon",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
