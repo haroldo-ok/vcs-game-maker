@@ -28,8 +28,13 @@ import {convertSoundToDpcPlus, isDpcPlusSound, DPC_WAVE_LENGTH, DPC_WAVE_MAX, dp
 export const DPC_AUDIO_SUBROUTINE_NAME = '_dpc_audio_update';
 // The most waveforms a project can use at once: waveform * 32 + sample has to fit one byte.
 const MAX_WAVES = 8;
-// Entry 0 of the frequency table is silence. With coprocessor code the chip only has the first 128 entries.
-const MAX_PITCHES = 127;
+// Entry 0 of the frequency table is silence, so the 256 entries of the table (1K) are 255 pitches. The emulator, running the real driver,
+// writes the coprocessor's stack over entries 216 to 255 (and 0 to 19), so a project with more than 196 pitches besides the piano keys it plays
+// hears junk for the pitches placed there in the emulator.
+const MAX_PITCHES = 255;
+// The first entries of the table are not safe: the emulator's coprocessor writes into the first 20 (the chip then plays whatever it left
+// there), so the pitches of a sound (a sweep and the like, or a low note) are put from entry 20 on, the low piano keys among them.
+const FIRST_OTHER_PITCH = 20;
 // The chip has three voices, played as channels 0, 2 and 3 (channel 1 is the TIA's): the voice of each channel, and the
 // waveform in display RAM each voice's samples are written to (the demo waveforms of the display data, which nothing
 // else uses).
@@ -56,10 +61,15 @@ const distance = (a, b) => a.reduce((sum, value, i) => sum + Math.abs(value - b[
 // Collects the waveforms and pitches the project's sounds use as the generators ask for them, and builds the
 // routine and the frequency table from them.
 // channels are the chip channels (see CHIP_CHANNELS) the project uses.
-export const createDpcPlusAudioPlan = (config, channels = [0]) => {
+// keySeed: the piano keys (their numbers, 1 to 88) the project uses, when a first look at the generated code found them. The table has room for
+// MAX_PITCHES entries: the keys come first, each at its number, and any other pitch (a sweep through the TIA's pitches, say) takes a place no
+// key the project uses is at, so a project that plays few keys has room for many such pitches. Without a seed all 88 keys keep their place.
+export const createDpcPlusAudioPlan = (config, channels = [0], keySeed = null) => {
   const waves = [];
   const waveIdByKey = new Map();
-  const extraPitches = [];
+  const usedKeys = new Set();
+  const otherPitches = []; // {hz, id}
+  const keyReserved = (id) => id <= PIANO_KEY_COUNT && (!keySeed || keySeed.has(id));
 
   const waveIdFor = (samples) => {
     const key = samples.join(',');
@@ -79,22 +89,37 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
     return id;
   };
 
-  // The frequency table entry of a pitch: a piano key if it is one, otherwise a new entry.
+  // The frequency table entry of a pitch: a piano key if it is one, otherwise an entry of its own.
   const pitchIdFor = (hz) => {
     if (!(hz > 0)) return 0;
     const semitones = 12 * Math.log2(hz / 440) + 69;
     const nearestMidi = Math.round(semitones);
     const index = nearestMidi - 20;
-    if (index >= 1 && index <= PIANO_KEY_COUNT && cents(hz, frequencyForMidi(nearestMidi)) <= SAME_PITCH_CENTS) return index;
-    for (let i = 0; i < extraPitches.length; i++) {
-      if (cents(hz, extraPitches[i]) <= SAME_PITCH_CENTS) return PIANO_KEY_COUNT + 1 + i;
+    if (index >= FIRST_OTHER_PITCH && index <= PIANO_KEY_COUNT && cents(hz, frequencyForMidi(nearestMidi)) <= SAME_PITCH_CENTS) {
+      usedKeys.add(index);
+      return index;
     }
-    if (PIANO_KEY_COUNT + 1 + extraPitches.length > MAX_PITCHES) {
-      // No entry left: the closest piano key is played instead.
-      return Math.min(PIANO_KEY_COUNT, Math.max(1, index));
+    const same = otherPitches.find((pitch) => cents(hz, pitch.hz) <= SAME_PITCH_CENTS);
+    if (same) return same.id;
+    for (let id = FIRST_OTHER_PITCH; id <= MAX_PITCHES; id++) {
+      if (keyReserved(id) || otherPitches.some((pitch) => pitch.id === id)) continue;
+      otherPitches.push({hz, id});
+      return id;
     }
-    extraPitches.push(hz);
-    return PIANO_KEY_COUNT + extraPitches.length;
+    // No entry left: the closest pitch the table has is played instead.
+    let best = Math.min(PIANO_KEY_COUNT, Math.max(1, index));
+    let bestCents = cents(hz, frequencyForMidi(best + 20));
+    otherPitches.forEach((pitch) => {
+      if (cents(hz, pitch.hz) < bestCents) {
+        best = pitch.id;
+        bestCents = cents(hz, pitch.hz);
+      }
+    });
+    return best;
+  };
+  // A piano key the project plays by its number (a note of the Music tab).
+  const useKey = (index) => {
+    if (index >= 1 && index <= PIANO_KEY_COUNT) usedKeys.add(index);
   };
 
   // A sound that has not been converted to the DPC+ kind yet (the project was just switched to it) is converted here.
@@ -111,6 +136,7 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
     return waveIdFor(tia ? tia.samples.map((value) => value * DPC_WAVE_MAX) : Array(DPC_WAVE_LENGTH).fill(0));
   };
   const pitchIdForTia = (audc, audf) => pitchIdFor(frequencyForTia(audc, audf, config));
+  const tiaFrequency = (audc, audf) => frequencyForTia(audc, audf, config);
   // The frequency (Hz) a sound plays at, and the table entry of that frequency moved up or down by each of the given numbers of
   // semitones (a sweep, a frequency envelope or an arpeggio is such a list, one for each frame): whole semitones from a piano key are
   // piano keys, so they cost no entries.
@@ -140,8 +166,12 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
       ' DC.L 0',
     ];
     const entry = (hz) => ` DC.L ${Math.min(0xFFFFFFFF, Math.round(Math.pow(2, 32) * hz / CHIP_CLOCK))}`;
-    for (let index = 1; index <= PIANO_KEY_COUNT; index++) lines.push(entry(frequencyForMidi(midiForPianoIndex(index))));
-    extraPitches.forEach((hz) => lines.push(entry(hz)));
+    const lastOther = otherPitches.reduce((last, pitch) => Math.max(last, pitch.id), 0);
+    const lastKey = keySeed ? [...usedKeys, ...keySeed].reduce((last, key) => Math.max(last, key), 0) : PIANO_KEY_COUNT;
+    for (let id = 1; id <= Math.max(lastOther, lastKey); id++) {
+      const other = otherPitches.find((pitch) => pitch.id === id);
+      lines.push(entry(other ? other.hz : id <= PIANO_KEY_COUNT ? frequencyForMidi(midiForPianoIndex(id)) : 0));
+    }
     lines.push(
         '',
         ' if (* <= $1400)',
@@ -293,7 +323,7 @@ export const createDpcPlusAudioPlan = (config, channels = [0]) => {
   };
 
   return {channels, isChannel: (channel) => channels.includes(Number(channel)),
-    waveIdForSound, pitchIdForSound, waveIdForTia, pitchIdFor, pitchIdForTia, soundFrequency, pitchIdsForOffsets, frequencyFile, routine,
+    waveIdForSound, pitchIdForSound, waveIdForTia, pitchIdFor, pitchIdForTia, tiaFrequency, soundFrequency, useKey, usedKeys, pitchIdsForOffsets, frequencyFile, routine,
     get waveCount() {
       return waves.length;
     }};

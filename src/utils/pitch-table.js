@@ -1,6 +1,7 @@
 'use strict';
 
 import {buildEnvelopeCurve} from './envelope';
+import {frequencyForTia} from './dpc-sound';
 
 // The pitch (AUDF, 0 to 31) a sound has on each frame it plays, for a sound whose pitch changes over its length: a frequency sweep,
 // a frequency envelope, an arpeggio. Shared by the ROM generator (which turns it into a data table the per-frame check reads), the
@@ -139,10 +140,29 @@ export const MAX_DPC_SWEEP_STEP = 12;
 
 export const dpcKeyForHz = (hz) => Math.round(12 * Math.log2(Math.max(hz, 1) / 440) + 69) - 20;
 
+// Whether a sound of the DPC+ chip follows the pitch of its Standard settings (see buildDpcPitchOffsets): when it says so itself, and
+// otherwise for a sweep that has no end note of its own set.
+export const dpcFollowsStandardPitch = (soundEffect) => !!(soundEffect && (soundEffect.dpcSweepMatch !== undefined ?
+  soundEffect.dpcSweepMatch : soundEffect.sweep && !soundEffect.dpcSweepEnd));
+
 export const buildDpcPitchOffsets = (soundEffect, startHz, {arpeggioFrames: songArpeggioFrames = 0} = {}) => {
   if (!hasChangingPitch(soundEffect)) return null;
   const frames = Math.max(0, Math.min(MAX_PITCH_TABLE_FRAMES, Math.round(Number(soundEffect.duration) || 0)));
   if (frames <= 0) return null;
+
+  // A sound that follows the pitch of its Standard (TIA) settings: each frame the chip plays the frequency the TIA's divider of that frame
+  // gives (the sweep, the frequency envelope and the arpeggio of the Standard settings, steps of the divider, not of semitones), as
+  // semitones above the pitch of the sound's own frequency divider. So the chip sweeps through the same pitches as the TIA does.
+  if (dpcFollowsStandardPitch(soundEffect)) {
+    const table = buildPitchTable(soundEffect, {arpeggioFrames: songArpeggioFrames});
+    const baseHz = frequencyForTia(soundEffect.audc, clampAudf(Number(soundEffect.audf) || 0), {});
+    if (table && baseHz > 0) {
+      return table.map((audf) => {
+        const hz = frequencyForTia(soundEffect.audc, audf, {});
+        return hz > 0 ? 12 * Math.log2(hz / baseHz) : 0;
+      });
+    }
+  }
 
   const startKey = dpcKeyForHz(startHz);
   // dpcSweepEnd is the MIDI number of the note the sweep ends on (0 for none yet), key 1 of the piano being MIDI 21.

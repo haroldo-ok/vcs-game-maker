@@ -590,7 +590,8 @@ export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision
   // The pitch of each frame, as it plays in a song (see schedulePattern).
   const frames = Math.round(seconds * FRAMES_PER_SECOND);
   const pitchTable = !changesPitch ? null : dpcPlus ?
-    buildDpcPitchOffsets({...soundEffect, duration: frames}, dpcPlus.frequency, {arpeggioFrames: arpeggioSpeed}) :
+    buildDpcPitchOffsets({...soundEffect, ...(dpcPlus.tiaAudf !== undefined ? {audf: dpcPlus.tiaAudf} : {}), duration: frames},
+        dpcPlus.frequency, {arpeggioFrames: arpeggioSpeed}) :
     buildPitchTable({...soundEffect, audf, duration: frames}, {arpeggioFrames: arpeggioSpeed});
 
   playInstrumentHit(context, {
@@ -769,7 +770,8 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND));
       // For a note of the DPC+ chip the semitones each frame is above the note.
       const whole = (note.dpcPlus ?
-        buildDpcPitchOffsets({...note.pitchSound, duration: noteFrames}, note.dpcPlus.frequency, {arpeggioFrames: note.arpeggioSpeed}) :
+        buildDpcPitchOffsets({...note.pitchSound, ...(note.dpcPlus.tiaAudf !== undefined ? {audf: note.dpcPlus.tiaAudf} : {}), duration: noteFrames},
+            note.dpcPlus.frequency, {arpeggioFrames: note.arpeggioSpeed}) :
         buildPitchTable({...note.pitchSound, audf: note.audf, duration: noteFrames}, {arpeggioFrames: note.arpeggioSpeed})) || [];
       const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND);
       const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * FRAMES_PER_SECOND));

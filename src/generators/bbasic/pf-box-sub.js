@@ -2,8 +2,9 @@
 
 import {useConfigurationStorage} from '../../hooks/project';
 import {effectiveBackgroundRows, dpcPlusPfresOf} from '../../blocks/background';
-import {pfRowDivisorFor, dpcPlusRowLinesFor} from '../../utils/playfield-coords';
+import {pfRowDivisorFor, dpcPlusRowLinesFor, missileBallPfXOffset} from '../../utils/playfield-coords';
 import {buildPlayfieldBoxLines} from './pf-box';
+import {missileWidthsVarName, ctrlpfShadowVarName} from './sprites';
 
 // The software box test of pf-box.js as a subroutine per player, for the blocks that need to know whether a sprite would be in
 // the playfield: the position to try is put in pfboxx / pfboxy, the answer comes back in pfboxhit (1 for a hit).
@@ -40,6 +41,18 @@ export const callPfBox = (Blockly, player) => {
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const dpcPlus = config.kernel === 'dpcplus';
+    // A missile or the ball: its width comes from the byte the blocks keep it in (1 pixel while no block sets one), it has no copies,
+    // and its column is a little different.
+    const widthVar = (canonicalName, used) => (used ? resolveVar(canonicalName) : null);
+    const objectBox = {
+      missile0: () => ({objectWidth: widthVar(missileWidthsVarName(), Blockly.BBasic.missileWidthUsed) ?
+        `(${widthVar(missileWidthsVarName(), true)} & $30) / 16` : '0'}),
+      missile1: () => ({objectWidth: widthVar(missileWidthsVarName(), Blockly.BBasic.missileWidthUsed) ?
+        `${widthVar(missileWidthsVarName(), true)} / 64` : '0'}),
+      ball: () => ({objectWidth: widthVar(ctrlpfShadowVarName(), Blockly.BBasic.ctrlpfShadowUsed) ?
+        `(${widthVar(ctrlpfShadowVarName(), true)} & $30) / 16` : '0'}),
+    }[player];
+    const objectOptions = objectBox ? {...objectBox(), pfXOffset: missileBallPfXOffset(config)} : {};
     const rowLines = dpcPlusRowLinesFor(config);
     const rowDivisor = Math.max(1, Math.round(pfRowDivisorFor(config)));
     const rowsOf = (lines, frac) => ({lowDivisor: Math.max(1, Math.ceil(lines)), highDivisor: Math.max(1, Math.floor(lines)),
@@ -64,6 +77,7 @@ export const callPfBox = (Blockly, player) => {
       xVar: resolveVar(PF_BOX_X),
       yVar: resolveVar(PF_BOX_Y),
       sizeVar: `${player}size`,
+      ...objectOptions,
       heightVar: `${player}height`,
       resultVar: resolveVar(PF_BOX_HIT),
       partnerFrameVar: (Blockly.BBasic.widePartners || {})[player] ? `${Blockly.BBasic.widePartners[player]}frame` : undefined,

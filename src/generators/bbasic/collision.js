@@ -13,6 +13,53 @@ export const collisionMoveOldXVar = (playerNum) => `collisionOldX${playerNum}`;
 export const collisionMoveOldYVar = (playerNum) => `collisionOldY${playerNum}`;
 export const collisionMoveOlderXVar = (playerNum) => `collisionOlderX${playerNum}`;
 export const collisionMoveOlderYVar = (playerNum) => `collisionOlderY${playerNum}`;
+
+// The bytes of the Jump block (sprite_platformer), for each player it is used with: the speed (in eighths of a pixel a
+// frame, up while rising and down while falling), the eighths of a pixel not yet moved, and the state, one byte that the block that
+// asks (sprite_platformer_state) reads bits of: bits 0 to 2 the jumps made (0 to 4), bit 3 jumping (rising), bit 4 falling, bit 5 on
+// the ground, bit 6 a jump was asked for last frame, bit 7 asked for this frame (by the Jump block); and one byte for all of them, the pixels still to move this frame.
+export const PLATFORMER_JUMPING_BIT = 3;
+export const PLATFORMER_FALLING_BIT = 4;
+export const PLATFORMER_GROUND_BIT = 5;
+export const PLATFORMER_BUTTON_BIT = 6;
+export const MAX_PLATFORMER_JUMPS = 4;
+export const platformerSpeedVar = (playerNum) => `platSpeed${playerNum}`;
+export const platformerFracVar = (playerNum) => `platFrac${playerNum}`;
+export const platformerStateVar = (playerNum) => `platState${playerNum}`;
+// The jump speed (high four bits) and the max fall speed (low four bits), and the gravity (high) and the jumps allowed (low), each stored as
+// the number less one XOR what it starts as, so that a byte never written (0) is the starting numbers.
+export const platformerLimitVar = (playerNum) => `platLimit${playerNum}`;
+export const platformerParamsVar = (playerNum) => `platParams${playerNum}`;
+// What the numbers start as for a player: the numbers of its first Jump block that are plain numbers, else these.
+export const platformerStartsOf = (block) => {
+  const starts = {jump: 5, fall: 6, gravity: 3, jumps: 2};
+  if (!block) return starts;
+  const constant = (input, min, max, fallback) => {
+    const target = block.getInputTargetBlock(input);
+    if (!target || target.type !== 'math_number') return fallback;
+    return Math.max(min, Math.min(max, Math.round(Number(target.getFieldValue('NUM')) || min)));
+  };
+  starts.jump = constant('SPEED', 1, 16, 5);
+  starts.fall = constant('MAXFALL', 1, 16, 6);
+  starts.gravity = constant('GRAVITY', 1, 16, 3);
+  starts.jumps = block.getFieldValue('MULTI') === 'TRUE' ? constant('MAXJUMPS', 1, MAX_PLATFORMER_JUMPS, 2) : 1;
+  return starts;
+};
+export const PLATFORMER_COUNT_VAR = 'platCount';
+export const reservePlatformerDevVars = (reserveDevVar, players) => {
+  if (!players || !players.size) return;
+  reserveDevVar(PLATFORMER_COUNT_VAR, undefined, 'pixels the Jump block still has to move the player this frame');
+  [...players].sort().forEach((playerNum) => {
+    reserveDevVar(platformerSpeedVar(playerNum), undefined, `player ${playerNum}'s jump and fall speed (eighths of a pixel a frame)`);
+    reserveDevVar(platformerFracVar(playerNum), undefined, `player ${playerNum}'s eighths of a pixel not yet moved`);
+    reserveDevVar(platformerLimitVar(playerNum), undefined,
+        `player ${playerNum}'s jump speed (high 4 bits) and max fall speed (low 4 bits), less one, XOR their starting values`);
+    reserveDevVar(platformerParamsVar(playerNum), undefined,
+        `player ${playerNum}'s gravity (high 4 bits) and jumps allowed (low 4 bits), less one, XOR their starting values`);
+    reserveDevVar(platformerStateVar(playerNum), undefined,
+        `player ${playerNum}'s jumps made (bits 0-2), jumping (3), falling (4), on the ground (5), a jump asked for last frame (6) and this frame (7)`);
+  });
+};
 // A collisionMoveOldSizeVar (snapshotting/reverting player{N}size alongside
 // X/Y) used to exist here - removed after confirming it never actually
 // worked: player{N}size (NUSIZ) is a value the user's animation/size-
@@ -79,6 +126,185 @@ export default (Blockly) => {
       `collision(${var0}, ${var1})`;
 
     return [code, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
+  // The Jump block: it goes inside an if block, and each time it runs it sets the numbers the jump and gravity use (a number that is a
+  // block is worked out now) and asks for a jump. The jump itself, with the gravity and the landing on the playfield, is done every
+  // frame by generatePlatformerChecks (see below) for every player that has a Jump block.
+  Blockly.BBasic['sprite_platformer'] = function(block) {
+    const playerNum = block.getFieldValue('PLAYER');
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const lim = resolveVar(platformerLimitVar(playerNum));
+    const par = resolveVar(platformerParamsVar(playerNum));
+    const st = resolveVar(platformerStateVar(playerNum));
+    const starts = (Blockly.BBasic.platformerStarts || {})[playerNum] || platformerStartsOf(null);
+    const multi = block.getFieldValue('MULTI') === 'TRUE';
+    // Each number is stored less one and XOR what the player starts with, in four bits, so that a byte that was never written (0)
+    // is the starting numbers.
+    const nibble = (input, min, max, start, fallback) => {
+      const target = block.getInputTargetBlock(input);
+      if (!target) return {constant: (fallback - 1) ^ (start - 1)};
+      if (target.type === 'math_number') {
+        const value = Math.max(min, Math.min(max, Math.round(Number(target.getFieldValue('NUM')) || min)));
+        return {constant: (value - 1) ^ (start - 1)};
+      }
+      const expr = Blockly.BBasic.valueToCode(block, input, Blockly.BBasic.ORDER_NONE) || String(fallback);
+      return {lines: [
+        `temp1 = ${expr}`,
+        ...(min > 0 ? [`if temp1 < ${min} then temp1 = ${min}`] : []),
+        `if temp1 > ${max} then temp1 = ${max}`,
+        `temp1 = temp1 - 1`,
+        `temp1 = temp1 ^ ${start - 1}`,
+      ]};
+    };
+    const jumpSpeed = nibble('SPEED', 1, 16, starts.jump, 5);
+    const maxFall = nibble('MAXFALL', 1, 16, starts.fall, 6);
+    const gravity = nibble('GRAVITY', 1, 16, starts.gravity, 3);
+    const maxJumps = multi ? nibble('MAXJUMPS', 1, MAX_PLATFORMER_JUMPS, starts.jumps, 2) : {constant: 0 ^ (starts.jumps - 1)};
+    // One byte from two nibbles: both plain numbers is one assignment; a nibble that is a block is put in with its own few statements.
+    const packByte = (variable, high, low) => {
+      if (high.constant !== undefined && low.constant !== undefined) return [`${variable} = ${high.constant * 16 + low.constant}`];
+      const lines = [];
+      if (high.constant !== undefined) {
+        lines.push(`${variable} = ${variable} & 15`, `${variable} = ${variable} | ${high.constant * 16}`);
+      } else {
+        lines.push(...high.lines, 'temp1 = temp1 * 16', `${variable} = ${variable} & 15`, `${variable} = ${variable} | temp1`);
+      }
+      if (low.constant !== undefined) {
+        lines.push(`${variable} = ${variable} & 240`, `${variable} = ${variable} | ${low.constant}`);
+      } else {
+        lines.push(...low.lines, `${variable} = ${variable} & 240`, `${variable} = ${variable} | temp1`);
+      }
+      return lines;
+    };
+    return [
+      ...packByte(lim, jumpSpeed, maxFall),
+      ...packByte(par, gravity, maxJumps),
+      `${st}{7} = 1`,
+    ].join('\n') + '\n';
+  };
+
+  // Once a frame, after everything that moves sprites has run: the jump and gravity of each player that has a Jump block. A jump
+  // asked for (bit 7 of the state byte, set by the block) that was not asked for last frame (bit 6) starts a jump, from the ground or in the
+  // air with jumps left. Every move is tried first with the software box test of pf-box.js, one pixel at a time, so the player is never put
+  // into a lit pixel and never has to be pushed out of one: standing on a pixel it only asks "is there ground one pixel down?" and moves
+  // nothing, so there is nothing to jitter. It rises by the jump speed and gravity slows the rise by its amount each frame and then speeds
+  // the fall up to the max fall speed; speeds are in eighths of a pixel, so low gravity is smooth. Walking off an edge starts a fall and counts as a
+  // jump made. The code is assembly (smaller than the same in batari Basic) with the box test called from batari Basic in the middle.
+  // Labels in the assembly are marked with "@"; the batari Basic ones are lines "@ name" and are reached from the assembly with a dot.
+  Blockly.BBasic.generatePlatformerChecks = function() {
+    const players = Blockly.BBasic.platformerJumpPlayers;
+    if (!players || !players.size) return '';
+    const chunks = [];
+    [...players].sort().forEach((playerNum) => {
+      // A player (0 to 9), a missile (missile0, missile1) or the ball.
+      const player = /^\d+$/.test(playerNum) ? `player${playerNum}` : playerNum;
+      const resolveVar = (canonicalName) =>
+        Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const spd = resolveVar(platformerSpeedVar(playerNum));
+      const frac = resolveVar(platformerFracVar(playerNum));
+      const st = resolveVar(platformerStateVar(playerNum));
+      const lim = resolveVar(platformerLimitVar(playerNum));
+      const par = resolveVar(platformerParamsVar(playerNum));
+      const cnt = resolveVar(PLATFORMER_COUNT_VAR);
+      const bx = resolveVar(PF_BOX_X);
+      const by = resolveVar(PF_BOX_Y);
+      const hit = resolveVar(PF_BOX_HIT);
+      const px = `${player}x`;
+      const py = `${player}y`;
+      const starts = (Blockly.BBasic.platformerStarts || {})[playerNum] || platformerStartsOf(null);
+      const lab = (name) => `_plh${playerNum}_${name}`;
+      const high = (start) => ['lsr', 'lsr', 'lsr', 'lsr', `eor #${start - 1}`];
+      const low = (start) => ['and #15', `eor #${start - 1}`];
+      const times8 = ['asl', 'asl', 'asl'];
+      // Raw batari Basic: labels at the left edge, instructions indented.
+      const asm = (...lines) => [' asm', ...lines.map((line) => (line[0] === '@' ? line.slice(1) : `       ${line}`)), 'end'].join('\n');
+      chunks.push(
+          ` rem jump and gravity of ${player}:`,
+          asm(
+              // The jump block asked this frame (bit 7)? And not last frame (bit 6)? Then it is a new press.
+              'lda ' + st, 'tax', 'and #$3F', 'sta ' + st,
+              'txa', 'and #$80', 'beq ' + lab('nojump'),
+              'lda ' + st, 'ora #$40', 'sta ' + st,
+              'txa', 'and #$40', 'bne ' + lab('nojump'),
+              'txa', 'and #$20', 'bne ' + lab('dojump'),
+              // In the air: only with jumps left.
+              'lda ' + par, 'and #15', `eor #${starts.jumps - 1}`, 'clc', 'adc #1', 'sta ' + cnt,
+              'txa', 'and #7', 'cmp ' + cnt, 'bcs ' + lab('nojump'),
+              '@' + lab('dojump'),
+              'lda ' + st, 'and #$40', 'sta ' + st,
+              'txa', 'and #7', 'clc', 'adc #9', 'ora ' + st, 'sta ' + st,
+              'lda ' + lim, ...high(starts.jump), 'clc', 'adc #1', ...times8, 'sta ' + spd,
+              'lda #0', 'sta ' + frac, 'jmp ' + lab('move'),
+              // Standing on something and not jumping: a one pixel fall that the box test turns back (landing again) when the pixel
+              // under the player is lit. So nothing moves; it counts as a jump made only if it really fell.
+              '@' + lab('nojump'),
+              'lda ' + st, 'and #8', 'bne ' + lab('move'),
+              'lda ' + st, 'and #$20', 'beq ' + lab('move'),
+              'lda ' + st, 'and #$DF', 'ora #$10', 'sta ' + st,
+              'and #7', 'bne ' + lab('skip'), 'inc ' + st,
+              '@' + lab('skip'),
+              'lda #0', 'sta ' + spd, 'sta ' + frac,
+              'lda #1', 'sta ' + cnt, 'jmp ' + lab('step'),
+              // The pixels to move this frame: the speed and what was left over, in eighths.
+              '@' + lab('move'),
+              'clc', 'lda ' + frac, 'adc ' + spd, 'tax', 'and #7', 'sta ' + frac, 'txa', 'lsr', 'lsr', 'lsr', 'sta ' + cnt,
+              'lda ' + st, 'and #8', 'bne ' + lab('step'),
+              'lda ' + st, 'ora #$10', 'sta ' + st,
+              '@' + lab('step'),
+              'lda ' + cnt, 'bne ' + lab('go'), 'jmp ' + lab('speed'),
+              '@' + lab('go'),
+              'dec ' + cnt,
+              'lda ' + st, 'and #8', 'bne ' + lab('stepup'),
+              'lda ' + py, 'cmp #255', 'beq ' + lab('land'),
+              'ldx ' + py, 'inx', 'bne ' + lab('probe'),
+              '@' + lab('stepup'),
+              'lda ' + py, 'beq ' + lab('bump'),
+              'ldx ' + py, 'dex',
+              '@' + lab('probe'),
+              'stx ' + by, 'lda ' + px, 'sta ' + bx,
+          ),
+          ` ${callPfBox(Blockly, player)}`,
+          asm(
+              'lda ' + hit, 'beq ' + lab('free'),
+              'lda ' + st, 'and #8', 'bne ' + lab('bump'),
+              // On top of a pixel: stopped, standing, the jumps made forgotten.
+              '@' + lab('land'),
+              'lda #0', 'sta ' + spd, 'sta ' + frac,
+              'lda ' + st, 'and #$40', 'ora #$20', 'sta ' + st, 'jmp ' + lab('end'),
+              // Hit its head: the rise ends and the fall starts.
+              '@' + lab('bump'),
+              'lda #0', 'sta ' + spd, 'sta ' + frac,
+              'lda ' + st, 'and #$F7', 'ora #$10', 'sta ' + st, 'jmp ' + lab('end'),
+              '@' + lab('free'),
+              'lda ' + by, 'sta ' + py, 'jmp ' + lab('step'),
+              // Gravity: slows the rise, then speeds up the fall to the max fall speed.
+              '@' + lab('speed'),
+              'lda ' + st, 'and #8', 'bne ' + lab('rising'),
+              'lda ' + par, ...high(starts.gravity), 'sec', 'adc ' + spd, 'sta ' + spd,
+              'lda ' + lim, ...low(starts.fall), 'clc', 'adc #1', ...times8,
+              'cmp ' + spd, 'bcs ' + lab('end'), 'sta ' + spd, 'jmp ' + lab('end'),
+              '@' + lab('rising'),
+              'lda ' + par, ...high(starts.gravity), 'clc', 'adc #1', 'sta ' + cnt, 'cmp ' + spd, 'bcs ' + lab('top'),
+              'lda ' + spd, 'sec', 'sbc ' + cnt, 'sta ' + spd, 'jmp ' + lab('end'),
+              '@' + lab('top'),
+              'lda #0', 'sta ' + spd,
+              'lda ' + st, 'and #$F7', 'ora #$10', 'sta ' + st,
+              '@' + lab('end'),
+          ),
+      );
+    });
+    return chunks.join('\n') + '\n';
+  };
+
+  // Whether a player the Jump block moves is jumping (rising), falling or on the ground: a bit of its state byte.
+  Blockly.BBasic['sprite_platformer_state'] = function(block) {
+    const playerNum = block.getFieldValue('PLAYER');
+    const bit = {jumping: PLATFORMER_JUMPING_BIT, falling: PLATFORMER_FALLING_BIT, ground: PLATFORMER_GROUND_BIT}[block.getFieldValue('STATE')] ||
+      PLATFORMER_GROUND_BIT;
+    const state = Blockly.BBasic.nameDB_.getName(platformerStateVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return [`${state}{${bit}}`, Blockly.BBasic.ORDER_ATOMIC];
   };
 
   // One-frame-delayed hardware-collision "backtrack" check - no movement of

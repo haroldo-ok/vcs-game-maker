@@ -69,7 +69,7 @@ import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
   generateJoystickButtonChecks, generateJoystickDoubleTapChecks, SWITCH_EDGE_FAMILY, switchEdgeOwnBits,
   reserveSwitchEdgeDevVars, generateSwitchEdgeChecks} from './bbasic/input';
-import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOlderXVar, collisionMoveOlderYVar} from './bbasic/collision';
+import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOlderXVar, collisionMoveOlderYVar, reservePlatformerDevVars, platformerStartsOf} from './bbasic/collision';
 import {scoreBkColorVarName, generateScanlinesDebugScoreCode} from './bbasic/score';
 import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generatePlayerHeightLimitChecks,
   reservePlayerHeightLimitDevVars, generateRainbowColorChecks,
@@ -888,9 +888,21 @@ Blockly.BBasic.init = function(workspace) {
   // block asks whether they are in the playfield: those get a byte each frame (see generators/bbasic/pf-box-sub.js).
   this.pfBoxPlayers = new Set();
   this.pfHitExtras = new Set();
+  // The players a jump and gravity block is used for (it tries positions with the same box test).
+  this.platformerPlayers = new Set();
+  this.platformerJumpPlayers = new Set();
+  this.platformerStarts = {};
   workspace.getAllBlocks(false).forEach((block) => {
     if (!block.isEnabled()) return;
-    if (block.type === 'collision_check_position') {
+    if (block.type === 'sprite_platformer') {
+      this.pfBoxPlayers.add(/^\d+$/.test(block.getFieldValue('PLAYER')) ? `player${block.getFieldValue('PLAYER')}` : block.getFieldValue('PLAYER'));
+      this.platformerPlayers.add(`${block.getFieldValue('PLAYER')}`);
+      this.platformerJumpPlayers.add(`${block.getFieldValue('PLAYER')}`);
+      const jumpPlayer = `${block.getFieldValue('PLAYER')}`;
+      if (!this.platformerStarts[jumpPlayer]) this.platformerStarts[jumpPlayer] = platformerStartsOf(block);
+    } else if (block.type === 'sprite_platformer_state') {
+      this.platformerPlayers.add(`${block.getFieldValue('PLAYER')}`);
+    } else if (block.type === 'collision_check_position') {
       const player = `player${block.getFieldValue('PLAYER')}`;
       this.pfBoxPlayers.add(player);
       if (/^player[2-9]$/.test(player)) this.pfHitExtras.add(player);
@@ -1524,7 +1536,7 @@ Blockly.BBasic.init = function(workspace) {
     const soundConfig = useConfigurationStorage().value || {};
     const chipOn = soundConfig.kernel === 'dpcplus' && soundConfig.enableDpcPlusAudio !== false && !soundConfig.muteAllAudio;
     const chipChannels = chipOn ? collectChipChannels(workspace, processSongsStorageDefaults(useSongsStorage()).songs) : [];
-    this.dpcAudioPlan = chipChannels.length ? createDpcPlusAudioPlan(soundConfig, chipChannels) : null;
+    this.dpcAudioPlan = chipChannels.length ? createDpcPlusAudioPlan(soundConfig, chipChannels, this.chipKeySeed || null) : null;
     this.dpcAudioFiles = {};
     setMusicDpcPlusPlan(this.dpcAudioPlan);
   }
@@ -2366,6 +2378,7 @@ Blockly.BBasic.init = function(workspace) {
     }
   });
   reservePfBoxDevVars(reserveDevVar, this.pfBoxPlayers, this.pfHitExtras);
+  reservePlatformerDevVars(reserveDevVar, this.platformerPlayers);
   reserveBoxDevVars(reserveDevVar, this.boxWidthPlayers, this.boxPairs);
 
   // The players a "set width/quantity" block is used for: their animations leave the size alone after it ran (see processAnimation).
@@ -4105,6 +4118,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedWidePartnerSync = Blockly.BBasic.generateWidePartnerSync();
   const generatedPfHitChecks = generatePfHitChecks(Blockly) + generateBoxChecks(Blockly);
   const generatedInertiaChecks = generateInertiaChecks(Blockly);
+  const generatedPlatformerChecks = Blockly.BBasic.generatePlatformerChecks();
   const generatedShakeScreenChecks = generateShakeScreenChecks(Blockly);
   const generatedDpcPlusColorPriming = Blockly.BBasic.generateDpcPlusColorPriming();
   const generatedDpcPlusColorTables = Blockly.BBasic.generateDpcPlusColorTables();
@@ -4273,7 +4287,7 @@ Blockly.BBasic.finish = function(code) {
   const generated = handlebarsTemplate({generatedDpcPlusAudio, generatedBody, generatedBackgrounds,
     generatedAnimations, generatedDataTables, generatedRomNoiseChecks, generatedPlayerHeightLimitChecks, generatedTitleScreenAnimationChecks,
     generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
-    generatedSeekChecks, generatedLockChecks, generatedWidePartnerSync, generatedPfHitChecks, generatedInertiaChecks, generatedShakeScreenChecks, generatedDpcPlusColorPriming, generatedDpcPlusColorTables, generatedDpcPlusInitialDrawscreen,
+    generatedSeekChecks, generatedLockChecks, generatedWidePartnerSync, generatedPfHitChecks, generatedInertiaChecks, generatedPlatformerChecks, generatedShakeScreenChecks, generatedDpcPlusColorPriming, generatedDpcPlusColorTables, generatedDpcPlusInitialDrawscreen,
     generatedDpcPlusSpriteDefaults,
     generatedDpcPlusBankPreamble,
     generatedTextOffsetTables, generatedTextStaticOffsetTables, generatedTextRow2OffsetsTable, generatedJoyDir8Table,
@@ -7654,8 +7668,18 @@ Blockly.BBasic.workspaceToCode = function(workspace) {
   // (The names found unfit in an earlier build of the same project, when the caller kept them, so they are not found out again.)
   this.displayRamExcluded = new Set(this.displayRamExcludedSeed || []);
   setEnvelopeFlatDisabled(false);
+  this.chipKeySeed = null;
   for (let attempt = 0; attempt < 8; attempt++) {
     const code = this.workspaceToCodeOnce(workspace);
+    // The piano keys the DPC+ sound chip plays are found out by a pass; the next pass makes room in the frequency table for the pitches
+    // that are not keys, in the places no key is at, and is done again if it needed a key the pass before did not (see createDpcPlusAudioPlan).
+    if (this.dpcAudioPlan && this.dpcAudioPlan.usedKeys) {
+      const seed = this.chipKeySeed;
+      if (!seed || ![...this.dpcAudioPlan.usedKeys].every((key) => seed.has(key))) {
+        this.chipKeySeed = new Set([...(seed || []), ...this.dpcAudioPlan.usedKeys]);
+        continue;
+      }
+    }
     // The shapes did not all fit in the one table of every shape: generated again the way that has a shape number for each channel.
     if (envelopeFlatOn() && envelopeFlatOverflowed()) {
       setEnvelopeFlatDisabled(true);

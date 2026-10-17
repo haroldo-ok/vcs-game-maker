@@ -184,6 +184,8 @@ export const convertSoundToDpcPlus = (sound, config) => {
     return true;
   }
   sound.dpcFrequency = Math.round(frequencyForTia(sound.audc, sound.audf, config) * 100) / 100;
+  // A changing pitch (sweep, frequency envelope, arpeggio) is played with the same pitches as the TIA plays them.
+  if (sound.dpcSweepMatch === undefined && (sound.sweep || sound.pitchEnvelope || sound.arpeggio)) sound.dpcSweepMatch = true;
   // Percussion becomes noise, unless it was buzzy already (AUDC 1), which stays the buzzy shape.
   sound.dpcShape = sound.isPercussion && `${sound.audc}` !== '1' ? 'noise' : presetForAudc(sound.audc);
   sound.dpcWave = dpcWaveOf(sound);

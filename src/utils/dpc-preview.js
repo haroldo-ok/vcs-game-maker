@@ -8,7 +8,8 @@
 // value for the score lines and silent for the rest of each 262 line frame. Nothing is smoothed.
 
 import {buildEnvelopeCurve} from './envelope';
-import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, isDpcPlusSound} from './dpc-sound';
+import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, frequencyForTia, isDpcPlusSound} from './dpc-sound';
+import {rawFrequencyOf} from './music-notes';
 import {buildDpcPitchOffsets} from './pitch-table';
 import {buildVolumeStaircase} from './staircase';
 import {getAudioContext, registerSoundEffectPreview, isSoundEffectPreviewActive} from './sound-preview';
@@ -163,6 +164,10 @@ export const dpcPlusFor = (soundEffect, midi) => {
   const config = dpcPlusPreviewActive();
   if (!config) return null;
   const sound = asDpcPlusSound(soundEffect, config);
+  // A note on a frequency row plays the pitch the TIA has for that frequency number with the sound's type (tiaAudf: the frequency
+  // number, for a sweep that follows the Standard pitches from it).
+  const raw = typeof midi === 'string' ? rawFrequencyOf(midi) : null;
+  if (raw !== null) return {sound, frequency: frequencyForTia(soundEffect.audc, raw, config), tiaAudf: raw};
   const pitched = Number.isFinite(midi) && !soundEffect.isPercussion;
   return {sound, frequency: pitched ? frequencyForMidi(midi) : Number(sound.dpcFrequency) || 0};
 };

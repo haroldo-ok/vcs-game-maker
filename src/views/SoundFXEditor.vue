@@ -565,6 +565,17 @@
                         />
                       </template>
                     </div>
+                    <!-- A sound of the DPC+ chip can play the pitches the TIA plays: the sweep, frequency envelope and arpeggio of the Standard settings. -->
+                    <v-switch
+                      v-if="cardDpc(soundEffect) && (soundEffect.sweep || soundEffect.pitchEnvelope || soundEffect.arpeggio)"
+                      :input-value="dpcFollows(soundEffect)"
+                      label="Same pitches as Standard"
+                      title="On: the chip plays the same pitches as the TIA plays for this sound's sweep, frequency envelope and arpeggio (the settings of the Standard side, in steps of the frequency number), so the two sound alike. Off: the sweep moves in semitones to an End note."
+                      hide-details
+                      dense
+                      class="soundfx-dpc-follow-switch"
+                      @change="(value) => setDpcFollows(soundEffect, value)"
+                    />
                     <!-- A frequency sweep: the pitch moves from the Frequency above to the end frequency while the sound plays. -->
                     <div class="soundfx-arpeggio-block soundfx-sweep-block"
                       :class="{'soundfx-arpeggio-block--expanded': soundEffect.sweep}"
@@ -582,7 +593,7 @@
                         <div class="soundfx-sweep-fields">
                           <!-- A sound of the DPC+ chip sweeps to a note of the piano, in semitones. -->
                           <v-select
-                            v-if="cardDpc(soundEffect)"
+                            v-if="cardDpc(soundEffect) && !dpcFollows(soundEffect)"
                             label="End note"
                             title="The note the sweep moves to."
                             v-model.number="soundEffect.dpcSweepEnd"
@@ -616,11 +627,11 @@
                           />
                           <v-text-field
                             label="Step"
-                            :title="cardDpc(soundEffect) ? 'How many semitones the pitch moves each time it steps.' : 'How far the frequency moves each time it steps.'"
+                            :title="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? 'How many semitones the pitch moves each time it steps.' : 'How far the frequency moves each time it steps.'"
                             v-model.number="soundEffect.sweepStep"
                             type="number"
                             min="1"
-                            :max="cardDpc(soundEffect) ? MAX_DPC_SWEEP_STEP : MAX_SWEEP_STEP"
+                            :max="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? MAX_DPC_SWEEP_STEP : MAX_SWEEP_STEP"
                             hide-details
                             @change="handleChildChange"
                             class="soundfx-sweep-field"
@@ -637,7 +648,7 @@
                         </div>
                         <div class="soundfx-sweep-switches">
                           <v-switch
-                            v-if="!cardDpc(soundEffect)"
+                            v-if="!cardDpc(soundEffect) || dpcFollows(soundEffect)"
                             v-model="soundEffect.sweepWrap"
                             label="Wrap"
                             title="The frequencies run from 0 to 31 and then start over. Off: the sweep takes the short way to the end frequency (30 to 20 plays 30, 29 ... 20). On: it takes the long way, past the end of the range (30 to 20 plays 30, 31, 0, 1 ... 20)."
@@ -673,7 +684,7 @@
                       <template v-if="soundEffect.pitchEnvelope">
                         <v-text-field
                           label="Amount"
-                          :title="cardDpc(soundEffect) ? 'How many semitones the pitch moves at the peak of the envelope, -31 to 31. A positive number is a higher pitch.' : 'How far the frequency moves at the peak of the envelope, -31 to 31. A positive number is a lower pitch.'"
+                          :title="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? 'How many semitones the pitch moves at the peak of the envelope, -31 to 31. A positive number is a higher pitch.' : 'How far the frequency moves at the peak of the envelope, -31 to 31. A positive number is a lower pitch.'"
                           v-model.number="soundEffect.pitchEnvelopeAmount"
                           type="number"
                           min="-31"
@@ -829,7 +840,7 @@ import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVI
   DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import {STAIRCASE_FRAME_OPTIONS, MAX_STAIRCASE_STEP, DEFAULT_STAIRCASE_STEP, DEFAULT_STAIRCASE_FRAMES} from '../utils/staircase';
-import {dpcKeyForHz, MAX_DPC_SWEEP_STEP, SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_END, DEFAULT_SWEEP_STEP, DEFAULT_SWEEP_FRAMES, MAX_SWEEP_STEP,
+import {dpcFollowsStandardPitch, dpcKeyForHz, MAX_DPC_SWEEP_STEP, SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_END, DEFAULT_SWEEP_STEP, DEFAULT_SWEEP_FRAMES, MAX_SWEEP_STEP,
   DEFAULT_PITCH_ENVELOPE_AMOUNT, DEFAULT_PITCH_ENVELOPE_ATTACK, DEFAULT_PITCH_ENVELOPE_DECAY,
   DEFAULT_PITCH_ENVELOPE_DECAY_END, DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH, DEFAULT_PITCH_ENVELOPE_RELEASE_START,
   DEFAULT_PITCH_ENVELOPE_RELEASE} from '../utils/pitch-table';
@@ -1411,6 +1422,13 @@ export default defineComponent({
     const dpcPlusNoteItems = (soundEffect) => (dpcPlusNoteValue(soundEffect) === 'custom' ?
       [{text: `Custom (${soundEffect.dpcFrequency} Hz)`, value: 'custom'}, ...pianoKeyItems] : pianoKeyItems);
     // Switching a sweep on gives a sound of the DPC+ chip an end note (an octave up) when it has none.
+    const dpcFollows = (soundEffect) => dpcFollowsStandardPitch(soundEffect);
+    const setDpcFollows = (soundEffect, value) => {
+      Vue.set(soundEffect, 'dpcSweepMatch', !!value);
+      // Turning it off gives a sweep the end note (an octave up) it moves to in semitones.
+      if (!value) handleSweepSwitch(soundEffect);
+      else handleChildChange();
+    };
     const handleSweepSwitch = (soundEffect) => {
       if (cardDpc(soundEffect) && soundEffect.sweep && !soundEffect.dpcSweepEnd) {
         const key = dpcKeyForHz(Number(soundEffect.dpcFrequency) || 440);
@@ -1511,7 +1529,7 @@ export default defineComponent({
       audcHasTunableNotes, frequencyItems, endFrequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
       soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, dpcPlusSoundCards, dpcPlusNoteValue, dpcPlusNoteItems,
-      handleSweepSwitch, pianoKeyItems, MAX_DPC_SWEEP_STEP, MAX_STAIRCASE_STEP,
+      handleSweepSwitch, dpcFollows, setDpcFollows, pianoKeyItems, MAX_DPC_SWEEP_STEP, MAX_STAIRCASE_STEP,
       staircaseFrameOptionItems: STAIRCASE_FRAME_OPTIONS.map((value) => ({text: `${value} ${value === 1 ? 'frame' : 'frames'}`, value})),
       handleDpcPlusNoteChange, handleWaveformChange, handleTiaChange,
       cardView, setCardView, cardTia, cardDpc, handleStandardChange,

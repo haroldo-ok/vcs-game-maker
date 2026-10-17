@@ -40,7 +40,9 @@ const arpeggioToEvents = (event) => {
   const sequence = ARPEGGIO_PHASE_SEQUENCES[event.arpeggioRange] || ARPEGGIO_PHASE_SEQUENCES[0];
   const pitchOf = (token) => {
     const shift = (token.endsWith('A') ? event.arpeggioInterval : 0) + (token[0] === 'U' ? 12 : token[0] === 'D' ? -12 : 0);
-    return Math.min(88, Math.max(1, event.audf + shift));
+    const id = Math.min(88, Math.max(1, event.audf + shift));
+    if (dpcPlusPlan) dpcPlusPlan.useKey(id);
+    return id;
   };
   const events = [];
   let remaining = event.frames;
@@ -897,7 +899,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   // same pitch and volume (the volume envelope and the arpeggio too, since they are part of the same table). The same for a note of the
   // DPC+ chip, where the pitch is an entry of the chip's frequency table.
   const bakedFrames = (note, totalFrames) => {
-    const table = soundPitchValues({...note.bakeSound, audf: note.audf, duration: totalFrames}, note.bakePlan,
+    const table = soundPitchValues({...note.bakeSound, audf: note.bakePlan ? note.tiaAudf : note.audf, duration: totalFrames}, note.bakePlan,
         {arpeggioFrames: note.arpeggioSpeed, startHz: note.bakeStartHz}) || [];
     // A staircase volume is the volume of each frame already.
     const staircase = buildVolumeStaircase({...note.bakeSound, audv: note.audv, duration: totalFrames}, {loopSustain: true});
@@ -986,9 +988,13 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     (track.notes || []).forEach((note) => {
       // A hit plays at the pitch of the sound itself.
       // A note on a raw frequency row (a sound type with no in-tune notes) plays that frequency; not on the DPC+ chip.
-      const rawFrequency = chipPlan ? null : rawFrequencyOf(note.midi);
-      const audf = rawFrequency !== null ? rawFrequency : !isTunable || note.midi === 'hit' ?
-        (chipPlan ? chipPlan.pitchIdForSound(soundEffect) : soundEffect.audf) : noteAudf(note, soundEffect, !chipPlan);
+      // On the DPC+ chip it is the pitch the TIA has for that frequency number with the instrument's sound type.
+      const rawFrequency = rawFrequencyOf(note.midi);
+      const audf = rawFrequency !== null ? (chipPlan ? chipPlan.pitchIdForTia(soundEffect.audc, rawFrequency) : rawFrequency) :
+        !isTunable || note.midi === 'hit' ?
+          (chipPlan ? chipPlan.pitchIdForSound(soundEffect) : soundEffect.audf) : noteAudf(note, soundEffect, !chipPlan);
+      // (A note of the chip on a piano key is that key's place in the frequency table.)
+      if (chipPlan && rawFrequency === null && isTunable && note.midi !== 'hit') chipPlan.useKey(audf);
       // Per-note override (see the Music tab's  piano-roll volume row),
       // falling back to the instrument's  preset - same DIM-scaling as
       // before, just applied to whichever value is actually in effect for
@@ -1019,7 +1025,10 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         bakeSound: soundEffect.sweep || soundEffect.pitchEnvelope || (soundEffect.envelope && soundEffect.staircase) ? soundEffect : null,
         // For a note of the DPC+ chip: its plan, and the frequency of the piano key the note is on (a hit plays at the sound's own).
         bakePlan: chipPlan,
-        bakeStartHz: chipPlan && isTunable && note.midi !== 'hit' ? frequencyForMidi(note.midi) : null,
+        bakeStartHz: chipPlan && rawFrequency !== null ? chipPlan.tiaFrequency(soundEffect.audc, rawFrequency) :
+          chipPlan && isTunable && note.midi !== 'hit' ? frequencyForMidi(note.midi) : null,
+        // The frequency number the sound's pitch starts from, for a sweep that follows the Standard pitches (see dpcFollowsStandardPitch).
+        tiaAudf: rawFrequency !== null ? rawFrequency : soundEffect.audf,
         // Only meaningful for a note that actually ends up overlapping
         // another one (see the overlap-resolution pass below) - canPlaceNoteAt
         // in MusicEditor.vue lets any instrument, tunable or noise, land on

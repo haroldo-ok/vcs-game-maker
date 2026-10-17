@@ -93,7 +93,8 @@ export const ENVELOPE_STAGE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32, 64];
 // one ROM byte per frame of that specific stage, so this only makes an
 // envelope that actually USES a longer attack/release slightly bigger, not
 // every envelope in the project.
-export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32, 64];
+// (56 is the length of the rising hum of Yars' Revenge, 7 steps of 8 frames.)
+export const ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS = [0, 2, 4, 8, 16, 32, 56, 64];
 export const DEFAULT_ENVELOPE_ATTACK = 0;
 export const DEFAULT_ENVELOPE_DECAY = 0;
 export const DEFAULT_ENVELOPE_RELEASE = 4;
@@ -308,6 +309,8 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     Vue.set(soundEffect, 'sweepRepeat', !!soundEffect.sweepRepeat);
     Vue.set(soundEffect, 'sweepWrap', !!soundEffect.sweepWrap);
     Vue.set(soundEffect, 'dpcSweepEnd', whole(soundEffect.dpcSweepEnd, 0, 0, 108));
+    // (Left unset when it never was: a sweep with no end note of its own then follows the Standard pitch, see utils/pitch-table.js.)
+    if (soundEffect.dpcSweepMatch !== undefined) Vue.set(soundEffect, 'dpcSweepMatch', !!soundEffect.dpcSweepMatch);
     Vue.set(soundEffect, 'sweepEnd', whole(soundEffect.sweepEnd, DEFAULT_SWEEP_END, 0, 31));
     Vue.set(soundEffect, 'sweepStep', whole(soundEffect.sweepStep, DEFAULT_SWEEP_STEP, 1, MAX_SWEEP_STEP));
     Vue.set(soundEffect, 'sweepFrames', oneOf(soundEffect.sweepFrames, SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_FRAMES));

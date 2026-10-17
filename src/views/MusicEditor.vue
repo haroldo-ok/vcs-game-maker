@@ -2730,13 +2730,9 @@ export default defineComponent({
       // offering a redundant, pitch-less way to trigger the same sound.
       const tia = trackUsesTia(track);
       if (row.midi === 'hit') return !soundHasTunableNotes(soundEffect, tia);
-      // A frequency row: for any sound that is not a percussion sound (which only has the Hit row) and is not played by the DPC+ chip
-      // (whose pitch is a key of the piano). A sound type with in-tune notes has its piano rows as well.
-      if (rawFrequencyOf(row.midi) !== null) {
-        const config = (configurationStorage && configurationStorage.value) || {};
-        const chip = !tia && config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false;
-        return !soundEffect.isPercussion && !chip;
-      }
+      // A frequency row: for any sound that is not a percussion sound (which only has the Hit row). On the DPC+ chip it plays the pitch
+      // the TIA has for that frequency number. A sound type with in-tune notes has its piano rows as well.
+      if (rawFrequencyOf(row.midi) !== null) return !soundEffect.isPercussion;
       return soundHasTunableNotes(soundEffect, tia) && audfByMidiForAudc(soundEffect.audc, tia).has(row.midi);
     };
     // Same "not available to the currently active track" check

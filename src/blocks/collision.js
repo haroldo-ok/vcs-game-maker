@@ -51,6 +51,12 @@ Blockly.defineBlocksWithJsonArray([
   },
 ]);
 
+// The sprites the Jump block can move: the players, the missiles and the ball.
+const jumpSpriteOptions = function() {
+  return [...playerOptions(), [PLAYER_ICON + ' Missile 0', 'missile0'], [PLAYER_ICON + ' Missile 1', 'missile1'],
+    [PLAYER_ICON + ' Ball', 'ball']];
+};
+
 const playerOptions = function() {
   const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
   return Array.from({length: dpcPlus ? 10 : 2}, (_, i) => [PLAYER_ICON + ' Player ' + i, String(i)]);
@@ -92,8 +98,56 @@ const buildCollisionCheckBlock = () => ({
     'position, it does not move the player itself.',
 });
 
+// A jump for a player, with gravity and landing on the pixels of the playfield (see generators/bbasic/collision.js). It goes inside an if
+// block (with a joystick block, say): running it makes the player jump. A project that has one also has gravity: every frame the player
+// is moved up and down by the jump and by gravity, and stopped on top of a lit pixel of the playfield. The numbers are sockets, for the
+// blocks of the Math category and variables, and are taken when the block runs.
+const buildPlatformerBlock = () => ({
+  'type': 'sprite_platformer',
+  'message0': `${PLAYER_ICON} Jump %1 jump speed %2 gravity %3 max fall speed %4 multi-jump %5 up to %6 jumps`,
+  'args0': [
+    {'type': 'field_dropdown', 'name': 'PLAYER', 'options': jumpSpriteOptions},
+    {'type': 'input_value', 'name': 'SPEED', 'check': 'Number'},
+    {'type': 'input_value', 'name': 'GRAVITY', 'check': 'Number'},
+    {'type': 'input_value', 'name': 'MAXFALL', 'check': 'Number'},
+    {'type': 'field_checkbox', 'name': 'MULTI', 'checked': false},
+    {'type': 'input_value', 'name': 'MAXJUMPS', 'check': 'Number'},
+  ],
+  'inputsInline': true,
+  'previousStatement': null,
+  'nextStatement': null,
+  'colour': 'purple',
+  'tooltip': 'Put this in an if block (with a block like "joystick 0 fire") in the update event: each time the player presses ' +
+    'the button the player jumps, when it is standing on something, or in the air if multi-jump is on and it has jumped fewer ' +
+    'times than the number set here (at most 4). From the moment a project has this block the player is moved up and down like in ' +
+    'a platformer, every frame, by gravity too. The jump starts at the jump speed ' +
+    '(pixels a frame, 1 to 16); gravity (in eighths of a pixel a frame, 1 to 16) slows the rise and then pulls the player ' +
+    'down, up to the max fall speed (pixels a frame, 1 to 16); and the player stops on top of a lit pixel of the playfield ' +
+    '(and hits its head on one above). The numbers can be any Math or variable block. A player standing on a pixel does not ' +
+    'move at all, so it does not jitter. Walking off an edge makes it fall, and counts as a jump used. Left and right are ' +
+    'moved by the other blocks.',
+});
+
+// True while a player moved by the Jump block is jumping (going up), falling, or standing on the ground.
+const buildPlatformerStateBlock = () => ({
+  'type': 'sprite_platformer_state',
+  'message0': `${PLAYER_ICON} %1 is %2`,
+  'args0': [
+    {'type': 'field_dropdown', 'name': 'PLAYER', 'options': jumpSpriteOptions},
+    {'type': 'field_dropdown', 'name': 'STATE', 'options': [
+      ['jumping', 'jumping'], ['falling', 'falling'], ['on the ground', 'ground'],
+    ]},
+  ],
+  'output': 'Boolean',
+  'colour': 'purple',
+  'tooltip': 'True while the player, moved by the "Jump" block, is jumping (going up), falling (going down) or standing on the ' +
+    'ground (on a playfield pixel). Use it in an if block, to change the animation for each, for example.',
+});
+
 Blockly.defineBlocksWithJsonArray([
   buildCollisionCheckBlock(),
+  buildPlatformerBlock(),
+  buildPlatformerStateBlock(),
 ]);
 
 // A predictive (check-BEFORE-moving) software playfield collision block
