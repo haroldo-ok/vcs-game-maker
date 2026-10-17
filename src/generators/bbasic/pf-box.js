@@ -33,11 +33,13 @@ const DPC_PLUS_FIRST_ROW_LINE = 4;
 // (the "no_blank_lines" option off); dpcPlusRows: {lowDivisor, highDivisor, exact} the rows' height in lines under DPC+ rounded
 // up and rounded down, and whether that is a whole number.
 // objectWidth: for a missile or the ball, a bB expression for its width code (0 to 3 for 1, 2, 4 and 8 pixels); they have no copies
-// and sizeVar is not used.
+// and sizeVar is not used. yShift: lines added to the y given, and extraHeight: lines added to the height, for the objects the kernel draws
+// a line lower or taller than the player's box (measured against the hardware flag).
 // partnerFrameVar: for a 16 pixel wide player, the frame byte of the sprite that shows its right half (255 while it is not shown);
 // the box is twice as wide while it is shown. partnerHiddenVar: a bit that also hides it.
-export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar, resultVar, maxRow, rowDivisor, dpcPlusRows, dpcPlusRowSets, rowFracVar, maxRowVar,
-  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth}) => {
+export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: baseHeightVar, resultVar, maxRow, rowDivisor, dpcPlusRows, dpcPlusRowSets, rowFracVar, maxRowVar,
+  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0}) => {
+  const heightVar = extraHeight ? `(${baseHeightVar} ${extraHeight < 0 ? '-' : '+'} ${Math.abs(extraHeight)})` : baseHeightVar;
   const lab = (name) => `${label}_${name}`;
   const at = (name) => `@ ${lab(name)}`;
   const rowOf = (expr, divisor) => (divisor === 1 ? `(${expr})` : `(${expr}) / ${divisor}`);
@@ -228,8 +230,10 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar, r
     at('one'),
     ...oneBox,
     at('start'),
+    ...(yShift ? [`${yVar} = ${yVar} + ${yShift}`] : []),
     `if ${xVar} >= ${pfXOffset + 160} then ${resultVar} = 0 : goto ${lab('finish')}`,
     `gosub ${lab('one')}`,
     at('finish'),
+    ...(yShift ? [`${yVar} = ${yVar} - ${yShift}`] : []),
   ] : start;
 };

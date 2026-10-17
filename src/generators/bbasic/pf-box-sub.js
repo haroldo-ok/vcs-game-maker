@@ -44,13 +44,18 @@ export const callPfBox = (Blockly, player) => {
     // A missile or the ball: its width comes from the byte the blocks keep it in (1 pixel while no block sets one), it has no copies,
     // and its column is a little different.
     const widthVar = (canonicalName, used) => (used ? resolveVar(canonicalName) : null);
+    // Measured against the hardware flag on the emulator (a sweep of y over a lit row): the lines each object covers for a given y and
+    // height, as the shift of y and the change of height that give the box test the same lines. The standard kernel's box is a line
+    // taller, and the ball and missile 0 are drawn a line higher than missile 1; under DPC+ y 0 is the picture's first line for them
+    // (it is the fifth for a player), the ball covers y to y + height - 1, missile 0 one line lower and a line shorter and missile 1 a
+    // line higher and a line taller.
     const objectBox = {
       missile0: () => ({objectWidth: widthVar(missileWidthsVarName(), Blockly.BBasic.missileWidthUsed) ?
-        `(${widthVar(missileWidthsVarName(), true)} & $30) / 16` : '0'}),
+        `(${widthVar(missileWidthsVarName(), true)} & $30) / 16` : '0', yShift: dpcPlus ? 5 : 1, extraHeight: dpcPlus ? -1 : 1}),
       missile1: () => ({objectWidth: widthVar(missileWidthsVarName(), Blockly.BBasic.missileWidthUsed) ?
-        `${widthVar(missileWidthsVarName(), true)} / 64` : '0'}),
+        `${widthVar(missileWidthsVarName(), true)} / 64` : '0', yShift: dpcPlus ? 3 : 0, extraHeight: 1}),
       ball: () => ({objectWidth: widthVar(ctrlpfShadowVarName(), Blockly.BBasic.ctrlpfShadowUsed) ?
-        `(${widthVar(ctrlpfShadowVarName(), true)} & $30) / 16` : '0'}),
+        `(${widthVar(ctrlpfShadowVarName(), true)} & $30) / 16` : '0', yShift: dpcPlus ? 4 : 1, extraHeight: dpcPlus ? 0 : 1}),
     }[player];
     const objectOptions = objectBox ? {...objectBox(), pfXOffset: missileBallPfXOffset(config)} : {};
     const rowLines = dpcPlusRowLinesFor(config);
