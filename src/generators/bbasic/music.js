@@ -2574,15 +2574,14 @@ export default (Blockly) => {
   // never a page/table boundary hazard (ROM continues sequentially past any
   // table's  last byte either way, so index+1 always resolves to SOME
   // real byte, just an unused one on a single-byte peek).
-  // temp1 and temp2 are the bytes of a table at the index and the one after it, temp3 is the index of the second: as asm that is 15
-  // bytes where the three bB statements are about 22.
+  // temp1 and temp2 are the bytes of a table at the index and the one after it: as asm that is 13 bytes where the bB statements are
+  // about 22.
   const readPairAsm = (table, indexExpr) => [
     ' asm',
     `       ldx ${indexExpr}`,
     `       lda ${table},x`,
     '       sta temp1',
     '       inx',
-    '       stx temp3',
     `       lda ${table},x`,
     '       sta temp2',
     'end',
@@ -2861,6 +2860,10 @@ export default (Blockly) => {
       const indexPair = resolveRW(musicIndexVarName(channel));
       const indexVar = indexPair.read;
       const indexVarWrite = indexPair.write;
+      // The index moves on by 1 or 2: INC is 2 bytes and 5 cycles where the batari Basic addition is 7 bytes (not possible where the
+      // read and write names differ, under Superchip RAM).
+      const advanceIndex = (count) => (indexVar === indexVarWrite ?
+        [' asm', ...Array(count).fill(`       inc ${indexVar}`), 'end'].join('\n') : `${indexVarWrite} = ${indexVar} + ${count}`);
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
       // Only meaningful once the project actually has some instrument to
@@ -2981,7 +2984,7 @@ export default (Blockly) => {
       // don't need the bit at all.
       const durationReadPlain = [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         hasEnvelope ? ` ${timerVar} = temp1 & 127` : ` ${timerVar} = temp1`,
       ];
       // arpSpeedRangeVar's speed nibble was already set (if this channel's
@@ -3002,7 +3005,7 @@ export default (Blockly) => {
         // a second pagedReadLines dispatch isn't needed here. Still has to
         // advance past this byte's  position, same as before.
         ` temp1 = temp4`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ` if ${arpSpeedRangeVar} = 0 then goto _music${channel}_dur_noarp`,
         ` ${timerVar} = temp1 & 15`,
         ` temp2 = temp1 & 112`,
@@ -3036,9 +3039,9 @@ export default (Blockly) => {
       const buildInstrumentMarkerSubroutine = () => !lastAudcVar ? null : [
         instrumentMarkerLabel,
         ` if temp1 <> ${INSTRUMENT_CHANGE_SENTINEL} then goto ${instrumentMarkerLabel}_done`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ` temp1 = ${musicInstrumentTableName()}[temp1]`,
         ` ${lastAudcVarWrite} = temp1`,
         // This instrument's  arpeggio speed lives in the SAME shared byte
@@ -3099,9 +3102,9 @@ export default (Blockly) => {
       const buildEnvelopeMarkerSubroutine = () => !hasEnvelope ? null : [
         envelopeMarkerLabel,
         ` if temp1 <> ${ENVELOPE_CHANGE_SENTINEL} then goto ${envelopeMarkerLabel}_done`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ` if temp1 <> ${NO_ENVELOPE_SENTINEL} then goto ${envelopeMarkerLabel}_on`,
         ...(flatEnvelopes ? [] : [` ${envelopeConfigVar} = ${NO_ENVELOPE_SENTINEL}`]),
         ` ${envelopeStageVar} = 0`,
@@ -3142,7 +3145,7 @@ export default (Blockly) => {
       // would emit that same label twice and fail to assemble.
       const audfReadPlain = [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...suppressibleWrite('audfplain', ` AUDF${channel} = temp1`),
       ];
       // Combines audfReadPlain + durationReadPlain into a single dispatch -
@@ -3157,13 +3160,13 @@ export default (Blockly) => {
       // single combined dispatch can't shortcut.
       const audfAndDurationReadPlain = [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 2`,
+        ` ${advanceIndex(2)}`,
         ...suppressibleWrite('audfplain', ` AUDF${channel} = temp1`),
         hasEnvelope ? ` ${timerVar} = temp2 & 127` : ` ${timerVar} = temp2`,
       ];
       const audfRead = hasArpeggio ? [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         // pagedReadLines'  temp2 (see its comment) already holds the
         // duration byte that immediately follows this AUDF byte in the note
         // record - stashed into temp4 (otherwise unused anywhere in this
@@ -3498,20 +3501,16 @@ export default (Blockly) => {
       // it as genuinely undefined instead. Fixed by referencing the SAME
       // dot-prefixed local name ("._music{channel}_skip") bB itself already
       // generates for that label, rather than avoiding the jump.
-      const pausedMask = `$${(1 << musicPausedBit).toString(16).toUpperCase()}`;
       const activeMask = `$${(1 << musicChannelActiveBit(channel)).toString(16).toUpperCase()}`;
+      const bothMask = `$${((1 << musicPausedBit) | (1 << musicChannelActiveBit(channel))).toString(16).toUpperCase()}`;
       const channelBody = [
         ...resumeCheck,
         ' asm',
+        // Not paused and active in one test: of the two bits only the active one may be set.
         '       lda ' + flagsVar,
-        '       tax',
-        '       and #' + pausedMask,
-        '       beq _music' + channel + '_hp_notpaused',
-        '       jmp ._music' + channel + '_skip',
-        '_music' + channel + '_hp_notpaused',
-        '       txa',
-        '       and #' + activeMask,
-        '       bne _music' + channel + '_hp_active',
+        '       and #' + bothMask,
+        '       cmp #' + activeMask,
+        '       beq _music' + channel + '_hp_active',
         '       jmp ._music' + channel + '_skip',
         '_music' + channel + '_hp_active',
         '       dec ' + timerVar,
@@ -3700,7 +3699,7 @@ export default (Blockly) => {
         ...skipInstrumentMarkers,
         ...skipEnvelopeMarkers,
         `_music${channel}_read`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...suppressibleWrite('audvfetch', volumeWrite('fetch')),
         // Every watched "note played" instrument's  set-flag check (see
         // notePlayedSetLines above, including why this is a masked compare

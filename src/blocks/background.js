@@ -284,6 +284,9 @@ export const hasBackgroundFadeActiveChecks = (workspace) => {
 // enabled: $0E, the same light grey the playfield uses by default, so switching
 // the feature on doesn't visibly change an untouched background.
 export const DEFAULT_ROW_COLOR = 0x0E;
+// Where nothing is drawn is black: the color of a background row (the DPC+ rows behind the playfield) nobody colored, and the screen's
+// background color a project starts with.
+export const DEFAULT_BK_ROW_COLOR = 0x00;
 
 // Resets an existing rowColors array back to DEFAULT_ROW_COLOR, one entry
 // per row - shared by every tab's "clear colors" handler (Background,
@@ -769,6 +772,11 @@ export const processBackgroundStorageDefaults = (backgroundsStorage) => {
     });
     return defaults;
   }
+  // Background rows that all still hold the old starting color (a copy of the playfield's light grey) were never colored: they are black now.
+  backgrounds.backgrounds.forEach((background) => {
+    const rows = background.bkRowColors;
+    if (rows && rows.length && rows.every((color) => color === DEFAULT_ROW_COLOR)) background.bkRowColors = rows.map(() => DEFAULT_BK_ROW_COLOR);
+  });
   return backgrounds;
 };
 

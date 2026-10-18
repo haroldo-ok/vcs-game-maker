@@ -2275,9 +2275,13 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       // previews) needs its asm files next to the source; a copy, since the
       // cached object is shared (see buildRomInner).
       const previewDpcPlus = (configurationStorage.value || {}).kernel === 'dpcplus';
+      // The override was only in place while the code was generated, so a score it hides is read from it here: the kernel's screen height
+      // has to be the one of a hidden score, as the code it goes with (dpchidescore) is.
+      const previewShowScore = configOverride && 'showScore' in configOverride ? configOverride.showScore :
+        (configurationStorage.value || {}).showScore;
       const siblingFiles = BlocklyBB.isTextMinikernelActive() ?
         {...(previewDpcPlus ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed,
-            ((configurationStorage.value || {}).showScore ?? true) === false) : await getTextMinikernelSiblingFiles())} : {};
+            (previewShowScore ?? true) === false) : await getTextMinikernelSiblingFiles())} : {};
       Object.assign(siblingFiles, BlocklyBB.playerAnimAsmFiles || {});
       if (BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})) {
         Object.assign(siblingFiles, await getFastMathSiblingFiles((configurationStorage.value || {}).kernel));

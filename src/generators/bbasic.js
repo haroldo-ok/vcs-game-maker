@@ -21,7 +21,7 @@ import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDat
 import {useRomCapacity} from '../hooks/rom-capacity';
 import {processSongsStorageDefaults} from '../blocks/music';
 import {getRelocationBanks} from '../hooks/relocation-banks';
-import {DEFAULT_ROW_COLOR, processBackgroundStorageDefaults,
+import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefaults,
   backgroundFadeTimerVarName, backgroundFadePaceVarName, backgroundFadeTargetVarName,
   fadeFlagsVarName, fadeActiveBit, backgroundFadeFinishedBit, backgroundFadeWatchKey, FADE_FLAGS_REGISTER_GROUPS,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
@@ -6176,12 +6176,12 @@ Blockly.BBasic.generateBackgrounds = function() {
     return ' pfcolors:\n' + rows.join('\n') + '\nend\n';
   };
   // The background rows have a list of colors apart from the playfield's (bkRowColors, the color bar to the right of the picture in the Background
-  // editor); a project from before that has none, and the playfield's colors stand in.
+  // editor); rows with no color are black.
   const useDpcPlusBkColors = (configurationStorage && configurationStorage.value &&
     configurationStorage.value.kernel === 'dpcplus' && configurationStorage.value.enableDpcPlusBkColors) || false;
   const buildDpcPlusBkcolors = (pixels, rowColors) => {
     const rows = pixels.map((_, i) =>
-      '  ' + colorByteToBuildBBasic((rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_ROW_COLOR));
+      '  ' + colorByteToBuildBBasic((rowColors && rowColors[i] != null) ? rowColors[i] : DEFAULT_BK_ROW_COLOR));
     return ' bkcolors:\n' + rows.join('\n') + '\nend\n';
   };
 
@@ -6272,7 +6272,7 @@ Blockly.BBasic.generateBackgrounds = function() {
     const pfcolorsBlock = (usePfColors && !colorScroll && !dpcPlusPfColorsOn(config)) ?
       buildPfcolors(pixels.slice(0, drawnRows), rowColors) :
       (useDpcPlusPfColors ? buildDpcPlusPfcolors(pixels, rowColors) : '');
-    const bkcolorsBlock = useDpcPlusBkColors ? buildDpcPlusBkcolors(pixels, bkRowColors || rowColors) : '';
+    const bkcolorsBlock = useDpcPlusBkColors ? buildDpcPlusBkcolors(pixels, bkRowColors) : '';
     const overflowUsed = this.backgroundScrollOverflowBackgrounds.length > 0;
     // A literal "playfield:" block, directly loading this background's
     // first visibleRows rows, ONLY once no background in the project
@@ -6600,7 +6600,7 @@ Blockly.BBasic.generateMulticolorFadeChecks = function(kind) {
       tileForDpcPlusScroll(rawPixels, rawRowColors, this.dpcPlusScrollFor(background), rawBkRowColors) :
       {pixels: rawPixels, rowColors: rawRowColors, bkRowColors: rawBkRowColors};
     const pixels = tiled.pixels;
-    const rowColors = kind === 'bk' ? (tiled.bkRowColors || tiled.rowColors) : tiled.rowColors;
+    const rowColors = kind === 'bk' ? tiled.bkRowColors : tiled.rowColors;
     const rowCount = dpcPlus ? pixels.length : Math.min(pixels.length, visibleRows);
     const realColor = (row) => (rowColors && rowColors[row] != null) ? rowColors[row] : DEFAULT_ROW_COLOR;
     const group = {index, entries: []};

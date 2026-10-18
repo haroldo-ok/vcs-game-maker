@@ -1364,3 +1364,10 @@ Jump block for platformer games, sound card and DPC+ sound chip additions
 - Creating a variable no longer fails with "prompt() is not supported": the name dialog is hooked in with Blockly 10's setPrompt, which the earlier fix no longer reached.
 - The number sockets of the Jump block in the toolbox are filled with number blocks (not greyed ones), so they can be dragged off or edited like any block.
 - The Jump block for Missile 0, Missile 1 and the Ball lands them exactly on top of playfield pixels: the playfield box test uses the lines each of these is drawn on, measured against the hardware collision flag on the emulator (they differ by object and kernel), and no frame of a jump, fall or landing showed a collision on either kernel.
+=== 0.52.27 ===
+Music engine savings, black background rows, taller DPC+ preview picture
+
+- Music engine: each channel checks "not paused and playing" with one test instead of two (7 cycles less every frame for every channel, 7 bytes), the note index moves on with INC (2 bytes where the addition was 7, up to 6 places a channel), and a dead store is gone from every note read (2 bytes each, 13 bytes in all for a one-instrument channel on the standard kernel). Checked identical register writes for three songs on the standard kernel (fire pressed to change song); DPC+ builds.
+- DPC+ background rows (Options: per-row background colors) that nobody colored are black in the Background editor and in the ROM, where they started out as a copy of the playfield colors (light grey), so a new background showed white behind the pixels and it was hard to see them.
+- Background row colors that all still hold the old starting color are black too (an existing project that had them white shows black), and the Eraser and Clear in the Background editor put those rows back to black.
+- DPC+ background and sprite previews in the emulator: the picture is taller (170 lines, it was 162, a whole row more of the playfield shows) and the frame is the full 262 lines (it was 254). The kernel was built for a shown score while the preview hides it, so it took lines away for a score row that is not there.

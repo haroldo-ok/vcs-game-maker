@@ -121,7 +121,7 @@ const DPC_PLUS_WORKING_KERNEL_TIMERS = WORKING_KERNEL_TIMERS;
 // A hidden score is not drawn: of the 8 lines of its loop 7 are cut, and 1 is waited out where the digits were, so the frame keeps
 // its 262 lines while the picture gets 6 more (measured: with the timers of the list above the frame is 255 lines at the
 // shortest picture and grows a line with each line of picture).
-const DPC_PLUS_HIDDEN_SCORE_LINES = 6;
+const DPC_PLUS_HIDDEN_SCORE_LINES = 7;
 const dpcPlusTextKernelTimer = (withRow2, withCursor, hideScore) => {
   const wanted = DPC_PLUS_KERNEL_LINES - DPC_PLUS_TEXT_ROW_LINES - (withRow2 ? DPC_PLUS_TEXT_ROW2_LINES : 0) -
     (withCursor ? DPC_PLUS_TEXT_CURSOR_LINES : 0) + (hideScore ? DPC_PLUS_HIDDEN_SCORE_LINES : 0);

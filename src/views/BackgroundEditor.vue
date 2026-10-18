@@ -296,6 +296,7 @@
                           :activeQuickColor="selectedQuickColor"
                           title="Background row colors"
                           side="right"
+                          :defaultColor="DEFAULT_BK_ROW_COLOR"
                           @input="(colors) => handleBkRowColorsInput(background, colors)"
                         />
                       </template>
@@ -369,7 +370,7 @@ import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
 import {rowColorsForMove} from '../utils/row-color-move';
-import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
+import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
   processBackgroundStorageDefaults} from '../blocks/background';
 
 // Width of one background editor at 100% zoom.
@@ -463,12 +464,12 @@ export default defineComponent({
           background.rowColors = next;
         }
       }
-      // The background rows start out with the playfield's colors, and are a separate list from then on.
+      // The background rows start out black, and are a separate list from the playfield's colors.
       if (bkColorsEnabled.value) {
-        const existing = background.bkRowColors || background.rowColors || [];
+        const existing = background.bkRowColors || [];
         if (!background.bkRowColors || existing.length !== rows) {
           const next = existing.slice(0, rows);
-          while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
+          while (next.length < rows) next.push(DEFAULT_BK_ROW_COLOR);
           background.bkRowColors = next;
         }
       }
@@ -806,8 +807,8 @@ export default defineComponent({
     // every row starts at, rather than leaving old per-row picks behind on
     // an otherwise blank graphic.
     const handleClearRowColors = (background) => {
-      if (!pfColorsEnabled.value || !background.rowColors) return;
-      background.rowColors = clearRowColors(background.rowColors);
+      if (pfColorsEnabled.value && background.rowColors) background.rowColors = clearRowColors(background.rowColors);
+      if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.map(() => DEFAULT_BK_ROW_COLOR);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -928,7 +929,7 @@ export default defineComponent({
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
-      zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
+      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
