@@ -229,9 +229,6 @@ export default {
   mounted() {
     this.initEditor(this.value.length, this.value);
 
-    // TODO: Just for testing
-    window.isMatrixEqual = isMatrixEqual;
-
     if (this.showGrid || this.selection || this.polygonPreview || this.hoverCell) this.setupGridOverlay();
     this.setupBackdrop();
     window.addEventListener('mouseup', this.handleWindowMouseUp);
