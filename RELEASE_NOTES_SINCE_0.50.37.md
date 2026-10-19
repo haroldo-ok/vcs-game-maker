@@ -1593,3 +1593,13 @@ Music engine savings, black background rows, taller DPC+ preview picture
 - Scroll playfield colors uses a lot less ROM: the colors the kernel reads (one every 4 bytes) of four pages are woven into one table, the tables follow each other instead of each taking a 256 byte page, and a page that repeats an earlier one is stored once. In a project with three backgrounds (32, 50 and 80 rows) that is 308 to 1305 bytes less, with the same picture.
 - Background scroll with a background taller than the playfield (standard kernel): every scroll block (one or two rows, stopping at the edge or going round, with or without an edge watch or the playfield colors) does its row update, playfield colors and row copy in one assembly routine with one call, where it used up to three calls and about a dozen lines of batari Basic. The frames that move a row are 270 lines instead of 273 in a project with a 32 row tall background and color scroll (the picture is the same for 1500 frames in 16 setups), frames that ran over 262 lines with an edge watch or stopping at the edge are 262, and every further scroll block takes about 100 bytes less.
 - Scroll playfield colors with no background taller than the playfield: the color routine moves the row offset itself, so each row-step is one short call instead of about six lines of batari Basic before it. The routine is 8 to 12 bytes smaller and the picture is the same for 1500 frames in 8 setups.
+
+### 0.52.31
+
+- Options: the descriptions of "Load last project on startup", the startup tip and the option that hides hints are reworded.
+- Linux: a "VCS portable" download for the Atari VCS (and other 64-bit Intel/AMD Linux systems): a tar.gz that runs from the folder it is unpacked into, with no installation.
+
+### 0.52.32
+
+- A project that sets a value after "End title screen" in code that runs while the title screen is on (the stage a menu picked, say) keeps that value when gameplay starts: starting gameplay no longer sets back to zero the variables that share a slot with a Title Screen variable once the End block has run. Bricks that are hit were not cleared in a project where the brick rows came from such a stage number.
+- About: the Experimental link points to the GitHub Pages version, and the Licenses section names the MIT License (original code) and the PolyForm Shield License 1.0.0 (AbstractPolygon updates).

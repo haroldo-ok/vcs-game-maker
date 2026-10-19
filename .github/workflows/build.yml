@@ -66,6 +66,21 @@ jobs:
         env:
           # The Windows ARM runner builds the ARM installer (see forge.config.js); the other runners build for the processor they run on, as before.
           WIX_ARCH: ${{ matrix.os == 'windows-11-arm' && 'arm64' || '' }}
+      # VCS portable: the Linux Intel/AMD app as a folder that runs where it is unpacked, with no installation, made for the Atari VCS (AtariOS
+      # is Debian 10). The Electron program itself needs glibc 2.25 or older, so it runs on that system as it is; the launcher turns the
+      # sandbox off, which needs a setuid helper only an installed package can have.
+      - name: Make the VCS portable build
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          app=$(find out -maxdepth 1 -type d -name '*-linux-x64' | head -1)
+          folder="VCS-Game-Maker-VCS-portable"
+          mkdir -p "out/make/portable/$folder"
+          cp -a "$app/." "out/make/portable/$folder/"
+          cp build/linux-portable/VCS-Game-Maker.sh build/linux-portable/README.txt "out/make/portable/$folder/"
+          chmod 755 "out/make/portable/$folder/VCS-Game-Maker.sh" "out/make/portable/$folder/vcs-game-maker"
+          # A tar.gz keeps the executable bits that a zip downloaded from a release would lose.
+          tar -czf "out/make/portable/$folder.tar.gz" -C out/make/portable "$folder"
+          rm -rf "out/make/portable/$folder"
       # The macOS runner is Apple Silicon; this adds the Intel build next to it.
       - name: Make the Intel macOS installers
         if: runner.os == 'macOS'
@@ -119,6 +134,7 @@ jobs:
             name=$(basename "$file")
             case "$name" in
               *.msi) case "$file" in */arm64/*) new="VCS-Game-Maker-$TAG-Windows-arm64-Setup.msi" ;; *) new="VCS-Game-Maker-$TAG-Windows-Setup.msi" ;; esac ;;
+              *VCS-portable.tar.gz) new="VCS-Game-Maker-$TAG-Linux-x64-VCS-portable.tar.gz" ;;
               *.deb) case "$name" in *arm64*) arch=arm64 ;; *) arch=amd64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.deb" ;;
               *.AppImage) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.AppImage" ;;
               *.rpm) case "$name" in *aarch64*) arch=aarch64 ;; *) arch=x86_64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.rpm" ;;
@@ -136,7 +152,7 @@ jobs:
                 tar -czf "release-files/$new.tar.gz" -C release-files "$new"
                 rm "release-files/$new" ;;
             esac
-          done < <(find installers -type f \( -name '*.msi' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \))
+          done < <(find installers -type f \( -name '*.msi' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*VCS-portable.tar.gz' \))
           mapfile -t files < <(find release-files -type f)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
