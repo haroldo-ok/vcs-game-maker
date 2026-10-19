@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VCS Game Maker AbsPly</title>
+  <meta name="description" content="A visual environment for building Atari 2600 games with blocks. It writes batari Basic, compiles a ROM and runs it in the browser.">
+  <style>
+    :root { color-scheme: dark; --bg: #14161c; --panel: #1d2029; --text: #e8eaf0; --muted: #a3a9b8; --accent: #ff8a3d; --accent-text: #1a1206; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.55; }
+    main { max-width: 56rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+    h1 { font-size: 2.4rem; margin: 0 0 .25rem; line-height: 1.15; }
+    .tagline { color: var(--muted); font-size: 1.15rem; margin: 0 0 1.75rem; }
+    .buttons { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0 0 2rem; }
+    a.button { display: inline-block; padding: .7rem 1.2rem; border-radius: .5rem; text-decoration: none; font-weight: 600; border: 2px solid var(--accent); color: var(--accent); }
+    a.button.primary { background: var(--accent); color: var(--accent-text); }
+    a.button:hover, a.button:focus-visible { filter: brightness(1.12); outline: none; box-shadow: 0 0 0 3px rgba(255, 138, 61, .35); }
+    img.shot { width: 100%; height: auto; border-radius: .6rem; border: 1px solid #2c303c; margin: 0 0 2rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 0 0 2rem; }
+    .card { background: var(--panel); border-radius: .6rem; padding: 1rem 1.1rem; }
+    .card h2 { font-size: 1.05rem; margin: 0 0 .35rem; }
+    .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+    footer { color: var(--muted); font-size: .9rem; border-top: 1px solid #2c303c; padding-top: 1rem; }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>VCS Game Maker AbsPly</h1>
+    <p class="tagline">Build Atari 2600 games with blocks.</p>
+
+    <div class="buttons">
+      <a class="button primary" href="app/">Open the app in your browser</a>
+      <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">Download for Windows, macOS and Linux</a>
+      <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply">Source code</a>
+      <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/wiki">Wiki</a>
+    </div>
+
+    <img class="shot" src="screenshot.png" alt="The VCS Game Maker editor: the block workspace on the left and the running game in the emulator on the right.">
+
+    <div class="grid">
+      <section class="card">
+        <h2>Blocks in, a ROM out</h2>
+        <p>Put the logic of your game together from <a href="https://www.blockly.com/" style="color: inherit">Blockly</a> blocks. The app writes batari Basic (and a little assembly), compiles it into an Atari 2600 ROM and plays it in a built-in emulator.</p>
+      </section>
+      <section class="card">
+        <h2>Standard and DPC+ kernels</h2>
+        <p>Make a plain 2600 game, or use the DPC+ kernel for more sprites, a taller playfield, per-row colors and a coprocessor.</p>
+      </section>
+      <section class="card">
+        <h2>Platformer, sound and music</h2>
+        <p>Jump and gravity blocks that land exactly on the playfield, collision blocks, sound effects, a music editor, text and a title screen.</p>
+      </section>
+      <section class="card">
+        <h2>Runs where you are</h2>
+        <p>Use it here in the browser, or install the desktop app. Projects save as files, and finished ROMs play on real hardware or any 2600 emulator.</p>
+      </section>
+    </div>
+
+    <footer>
+      <p>VCS Game Maker was started by <a href="https://github.com/haroldo-ok">Haroldo de Oliveira Pinheiro</a> (MIT License). The AbstractPolygon changes are under the <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE">PolyForm Shield License 1.0.0</a>. This is a work in progress.</p>
+    </footer>
+  </main>
+</body>
+</html>
