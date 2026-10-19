@@ -302,8 +302,8 @@
       <div v-if="!isSectionCollapsed('vcsgm')" class="option-section-content">
         <v-switch
           v-model="loadLastProject"
-          label="Load last open project on startup"
-          hint="When off, the app always starts from the empty project instead of restoring whatever was last saved."
+          label="Load last project on startup"
+          hint="When on, the app starts with your last open project, so you can pick up where you left off."
           persistent-hint
           class="option-switch"
         />
@@ -311,7 +311,7 @@
           id="show-startup-tips-option"
           v-model="showStartupTips"
           label="Show Tips at startup"
-          hint="Shows a tip about using the app, with a link to the wiki page it is about, each time the app starts. The tip popup's &quot;Don't show again&quot; checkbox turns this off."
+          hint="Shows a tip with a link to the wiki page about the topic, each time the app starts. The tip popup's &quot;Don't show again&quot; checkbox disables this feature."
           persistent-hint
           class="option-switch"
         />
@@ -378,7 +378,7 @@
         <v-switch
           v-model="hideDescriptionText"
           label="Expert mode"
-          hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
+          hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you're familiar with VCS Game Maker."
           persistent-hint
           class="option-switch"
         />
