@@ -1536,6 +1536,9 @@ Music engine savings, black background rows, taller DPC+ preview picture
 - Background row colors that all still hold the old starting color are black too (an existing project that had them white shows black), and the Eraser and Clear in the Background editor put those rows back to black.
 - DPC+ background and sprite previews in the emulator: the picture is taller (170 lines, it was 162, a whole row more of the playfield shows) and the frame is the full 262 lines (it was 254). The kernel was built for a shown score while the preview hides it, so it took lines away for a score row that is not there.
 ```
+
+### 0.52.28
+
 - Jump block: no screen roll and no overlap with the playfield at any DPC+ pfres (checked 12, 16, 24, 32 and 48 and a project at 24 with a 16 line tall player, against the hardware collision flag and the frame length: 261.7 lines every frame), and on the standard kernel (default rows, no blank lines, players at 1x, 2x and 4x, and Missile 0, Missile 1 and the Ball on both kernels). The DPC+ playfield box test (used by the other playfield blocks too) had the first row starting 4 lines too low, so a player ended up 3 or 4 lines into pixels; it now works the row out the way the kernel does (the line times DFxFRACINC, divided by 256) and reads the playfield through the data fetchers instead of the coprocessor, a few hundred cycles where it was thousands. The Jump block looks at the lines it is going to move through in one go (a sweep that finds the first lit row) and puts the sprite right against that row, instead of testing each pixel, so a fall of 6 pixels is one test. A standard kernel player is a line taller in the box test (its height variable is one less than its lines).
 - Undo last move: the player's whole box (its full width and height, whatever pixels are lit in it) is tested against the playfield with the software box test after the blocks that move it have run, so the player is never drawn inside the playfield and cannot stick to a wall; it was read from the hardware collision flag a frame late. The part of a move along a clear axis is kept (a player slides along a wall and keeps falling while it pushes into one). The frames setting is kept for older projects and has no effect. The box test of a player that is not stretched starts at x - 16 on DPC+ (it was x - 17).
 - The playfield box test of a project with a Jump block gave a wrong answer for a plain test (no sweep): it skipped the rows the sprite is in. Fixed, and the column and row work of the test is assembly now (about 15 percent fewer cycles).
@@ -1565,7 +1568,6 @@ Music engine savings, black background rows, taller DPC+ preview picture
 - Playfield offset: "alternate rows right and left" (the first row goes right, the next left), for every kernel, checked against a model like the others.
 - DPC+ Text Minikernel with "Show text row" blocks: the picture is 154 lines tall instead of 150 and the frame is as long as it should be: the working values for the height of the picture had gaps (183, 185 and 188 work too) and the second row costs 17 lines of the frame, not 12. A disabled block no longer counts in any look at the project (a disabled "Show text row" block shortened the picture).
 - DPC+ with the score on: the last line of the playfield is finished before the score area starts (it was cut short and drawn in the score background color); the score row's background color and the cleared playfield start with the next line.
-- Reading the y of a player under DPC+ gives it in the units "set y" takes, so a player is put where another is by setting its x and y to the other's.
 - "When animation has finished" runs its blocks once, on the frame the animation ends (it ran on every frame the animation stayed on its last frame).
 - "Set animation to" has "restart at frame N": the animation starts from that frame (1 is the first).
 - Sprites tab: putting animations in another order or deleting one changes the blocks of the Actions tab that name an animation, so they keep the same one.
@@ -1578,6 +1580,9 @@ Music engine savings, black background rows, taller DPC+ preview picture
 - Example projects and sound banks saved by a newer version of the app than the one running are no longer listed.
 - Sounds, sound banks, songs, song banks, patterns and title screens are saved with the version of the app that exported them ("app-version", as projects already were).
 - Project tab, Sound Banks: a sound with a DPC+ waveform previews with the DPC+ sound chip, so each waveform of a bank sounds like itself (the preview played every one with the same Standard settings, like one instrument repeating).
+
+### 0.52.29
+
 - DPC+: variables kept in the memory of the sprites above "dpcspritemax" start at 0 again. The startup code set the y of all nine virtual sprites to 224, which also set whatever variable lived in that memory (a player's size byte started with its pause bit set, so its animation never played).
 - Fewer variables: the "a color was set" mark of each player and the answer of each pair of sprites compared by their boxes are single bits of shared bytes (eight to a byte) instead of a byte each.
 - DPC+ text kernel: four scratch bytes it kept as variables (textoffset8 to textoffset11) now use bytes of the kernel that are free below the picture, so a project that shows text has four more variables to use.
