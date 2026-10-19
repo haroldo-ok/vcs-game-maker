@@ -6547,15 +6547,22 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
   const before = Math.max(0, yBase - 4 * blankLinesShown);
   const pageRows = 16;
   const entriesPerPage = pageRows + windowRows + 3;
-  const tableLines = [' asm', ' align 256'];
-  const firstPage = [];
-  const pageHigh = [];
+  // The kernel reads a row's color every 4 bytes, so the three bytes between are free: four pages of colors are woven into one table
+  // (page n of a table is the bytes 4 * i + n), which the pointer picks by adding n. A table must be in one 256 byte page for the kernel
+  // to read it in the same number of cycles, but it need not start on one: the tables follow each other and only a table that would cross
+  // a page starts on the next one. A page with the same colors as an earlier one (a plain background, two backgrounds with the same
+  // colors) is not repeated.
+  const tableBytes = 4 * entriesPerPage;
   // The top row's color comes from a plain list of each background's row colors
   // kept with the routine: the table pages can be in another bank than the
   // routine (the kernel's), where the routine can't read them.
+  const firstPage = [];
   const rowStart = [];
   const rowList = [];
-  let pageCount = 0;
+  const rowRuns = new Map();
+  const pageIndex = [];
+  const uniquePages = [];
+  const uniqueByColors = new Map();
   backgrounds.forEach(({pixels, rowColors}, index) => {
     const tall = overflowMode && pixels.length > windowRows;
     // The rows the colors cycle through: the whole background when it is taller
@@ -6563,24 +6570,45 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     const rowCount = tall ? pixels.length : windowRows;
     const colorOf = (row) => (row < pixels.length && rowColors && rowColors[row] != null) ?
       rowColors[row] : DEFAULT_ROW_COLOR;
-    firstPage.push(pageCount);
-    rowStart.push(rowList.length);
-    for (let row = 0; row < rowCount; row++) rowList.push(colorByteToBuildBBasic(colorOf(row)));
+    firstPage.push(pageIndex.length);
+    const colors = Array.from({length: rowCount}, (_, row) => colorByteToBuildBBasic(colorOf(row)));
+    const runKey = colors.join(',');
+    if (!rowRuns.has(runKey)) {
+      rowRuns.set(runKey, rowList.length);
+      rowList.push(...colors);
+    }
+    rowStart.push(rowRuns.get(runKey));
     for (let page = 0; page < Math.ceil(rowCount / pageRows); page++) {
-      pageHigh.push(`bgcolorpage${pageCount}`);
-      tableLines.push(`bgcolorpage${pageCount}`);
-      if (before > 0) tableLines.push(` repeat ${before}`, ' .byte 0', ' repend');
-      for (let i = 0; i < entriesPerPage; i++) {
-        tableLines.push(` .byte ${colorByteToBuildBBasic(colorOf((page * pageRows + i) % rowCount))},0,0,0`);
+      const entries = Array.from({length: entriesPerPage}, (_, i) => colorByteToBuildBBasic(colorOf((page * pageRows + i) % rowCount)));
+      const key = entries.join(',');
+      if (!uniqueByColors.has(key)) {
+        uniqueByColors.set(key, uniquePages.length);
+        uniquePages.push(entries);
       }
-      tableLines.push(' align 256');
-      pageCount++;
+      pageIndex.push(uniqueByColors.get(key));
     }
     if (rowCount > pageRows * 4) {
       appendCompileLog(`Background ${index + 1} has more than ${pageRows * 4} rows: ` +
         'its scrolling playfield colors stop at row ' + (pageRows * 4) + '.', 'info');
     }
   });
+  // A list of bytes as ".byte" lines of 16 (one line with a whole list of up to 256 bytes was cut in two by the compiler's line length limit).
+  const byteLines = (values) => Array.from({length: Math.ceil(values.length / 16)}, (_, i) => `.byte ${values.slice(i * 16, i * 16 + 16).join(', ')}`);
+  const tableLines = [' asm', ' align 256'];
+  let position = 0;
+  const groupCount = Math.ceil(uniquePages.length / 4);
+  for (let group = 0; group < groupCount; group++) {
+    if (position % 256 + tableBytes > 256) {
+      tableLines.push(' align 256');
+      position = 0;
+    }
+    const bytes = [];
+    for (let i = 0; i < entriesPerPage; i++) {
+      for (let n = 0; n < 4; n++) bytes.push(uniquePages[group * 4 + n] ? uniquePages[group * 4 + n][i] : '0');
+    }
+    tableLines.push(`bgcolortable${group}`, ...byteLines(bytes).map((line) => ' ' + line));
+    position += tableBytes;
+  }
   tableLines.push('end');
   if (rowList.length > 255) {
     appendCompileLog('The backgrounds have more than 255 rows in all: the top row of the scrolling ' +
@@ -6595,9 +6623,10 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     BANK_COUNT_BY_ROMSIZE_MINI[config.romSize] : 0;
 
   const playfieldColorVar = this.nameDB_.getName('playfieldrealcolor', Blockly.VARIABLE_CATEGORY_NAME);
-  // The routine itself (temp1 = background index, temp2 = row offset): picks the
-  // page, sets pfcolortable to it plus 4 bytes per row within the page, then
-  // reads the top row's color.
+  const tableStarts = Array.from({length: groupCount}, (_, group) => `bgcolortable${group}-${before}`);
+  // The routine itself (temp1 = background index, temp2 = row offset): finds the page (the background's first page plus the row offset / 16)
+  // and its place in its table, sets pfcolortable to the table minus the bytes before the first row the kernel reads, plus 4 bytes per row
+  // within the page, plus the page's place in the table, then reads the top row's color.
   this.subroutines[BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME] = [
     'asm',
     'lda temp2',
@@ -6609,13 +6638,26 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     'clc',
     'adc bgcolor_first,x',
     'tax',
-    'lda bgcolor_pagehigh,x',
-    'sta pfcolortable+1',
+    'lda bgcolor_pages,x',
+    'tax',
+    'and #3',
+    'sta temp3',
+    'txa',
+    'lsr',
+    'lsr',
+    'tax',
     'lda temp2',
     'and #15',
     'asl',
     'asl',
+    'clc',
+    'adc temp3',
+    'clc',
+    'adc bgcolor_low,x',
     'sta pfcolortable',
+    'lda bgcolor_high,x',
+    'adc #0',
+    'sta pfcolortable+1',
     'ldx temp1',
     'lda bgcolor_rowstart,x',
     'clc',
@@ -6628,13 +6670,17 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     '',
     'asm',
     '@bgcolor_first',
-    `.byte ${firstPage.join(', ')}`,
-    '@bgcolor_pagehigh',
-    `.byte ${pageHigh.map((label) => `>${label}`).join(', ')}`,
+    ...byteLines(firstPage),
+    '@bgcolor_pages',
+    ...byteLines(pageIndex),
+    '@bgcolor_low',
+    ...byteLines(tableStarts.map((start) => `<(${start})`)),
+    '@bgcolor_high',
+    ...byteLines(tableStarts.map((start) => `>(${start})`)),
     '@bgcolor_rowstart',
-    `.byte ${rowStart.map((start) => Math.min(start, 255)).join(', ')}`,
+    ...byteLines(rowStart.map((start) => Math.min(start, 255))),
     '@bgcolor_rows',
-    `.byte ${rowList.slice(0, 256).join(', ')}`,
+    ...byteLines(rowList.slice(0, 256)),
     '@end',
   ].join('\n');
 };

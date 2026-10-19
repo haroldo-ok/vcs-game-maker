@@ -97,7 +97,7 @@ const buildCollisionCheckBlock = () => ({
 // blocks of the Math category and variables, and are taken when the block runs.
 const buildPlatformerBlock = () => ({
   'type': 'sprite_platformer',
-  'message0': `${PLAYER_ICON} Jump %1 jump speed %2 gravity %3 max fall speed %4 allow %5 multi-jump up to %6 jumps %7 stop at walls left and right`,
+  'message0': `${PLAYER_ICON} Platform %1 jump speed %2 gravity %3 max fall speed %4 allow %5 multi-jump up to %6 jumps %7 stop at walls left and right`,
   'args0': [
     {'type': 'field_dropdown', 'name': 'PLAYER', 'options': jumpSpriteOptions},
     {'type': 'input_value', 'name': 'SPEED', 'check': 'Number'},
@@ -136,7 +136,7 @@ const buildPlatformerStateBlock = () => ({
   ],
   'output': 'Boolean',
   'colour': 'purple',
-  'tooltip': 'True while the player, moved by the "Jump" block, is jumping (going up), falling (going down), standing on the ' +
+  'tooltip': 'True while the player, moved by the "Platform" block, is jumping (going up), falling (going down), standing on the ' +
     'ground (on a playfield pixel), or moving (its x or y was different a frame ago, in any direction). Use it in an if block, to change the ' +
     'animation for each, for example.',
 });

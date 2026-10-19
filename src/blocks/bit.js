@@ -242,7 +242,7 @@ Blockly.Blocks['system_variable_get'] = {
     this.setTooltip('Reads the current value of a built-in batari Basic variable, e.g. ' +
       '"framecounter" (how many frames have passed since power-on) - useful anywhere a ' +
       'real, changing value is needed, like seeding the random number generator. The variables ' +
-      'that other blocks of the project keep (the state and speed of the Jump block, the target of a Seek, ...) are listed too, ' +
+      'that other blocks of the project keep (the state and speed of the Platform block, the target of a Seek, ...) are listed too, ' +
       'while the block that makes them is in the project.');
   },
 };

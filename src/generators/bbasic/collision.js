@@ -85,7 +85,7 @@ const ALL_VARYING_PLAN = {slots: {jump: 0, fall: 1, gravity: 2, jumps: 3}, const
 export const PLATFORMER_COUNT_VAR = 'platCount';
 export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers = new Set(), wallsPlayers = new Set(), plans = {}) => {
   if (!players || !players.size) return;
-  reserveDevVar(PLATFORMER_COUNT_VAR, undefined, 'pixels the Jump block still has to move the player this frame');
+  reserveDevVar(PLATFORMER_COUNT_VAR, undefined, 'pixels the Platform block still has to move the player this frame');
   [...players].sort().forEach((playerNum) => {
     reserveDevVar(platformerSpeedVar(playerNum), undefined, `player ${playerNum}'s jump and fall speed (eighths of a pixel a frame)`);
     reserveDevVar(platformerFracVar(playerNum), undefined, `player ${playerNum}'s eighths of a pixel not yet moved`);
@@ -93,11 +93,11 @@ export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers =
     const plan = plans[playerNum] || {bytes: [false, false]};
     if (plan.bytes[0]) {
       reserveDevVar(platformerLimitVar(playerNum), undefined,
-          `player ${playerNum}'s numbers of the Jump block that change, less one, XOR their starting values: 4 bits each, the first two`);
+          `player ${playerNum}'s numbers of the Platform block that change, less one, XOR their starting values: 4 bits each, the first two`);
     }
     if (plan.bytes[1]) {
       reserveDevVar(platformerParamsVar(playerNum), undefined,
-          `player ${playerNum}'s numbers of the Jump block that change, less one, XOR their starting values: 4 bits each, the third and fourth`);
+          `player ${playerNum}'s numbers of the Platform block that change, less one, XOR their starting values: 4 bits each, the third and fourth`);
     }
     reserveDevVar(platformerStateVar(playerNum), undefined,
         `player ${playerNum}'s jumps made (bits 0-2), jumping (3), falling (4), on the ground (5), a jump asked for last frame (6) and this frame (7)`);
