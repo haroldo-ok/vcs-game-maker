@@ -773,6 +773,7 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE, MAX_PLAYER_CARDS,
   blankTitleScreenPixels, migrateCardFrames, processTitleScreenStorageDefaults, cardFrameHeight,
   titleFrameBox} from '../blocks/titlescreen';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
+import {appVersionField} from '../utils/app-version';
 
 // Same "module-scope ref, not per-instance state" reasoning as
 // PlayerEditor.vue's copiedFrameData - a copied frame survives
@@ -1344,7 +1345,7 @@ export default defineComponent({
       if (!screen) return;
       // eslint-disable-next-line no-unused-vars
       const {id, ...screenData} = screen;
-      const blob = new Blob([JSON.stringify({type: 'VCS Game Maker Title Screen', screen: screenData}, null, 2)],
+      const blob = new Blob([JSON.stringify({type: 'VCS Game Maker Title Screen', ...appVersionField(), screen: screenData}, null, 2)],
           {type: 'application/json'});
       const filename = (screen.name || `title-screen-${screen.id}`).replace(/[^A-Za-z0-9]+/g, '_');
       saveAs(blob, `Title_${filename}-${getDateInfix()}.vcstitle`);

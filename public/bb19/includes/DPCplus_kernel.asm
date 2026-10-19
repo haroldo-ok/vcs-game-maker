@@ -854,6 +854,10 @@ pfsetupp
 
 
 scorekernel
+     ; vcs-game-maker: the picture is left partway into its last line, and the score setup below would cut that line short and draw the rest of it
+     ; in the score's colors. The minikernel (if any) only gives the score row's background color, in Y (it is called here, where it takes
+     ; the time it takes), and the line is finished: the new color and the cleared playfield start with the next one, in its blanking.
+     ; (A hidden score with the Text Minikernel waits for the line further on, see dpchidescore.)
      ifconst minikernel
          ;; disable fast fetch, call the minikernel, and re-enable fast fetch
          lda #255
@@ -862,16 +866,33 @@ scorekernel
          lda #0
          sta.w FASTFETCH
      endif
+    ifnconst dpchidescore
+    ifnconst noscore
+     ldx #0
+     sta WSYNC
+     ifconst minikernel
+         sty COLUBK
+     endif
+     stx PF1
+     stx PF2
+    endif
+    endif
      ldx scorecolor
      stx COLUP0
      stx COLUP1
      ldx #0
-     STx PF1
      stx REFP0
      stx REFP1
      STx GRP0
      STx GRP1
-     STx PF2
+    ifconst dpchidescore
+     stx PF1
+     stx PF2
+    endif
+    ifconst noscore
+     stx PF1
+     stx PF2
+    endif
      stx HMCLR
      stx ENAM0
      stx ENAM1

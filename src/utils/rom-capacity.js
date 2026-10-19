@@ -24,14 +24,36 @@ const BANK_SIZE = 4096;
 // the real font data; that reasoning was wrong in a way that didn't matter
 // for bank 1 alone, but gave a badly wrong answer for every other bank -
 // scoretable's relative offset was the one that generalizes.)
-const countTrailingFree = (bin, bankStart, boundaryOffset) => {
+const countTrailingFree = (bin, bankStart, boundaryOffset, padding = 0xFF) => {
   let freeBytes = 0;
   let p = bankStart + boundaryOffset - 1;
-  while (p >= bankStart && bin[p] === 0xFF) {
+  while (p >= bankStart && bin[p] === padding) {
     freeBytes++;
     p--;
   }
   return freeBytes;
+};
+
+// A DPC+ ROM is 32K of eight 4K regions: the six banks, the coprocessor's program (not space a project can use) and the display
+// data's region at the end. Every bank ends with the same bank switching code, which starts at begin_bscode, so that offset is
+// where the space a bank can hold stops (the score table's offset, which the other kernels use, is only right for bank 1 there).
+const DPC_PLUS_REGIONS = [0, 1, 2, 3, 4, 5, 7];
+const DPC_PLUS_BANK_SWITCH_OFFSET = 4096 - 0x40;
+const computeDpcPlusCapacity = (bin, symbolmap, primaryBankIndex) => {
+  const fromSymbol = symbolmap['begin_bscode'] == null ? NaN : symbolmap['begin_bscode'] % BANK_SIZE;
+  const boundaryOffset = fromSymbol > BANK_SIZE / 2 ? fromSymbol : DPC_PLUS_BANK_SWITCH_OFFSET;
+  const perBank = DPC_PLUS_REGIONS.filter((region) => (region + 1) * BANK_SIZE <= bin.length).map((region) => ({
+    // (The display data's region is padded with zeros, the banks with $FF.)
+    freeBytes: countTrailingFree(bin, region * BANK_SIZE, boundaryOffset, region === 7 ? 0 : 0xFF), usableBytes: boundaryOffset}));
+  if (!perBank.length) return null;
+  return {
+    bank1: perBank[primaryBankIndex || 0],
+    perBank,
+    total: {
+      freeBytes: perBank.reduce((sum, b) => sum + b.freeBytes, 0),
+      usableBytes: perBank.reduce((sum, b) => sum + b.usableBytes, 0),
+    },
+  };
 };
 
 // bank1: free space in the single bank that always holds the project's main
@@ -47,8 +69,9 @@ const countTrailingFree = (bin, bankStart, boundaryOffset) => {
 // total: the same measurement summed across every bank the compiled binary
 // actually has - grows with ROM size, reflecting genuine total capacity
 // (including banks the automatic allocator hasn't put anything in yet).
-export const computeRomCapacity = ({output, symbolmap}, primaryBankIndex) => {
+export const computeRomCapacity = ({output, symbolmap}, primaryBankIndex, isDpcPlus) => {
   const bin = output;
+  if (isDpcPlus) return computeDpcPlusCapacity(bin, symbolmap, primaryBankIndex);
   const scoretable = symbolmap['scoretable'];
   if (scoretable == null) return null;
 

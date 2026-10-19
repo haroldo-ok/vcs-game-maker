@@ -23,7 +23,12 @@ clearmem
  ldx #8
  stx playfieldpos
  stx FASTFETCH
+ ; Only the sprites the kernel draws (dpcspritemax) start hidden: the memory of the others is free for variables, which start at 0.
+ ifconst dpcspritemax
+ ldx #(dpcspritemax-1)
+ else
  ldx #8
+ endif
  lda #224
 inityloop
  sta player1y,x

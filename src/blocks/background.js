@@ -1,5 +1,6 @@
 'use strict';
 
+import {superchipOn} from '../utils/superchip';
 import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
@@ -283,6 +284,9 @@ export const hasBackgroundFadeActiveChecks = (workspace) => {
 // enabled: $0E, the same light grey the playfield uses by default, so switching
 // the feature on doesn't visibly change an untouched background.
 export const DEFAULT_ROW_COLOR = 0x0E;
+// Where nothing is drawn is black: the color of a background row (the DPC+ rows behind the playfield) nobody colored, and the screen's
+// background color a project starts with.
+export const DEFAULT_BK_ROW_COLOR = 0x00;
 
 // Resets an existing rowColors array back to DEFAULT_ROW_COLOR, one entry
 // per row - shared by every tab's "clear colors" handler (Background,
@@ -305,7 +309,7 @@ export const dpcPlusPfresOf = (config) => {
   const cfg = config || {};
   if (Number(cfg.dpcPlusPfres) > 0) return Math.round(Number(cfg.dpcPlusPfres));
   // A project that never set it follows the standard kernel's settings it came from.
-  const superchip = cfg.enableSuperchipStandard !== undefined ? cfg.enableSuperchipStandard : cfg.enableSuperchip;
+  const superchip = cfg.enableSuperchipStandard !== undefined ? cfg.enableSuperchipStandard : !!cfg.enableSuperchip;
   return superchip ? Math.max(1, Number(cfg.pfres) || 12) : 12;
 };
 
@@ -322,7 +326,7 @@ export const effectiveBackgroundRows = (config) => {
   // DPC+ sets a number of playfield rows (the one extra row below the screen is counted in
   // backgroundDataRows, like without Superchip).
   if (cfg.kernel === 'dpcplus') return Math.max(1, dpcPlusPfresOf(cfg) - 1);
-  return cfg.enableSuperchip ? Math.max(1, Number(cfg.pfres) || DEFAULT_BACKGROUND_ROWS) :
+  return superchipOn(cfg) ? Math.max(1, Number(cfg.pfres) || DEFAULT_BACKGROUND_ROWS) :
     DEFAULT_BACKGROUND_ROWS;
 };
 
@@ -331,7 +335,7 @@ export const effectiveBackgroundRows = (config) => {
 // keeps below the 11 you can see (its implicit pfres is 12). It scrolls into
 // view with pfscroll. With Superchip, pfres already counts that row.
 export const backgroundDataRows = (config) =>
-  effectiveBackgroundRows(config) + ((config && config.enableSuperchip) ? 0 : 1);
+  effectiveBackgroundRows(config) + ((config && superchipOn(config)) ? 0 : 1);
 
 // Pads every background's pixel matrix (and per-row colors, if set) up to
 // targetRows. Used when the global playfield resolution (pfres) changes, since
@@ -580,7 +584,7 @@ Blockly.Extensions.register('background_scroll_direction_sync', function() {
   if (!field) return;
   const optionsForCurrentConfig = () => {
     const cfg = useConfigurationStorage().value || {};
-    if (!cfg.enableSuperchip) return BACKGROUND_PFSCROLL_OPTIONS;
+    if (!superchipOn(cfg)) return BACKGROUND_PFSCROLL_OPTIONS;
     return BACKGROUND_PFSCROLL_OPTIONS.filter(([, value]) => value !== 'left' && value !== 'right');
   };
   field.menuGenerator_ = optionsForCurrentConfig;
@@ -662,15 +666,12 @@ Blockly.Blocks['background_scroll_colors'] = {
 // The ways "Playfield offset" can move the pixels of an area (one pixel column or row per block).
 export const BACKGROUND_OFFSET_OPTIONS = [
   ['alternate rows left and right', 'alternate'],
+  ['alternate rows right and left', 'alternate_rl'],
   ['all left', 'left'],
   ['all right', 'right'],
   ['all up', 'up'],
   ['all down', 'down'],
 ];
-// The playfield is four bytes of eight pixels a row; the area's left and right edges are whole bytes.
-export const BACKGROUND_OFFSET_LEFT_OPTIONS = [['0', '0'], ['8', '1'], ['16', '2'], ['24', '3']];
-export const BACKGROUND_OFFSET_RIGHT_OPTIONS = [['7', '0'], ['15', '1'], ['23', '2'], ['31', '3']];
-
 // Moves the pixels of the whole playfield, or of an area of it, by one pixel (column or row), wrapping around inside
 // the area. Run every few frames it makes the holes of a wall drift sideways, like the shield in Yars' Revenge.
 Blockly.Blocks['background_offset'] = {
@@ -693,9 +694,10 @@ Blockly.Blocks['background_offset'] = {
         `along (the shield in Yars' Revenge). A pixel that leaves the end of a row carries on at the start of the next row ` +
         `and one that leaves the last row comes back on the first, and "all up" and "all down" wrap the top and ` +
         `the bottom. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
-        `pixels run along the rows like a belt. Untick "whole playfield" to move just an area: its left and right edges ` +
-        `are whole bytes of the playfield (columns 0-7, 8-15, 16-23 and 24-31, so its width is a multiple of eight ` +
-        `pixels) and its top and bottom are rows counted from 0 like "Playfield get pixel". Run it every few frames ` +
+        `pixels run along the rows like a belt ("alternate rows right and left" starts the other way round: the first row ` +
+        `of the playfield goes right, the next left). Untick "whole playfield" to move just an area: its left and right edges ` +
+        `are any of the playfield's columns 0 to 31 and its top and bottom are rows counted from 0 like "Playfield get ` +
+        `pixel". Run it every few frames ` +
         `for a slower drift. Pixels only move; per-row colors stay where they are.`);
   },
   mutationToDom: function() {
@@ -705,22 +707,31 @@ Blockly.Blocks['background_offset'] = {
   },
   domToMutation: function(xml) {
     this.updateShape_(xml.getAttribute('whole') !== '0');
+    // Older projects chose the left and right edge of an area from a list of the four bytes of eight columns (fields X1 and X2, 0 to 3):
+    // the area starts at the first column of the byte and ends at the last one of its byte.
+    const block = xml.parentNode;
+    if (!block || !this.getInput('X1')) return;
+    const legacy = (name) => Array.from(block.childNodes).find((node) => node.nodeName === 'field' && node.getAttribute('name') === name);
+    [['X1', 0], ['X2', 7]].forEach(([name, lastColumn]) => {
+      const node = legacy(name);
+      const text = node ? node.textContent : '';
+      // The byte of eight columns (0 to 3), or a column itself (c0 to c31, from the build of this block that listed the columns).
+      const column = /^[0-3]$/.test(text) ? Number(text) * 8 + lastColumn : /^c\d+$/.test(text) ? Math.min(31, Number(text.slice(1))) : null;
+      const shadow = this.getInputTargetBlock(name);
+      if (shadow && column !== null) shadow.setFieldValue(String(column), 'NUM');
+    });
   },
   // Adds or removes the top left and bottom right corner of the area.
   updateShape_: function(whole) {
-    const hasArea = !!this.getInput('X1IN');
+    const hasArea = !!this.getInput('X1');
     if (whole && hasArea) {
-      ['Y2', 'X2IN', 'Y1', 'X1IN'].forEach((name) => this.removeInput(name));
+      ['Y2', 'X2', 'Y1', 'X1'].forEach((name) => this.removeInput(name));
     } else if (!whole && !hasArea) {
-      this.appendDummyInput('X1IN')
-          .appendField('from X')
-          .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_LEFT_OPTIONS), 'X1');
+      this.appendValueInput('X1').setCheck('Number').appendField('from X');
       this.appendValueInput('Y1').setCheck('Number').appendField('Y');
-      this.appendDummyInput('X2IN')
-          .appendField('to X')
-          .appendField(new Blockly.FieldDropdown(BACKGROUND_OFFSET_RIGHT_OPTIONS), 'X2');
+      this.appendValueInput('X2').setCheck('Number').appendField('to X');
       this.appendValueInput('Y2').setCheck('Number').appendField('Y');
-      [['Y1', 0], ['Y2', 10]].forEach(([name, rows]) => {
+      [['X1', 0], ['Y1', 0], ['X2', 7], ['Y2', 10]].forEach(([name, rows]) => {
         const shadow = this.workspace.newBlock('math_number');
         shadow.setShadow(true);
         shadow.setFieldValue(String(rows), 'NUM');
@@ -768,6 +779,11 @@ export const processBackgroundStorageDefaults = (backgroundsStorage) => {
     });
     return defaults;
   }
+  // Background rows that all still hold the old starting color (a copy of the playfield's light grey) were never colored: they are black now.
+  backgrounds.backgrounds.forEach((background) => {
+    const rows = background.bkRowColors;
+    if (rows && rows.length && rows.every((color) => color === DEFAULT_ROW_COLOR)) background.bkRowColors = rows.map(() => DEFAULT_BK_ROW_COLOR);
+  });
   return backgrounds;
 };
 

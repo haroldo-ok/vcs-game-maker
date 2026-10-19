@@ -1,6 +1,7 @@
 'use strict';
 
 import {useConfigurationStorage} from '../../hooks/project';
+import {OFFSET_ARM_SUBROUTINE, OFFSET_ARM_FUNCTION, buildOffsetArmBody, ensureArmProgram} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
 import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
   backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS, rowFadeStartColor, multicolorFadeVarName,
@@ -9,8 +10,8 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
   backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName,
-  BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName} from '../../blocks/background';
-import {pfRowDivisorFor as exactRowDivisorFor, PLAYER_PF_X_OFFSET, MISSILE_BALL_PF_X_OFFSET} from '../../utils/playfield-coords';
+  BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
+import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset} from '../../utils/playfield-coords';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps (28 rows of 6.857 lines), so those blocks use the nearest whole number of steps.
@@ -235,6 +236,56 @@ export const SHAKE_SCREEN_MAX_FRAMES = 127;
 // nameDB_.getName() completely unchanged - no separate "const shakescreen
 // = 1" needed (or wanted: that would declare it as a compile-time constant
 // instead of a RAM variable, breaking the runtime "bit shakescreen" read).
+// DPC+ with a color for each row: a color given by a Playfield set background (or playfield) color block replaces the row colors of the
+// background, and has to stay when another background is loaded: a byte says that a color was set (see generateBackgroundColorOverride).
+export const BG_COLOR_OVERRIDE_VARS = {COLUBK: 'bgoverridebk', COLUPF: 'bgoverridepf'};
+export const reserveBackgroundColorOverrideDevVars = (reserveDevVar, background, playfield) => {
+  if (background) reserveDevVar(BG_COLOR_OVERRIDE_VARS.COLUBK, undefined, 'a background color was set by a block, over the row colors');
+  if (playfield) reserveDevVar(BG_COLOR_OVERRIDE_VARS.COLUPF, undefined, 'a playfield color was set by a block, over the row colors');
+};
+
+// The area of a "Playfield offset" block as the bytes of eight columns it covers, when its left and right edges are plain numbers that start and end
+// a byte (0, 8, 16 or 24 and 7, 15, 23 or 31); otherwise null (the edges are worked out when the game runs).
+export const offsetByteRange = (block) => {
+  const column = (name) => {
+    const target = block.getInputTargetBlock(name);
+    if (!target || target.type !== 'math_number') return null;
+    const value = Math.round(Number(target.getFieldValue('NUM')));
+    return Number.isFinite(value) ? Math.max(0, Math.min(31, value)) : null;
+  };
+  const a = column('X1');
+  const b = column('X2');
+  if (a === null || b === null) return null;
+  const [x1, x2] = a <= b ? [a, b] : [b, a];
+  return x1 % 8 === 0 && x2 % 8 === 7 ? {byte1: x1 >> 3, byte2: x2 >> 3} : null;
+};
+
+// The bytes the area form of "Playfield offset" uses (see buildAreaOffsetBody): the left and right edge, each as the byte of the row it is in
+// and the bit of it, a mask of the columns of the area for each of the four bytes, and the pixel that goes in at the next row.
+export const OFFSET_AREA_VARS = {
+  b1: 'offsetb1', m1: 'offsetm1', b2: 'offsetb2', m2: 'offsetm2', pixel: 'offsetpixel',
+  mask: ['offsetmask0', 'offsetmask1', 'offsetmask2', 'offsetmask3'],
+};
+// The bytes the Playfield offset block of the coprocessor needs while its blocks run: the left and right column and the function number. The
+// bytes the box test uses for the position it tries, and the one the Jump block counts pixels in, are only used when the end of the frame
+// runs, so they do the job when the project has them. Returns the names (null for the ones to reserve here).
+export const offsetArmSharedVars = ({boxTest, jump}) => ({b1: boxTest ? 'pfboxx' : null, b2: boxTest ? 'pfboxy' : null, fn: jump ? 'platCount' : null});
+export const reserveOffsetAreaDevVars = (reserveDevVar, used, coprocessor = false, shared = {}) => {
+  if (coprocessor) {
+    if (!shared.b1) reserveDevVar(OFFSET_AREA_VARS.b1, undefined, 'Playfield offset (coprocessor): the left column');
+    if (!shared.b2) reserveDevVar(OFFSET_AREA_VARS.b2, undefined, 'Playfield offset (coprocessor): the right column');
+    if (!shared.fn) reserveDevVar(OFFSET_AREA_VARS.m1, undefined, 'Playfield offset (coprocessor): the function number of the direction');
+    return;
+  }
+  if (!used) return;
+  const {b1, m1, b2, m2, pixel, mask} = OFFSET_AREA_VARS;
+  reserveDevVar(b1, undefined, 'Playfield offset area: the left column, then its byte of the row');
+  reserveDevVar(m1, undefined, 'Playfield offset area: the bit of the left column in its byte');
+  reserveDevVar(b2, undefined, 'Playfield offset area: the right column, then its byte of the row');
+  reserveDevVar(m2, undefined, 'Playfield offset area: the bit of the right column in its byte');
+  reserveDevVar(pixel, undefined, 'Playfield offset area: the pixel that goes in at the next row');
+  mask.forEach((name, i) => reserveDevVar(name, undefined, `Playfield offset area: the columns of the area in byte ${i} of a row`));
+};
 export const reserveShakeScreenDevVar = (reserveDevVar, used) => {
   if (!used) return;
   reserveDevVar('shakescreen', undefined,
@@ -391,25 +442,28 @@ export default (Blockly) => {
   // comment there. Not a static map - ball's  entry needs nameDB_ to
   // resolve the shadow var's real letter, so this has to be a function.
   const spriteCollisionCoords = (sprite) => {
+    const pfConfig = (useConfigurationStorage() || {}).value;
+    const missileOffset = missileBallPfXOffset(pfConfig);
+    const playerOffset = playerPfXOffset(pfConfig);
     if (sprite === 'ball') {
       const shadowVar = Blockly.BBasic.nameDB_.getName(
           ctrlpfShadowVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       return {x: 'ballx', y: 'bally', stretched: `${shadowVar} & $30 <> 0`, sizeBits: shadowVar, heightVar: 'ballheight',
-        pfXOffset: MISSILE_BALL_PF_X_OFFSET};
+        pfXOffset: missileOffset};
     }
     // Under DPC+ a player's y is its top scanline and its height counts scanlines, like a missile's, so the
     // collision rows come from both.
     const configurationStorage = useConfigurationStorage();
     const dpcPlus = !!(configurationStorage && configurationStorage.value && configurationStorage.value.kernel === 'dpcplus');
     const byName = {
-      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+      player0: {x: 'player0x', y: 'player0y', stretched: 'player0size & $05 = $05', pfXOffset: playerOffset,
         ...(dpcPlus ? {heightVar: 'player0height'} : {})},
-      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: PLAYER_PF_X_OFFSET,
+      player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: playerOffset,
         ...(dpcPlus ? {heightVar: 'player1height'} : {})},
       missile0: {x: 'missile0x', y: 'missile0y', stretched: 'player0size & $30 <> 0', sizeBits: 'player0size',
-        heightVar: 'missile0height', pfXOffset: MISSILE_BALL_PF_X_OFFSET},
+        heightVar: 'missile0height', pfXOffset: missileOffset},
       missile1: {x: 'missile1x', y: 'missile1y', stretched: 'player1size & $30 <> 0', sizeBits: 'player1size',
-        heightVar: 'missile1height', pfXOffset: MISSILE_BALL_PF_X_OFFSET},
+        heightVar: 'missile1height', pfXOffset: missileOffset},
     };
     return byName[sprite];
   };
@@ -557,6 +611,8 @@ export default (Blockly) => {
       'lda ' + label('ytab') + ',x',
       'sta temp6',
       'jmp ' + label('dirskip'),
+      // (Aligned so that an indexed read of a table does not cross a page: see rowTableLines in pf-box.js.)
+      'align 16',
       `@${label('xtab')}`,
       `.byte ${steps.map(([xStep]) => stepCode(xStep)).join(',')}`,
       `@${label('ytab')}`,
@@ -784,8 +840,40 @@ export default (Blockly) => {
       if (rawVar === 'COLUPF' && !Blockly.BBasic.dpcPlusPfColorsOn(dpcPlusConfig)) {
         return `${varName} = ${argument0}\n pfcolors:\n  ${argument0.trim()}\n@end\n`;
       }
+      // With a color for each row (the Options tab's per-row background or playfield colors) the kernel reads the table row by row, so the
+      // color is put in every row of it.
+      const rows = Array(Math.max(1, dpcPlusPfresOf(dpcPlusConfig))).fill(`  ${argument0.trim()}`).join('\n');
+      // (The color is kept to put back after the next background is loaded, which sets the rows from the colors of that background: see generateBackgroundColorOverride.)
+      const perRow = (rawVar === 'COLUBK' && dpcPlusConfig.enableDpcPlusBkColors) ||
+        (rawVar === 'COLUPF' && Blockly.BBasic.dpcPlusPfColorsOn(dpcPlusConfig));
+      if (perRow && (rawVar === 'COLUBK' || rawVar === 'COLUPF')) {
+        Blockly.BBasic.bgColorOverrides[rawVar].add(argument0.trim());
+        const flag = Blockly.BBasic.nameDB_.getName(BG_COLOR_OVERRIDE_VARS[rawVar], Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return `${varName} = ${argument0}\n${flag} = 1\n ${rawVar === 'COLUBK' ? 'bkcolors' : 'pfcolors'}:\n${rows}\n@end\n`;
+      }
     }
     return varName + ' = ' + argument0 + '\n';
+  };
+
+  // DPC+ with a color for each row: after a background is loaded (which gives the color table the colors of that background), the color a
+  // block set, if one did, goes in every row again. The color is the one the live variable holds, picked from the fixed colors the blocks gave.
+  Blockly.BBasic.generateBackgroundColorOverride = function() {
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    const sets = Blockly.BBasic.bgColorOverrides || {};
+    const rows = Math.max(1, dpcPlusPfresOf(config));
+    const parts = [];
+    [['COLUBK', 'bkcolors', 'backgroundrealcolor'], ['COLUPF', 'pfcolors', 'playfieldrealcolor']].forEach(([key, table, realVar]) => {
+      const colors = [...(sets[key] || [])];
+      if (!colors.length) return;
+      const flag = Blockly.BBasic.nameDB_.getName(BG_COLOR_OVERRIDE_VARS[key], Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const real = Blockly.BBasic.nameDB_.getName(realVar, Blockly.VARIABLE_CATEGORY_NAME);
+      parts.push(` if ${flag} = 0 then goto _bgov_${key}_done`);
+      colors.forEach((color, i) => parts.push(` if ${real} = ${color} then goto _bgov_${key}_${i}`));
+      parts.push(` goto _bgov_${key}_done`);
+      colors.forEach((color, i) => parts.push(`_bgov_${key}_${i}`, ` ${table}:`, ...Array(rows).fill(`  ${color}`), 'end', ` goto _bgov_${key}_done`));
+      parts.push(`_bgov_${key}_done`);
+    });
+    return parts.length ? `${parts.join('\n')}\n` : '';
   };
 
   Blockly.BBasic[`background_get_color`] = function(block) {
@@ -1429,8 +1517,12 @@ export default (Blockly) => {
   const offsetSubroutineName = (direction, byte1, byte2, dpcPlus, superchip) =>
     `_background_offset_${direction}_${byte1}${byte2}${dpcPlus ? 'd' : superchip ? 's' : ''}`;
 
-  const buildOffsetBody = ({direction, byte1, byte2, dpcPlus, superchip}) => {
-    const label = offsetSubroutineName(direction, byte1, byte2, dpcPlus, superchip);
+  const buildOffsetBody = ({direction: requested, byte1, byte2, dpcPlus, superchip}) => {
+    const label = offsetSubroutineName(requested, byte1, byte2, dpcPlus, superchip);
+    // "Alternate rows right and left" is the alternating routine with the rows turned the other way round (the odd rows go left).
+    const flip = requested === 'alternate_rl';
+    const direction = flip ? 'alternate' : requested;
+    const br = (mnemonic) => (flip ? (mnemonic === 'bne' ? 'beq' : 'bne') : mnemonic);
     const lab = (name) => `${label}_${name}`;
     const at = (name) => `@${lab(name)}`;
     const bytes = Array.from({length: byte2 - byte1 + 1}, (_, i) => byte1 + i);
@@ -1488,14 +1580,14 @@ export default (Blockly) => {
         if (direction === 'right') {
           lines.push(...exitRight(`lda playfield+${byte2},x`));
         } else {
-          lines.push('lda temp4', 'and #1', `bne ${lab('initr')}`, ...exitLeft(`lda playfield+${byte1},x`), `jmp ${lab('initd')}`,
+          lines.push('lda temp4', 'and #1', `${br('bne')} ${lab('initr')}`, ...exitLeft(`lda playfield+${byte1},x`), `jmp ${lab('initd')}`,
               at('initr'), ...exitRight(`lda playfield+${byte2},x`), at('initd'));
         }
         lines.push('lda temp3', 'asl', 'asl', 'tax');
       }
       lines.push(at('row'));
       if (direction === 'alternate') {
-        lines.push('txa', 'and #4', `bne ${lab('right')}`, ...leftLines(), `jmp ${lab('next')}`, at('right'), ...rightLines());
+        lines.push('txa', 'and #4', `${br('bne')} ${lab('right')}`, ...leftLines(), `jmp ${lab('next')}`, at('right'), ...rightLines());
       } else {
         lines.push(...(direction === 'left' ? leftLines() : rightLines()));
       }
@@ -1508,7 +1600,7 @@ export default (Blockly) => {
       if (direction === 'right') {
         lines.push(...peek(byte2, 'temp6'), leftIsHigh(byte2) ? 'lsr' : 'asl', 'lda #0', 'rol', 'tax');
       } else {
-        lines.push('lda temp6', 'and #1', `bne ${lab('initr')}`, ...peek(byte1, 'temp6'), leftIsHigh(byte1) ? 'asl' : 'lsr',
+        lines.push('lda temp6', 'and #1', `${br('bne')} ${lab('initr')}`, ...peek(byte1, 'temp6'), leftIsHigh(byte1) ? 'asl' : 'lsr',
             `jmp ${lab('initd')}`, at('initr'), ...peek(byte2, 'temp6'), leftIsHigh(byte2) ? 'lsr' : 'asl', at('initd'),
             'lda #0', 'rol', 'tax');
       }
@@ -1516,7 +1608,7 @@ export default (Blockly) => {
           'ldy temp5', at('row'),
           ...bytes.flatMap((byte) => [`lda DF${byte}DATA`, `sta ${scratch(byte)}`]));
       if (direction === 'alternate') {
-        lines.push('tya', 'and #1', `bne ${lab('right')}`, ...leftLines(), `jmp ${lab('write')}`, at('right'), ...rightLines());
+        lines.push('tya', 'and #1', `${br('bne')} ${lab('right')}`, ...leftLines(), `jmp ${lab('write')}`, at('right'), ...rightLines());
       } else {
         lines.push(...rightLines());
       }
@@ -1582,6 +1674,231 @@ export default (Blockly) => {
     return lines.join('\n');
   };
 
+  // The first part of the area form: from the two columns (in offsetb1 and offsetb2) it works out the edges and the masks (see below). It is a
+  // subroutine, called once before the routine of the direction, so that the routines of several directions share it.
+  const AREA_OFFSET_SETUP = '_background_offset_area_setup';
+  const buildAreaSetupBody = ({v}) => {
+    const lab = (name) => `${AREA_OFFSET_SETUP}_${name}`;
+    const at = (name) => `@${lab(name)}`;
+    const leftIsHigh = (byte) => byte % 2 === 0;
+    const allBytes = [0, 1, 2, 3];
+    // The byte (0 to 3) and the bit of a column, and the masks of the columns the area has in each byte.
+    const edge = (column, byteVar, bitVar, n) => [
+      `lda ${column}`, 'and #7', 'tay', `lda ${column}`, 'lsr', 'lsr', 'lsr', `sta ${byteVar}`, 'and #1', `bne ${lab(`odd${n}`)}`,
+      `lda ${lab('msb')},y`, `jmp ${lab(`bit${n}`)}`, at(`odd${n}`), `lda ${lab('lsb')},y`, at(`bit${n}`), `sta ${bitVar}`,
+    ];
+    // Columns from the left edge to the end of the byte, then from the start of the byte to the right edge.
+    const fromLeft = (byte) => (leftIsHigh(byte) ?
+      [`lda ${v.m1}`, 'asl', 'sec', 'sbc #1'] : [`lda ${v.m1}`, 'eor #$FF', 'clc', 'adc #1']);
+    const toRight = (byte) => (leftIsHigh(byte) ?
+      [`lda ${v.m2}`, 'eor #$FF', 'clc', 'adc #1'] : [`lda ${v.m2}`, 'asl', 'sec', 'sbc #1']);
+    const maskOf = (byte) => [
+      `lda #${byte}`, `cmp ${v.b1}`, `bcc ${lab(`out${byte}`)}`,
+      `lda ${v.b2}`, `cmp #${byte}`, `bcc ${lab(`out${byte}`)}`,
+      'lda #$FF', `ldx ${v.b1}`, `cpx #${byte}`, `bne ${lab(`left${byte}`)}`, ...fromLeft(byte), at(`left${byte}`), `sta ${v.mask[byte]}`,
+      `ldx ${v.b2}`, `cpx #${byte}`, `bne ${lab(`in${byte}`)}`, ...toRight(byte), `and ${v.mask[byte]}`, `sta ${v.mask[byte]}`,
+      `jmp ${lab(`in${byte}`)}`,
+      at(`out${byte}`), 'lda #0', `sta ${v.mask[byte]}`, at(`in${byte}`),
+    ];
+    return ['asm', ...[
+      `jmp ${lab('start')}`,
+      // (Aligned so that an indexed read does not cross a page: see rowTableLines in pf-box.js.)
+      'align 8',
+      at('msb'), '.byte $80,$40,$20,$10,$08,$04,$02,$01',
+      at('lsb'), '.byte $01,$02,$04,$08,$10,$20,$40,$80',
+      at('start'),
+      `lda ${v.b1}`, 'cmp #32', `bcc ${lab('clamp1')}`, 'lda #31', at('clamp1'), `sta ${v.b1}`,
+      `lda ${v.b2}`, 'cmp #32', `bcc ${lab('clamp2')}`, 'lda #31', at('clamp2'), `sta ${v.b2}`,
+      `lda ${v.b1}`, `cmp ${v.b2}`, `bcc ${lab('ordered')}`, `beq ${lab('ordered')}`,
+      'tax', `lda ${v.b2}`, `sta ${v.b1}`, `stx ${v.b2}`, at('ordered'),
+      ...edge(v.b1, v.b1, v.m1, 1), ...edge(v.b2, v.b2, v.m2, 2),
+      ...allBytes.flatMap(maskOf),
+    ], '@end'].join('\n');
+  };
+
+  // The area form of "Playfield offset": the columns are any of 0 to 31 and are worked out when the game runs (they can be a variable), so the
+  // edges of the area are handled with masks. A row is four bytes of eight columns, most significant bit first in the first and third and
+  // least significant first in the second and fourth. The routine finds, from the two columns, the byte and the bit of each edge and a mask
+  // for each byte of the columns the area has in it; a byte is shifted whole, then only the bits inside the mask are kept and the rest are
+  // put back as they were. The pixel that leaves the area on one side is kept and goes in at the other end, of the next row (as for the whole
+  // playfield), put in by hand because the shift only brings in a zero. The variables it uses (see reserveOffsetAreaDevVars) hold the edges
+  // (offsetb1 and offsetb2 are the columns when it is called), the masks and the pixel on its way to the next row.
+  const buildAreaOffsetBody = ({direction: requested, dpcPlus, superchip, v}) => {
+    const label = `_background_offset_${requested}_area${dpcPlus ? 'd' : superchip ? 's' : ''}`;
+    const flip = requested === 'alternate_rl';
+    const direction = flip ? 'alternate' : requested;
+    const br = (mnemonic) => (flip ? (mnemonic === 'bne' ? 'beq' : 'bne') : mnemonic);
+    const lab = (name) => `${label}_${name}`;
+    const at = (name) => `@${lab(name)}`;
+    let unique = 0;
+    const fresh = (name) => lab(`${name}${unique++}`);
+    const leftIsHigh = (byte) => byte % 2 === 0;
+    const allBytes = [0, 1, 2, 3];
+    // The left or right rotate of the byte in the accumulator, the carry coming from the neighbour. Left, the leftmost pixel of the byte
+    // leaves it and the neighbour's goes in at its right.
+    const rotate = (byte, toLeft) => (leftIsHigh(byte) === toLeft ? 'rol' : 'ror');
+    const order = (toLeft) => (toLeft ? [3, 2, 1, 0] : [0, 1, 2, 3]);
+    const lines = ['asm'];
+    const horizontal = direction === 'alternate' || direction === 'left' || direction === 'right';
+    if (!dpcPlus) {
+      const read = (byte) => `playfield+${byte},x`;
+      const writeBase = superchip ? 'playfield-128' : 'playfield';
+      const write = (byte) => `${writeBase}+${byte},x`;
+      // The standard kernel: X is the row times four. The pixel that leaves goes to temp6 until the row is done.
+      const exitPixel = (which) => ['txa', 'clc', `adc ${which === 1 ? v.b1 : v.b2}`, 'tay', 'lda playfield,y',
+        `and ${which === 1 ? v.m1 : v.m2}`, 'cmp #1', 'lda #0', 'rol'];
+      const chain = (toLeft) => ['clc', ...order(toLeft).flatMap((byte) => [
+        `lda ${read(byte)}`, 'sta temp1', 'lda temp1', rotate(byte, toLeft), `and ${v.mask[byte]}`, 'sta temp2',
+        `lda ${v.mask[byte]}`, 'eor #$FF', 'and temp1', 'ora temp2', `sta ${write(byte)}`])];
+      const entry = (which) => {
+        const skip = fresh('noentry');
+        const [byteVar, bitVar] = which === 1 ? [v.b1, v.m1] : [v.b2, v.m2];
+        return ['txa', 'clc', `adc ${byteVar}`, 'tay', `lda ${bitVar}`, 'eor #$FF', 'sta temp1', 'lda playfield,y', 'and temp1', 'sta temp1',
+          `lda ${v.pixel}`, `beq ${skip}`, 'lda temp1', `ora ${bitVar}`, 'sta temp1', `@${skip}`, 'lda temp1', `sta ${writeBase},y`];
+      };
+      const row = (toLeft) => [...exitPixel(toLeft ? 1 : 2), 'sta temp6', ...chain(toLeft), ...entry(toLeft ? 2 : 1),
+        'lda temp6', `sta ${v.pixel}`];
+      if (horizontal) {
+        const down = direction !== 'left';
+        if (direction === 'left') {
+          lines.push('lda temp3', 'asl', 'asl', 'sta temp5', 'tax', ...exitPixel(1), `sta ${v.pixel}`, 'lda temp4', 'asl', 'asl', 'tax');
+        } else {
+          lines.push('lda temp4', 'asl', 'asl', 'sta temp5', 'tax');
+          if (direction === 'right') {
+            lines.push(...exitPixel(2));
+          } else {
+            lines.push('lda temp4', 'and #1', `${br('bne')} ${lab('initr')}`, ...exitPixel(1), `jmp ${lab('initd')}`, at('initr'), ...exitPixel(2),
+                at('initd'));
+          }
+          lines.push(`sta ${v.pixel}`, 'lda temp3', 'asl', 'asl', 'tax');
+        }
+        lines.push(at('row'));
+        if (direction === 'alternate') {
+          lines.push('txa', 'and #4', `${br('beq')} ${lab('leftrow')}`, `jmp ${lab('rightrow')}`, at('leftrow'), ...row(true), `jmp ${lab('next')}`,
+              at('rightrow'), ...row(false));
+        } else {
+          lines.push(...row(direction === 'left'));
+        }
+        lines.push(at('next'), 'cpx temp5', `bne ${lab('more')}`, `jmp ${lab('done')}`, at('more'),
+            ...(down ? ['inx', 'inx', 'inx', 'inx'] : ['dex', 'dex', 'dex', 'dex']), `jmp ${lab('row')}`, at('done'));
+      } else {
+        // Up or down: the row that leaves is kept in temp1 to temp4, the rows move one place in a single pass over the area, and the kept row goes
+        // in at the other end. A byte is only touched in the columns of its mask.
+        const up = direction === 'up';
+        const merge = (source, kept, byte) => {
+          const skip = fresh('skipbyte');
+          return [`lda ${v.mask[byte]}`, `beq ${skip}`, kept ? `lda ${kept}` : `lda ${source}`, `and ${v.mask[byte]}`, 'sta temp6',
+            `lda ${v.mask[byte]}`, 'eor #$FF', `and ${read(byte)}`, 'ora temp6', `sta ${write(byte)}`, `@${skip}`];
+        };
+        const step = up ? ['inx', 'inx', 'inx', 'inx'] : ['dex', 'dex', 'dex', 'dex'];
+        lines.push(
+            up ? 'lda temp4' : 'lda temp3', 'asl', 'asl', 'sta temp5',
+            up ? 'lda temp3' : 'lda temp4', 'asl', 'asl', 'tax',
+            ...allBytes.flatMap((byte) => [`lda ${read(byte)}`, `sta temp${byte + 1}`]),
+            'cpx temp5', `bne ${lab('go')}`, `jmp ${lab('end')}`, at('go'),
+            at('loop'),
+            ...allBytes.flatMap((byte) => merge(`playfield+${byte + (up ? 4 : -4)},x`, null, byte)),
+            ...step, 'cpx temp5', `beq ${lab('end')}`, `jmp ${lab('loop')}`,
+            at('end'),
+            ...allBytes.flatMap((byte) => merge(null, `temp${byte + 1}`, byte)));
+      }
+    } else {
+      // DPC+: each of the four columns is in display RAM at dffraclow/dffrachi, one byte a row, read and written through the data fetchers.
+      // The bytes of a row are loaded into temp1 to temp4; the pixel on its way to the next row is in a variable, and the pixel that leaves
+      // goes on the stack. The first and last row are in temp5 and temp6, and Y is the row.
+      const rotateRow = (toLeft) => {
+        const noEntry = fresh('noentry');
+        const [exitByte, exitBit, entryByte, entryBit] = toLeft ? [v.b1, v.m1, v.b2, v.m2] : [v.b2, v.m2, v.b1, v.m1];
+        return [
+          `ldx ${exitByte}`, 'lda temp1,x', `and ${exitBit}`, 'cmp #1', 'lda #0', 'rol', 'pha',
+          'clc', ...order(toLeft).flatMap((byte) => [
+            `lda ${v.mask[byte]}`, 'eor #$FF', `and temp${byte + 1}`, 'pha', `lda temp${byte + 1}`, rotate(byte, toLeft),
+            `and ${v.mask[byte]}`, `sta temp${byte + 1}`, 'pla', `ora temp${byte + 1}`, `sta temp${byte + 1}`]),
+          `ldx ${entryByte}`, `lda ${entryBit}`, 'eor #$FF', 'and temp1,x', 'sta temp1,x', `lda ${v.pixel}`, `beq ${noEntry}`,
+          'lda temp1,x', `ora ${entryBit}`, 'sta temp1,x', `@${noEntry}`, 'pla', `sta ${v.pixel}`,
+        ];
+      };
+      // DF0 pointed at the byte of a column in a row (row is an address) and read, the pixel the area loses at an edge going in the pixel variable.
+      const peekPixel = (row, which) => [
+        `lda ${row}`, 'clc', 'adc #<PF1L', 'sta DF0LOW', 'lda #0', 'adc #((>PF1L)&$0F)', 'clc', `adc ${which === 1 ? v.b1 : v.b2}`, 'sta DF0HI',
+        'lda DF0DATA', `and ${which === 1 ? v.m1 : v.m2}`, 'cmp #1', 'lda #0', 'rol', `sta ${v.pixel}`,
+      ];
+      const pointFetchers = (row, fetchersOf) => [
+        row ? `lda ${row}` : 'tya', 'clc', 'adc #<PF1L',
+        ...allBytes.flatMap((byte) => fetchersOf(byte).map((fetcher) => `sta ${fetcher}LOW`)),
+        'lda #0', 'adc #((>PF1L)&$0F)',
+        ...allBytes.flatMap((byte, i) => [
+          ...(i ? ['adc #1'] : []), ...fetchersOf(byte).map((fetcher) => `sta ${fetcher}HI`)]),
+      ];
+      const writerOf = (byte) => (byte < 3 ? `DF${4 + byte}` : null);
+      if (horizontal && direction !== 'left') {
+        // Down the rows: DF0 to DF3 read the columns and DF4 to DF6 write the first three, so a row costs no pointer set.
+        if (direction === 'right') {
+          lines.push(...peekPixel('temp6', 2));
+        } else {
+          lines.push('lda temp6', 'and #1', `${br('beq')} ${lab('initl')}`, ...peekPixel('temp6', 2), `jmp ${lab('initd')}`, at('initl'),
+              ...peekPixel('temp6', 1), at('initd'));
+        }
+        lines.push(...pointFetchers('temp5', (byte) => [`DF${byte}`, ...(writerOf(byte) ? [writerOf(byte)] : [])]),
+            'ldy temp5', at('row'),
+            ...allBytes.flatMap((byte) => [`lda DF${byte}DATA`, `sta temp${byte + 1}`]));
+        if (direction === 'alternate') {
+          lines.push('tya', 'and #1', `${br('beq')} ${lab('leftrow')}`, `jmp ${lab('rightrow')}`, at('leftrow'), ...rotateRow(true),
+              `jmp ${lab('write')}`, at('rightrow'), ...rotateRow(false));
+        } else {
+          lines.push(...rotateRow(false));
+        }
+        lines.push(at('write'));
+        allBytes.forEach((byte) => {
+          if (writerOf(byte)) {
+            lines.push(`lda temp${byte + 1}`, `sta ${writerOf(byte)}WRITE`);
+          } else {
+            lines.push('tya', 'clc', 'adc #<PF1L', `sta DF${byte}LOW`, 'lda #0', `adc #((>PF1L)&$0F)+${byte}`, `sta DF${byte}HI`,
+                `lda temp${byte + 1}`, `sta DF${byte}WRITE`);
+          }
+        });
+        lines.push('cpy temp6', `bne ${lab('more')}`, `jmp ${lab('done')}`, at('more'), 'iny', `jmp ${lab('row')}`, at('done'));
+      } else if (horizontal) {
+        // Up the rows (a fetcher only counts down the screen, so the fetchers are pointed at each row to read it and again to write it back).
+        const fetchersOf = (byte) => [`DF${byte}`];
+        lines.push(...peekPixel('temp5', 1), 'ldy temp6', at('row'),
+            ...pointFetchers(null, fetchersOf), ...allBytes.flatMap((byte) => [`lda DF${byte}DATA`, `sta temp${byte + 1}`]),
+            ...rotateRow(true), ...pointFetchers(null, fetchersOf),
+            ...allBytes.flatMap((byte) => [`lda temp${byte + 1}`, `sta DF${byte}WRITE`]),
+            'cpy temp5', `bne ${lab('more')}`, `jmp ${lab('done')}`, at('more'), 'dey', `jmp ${lab('row')}`, at('done'));
+      } else {
+        // Up or down, a column at a time (temp3): DF0 reads the column, DF1 writes it and (up) DF2 reads the byte that is being replaced, all
+        // started on the same row, so the rows stream through; temp4 is the mask of the column.
+        const up = direction === 'up';
+        const pointAll = (row, fetchers) => [
+          `lda ${row}`, 'clc', 'adc #<PF1L', ...fetchers.map((f) => `sta ${f}LOW`),
+          'lda temp3', 'adc #(>PF1L)&$0F', ...fetchers.map((f) => `sta ${f}HI`),
+        ];
+        lines.push('lda #0', 'sta temp3', at('col'),
+            'lda temp3', `beq ${lab('m0')}`, 'cmp #1', `beq ${lab('m1')}`, 'cmp #2', `beq ${lab('m2')}`, `lda ${v.mask[3]}`, `jmp ${lab('m')}`,
+            at('m0'), `lda ${v.mask[0]}`, `jmp ${lab('m')}`, at('m1'), `lda ${v.mask[1]}`, `jmp ${lab('m')}`, at('m2'), `lda ${v.mask[2]}`,
+            at('m'), 'sta temp4', `bne ${lab('work')}`, `jmp ${lab('next')}`, at('work'));
+        if (up) {
+          // Row r takes row r+1 and the last row takes the first.
+          lines.push(...pointAll('temp5', ['DF0', 'DF1', 'DF2']), 'lda DF0DATA', 'sta temp1', 'lda temp6', 'sec', 'sbc temp5', 'tay',
+              `beq ${lab('end')}`,
+              at('loop'), 'lda DF0DATA', 'and temp4', 'sta temp2', 'lda temp4', 'eor #$FF', 'and DF2DATA', 'ora temp2', 'sta DF1WRITE',
+              'dey', `bne ${lab('loop')}`,
+              at('end'), 'lda temp1', 'and temp4', 'sta temp2', 'lda temp4', 'eor #$FF', 'and DF2DATA', 'ora temp2', 'sta DF1WRITE');
+        } else {
+          // Row r takes row r-1 and the first row takes the last.
+          lines.push(...pointAll('temp6', ['DF0', 'DF1']), 'lda DF0DATA', 'tax', ...pointAll('temp5', ['DF0', 'DF1']), 'lda temp6', 'sec',
+              'sbc temp5', 'tay', 'iny',
+              at('loop'), 'lda DF0DATA', 'sta temp2', 'txa', 'and temp4', 'sta temp1', 'lda temp4', 'eor #$FF', 'and temp2', 'ora temp1',
+              'sta DF1WRITE', 'lda temp2', 'tax', 'dey', `bne ${lab('loop')}`);
+        }
+        lines.push(at('next'), 'inc temp3', 'lda temp3', 'cmp #4', `beq ${lab('done')}`, `jmp ${lab('col')}`, at('done'));
+      }
+    }
+    lines.push('@end');
+    return lines.join('\n');
+  };
+
   Blockly.BBasic['background_offset'] = function(block) {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
     const dpcPlus = config.kernel === 'dpcplus';
@@ -1590,30 +1907,53 @@ export default (Blockly) => {
     const whole = block.getFieldValue('WHOLE') === 'TRUE';
     const maxRow = Blockly.BBasic.maxRowText(config);
     const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    let byte1 = 0;
-    let byte2 = 3;
-    if (!whole) {
-      byte1 = Number(block.getFieldValue('X1'));
-      byte2 = Number(block.getFieldValue('X2'));
-      if (byte1 > byte2) [byte1, byte2] = [byte2, byte1];
-    }
-    const name = offsetSubroutineName(direction, byte1, byte2, dpcPlus, superchip);
-    if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = buildOffsetBody({direction, byte1, byte2, dpcPlus, superchip});
-    }
-    const suffix = Blockly.BBasic.bankJumpSuffix(
-        Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     // The first and last row go in temp3 and temp4 (standard kernel) or temp5 and temp6 (DPC+, whose temp1 to temp4 hold a row).
     const [first, last] = dpcPlus ? ['temp5', 'temp6'] : ['temp3', 'temp4'];
-    return [
+    const rowLines = [
       whole ? `${first} = 0\n${last} = ${maxRow}` : `${first} = ${arg('Y1')}\n${last} = ${arg('Y2')}`,
       ...(whole ? [] : [
         `if ${first} > ${last} then temp1 = ${first} : ${first} = ${last} : ${last} = temp1`,
         `if ${last} > ${maxRow} then ${last} = ${maxRow}`,
         `if ${first} > ${maxRow} then ${first} = ${maxRow}`,
       ]),
-      `gosub ${name}${suffix}`,
-    ].join('\n') + '\n';
+    ];
+    // Under DPC+ the coprocessor does it (see offset-arm.js): the columns and the function number in bytes, the rows in temp5 and temp6.
+    if (dpcPlus) {
+      const resolveArm = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const shared = Blockly.BBasic.offsetArmShared || {};
+      const armVars = {b1: resolveArm(shared.b1 || OFFSET_AREA_VARS.b1), b2: resolveArm(shared.b2 || OFFSET_AREA_VARS.b2), fn: resolveArm(shared.fn || OFFSET_AREA_VARS.m1)};
+      if (!Blockly.BBasic.subroutines[OFFSET_ARM_SUBROUTINE]) Blockly.BBasic.subroutines[OFFSET_ARM_SUBROUTINE] = buildOffsetArmBody(armVars);
+      ensureArmProgram(Blockly);
+      const armSuffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(OFFSET_ARM_SUBROUTINE));
+      return [`${armVars.b1} = ${whole ? '0' : arg('X1')}`, `${armVars.b2} = ${whole ? '31' : arg('X2')}`, ...rowLines,
+        `${armVars.fn} = ${OFFSET_ARM_FUNCTION[direction]}`, `gosub ${OFFSET_ARM_SUBROUTINE}${armSuffix}`].join('\n') + '\n';
+    }
+    // The whole playfield, or an area whose edges are plain numbers that are whole bytes of eight columns, goes by the routine that moves whole
+    // bytes (a good deal faster than the one that works the edges out when the game runs, below).
+    const bytes = whole ? {byte1: 0, byte2: 3} : offsetByteRange(block);
+    if (bytes) {
+      const {byte1, byte2} = bytes;
+      const name = offsetSubroutineName(direction, byte1, byte2, dpcPlus, superchip);
+      if (!Blockly.BBasic.subroutines[name]) {
+        Blockly.BBasic.subroutines[name] = buildOffsetBody({direction, byte1, byte2, dpcPlus, superchip});
+      }
+      const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
+      return [...rowLines, `gosub ${name}${suffix}`].join('\n') + '\n';
+    }
+    const resolve = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const v = {
+      b1: resolve(OFFSET_AREA_VARS.b1), m1: resolve(OFFSET_AREA_VARS.m1), b2: resolve(OFFSET_AREA_VARS.b2), m2: resolve(OFFSET_AREA_VARS.m2),
+      pixel: resolve(OFFSET_AREA_VARS.pixel), mask: OFFSET_AREA_VARS.mask.map(resolve),
+    };
+    const name = `_background_offset_${direction}_area${dpcPlus ? 'd' : superchip ? 's' : ''}`;
+    if (!Blockly.BBasic.subroutines[name]) {
+      Blockly.BBasic.subroutines[name] = buildAreaOffsetBody({direction, dpcPlus, superchip, v});
+    }
+    if (!Blockly.BBasic.subroutines[AREA_OFFSET_SETUP]) Blockly.BBasic.subroutines[AREA_OFFSET_SETUP] = buildAreaSetupBody({v});
+    const suffixOf = (subroutine) => Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(subroutine));
+    // The columns first (they can be any blocks) and the masks worked out from them, then the rows.
+    return [`${v.b1} = ${arg('X1')}`, `${v.b2} = ${arg('X2')}`, `gosub ${AREA_OFFSET_SETUP}${suffixOf(AREA_OFFSET_SETUP)}`, ...rowLines,
+      `gosub ${name}${suffixOf(name)}`].join('\n') + '\n';
   };
 
   Blockly.BBasic[`background_get_pixel`] = function(block) {
@@ -1670,6 +2010,10 @@ export default (Blockly) => {
         const pair = Blockly.BBasic.superchipRwPairs[backgroundGetPixelXVarName()];
         preamble.push(`${pair.write} = ${argumentX}`);
         readX = pair.read;
+      } else if (!isSimple(argumentY)) {
+        // Both are compound: working out Y (a division, say) can put the answer in temp1 out, so X waits in temp5.
+        readX = 'temp1';
+        preamble.push(`temp5 = ${argumentX}`);
       } else {
         readX = 'temp1';
         preamble.push(`${readX} = ${argumentX}`);
@@ -1683,6 +2027,7 @@ export default (Blockly) => {
       } else {
         readY = 'temp2';
         preamble.push(`${readY} = ${argumentY}`);
+        if (!isSimple(argumentX)) preamble.push('temp1 = temp5');
       }
     }
 
@@ -1707,8 +2052,18 @@ export default (Blockly) => {
     // first and passing THOSE (always a single plain token) sidesteps the
     // whitespace-splitting entirely, regardless of how complex the
     // plugged-in X/Y expression is.
-    return `temp1 = ${argumentX}\n` +
-      `temp2 = ${argumentY}\n` +
+    // A compound X or Y (a division, say, goes through a routine that uses temp1 and temp2) is worked out into temp5 and temp6 first: the
+    // second one could otherwise put the first one's answer out of temp1.
+    const isSimple = (code) => !/\s/.test(code);
+    if (isSimple(argumentX) && isSimple(argumentY)) {
+      return `temp1 = ${argumentX}\n` +
+        `temp2 = ${argumentY}\n` +
+        `pfpixel temp1 temp2 ${operation}\n`;
+    }
+    return `temp5 = ${argumentX}\n` +
+      `temp6 = ${argumentY}\n` +
+      `temp1 = temp5\n` +
+      `temp2 = temp6\n` +
       `pfpixel temp1 temp2 ${operation}\n`;
   };
 
@@ -1727,9 +2082,21 @@ export default (Blockly) => {
     // as background_change_pixel above, for both X and Y (temp2/temp3 -
     // temp1 is already used for the length calculation just below, so X/Y
     // need their  separate scratch vars rather than reusing it).
-    return `temp2 = ${argumentX}\n` +
-      `temp3 = ${argumentY}\n` +
-      `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? 'temp2' : 'temp3'} - 1\n` +
+    // A compound number (a division goes through a routine that uses temp1 and temp2) is worked out into temp4 to temp6 first, so that
+    // working out the next one cannot put the answer of the one before out.
+    const isSimple = (code) => !/\s/.test(code);
+    if (isSimple(argumentX) && isSimple(argumentY) && isSimple(argumentLineLength)) {
+      return `temp2 = ${argumentX}\n` +
+        `temp3 = ${argumentY}\n` +
+        `temp1 = ${argumentLineLength} + ${direction == 'pfhline' ? 'temp2' : 'temp3'} - 1\n` +
+        `${direction} temp2 temp3 temp1 ${operation}\n`;
+    }
+    return `temp4 = ${argumentX}\n` +
+      `temp5 = ${argumentY}\n` +
+      `temp6 = ${argumentLineLength}\n` +
+      `temp2 = temp4\n` +
+      `temp3 = temp5\n` +
+      `temp1 = temp6 + ${direction == 'pfhline' ? 'temp2' : 'temp3'} - 1\n` +
       `${direction} temp2 temp3 temp1 ${operation}\n`;
   };
 
@@ -1850,6 +2217,25 @@ export default (Blockly) => {
         const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         const scrollLines = (amount) => queueSets.map((queues) => ` pfscroll ${amount}${queues}`);
         const stepDone = `_dpcscroll_${uid}_${sequenceIndex}_done`;
+        // A background too tall to wrap (see init in generators/bbasic.js) always stops at its ends: the offset is how many rows
+        // the top of the view is down the picture, from 0 to the rows that do not fit on screen.
+        if (scroll.noWrap) {
+          const limit = rowsVar || scroll.limit;
+          if (delta > 0) {
+            lines.push(` if ${offset} < ${stepRows} then goto ${stepDone}`);
+          } else if (rowsVar) {
+            lines.push(` if ${rowsVar} < ${stepRows} then goto ${stepDone}`, ` temp1 = ${rowsVar} - ${stepRows}`,
+                ` if ${offset} > temp1 then goto ${stepDone}`);
+          } else if (scroll.limit < stepRows) {
+            lines.push(` goto ${stepDone}`);
+          } else {
+            lines.push(` if ${offset} > ${limit - stepRows} then goto ${stepDone}`);
+          }
+          lines.push(...scrollLines(value));
+          if (main) lines.push(...nudgeSprites(stepRows * scroll.fine));
+          lines.push(` ${offset} = ${offset} ${delta > 0 ? '-' : '+'} ${stepRows}`, `@ ${stepDone}`);
+          return;
+        }
         // Stopping at the edge: the view is about to run past either end of the background.
         if (block.getFieldValue('STOPATEDGE') === 'TRUE') {
           if (delta > 0) lines.push(` if ${offset} <= ${stepRows} then goto ${stepDone}`);
@@ -1894,13 +2280,8 @@ export default (Blockly) => {
       return [
         ...(stopAtEdgeToo ? [up ? ` if ${offset} >= ${rows - 1} then goto ${skip}` : ` if ${offset} = 0 then goto ${skip}`] : []),
         ...(everyCall ? [] : [` if playfieldpos <> ${up ? pfRowDivisorFor(config) : 1} then goto ${skip}`]),
-        ...(up ? [
-          ` ${offset} = ${offset} + 1`,
-          ` if ${offset} >= ${rows} then ${offset} = 0`,
-        ] : [
-          ` if ${offset} = 0 then ${offset} = ${rows - 1} else ${offset} = ${offset} - 1`,
-        ]),
-        Blockly.BBasic.backgroundColorScrollApplyLines(),
+        // The routine moves the offset a row and sets the colors (see buildBackgroundColorScroll).
+        Blockly.BBasic.backgroundColorRotateLines(up),
         `@ ${skip}`,
       ];
     };
@@ -2017,7 +2398,7 @@ export default (Blockly) => {
       const step = Math.abs(delta);
       const visibleRows = backgroundDataRows(config);
       const forward = delta < 0;
-      const {rowMask, indexMask} = Blockly.BBasic.backgroundScrollPacking;
+      const {rowMask} = Blockly.BBasic.backgroundScrollPacking;
       const gosubPatch = ` gosub ${BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(
           Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME))}`;
       // temp6 = the active background's furthest scroll row (row count minus
@@ -2058,33 +2439,15 @@ export default (Blockly) => {
       lines.push(forward ?
         ` if playfieldpos <> ${rowHeight} then goto ${doneLabel}` :
         ` if playfieldpos <> 1 then goto ${doneLabel}`);
-      // Row update. The row sits in the packed byte's low bits, so a plain
-      // +1/-1 is safe only while it can't carry into/borrow from the index
-      // bits: with stop-at-edge the row stays within 0..max; without it the
-      // position wraps around the whole background (row count = max +
-      // visibleRows) through temp4 first, never reaching a row value that
-      // doesn't fit its bits.
-      if (forward) {
-        if (stopAtEdge) {
-          lines.push(` ${rowVar} = ${rowVar} + 1`);
-        } else {
-          // Leaves temp6 = the row count (max + visible rows), reused below.
-          loadMax();
-          lines.push(` temp4 = ${rowVar} & ${rowMask}`);
-          lines.push(' temp4 = temp4 + 1');
-          lines.push(` temp6 = temp6 + ${visibleRows}`);
-          lines.push(` if temp4 >= temp6 then ${rowVar} = ${rowVar} & ${indexMask} else ${rowVar} = ${rowVar} + 1`);
-        }
-      } else if (stopAtEdge) {
-        lines.push(` ${rowVar} = ${rowVar} - 1`);
-      } else {
-        lines.push(` temp4 = ${rowVar} & ${rowMask}`);
-        loadMax();
-        lines.push(` temp6 = temp6 + ${visibleRows - 1}`);
-        lines.push(` if temp4 > 0 then ${rowVar} = ${rowVar} - 1 else ${rowVar} = ${rowVar} | temp6`);
-      }
-      // Edge flags, from the row just stored. temp6 still holds what the row
-      // update left: the maximum (stop-at-edge) or the row count (without it).
+      // The rest of the row-step is one call of the scroll patch (modes 240 to 247, see generateBackgroundScrollPatch): the row
+      // moves by one (round the background, or stopping at the edge: the pre-check above saw to it that it can), the playfield colors
+      // follow when ticked, and the row that has come into view is copied into the window. Bit 0 of the mode is "forward", bit 1 "colors",
+      // bit 2 "stop at the edge". It leaves temp6 as the furthest row (stop at the edge) or the number of rows (without), for the edge watch.
+      Blockly.BBasic.backgroundScrollStepUsed = true;
+      nudgeSprites();
+      lines.push(` temp5 = ${240 + (forward ? 1 : 0) + (colorsOn ? 2 : 0) + (stopAtEdge ? 4 : 0)}`);
+      lines.push(gosubPatch);
+      // Edge flags, from the row just stored.
       if (forward && edgeWatches.has('bottom')) {
         lines.push(` temp4 = ${rowVar} & ${rowMask}`);
         if (!stopAtEdge) lines.push(` temp4 = temp4 + ${visibleRows}`);
@@ -2093,29 +2456,6 @@ export default (Blockly) => {
         lines.push(` temp4 = ${rowVar} & ${rowMask}`);
         setEdgeFlag('top', 'temp4 = 0');
       }
-      nudgeSprites();
-      if (colorsOn) {
-        // The colors follow the top row of the window.
-        lines.push(` ${Blockly.BBasic.nameDB_.getName(backgroundColorOffsetVarName(),
-            Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${rowVar} & ${rowMask}`);
-        lines.push(Blockly.BBasic.backgroundColorScrollApplyLines());
-      }
-      if (forward) {
-        // The newly-visible BOTTOM row: top row + visibleRows - 1, wrapped
-        // around the background's row count.
-        // temp6 already holds what the row update above left: the row count
-        // (no stop-at-edge) or the maximum (stop-at-edge), so no second gosub.
-        lines.push(` temp3 = ${rowVar} & ${rowMask}`);
-        lines.push(` temp3 = temp3 + ${visibleRows - 1}`);
-        if (stopAtEdge) lines.push(` temp6 = temp6 + ${visibleRows}`);
-        lines.push(' if temp3 >= temp6 then temp3 = temp3 - temp6');
-        lines.push(` temp5 = ${visibleRows - 1}`);
-      } else {
-        // The newly-visible TOP row is simply the new top row.
-        lines.push(` temp3 = ${rowVar} & ${rowMask}`);
-        lines.push(' temp5 = 0');
-      }
-      lines.push(gosubPatch);
     }
     // "@ label" (not a bare label), same reasoning as collision_check_
     // position/object_bounce's labels elsewhere in this codebase - this

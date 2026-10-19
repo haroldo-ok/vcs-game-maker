@@ -135,6 +135,11 @@ export default defineComponent({
     sustainLength: {type: Number, required: true},
     releaseStartPercent: {type: Number, required: true},
     release: {type: Number, required: true},
+    // A staircase: the levels are multiples of staircaseStep (of the peak volume's levels) and each is held staircaseFrames frames; 0 for
+    // none. The graph then draws the steps (see utils/staircase.js).
+    staircaseStep: {type: Number, default: 0},
+    staircaseFrames: {type: Number, default: 0},
+    peakVolume: {type: Number, default: 15},
   },
   data() {
     return {
@@ -203,10 +208,38 @@ export default defineComponent({
         [this.sustainEndX, 100 - this.releaseStartPercent],
         [this.releaseX, 100],
       ];
+      if (this.staircaseStep > 0 && this.staircaseFrames > 0) return this.steppedPoints(pts);
       return pts.map(([x, y]) => `${x},${y}`).join(' ');
     },
   },
   methods: {
+    // The envelope as steps: for each stretch of staircaseFrames frames the level the straight lines above reach at its end, rounded to a
+    // multiple of the step (of the volume levels), drawn flat across the stretch.
+    steppedPoints(pts) {
+      const total = this.totalUnits;
+      const peak = Math.max(1, Math.round(this.peakVolume) || 15);
+      const percentAt = (frame) => {
+        const x = Math.min(100, frame / total * 100);
+        for (let i = 1; i < pts.length; i++) {
+          if (x <= pts[i][0] || i === pts.length - 1) {
+            const [x0, y0] = pts[i - 1];
+            const [x1, y1] = pts[i];
+            const level = x1 === x0 ? y1 : y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+            return 100 - level;
+          }
+        }
+        return 0;
+      };
+      const points = [];
+      for (let start = 0; start < total; start += this.staircaseFrames) {
+        const end = Math.min(total, start + this.staircaseFrames);
+        const level = Math.max(0, Math.min(peak, Math.round(percentAt(end) / 100 * peak / this.staircaseStep) * this.staircaseStep));
+        const y = 100 - level / peak * 100;
+        points.push(`${start / total * 100},${y}`, `${end / total * 100},${y}`);
+      }
+      points.push(`100,100`);
+      return points.join(' ');
+    },
     dotStyle(xPercent, yPercent) {
       return {left: `${xPercent}%`, top: `${100 - yPercent}%`};
     },

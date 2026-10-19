@@ -257,6 +257,12 @@ export const getCanonicalNoteRows = () => {
   return rows;
 };
 
+// The rows of the piano roll under the Hit row, for any sound that is not a percussion sound: one for each frequency
+// (AUDF 0 to 31, the highest pitch first), a note on one plays that frequency. Their keys are 'f' and the frequency, a note's midi.
+export const RAW_FREQUENCY_ROWS = Array.from({length: 32}, (_, audf) => ({midi: `f${audf}`, label: `Freq ${audf}`}));
+// The frequency a raw frequency row (or a note on it) stands for, null for any other.
+export const rawFrequencyOf = (midi) => (typeof midi === 'string' && /^f\d+$/.test(midi) ? Number(midi.slice(1)) : null);
+
 /**
  * Whether a sound plays pitched notes from the piano rows of the Music tab: not a percussion sound, and a sound type that
  * has in tune notes.
@@ -312,6 +318,8 @@ export const noteAudv = (note, soundEffect) =>
  * @return {number} The AUDF.
  */
 export const noteAudf = (note, soundEffect, tia = false) => {
+  const raw = (tia || !dpcPlusSoundConfig()) ? rawFrequencyOf(note.midi) : null;
+  if (raw !== null) return raw;
   if (!soundHasTunableNotes(soundEffect, tia) || note.midi === 'hit') return soundEffect.audf;
   const audf = audfByMidiForAudc(soundEffect.audc, tia).get(note.midi);
   return audf === undefined ? note.audf : audf;

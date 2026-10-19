@@ -510,6 +510,7 @@ import {createCroppedResizedCanvas, createResizedCanvas} from '../utils/image';
 import {parseAsepriteSheet} from '../utils/aseprite';
 import {escapeHtml} from '../utils/build-error';
 import {clampFrameDuration} from '../utils/duration';
+import {remapAnimationReferences} from '../utils/animation-refs';
 import {parseSpriteFile, resizeRowsToWidth, setAnimationWide, widthOfAnimation} from '../utils/wide-sprite';
 
 // Width of one frame editor at 100% zoom. The container is normally sized by
@@ -843,6 +844,8 @@ export default defineComponent({
     const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
         () => state.value.animations,
         (items) => {
+          // The blocks that pick an animation hold its place in the list: they follow it to the new place.
+          remapAnimationReferences(state.value.animations, items);
           state.value.animations = items;
           handleChildChange();
         },
@@ -1232,7 +1235,9 @@ export default defineComponent({
 
     const handleDeleteAnimation = (animation) => {
       const doomed = idsToDelete(animation.id, 1);
-      state.value.animations = state.value.animations.filter(({id}) => !doomed.includes(id));
+      const remaining = state.value.animations.filter(({id}) => !doomed.includes(id));
+      remapAnimationReferences(state.value.animations, remaining);
+      state.value.animations = remaining;
       if (doomed.length > 1) deselectCard();
       console.info('Deleted ', animation);
       handleChildChange();

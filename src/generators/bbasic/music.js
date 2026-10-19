@@ -10,8 +10,11 @@ import {useConfigurationStorage,
   useSoundEffectsStorage, useSongsStorage, loadMutedMusicTrackIds, loadSoloedMusicTrackIds,
   isMusicTrackMuted} from '../../hooks/project';
 import {effectiveTempo} from '../../utils/music-playback';
-import {noteAudf, noteAudv, soundHasTunableNotes} from '../../utils/music-notes';
-import {registerEnvelopeConfig, NO_ENVELOPE_SENTINEL,
+import {buildEnvelopeCurve} from '../../utils/envelope';
+import {frequencyForMidi} from '../../utils/dpc-sound';
+import {buildVolumeStaircase} from '../../utils/staircase';
+import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from '../../utils/music-notes';
+import {envelopeFlatOn, envelopeStartPosition, registerEnvelopeConfig, NO_ENVELOPE_SENTINEL, volumeLimitAsm, soundPitchValues,
   getEnvelopeConfigs} from './soundfx';
 
 // Set by generators/bbasic.js for the length of a compile in which the DPC+ music chip plays the sounds (see
@@ -37,7 +40,9 @@ const arpeggioToEvents = (event) => {
   const sequence = ARPEGGIO_PHASE_SEQUENCES[event.arpeggioRange] || ARPEGGIO_PHASE_SEQUENCES[0];
   const pitchOf = (token) => {
     const shift = (token.endsWith('A') ? event.arpeggioInterval : 0) + (token[0] === 'U' ? 12 : token[0] === 'D' ? -12 : 0);
-    return Math.min(88, Math.max(1, event.audf + shift));
+    const id = Math.min(88, Math.max(1, event.audf + shift));
+    if (dpcPlusPlan) dpcPlusPlan.useKey(id);
+    return id;
   };
   const events = [];
   let remaining = event.frames;
@@ -889,6 +894,49 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     }
   };
 
+  // A note whose instrument has a frequency sweep, a frequency envelope or a staircase volume has a pitch or volume that changes every
+  // few frames, which the note events (one pitch and one volume each) cannot say: it is written out as a run of events, one for each stretch of frames with the
+  // same pitch and volume (the volume envelope and the arpeggio too, since they are part of the same table). The same for a note of the
+  // DPC+ chip, where the pitch is an entry of the chip's frequency table.
+  const bakedFrames = (note, totalFrames) => {
+    const table = soundPitchValues({...note.bakeSound, audf: note.bakePlan ? note.tiaAudf : note.audf, duration: totalFrames}, note.bakePlan,
+        {arpeggioFrames: note.arpeggioSpeed, startHz: note.bakeStartHz}) || [];
+    // A staircase volume is the volume of each frame already.
+    const staircase = buildVolumeStaircase({...note.bakeSound, audv: note.audv, duration: totalFrames}, {loopSustain: true});
+    let curve = null;
+    if (staircase) {
+      curve = Array.from({length: totalFrames}, (_, i) => staircase[Math.min(i, staircase.length - 1)]);
+    } else if (note.envelope) {
+      curve = buildEnvelopeCurve({
+        attack: note.envelopeAttack, decay: note.envelopeDecay, decayEndPercent: note.envelopeDecayEnd,
+        sustainLength: note.envelopeSustainLength, releaseStartPercent: note.envelopeReleaseStart,
+        release: note.envelopeRelease, peakVolume: note.audv, totalFrames, loopSustain: true,
+      });
+    }
+    return Array.from({length: totalFrames}, (_, i) => ({
+      audf: table.length ? table[Math.min(i, table.length - 1)] : note.audf,
+      audv: curve ? curve[i] : note.audv,
+    }));
+  };
+  // Pushes the events of one note (or of frames offset to offset + frames of it, when another note cut it short and it carries on).
+  const pushNote = (channel, note, frames, offset = 0, totalFrames = frames) => {
+    if (!note.bakeSound) {
+      pushEvent(channel, note.audv, note.audc, note.audf, frames, note.envelope, note.arpeggioSpeed,
+          note.arpeggioInterval, note.arpeggioRange, note.notePlayedIndex, note.envelopeAttack, note.envelopeDecay,
+          note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength, note.envelopeReleaseStart);
+      return;
+    }
+    const perFrame = bakedFrames(note, totalFrames).slice(offset, offset + frames);
+    let notePlayedIndex = offset === 0 ? note.notePlayedIndex : 0;
+    for (let i = 0; i < perFrame.length;) {
+      let end = i + 1;
+      while (end < perFrame.length && perFrame[end].audv === perFrame[i].audv && perFrame[end].audf === perFrame[i].audf) end++;
+      pushEvent(channel, perFrame[i].audv, note.audc, perFrame[i].audf, end - i, false, 0, 0, 0, notePlayedIndex);
+      notePlayedIndex = 0;
+      i = end;
+    }
+  };
+
   const tempo = effectiveTempo(song, pattern);
   // Two steps per beat, LENGTH_UNITS_PER_STEP fine units per step - same
   // math as music-playback.js's stepSeconds/unitSeconds, converted to
@@ -939,8 +987,14 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     const notePlayedIndex = notePlayedIndexById.get(`${soundEffect.id}`) || 0;
     (track.notes || []).forEach((note) => {
       // A hit plays at the pitch of the sound itself.
-      const audf = !isTunable || note.midi === 'hit' ?
-        (chipPlan ? chipPlan.pitchIdForSound(soundEffect) : soundEffect.audf) : noteAudf(note, soundEffect, !chipPlan);
+      // A note on a raw frequency row (a sound type with no in-tune notes) plays that frequency; not on the DPC+ chip.
+      // On the DPC+ chip it is the pitch the TIA has for that frequency number with the instrument's sound type.
+      const rawFrequency = rawFrequencyOf(note.midi);
+      const audf = rawFrequency !== null ? (chipPlan ? chipPlan.pitchIdForTia(soundEffect.audc, rawFrequency) : rawFrequency) :
+        !isTunable || note.midi === 'hit' ?
+          (chipPlan ? chipPlan.pitchIdForSound(soundEffect) : soundEffect.audf) : noteAudf(note, soundEffect, !chipPlan);
+      // (A note of the chip on a piano key is that key's place in the frequency table.)
+      if (chipPlan && rawFrequency === null && isTunable && note.midi !== 'hit') chipPlan.useKey(audf);
       // Per-note override (see the Music tab's  piano-roll volume row),
       // falling back to the instrument's  preset - same DIM-scaling as
       // before, just applied to whichever value is actually in effect for
@@ -956,7 +1010,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         audv,
         audc: chipPlan ? chipPlan.waveIdForSound(soundEffect) : soundEffect.audc,
         audf,
-        envelope: !!soundEffect.envelope,
+        envelope: !!soundEffect.envelope && !soundEffect.staircase,
         envelopeAttack: soundEffect.envelopeAttack,
         envelopeDecay: soundEffect.envelopeDecay,
         envelopeDecayEnd: soundEffect.envelopeDecayEnd,
@@ -967,6 +1021,14 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         arpeggioInterval,
         arpeggioRange,
         notePlayedIndex,
+        // The instrument, for a note whose pitch changes while it plays (see bakedFrames).
+        bakeSound: soundEffect.sweep || soundEffect.pitchEnvelope || (soundEffect.envelope && soundEffect.staircase) ? soundEffect : null,
+        // For a note of the DPC+ chip: its plan, and the frequency of the piano key the note is on (a hit plays at the sound's frequency).
+        bakePlan: chipPlan,
+        bakeStartHz: chipPlan && rawFrequency !== null ? chipPlan.tiaFrequency(soundEffect.audc, rawFrequency) :
+          chipPlan && isTunable && note.midi !== 'hit' ? frequencyForMidi(note.midi) : null,
+        // The frequency number the sound's pitch starts from, for a sweep that follows the Standard pitches (see dpcFollowsStandardPitch).
+        tiaAudf: rawFrequency !== null ? rawFrequency : soundEffect.audf,
         // Only meaningful for a note that actually ends up overlapping
         // another one (see the overlap-resolution pass below) - canPlaceNoteAt
         // in MusicEditor.vue lets any instrument, tunable or noise, land on
@@ -992,7 +1054,6 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       const startFrames = Math.round(note.startUnits * framesPerUnit);
       const lengthFrames = Math.max(1, Math.round(note.lengthUnits * framesPerUnit));
       const overlapsOpenNote = openNote && startFrames < openNote.endFrames;
-
       // Lower Priority (see the Sound tab's  field, only shown for a
       // noise instrument) than whatever's already sounding - dropped
       // entirely, openNote keeps playing straight through uninterrupted.
@@ -1012,6 +1073,30 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       // for whatever's left of its  original duration - three plain
       // consecutive events on this channel's one linear timeline, no dev
       // var or runtime resume check needed at all.
+      // A note whose pitch changes is a run of events, so it is cut by taking them out and writing the part before the new note, the new
+      // note, and the part after it again from the note's frames.
+      if (overlapsOpenNote && openNote.note.bakeSound) {
+        const bg = openNote.note;
+        perChannel[channel].splice(openNote.eventIndex, openNote.eventCount);
+        if (startFrames > openNote.startFrames) {
+          pushNote(channel, bg, startFrames - openNote.startFrames, openNote.startFrames - openNote.noteStart, openNote.noteFrames);
+        }
+        pushNote(channel, note, lengthFrames);
+        const tailFrames = openNote.endFrames - (startFrames + lengthFrames);
+        if (tailFrames > 0) {
+          const eventIndex = perChannel[channel].length;
+          pushNote(channel, bg, tailFrames, startFrames + lengthFrames - openNote.noteStart, openNote.noteFrames);
+          openNote = {
+            ...openNote, event: perChannel[channel][perChannel[channel].length - 1], startFrames: startFrames + lengthFrames,
+            eventIndex, eventCount: perChannel[channel].length - eventIndex,
+          };
+        } else {
+          cursorFrames = Math.max(cursorFrames, startFrames + lengthFrames);
+          openNote = null;
+        }
+        return;
+      }
+
       if (overlapsOpenNote) {
         const hasTail = openNote.endFrames > startFrames + lengthFrames;
         openNote.event.frames = startFrames - openNote.startFrames;
@@ -1028,16 +1113,10 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
           // last piece once a tail follows.
           openNote.event.envelope = false;
         }
-        pushEvent(channel, note.audv, note.audc, note.audf, lengthFrames, note.envelope, note.arpeggioSpeed,
-            note.arpeggioInterval, note.arpeggioRange, note.notePlayedIndex, note.envelopeAttack,
-            note.envelopeDecay, note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength,
-            note.envelopeReleaseStart);
+        pushNote(channel, note, lengthFrames);
         if (hasTail) {
           const bg = openNote.note;
-          pushEvent(channel, bg.audv, bg.audc, bg.audf, openNote.endFrames - (startFrames + lengthFrames),
-              bg.envelope, bg.arpeggioSpeed, bg.arpeggioInterval, bg.arpeggioRange, bg.notePlayedIndex,
-              bg.envelopeAttack, bg.envelopeDecay, bg.envelopeDecayEnd, bg.envelopeRelease, bg.envelopeSustainLength,
-              bg.envelopeReleaseStart);
+          pushNote(channel, bg, openNote.endFrames - (startFrames + lengthFrames), 0, openNote.endFrames - (startFrames + lengthFrames));
           openNote = {
             event: perChannel[channel][perChannel[channel].length - 1], note: bg,
             startFrames: startFrames + lengthFrames, endFrames: openNote.endFrames,
@@ -1059,12 +1138,15 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       // there to register this shape (scoped to this event's  length and
       // peak volume) into the shared envelope-config pool and emit an
       // ENVELOPE_CHANGE_SENTINEL marker when it actually changes.
-      pushEvent(channel, note.audv, note.audc, note.audf, lengthFrames, note.envelope, note.arpeggioSpeed,
-          note.arpeggioInterval, note.arpeggioRange, note.notePlayedIndex, note.envelopeAttack, note.envelopeDecay,
-          note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength, note.envelopeReleaseStart);
+      const eventIndex = perChannel[channel].length;
+      pushNote(channel, note, lengthFrames);
       cursorFrames = startFrames + lengthFrames;
       openNote = note.audv > 0 ?
-        {event: perChannel[channel][perChannel[channel].length - 1], note, startFrames, endFrames: cursorFrames} :
+        {
+          event: perChannel[channel][perChannel[channel].length - 1], note, startFrames, endFrames: cursorFrames,
+          // Where the note starts, how long it is, and which events of the channel are its (a note whose pitch changes is several).
+          noteStart: startFrames, noteFrames: lengthFrames, eventIndex, eventCount: perChannel[channel].length - eventIndex,
+        } :
         null;
     });
 
@@ -2404,7 +2486,7 @@ export default (Blockly) => {
     const anyChannelHasEnvelope = Object.values(music.channelHasEnvelope || {}).some(Boolean);
     const envelopeAdLenTable = anyChannelHasEnvelope ? (() => {
       const configs = getEnvelopeConfigs();
-      const rows = chunk(configs.map(({envelopeLength}) => envelopeLength), 16)
+      const rows = chunk(configs.map((config) => (envelopeFlatOn() ? envelopeStartPosition(config) : config.envelopeLength)), 16)
           .map((row) => '  ' + row.join(', '));
       return tableComment('Attack+decay+sustain+release frame length per envelope config, indexed by an ' +
         'ENVELOPE_CHANGE_SENTINEL marker\'s byte - see buildEnvelopeMarkerSubroutine') +
@@ -2492,6 +2574,18 @@ export default (Blockly) => {
   // never a page/table boundary hazard (ROM continues sequentially past any
   // table's  last byte either way, so index+1 always resolves to SOME
   // real byte, just an unused one on a single-byte peek).
+  // temp1 and temp2 are the bytes of a table at the index and the one after it: as asm that is 13 bytes where the bB statements are
+  // about 22.
+  const readPairAsm = (table, indexExpr) => [
+    ' asm',
+    `       ldx ${indexExpr}`,
+    `       lda ${table},x`,
+    '       sta temp1',
+    '       inx',
+    `       lda ${table},x`,
+    '       sta temp2',
+    'end',
+  ];
   const buildPageDispatchSubroutine = (channel, tables, pageVar) => {
     if (tables.length <= 1) return null;
     const doneLabel = `_musicpr${channel}_done`;
@@ -2501,15 +2595,11 @@ export default (Blockly) => {
       if (!isLast) {
         const nextLabel = `_musicpr${channel}_p${page + 1}`;
         lines.push(` if ${pageVar} <> ${page} then goto ${nextLabel}`);
-        lines.push(` temp3 = temp1 + 1`);
-        lines.push(` temp2 = ${table}[temp3]`);
-        lines.push(` temp1 = ${table}[temp1]`);
+        lines.push(...readPairAsm(table, 'temp1'));
         lines.push(` goto ${doneLabel}`);
         lines.push(nextLabel);
       } else {
-        lines.push(` temp3 = temp1 + 1`);
-        lines.push(` temp2 = ${table}[temp3]`);
-        lines.push(` temp1 = ${table}[temp1]`);
+        lines.push(...readPairAsm(table, 'temp1'));
       }
     });
     lines.push(doneLabel);
@@ -2528,11 +2618,7 @@ export default (Blockly) => {
   // separate code path for single- vs multi-page channels.
   const pagedReadLines = (tables, pageVar, indexExpr, channel) => {
     if (tables.length === 1) {
-      return [
-        ` temp3 = ${indexExpr} + 1`,
-        ` temp2 = ${tables[0]}[temp3]`,
-        ` temp1 = ${tables[0]}[${indexExpr}]`,
-      ];
+      return readPairAsm(tables[0], indexExpr);
     }
     return [
       ...(indexExpr === 'temp1' ? [] : [` temp1 = ${indexExpr}`]),
@@ -2774,6 +2860,10 @@ export default (Blockly) => {
       const indexPair = resolveRW(musicIndexVarName(channel));
       const indexVar = indexPair.read;
       const indexVarWrite = indexPair.write;
+      // The index moves on by 1 or 2: INC is 2 bytes and 5 cycles where the batari Basic addition is 7 bytes (not possible where the
+      // read and write names differ, under Superchip RAM).
+      const advanceIndex = (count) => (indexVar === indexVarWrite ?
+        [' asm', ...Array(count).fill(`       inc ${indexVar}`), 'end'].join('\n') : `${indexVarWrite} = ${indexVar} + ${count}`);
       const timerVar = resolveVar(musicTimerVarName(channel));
       const activeBit = activeBitByChannel[channel];
       // Only meaningful once the project actually has some instrument to
@@ -2801,16 +2891,6 @@ export default (Blockly) => {
       // as-is straight from the fetched byte, no packing math needed.
       const hasArpeggio = music.channelHasArpeggio[channel];
       const hasEnvelope = music.channelHasEnvelope[channel];
-      if (hasArpeggio) Blockly.BBasic.usesDivMul = true;
-      // Channel 1's  envelope-config nibble pack (see
-      // buildEnvelopeMarkerSubroutine below) needs a genuine runtime
-      // multiply-by-16 - the config index isn't known until the marker's
-      // byte is actually read, unlike soundfx_play's equivalent (which
-      // already knows its  configIndex at compile time, so never needs
-      // this). Channel 0 packs into the low nibble instead (plain add, no
-      // multiply needed), same asymmetry soundfx.js's  packing already
-      // has.
-      if (hasEnvelope && (channel === '1' || channel === '3')) Blockly.BBasic.usesDivMul = true;
       const arpSpeedRangeVar = hasArpeggio ? resolveVar(musicArpSpeedRangeVarName(channel)) : null;
       const arpCounterPhaseVar = hasArpeggio ? resolveVar(musicArpCounterPhaseVarName(channel)) : null;
       const arpBaseIntervalVar = hasArpeggio ? resolveVar(musicArpBaseIntervalVarName(channel)) : null;
@@ -2853,6 +2933,14 @@ export default (Blockly) => {
       // this only skips the wasted runtime branch, not anything that would
       // leave durationVar unresolved.
       const hasSoundEffectDuration = music.channelHasSoundEffectDuration[channel];
+      // The note's volume (in temp1, which it leaves as it is) written to the channel: held to the loudest volume a "Set max sound
+      // volume" block allows when the project has one.
+      const volumeWrite = (tag) => !Blockly.BBasic.soundMaxVolumeUsed ? ` AUDV${channel} = temp1` : [
+        ' asm', '       lda temp1',
+        ...volumeLimitAsm(Blockly.BBasic.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE),
+            `_musicvol${channel}_${tag}`),
+        `       stx AUDV${channel}`, 'end',
+      ].join('\n');
       const suppressibleWrite = (tag, line) => !hasSoundEffectDuration ? [line] : [
         ` if ${durationVar} <> 0 then goto _musicsup${channel}_${tag}_skip`,
         line,
@@ -2896,7 +2984,7 @@ export default (Blockly) => {
       // don't need the bit at all.
       const durationReadPlain = [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         hasEnvelope ? ` ${timerVar} = temp1 & 127` : ` ${timerVar} = temp1`,
       ];
       // arpSpeedRangeVar's speed nibble was already set (if this channel's
@@ -2917,7 +3005,7 @@ export default (Blockly) => {
         // a second pagedReadLines dispatch isn't needed here. Still has to
         // advance past this byte's  position, same as before.
         ` temp1 = temp4`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ` if ${arpSpeedRangeVar} = 0 then goto _music${channel}_dur_noarp`,
         ` ${timerVar} = temp1 & 15`,
         ` temp2 = temp1 & 112`,
@@ -2951,9 +3039,9 @@ export default (Blockly) => {
       const buildInstrumentMarkerSubroutine = () => !lastAudcVar ? null : [
         instrumentMarkerLabel,
         ` if temp1 <> ${INSTRUMENT_CHANGE_SENTINEL} then goto ${instrumentMarkerLabel}_done`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ` temp1 = ${musicInstrumentTableName()}[temp1]`,
         ` ${lastAudcVarWrite} = temp1`,
         // This instrument's  arpeggio speed lives in the SAME shared byte
@@ -3005,40 +3093,25 @@ export default (Blockly) => {
       // same way soundfx_play's  generator already does, rather than
       // through resolveVar/nameDB_ (which is only for the reserved-letter
       // pool).
-      // Channels 0 and 1 keep their envelope config in one byte (low and high nibble), channels 2 and 3 in another.
-      const envelopeConfigVar = Number(channel) >= 2 ? 'envelopeConfigB' : 'envelopeConfig';
-      const envelopeHighNibble = channel === '1' || channel === '3';
+      // The number of the shape the channel plays is a separate variable (255 for no envelope), like the countdown.
+      const flatEnvelopes = envelopeFlatOn();
+      const envelopeConfigVar = hasEnvelope && !flatEnvelopes ? resolveVar(`envelopeConfig${channel}`) : null;
       const envelopeStageVar = hasEnvelope ? resolveVar(`envelopeStage${channel}`) : null;
       const envelopeMarkerLabel = `_music${channel}_skipenv`;
       const skipEnvelopeMarkers = hasEnvelope ? [` gosub ${envelopeMarkerLabel}`] : [];
       const buildEnvelopeMarkerSubroutine = () => !hasEnvelope ? null : [
         envelopeMarkerLabel,
         ` if temp1 <> ${ENVELOPE_CHANGE_SENTINEL} then goto ${envelopeMarkerLabel}_done`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ` if temp1 <> ${NO_ENVELOPE_SENTINEL} then goto ${envelopeMarkerLabel}_on`,
-        // "Off": both the sentinel value packed in and 0 are compile-time
-        // constants here, so no runtime multiply is needed even on channel
-        // 1 - only the "real config" branch below needs one.
-        envelopeHighNibble ?
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} & 15` :
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} & 240`,
-        envelopeHighNibble ?
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} + ${NO_ENVELOPE_SENTINEL * 16}` :
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} + ${NO_ENVELOPE_SENTINEL}`,
+        ...(flatEnvelopes ? [] : [` ${envelopeConfigVar} = ${NO_ENVELOPE_SENTINEL}`]),
         ` ${envelopeStageVar} = 0`,
         ` goto ${envelopeMarkerLabel}_applied`,
         `${envelopeMarkerLabel}_on`,
         ` ${envelopeStageVar} = _envelopeAdLen[temp1]`,
-        ...(envelopeHighNibble ? [
-          ` temp2 = temp1 * 16`,
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} & 15`,
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} + temp2`,
-        ] : [
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} & 240`,
-          ` ${envelopeConfigVar} = ${envelopeConfigVar} + temp1`,
-        ]),
+        ...(flatEnvelopes ? [] : [` ${envelopeConfigVar} = temp1`]),
         `${envelopeMarkerLabel}_applied`,
         ...pagedReadLines(tables, pageVar, indexVar, channel),
         ` goto ${envelopeMarkerLabel}`,
@@ -3072,7 +3145,7 @@ export default (Blockly) => {
       // would emit that same label twice and fail to assemble.
       const audfReadPlain = [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         ...suppressibleWrite('audfplain', ` AUDF${channel} = temp1`),
       ];
       // Combines audfReadPlain + durationReadPlain into a single dispatch -
@@ -3087,13 +3160,13 @@ export default (Blockly) => {
       // single combined dispatch can't shortcut.
       const audfAndDurationReadPlain = [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 2`,
+        ` ${advanceIndex(2)}`,
         ...suppressibleWrite('audfplain', ` AUDF${channel} = temp1`),
         hasEnvelope ? ` ${timerVar} = temp2 & 127` : ` ${timerVar} = temp2`,
       ];
       const audfRead = hasArpeggio ? [
         ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${indexVarWrite} = ${indexVar} + 1`,
+        ` ${advanceIndex(1)}`,
         // pagedReadLines'  temp2 (see its comment) already holds the
         // duration byte that immediately follows this AUDF byte in the note
         // record - stashed into temp4 (otherwise unused anywhere in this
@@ -3177,15 +3250,26 @@ export default (Blockly) => {
         // below) and arpCounterPhaseVar's  high nibble (so the clamp
         // actually persists into the NEXT flip's "combined / 16" read,
         // matching the old single persistent var's  behavior exactly).
+        // A run of "is it this value" tests on one variable as assembly: the variable is loaded once, and each test is a compare and a branch
+        // over a jump (which reaches any label). The labels of bB statements are written with the dot bB gives them.
+        const dispatchAsm = (variable, pairs, otherwise) => [
+          ' asm',
+          `       lda ${variable}`,
+          ...pairs.flatMap(([value, label]) => [
+            `       cmp #${value}`, `       bne ${label}_nx`, `       jmp .${label}`, `${label}_nx`,
+          ]),
+          `       jmp .${otherwise}`,
+          'end',
+        ];
         const rangeBlocks = ARPEGGIO_PHASE_SEQUENCES.flatMap((sequence, rangeIndex) => {
-          const phaseChecks = [];
+          const phasePairs = [];
           const phaseBlocks = [];
           const rangeLabel = `_music${channel}_arp_range${rangeIndex}`;
           const resetLabel = `${rangeLabel}_phasereset`;
           const okLabel = `${rangeLabel}_phaseok`;
           sequence.forEach((token, phaseIndex) => {
             const label = `_music${channel}_arp_r${rangeIndex}p${phaseIndex}`;
-            phaseChecks.push(` if temp1 = ${phaseIndex} then goto ${label}`);
+            phasePairs.push([phaseIndex, label]);
             phaseBlocks.push(label, ...computeLines(token, `arpr${rangeIndex}p${phaseIndex}`), ` goto _music${channel}_arp_skip`);
           });
           return [
@@ -3196,8 +3280,7 @@ export default (Blockly) => {
             ` temp1 = 0`,
             ` ${arpCounterPhaseVar} = ${arpCounterPhaseVar} & 15`,
             okLabel,
-            ...phaseChecks,
-            ` goto _music${channel}_arp_skip`,
+            ...dispatchAsm('temp1', phasePairs, `_music${channel}_arp_skip`),
             ...phaseBlocks,
           ];
         });
@@ -3205,10 +3288,9 @@ export default (Blockly) => {
         // comment) - extracted into temp2 right here, only on the rare
         // frame a flip actually happens, right before the dispatch that's
         // the only thing that needs it.
-        const rangeDispatch = ARPEGGIO_PHASE_SEQUENCES.map((_, rangeIndex) =>
-          rangeIndex === ARPEGGIO_PHASE_SEQUENCES.length - 1 ?
-            ` goto _music${channel}_arp_range${rangeIndex}` :
-            ` if temp2 = ${rangeIndex} then goto _music${channel}_arp_range${rangeIndex}`);
+        const rangeDispatch = dispatchAsm('temp2',
+            ARPEGGIO_PHASE_SEQUENCES.slice(0, -1).map((_, rangeIndex) => [rangeIndex, `_music${channel}_arp_range${rangeIndex}`]),
+            `_music${channel}_arp_range${ARPEGGIO_PHASE_SEQUENCES.length - 1}`);
         return [
           // Suppressed (skipped entirely, counters included) for as long as
           // a sound effect sharing this channel owns its hardware output -
@@ -3221,52 +3303,50 @@ export default (Blockly) => {
           // first place - a raw check here, not routed through
           // suppressibleWrite itself, so it needed its  explicit gate to
           // stop paying for it too.
-          ...(hasSoundEffectDuration ? [` if ${durationVar} <> 0 then goto _music${channel}_arp_skip`] : []),
-          // Only reaches the range/phase dispatch (which writes AUDF) on the
-          // exact frame the flip actually happens - on every other frame
-          // it's skipped outright rather than redundantly re-writing AUDF to
-          // the same value it already holds (TIA keeps whatever was last
-          // written, so there's nothing to refresh). Skipped outright once
-          // the timer's already at 0 too - that's the exact condition about
-          // to trigger a brand new fetch a few lines below, which sets this
-          // channel's real AUDF for the note that's actually about to be
-          // heard; a flip landing on that same frame would otherwise tick
-          // the OLD (dying) note's counter/phase one last time and write ITS
-          // stale AUDF moments before the fetch's  write reaches it too -
-          // an audible, out-of-place pitch blip right at the note boundary.
-          ` if ${timerVar} = 0 then goto _music${channel}_arp_skip`,
-          // Stashed into temp3 (free for the whole rest of this block - see
-          // below) instead of reading arpSpeedRangeVar 3 separate times
-          // (this gate, plus the speed/range nibble extractions further
-          // down) - this gate alone runs every single frame this channel's
-          // arpeggio ticks, not just on the rare flip frame the other two
-          // reads are gated behind, so caching it here removes 2 real RAM
-          // reads from the common case, not just the rare one.
-          ` temp3 = ${arpSpeedRangeVar}`,
-          ` if temp3 = 0 then goto _music${channel}_arp_skip`,
-          // Counter lives in the low nibble (see musicArpCounterPhaseVarName's
-          // comment) - a plain "-1" on the whole packed byte only ever
-          // touches that nibble here, since counter is never 0 going into
-          // this decrement (refilled to a nonzero value the instant it
-          // reaches 0, right below), so it never borrows into phase's
-          // high nibble.
-          ` ${arpCounterPhaseVar} = ${arpCounterPhaseVar} - 1`,
-          ` temp1 = ${arpCounterPhaseVar} & 15`,
-          ` if temp1 <> 0 then goto _music${channel}_arp_skip`,
-          // Refilled from this note's  speed nibble (see audfRead's
-          // identical reasoning) - computed before phase, so temp2 (the new
-          // counter) survives untouched while temp1 works out the new
-          // (shifted) phase byte just below.
-          ` temp2 = temp3 & 15`,
-          ` temp1 = ${arpCounterPhaseVar} / 16`,
-          ` temp1 = temp1 + 1`,
-          ` temp1 = temp1 * 16`,
-          ` ${arpCounterPhaseVar} = temp1 + temp2`,
-          // Re-derived as the plain (unshifted) value for rangeBlocks'
-          // phaseChecks below, which compare it directly against each
-          // sequence's  0-based phase index.
-          ` temp1 = ${arpCounterPhaseVar} / 16`,
-          ` temp2 = temp3 / 16`,
+          // The counter and phase tick as assembly (about 55 bytes where the bB statements were about 110, with a multiply routine
+          // call on each flip): temp3 is the speed and range byte, then temp1 the plain phase and temp2 the range for the dispatch below.
+          ' asm',
+          ...(hasSoundEffectDuration ? [
+            `       lda ${durationVar}`,
+            `       beq _music${channel}_arpa_dur`,
+            `       jmp ._music${channel}_arp_skip`,
+            `_music${channel}_arpa_dur`,
+          ] : []),
+          `       lda ${timerVar}`,
+          `       bne _music${channel}_arpa_timer`,
+          `       jmp ._music${channel}_arp_skip`,
+          `_music${channel}_arpa_timer`,
+          `       lda ${arpSpeedRangeVar}`,
+          '       sta temp3',
+          `       bne _music${channel}_arpa_speed`,
+          `       jmp ._music${channel}_arp_skip`,
+          `_music${channel}_arpa_speed`,
+          `       dec ${arpCounterPhaseVar}`,
+          `       lda ${arpCounterPhaseVar}`,
+          '       and #15',
+          `       beq _music${channel}_arpa_flip`,
+          `       jmp ._music${channel}_arp_skip`,
+          `_music${channel}_arpa_flip`,
+          '       lda temp3',
+          '       and #15',
+          '       sta temp2',
+          `       lda ${arpCounterPhaseVar}`,
+          '       clc',
+          '       adc #16',
+          '       ora temp2',
+          `       sta ${arpCounterPhaseVar}`,
+          '       lsr',
+          '       lsr',
+          '       lsr',
+          '       lsr',
+          '       sta temp1',
+          '       lda temp3',
+          '       lsr',
+          '       lsr',
+          '       lsr',
+          '       lsr',
+          '       sta temp2',
+          'end',
           ...rangeDispatch,
           ...rangeBlocks,
           `_music${channel}_arp_skip`,
@@ -3378,10 +3458,10 @@ export default (Blockly) => {
       // underflow wrapping the read index to 253+ (now genuinely reachable
       // math - see INSTRUMENT_CHANGE_SENTINEL's  value - not just a
       // theoretical concern this guard was already cheap insurance against).
-      const resumeRead = (offset, targetVar) => [
+      const resumeRead = (offset, targetVar, writeLine = ` ${targetVar} = temp1`) => [
         ` temp1 = ${indexVar} - ${offset}`,
         ...pagedReadLines(tables, pageVar, 'temp1', channel),
-        ` ${targetVar} = temp1`,
+        writeLine,
       ];
       // A pure no-op (nothing at all, not even the cheap-looking guard
       // checks) when this channel never shares hardware with a "Play
@@ -3395,7 +3475,7 @@ export default (Blockly) => {
         ` if ${durationVar} <> 1 then goto _musicresume${channel}_skip`,
         ` if !${activeBit} then goto _musicresume${channel}_skip`,
         ` if ${indexVar} < 3 then goto _musicresume${channel}_skip`,
-        ...resumeRead(3, `AUDV${channel}`),
+        ...resumeRead(3, `AUDV${channel}`, volumeWrite('resume')),
         ...(lastAudcVar ? [` AUDC${channel} = ${lastAudcVar}`] : []),
         ...resumeRead(2, `AUDF${channel}`),
         `_musicresume${channel}_skip`,
@@ -3421,20 +3501,16 @@ export default (Blockly) => {
       // it as genuinely undefined instead. Fixed by referencing the SAME
       // dot-prefixed local name ("._music{channel}_skip") bB itself already
       // generates for that label, rather than avoiding the jump.
-      const pausedMask = `$${(1 << musicPausedBit).toString(16).toUpperCase()}`;
       const activeMask = `$${(1 << musicChannelActiveBit(channel)).toString(16).toUpperCase()}`;
+      const bothMask = `$${((1 << musicPausedBit) | (1 << musicChannelActiveBit(channel))).toString(16).toUpperCase()}`;
       const channelBody = [
         ...resumeCheck,
         ' asm',
+        // Not paused and active in one test: of the two bits only the active one may be set.
         '       lda ' + flagsVar,
-        '       tax',
-        '       and #' + pausedMask,
-        '       beq _music' + channel + '_hp_notpaused',
-        '       jmp ._music' + channel + '_skip',
-        '_music' + channel + '_hp_notpaused',
-        '       txa',
-        '       and #' + activeMask,
-        '       bne _music' + channel + '_hp_active',
+        '       and #' + bothMask,
+        '       cmp #' + activeMask,
+        '       beq _music' + channel + '_hp_active',
         '       jmp ._music' + channel + '_skip',
         '_music' + channel + '_hp_active',
         '       dec ' + timerVar,
@@ -3623,8 +3699,8 @@ export default (Blockly) => {
         ...skipInstrumentMarkers,
         ...skipEnvelopeMarkers,
         `_music${channel}_read`,
-        ` ${indexVarWrite} = ${indexVar} + 1`,
-        ...suppressibleWrite('audvfetch', ` AUDV${channel} = temp1`),
+        ` ${advanceIndex(1)}`,
+        ...suppressibleWrite('audvfetch', volumeWrite('fetch')),
         // Every watched "note played" instrument's  set-flag check (see
         // notePlayedSetLines above, including why this is a masked compare
         // rather than a division) - temp1 still holds the just-fetched AUDV

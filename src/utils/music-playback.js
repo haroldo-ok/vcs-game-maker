@@ -16,9 +16,11 @@ import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../bl
 import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
 import {useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
-import {noteAudf, noteAudv, soundHasTunableNotes} from './music-notes';
+import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from './music-notes';
 import {channelUsesTia, dpcPlusFor, playDpcPlusSound} from './dpc-preview';
 import {buildEnvelopeCurve} from './envelope';
+import {buildPitchTable, buildDpcPitchOffsets} from './pitch-table';
+import {buildVolumeStaircase} from './staircase';
 
 // The AudioContext is shared with the Sound tab's preview (utils/sound-preview.js).
 
@@ -131,10 +133,10 @@ const arpeggioPitchVariants = (audf, arpeggioInterval) => {
 const CLICK_GUARD_SECONDS = 0.002;
 const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope, envelopeAttack,
   envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength, envelopeRelease, dimMultiplier = 1,
-  destination = getMasterDestination(context)}) => {
+  destination = getMasterDestination(context), volumeCurve = null}) => {
   const gainNode = context.createGain();
   let endValue;
-  if (envelope) {
+  if (envelope || volumeCurve) {
     const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
     // loopSustain: true - this is the Music tab's note preview (see this
     // file's playInstrumentHit), where a note longer than its instrument's
@@ -142,7 +144,8 @@ const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope,
     // (see utils/envelope.js's comment on clampEnvelopeStages for why
     // that's Music-only, not shared with the Sound tab's previewSoundEffect
     // in utils/sound-preview.js).
-    const curve = buildEnvelopeCurve({
+    // volumeCurve: the volume of each frame, for a staircase volume (see utils/staircase.js).
+    const curve = volumeCurve || buildEnvelopeCurve({
       attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd,
       releaseStartPercent: envelopeReleaseStart, sustainLength: envelopeSustainLength, release: envelopeRelease,
       peakVolume, totalFrames, loopSustain: true,
@@ -312,13 +315,16 @@ const buildBufferCached = (context, approximation, chipClockHz, seconds) => {
 // @return {Array<AudioNode>} Every source scheduled (usually one, but an
 //     arpeggiating buffer-based hit schedules several short back-to-back
 //     segments instead - see below).
+// pitchTable: the pitch (AUDF) of each frame of the hit, for an instrument with a frequency sweep or frequency envelope (see
+// utils/pitch-table.js); it takes the place of audf and of the arpeggio, which is part of it.
 const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime,
   seconds, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength,
-  envelopeRelease, dimMultiplier = 1, destination, dpcPlus = null}) => {
+  envelopeRelease, dimMultiplier = 1, destination, dpcPlus = null, pitchTable = null, volumeCurve = null}) => {
   // The DPC+ sound chip plays it, so it is rebuilt the way the chip does (see utils/dpc-preview.js).
   if (dpcPlus) {
     const {source} = playDpcPlusSound(context, {sound: dpcPlus.sound, frequency: dpcPlus.frequency, volume: audv, seconds,
-      startTime, destination, loopSustain: true, dimMultiplier, arpeggioSpeed, arpeggioInterval, arpeggioRange});
+      startTime, destination, loopSustain: true, dimMultiplier, arpeggioSpeed, arpeggioInterval, arpeggioRange,
+      pitchOffsets: pitchTable, volumeCurve});
     pruneOnEnded(source);
     return [source];
   }
@@ -328,10 +334,34 @@ const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioIn
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
   const gainNode = buildGain(context, {peakGain, peakVolume: audv, startTime, seconds, envelope,
     envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength, envelopeRelease,
-    dimMultiplier, destination});
+    dimMultiplier, destination, volumeCurve});
 
   const buildBuffer = (chipClockHz, segmentSeconds) =>
     buildBufferCached(context, approximation, chipClockHz, segmentSeconds);
+
+  if (pitchTable && pitchTable.length) {
+    const sources = [];
+    const nodes = [gainNode];
+    for (let frame = 0; frame < pitchTable.length;) {
+      let end = frame + 1;
+      while (end < pitchTable.length && pitchTable[end] === pitchTable[frame]) end++;
+      const t = startTime + frame / FRAMES_PER_SECOND;
+      const segmentSeconds = Math.min((end - frame) / FRAMES_PER_SECOND, startTime + seconds - t);
+      if (segmentSeconds > 0) {
+        const source = context.createBufferSource();
+        source.buffer = buildBuffer(shiftClockFor(pitchTable[frame], {slowClock: approximation.slowClock}), segmentSeconds);
+        const edgeGain = connectWithEdgeFade(context, source, gainNode, t, segmentSeconds);
+        if (edgeGain) nodes.push(edgeGain);
+        source.start(t);
+        source.stop(t + segmentSeconds);
+        pruneOnEnded(source);
+        sources.push(source);
+      }
+      frame = end;
+    }
+    disconnectWhenAllEnded(sources, nodes);
+    return sources;
+  }
 
   if (!arpeggioSpeed) {
     const source = context.createBufferSource();
@@ -541,7 +571,9 @@ export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision
   // only happened on this instant single-note preview (click-to-place/
   // drag), never during pattern/song playback, which already had this lead-in.
   const startTime = context.currentTime + 0.05;
-  const seconds = 0.18;
+  // An instrument whose pitch changes (a sweep or a frequency envelope) is previewed for longer, to hear it change.
+  const changesPitch = !!soundEffect && !!(soundEffect.sweep || soundEffect.pitchEnvelope);
+  const seconds = changesPitch ? 0.5 : 0.18;
 
   // Same tempo-relative-to-frames conversion playPattern/playSequence use
   // for the exact same fields (see their  comment on arpeggioSpeed) - a
@@ -554,8 +586,16 @@ export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision
   const resolvedArpeggioInterval = arpeggio ? Number(arpeggioInterval) || 0 : 0;
   const resolvedArpeggioRange = arpeggio ? Number(arpeggioRange) || 0 : 0;
 
+  const dpcPlus = soundEffect && !tia ? dpcPlusFor(soundEffect, midi) : null;
+  // The pitch of each frame, as it plays in a song (see schedulePattern).
+  const frames = Math.round(seconds * FRAMES_PER_SECOND);
+  const pitchTable = !changesPitch ? null : dpcPlus ?
+    buildDpcPitchOffsets({...soundEffect, ...(dpcPlus.tiaAudf !== undefined ? {audf: dpcPlus.tiaAudf} : {}), duration: frames},
+        dpcPlus.frequency, {arpeggioFrames: arpeggioSpeed}) :
+    buildPitchTable({...soundEffect, audf, duration: frames}, {arpeggioFrames: arpeggioSpeed});
+
   playInstrumentHit(context, {
-    audc, audf, audv, startTime, seconds, dimMultiplier, dpcPlus: soundEffect && !tia ? dpcPlusFor(soundEffect, midi) : null,
+    audc, audf, audv, startTime, seconds, dimMultiplier, dpcPlus, pitchTable,
     arpeggioSpeed, arpeggioInterval: resolvedArpeggioInterval, arpeggioRange: resolvedArpeggioRange,
   });
 };
@@ -683,7 +723,9 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       // clipped by schedule() below.
       if (note.step + note.length <= startUnits) return;
       maxEndUnits = Math.max(maxEndUnits, note.step + note.length);
-      const audf = isTunable && note.midi !== 'hit' ? noteAudf(note, soundEffect, tiaTrack) : soundEffect.audf;
+      // A note on a raw frequency row plays that frequency (noteAudf knows it); the DPC+ chip has no such rows.
+      const audf = (isTunable && note.midi !== 'hit') || (rawFrequencyOf(note.midi) !== null && (tiaTrack || !dpcPlusFor(soundEffect, note.midi))) ?
+        noteAudf(note, soundEffect, tiaTrack) : soundEffect.audf;
       // Per-note override (see the Music tab's  piano-roll volume row),
       // falling back to the instrument's  preset. DIM is applied as a
       // continuous gain multiplier (see playInstrumentHit's
@@ -698,7 +740,11 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
         priority: Number(soundEffect.priority) || DEFAULT_NOISE_PRIORITY,
         trackGain, audc: soundEffect.audc, audf, audv, dimMultiplier, arpeggioSpeed, arpeggioInterval, arpeggioRange,
         dpcPlus: tiaTrack ? null : dpcPlusFor(soundEffect, note.midi),
-        envelope: !!soundEffect.envelope,
+        // A sweep or a frequency envelope (a note of the DPC+ chip has neither): the pitch of each frame of the note.
+        pitchSound: soundEffect.sweep || soundEffect.pitchEnvelope ? soundEffect : null,
+        envelope: !!soundEffect.envelope && !soundEffect.staircase,
+        // A staircase volume: the instrument, for the volume of each frame (see schedule).
+        staircaseSound: soundEffect.envelope && soundEffect.staircase ? soundEffect : null,
         envelopeAttack: soundEffect.envelopeAttack,
         envelopeDecay: soundEffect.envelopeDecay,
         envelopeDecayEnd: soundEffect.envelopeDecayEnd,
@@ -718,7 +764,30 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
   const schedule = (note, segStartUnits, segEndUnits) => {
     const audibleStartUnits = Math.max(segStartUnits, startUnits);
     if (audibleStartUnits >= segEndUnits) return;
+    // The pitch of each frame of this slice of the note, from a table made for the whole note.
+    let pitchTable = null;
+    if (note.pitchSound) {
+      const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND));
+      // For a note of the DPC+ chip the semitones each frame is above the note.
+      const whole = (note.dpcPlus ?
+        buildDpcPitchOffsets({...note.pitchSound, ...(note.dpcPlus.tiaAudf !== undefined ? {audf: note.dpcPlus.tiaAudf} : {}), duration: noteFrames},
+            note.dpcPlus.frequency, {arpeggioFrames: note.arpeggioSpeed}) :
+        buildPitchTable({...note.pitchSound, audf: note.audf, duration: noteFrames}, {arpeggioFrames: note.arpeggioSpeed})) || [];
+      const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND);
+      const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * FRAMES_PER_SECOND));
+      pitchTable = Array.from({length: count}, (_, i) => whole[Math.min(from + i, whole.length - 1)] ?? (note.dpcPlus ? 0 : note.audf));
+    }
+    // The volume of each frame of this slice, from a staircase made for the whole note.
+    let volumeCurve = null;
+    if (note.staircaseSound) {
+      const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND));
+      const whole = buildVolumeStaircase({...note.staircaseSound, audv: note.audv, duration: noteFrames}, {loopSustain: true}) || [];
+      const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND);
+      const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * FRAMES_PER_SECOND));
+      volumeCurve = Array.from({length: count}, (_, i) => whole[Math.min(from + i, whole.length - 1)] ?? note.audv);
+    }
     activeSources.push(...playInstrumentHit(context, {
+      pitchTable, volumeCurve,
       audc: note.audc, audf: note.audf, audv: note.audv, dimMultiplier: note.dimMultiplier,
       arpeggioSpeed: note.arpeggioSpeed, arpeggioInterval: note.arpeggioInterval, arpeggioRange: note.arpeggioRange,
       startTime: startTime + (audibleStartUnits - startUnits) * unitSeconds,

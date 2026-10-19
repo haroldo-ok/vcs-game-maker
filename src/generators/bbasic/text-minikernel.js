@@ -44,6 +44,7 @@ export const textLinesMaxVarName = () => 'textLinesMax';
 // textLinesMaxVarName/textLinesBaseVarName, for the same reason (see that
 // function's  doc comment).
 export const textRow2ColorVarName = () => 'textRow2Color';
+export const textClearTimerVarName = () => 'textClearTimer';
 export const textScrollCursorColorVarName = () => 'textScrollCursorColor';
 // The "end of message" icon's  color (via "Text: set end icon color",
 // text_minikernel_set_end_icon_color below) - the icon draws on GRP1 (its
@@ -731,8 +732,37 @@ export default (Blockly) => {
       setTextLinesRangeCode(offsets, offsets);
   };
 
+  // The frames left before a "Clear text after" block clears the text (0: none is waiting): counted down once a frame, in the code
+  // that runs every frame.
+  Blockly.BBasic['text_minikernel_clear_after'] = function(block) {
+    markTextMinikernelUsed();
+    const timer = Blockly.BBasic.nameDB_.getName(textClearTimerVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const argument0 = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_ASSIGNMENT) || '60';
+    const literal = /^\s*(\d+)\s*$/.exec(argument0);
+    if (literal) return `${timer} = ${Math.max(1, Math.min(255, Number(literal[1])))}\n`;
+    return `${timer} = ${argument0}\nif ${timer} = 0 then ${timer} = 1\n`;
+  };
+
+  Blockly.BBasic.generateTextClearTimerChecks = function() {
+    if (!this.textClearAfterUsed) return '';
+    const timer = this.nameDB_.getName(textClearTimerVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const skip = '_textcleartimer_done';
+    return [
+      ` if ${timer} = 0 then goto ${skip}`,
+      ` ${timer} = ${timer} - 1`,
+      ` if ${timer} > 0 then goto ${skip}`,
+      ...this.textClearCode().split('\n').filter(Boolean).map((line) => ` ${line}`),
+      skip,
+    ].join('\n') + '\n';
+  };
+
   Blockly.BBasic['text_minikernel_clear'] = function(block) {
     markTextMinikernelUsed();
+    return Blockly.BBasic.textClearCode();
+  };
+
+  // The code that clears the shown text (also run when the time of a "Clear text after" block is up).
+  Blockly.BBasic.textClearCode = function() {
     // Setting TextIndex alone isn't enough: if the message being cleared was
     // scrolling, generateTextScrollAdvance (text-scroll.js) runs every frame
     // in commongamelogic and keeps recomputing TextIndex from the OLD scroll

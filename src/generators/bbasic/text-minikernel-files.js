@@ -108,11 +108,11 @@ const withDpcPlusTextHook = (kernel, waits = 0) => {
 };
 
 // The text is drawn after the kernel's score, in time the frame has no room for, so the main screen is made
-// shorter by what it takes: 14 lines for the one row, 12 more for the wrapped second row and 6 for the scroll
+// shorter by what it takes: 14 lines for the one row, 17 more for the second row (measured by the length of the frame) and 6 for the scroll
 // cursor's extra scanlines.
 const DPC_PLUS_KERNEL_LINES = 178;
 const DPC_PLUS_TEXT_ROW_LINES = 14;
-const DPC_PLUS_TEXT_ROW2_LINES = 12;
+const DPC_PLUS_TEXT_ROW2_LINES = 17;
 const DPC_PLUS_TEXT_CURSOR_LINES = 6;
 // The kernel ends its picture by checking the timer it started, and only some starting values end it right (192, 178
 // and 173 were measured to work, 194 and 168 do not; the stock 211 works too), so the screen height is the tallest
@@ -121,12 +121,14 @@ const DPC_PLUS_WORKING_KERNEL_TIMERS = WORKING_KERNEL_TIMERS;
 // A hidden score is not drawn: of the 8 lines of its loop 7 are cut, and 1 is waited out where the digits were, so the frame keeps
 // its 262 lines while the picture gets 6 more (measured: with the timers of the list above the frame is 255 lines at the
 // shortest picture and grows a line with each line of picture).
-const DPC_PLUS_HIDDEN_SCORE_LINES = 6;
+const DPC_PLUS_HIDDEN_SCORE_LINES = 7;
+// The timer for the screen the text leaves: the tallest one of the working timers that is not more than a quarter of a step above the height wanted
+// (a step, 64 cycles, is 0.84 of a line).
 const dpcPlusTextKernelTimer = (withRow2, withCursor, hideScore) => {
   const wanted = DPC_PLUS_KERNEL_LINES - DPC_PLUS_TEXT_ROW_LINES - (withRow2 ? DPC_PLUS_TEXT_ROW2_LINES : 0) -
     (withCursor ? DPC_PLUS_TEXT_CURSOR_LINES : 0) + (hideScore ? DPC_PLUS_HIDDEN_SCORE_LINES : 0);
-  const value = Math.floor(wanted * 76 / 64);
-  return DPC_PLUS_WORKING_KERNEL_TIMERS.find((timer) => timer <= value) || DPC_PLUS_WORKING_KERNEL_TIMERS.slice(-1)[0];
+  const steps = wanted * 76 / 64;
+  return DPC_PLUS_WORKING_KERNEL_TIMERS.find((timer) => timer <= steps + 0.25) || DPC_PLUS_WORKING_KERNEL_TIMERS.slice(-1)[0];
 };
 // How many lines tall the main screen is with the text on.
 export const dpcPlusTextScreenLines = (withRow2, withCursor, hideScore = false) =>

@@ -1,5 +1,6 @@
 'use strict';
 
+import {superchipOn} from './superchip';
 import {effectiveBackgroundRows, dpcPlusPfresOf, backgroundPfresOf} from '../blocks/background';
 
 // Pixel-to-cell math for pfread()-based playfield lookups. Recreated for
@@ -24,6 +25,12 @@ export const PF_COLUMN_WIDTH_PX = 4;
 // wide ball at ballx 100 is drawn in screen column 98.
 export const PLAYER_PF_X_OFFSET = 17;
 export const MISSILE_BALL_PF_X_OFFSET = 18;
+// Under DPC+ a player is drawn one pixel further right for the same x (measured on the emulator with the same sprite on both kernels:
+// its left edge is at pixel 76 for player0x 80, against 75 on the standard kernel), so its playfield column is (x - 16) / 4.
+export const playerPfXOffset = (config) => (config && config.kernel === 'dpcplus' ? PLAYER_PF_X_OFFSET - 1 : PLAYER_PF_X_OFFSET);
+// Under DPC+ the ball and the missiles are drawn two pixels further left for the same x (measured on the emulator: a ball at ballx 73
+// is the first to touch a wall whose first pixel is 72), so their playfield column is (x - 20) / 4.
+export const missileBallPfXOffset = (config) => (config && config.kernel === 'dpcplus' ? MISSILE_BALL_PF_X_OFFSET + 2 : MISSILE_BALL_PF_X_OFFSET);
 
 // Row height in scanlines - matches std_kernel.asm/startup.asm's
 // default row height calculation ("lda #(96/pfres)"), confirmed against
@@ -55,7 +62,7 @@ export const pfRowDivisorFor = (config) => {
   // applied, so this has to ignore it too, or these coordinate blocks would
   // disagree with what the kernel itself is really doing.
   if (cfg.enablePfRowHeight && cfg.pfrowheight) return Math.round(Number(cfg.pfrowheight));
-  const pfres = cfg.enableSuperchip ? effectiveBackgroundRows(config) : 12;
+  const pfres = superchipOn(cfg) ? effectiveBackgroundRows(config) : 12;
   // The kernel computes "lda #(96/pfres)" in DASM, which is integer division
   // (the fraction is dropped), so this has to round down too: with pfres 11 a
   // row is 8 two-scanline steps tall (96 / 11 = 8.7), not 9. Measured on the
@@ -93,7 +100,7 @@ export const dpcPlusRowLinesFor = (config, pfres) => {
 // since this pool doesn't exist at all without it.
 export const superchipRwFreeCount = (config) => {
   const cfg = config || {};
-  if (!cfg.enableSuperchip) return 0;
+  if (!superchipOn(cfg)) return 0;
   return Math.max(0, 128 - 4 * effectiveBackgroundRows(config));
 };
 

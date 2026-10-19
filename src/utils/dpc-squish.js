@@ -9,10 +9,11 @@
 // kernel draws them from the first byte), so the table has the 5 rows of a Squish digit as its last 5 bytes (see
 // buildScoreFontOverride's dpcPlus argument in score-font.js).
 
-// The values of KERNEL_LINES the kernel ends its picture right with (measured on the emulator): 192, 195, 197, 200 and the stock
-// 211, 214 and so on, each a line or two more picture. 173 and 178 are the shortest.
+// The values of KERNEL_LINES the kernel ends its picture right with (measured on the emulator, a frame of the same length with each): 192,
+// 195, 197, 200 and the stock 211, 214 and so on, each a line or two more picture; below 192 only 188, 185, 183, 178 and 173 (every
+// value from 168 to 191 was tried: 194 and 168 and the others do not end the picture right, the frame comes out hundreds of lines long).
 export const WORKING_KERNEL_TIMERS = [240, 238, 235, 233, 230, 228, 226, 223, 221, 219, 216, 214, 211, 209, 207, 204, 202, 200, 197,
-  195, 192, 178, 173];
+  195, 192, 188, 185, 183, 178, 173];
 export const SQUISH_LINES_SAVED = 3;
 
 // A timer's picture is (timer * 64 / 76) lines, so a higher one gives the picture floor(difference * 64 / 76) lines more.
