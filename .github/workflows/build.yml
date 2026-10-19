@@ -1,6 +1,6 @@
 name: Build and release
 
-# Builds the desktop app for Windows, macOS and Linux (Intel/AMD and ARM, which covers a 64-bit Raspberry Pi) and publishes the installers as a GitHub Release tagged with the
+# Builds the desktop app for Windows (Intel/AMD and ARM), macOS (Intel and Apple Silicon) and Linux (Intel/AMD and ARM, which covers a 64-bit Raspberry Pi) and publishes the installers as a GitHub Release tagged with the
 # app version in package.json (0.52.11 for version 0.52.11). Runs when a push to main changes package.json (a version
 # bump) and on demand from the Actions tab. A release that already exists for the version gets its files replaced.
 on:
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest, ubuntu-24.04-arm]
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -63,6 +63,9 @@ jobs:
         run: npm run build
       - name: Make the installers
         run: npm run electron:make
+        env:
+          # The Windows ARM runner builds the ARM installer (see forge.config.js); the other runners build for the processor they run on, as before.
+          WIX_ARCH: ${{ matrix.os == 'windows-11-arm' && 'arm64' || '' }}
       # The macOS runner is Apple Silicon; this adds the Intel build next to it.
       - name: Make the Intel macOS installers
         if: runner.os == 'macOS'
@@ -115,7 +118,7 @@ jobs:
           while IFS= read -r file; do
             name=$(basename "$file")
             case "$name" in
-              *.msi) new="VCS-Game-Maker-$TAG-Windows-Setup.msi" ;;
+              *.msi) case "$file" in */arm64/*) new="VCS-Game-Maker-$TAG-Windows-arm64-Setup.msi" ;; *) new="VCS-Game-Maker-$TAG-Windows-Setup.msi" ;; esac ;;
               *.deb) case "$name" in *arm64*) arch=arm64 ;; *) arch=amd64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.deb" ;;
               *.AppImage) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.AppImage" ;;
               *.rpm) case "$name" in *aarch64*) arch=aarch64 ;; *) arch=x86_64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.rpm" ;;

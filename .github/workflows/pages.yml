@@ -37,7 +37,6 @@ jobs:
           mkdir -p _site/app
           cp -r dist/. _site/app/
           cp -r site/. _site/
-          cp documentation/screenshot.png _site/screenshot.png
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4

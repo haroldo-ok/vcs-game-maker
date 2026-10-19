@@ -21,6 +21,8 @@ module.exports = {
         manufacturer: 'AbstractPolygon',
         icon: 'build/icons/icon.ico',
         defaultInstallMode: 'perMachine',
+        // Set by the Windows ARM build (see .github/workflows/build.yml); without it the installer is made the way it always was.
+        ...(process.env.WIX_ARCH ? {arch: process.env.WIX_ARCH} : {}),
         // Shows the installer's Customize page, where the Desktop shortcut can be ticked or not (the Start Menu one is always added).
         ui: {chooser: false},
         beforeCreate: (creator) => {

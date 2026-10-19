@@ -10,6 +10,7 @@
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
+    "site:edit": "node tools/site-editor/server.js",
     "build:stellerator": "node tools/stellerator/build.js",
     "build:palettes": "node tools/stellerator/palettes.js",
     "electron:run": "electron .",
