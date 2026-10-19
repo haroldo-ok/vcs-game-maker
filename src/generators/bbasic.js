@@ -83,12 +83,12 @@ import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generate
   generateSeekChecks, reserveSeekDevVars, reserveSeekArrivedDevVars,
   reserveCtrlpfShadowDevVar, generateCtrlpfShadowSetup, missileWidthsVarName, reserveMissileWidthsDevVar, reserveDpcPlusShownDevVars, ctrlpfShadowVarName, resolveUsedPlayerAnimations,
   resolvePlayerAnimationFinishedWatches,
-  generateInertiaChecks, reserveInertiaDevVars, reserveSpriteScrollDevVars, reserveSpriteHiddenDevVars, ANIM_FINISHED_DONE_FAMILY, reserveAnimFinishedDoneDevVars, animFinishedDoneRef, reserveSizeSetDevVars, sizeSetVarName, colorOverrideVarName, reserveColorOverrideDevVars, ROM_NOISE_EXTRA_FAMILY, isRomNoiseExtra, romNoiseExtraOwnBit,
+  generateInertiaChecks, reserveInertiaDevVars, reserveSpriteScrollDevVars, reserveSpriteHiddenDevVars, ANIM_FINISHED_DONE_FAMILY, reserveAnimFinishedDoneDevVars, animFinishedDoneRef, reserveSizeSetDevVars, sizeSetVarName, colorOverrideRef, colorSetFamilies, reserveColorOverrideDevVars, ROM_NOISE_EXTRA_FAMILY, isRomNoiseExtra, romNoiseExtraOwnBit,
   playerNameOfValue} from './bbasic/sprites';
 import {resolveSeekArrivedWatches} from '../blocks/sprites';
 import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprite-lock';
 import {reservePfBoxDevVars, generatePfHitChecks} from './bbasic/pf-box-sub';
-import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName} from './bbasic/sprite-box-width';
+import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool} from './bbasic/flag-pool';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
@@ -248,7 +248,8 @@ const DPCPLUS_TITLE_KERNEL_BYTES = ['player2x', 'player4x', 'player5x', 'player6
 export const dpcPlusFreedSpriteRam = (spriteMax, reserveFixed = true, titleKernel = false) => [2, 3, 4, 5, 6, 7, 8, 9]
     .filter((n) => n > spriteMax)
     .flatMap((n) => [`player${n}x`, `player${n}y`, `player${n}height`, `NUSIZ${n}`])
-    .filter((name) => !reserveFixed || !DPCPLUS_FIXED_VARIABLE_SLOTS.includes(name))
+    // reserveFixed: true for all four, or the list of the ones the Text Minikernel really keeps a variable in.
+    .filter((name) => !reserveFixed || !(Array.isArray(reserveFixed) ? reserveFixed : DPCPLUS_FIXED_VARIABLE_SLOTS).includes(name))
     .filter((name) => !titleKernel || !DPCPLUS_TITLE_KERNEL_BYTES.includes(name));
 export const DPCPLUS_FREED_SPRITE_RAM = dpcPlusFreedSpriteRam(1);
 
@@ -523,6 +524,8 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
   this.textClearAfterUsed = workspace.getAllBlocks(false).some((block) => block.type === 'text_minikernel_clear_after');
+  // A score bar block turns pfscore on, which the Text Minikernel then needs separate TextDataPtr bytes for (see generateTextMinikernelDims).
+  this.scoreBarBlocksUsed = workspace.getAllBlocks(false).some((block) => block.type.startsWith('score_bar_'));
 
   // Whether the project actually uses any block that can make a message
   // scroll, or that reads/controls in-progress scroll state - as opposed to
@@ -2281,6 +2284,26 @@ Blockly.BBasic.init = function(workspace) {
   // instead of a separate byte. The fade, music and scroll-edge flags (read as
   // whole bytes by assembly) and Run once are not part of this.
   const ownBits = (set, bitOf) => [...(set || [])].map(bitOf).filter((bit) => bit !== undefined);
+  // The DPC+ players with row colors in their animations that a block sets or fades the color of: that color then wins over the row colors.
+  this.colorOverridePlayers = new Set();
+  if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
+    workspace.getAllBlocks(false).forEach((block) => {
+      if (!block.isEnabled() || (block.type !== 'sprite_player_set' && block.type !== 'sprite_player_fade_to')) return;
+      const owner = /^(player\d)realcolor$/.exec(block.getFieldValue('VAR') || '');
+      if (owner && this.useAnimationRowColors(owner[1])) this.colorOverridePlayers.add(owner[1]);
+    });
+  }
+  // The pairs of sprites a "Collided" block compares by their boxes (see generators/bbasic/sprite-box-width.js), in a fixed order: each is a bit.
+  const boxPairKeys = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    if (!block.isEnabled() || block.type !== 'collision_get') return;
+    const names = [block.getFieldValue('VAR0'), block.getFieldValue('VAR1')];
+    if (names.includes('playfield')) return;
+    if (names[0] !== names[1] && names.some((name) => this.widePartners[name] || /^player[2-9]$/.test(name) || (this.player1Shared && name === 'player1'))) {
+      boxPairKeys.add(pairKey(names[0], names[1]));
+    }
+  });
+  this.boxPairOrder = [...boxPairKeys].sort();
   planFlagPool([
     {family: ROM_NOISE_FLAGS_FAMILY, bits: [
       ...ownBits([...this.romNoiseUsedFor].filter((name) => !isRomNoiseExtra(name)), romNoiseOwnBit),
@@ -2308,6 +2331,8 @@ Blockly.BBasic.init = function(workspace) {
     {family: TITLE_PLAYER_ONCE_FAMILY, bits: [0, 1].filter((i) => this.titlePlayerSlots && this.titlePlayerSlots[i].once)},
     {family: TITLE_BG_OVERRIDE_FAMILY, bits: this.titleBgUsed ? [0] : []},
     {family: SWITCH_EDGE_FAMILY, bits: switchEdgeOwnBits(this.switchEdgeUsedFor)},
+    ...boxHitFamilies(this.boxPairOrder),
+    ...colorSetFamilies(this.colorOverridePlayers),
   ]);
   reserveSwitchEdgeDevVars(reserveDevVar, this.switchEdgeUsedFor);
   if (this.titleCardOnceRefs.length) {
@@ -2447,7 +2472,7 @@ Blockly.BBasic.init = function(workspace) {
   });
   this.boxFixedPlayers = new Set([...this.boxWidthPlayers].filter((name) =>
     !sizeChangedPlayers.has(name) && !this.widePartners[name] && !Object.values(this.widePartners).includes(name)));
-  reserveBoxDevVars(reserveDevVar, this.boxWidthPlayers, this.boxPairs, this.boxFixedPlayers);
+  reserveBoxDevVars(reserveDevVar, this.boxWidthPlayers, this.boxPairs, this.boxFixedPlayers, this.boxPairOrder);
 
   // The players a "set width/quantity" block is used for: their animations leave the size alone after it ran (see processAnimation).
   this.sizeSetPlayers = new Set();
@@ -2458,15 +2483,6 @@ Blockly.BBasic.init = function(workspace) {
   });
   reserveSizeSetDevVars(reserveDevVar, this.sizeSetPlayers);
 
-  // The DPC+ players with row colors in their animations that a block sets or fades the color of: that color then wins over the row colors.
-  this.colorOverridePlayers = new Set();
-  if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
-    workspace.getAllBlocks(false).forEach((block) => {
-      if (!block.isEnabled() || (block.type !== 'sprite_player_set' && block.type !== 'sprite_player_fade_to')) return;
-      const owner = /^(player\d)realcolor$/.exec(block.getFieldValue('VAR') || '');
-      if (owner && this.useAnimationRowColors(owner[1])) this.colorOverridePlayers.add(owner[1]);
-    });
-  }
   reserveColorOverrideDevVars(reserveDevVar, this.colorOverridePlayers);
 
   // Same bucket again, for "When ... arrives"'s  shared finished-bit byte
@@ -2655,12 +2671,8 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar('rand16', undefined, 'literal name the standard kernel checks for to widen the RNG period');
   }
 
-  // The DPC+ Text Minikernel's four extra scratch bytes (text12DPCplus.asm picks var5-var8 unless these exist, which
-  // could collide with the project's variables).
-  if (this.textMinikernelUsed && config.kernel === 'dpcplus') {
-    ['textoffset8', 'textoffset9', 'textoffset10', 'textoffset11'].forEach((name) =>
-      reserveDevVar(name, undefined, 'scratch byte the DPC+ text kernel reads the message through'));
-  }
+  // (The DPC+ Text Minikernel's four extra scratch bytes, textoffset8 to textoffset11, are in SpriteGfxIndex, bytes of the kernel that are
+  // free once the picture is drawn: see text12DPCplus.asm.)
 
   // A secondary score font (see buildScoreFontOverride in utils/score-font.js): the standard kernel's score code reads the low
   // byte of the table in use from this one variable (see std_overscan.asm), which "Score set font to" changes. Not yet for DPC+.
@@ -3151,7 +3163,12 @@ Blockly.BBasic.init = function(workspace) {
   // 0, e.g. every dev var fit inside the Superchip pool alone) so the display
   // still has real numbers rather than needing its  fallback logic.
   // Before the letters, a DPC+ project's variables go in the memory the kernel leaves free (DPCPLUS_FREED_SPRITE_RAM).
-  const freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, this.isTextMinikernelActive(), this.titleScreenDrawUsed);
+  // The Text Minikernel keeps TextIndex in the first of its four fixed bytes, TextRow2Active in the second (only with a second row or the scroll
+  // cursor) and TextDataPtr in the last two (only when a score bar block makes the project use pfscore): the others stay free for variables.
+  const textFixedSlots = !this.isTextMinikernelActive() ? false : [DPCPLUS_FIXED_VARIABLE_SLOTS[0],
+    ...(this.needsTextRow2ActiveDim() ? [DPCPLUS_FIXED_VARIABLE_SLOTS[1]] : []),
+    ...(this.scoreBarBlocksUsed ? DPCPLUS_FIXED_VARIABLE_SLOTS.slice(2) : [])];
+  const freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, textFixedSlots, this.titleScreenDrawUsed);
   this.dpcPlusSpriteVars = [];
   // They are used before the letters, not after: the first variables take them (not the run-once bytes at the end, which keep their order).
   if (config.kernel === 'dpcplus' && freedSpriteRam.length) {
@@ -7415,7 +7432,7 @@ Blockly.BBasic.generateAnimations = function() {
       const existingGraphicLabel = pixelKeyToGraphicLabel.get(pixelKey);
       // A color a block set wins over the row colors: the frame's colors are then not loaded.
       const overrideFlag = this.colorOverridePlayers && this.colorOverridePlayers.has(slaveOf || name) ?
-        this.nameDB_.getName(colorOverrideVarName(slaveOf || name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+        colorOverrideRef(Blockly, slaveOf || name) : null;
       const overrideGuard = (target) => (overrideFlag && colorSource ? `  if ${overrideFlag} then goto ${target}\n` : '');
       if (existingGraphicLabel) {
         return skipCondition +

@@ -10,6 +10,8 @@
 // pixels to the right, round the edge of the screen when that is past it. A player whose box is off the screen to the
 // right (x of 177 or more) has no boxes at all. The missiles and the ball have one box, 2 pixels wide.
 
+import {flagPoolVar, flagPoolBit} from './flag-pool';
+
 const RIGHT_EDGE_X = 177;
 
 export const boxWidthVarName = (player) => `${player}boxw`;
@@ -17,9 +19,26 @@ export const boxCopyCountVarName = (player) => `${player}boxn`;
 export const boxCopyXVarName = (player, copy) => `${player}boxc${copy}`;
 export const isPlayerName = (name) => /^player\d$/.test(name);
 export const pairKey = (first, second) => [first, second].sort().join('|');
-export const boxHitVarName = (key) => `boxhit_${key.replace('|', '_')}`;
+// The answers of the pairs are bits of shared bytes (eight pairs to a byte, see flag-pool.js): the pairs in the order of boxPairOrder.
+const BOX_HIT_BITS_PER_BYTE = 8;
+export const boxHitFamily = (index) => `boxHitFlags${Math.floor(index / BOX_HIT_BITS_PER_BYTE)}`;
+// The families the plan needs for the pairs: [{family, bits}].
+export const boxHitFamilies = (pairOrder) => (pairOrder || []).reduce((families, key, index) => {
+  const family = boxHitFamily(index);
+  let entry = families.find((candidate) => candidate.family === family);
+  if (!entry) families.push(entry = {family, bits: []});
+  entry.bits.push(index % BOX_HIT_BITS_PER_BYTE);
+  return families;
+}, []);
+// A pair's bit, as batari Basic writes it: "variable{bit}".
+export const boxHitRef = (Blockly, key) => {
+  const index = (Blockly.BBasic.boxPairOrder || []).indexOf(key);
+  const family = boxHitFamily(index);
+  return `${Blockly.BBasic.nameDB_.getName(flagPoolVar(family), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}` +
+    `{${flagPoolBit(family, index % BOX_HIT_BITS_PER_BYTE)}}`;
+};
 
-export const reserveBoxDevVars = (reserveDevVar, players, pairs, fixedPlayers = new Set()) => {
+export const reserveBoxDevVars = (reserveDevVar, players, pairs, fixedPlayers = new Set(), pairOrder = []) => {
   (players || new Set()).forEach((player) => {
     if (fixedPlayers.has(player)) return;
     reserveDevVar(boxWidthVarName(player), undefined, `how many pixels wide the box of ${player} is`);
@@ -27,8 +46,8 @@ export const reserveBoxDevVars = (reserveDevVar, players, pairs, fixedPlayers = 
     reserveDevVar(boxCopyXVarName(player, 1), undefined, `x of the first copy of ${player}`);
     reserveDevVar(boxCopyXVarName(player, 2), undefined, `x of the second copy of ${player}`);
   });
-  (pairs || new Set()).forEach((key) => {
-    reserveDevVar(boxHitVarName(key), undefined, `${key.replace('|', ' and ')} overlap (1) or not (0), as of the end of the last frame`);
+  boxHitFamilies(pairOrder).forEach(({family}) => {
+    reserveDevVar(flagPoolVar(family), undefined, 'a bit for each pair of sprites a "Collided" block compares by their boxes: they overlap (1) or not (0), as of the end of the last frame');
   });
 };
 
@@ -89,7 +108,7 @@ export const generateBoxChecks = (Blockly) => {
   });
   [...(pairs || [])].sort().forEach((key) => {
     const [first, second] = key.split('|');
-    const hit = Blockly.BBasic.nameDB_.getName(boxHitVarName(key), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const hit = boxHitRef(Blockly, key);
     const id = Blockly.BBasic.blockNumbers.next(`boxpair`);
     const done = `_boxpair_${id}_done`;
     const a = boxesOf(Blockly, first);

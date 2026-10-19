@@ -93,17 +93,27 @@ export const reserveSizeSetDevVars = (reserveDevVar, players) => {
 
 // DPC+ players whose animations have per-row colors: a block that sets or fades the player's color puts this byte to 1, and from then on the
 // player is drawn in that one color (the animations stop loading their row colors) instead of the row colors.
-export const colorOverrideVarName = (name) => `${name}colorset`;
+// One bit for each player (shared bytes, eight players to a byte: see flag-pool.js).
+const colorSetFamily = (name) => (Number(name.slice(6)) < 8 ? 'colorSetFlags' : 'colorSetFlagsB');
+const colorSetBit = (name) => Number(name.slice(6)) % 8;
+// The families the plan needs: [{family, bits}].
+export const colorSetFamilies = (players) => ['colorSetFlags', 'colorSetFlagsB'].map((family) => ({
+  family, bits: [...(players || [])].filter((name) => colorSetFamily(name) === family).map(colorSetBit)}));
+// The player's bit, as batari Basic writes it.
+export const colorOverrideRef = (Blockly, name) => `${Blockly.BBasic.nameDB_.getName(flagPoolVar(colorSetFamily(name)),
+    Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${flagPoolBit(colorSetFamily(name), colorSetBit(name))}}`;
 export const reserveColorOverrideDevVars = (reserveDevVar, players) => {
-  (players || new Set()).forEach((name) => {
-    reserveDevVar(colorOverrideVarName(name), undefined, `1 once a block set or faded the color of ${name}, over its row colors`);
+  [...new Set([...(players || [])].map(colorSetFamily))].forEach((family) => {
+    reserveDevVar(flagPoolVar(family), undefined, 'a bit for each player that a block set or faded the color of, over its row colors');
   });
 };
 // The lines that mark a set color as overriding the row colors; the picture and colors are loaded again when the mark is new.
 export const colorOverrideLines = (Blockly, owner) => {
   if (!Blockly.BBasic.colorOverridePlayers || !Blockly.BBasic.colorOverridePlayers.has(owner)) return '';
-  const flag = Blockly.BBasic.nameDB_.getName(colorOverrideVarName(owner), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-  return `if ${flag} = 0 then ${owner}size{7} = 0\n${flag} = 1\n`;
+  const flag = colorOverrideRef(Blockly, owner);
+  return `if !${flag} then ${owner}size{7} = 0
+${flag} = 1
+`;
 };
 
 export const playerNameOfValue = (value) => `player${/^[0-9]$/.test(String(value)) ? value : '0'}`;
@@ -2215,10 +2225,10 @@ export default (Blockly) => {
       // scanlines down to the sprite's bottom edge (line 2 * y + 4), and the DPC+ picture starts 4 lines higher, so
       // the same spot is 2 * y minus the sprite's height in lines.
       if (/^player\dy$/.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
-        // A player's y plugged in as it is (put a player where another one is) is already in lines: it is copied as it is.
-        if (/^player\dy$/.test(argument0.trim())) {
-          return `${varName} = ${argument0.trim()}
-`;
+        // A value worked out from the y of a player, a missile or the ball (put a player where another one is, a few lines lower...) is
+        // already in lines, the unit the y of those is read in: it is set as it is.
+        if (/\b(player\d|missile[01]|ball)y\b/.test(argument0)) {
+          return `${varName} = ${argument0.trim()}\n`;
         }
         const lines = Blockly.BBasic.dpcPlusSpriteLines(varName.slice(0, 7));
         const literal = /^\s*(\d+)\s*$/.exec(argument0);

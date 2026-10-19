@@ -2,7 +2,7 @@
 
 import {PF_BOX_X, PF_BOX_Y, PF_BOX_HIT, PF_BOX_EXT, pfHitVarName, callPfBox, callPfBoxQuick} from './pf-box-sub';
 import {useConfigurationStorage} from '../../hooks/project';
-import {pairKey, boxHitVarName, isPlayerName} from './sprite-box-width';
+import {pairKey, boxHitRef, isPlayerName} from './sprite-box-width';
 
 // Names of the hidden bytes each player's collision-check block backs up its
 // pre-move position into (see bbasic.js's pre-scan, which pushes these
@@ -174,7 +174,7 @@ export default (Blockly) => {
       if (other === 'playfield') {
         return [hitVar(extra), Blockly.BBasic.ORDER_ATOMIC];
       }
-      const boxes = Blockly.BBasic.nameDB_.getName(boxHitVarName(pairKey(extra, other)), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const boxes = boxHitRef(Blockly, pairKey(extra, other));
       // Another player has no hardware collision with these, only the boxes can tell.
       if (isPlayerName(other)) return [boxes, Blockly.BBasic.ORDER_ATOMIC];
       // A missile or the ball: the hardware flag of the sprite the box stands for (both halves of a wide Player 0), narrowed by it.

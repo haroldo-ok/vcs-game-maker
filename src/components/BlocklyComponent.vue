@@ -84,6 +84,23 @@ if (!Blockly.FieldDropdown.prototype.getOptions.isAltTextGuardPatch) {
   Blockly.FieldDropdown.prototype.getOptions.isAltTextGuardPatch = true;
 }
 
+// A text or number field being edited moves its block back into view when the window is resized, but Blockly bumps the block that has the
+// field, and a block inside another one can not be moved by itself ("Block has parent", once for every resize event). The block that is
+// in the workspace itself (the root of the ones it is plugged into) is the one to bump.
+// (FieldInput, the class of the text and number fields, is not exported by name: it is the parent of FieldTextInput.)
+const fieldInputPrototype = Object.getPrototypeOf(Blockly.FieldTextInput.prototype);
+if (!fieldInputPrototype.repositionForWindowResize.isRootBlockPatch) {
+  fieldInputPrototype.repositionForWindowResize = function() {
+    const block = this.getSourceBlock();
+    if (!(block instanceof Blockly.BlockSvg)) return false;
+    const workspace = block.workspace;
+    const bumped = Blockly.bumpObjects.bumpIntoBounds(workspace, workspace.getMetricsManager().getViewMetrics(true), block.getRootBlock());
+    if (!bumped) this.resizeEditor_();
+    return true;
+  };
+  fieldInputPrototype.repositionForWindowResize.isRootBlockPatch = true;
+}
+
 // Same path geometry as the multiselect plugin's default icons
 // (node_modules/@mit-app-inventor/blockly-plugin-workspace-multiselect/
 // test/media/unselect.svg and select.svg - fetched directly from its repo,

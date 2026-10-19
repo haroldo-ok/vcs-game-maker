@@ -1578,3 +1578,9 @@ Music engine savings, black background rows, taller DPC+ preview picture
 - Example projects and sound banks saved by a newer version of the app than the one running are no longer listed.
 - Sounds, sound banks, songs, song banks, patterns and title screens are saved with the version of the app that exported them ("app-version", as projects already were).
 - Project tab, Sound Banks: a sound with a DPC+ waveform previews with the DPC+ sound chip, so each waveform of a bank sounds like itself (the preview played every one with the same Standard settings, like one instrument repeating).
+- DPC+: variables kept in the memory of the sprites above "dpcspritemax" start at 0 again. The startup code set the y of all nine virtual sprites to 224, which also set whatever variable lived in that memory (a player's size byte started with its pause bit set, so its animation never played).
+- Fewer variables: the "a color was set" mark of each player and the answer of each pair of sprites compared by their boxes are single bits of shared bytes (eight to a byte) instead of a byte each.
+- DPC+ text kernel: four scratch bytes it kept as variables (textoffset8 to textoffset11) now use bytes of the kernel that are free below the picture, so a project that shows text has four more variables to use.
+- DPC+ text kernel: a project that shows plain text takes one variable for it instead of four. The byte for the second row is taken only when a message has a second row or the scroll cursor is on, and the two bytes of the message pointer only when a score bar block is used.
+- DPC+: setting a player's y to a calculation on another player's, missile's or the ball's y (such as Player 0 y + 2) puts it where it should be; the calculation was doubled before.
+- Resizing the window while a number or text in a block inside another block is being edited no longer fills the console with "Block has parent" errors.

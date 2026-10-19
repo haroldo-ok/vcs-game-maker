@@ -30,17 +30,20 @@ textoffset4  = temp5
 textoffset5  = temp6
 textoffset6  = temp7
 textoffset7  = aux4 ; this seems to be oddly unused by anything
+ ; vcs-game-maker: the last four are in SpriteGfxIndex, nine bytes the kernel's sprite sort fills in at the start of every drawscreen
+ ; (copied back from the coprocessor by the kernel before it reads them) and nothing reads once the picture is drawn. The text is drawn
+ ; below the picture, so they are free here and cost the project no variables.
  ifnconst textoffset8
-textoffset8  = var5
+textoffset8  = SpriteGfxIndex+5
  endif
  ifnconst textoffset9
-textoffset9  = var6
+textoffset9  = SpriteGfxIndex+6
  endif
  ifnconst textoffset10
-textoffset10 = var7
+textoffset10 = SpriteGfxIndex+7
  endif
  ifnconst textoffset11
-textoffset11 = var8
+textoffset11 = SpriteGfxIndex+8
  endif
 
     ifconst bs_mask
