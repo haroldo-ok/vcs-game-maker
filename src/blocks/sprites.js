@@ -82,7 +82,8 @@ const buildAnimationSetBlock = ({icon, colour, storageFactory}) => {
               new Blockly.FieldDropdown(buildAnimationOptions(storageFactory)), 'VAR')
           .appendField(' ')
           .appendField(new Blockly.FieldCheckbox('TRUE'), 'RESTART')
-          .appendField('restart')
+          .appendField('restart at frame')
+          .appendField(new Blockly.FieldNumber(1, 1, 255, 1), 'START')
           .appendField(' ')
           .appendField(new Blockly.FieldCheckbox('TRUE'), 'LOOP')
           .appendField('loop');
@@ -94,7 +95,8 @@ const buildAnimationSetBlock = ({icon, colour, storageFactory}) => {
       // an animation-list index too, never a "player0..."-prefixed name.
       Blockly.Extensions.apply('sprite_player_field_sync', this, false);
       this.setTooltip('Sets the chosen player\'s active animation by name, in one step. "restart" ' +
-        'on (the default) plays the new animation from its first frame; off carries on from the ' +
+        'on (the default) plays the new animation from its first frame, or from the frame number set after it (1 is the first; a ' +
+        'number past the last frame starts on the last one); off carries on from the ' +
         'current position in the animation that was playing. "loop" ' +
         'on (the default) replays it from the start every time it ends; off plays it once and ' +
         'leaves it on its last frame (see "Player animation has finished" to react to that ' +

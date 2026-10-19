@@ -814,12 +814,14 @@ import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {channelOptions} from '../blocks/sound';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
-import {audfByMidiForAudc, getCanonicalNoteRows, noteAudv, soundHasTunableNotes} from '../utils/music-notes';
+import {audfByMidiForAudc, getCanonicalNoteRows, noteAudv, soundHasTunableNotes, RAW_FREQUENCY_ROWS,
+  rawFrequencyOf} from '../utils/music-notes';
 import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
 import {autoInstrumentColor, instrumentColorFor, isLightColor,
   mixColorWithWhite, mixColorWithTransparent} from '../utils/instrument-colors';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
+import {appVersionField} from '../utils/app-version';
 
 // The piano roll's  zoom range (25%-1600%) goes well past the shared
 // hooks/zoom.js's  discrete ZOOM_LEVELS (used by the sprite/background/
@@ -871,15 +873,17 @@ const clampPianoRollHeight = (value) =>
 // gets - it has no clean pitch to offer a real piano roll for, just an
 // on/off hit per note event.
 const HIT_ROW = [{midi: 'hit', label: 'Hit'}];
+// Below the Hit row: a row for each frequency (see RAW_FREQUENCY_ROWS in utils/music-notes.js), for a sound type with no in-tune notes.
+const FREQUENCY_ROWS = RAW_FREQUENCY_ROWS;
 
 // Same array the template's "sharedNoteRows" binding builds (see the
 // return statement below) - hoisted to module scope so the Move tool's
 // drag logic can look up a row by index/offset too, not just render them.
 // The pitched rows depend on the kernel (see getCanonicalNoteRows), so this is read when needed, not kept.
-let sharedNoteRowsCache = {source: null, rows: HIT_ROW};
+let sharedNoteRowsCache = {source: null, rows: [...HIT_ROW, ...FREQUENCY_ROWS]};
 const currentSharedNoteRows = () => {
   const source = getCanonicalNoteRows();
-  if (sharedNoteRowsCache.source !== source) sharedNoteRowsCache = {source, rows: [...source, ...HIT_ROW]};
+  if (sharedNoteRowsCache.source !== source) sharedNoteRowsCache = {source, rows: [...source, ...HIT_ROW, ...FREQUENCY_ROWS]};
   return sharedNoteRowsCache.rows;
 };
 // .piano-roll-cell's fixed CSS height (see its rule further down) -
@@ -1746,7 +1750,7 @@ export default defineComponent({
       const usedSoundEffects = soundEffects().filter(({id}) => usedIds.has(String(id)));
       // eslint-disable-next-line no-unused-vars
       const {id, ...songData} = song;
-      const exportData = {...songData, soundEffects: usedSoundEffects};
+      const exportData = {...appVersionField(), ...songData, soundEffects: usedSoundEffects};
       const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
       const filename = (song.name || `song-${song.id}`).replace(/[^A-Za-z0-9]+/g, '_');
       saveAs(blob, `Song_${filename}-${getDateInfix()}.vcsmus`);
@@ -1799,7 +1803,7 @@ export default defineComponent({
               throw new Error('File does not contain valid song data');
             }
             // eslint-disable-next-line no-unused-vars
-            const {soundEffects: importedSoundEffects, ...songData} = parsed;
+            const {'app-version': appVersion, soundEffects: importedSoundEffects, ...songData} = parsed;
             const idMap = importSoundEffects(importedSoundEffects);
             // Always resolved through idMap, never left as the raw imported
             // id - a track whose id has no idMap entry (the bundle didn't
@@ -1844,6 +1848,7 @@ export default defineComponent({
       state.value.songs.forEach((song) => soundEffectIdsUsedBySong(song).forEach((id) => usedIds.add(id)));
       const usedSoundEffects = soundEffects().filter(({id}) => usedIds.has(String(id)));
       const exportData = {
+        ...appVersionField(),
         // eslint-disable-next-line no-unused-vars
         songs: state.value.songs.map(({id, ...songData}) => songData),
         soundEffects: usedSoundEffects,
@@ -1920,7 +1925,7 @@ export default defineComponent({
       const usedSoundEffects = soundEffects().filter(({id}) => usedIds.has(String(id)));
       // eslint-disable-next-line no-unused-vars
       const {id, ...patternData} = pattern;
-      const exportData = {...patternData, soundEffects: usedSoundEffects};
+      const exportData = {...appVersionField(), ...patternData, soundEffects: usedSoundEffects};
       const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
       const filename = (pattern.name || `pattern-${pattern.id}`).replace(/[^A-Za-z0-9]+/g, '_');
       saveAs(blob, `${filename}-${getDateInfix()}.vcsmus`);
@@ -1942,7 +1947,7 @@ export default defineComponent({
               throw new Error('File does not contain valid pattern data');
             }
             // eslint-disable-next-line no-unused-vars
-            const {soundEffects: importedSoundEffects, ...patternData} = parsed;
+            const {'app-version': appVersion, soundEffects: importedSoundEffects, ...patternData} = parsed;
             const idMap = importSoundEffects(importedSoundEffects);
             // Same reasoning as handleImportSong above: always resolved
             // through idMap, cleared to null rather than left pointing at
@@ -2727,6 +2732,9 @@ export default defineComponent({
       // offering a redundant, pitch-less way to trigger the same sound.
       const tia = trackUsesTia(track);
       if (row.midi === 'hit') return !soundHasTunableNotes(soundEffect, tia);
+      // A frequency row: for any sound that is not a percussion sound (which only has the Hit row). On the DPC+ chip it plays the pitch
+      // the TIA has for that frequency number. A sound type with in-tune notes has its piano rows as well.
+      if (rawFrequencyOf(row.midi) !== null) return !soundEffect.isPercussion;
       return soundHasTunableNotes(soundEffect, tia) && audfByMidiForAudc(soundEffect.audc, tia).has(row.midi);
     };
     // Same "not available to the currently active track" check
@@ -2743,6 +2751,7 @@ export default defineComponent({
       if (row.midi === 'hit') return null;
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect) return null;
+      if (rawFrequencyOf(row.midi) !== null) return rawFrequencyOf(row.midi);
       const tia = trackUsesTia(track);
       return soundHasTunableNotes(soundEffect, tia) ? audfByMidiForAudc(soundEffect.audc, tia).get(row.midi) : null;
     };

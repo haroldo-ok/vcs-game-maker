@@ -135,6 +135,10 @@ unsigned short *fetcher_address_table=(unsigned short *)(0xC00 + 0x61A0);
 unsigned char *RIOT=(unsigned char *)(0x40000C00 + 0x1A8);
 //unsigned char *HMdiv=(unsigned char *)(0xc00+0x1000);
 unsigned char *fetcheraddr;
+#ifdef DPC_OFFSET
+// Where the program in the ROM (see armprog.c) is: the build puts the address of it (as a Thumb address) over this number once the ROM is assembled.
+static const volatile unsigned int progaddr=0x7E57A4D1;
+#endif
 unsigned char *pfpixel;
 int count;
 //int Gfxindex;
@@ -323,6 +327,13 @@ int main()
   unsigned char C_function2=C_function[2];
   unsigned char C_function3=C_function[3];
 
+#ifdef DPC_OFFSET
+  if (C_function[0]>=68) // the program that is in the ROM as data (Playfield offset: 68 to 72, the playfield box test: 128 and up), (it finds the first column of the playfield itself)
+  {
+    ((void(*)(void))progaddr)();
+    return;
+  }
+#endif
   switch (C_function[0]&0xFC)
   {
     case 4: // pfvline xpos ypos endypos function
@@ -449,6 +460,32 @@ int main()
       return;
     }
 #endif
+#ifdef DPC_ROWS
+    case 56: // playfield rows of two lines (the Jump block's box test): C_function1 and C_function2 are the lines, C_function3 the
+    {        // row increment of the background showing (DFxFRACINC); the rows, line * increment / 256, back in C_function[1] and [2].
+      unsigned int inc=C_function3;
+      unsigned int row1=(C_function1*inc)>>8;
+      unsigned int row2=(C_function2*inc)>>8;
+      C_function[1]=row1;
+      C_function[2]=row2;
+      return;
+    }
+    case 60: // the first line of a playfield row: C_function1 is the row, C_function2 the increment; the first line whose row is that
+    {        // (at most 255) back in C_function[1], found by halving the range.
+      unsigned int row=C_function1;
+      unsigned int inc=C_function2;
+      unsigned int low=0;
+      unsigned int high=255;
+      while (low<high)
+      {
+        unsigned int mid=(low+high)>>1;
+        if (((mid*inc)>>8)>=row) high=mid; else low=mid+1;
+      }
+      C_function[1]=low;
+      return;
+    }
+#endif
+
 
   default: // everything else
    break;

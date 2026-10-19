@@ -3,7 +3,9 @@
     <v-card>
       <v-card-title>{{ single ? 'Import Sound' : 'Import Sound Bank' }}</v-card-title>
       <v-card-text>
-        <div v-if="single" class="text-subtitle-1">{{ entries[0].name }}</div>
+        <div v-if="single" class="text-subtitle-1">
+          {{ entries[0].name }}<span v-if="entries[0].kernels && entries[0].kernels.length" class="text--secondary"> ({{ kernelLabel(entries[0].kernels) }})</span>
+        </div>
         <p v-else class="v-messages theme--light v-messages__message">
           Choose which sounds to import. With "Replace existing" ticked, a name that
           matches an existing sound effect replaces its parameters; anything else is added as a
@@ -25,7 +27,7 @@
             v-for="(entry, index) in entries"
             :key="index"
             v-model="entry.selected"
-            :label="entry.name"
+            :label="entry.kernels && entry.kernels.length ? `${entry.name} (${kernelLabel(entry.kernels)})` : entry.name"
             hide-details
             dense
           />
@@ -49,6 +51,7 @@
 
 <script>
 import {computed, defineComponent} from '@vue/composition-api';
+import {kernelSettingsLabel} from '../utils/sound-bank';
 
 // The "Import Sound Bank" popup, shared by the Sound tab (a file opened from
 // disk) and the Project tab's Sound Banks screen (a file from GitHub). The
@@ -72,7 +75,9 @@ export default defineComponent({
         entry.replace = !!replace;
       });
     };
-    return {selectAll, single, setReplace};
+    // The kernels a sound has settings for, as text ("Standard and DPC+").
+    const kernelLabel = kernelSettingsLabel;
+    return {selectAll, single, setReplace, kernelLabel};
   },
 });
 </script>

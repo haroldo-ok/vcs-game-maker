@@ -1,5 +1,6 @@
 'use strict';
 
+import {superchipOn} from '../../utils/superchip';
 import {useConfigurationStorage} from '../../hooks/project';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
@@ -124,7 +125,7 @@ export const pokeScoreLiteral = (value) => {
 // half's row-height*rows.
 export const generateScanlinesDebugScoreCode = (config) => {
   if (!config || !config.enableScanlinesDebug) return '';
-  const rows = config.enableSuperchip ? effectiveBackgroundRows(config) : 12;
+  const rows = superchipOn(config) ? effectiveBackgroundRows(config) : 12;
   const scanlines = 2 * pfRowDivisorFor(config) * rows;
   return pokeScoreLiteral(scanlines);
 };
@@ -331,6 +332,8 @@ export default (Blockly) => {
     if (this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
+    // With the score hidden there is no score row to color (the kernel still calls the routine, which would only cost a line).
+    if (!(config.showScore ?? true)) return '';
     // The DPC+ kernel draws its score without a minikernel (its colors come from "scorecolors:"), and the
     // routine would be placed in bank 1, which holds the kernel, and break the picture.
     if (config.kernel === 'dpcplus') return '';
@@ -508,18 +511,25 @@ export default (Blockly) => {
   // evenly spaced dots) - just run from a value of 0, N times, instead of
   // once. Confirmed directly against the compiler and emulator: N=5 health
   // renders as one solid block, N=3 lives renders as 3 evenly spaced dots,
-  // and N=0 safely loops zero times (no wraparound).
+  // and N=0 is stepped over (a bB for loop always runs once).
   //
   // temp1/temp2 are the compiler's  scratch registers, already reused
   // this way elsewhere for one-off statement-local bookkeeping (see
   // event_frame_even_odd) - nothing needs them to persist past this block.
-  const buildBarFillLoop = (varName, targetCode, stepExpression) => [
-    `${varName} = 0`,
-    `temp1 = ${targetCode}`,
-    'for temp2 = 1 to temp1',
-    `${varName} = ${stepExpression}`,
-    'next',
-  ].join('\n') + '\n';
+  // A for loop in batari Basic runs its body once before it looks at the end value, so "for temp2 = 1 to 0" still runs once and
+  // would leave one unit in a bar that was set to 0: a count of 0 jumps over the loop instead.
+  const buildBarFillLoop = (varName, targetCode, stepExpression) => {
+    const doneLabel = `_score_bar_${Blockly.BBasic.blockNumbers.next('score_bar')}_done`;
+    return [
+      `${varName} = 0`,
+      `temp1 = ${targetCode}`,
+      `if temp1 = 0 then goto ${doneLabel}`,
+      'for temp2 = 1 to temp1',
+      `${varName} = ${stepExpression}`,
+      'next',
+      `@ ${doneLabel}`,
+    ].join('\n') + '\n';
+  };
 
   Blockly.BBasic[`score_bar_set_health`] = function(block) {
     // Fill a score bar with a solid block, N units wide (0-8).
@@ -571,11 +581,14 @@ export default (Blockly) => {
         'next',
       ].join('\n') + '\n';
     }
+    const doneLabel = `_score_bar_${Blockly.BBasic.blockNumbers.next('score_bar')}_done`;
     return [
       `temp1 = ${deltaCode}`,
+      `if temp1 = 0 then goto ${doneLabel}`,
       'for temp2 = 1 to temp1',
       `${varName} = ${growStep}`,
       'next',
+      `@ ${doneLabel}`,
     ].join('\n') + '\n';
   };
 

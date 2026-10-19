@@ -80,11 +80,13 @@ Blockly.Blocks['simple_sound_set'] = {
         .appendField(new Blockly.FieldNumber(20), 'DURATION')
         .appendField('on')
         // A function, so the choices follow the kernel (see channelOptions).
-        .appendField(new Blockly.FieldDropdown(() => channelOptions()), 'CHANNEL');
+        .appendField(new Blockly.FieldDropdown(() => channelOptions()), 'CHANNEL')
+        .appendField(new Blockly.FieldCheckbox('FALSE'), 'LOOP')
+        .appendField('loop');
     this.setInputsInline(false);
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour('rgb(156, 39, 176)');
-    this.setTooltip('Starts playing a simple sound.');
+    this.setTooltip('Starts playing a simple sound. Ticked: the sound plays again each time it ends, until another sound takes its channel or a Stop sound block.');
   },
 };

@@ -1,5 +1,6 @@
 import {reactive} from '@vue/composition-api';
 import YAML from 'yaml';
+import {isFromNewerApp} from '../utils/app-version';
 
 // Example projects (.vcsgm files) are kept in a folder of a GitHub repo and
 // copied into this browser's IndexedDB once per page load: one request lists
@@ -92,18 +93,26 @@ const kernelOf = (text) => {
   }
 };
 
+// The version of the app that saved a project (its "app-version" line, near the top of the file), or '' for one saved before it was written.
+const appVersionOf = (text) => {
+  const match = /^app-version:\s*['"]?([0-9][0-9.]*)/m.exec(String(text).slice(0, 2000));
+  return match ? match[1] : '';
+};
+
 const toEntry = (record) => ({
   name: record.name,
   text: record.text,
   ...record.summary,
   kernel: kernelOf(record.text),
+  appVersion: appVersionOf(record.text),
 });
 
 const sortEntries = (entries) => entries.sort((a, b) => a.name.localeCompare(b.name));
 
 const showCached = async () => {
   const records = (await readEverything()).filter((record) => record.source === SOURCE_KEY);
-  examplesState.entries = sortEntries(records.map(toEntry));
+  // Examples saved by a newer version of the app than this one are not shown (this version may not open them right).
+  examplesState.entries = sortEntries(records.map(toEntry).filter((entry) => !isFromNewerApp(entry.appVersion)));
   return records;
 };
 

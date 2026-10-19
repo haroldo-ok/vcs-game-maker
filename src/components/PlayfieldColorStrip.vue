@@ -80,6 +80,8 @@ export default {
     title: {type: String, default: undefined},
     // Which side of the picture the strip is on; the gap to the picture is on that side.
     side: {type: String, default: 'left'},
+    // The color a row has until it is painted, and the Eraser paints it back to: white for the playfield, black for the background behind it.
+    defaultColor: {type: Number, default: DEFAULT_ROW_COLOR},
   },
   computed: {
     // With the graphic editor's Fill tool selected, picking a color for a row fills the whole run of
@@ -94,7 +96,7 @@ export default {
     // The color a click paints a row with: white with the Eraser, the toolbar's swatch color with the Pencil or Fill, else the armed quick color.
     paintColor() {
       // The Eraser puts a row back to white, whatever the swatch holds.
-      if (usePixelTool().value === 'eraser') return DEFAULT_ROW_COLOR;
+      if (usePixelTool().value === 'eraser') return this.defaultColor;
       const swatch = useDrawColor().value;
       if (['pencil', 'fill'].includes(usePixelTool().value) && swatch !== null) return swatch;
       return this.activeQuickColor;

@@ -270,7 +270,7 @@
           v-model="configurationState.enableFastMath"
           @change="handleChangeConfiguration"
           label="Faster multiply and divide"
-          hint="Replaces the multiply and divide routines with ones that look the answer up in a table (multiplying always takes about 60 cycles instead of up to 180) and shift and subtract for big answers (dividing takes at most about 210 cycles instead of over 1000). Costs about 600 bytes of ROM. Only matters when a block multiplies or divides by something that is not a power of 2, such as the playfield and sprite conversion blocks. On DPC+ only dividing changes: big answers are worked out by the coprocessor, and no extra ROM is used."
+          hint="Replaces the multiply and divide routines with ones that look the answer up in a table (multiplying always takes about 60 cycles instead of up to 180) and shift and subtract for big answers (dividing takes at most about 210 cycles instead of over 1000). Costs about 600 bytes of ROM. Only matters when a block multiplies or divides by something that is not a power of 2, such as the playfield and sprite conversion blocks. On DPC+ this is always on and only dividing changes: big answers are worked out by the coprocessor, and no extra ROM is used."
           persistent-hint
           class="option-switch"
         />
@@ -362,7 +362,7 @@
         <v-switch
           v-model="hideTopToolbar"
           :disabled="hideSidebar"
-          label="Never show top toolbar"
+          label="Hide top toolbar"
           hint="Always hides the top app toolbar. Not available while the left toolbar is hidden."
           persistent-hint
           class="option-switch"
@@ -370,7 +370,7 @@
         <v-switch
           v-model="hideSidebar"
           :disabled="hideTopToolbar"
-          label="Never show left toolbar"
+          label="Hide left toolbar"
           hint="Always hides the left app toolbar. Not available while the top toolbar is hidden."
           persistent-hint
           class="option-switch"
@@ -379,6 +379,14 @@
           v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you already know what everything does."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
+          v-model="hideToolbarLabels"
+          :disabled="!hideDescriptionText"
+          label="Hide toolbar text labels"
+          hint="Expert mode only: the left and top toolbars show just their icons, without the names under them (hover an icon to see its name)."
           persistent-hint
           class="option-switch"
         />
@@ -407,7 +415,7 @@ import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
   useColorblindModeStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage,
   useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {useEmulatorSettings} from '../hooks/emulator-settings';
@@ -507,6 +515,12 @@ export default defineComponent({
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
     const colorblindMode = useColorblindModeStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
+    // Under Expert mode: the left and top toolbars show only their icons. It cannot be left on without Expert mode.
+    const hideToolbarLabels = useHideToolbarLabelsStorage();
+    if (!hideDescriptionText.value) hideToolbarLabels.value = false;
+    watch(hideDescriptionText, (expert) => {
+      if (!expert) hideToolbarLabels.value = false;
+    });
     const projectAutoIncrementVersion = useProjectAutoIncrementVersionStorage();
     const stellaPathStorage = useStellaPathStorage();
     // window.electronAPI only exists inside the desktop (Electron) build's
@@ -683,16 +697,12 @@ export default defineComponent({
       // <var>' is no longer needed") - rand16 wouldn't just be a no-op under
       // DPC+, it would waste a variable slot for nothing.
       if (state.kernel === 'dpcplus') {
-        // The Superchip switch is hidden and ignored here; its setting is kept aside for the way back, and for
-        // the DPC+ row height, which follows what the standard kernel would use.
-        if (state.enableSuperchip || state.enableSuperchipStandard === undefined) {
-          // Coming from the standard kernel with Superchip RAM: the playfield keeps the rows it had there.
-          if (state.enableSuperchip) state.dpcPlusPfres = Math.max(1, Math.min(192, Number(state.pfres) || 12));
-          state.enableSuperchipStandard = !!state.enableSuperchip;
-        }
-        state.enableSuperchip = false;
+        // The Superchip switch is hidden, and the setting is left as it is (it is ignored under DPC+, and the DPC+ row height
+        // follows it when the project never set one).
         state.enableRand16 = false;
-      } else if (state.enableSuperchipStandard !== undefined) {
+      }
+      // A project saved while an older version kept the setting aside: it is back where it was.
+      if (state.enableSuperchipStandard !== undefined) {
         state.enableSuperchip = state.enableSuperchipStandard;
         delete state.enableSuperchipStandard;
       }
@@ -707,7 +717,7 @@ export default defineComponent({
       const state = configurationState.value;
       if (state.enablePfRowHeight) return state.pfrowheight;
       // Without Superchip the standard kernel has 12 rows whatever pfres says.
-      const rows = state.enableSuperchip ? Number(state.pfres) : 12;
+      const rows = (state.enableSuperchip && state.kernel !== 'dpcplus') ? Number(state.pfres) : 12;
       return rows >= MIN_PFRES ? Math.max(1, Math.floor(96 / Math.round(rows))) : state.pfrowheight;
     });
     const handleInputPfRowHeight = (value) => {
@@ -857,6 +867,7 @@ export default defineComponent({
       muteBlocklySounds.value = false;
       adaptiveFrameSkip.value = true;
       hideDescriptionText.value = false;
+      hideToolbarLabels.value = false;
       projectAutoIncrementVersion.value = false;
     };
 
@@ -878,6 +889,7 @@ export default defineComponent({
       loadLastProject, showStartupTips,
       muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
+      hideToolbarLabels,
       stellaPathStorage, isElectron, handleBrowseForStella,
       isSectionCollapsed,
       toggleSection,

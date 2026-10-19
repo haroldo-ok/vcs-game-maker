@@ -22,9 +22,12 @@ export const setDebugVariables = (value) => {
 export const collectDebugVariables = (variableUsage, symbolmap) => {
   if (!variableUsage || !symbolmap) return [];
   const found = new Map();
-  const add = (name, owner, sharing = {}) => {
-    if (!name || found.has(name) || symbolmap[name] === undefined) return;
-    found.set(name, {name, address: symbolmap[name], owner, ...sharing});
+  // A variable in a DPC+ bonus slot has no symbol named for it in the assembly (the slot, var0 and so on, is the symbol), so the slot's
+  // symbol gives the address when the name has none.
+  const add = (name, owner, sharing = {}, slot = null) => {
+    const address = symbolmap[name] !== undefined ? symbolmap[name] : slot ? symbolmap[slot] : undefined;
+    if (!name || found.has(name) || address === undefined) return;
+    found.set(name, {name, address, owner, ...sharing});
   };
   // The DPC+ bonus slots (var0 to var8 and the bytes of the unused virtual sprites) hold variables too, like the shared byte
   // of the flag bits (a Boolean each).
@@ -33,8 +36,8 @@ export const collectDebugVariables = (variableUsage, symbolmap) => {
     const owner = assignment.isUserVariable ? 'user' : 'block';
     const sharedWith = assignment.sharedWith || [];
     // The title screen names that live in this variable's slot while the title screen kernel runs.
-    add(assignment.name, owner, sharedWith.length ? {sharedWith} : {});
-    sharedWith.forEach((name) => add(name, 'block', {hostName: assignment.name}));
+    add(assignment.name, owner, sharedWith.length ? {sharedWith} : {}, assignment.slot);
+    sharedWith.forEach((name) => add(name, 'block', {hostName: assignment.name}, assignment.slot));
   });
   (variableUsage.systemAssignments || []).forEach((assignment) => add(assignment.name, 'system'));
   // Superchip RAM's read/write pool: a variable there is only known in the assembly by its read address (r000).

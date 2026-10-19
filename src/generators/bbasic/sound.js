@@ -1,6 +1,7 @@
 'use strict';
 
 import {useConfigurationStorage} from '../../hooks/project';
+import {registerSoundDescription, volumeLimitAsm} from './soundfx';
 
 export default (Blockly) => {
   Blockly.BBasic[`simple_sound_set`] = function(block) {
@@ -37,11 +38,42 @@ export default (Blockly) => {
     // Only channel 0 is played by the chip; channel 1 stays on the TIA.
     const dpcPlan = Blockly.BBasic.dpcAudioPlan && Blockly.BBasic.dpcAudioPlan.isChannel(channel) ?
       Blockly.BBasic.dpcAudioPlan : null;
+    const audcValue = dpcPlan ? dpcPlan.waveIdForTia(audc) : audc;
+    const audfValue = dpcPlan ? dpcPlan.pitchIdForTia(audc, audf) : audf;
+    const cutVar = Blockly.BBasic.soundMaxVolumeUsed ?
+      Blockly.BBasic.nameDB_.getName('soundVolumeCut', Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+    // The channel's variable for loops and pitch tables, when it has one: the number of this sound's description (0 when it does not
+    // loop; this block never changes pitch).
+    let idLines = '';
+    // A sound that loops counts one frame more, so it plays all of its frames every time round (see soundfx_play).
+    const loops = block.getFieldValue('LOOP') === 'TRUE';
+    const loopDuration = Math.min(255, Number(duration) + 1);
+    if (Blockly.BBasic.soundIdChannels && Blockly.BBasic.soundIdChannels.has(`${Number(channel)}`)) {
+      const idVar = Blockly.BBasic.nameDB_.getName(`soundId${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const durationVar = Blockly.BBasic.nameDB_.getName(`channnel${channel}duration`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const id = registerSoundDescription(channel, {
+        loopLines: !loops ? null : [
+          '       lda #0', `       sta AUDV${channel}`,
+          `       lda #${audcValue}`, `       sta AUDC${channel}`,
+          `       lda #${audfValue}`, `       sta AUDF${channel}`,
+          `       lda #${effectiveAudv}`,
+          ...(cutVar ? [...volumeLimitAsm(cutVar, `_soundloop${channel}_@@ID@@`), `       stx AUDV${channel}`] :
+            [`       sta AUDV${channel}`]),
+          `       lda #${loopDuration}`, `       sta ${durationVar}`,
+        ],
+      });
+      idLines = `${idVar}=${id}
+`;
+    }
+    const volumeLines = cutVar ?
+      `asm\nlda #15\nsec\nsbc ${cutVar}\ncmp #${effectiveAudv}\nbcc *+4\nlda #${effectiveAudv}\nsta AUDV${channel}\n@end\n` :
+      `AUDV${channel}=${effectiveAudv}\n`;
     const code = `AUDV${channel}=0\n` +
-      `AUDC${channel}=${dpcPlan ? dpcPlan.waveIdForTia(audc) : audc}\n` +
-      `AUDF${channel}=${dpcPlan ? dpcPlan.pitchIdForTia(audc, audf) : audf}\n` +
-      `AUDV${channel}=${effectiveAudv}\n` +
-      `channnel${channel}duration=${duration}\n`;
+      `AUDC${channel}=${audcValue}\n` +
+      `AUDF${channel}=${audfValue}\n` +
+      volumeLines +
+      `channnel${channel}duration=${loops ? loopDuration : duration}\n` +
+      idLines;
     return code;
   };
 };

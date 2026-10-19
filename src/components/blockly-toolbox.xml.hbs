@@ -606,6 +606,40 @@
                 </shadow>
             </value>
         </block>
+        <block type="controls_if">
+            <value name="IF0">
+                <block type="input_joystick_get">
+                    <field name="JOYSTICK">0</field>
+                    <field name="VAR">joy0fire</field>
+                </block>
+            </value>
+            <statement name="DO0">
+                <block type="sprite_platformer">
+                    <field name="WALLS">TRUE</field>
+                    <value name="SPEED">
+                        <block type="math_number">
+                            <field name="NUM">5</field>
+                        </block>
+                    </value>
+                    <value name="GRAVITY">
+                        <block type="math_number">
+                            <field name="NUM">3</field>
+                        </block>
+                    </value>
+                    <value name="MAXFALL">
+                        <block type="math_number">
+                            <field name="NUM">6</field>
+                        </block>
+                    </value>
+                    <value name="MAXJUMPS">
+                        <block type="math_number">
+                            <field name="NUM">2</field>
+                        </block>
+                    </value>
+                </block>
+            </statement>
+        </block>
+        <block type="sprite_platformer_state"></block>
 
     </category>
     <category name="Playfield" colour="rgb(255, 152, 0)">
@@ -822,6 +856,14 @@
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>
         <block type="soundfx_play"></block>
+        <block type="soundfx_stop"></block>
+        <block type="soundfx_max_volume">
+            <value name="VALUE">
+                <shadow type="math_number">
+                    <field name="NUM">15</field>
+                </shadow>
+            </value>
+        </block>
     </category>
     <category name="Music" colour="rgb(0, 188, 212)">
         <block type="music_play_song"></block>
@@ -1076,6 +1118,9 @@
         <block type="text_minikernel_line_scroll_up"></block>
         <block type="text_minikernel_line_scroll_down"></block>
         <block type="text_minikernel_clear"></block>
+        <block type="text_minikernel_clear_after">
+            <value name="FRAMES"><shadow type="math_number"><field name="NUM">60</field></shadow></value>
+        </block>
     </category>
     <category name="Data" colour="rgb(121, 85, 72)">
         <block type="data_table_size"></block>

@@ -1,5 +1,6 @@
 import {reactive} from '@vue/composition-api';
-import {soundEffectsInBankFile} from '../utils/sound-bank';
+import {soundEffectsInBankFile, kernelSettingsOfSounds} from '../utils/sound-bank';
+import {isFromNewerApp, APP_VERSION_KEY} from '../utils/app-version';
 
 // Sound banks and single sounds (.vcssnd for single sounds, .vcsbnk for banks, or .json files) are kept in a folder
 // of a GitHub repo and copied into this browser's IndexedDB once per page
@@ -99,6 +100,17 @@ const kernelOf = (text) => {
   }
 };
 
+// The kernels a file's sounds have settings for (see kernelSettingsOf in utils/sound-bank.js): a bank of sounds made under DPC+ has both
+// Standard and DPC+ settings, a bank of Standard ones only the Standard ones. A file that cannot be read goes by the kernel it says.
+const kernelsOf = (text) => {
+  try {
+    const parsed = JSON.parse(text);
+    return kernelSettingsOfSounds(soundEffectsInBankFile(parsed));
+  } catch (e) {
+    return [kernelOf(text)];
+  }
+};
+
 // The developer and website a file was exported with (see the Sound tab's export), or '' for each it does not have.
 const creditOf = (text) => {
   try {
@@ -109,12 +121,24 @@ const creditOf = (text) => {
   }
 };
 
+// The version of the app that exported a file, or '' for one exported before it was written.
+const appVersionOf = (text) => {
+  try {
+    const version = JSON.parse(text)[APP_VERSION_KEY];
+    return typeof version === 'string' ? version : '';
+  } catch (e) {
+    return '';
+  }
+};
+
 const toEntry = (record) => ({
+  appVersion: appVersionOf(record.text),
   name: record.name,
   text: record.text,
   ...record.summary,
   kind: kindOf(record.text, record.summary && record.summary.isBank),
   kernel: kernelOf(record.text),
+  kernels: kernelsOf(record.text),
   ...creditOf(record.text),
 });
 
@@ -122,7 +146,8 @@ const sortEntries = (entries) => entries.sort((a, b) => a.name.localeCompare(b.n
 
 const showCached = async () => {
   const records = (await readEverything()).filter((record) => record.source === SOURCE_KEY);
-  soundBanksState.entries = sortEntries(records.map(toEntry));
+  // Files exported by a newer version of the app than this one are not shown.
+  soundBanksState.entries = sortEntries(records.map(toEntry).filter((entry) => !isFromNewerApp(entry.appVersion)));
   return records;
 };
 

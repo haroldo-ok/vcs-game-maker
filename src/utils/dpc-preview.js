@@ -8,8 +8,11 @@
 // value for the score lines and silent for the rest of each 262 line frame. Nothing is smoothed.
 
 import {buildEnvelopeCurve} from './envelope';
-import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, isDpcPlusSound} from './dpc-sound';
-import {getAudioContext, registerSoundEffectPreview} from './sound-preview';
+import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, frequencyForTia, isDpcPlusSound} from './dpc-sound';
+import {rawFrequencyOf} from './music-notes';
+import {buildDpcPitchOffsets} from './pitch-table';
+import {buildVolumeStaircase} from './staircase';
+import {getAudioContext, registerSoundEffectPreview, isSoundEffectPreviewActive} from './sound-preview';
 import {useConfigurationStorage} from '../hooks/project';
 
 const CHIP_CLOCK = 20000;
@@ -88,21 +91,25 @@ const arpeggioShift = (token, interval) =>
   (token.endsWith('A') ? interval : 0) + (token[0] === 'U' ? 12 : token[0] === 'D' ? -12 : 0);
 
 // Plays a sound. {sound, frequency (Hz), volume, seconds, startTime, destination, envelope fields, arpeggio fields}.
-// Returns the source.
+// pitchOffsets: the semitones each frame is above the frequency, for a sound with a sweep or a frequency envelope (the arpeggio is
+// part of it). Returns the source.
 export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, startTime, destination, loopSustain = false,
-  dimMultiplier = 1, arpeggioSpeed = 0, arpeggioInterval = 0, arpeggioRange = 0}) => {
+  dimMultiplier = 1, arpeggioSpeed = 0, arpeggioInterval = 0, arpeggioRange = 0, pitchOffsets = null, volumeCurve = null}) => {
   const wave = dpcWaveOf(sound);
   const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
-  const curve = sound.envelope ? buildEnvelopeCurve({
+  const curve = volumeCurve || (sound.envelope ? buildEnvelopeCurve({
     attack: sound.envelopeAttack, decay: sound.envelopeDecay, decayEndPercent: sound.envelopeDecayEnd,
     releaseStartPercent: sound.envelopeReleaseStart, sustainLength: sound.envelopeSustainLength,
     release: sound.envelopeRelease, peakVolume: volume, totalFrames, loopSustain,
-  }) : null;
+  }) : null);
   const sequence = ARPEGGIO_SEQUENCES[arpeggioRange] || ARPEGGIO_SEQUENCES[0];
   const samples = renderDpcPlusSamples({
     wave, seconds,
     volumeForFrame: (frame) => (curve ? (curve[Math.min(frame, curve.length - 1)] || 0) : volume),
     frequencyForFrame: (frame) => {
+      if (pitchOffsets && pitchOffsets.length) {
+        return frequency * Math.pow(2, pitchOffsets[Math.min(frame, pitchOffsets.length - 1)] / 12);
+      }
       if (!arpeggioSpeed) return frequency;
       const token = sequence[Math.floor(frame / arpeggioSpeed) % sequence.length];
       return frequency * Math.pow(2, arpeggioShift(token, arpeggioInterval) / 12);
@@ -128,16 +135,27 @@ export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, st
 
 // The Sound tab's preview of a card.
 // dimMultiplier is the DIM percentage as 0-1, applied as the emulator applies it (to the output, not the volume register).
-export const previewDpcPlusSoundEffect = (soundEffect, config, dimMultiplier = 1) => {
+export const previewDpcPlusSoundEffect = (soundEffect, config, dimMultiplier = 1, loop = false) => {
   const seconds = Math.max(0, Number(soundEffect.duration) || 0) / FRAMES_PER_SECOND;
   if (seconds <= 0) return;
   const sound = asDpcPlusSound(soundEffect, config);
   const context = getAudioContext();
+  const frequency = Number(sound.dpcFrequency) || 0;
   const {source, gain} = playDpcPlusSound(context, {
-    sound, frequency: Number(sound.dpcFrequency) || 0, volume: Number(soundEffect.audv) || 0, seconds,
-    startTime: context.currentTime, dimMultiplier,
+    sound, frequency, volume: Number(soundEffect.audv) || 0, seconds,
+    startTime: context.currentTime, dimMultiplier, pitchOffsets: buildDpcPitchOffsets(soundEffect, frequency),
+    volumeCurve: buildVolumeStaircase({...soundEffect, audv: Number(soundEffect.audv) || 0}),
   });
-  registerSoundEffectPreview([source], gain);
+  const sources = [source];
+  registerSoundEffectPreview(sources, gain);
+  // Loop: when it ends and it is still the preview that was playing (not stopped or replaced), it starts again.
+  if (loop) {
+    const disconnect = source.onended;
+    source.onended = () => {
+      if (disconnect) disconnect();
+      if (isSoundEffectPreviewActive(sources)) previewDpcPlusSoundEffect(soundEffect, config, dimMultiplier, true);
+    };
+  }
 };
 
 // What the Music tab plays a note of an instrument with: the sound as a DPC+ one and the pitch (a piano key for an
@@ -146,6 +164,10 @@ export const dpcPlusFor = (soundEffect, midi) => {
   const config = dpcPlusPreviewActive();
   if (!config) return null;
   const sound = asDpcPlusSound(soundEffect, config);
+  // A note on a frequency row plays the pitch the TIA has for that frequency number with the sound's type (tiaAudf: the frequency
+  // number, for a sweep that follows the Standard pitches from it).
+  const raw = typeof midi === 'string' ? rawFrequencyOf(midi) : null;
+  if (raw !== null) return {sound, frequency: frequencyForTia(soundEffect.audc, raw, config), tiaAudf: raw};
   const pitched = Number.isFinite(midi) && !soundEffect.isPercussion;
   return {sound, frequency: pitched ? frequencyForMidi(midi) : Number(sound.dpcFrequency) || 0};
 };

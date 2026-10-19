@@ -111,6 +111,17 @@
             <v-btn
               icon
               small
+              :title="loopPreview ?
+                'Loop the sound preview until stopped (on)' :
+                'Loop the sound preview until stopped (off)'"
+              :class="['soundfx-bank-btn', 'soundfx-icon-btn-size', 'soundfx-loop-btn', {'soundfx-loop-btn-active': loopPreview}]"
+              @click="loopPreview = !loopPreview"
+            >
+              <v-icon small>{{ loopPreview ? 'mdi-repeat' : 'mdi-repeat-off' }}</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
               title="Stop the sound preview"
               class="soundfx-bank-btn soundfx-icon-btn-size"
               @click="handleStopPreview"
@@ -123,7 +134,7 @@
               title="Play this sound effect (Space)"
               class="soundfx-bank-btn soundfx-icon-btn-size"
               :disabled="!selectedSoundEffect"
-              @click="() => handlePlaySoundEffect(selectedSoundEffect)"
+              @click="() => handlePlaySoundEffect(selectedSoundEffect, cardTia(selectedSoundEffect))"
             >
               <v-icon>mdi-play</v-icon>
             </v-btn>
@@ -287,23 +298,34 @@
 
                 <v-card-text v-if="!isCollapsed(soundEffect)" class="soundfx-fields-section">
                   <div class="soundfx-fields">
+                    <v-btn-toggle
+                      v-if="dpcPlusSoundCards"
+                      :value="cardView(soundEffect)"
+                      mandatory
+                      dense
+                      class="soundfx-kernel-toggle"
+                      @change="(view) => setCardView(soundEffect, view)"
+                    >
+                      <v-btn value="standard" small title="The sound the TIA plays, which is channel 1 and any sound that uses the Standard sound types">TIA</v-btn>
+                      <v-btn value="dpcplus" small title="The sound the DPC+ chip plays, which the ARM mixes (channels 0, 2 and 3)">ARM</v-btn>
+                    </v-btn-toggle>
                     <v-select
-                      v-if="!dpcPlusSoundCards"
+                      v-if="!cardDpc(soundEffect)"
                       label="Sound type"
                       v-model="soundEffect.audc"
                       :items="audcOptionItems"
-                      @change="() => handleAudcChange(soundEffect)"
+                      @change="() => handleStandardChange(soundEffect, true)"
                       class="soundfx-audc"
                     />
                     <WaveformEditor
-                      v-if="dpcPlusSoundCards"
+                      v-if="cardDpc(soundEffect)"
                       :sound="soundEffect"
                       class="soundfx-waveform"
                       @change="(wave) => handleWaveformChange(soundEffect, wave)"
                     />
                     <div class="soundfx-basic-fields-row">
                       <v-select
-                        v-if="dpcPlusSoundCards"
+                        v-if="cardDpc(soundEffect)"
                         :label="soundEffect.isPercussion ? 'Pitch' : 'Note'"
                         title="The piano key the sound plays. A sound converted from the Standard kernel can have a pitch between two keys, shown as Custom."
                         :value="dpcPlusNoteValue(soundEffect)"
@@ -312,12 +334,12 @@
                         class="soundfx-frequency"
                       />
                       <v-select
-                        v-else-if="audcHasTunableNotes(soundEffect.audc) && !soundEffect.isPercussion"
+                        v-else-if="audcHasTunableNotes(soundEffect.audc, cardTia(soundEffect)) && !soundEffect.isPercussion"
                         label="Frequency"
                         title="Limited to the AUDF values that play a clean, in-tune note on this sound type - same set the piano roll allows on the Music tab."
                         v-model.number="soundEffect.audf"
                         :items="frequencyItems(soundEffect.audc)"
-                        @change="handleChildChange"
+                        @change="() => handleStandardChange(soundEffect)"
                         class="soundfx-frequency"
                       />
                       <v-text-field
@@ -327,7 +349,7 @@
                         type="number"
                         min="0"
                         max="31"
-                        @change="handleChildChange"
+                        @change="() => handleStandardChange(soundEffect)"
                         class="soundfx-frequency"
                       />
                       <v-text-field
@@ -344,57 +366,12 @@
                         v-model.number="soundEffect.duration"
                         type="number"
                         min="0"
+                        max="255"
                         :disabled="!!soundEffect.envelope"
                         :title="soundEffect.envelope ? 'Set by the envelope: always its full length (Attack + Decay + Sustain + Release).' : ''"
                         @change="handleChildChange"
                         class="soundfx-number"
                       />
-                    </div>
-                    <!-- Channel 1 is still played by the TIA under DPC+, so a sound also has a Standard sound type and
-                         frequency, which this part sets and previews. -->
-                    <div v-if="dpcPlusSoundCards" class="soundfx-tia-section">
-                      <div
-                        class="soundfx-tia-title"
-                        title="Channel 1 is played by the TIA, not the DPC+ chip, so the sound plays as this Standard sound type and frequency when it is used on channel 1."
-                      >Channel 1 (TIA)</div>
-                      <div class="soundfx-basic-fields-row">
-                        <v-select
-                          label="Sound type"
-                          v-model="soundEffect.audc"
-                          :items="audcOptionItems"
-                          @change="() => handleTiaChange(soundEffect, true)"
-                          class="soundfx-audc"
-                        />
-                      </div>
-                      <div class="soundfx-basic-fields-row">
-                        <v-select
-                          v-if="audcHasTunableNotes(soundEffect.audc, true) && !soundEffect.isPercussion"
-                          label="Frequency"
-                          v-model.number="soundEffect.audf"
-                          :items="frequencyItems(soundEffect.audc)"
-                          @change="() => handleTiaChange(soundEffect)"
-                          class="soundfx-frequency"
-                        />
-                        <v-text-field
-                          v-else
-                          label="Frequency"
-                          v-model.number="soundEffect.audf"
-                          type="number"
-                          min="0"
-                          max="31"
-                          @change="() => handleTiaChange(soundEffect)"
-                          class="soundfx-frequency"
-                        />
-                        <v-btn
-                          icon
-                          small
-                          title="Preview it the way the TIA plays it on channel 1"
-                          class="soundfx-play-btn soundfx-icon-btn-size"
-                          @click.stop="() => handlePlaySoundEffect(soundEffect, true)"
-                        >
-                          <v-icon>mdi-play</v-icon>
-                        </v-btn>
-                      </div>
                     </div>
                     <div class="soundfx-arpeggio-block"
                       :class="{'soundfx-arpeggio-block--expanded': soundEffect.arpeggio}"
@@ -402,7 +379,7 @@
                       <v-switch
                         v-model="soundEffect.arpeggio"
                         label="Arpeggio"
-                        title="Always on for every note played with this instrument on the Music tab - rapidly flips between the note's pitch and a second nearby pitch (set below) to fake a chord."
+                        title="Always on for every note played with this instrument on the Music tab, and when the sound is played from blocks - rapidly flips between the note's pitch and a second nearby pitch (set below) to fake a chord."
                         hide-details
                         class="soundfx-arpeggio-switch"
                         @change="handleChildChange"
@@ -505,6 +482,40 @@
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
+                        <!-- The envelope in steps: each level held for a few frames, the levels multiples of a step; the graph shows it. -->
+                        <div class="soundfx-sweep-switches">
+                          <v-switch
+                            v-model="soundEffect.staircase"
+                            label="Staircase"
+                            title="Plays the envelope in steps instead of gliding: the volume holds one level for a few frames, then jumps to the next. The graph shows the steps."
+                            hide-details
+                            dense
+                            class="soundfx-sweep-switch"
+                            @change="handleChildChange"
+                          />
+                        </div>
+                        <div v-if="soundEffect.staircase" class="soundfx-sweep-fields">
+                          <v-text-field
+                            label="Step"
+                            title="The volume levels are multiples of this (2 gives 2, 4, 6 ...)."
+                            v-model.number="soundEffect.staircaseStep"
+                            type="number"
+                            min="1"
+                            :max="MAX_STAIRCASE_STEP"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                          <v-select
+                            label="Hold"
+                            title="How many frames each level is held."
+                            v-model="soundEffect.staircaseFrames"
+                            :items="staircaseFrameOptionItems"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                        </div>
                         <div class="soundfx-envelope-graph-toolbar">
                           <v-btn
                             icon
@@ -537,6 +548,9 @@
                           </v-btn>
                         </div>
                         <EnvelopeGraph
+                          :staircase-step="soundEffect.staircase ? soundEffect.staircaseStep : 0"
+                          :staircase-frames="soundEffect.staircase ? soundEffect.staircaseFrames : 0"
+                          :peak-volume="soundEffect.audv"
                           :attack="soundEffect.envelopeAttack"
                           :decay="soundEffect.envelopeDecay"
                           :decay-end-percent="soundEffect.envelopeDecayEnd"
@@ -548,6 +562,235 @@
                           @update:decayEndPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeDecayEnd', value)"
                           @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeReleaseStart', value)"
                           @update:release="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeRelease', value)"
+                        />
+                      </template>
+                    </div>
+                    <!-- A sound of the DPC+ chip can play the pitches the TIA plays: the sweep, frequency envelope and arpeggio of the Standard settings. -->
+                    <v-switch
+                      v-if="cardDpc(soundEffect) && (soundEffect.sweep || soundEffect.pitchEnvelope || soundEffect.arpeggio)"
+                      :input-value="dpcFollows(soundEffect)"
+                      label="Same pitches as Standard"
+                      title="On: the chip plays the same pitches as the TIA plays for this sound's sweep, frequency envelope and arpeggio (the settings of the Standard side, in steps of the frequency number), so the two sound alike. Off: the sweep moves in semitones to an End note."
+                      hide-details
+                      dense
+                      class="soundfx-dpc-follow-switch"
+                      @change="(value) => setDpcFollows(soundEffect, value)"
+                    />
+                    <!-- A frequency sweep: the pitch moves from the Frequency above to the end frequency while the sound plays. -->
+                    <div class="soundfx-arpeggio-block soundfx-sweep-block"
+                      :class="{'soundfx-arpeggio-block--expanded': soundEffect.sweep}"
+                    >
+                      <v-switch
+                        v-model="soundEffect.sweep"
+                        label="Frequency sweep"
+                        title="The pitch moves from the Frequency (or Note) above to the end frequency while the sound plays, one step every few frames."
+                        hide-details
+                        class="soundfx-arpeggio-switch"
+                        @change="() => handleSweepSwitch(soundEffect)"
+                      />
+                      <template v-if="soundEffect.sweep">
+                        <!-- The numbers on one full-width row, the two switches under them. -->
+                        <div class="soundfx-sweep-fields">
+                          <!-- A sound of the DPC+ chip sweeps to a note of the piano, in semitones. -->
+                          <v-select
+                            v-if="cardDpc(soundEffect) && !dpcFollows(soundEffect)"
+                            label="End note"
+                            title="The note the sweep moves to."
+                            v-model.number="soundEffect.dpcSweepEnd"
+                            :items="pianoKeyItems"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                          <!-- Like the Frequency field: with a note beside the number where the sound type has in-tune notes. -->
+                          <v-select
+                            v-else-if="audcHasTunableNotes(soundEffect.audc, cardTia(soundEffect)) && !soundEffect.isPercussion"
+                            label="End frequency"
+                            title="The frequency (0 to 31) the sweep moves to. A higher number is a lower pitch."
+                            v-model.number="soundEffect.sweepEnd"
+                            :items="endFrequencyItems(soundEffect.audc)"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                          <v-text-field
+                            v-else
+                            label="End frequency"
+                            title="The frequency (0 to 31) the sweep moves to. A higher number is a lower pitch."
+                            v-model.number="soundEffect.sweepEnd"
+                            type="number"
+                            min="0"
+                            max="31"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                          <v-text-field
+                            label="Step"
+                            :title="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? 'How many semitones the pitch moves each time it steps.' : 'How far the frequency moves each time it steps.'"
+                            v-model.number="soundEffect.sweepStep"
+                            type="number"
+                            min="1"
+                            :max="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? MAX_DPC_SWEEP_STEP : MAX_SWEEP_STEP"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                          <v-select
+                            label="Every"
+                            title="How many frames pass between steps."
+                            v-model="soundEffect.sweepFrames"
+                            :items="sweepFrameOptionItems"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                        </div>
+                        <div class="soundfx-sweep-switches">
+                          <v-switch
+                            v-if="!cardDpc(soundEffect) || dpcFollows(soundEffect)"
+                            v-model="soundEffect.sweepWrap"
+                            label="Wrap"
+                            title="The frequencies run from 0 to 31 and then start over. Off: the sweep takes the short way to the end frequency (30 to 20 plays 30, 29 ... 20). On: it takes the long way, past the end of the range (30 to 20 plays 30, 31, 0, 1 ... 20)."
+                            hide-details
+                            dense
+                            class="soundfx-sweep-switch"
+                            @change="handleChildChange"
+                          />
+                          <v-switch
+                            v-model="soundEffect.sweepRepeat"
+                            label="Repeat"
+                            title="When the sweep reaches the end frequency it starts over from the Frequency above. Off: it stays on the end frequency."
+                            hide-details
+                            dense
+                            class="soundfx-sweep-switch"
+                            @change="handleChildChange"
+                          />
+                        </div>
+                      </template>
+                    </div>
+                    <!-- A frequency envelope: the pitch moves by up to an amount, following the envelope's shape. -->
+                    <div class="soundfx-envelope-block"
+                      :class="{'soundfx-envelope-block--expanded': soundEffect.pitchEnvelope}"
+                    >
+                      <v-switch
+                        v-model="soundEffect.pitchEnvelope"
+                        label="Frequency envelope"
+                        title="Shapes the pitch over time (Attack/Decay/Sustain/Release), like the volume Envelope shapes the volume: the frequency moves away from the Frequency above by up to the amount set here. Plays when the sound is played from blocks."
+                        hide-details
+                        class="soundfx-envelope-switch"
+                        @change="handleChildChange"
+                      />
+                      <template v-if="soundEffect.pitchEnvelope">
+                        <v-text-field
+                          label="Amount"
+                          :title="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? 'How many semitones the pitch moves at the peak of the envelope, -31 to 31. A positive number is a higher pitch.' : 'How far the frequency moves at the peak of the envelope, -31 to 31. A positive number is a lower pitch.'"
+                          v-model.number="soundEffect.pitchEnvelopeAmount"
+                          type="number"
+                          min="-31"
+                          max="31"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Attack"
+                          title="Frames to move from the Frequency to the full amount."
+                          v-model="soundEffect.pitchEnvelopeAttack"
+                          :items="envelopeAttackReleaseFrameOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Decay"
+                          title="Frames to move from the full amount to the Decay End level."
+                          v-model="soundEffect.pitchEnvelopeDecay"
+                          :items="envelopeStageFrameOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Decay End"
+                          title="The part of the amount (percent) Decay ends at, and Sustain starts from."
+                          v-model="soundEffect.pitchEnvelopeDecayEnd"
+                          :items="envelopeVolumePercentOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Sustain length"
+                          title="How many frames Sustain takes to glide from the Decay End level to the Release Start level."
+                          v-model="soundEffect.pitchEnvelopeSustainLength"
+                          :items="envelopeSustainFrameOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Release Start"
+                          title="The part of the amount (percent) Sustain ends at, and Release starts from."
+                          v-model="soundEffect.pitchEnvelopeReleaseStart"
+                          :items="envelopeVolumePercentOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
+                          label="Release"
+                          title="Frames to move from the Release Start level back to the Frequency."
+                          v-model="soundEffect.pitchEnvelopeRelease"
+                          :items="envelopeAttackReleaseFrameOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <div class="soundfx-envelope-graph-toolbar">
+                          <v-btn
+                            icon
+                            small
+                            title="Reset the frequency envelope to default"
+                            class="soundfx-stop-btn soundfx-icon-btn-size"
+                            @click="() => handleResetPitchEnvelope(soundEffect)"
+                          >
+                            <v-icon small>mdi-restore</v-icon>
+                          </v-btn>
+                          <v-btn
+                            icon
+                            small
+                            :title="UNDO_TITLE"
+                            class="soundfx-stop-btn soundfx-icon-btn-size"
+                            :disabled="!canUndoEnvelope(soundEffect) && !reorderCanUndo"
+                            @click="() => handleUndoEnvelope(soundEffect)"
+                          >
+                            <v-icon small>mdi-undo</v-icon>
+                          </v-btn>
+                          <v-btn
+                            icon
+                            small
+                            :title="REDO_TITLE"
+                            class="soundfx-stop-btn soundfx-icon-btn-size"
+                            :disabled="!canRedoEnvelope(soundEffect) && !reorderCanRedo"
+                            @click="() => handleRedoEnvelope(soundEffect)"
+                          >
+                            <v-icon small>mdi-redo</v-icon>
+                          </v-btn>
+                        </div>
+                        <!-- The same graph as the volume envelope's: its height is the part of the Amount the pitch has moved. -->
+                        <EnvelopeGraph
+                          :attack="soundEffect.pitchEnvelopeAttack"
+                          :decay="soundEffect.pitchEnvelopeDecay"
+                          :decay-end-percent="soundEffect.pitchEnvelopeDecayEnd"
+                          :sustain-length="soundEffect.pitchEnvelopeSustainLength"
+                          :release-start-percent="soundEffect.pitchEnvelopeReleaseStart"
+                          :release="soundEffect.pitchEnvelopeRelease"
+                          @update:attack="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeAttack', value)"
+                          @update:decay="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeDecay', value)"
+                          @update:decayEndPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeDecayEnd', value)"
+                          @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeReleaseStart', value)"
+                          @update:release="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeRelease', value)"
                         />
                       </template>
                     </div>
@@ -596,6 +839,11 @@ import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVI
   DEFAULT_ENVELOPE_SUSTAIN_FRAMES, DEFAULT_ENVELOPE_RELEASE, NOISE_PRIORITY_OPTIONS,
   DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
+import {STAIRCASE_FRAME_OPTIONS, MAX_STAIRCASE_STEP, DEFAULT_STAIRCASE_STEP, DEFAULT_STAIRCASE_FRAMES} from '../utils/staircase';
+import {dpcFollowsStandardPitch, dpcKeyForHz, MAX_DPC_SWEEP_STEP, SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_END, DEFAULT_SWEEP_STEP, DEFAULT_SWEEP_FRAMES, MAX_SWEEP_STEP,
+  DEFAULT_PITCH_ENVELOPE_AMOUNT, DEFAULT_PITCH_ENVELOPE_ATTACK, DEFAULT_PITCH_ENVELOPE_DECAY,
+  DEFAULT_PITCH_ENVELOPE_DECAY_END, DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH, DEFAULT_PITCH_ENVELOPE_RELEASE_START,
+  DEFAULT_PITCH_ENVELOPE_RELEASE} from '../utils/pitch-table';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
@@ -608,6 +856,7 @@ import WaveformEditor from '../components/WaveformEditor.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EnvelopeGraph from '../components/EnvelopeGraph.vue';
+import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
@@ -681,8 +930,9 @@ export default defineComponent({
     const syncEnvelopeDurations = () => {
       state.value.soundEffects.forEach((soundEffect) => {
         if (!soundEffect.envelope) return;
-        const combinedFrames = (Number(soundEffect.envelopeAttack) || 0) + (Number(soundEffect.envelopeDecay) || 0) +
-          (Number(soundEffect.envelopeSustainLength) || 0) + (Number(soundEffect.envelopeRelease) || 0);
+        // At most 255: a sound's frames are counted down in a byte (see clampEnvelopeStages).
+        const combinedFrames = Math.min(255, (Number(soundEffect.envelopeAttack) || 0) + (Number(soundEffect.envelopeDecay) || 0) +
+          (Number(soundEffect.envelopeSustainLength) || 0) + (Number(soundEffect.envelopeRelease) || 0));
         if (combinedFrames > 0 && Number(soundEffect.duration) !== combinedFrames) {
           soundEffect.duration = combinedFrames;
         }
@@ -726,8 +976,10 @@ export default defineComponent({
     // a whole sound effect's every field, since dragging the envelope graph
     // is the one interaction here fiddly enough to want stepping back
     // through.
+    // The frequency envelope's shape is in the same history: Undo and Redo step back and forward through the edits of either graph.
     const ENVELOPE_HISTORY_KEYS = ['envelopeAttack', 'envelopeDecay', 'envelopeDecayEnd', 'envelopeSustainLength',
-      'envelopeReleaseStart', 'envelopeRelease'];
+      'envelopeReleaseStart', 'envelopeRelease', 'pitchEnvelopeAttack', 'pitchEnvelopeDecay', 'pitchEnvelopeDecayEnd',
+      'pitchEnvelopeSustainLength', 'pitchEnvelopeReleaseStart', 'pitchEnvelopeRelease'];
     const snapshotEnvelope = (soundEffect) => JSON.stringify(
         ENVELOPE_HISTORY_KEYS.reduce((acc, key) => {
           acc[key] = soundEffect[key]; return acc;
@@ -794,6 +1046,15 @@ export default defineComponent({
         [soundEffect.id]: [...undoStack, snapshotEnvelope(soundEffect)]};
       envelopeRedoStacks.value = {...envelopeRedoStacks.value, [soundEffect.id]: stack.slice(0, -1)};
       applyEnvelopeSnapshot(soundEffect, stack[stack.length - 1]);
+    };
+    const handleResetPitchEnvelope = (soundEffect) => {
+      soundEffect.pitchEnvelopeAttack = DEFAULT_PITCH_ENVELOPE_ATTACK;
+      soundEffect.pitchEnvelopeDecay = DEFAULT_PITCH_ENVELOPE_DECAY;
+      soundEffect.pitchEnvelopeDecayEnd = DEFAULT_PITCH_ENVELOPE_DECAY_END;
+      soundEffect.pitchEnvelopeSustainLength = DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH;
+      soundEffect.pitchEnvelopeReleaseStart = DEFAULT_PITCH_ENVELOPE_RELEASE_START;
+      soundEffect.pitchEnvelopeRelease = DEFAULT_PITCH_ENVELOPE_RELEASE;
+      handleChildChange();
     };
     const handleResetEnvelope = (soundEffect) => {
       soundEffect.envelopeAttack = DEFAULT_ENVELOPE_ATTACK;
@@ -911,7 +1172,7 @@ export default defineComponent({
       const key = event.key;
       if (key === ' ') {
         event.preventDefault();
-        handlePlaySoundEffect(selectedSoundEffect.value);
+        handlePlaySoundEffect(selectedSoundEffect.value, cardTia(selectedSoundEffect.value));
       } else if (key.toLowerCase() === 'e' && event.shiftKey) {
         event.preventDefault();
         handleExportSelectedSoundEffects();
@@ -961,6 +1222,23 @@ export default defineComponent({
         color: null,
         isInstrument: false,
         isPercussion: false,
+        sweep: false,
+        sweepEnd: DEFAULT_SWEEP_END,
+        sweepStep: DEFAULT_SWEEP_STEP,
+        sweepFrames: DEFAULT_SWEEP_FRAMES,
+        sweepRepeat: false,
+        sweepWrap: false,
+        staircase: false,
+        staircaseStep: DEFAULT_STAIRCASE_STEP,
+        staircaseFrames: DEFAULT_STAIRCASE_FRAMES,
+        pitchEnvelope: false,
+        pitchEnvelopeAmount: DEFAULT_PITCH_ENVELOPE_AMOUNT,
+        pitchEnvelopeAttack: DEFAULT_PITCH_ENVELOPE_ATTACK,
+        pitchEnvelopeDecay: DEFAULT_PITCH_ENVELOPE_DECAY,
+        pitchEnvelopeDecayEnd: DEFAULT_PITCH_ENVELOPE_DECAY_END,
+        pitchEnvelopeSustainLength: DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH,
+        pitchEnvelopeReleaseStart: DEFAULT_PITCH_ENVELOPE_RELEASE_START,
+        pitchEnvelopeRelease: DEFAULT_PITCH_ENVELOPE_RELEASE,
       };
 
       state.value.soundEffects.push(newSoundEffect);
@@ -1001,7 +1279,7 @@ export default defineComponent({
       // eslint-disable-next-line no-unused-vars
       const {id, ...rest} = soundEffect;
       // The kernel the sound was made for goes first in the file.
-      const soundEffectData = {kernel: (configurationStorage.value || {}).kernel || 'standard', ...developerInfo(), ...rest};
+      const soundEffectData = {...appVersionField(), kernel: (configurationStorage.value || {}).kernel || 'standard', ...developerInfo(), ...rest};
       const blob = new Blob([JSON.stringify(soundEffectData, null, 2)], {type: 'application/json'});
       const filename = (soundEffect.name || `sound-${soundEffect.id}`).replace(/[^A-Za-z0-9]+/g, '_');
       saveAs(blob, `Sound_${filename}-${getDateInfix()}.vcssnd`);
@@ -1026,7 +1304,7 @@ export default defineComponent({
               throw new Error('File does not contain valid sound effect data');
             }
             // eslint-disable-next-line no-unused-vars
-            const {kernel, developer, website, ...importedFields} = soundEffectData;
+            const {'app-version': appVersion, kernel, developer, website, ...importedFields} = soundEffectData;
             delete soundEffect.dpcShape;
             delete soundEffect.dpcFrequency;
             delete soundEffect.dpcWave;
@@ -1062,7 +1340,7 @@ export default defineComponent({
       const chosen = selectedSoundEffects.value.length > 1 ? selectedSoundEffects.value : state.value.soundEffects;
       const soundEffects = chosen.map(({id, ...rest}) => rest); // eslint-disable-line no-unused-vars
       const blob = new Blob(
-          [JSON.stringify({type: 'VCS Game Maker Sound Bank', kernel: (configurationStorage.value || {}).kernel || 'standard',
+          [JSON.stringify({type: 'VCS Game Maker Sound Bank', ...appVersionField(), kernel: (configurationStorage.value || {}).kernel || 'standard',
             ...developerInfo(), soundEffects}, null, 2)],
           {type: 'application/json'});
       saveAs(blob, `SoundBank-${getDateInfix()}.vcsbnk`);
@@ -1114,11 +1392,14 @@ export default defineComponent({
       if (dpcPlusSoundCards.value && !tia) {
         // The DPC+ sound chip has no 0-15 volume steps to round to: the emulator just plays it quieter.
         const dimMultiplier = dimSoundFx.value ? (Number(dimSoundFxPercent.value) || 0) / 100 : 1;
-        previewDpcPlusSoundEffect(soundEffect, configurationStorage.value || {}, dimMultiplier);
+        previewDpcPlusSoundEffect(soundEffect, configurationStorage.value || {}, dimMultiplier, loopPreview.value);
       } else {
-        previewSoundEffect({...soundEffect, audv});
+        previewSoundEffect({...soundEffect, audv, loop: loopPreview.value});
       }
     };
+
+    // The preview plays again each time it ends, until Stop (or another sound's preview) ends it.
+    const loopPreview = ref(false);
 
     const handleStopPreview = () => stopSoundEffectPreview();
 
@@ -1141,6 +1422,21 @@ export default defineComponent({
     };
     const dpcPlusNoteItems = (soundEffect) => (dpcPlusNoteValue(soundEffect) === 'custom' ?
       [{text: `Custom (${soundEffect.dpcFrequency} Hz)`, value: 'custom'}, ...pianoKeyItems] : pianoKeyItems);
+    // Switching a sweep on gives a sound of the DPC+ chip an end note (an octave up) when it has none.
+    const dpcFollows = (soundEffect) => dpcFollowsStandardPitch(soundEffect);
+    const setDpcFollows = (soundEffect, value) => {
+      Vue.set(soundEffect, 'dpcSweepMatch', !!value);
+      // Turning it off gives a sweep the end note (an octave up) it moves to in semitones.
+      if (!value) handleSweepSwitch(soundEffect);
+      else handleChildChange();
+    };
+    const handleSweepSwitch = (soundEffect) => {
+      if (cardDpc(soundEffect) && soundEffect.sweep && !soundEffect.dpcSweepEnd) {
+        const key = dpcKeyForHz(Number(soundEffect.dpcFrequency) || 440);
+        soundEffect.dpcSweepEnd = Math.min(108, key + 20 + 12);
+      }
+      handleChildChange();
+    };
     const handleDpcPlusNoteChange = (soundEffect, midi) => {
       if (midi === 'custom') return;
       Vue.set(soundEffect, 'dpcFrequency', Math.round(frequencyForMidi(midi) * 100) / 100);
@@ -1157,6 +1453,20 @@ export default defineComponent({
 
     // Changing the Standard sound type or frequency of a sound under DPC+ (what channel 1 plays): it is remembered that
     // they were set by hand, so switching the project to the Standard kernel keeps them.
+    // Which settings a card shows under DPC+: the chip's or the TIA's (Standard).
+    // (Kept in the sound itself, so it is the same after leaving the tab or loading the project again.)
+    const cardView = (soundEffect) => (soundEffect.dpcView || 'dpcplus');
+    const setCardView = (soundEffect, view) => {
+      Vue.set(soundEffect, 'dpcView', view);
+      handleChildChange();
+    };
+    const cardTia = (soundEffect) => !!soundEffect && dpcPlusSoundCards.value && cardView(soundEffect) === 'standard';
+    const cardDpc = (soundEffect) => dpcPlusSoundCards.value && !cardTia(soundEffect);
+    const handleStandardChange = (soundEffect, typeChanged = false) => {
+      if (cardTia(soundEffect)) handleTiaChange(soundEffect, typeChanged);
+      else if (typeChanged) handleAudcChange(soundEffect);
+      else handleChildChange();
+    };
     const handleTiaChange = (soundEffect, typeChanged = false) => {
       Vue.set(soundEffect, 'dpcTiaEdited', true);
       if (typeChanged) handleAudcChange(soundEffect);
@@ -1177,13 +1487,19 @@ export default defineComponent({
     // AUDF value (not instead of it) since the underlying byte is still
     // what's stored/generated.
     const frequencyItems = (audc) =>
-      notesForAudc(audc, dpcPlusSoundCards.value).map(({value, label}) => ({text: `${value} (${label})`, value}));
+      notesForAudc(audc, true).map(({value, label}) => ({text: `${value} (${label})`, value}));
+
+    // Every frequency 0 to 31 (a sweep can end on any of them), with the note beside the ones that are in tune.
+    const endFrequencyItems = (audc) => {
+      const notes = new Map(notesForAudc(audc, true).map(({value, label}) => [value, label]));
+      return Array.from({length: 32}, (_, value) => ({text: notes.has(value) ? `${value} (${notes.get(value)})` : `${value}`, value}));
+    };
 
     // AUDC types with no well-defined pitch (most percussion/noise sounds)
     // keep the old plain 0-31 number field instead - there's no "valid
     // frequency" set to limit to, every byte is equally as (un)musical.
     const handleAudcChange = (soundEffect) => {
-      if (audcHasTunableNotes(soundEffect.audc, dpcPlusSoundCards.value)) {
+      if (audcHasTunableNotes(soundEffect.audc, true)) {
         const items = frequencyItems(soundEffect.audc);
         if (!items.some(({value}) => value === soundEffect.audf)) {
           // Snaps to the closest still-valid AUDF rather than always
@@ -1211,12 +1527,16 @@ export default defineComponent({
       handleExportSoundBank, handleImportSoundBank,
       soundBankImportOpen, soundBankImportEntries, handleConfirmSoundBankImport,
       canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, handleResetEnvelope,
-      handleStopPreview, handleSetSoundEffectColor, autoInstrumentColor,
+      handleResetPitchEnvelope,
+      handleStopPreview, loopPreview, handleSetSoundEffectColor, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
-      audcHasTunableNotes, frequencyItems, handleAudcChange,
+      audcHasTunableNotes, frequencyItems, endFrequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
       soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, dpcPlusSoundCards, dpcPlusNoteValue, dpcPlusNoteItems,
+      handleSweepSwitch, dpcFollows, setDpcFollows, pianoKeyItems, MAX_DPC_SWEEP_STEP, MAX_STAIRCASE_STEP,
+      staircaseFrameOptionItems: STAIRCASE_FRAME_OPTIONS.map((value) => ({text: `${value} ${value === 1 ? 'frame' : 'frames'}`, value})),
       handleDpcPlusNoteChange, handleWaveformChange, handleTiaChange,
+      cardView, setCardView, cardTia, cardDpc, handleStandardChange,
       audcOptionItems: AUDC_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioRangeOptionItems: ARPEGGIO_RANGE_OPTIONS.map(([text, value]) => ({text, value})),
       arpeggioDivisionOptionItems: ARPEGGIO_DIVISION_OPTIONS.map((value) => ({text: `1/${value}`, value})),
@@ -1230,6 +1550,8 @@ export default defineComponent({
       envelopeVolumePercentOptionItems: ENVELOPE_VOLUME_PERCENT_OPTIONS.map((value) => ({text: `${value}%`, value})),
       envelopeSustainFrameOptionItems: ENVELOPE_SUSTAIN_FRAME_OPTIONS.map((value) => ({text: `${value} frames`, value})),
       priorityOptionItems: NOISE_PRIORITY_OPTIONS.map((value) => ({text: `${value}`, value})),
+      sweepFrameOptionItems: SWEEP_FRAME_OPTIONS.map((value) => ({text: `${value} ${value === 1 ? 'frame' : 'frames'}`, value})),
+      MAX_SWEEP_STEP,
       handleEnvelopeGraphChange,
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
@@ -1425,6 +1747,11 @@ export default defineComponent({
 
 .soundfx-toolbar-divider {
   margin: 0;
+}
+
+/* The loop button's icon takes the theme color while looping is on, like the Music tab's. */
+.soundfx-loop-btn-active >>> .v-icon {
+  color: var(--v-primary-base, #1976d2) !important;
 }
 
 /* The divider between the Columns switch and the Show select: the same 8px
@@ -1747,16 +2074,14 @@ export default defineComponent({
   flex-wrap: wrap;
 }
 
-.soundfx-tia-section {
+.soundfx-kernel-toggle {
   flex: 1 1 100%;
-  width: 100%;
-  margin-top: 4px;
+  margin: 4px 0 8px;
 }
 
-.soundfx-tia-title {
-  font-size: 0.8em;
-  opacity: 0.7;
-  margin-bottom: 2px;
+.soundfx-kernel-toggle .v-btn.v-btn--active {
+  background-color: var(--v-primary-base, #1976d2) !important;
+  color: #fff !important;
 }
 
 .soundfx-waveform {
@@ -1857,6 +2182,44 @@ export default defineComponent({
 
 .hide-description-text .soundfx-arpeggio-block--expanded + .soundfx-envelope-block {
   margin-top: 14px;
+}
+
+/* The Frequency sweep block follows the volume Envelope the way Envelope follows Arpeggio, so it has the same gap above it: 12px
+   (14px in Expert mode), 14px under an expanded block. */
+.soundfx-sweep-block {
+  margin-top: 12px;
+}
+
+.hide-description-text .soundfx-sweep-block {
+  margin-top: 14px;
+}
+
+.soundfx-envelope-block--expanded + .soundfx-sweep-block {
+  margin-top: 14px;
+}
+
+/* The sweep's numbers share one full-width row, equal widths; its two switches sit under them. */
+.soundfx-sweep-fields {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+
+.soundfx-sweep-field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.soundfx-sweep-switches {
+  display: flex;
+  width: 100%;
+  gap: 24px;
+}
+
+.soundfx-sweep-switch {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
 }
 
 /* Full width so it forces its  line above the graph, same "100%-width

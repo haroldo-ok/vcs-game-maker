@@ -56,6 +56,7 @@
         />
         <v-switch
           v-model="fiveScoreDigits"
+          :disabled="cycleScoreOn"
           label="5 score digits"
           title="Draws the score with 5 digits instead of 6: the standard and DPC+ kernels, and the Text Minikernel's score digits, leave the leftmost digit out (a score of up to 99999 shows in full), centered."
           hide-details
@@ -386,9 +387,13 @@ export default defineComponent({
     // project that's never visited this dropdown keeps its existing frame
     // timing unchanged.
     // On: 5 digits, the standard and DPC+ kernels leave the leftmost digit blank (const score5digits); off (default): 6.
+    // The cycle score (Options tab) always shows six digits, so the switch is off and cannot be turned on while it is on.
+    const cycleScoreOn = computed(() => !!(configurationStorage.value || {}).enableCycleScore);
     const fiveScoreDigits = computed({
       get() {
-        return (configurationStorage.value || {}).scoreDigits === 5;
+        const configuration = configurationStorage.value || {};
+        // The cycle score always shows six digits.
+        return !configuration.enableCycleScore && configuration.scoreDigits === 5;
       },
       set(value) {
         configurationStorage.value = {
@@ -558,6 +563,7 @@ export default defineComponent({
       extraGlyphsEnabled,
       scorePaddingLines,
       fiveScoreDigits,
+      cycleScoreOn,
       fontIsEdited,
       canReset,
       resetLabel,

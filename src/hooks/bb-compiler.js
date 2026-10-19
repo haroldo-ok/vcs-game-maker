@@ -84,6 +84,7 @@ const runWasi = async (wasmPath, args, stdinText, preopens, log) => {
   const commandName = wasmPath.split('/').pop().replace(/\.wasm$/, '');
   if (log) log(`$ ${[commandName, ...(args || [])].join(' ')}`.trim());
   const mod = await fetchWasm(wasmPath);
+  // (Chunks, not one array of numbers: a program's output can be megabytes, which as numbers in an array takes eight times that.)
   const stdoutBytes = [];
   const stderrBytes = [];
 
@@ -92,14 +93,14 @@ const runWasi = async (wasmPath, args, stdinText, preopens, log) => {
     new OpenFile(new File(new TextEncoder().encode(stdinText || ''))),
     {
       fd_write: (data) => {
-        stdoutBytes.push(...data);
+        stdoutBytes.push(Uint8Array.from(data));
         return {ret: 0, nwritten: data.length};
       },
       fd_fdstat_get: () => ({ret: 0, fdstat: null}),
     },
     {
       fd_write: (data) => {
-        stderrBytes.push(...data);
+        stderrBytes.push(Uint8Array.from(data));
         return {ret: 0, nwritten: data.length};
       },
       fd_fdstat_get: () => ({ret: 0, fdstat: null}),
@@ -122,8 +123,17 @@ const runWasi = async (wasmPath, args, stdinText, preopens, log) => {
     exitCode = (e && e.code !== undefined) ? e.code : -1;
   }
   const elapsedMs = performance.now() - startedAt;
-  const stdout = new TextDecoder().decode(new Uint8Array(stdoutBytes));
-  const stderr = new TextDecoder().decode(new Uint8Array(stderrBytes));
+  const joinChunks = (chunks) => {
+    const joined = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let at = 0;
+    chunks.forEach((chunk) => {
+      joined.set(chunk, at);
+      at += chunk.length;
+    });
+    return joined;
+  };
+  const stdout = new TextDecoder().decode(joinChunks(stdoutBytes));
+  const stderr = new TextDecoder().decode(joinChunks(stderrBytes));
 
   const dirs = {};
   const rawFiles = {};
@@ -133,7 +143,13 @@ const runWasi = async (wasmPath, args, stdinText, preopens, log) => {
       d.contents.forEach((inode, entryName) => {
         const path = prefix ? prefix + '/' + entryName : entryName;
         if (inode.data) {
-          dirs[name][path] = new TextDecoder().decode(inode.data);
+          // A file the caller put there and the tool left alone goes back as it came (a byte string): decoding it as text would
+          // lose the bytes that are not valid UTF-8, which for a binary file like the DPC+ coprocessor program (custom2.bin) changes
+          // it, and the next tool in the chain gets the damaged copy.
+          const original = preopens && preopens[name] ? preopens[name][path] : undefined;
+          const unchanged = typeof original === 'string' && original.length === inode.data.length &&
+            inode.data.every((byte, i) => (original.charCodeAt(i) & 0xFF) === byte);
+          dirs[name][path] = unchanged ? original : new TextDecoder().decode(inode.data);
           rawFiles[name + '/' + path] = inode.data;
         } else if (inode.contents) {
           collect(inode, path);
@@ -253,7 +269,7 @@ const assemble = async (mainAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
       'bb19/dasm.wasm',
-      ['main.asm', '-I.', '-I/bbinc/includes', '-f3', '-p20', '-lmain.lst', '-smain.sym', '-omain.bin'],
+      ['main.asm', '-I.', '-I/bbinc/includes', '-f3', '-p20', '-smain.sym', '-omain.bin'],
       '',
       {
         '.': {...workDir, 'main.asm': mainAsmContent},

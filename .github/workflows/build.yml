@@ -1,6 +1,6 @@
 name: Build and release
 
-# Builds the desktop app for Windows, macOS and Linux (Intel/AMD and ARM, which covers a 64-bit Raspberry Pi) and publishes the installers as a GitHub Release tagged with the
+# Builds the desktop app for Windows (Intel/AMD and ARM), macOS (Intel and Apple Silicon) and Linux (Intel/AMD and ARM, which covers a 64-bit Raspberry Pi) and publishes the installers as a GitHub Release tagged with the
 # app version in package.json (0.52.11 for version 0.52.11). Runs when a push to main changes package.json (a version
 # bump) and on demand from the Actions tab. A release that already exists for the version gets its files replaced.
 on:
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest, ubuntu-24.04-arm]
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -37,8 +37,18 @@ jobs:
           cache: npm
       - name: Install the packages the Linux makers need
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg squashfs-tools
       - run: npm ci --legacy-peer-deps
+      # The Windows installer is an .msi, which the WiX Toolset (candle.exe and light.exe on the PATH) builds. The runner image has
+      # had it; this installs it when it is missing.
+      - name: Make sure the WiX Toolset is installed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset -y --no-progress
+            echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
       # The dmg maker needs appdmg, which npm installs only on macOS and skips without a word when its install fails; one
       # run built without it ("Cannot find module 'appdmg'"). This tries again, and stops here with the reason if it cannot.
       - name: Make sure appdmg is installed
@@ -53,6 +63,9 @@ jobs:
         run: npm run build
       - name: Make the installers
         run: npm run electron:make
+        env:
+          # The Windows ARM runner builds the ARM installer (see forge.config.js); the other runners build for the processor they run on, as before.
+          WIX_ARCH: ${{ matrix.os == 'windows-11-arm' && 'arm64' || '' }}
       # The macOS runner is Apple Silicon; this adds the Intel build next to it.
       - name: Make the Intel macOS installers
         if: runner.os == 'macOS'
@@ -97,8 +110,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: installers
-      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb and rpm, the web zip); the
-      # update files Squirrel makes beside the Windows installer (RELEASES, *.nupkg) are left out.
+      # Only the files a person downloads (the Windows Setup, the macOS dmg and zip, the Linux deb, rpm and AppImage, the web zip).
       - name: Create or update the release
         run: |
           # Each file gets a name that says which system it is for.
@@ -106,8 +118,9 @@ jobs:
           while IFS= read -r file; do
             name=$(basename "$file")
             case "$name" in
-              *.exe) new="VCS-Game-Maker-$TAG-Windows-Setup.exe" ;;
+              *.msi) case "$file" in */arm64/*) new="VCS-Game-Maker-$TAG-Windows-arm64-Setup.msi" ;; *) new="VCS-Game-Maker-$TAG-Windows-Setup.msi" ;; esac ;;
               *.deb) case "$name" in *arm64*) arch=arm64 ;; *) arch=amd64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.deb" ;;
+              *.AppImage) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.AppImage" ;;
               *.rpm) case "$name" in *aarch64*) arch=aarch64 ;; *) arch=x86_64 ;; esac; new="VCS-Game-Maker-$TAG-Linux-$arch.rpm" ;;
               VCS-Game-Maker-web-*.zip) new="VCS-Game-Maker-$TAG-Web.zip" ;;
               *.dmg) case "$name" in *arm64*) arch=arm64 ;; *) arch=x64 ;; esac; new="VCS-Game-Maker-$TAG-macOS-$arch.dmg" ;;
@@ -115,7 +128,15 @@ jobs:
               *) continue ;;
             esac
             cp "$file" "release-files/$new"
-          done < <(find installers -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \))
+            # A file downloaded from a release loses its executable bit, so the AppImage goes in a tar.gz, which keeps it: unpacked
+            # it can be run as it is.
+            case "$new" in
+              *.AppImage)
+                chmod 755 "release-files/$new"
+                tar -czf "release-files/$new.tar.gz" -C release-files "$new"
+                rm "release-files/$new" ;;
+            esac
+          done < <(find installers -type f \( -name '*.msi' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \))
           mapfile -t files < <(find release-files -type f)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber

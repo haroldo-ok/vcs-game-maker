@@ -229,9 +229,6 @@ export default {
   mounted() {
     this.initEditor(this.value.length, this.value);
 
-    // TODO: Just for testing
-    window.isMatrixEqual = isMatrixEqual;
-
     if (this.showGrid || this.selection || this.polygonPreview || this.hoverCell) this.setupGridOverlay();
     this.setupBackdrop();
     window.addEventListener('mouseup', this.handleWindowMouseUp);
@@ -640,24 +637,45 @@ export default {
       ctx.font = `${fontSize}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      // A label over an "on" pixel needs a darker color than the default
-      // gray to stay readable against a bright fill color (e.g. this
-      // editor's  default orange) - built once as a lookup rather than
-      // searching this.editor.pixels per cell. editor.pixels holds EVERY
-      // cell, on or off (setPixels above always writes a real color either
-      // way - this.onColorForRow(y) when on, this.bgColor when off - see
-      // its  comment), so "on" means the color differs from bgColor, the
-      // same test pixelMatrix() above already uses - not just presence in
-      // the list.
-      const filledCells = new Set(
-          this.editor.pixels.filter((px) => px.color !== this.bgColor).map((px) => `${px.x},${px.y}`));
+      // Each label is drawn in whichever of white and black reads best against the color of its cell (an "on" pixel in its row
+      // color, an off one in its backdrop color or the background color), so it stays readable on black, white and every color between.
+      // editor.pixels holds EVERY cell, on or off (setPixels above always writes a real color either way), so the color of a cell is
+      // the one stored for it, with an off cell showing the backdrop of its row or column when it has one, as the cells are painted.
+      const cellColors = new Map();
+      this.editor.pixels.forEach((px) => {
+        const off = px.color === this.bgColor;
+        const color = (off && ((this.rowBackdrop && this.rowBackdrop[px.y]) || (this.columnBackdrop && this.columnBackdrop[px.x]))) ||
+          px.color;
+        cellColors.set(`${px.x},${px.y}`, color);
+      });
+      const labelColors = new Map();
+      const labelColorFor = (cssColor) => {
+        const key = cssColor || this.bgColor;
+        if (!labelColors.has(key)) labelColors.set(key, this.contrastingLabelColor(key));
+        return labelColors.get(key);
+      };
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-          ctx.fillStyle = filledCells.has(`${col},${row}`) ?
-            'rgba(0, 0, 0, 0.85)' : 'rgba(140, 140, 140, 0.85)';
+          ctx.fillStyle = labelColorFor(cellColors.get(`${col},${row}`));
           ctx.fillText(`${col},${row}`, (col + 0.5) * cellWidth, (row + 0.5) * cellHeight);
         }
       }
+    },
+
+    // White or black text, whichever has the higher contrast ratio (WCAG relative luminance) against the given CSS color.
+    contrastingLabelColor(cssColor) {
+      const probe = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+      probe.fillStyle = '#000000';
+      probe.fillStyle = cssColor;
+      probe.fillRect(0, 0, 1, 1);
+      const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+      const linear = (channel) => {
+        const v = channel / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      const luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+      // Contrast with white is 1.05 / (L + 0.05), with black (L + 0.05) / 0.05.
+      return 1.05 / (luminance + 0.05) > (luminance + 0.05) / 0.05 ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.9)';
     },
 
     // The underlying @curtishughes/pixel-editor library only listens for

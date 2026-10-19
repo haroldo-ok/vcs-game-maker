@@ -1,5 +1,5 @@
 <template>
-  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode, 'colorblind-mode': colorblindMode, 'no-top-toolbar': hideTopToolbar}">
+  <v-app id="inspire" :class="{'hide-description-text': hideDescriptionText, 'hide-toolbar-labels': hideToolbarLabels, 'desaturate-app-colors': desaturateAppColors, 'dark-mode': darkMode, 'colorblind-mode': colorblindMode, 'no-top-toolbar': hideTopToolbar}">
     <div v-if="!hideTopToolbar" class="app-logo">
       <img src="./assets/logo.svg" alt="VCS Game Maker" class="app-logo-img" />
       <div class="app-logo-version">{{ version }}</div>
@@ -91,6 +91,14 @@
       :class="{'sidebar-stacked': sidebarStacked}"
     >
       <div class="nav-drawer-inner" :style="{paddingBottom: errorHeight + 'px'}">
+      <div v-if="hideTopToolbar && (hideToolbarLabels || sidebarStacked)" class="sidebar-logo">
+        <img src="./assets/logo-circle.svg" alt="VCS Game Maker" class="sidebar-logo-img" />
+        <div class="sidebar-logo-version">{{ version }}</div>
+      </div>
+      <div v-else-if="hideTopToolbar" class="sidebar-logo sidebar-logo-wide">
+        <img src="./assets/logo.svg" alt="VCS Game Maker" class="sidebar-logo-wide-img" />
+        <div class="app-logo-version">{{ version }}</div>
+      </div>
       <v-list
         class="navigation-list"
       >
@@ -98,7 +106,7 @@
           to="/"
           link
           class="actions-item"
-          :title="hideDescriptionText ? 'Actions' : null"
+          :title="hideToolbarLabels ? 'Actions' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-chart-scatter-plot</v-icon>
@@ -112,7 +120,7 @@
           to="/titlescreen"
           link
           class="titlescreen-item"
-          :title="hideDescriptionText ? 'Title α' : null"
+          :title="hideToolbarLabels ? 'Title α' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-image-frame</v-icon>
@@ -126,7 +134,7 @@
           to="/player"
           link
           class="player-item"
-          :title="hideDescriptionText ? 'Sprites' : null"
+          :title="hideToolbarLabels ? 'Sprites' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-human-handsup</v-icon>
@@ -140,7 +148,7 @@
           to="/background"
           link
           class="background-item"
-          :title="hideDescriptionText ? 'Playfield' : null"
+          :title="hideToolbarLabels ? 'Playfield' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-map</v-icon>
@@ -154,7 +162,7 @@
           to="/soundfx"
           link
           class="sound-item"
-          :title="hideDescriptionText ? 'Sound' : null"
+          :title="hideToolbarLabels ? 'Sound' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-waveform</v-icon>
@@ -168,7 +176,7 @@
           to="/music"
           link
           class="music-item"
-          :title="hideDescriptionText ? 'Music α' : null"
+          :title="hideToolbarLabels ? 'Music α' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-music-note</v-icon>
@@ -182,7 +190,7 @@
           to="/scorefont"
           link
           class="scorefont-item"
-          :title="hideDescriptionText ? 'Score' : null"
+          :title="hideToolbarLabels ? 'Score' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-numeric</v-icon>
@@ -196,7 +204,7 @@
           to="/text"
           link
           class="text-tab-item"
-          :title="hideDescriptionText ? 'Text' : null"
+          :title="hideToolbarLabels ? 'Text' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-card-text-outline</v-icon>
@@ -210,7 +218,7 @@
           to="/data"
           link
           class="data-item"
-          :title="hideDescriptionText ? 'Data' : null"
+          :title="hideToolbarLabels ? 'Data' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-table</v-icon>
@@ -224,7 +232,7 @@
           to="/generated"
           link
           class="generated-item"
-          :title="hideDescriptionText ? 'Generated' : null"
+          :title="hideToolbarLabels ? 'Generated' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-card-text</v-icon>
@@ -238,7 +246,7 @@
           to="/configuration"
           link
           class="configuration-item"
-          :title="hideDescriptionText ? 'Options' : null"
+          :title="hideToolbarLabels ? 'Options' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-cog</v-icon>
@@ -252,7 +260,7 @@
           to="/project"
           link
           class="project-item"
-          :title="hideDescriptionText ? 'Project' : null"
+          :title="hideToolbarLabels ? 'Project' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-pencil-ruler</v-icon>
@@ -266,7 +274,7 @@
           to="/about"
           link
           class="about-item"
-          :title="hideDescriptionText ? 'About' : null"
+          :title="hideToolbarLabels ? 'About' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-information-outline</v-icon>
@@ -280,10 +288,10 @@
     </v-navigation-drawer>
 
     <div
-      v-if="!hideSidebar && !hideDescriptionText"
+      v-if="!hideSidebar && !hideToolbarLabels"
       class="sidebar-resize-handle"
       title="Drag to resize the sidebar"
-      :style="{left: (sidebarWidth - 5) + 'px', bottom: errorHeight + 'px'}"
+      :style="{left: (effectiveSidebarWidth - 5) + 'px', bottom: errorHeight + 'px'}"
       @mousedown.prevent="startResizeSidebar"
     ></div>
 
@@ -657,7 +665,7 @@
 
 <script>
 import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
@@ -800,6 +808,7 @@ export default {
       hasCompiledRom: useHasCompiledRom(), compiledRomBytes: useCompiledRomBytes(),
       buildInProgress: useBuildInProgress(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
+      hideToolbarLabelsStorage: useHideToolbarLabelsStorage(),
       hideSidebarStorage: useHideSidebarStorage(),
       hideTopToolbarStorage: useHideTopToolbarStorage(),
       desaturateAppColorsStorage: useDesaturateBlocklyColorsStorage(),
@@ -856,12 +865,17 @@ export default {
     // reach every hint/description paragraph in the app from one place,
     // now that they all consistently use that same class (see TextEditor.vue's
     // hint paragraph for the pattern every other tab's hint text follows).
-    // Expert mode leaves only the icons; otherwise the width the user dragged it to.
+    // Hiding the toolbar labels (an Expert mode option) leaves only the icons; otherwise the width the user dragged it to.
     effectiveSidebarWidth() {
-      return this.hideDescriptionText ? SIDEBAR_ICONS_ONLY_WIDTH : this.sidebarWidth;
+      // The narrow sidebar is as wide as the icons-only one in Expert mode, where there is no color bar to leave room for.
+      return (this.hideToolbarLabels || (this.hideDescriptionText && this.sidebarStacked)) ? SIDEBAR_ICONS_ONLY_WIDTH : this.sidebarWidth;
     },
     sidebarStacked() {
-      return !this.hideDescriptionText && this.sidebarWidth < SIDEBAR_STACKED_WIDTH;
+      return !this.hideToolbarLabels && this.sidebarWidth < SIDEBAR_STACKED_WIDTH;
+    },
+    // The names of the left and top toolbars are only hidden while Expert mode is on, whatever the switch under it was left at.
+    hideToolbarLabels() {
+      return this.hideDescriptionText && !!this.hideToolbarLabelsStorage;
     },
     hideDescriptionText() {
       // this.hideDescriptionTextStorage is a computed RETURNED from setup() -
@@ -873,7 +887,7 @@ export default {
       return !!this.hideDescriptionTextStorage;
     },
     // Same auto-unwrapping reasoning as hideDescriptionText just above - see
-    // Configuration.vue's "Never show the left sidebar" switch/
+    // Configuration.vue's "Hide left toolbar" switch/
     // useHideSidebarStorage's  comment in hooks/project.js.
     hideSidebar() {
       return !!this.hideSidebarStorage;
@@ -1033,6 +1047,8 @@ export default {
       if (usage.dpcPlus.available) {
         parts.push(`${usage.dpcPlus.used} of ${usage.dpcPlus.available} DPC+ bonus RAM (${usage.dpcPlus.available - usage.dpcPlus.used} bytes free)`);
       }
+      // Variables that did not fit anywhere else and went in the display memory (DPC+ only, see displayRamVars in generators/bbasic.js).
+      if (usage.displayRam && usage.displayRam.used) parts.push(`${usage.displayRam.used} in Display RAM`);
       return `${parts.join(', ')} used.`;
     },
     // System variables (player0frame, newbackground, etc. - see
@@ -1191,6 +1207,7 @@ export default {
         ...sortByAssignmentSlot((usage.letterAssignments || []).filter(matches)),
         ...sortByAssignmentSlot((usage.superchipAssignments || []).filter(matches)),
         ...sortByAssignmentSlot((usage.dpcPlusAssignments || []).filter(matches)),
+        ...sortByAssignmentSlot((usage.displayRamAssignments || []).filter(matches)),
         // Superchip's  r/w pool (see computeVariableUsage's  comment
         // in hooks/rom.js) - every entry here is isUserVariable: false, so
         // this only ever contributes to the block list, never the user one,
@@ -1229,9 +1246,8 @@ export default {
         ['Data tables', contents.dataTables],
         ['Sound', contents.soundEffects],
       ];
-      const parts = groups
-          .filter(([, names]) => names.length)
-          .map(([label, names]) => ({label, names: names.join(', ')}));
+      const parts = (contents.fixed || []).map((label) => ({label, names: ''}));
+      groups.filter(([, names]) => names.length).forEach(([label, names]) => parts.push({label, names: names.join(', ')}));
       // First in its bank's list, ahead of everything else in it.
       if (contents.titleScreenKernel) parts.unshift({label: 'Title Screen Kernel', names: ''});
       if (contents.textMinikernel) parts.push({label: 'Text Minikernel', names: ''});
@@ -1613,11 +1629,17 @@ export default {
           const writable = await handle.createWritable();
           await writable.write(blob);
           await writable.close();
+          return;
         } catch (e) {
           // Cancelling the dialog is not an error.
-          if (e && e.name !== 'AbortError') this.errorStorage = `Could not save the ROM: ${e.message}`;
+          if (e && e.name === 'AbortError') return;
+          // A page inside a frame of another site (the online version embedded in one) is not allowed the file picker (a SecurityError,
+          // or a NotAllowedError when the handle cannot be written to): it downloads the file like a browser without the picker does.
+          if (!(e && (e.name === 'SecurityError' || e.name === 'NotAllowedError'))) {
+            this.errorStorage = `Could not save the ROM: ${e.message}`;
+            return;
+          }
         }
-        return;
       }
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -3436,6 +3458,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* Text that was dark grey. */
 .dark-mode.v-application .about-version,
 .dark-mode.v-application .app-logo-version,
+.dark-mode.v-application .sidebar-logo-version,
 .dark-mode.v-application .quick-color-section-label,
 .dark-mode.v-application .music-section-label,
 .dark-mode.v-application .generated-code-search-count,
@@ -3731,7 +3754,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 /* A short name under each icon of the top toolbar, in a smaller font than the sidebar's and the color of its icon.
    The name is placed under the icon without taking any width, so the buttons keep the spacing they have without
-   names (neighbors' names are narrower than the gap). Expert mode (the root's hide-description-text class) takes the
+   names (neighbors' names are narrower than the gap). Hiding the toolbar labels (an Expert mode option, the root's hide-toolbar-labels class) takes the
    names away and the buttons go back to icon height. */
 .v-application .top-toolbar.v-app-bar .v-btn {
   height: 52px !important;
@@ -3756,15 +3779,15 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   text-transform: none;
   color: inherit;
 }
-.hide-description-text .top-toolbar .top-toolbar-label {
+.hide-toolbar-labels .top-toolbar .top-toolbar-label {
   display: none;
 }
-.v-application.hide-description-text .top-toolbar.v-app-bar .v-btn {
+.v-application.hide-toolbar-labels .top-toolbar.v-app-bar .v-btn {
   height: 36px !important;
   min-width: 36px !important;
   margin: 0 4px !important;
 }
-.hide-description-text .top-toolbar .v-btn .v-btn__content {
+.hide-toolbar-labels .top-toolbar .v-btn .v-btn__content {
   padding-bottom: 0;
 }
 /* The left sidebar's drag handle: the same strip and grip as the emulator's, on the sidebar's right edge. */
@@ -3847,31 +3870,42 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 /* The narrow and icon-only sidebars scroll without a scrollbar, so their width is the same on every row. */
 .nav-drawer.sidebar-stacked .nav-drawer-inner,
-.hide-description-text .nav-drawer .nav-drawer-inner {
+.hide-toolbar-labels .nav-drawer .nav-drawer-inner {
   scrollbar-width: none;
 }
 .nav-drawer.sidebar-stacked .nav-drawer-inner::-webkit-scrollbar,
-.hide-description-text .nav-drawer .nav-drawer-inner::-webkit-scrollbar {
+.hide-toolbar-labels .nav-drawer .nav-drawer-inner::-webkit-scrollbar {
   display: none;
 }
-/* Expert mode: no names in the sidebar at all, just the icons, in the same place as in the wide sidebar. */
-.hide-description-text .nav-drawer .v-list-item .v-list-item__content {
+/* Hiding the toolbar labels: no names in the sidebar at all, just the icons, in the same place as in the wide sidebar. */
+.hide-toolbar-labels .nav-drawer .v-list-item .v-list-item__content {
   display: none;
 }
-.hide-description-text .nav-drawer .v-list-item {
+.hide-toolbar-labels .nav-drawer .v-list-item {
   justify-content: flex-start;
   padding: 0 0 0 16px;
   /* The same row height as the other sidebar sizes. */
   min-height: 56px;
 }
-.hide-description-text .nav-drawer .v-list-item.v-list-item--active {
+.hide-toolbar-labels .nav-drawer .v-list-item.v-list-item--active {
   padding-left: 16px;
 }
-/* No color bars beside the icons in Expert mode, so the icons are centered in the bar. */
+/* Expert mode: no color bars beside the sidebar's options, so no room is kept for them either: the icons are 16px from the edge
+   on every row (the same as with the names hidden), in the wide sidebar and the narrow one. */
 .hide-description-text .nav-drawer .v-list-item:not(.v-list-item--active) {
   border-left: 0 !important;
 }
-.hide-description-text .nav-drawer .v-list-item .v-list-item__icon {
+.hide-description-text .nav-drawer .v-list-item.v-list-item--active {
+  padding-left: 16px;
+}
+.hide-description-text .nav-drawer.sidebar-stacked .v-list-item.v-list-item--active {
+  padding-left: 0;
+}
+/* No color bars beside the icons when the labels are hidden, so the icons are centered in the bar. */
+.hide-toolbar-labels .nav-drawer .v-list-item:not(.v-list-item--active) {
+  border-left: 0 !important;
+}
+.hide-toolbar-labels .nav-drawer .v-list-item .v-list-item__icon {
   margin: 0 !important;
   align-self: center;
 }
@@ -3903,7 +3937,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .v-application.colorblind-mode.dark-mode.desaturate-app-colors .nav-drawer .v-list-item > .v-list-item__content {
   color: #b0b0b0 !important;
 }
-/* Without the top toolbar (Options: Never show top toolbar) the sidebar and the emulator pane start at the top of the
+/* Without the top toolbar (Options: Hide top toolbar) the sidebar and the emulator pane start at the top of the
    window, so what is placed below the toolbar moves up with them. */
 .v-application.no-top-toolbar .sidebar-resize-handle,
 .v-application.no-top-toolbar .emulator-resize-handle {
@@ -4024,9 +4058,44 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* The logo is inverted under Dark Mode (invert + hue-rotate keeps its hues,
    the same look the old whole-app filter gave it), and dimmed a bit: at full
    brightness it read as too stark against the dark UI. */
-.dark-mode .app-logo-img {
+.dark-mode .app-logo-img,
+.dark-mode .sidebar-logo-img,
+.dark-mode .sidebar-logo-wide-img {
   filter: invert(1) hue-rotate(180deg);
   opacity: 0.8;
+}
+
+/* The round logo and the version under it, at the top of the sidebar when it shows icons only and the top toolbar (which has the
+   full logo) is hidden. Colored like the logo in the toolbar: the same black, and the same Dark Mode treatment above. */
+.sidebar-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 4px;
+  pointer-events: none;
+}
+
+.sidebar-logo-img {
+  width: 36px;
+  height: 36px;
+}
+
+/* The full logo of the top toolbar and its version, when the sidebar is wide (the same look as in the toolbar). */
+.sidebar-logo-wide {
+  padding: 12px 8px 8px;
+}
+
+.sidebar-logo-wide-img {
+  width: 100%;
+  max-width: 184px;
+  height: auto;
+}
+
+.sidebar-logo-version {
+  margin-top: 4px;
+  font-size: 9px;
+  color: rgba(0, 0, 0, 0.6);
+  line-height: 1;
 }
 
 .app-logo-version {
