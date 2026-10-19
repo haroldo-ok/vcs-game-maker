@@ -16,6 +16,7 @@ import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generator
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {getFastMathSiblingFiles, fastMathOn} from '../utils/fast-math';
 import {getDpcPlusProgramSiblingFile} from '../utils/dpc-program';
+import {patchArmProgramAddress} from '../generators/bbasic/offset-arm';
 import {getDpcPlusNoScoreSiblingFiles} from '../utils/dpc-noscore';
 import {getDpcPlusSquishSiblingFiles} from '../utils/dpc-squish';
 import {getDpcPlusAudioSiblingFiles} from '../generators/bbasic/dpcplus-audio';
@@ -1470,11 +1471,14 @@ const buildRomInner = async () => {
       Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
         audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
+        rows: !!BlocklyBB.pfBoxArmRows,
+        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
+      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
       // The ROM itself is fully compiled and valid at this point - a failure
       // from here on is the PREVIEW emulator's problem, not a compile error,
       // and must never be reported (or retried into) as one. In particular,
@@ -2053,11 +2057,14 @@ export const buildBackgroundPreviewRom = (backgroundId, name) => {
   const hide = (player) => `<block type="sprite_player_set"><field name="PLAYER">${player}</field>` +
     `<field name="VAR">player${player}visibility</field><value name="VALUE"><shadow type="math_number">` +
     `<field name="NUM">0</field></shadow></value>`;
+  // With a color for each row of the background (DPC+), the colors of the background itself show; setting one color would paint over them all.
+  const projectConfig = useConfigurationStorage().value || {};
+  const rowBackgroundColors = projectConfig.kernel === 'dpcplus' && !!projectConfig.enableDpcPlusBkColors;
   const steps = [
     `<block type="background_set_select"><field name="VAR">${backgroundId}</field>`,
     // The screen behind the playfield is black.
-    `<block type="background_set_color"><field name="VAR">COLUBK</field><value name="VALUE">` +
-      `<shadow type="math_number"><field name="NUM">0</field></shadow></value>`,
+    ...(rowBackgroundColors ? [] : [`<block type="background_set_color"><field name="VAR">COLUBK</field><value name="VALUE">` +
+      `<shadow type="math_number"><field name="NUM">0</field></shadow></value>`]),
     previewNameBlockXml(name),
     hide(0),
     hide(1),
@@ -2310,11 +2317,13 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
         audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
+        rows: !!BlocklyBB.pfBoxArmRows,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
+      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
       try {
         withGopher2600((gopher2600) => {
           gopher2600.loadRom(compiledResult.output, buildTvSpec);

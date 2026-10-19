@@ -227,6 +227,20 @@ Blockly.defineBlocksWithJsonArray([
     'colour': TEXT_COLOR,
     'tooltip': 'Clears the currently displayed Text Minikernel message.',
   },
+  // Used after any of the blocks that show text (by name, by ID, scrolling, with several rows, one row...): the text is cleared
+  // again once the frames have passed.
+  {
+    'type': 'text_minikernel_clear_after',
+    'message0': `${TEXT_ICON} Clear text after %1 frames`,
+    'args0': [{'type': 'input_value', 'name': 'FRAMES', 'check': 'Number'}],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Put it after a block that shows text: the message is cleared when the number of frames has passed (1 to 255; 60 ' +
+      'frames is about a second). Whatever text is shown then is cleared, so run this block again after showing another message ' +
+      'so that it gets the full time.',
+  },
   {
     'type': 'text_minikernel_set_color',
     'message0': `${COLOR_ICON} Text set %1 color to %2`,

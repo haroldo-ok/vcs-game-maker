@@ -1,5 +1,6 @@
 import {reactive} from '@vue/composition-api';
 import {soundEffectsInBankFile, kernelSettingsOfSounds} from '../utils/sound-bank';
+import {isFromNewerApp, APP_VERSION_KEY} from '../utils/app-version';
 
 // Sound banks and single sounds (.vcssnd for single sounds, .vcsbnk for banks, or .json files) are kept in a folder
 // of a GitHub repo and copied into this browser's IndexedDB once per page
@@ -120,7 +121,18 @@ const creditOf = (text) => {
   }
 };
 
+// The version of the app that exported a file, or '' for one exported before it was written.
+const appVersionOf = (text) => {
+  try {
+    const version = JSON.parse(text)[APP_VERSION_KEY];
+    return typeof version === 'string' ? version : '';
+  } catch (e) {
+    return '';
+  }
+};
+
 const toEntry = (record) => ({
+  appVersion: appVersionOf(record.text),
   name: record.name,
   text: record.text,
   ...record.summary,
@@ -134,7 +146,8 @@ const sortEntries = (entries) => entries.sort((a, b) => a.name.localeCompare(b.n
 
 const showCached = async () => {
   const records = (await readEverything()).filter((record) => record.source === SOURCE_KEY);
-  soundBanksState.entries = sortEntries(records.map(toEntry));
+  // Files exported by a newer version of the app than this one are not shown.
+  soundBanksState.entries = sortEntries(records.map(toEntry).filter((entry) => !isFromNewerApp(entry.appVersion)));
   return records;
 };
 

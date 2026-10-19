@@ -484,6 +484,8 @@ import {buildSoundBankImportEntries, importSoundBankEntries, soundEffectsInBankF
 import {KERNEL_NAMES} from '../utils/dpc-sound';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
+import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
+import {isDpcPlusSound} from '../utils/dpc-sound';
 import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
 import pkg from '../../package.json';
 const appVersion = pkg.version;
@@ -1478,7 +1480,11 @@ export default defineComponent({
       sounds.forEach((sound) => {
         // The volume the emulator plays it at with DIM on (see the Sound tab).
         const audv = dimOn ? dimVolume(sound.audv, dimPercent) : sound.audv;
-        this.soundBankPreviewTimers.push(window.setTimeout(() => previewSoundEffect({...sound, audv}), startMs));
+        // A sound with a DPC+ waveform is played by the DPC+ sound chip, the way the Sound tab does it (its Standard settings are the same for
+        // every waveform, so the TIA would play one sound over and over).
+        const dimMultiplier = dimOn ? (Number(dimPercent) || 0) / 100 : 1;
+        this.soundBankPreviewTimers.push(window.setTimeout(() => (isDpcPlusSound(sound) ?
+          previewDpcPlusSoundEffect(sound, useConfigurationStorage().value || {}, dimMultiplier) : previewSoundEffect({...sound, audv})), startMs));
         startMs += (Math.max(0, Number(sound.duration) || 0) / 60) * 1000 + 250;
       });
       this.soundBankPreviewTimers.push(window.setTimeout(() => {

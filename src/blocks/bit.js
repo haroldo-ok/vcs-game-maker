@@ -1,6 +1,7 @@
 import * as Blockly from 'blockly/core';
 
 import {BIT_ICON} from './icon';
+import {blockVariableOptions} from '../utils/block-variables';
 
 export const BIT_OPTIONS = [...Array(8).keys()].map((n) => [`${n}`, `${n}`]);
 
@@ -200,21 +201,48 @@ Blockly.Blocks['nibble_set'] = {
 // Reads any of the built-in batari Basic variables (see
 // SYSTEM_VARIABLE_OPTIONS above) as a whole byte, not one bit at a time
 // like bit_get.
-Blockly.defineBlocksWithJsonArray([
-  {
-    'type': 'system_variable_get',
-    'message0': `${BIT_ICON} %1`,
-    'args0': [
-      {
-        'type': 'field_dropdown',
-        'name': 'VAR',
-        'options': SYSTEM_VARIABLE_OPTIONS,
-      },
-    ],
-    'output': 'Number',
-    'style': 'variable_blocks',
-    'tooltip': 'Reads the current value of a built-in batari Basic variable, e.g. ' +
+// The names of the variables that the blocks of the project make (see utils/block-variables.js) come after the built-in ones. A project that is
+// being loaded makes the blocks one after the other, so the block that makes a variable may not be there yet when the block that reads it
+// is: any name is taken, and shown as it is.
+/** The dropdown of the block that reads a built-in variable. */
+class FieldBuiltInVariable extends Blockly.FieldDropdown {
+  /** Lists the built-in names and the variables the blocks of the project make. */
+  constructor() {
+    super(function() {
+      // eslint-disable-next-line no-invalid-this
+      const workspace = workspaceOf(this);
+      return [...SYSTEM_VARIABLE_OPTIONS, ...(workspace ? blockVariableOptions(workspace) : [])];
+    });
+  }
+  /**
+   * @param {*} newValue
+   * @return {?string} The name, or null when it is not one.
+   */
+  doClassValidator_(newValue) {
+    return typeof newValue === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(newValue) ? newValue : null;
+  }
+  /**
+   * @param {boolean=} useCache
+   * @return {!Array<!Array<string>>} Pairs of label and value, with the current value in them.
+   */
+  getOptions(useCache) {
+    const options = super.getOptions(useCache);
+    const value = this.getValue();
+    return value && !options.some((option) => option[1] === value) ? [...options, [value, value]] : options;
+  }
+}
+
+Blockly.Blocks['system_variable_get'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BIT_ICON} `)
+        .appendField(new FieldBuiltInVariable(), 'VAR');
+    this.setOutput(true, 'Number');
+    this.setStyle('variable_blocks');
+    this.setTooltip('Reads the current value of a built-in batari Basic variable, e.g. ' +
       '"framecounter" (how many frames have passed since power-on) - useful anywhere a ' +
-      'real, changing value is needed, like seeding the random number generator.',
+      'real, changing value is needed, like seeding the random number generator. The variables ' +
+      'that other blocks of the project keep (the state and speed of the Jump block, the target of a Seek, ...) are listed too, ' +
+      'while the block that makes them is in the project.');
   },
-]);
+};

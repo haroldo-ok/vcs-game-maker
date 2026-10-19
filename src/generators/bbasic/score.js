@@ -332,6 +332,8 @@ export default (Blockly) => {
     if (this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
+    // With the score hidden there is no score row to color (the kernel still calls the routine, which would only cost a line).
+    if (!(config.showScore ?? true)) return '';
     // The DPC+ kernel draws its score without a minikernel (its colors come from "scorecolors:"), and the
     // routine would be placed in bank 1, which holds the kernel, and break the picture.
     if (config.kernel === 'dpcplus') return '';

@@ -75,7 +75,7 @@ export const importSoundBankEntries = (soundEffects, entries) => {
     // The kernel the file was made for is only information about the file; the project's kernel decides what
     // kind of sound a sound is (see hooks/sound-kernel.js, which converts it).
     // eslint-disable-next-line no-unused-vars
-    const {id, kernel, developer, website, ...importedData} = imported;
+    const {id, 'app-version': appVersion, kernel, developer, website, ...importedData} = imported;
     const existing = entry.replace !== false && imported.name && soundEffects.find((o) => o.name === imported.name);
     if (existing) {
       delete existing.dpcShape;

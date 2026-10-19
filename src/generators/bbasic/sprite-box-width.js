@@ -19,8 +19,9 @@ export const isPlayerName = (name) => /^player\d$/.test(name);
 export const pairKey = (first, second) => [first, second].sort().join('|');
 export const boxHitVarName = (key) => `boxhit_${key.replace('|', '_')}`;
 
-export const reserveBoxDevVars = (reserveDevVar, players, pairs) => {
+export const reserveBoxDevVars = (reserveDevVar, players, pairs, fixedPlayers = new Set()) => {
   (players || new Set()).forEach((player) => {
+    if (fixedPlayers.has(player)) return;
     reserveDevVar(boxWidthVarName(player), undefined, `how many pixels wide the box of ${player} is`);
     reserveDevVar(boxCopyCountVarName(player), undefined, `how many copies of ${player} (0 to 2) have a box besides the sprite itself`);
     reserveDevVar(boxCopyXVarName(player, 1), undefined, `x of the first copy of ${player}`);
@@ -36,6 +37,10 @@ export const reserveBoxDevVars = (reserveDevVar, players, pairs) => {
 const boxesOf = (Blockly, name) => {
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  if (isPlayerName(name) && (Blockly.BBasic.boxFixedPlayers || new Set()).has(name)) {
+    // A box that is always 8 pixels wide with no copies.
+    return {xs: [`${name}x`], count: null, width: 8, y: `${name}y`, height: `${name}height`};
+  }
   if (isPlayerName(name)) {
     return {
       xs: [`${name}x`, resolveVar(boxCopyXVarName(name, 1)), resolveVar(boxCopyXVarName(name, 2))],
@@ -53,7 +58,7 @@ export const generateBoxChecks = (Blockly) => {
   if ((!players || !players.size) && (!pairs || !pairs.size)) return '';
   const partners = Blockly.BBasic.widePartners || {};
   const lines = [];
-  [...(players || [])].sort().forEach((player) => {
+  [...(players || [])].sort().filter((player) => !(Blockly.BBasic.boxFixedPlayers || new Set()).has(player)).forEach((player) => {
     const [width, count, first, second] = [boxWidthVarName(player), boxCopyCountVarName(player), boxCopyXVarName(player, 1),
       boxCopyXVarName(player, 2)].map((name) =>
       Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE));
@@ -85,7 +90,7 @@ export const generateBoxChecks = (Blockly) => {
   [...(pairs || [])].sort().forEach((key) => {
     const [first, second] = key.split('|');
     const hit = Blockly.BBasic.nameDB_.getName(boxHitVarName(key), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const id = Blockly.BBasic.blockNumbers.next(`boxpair_${key}`);
+    const id = Blockly.BBasic.blockNumbers.next(`boxpair`);
     const done = `_boxpair_${id}_done`;
     const a = boxesOf(Blockly, first);
     const b = boxesOf(Blockly, second);

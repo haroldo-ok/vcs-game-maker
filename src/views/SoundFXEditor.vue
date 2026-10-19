@@ -856,6 +856,7 @@ import WaveformEditor from '../components/WaveformEditor.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EnvelopeGraph from '../components/EnvelopeGraph.vue';
+import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
@@ -1278,7 +1279,7 @@ export default defineComponent({
       // eslint-disable-next-line no-unused-vars
       const {id, ...rest} = soundEffect;
       // The kernel the sound was made for goes first in the file.
-      const soundEffectData = {kernel: (configurationStorage.value || {}).kernel || 'standard', ...developerInfo(), ...rest};
+      const soundEffectData = {...appVersionField(), kernel: (configurationStorage.value || {}).kernel || 'standard', ...developerInfo(), ...rest};
       const blob = new Blob([JSON.stringify(soundEffectData, null, 2)], {type: 'application/json'});
       const filename = (soundEffect.name || `sound-${soundEffect.id}`).replace(/[^A-Za-z0-9]+/g, '_');
       saveAs(blob, `Sound_${filename}-${getDateInfix()}.vcssnd`);
@@ -1303,7 +1304,7 @@ export default defineComponent({
               throw new Error('File does not contain valid sound effect data');
             }
             // eslint-disable-next-line no-unused-vars
-            const {kernel, developer, website, ...importedFields} = soundEffectData;
+            const {'app-version': appVersion, kernel, developer, website, ...importedFields} = soundEffectData;
             delete soundEffect.dpcShape;
             delete soundEffect.dpcFrequency;
             delete soundEffect.dpcWave;
@@ -1339,7 +1340,7 @@ export default defineComponent({
       const chosen = selectedSoundEffects.value.length > 1 ? selectedSoundEffects.value : state.value.soundEffects;
       const soundEffects = chosen.map(({id, ...rest}) => rest); // eslint-disable-line no-unused-vars
       const blob = new Blob(
-          [JSON.stringify({type: 'VCS Game Maker Sound Bank', kernel: (configurationStorage.value || {}).kernel || 'standard',
+          [JSON.stringify({type: 'VCS Game Maker Sound Bank', ...appVersionField(), kernel: (configurationStorage.value || {}).kernel || 'standard',
             ...developerInfo(), soundEffects}, null, 2)],
           {type: 'application/json'});
       saveAs(blob, `SoundBank-${getDateInfix()}.vcsbnk`);
@@ -1453,9 +1454,12 @@ export default defineComponent({
     // Changing the Standard sound type or frequency of a sound under DPC+ (what channel 1 plays): it is remembered that
     // they were set by hand, so switching the project to the Standard kernel keeps them.
     // Which settings a card shows under DPC+: the chip's or the TIA's (Standard).
-    const soundViews = ref({});
-    const cardView = (soundEffect) => (soundViews.value[soundEffect.id] || 'dpcplus');
-    const setCardView = (soundEffect, view) => Vue.set(soundViews.value, soundEffect.id, view);
+    // (Kept in the sound itself, so it is the same after leaving the tab or loading the project again.)
+    const cardView = (soundEffect) => (soundEffect.dpcView || 'dpcplus');
+    const setCardView = (soundEffect, view) => {
+      Vue.set(soundEffect, 'dpcView', view);
+      handleChildChange();
+    };
     const cardTia = (soundEffect) => !!soundEffect && dpcPlusSoundCards.value && cardView(soundEffect) === 'standard';
     const cardDpc = (soundEffect) => dpcPlusSoundCards.value && !cardTia(soundEffect);
     const handleStandardChange = (soundEffect, typeChanged = false) => {

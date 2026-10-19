@@ -1629,11 +1629,17 @@ export default {
           const writable = await handle.createWritable();
           await writable.write(blob);
           await writable.close();
+          return;
         } catch (e) {
           // Cancelling the dialog is not an error.
-          if (e && e.name !== 'AbortError') this.errorStorage = `Could not save the ROM: ${e.message}`;
+          if (e && e.name === 'AbortError') return;
+          // A page inside a frame of another site (the online version embedded in one) is not allowed the file picker (a SecurityError,
+          // or a NotAllowedError when the handle cannot be written to): it downloads the file like a browser without the picker does.
+          if (!(e && (e.name === 'SecurityError' || e.name === 'NotAllowedError'))) {
+            this.errorStorage = `Could not save the ROM: ${e.message}`;
+            return;
+          }
         }
-        return;
       }
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
