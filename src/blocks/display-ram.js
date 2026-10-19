@@ -59,7 +59,7 @@ Blockly.Blocks['display_ram_get'] = {
 
 // Data streams: a pointer into the display memory that moves on by one byte with every read or write, so a run of bytes
 // can be stepped through without working out each address. DPC+ only. They use the coprocessor's data fetchers 2 to 4,
-// which the kernel points back at its own data every frame, so a stream's pointer does not last past drawscreen.
+// which the kernel points back at its data every frame, so a stream's pointer does not last past drawscreen.
 const DATA_STREAM_OPTIONS = [['1', '1'], ['2', '2'], ['3', '3']];
 
 const DATA_STREAM_TOOLTIP = 'DPC+ only: a data stream is a position in the Display RAM that moves on by one byte after ' +

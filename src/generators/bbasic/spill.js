@@ -1,6 +1,6 @@
 'use strict';
 
-// Variables kept in the DPC+ display memory instead of the program's own RAM (see displayRamVars in init() in generators/bbasic.js).
+// Variables kept in the DPC+ display memory instead of the program's RAM (see displayRamVars in init() in generators/bbasic.js).
 // The generated batari Basic names a variable in plain places only (a line that sets one or a bit of one, an if that tests them and
 // jumps or does one simple statement), so a variable that is only ever used there can live in the display memory: a read is done into a
 // scratch byte just before its line, a write goes through the same data fetcher just after. A variable used any other way (inside asm,
@@ -102,7 +102,7 @@ const shapeOf = (line) => {
   return simple ? {...simple, indent} : null;
 };
 
-// The texts of a statement a name is read in (each is evaluated on its own, so the names read in each are counted on their own), and
+// The texts of a statement a name is read in (each is evaluated by itself, so the names read in each are counted separately), and
 // the names it writes.
 const readTexts = (shape) => {
   if (shape.type === 'if') return [shape.cond];

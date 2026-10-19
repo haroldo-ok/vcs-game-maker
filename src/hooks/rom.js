@@ -697,7 +697,7 @@ const computeBankContents = (maxBanks, textMinikernelActive, titleScreenKernelAc
       bankOverhead: false, fixed: [],
     };
   }
-  // What is in the banks whatever the project has: the main loop sits in the main bank with the kernel's own code, and DPC+ keeps its
+  // What is in the banks whatever the project has: the main loop sits in the main bank with the kernel's code, and DPC+ keeps its
   // kernel and driver in bank 1.
   const dpcPlus = (useConfigurationStorage().value || {}).kernel === 'dpcplus';
   if (dpcPlus) {
@@ -1161,7 +1161,7 @@ const pickNextBank = (banks, maxBanks, textMinikernelActive, excludeBanks, minBa
   Object.keys(counts).forEach((bank) => {
     counts[bank] = bytes[bank] || 0;
   });
-  // Units go to as few banks as possible: every bank that holds code also holds a copy of the data tables that code reads and its own
+  // Units go to as few banks as possible: every bank that holds code also holds a copy of the data tables that code reads and its
   // bank switching code, so spreading units over every bank takes more room than filling one bank before starting the next.
   const roomy = Object.keys(counts).map(Number).filter((bank) => counts[bank] < BANK_PACK_ESTIMATE);
   const lightest = roomy.length ?

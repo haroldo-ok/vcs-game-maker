@@ -309,7 +309,7 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     Vue.set(soundEffect, 'sweepRepeat', !!soundEffect.sweepRepeat);
     Vue.set(soundEffect, 'sweepWrap', !!soundEffect.sweepWrap);
     Vue.set(soundEffect, 'dpcSweepEnd', whole(soundEffect.dpcSweepEnd, 0, 0, 108));
-    // (Left unset when it never was: a sweep with no end note of its own then follows the Standard pitch, see utils/pitch-table.js.)
+    // (Left unset when it never was: a sweep with no end note then follows the Standard pitch, see utils/pitch-table.js.)
     if (soundEffect.dpcSweepMatch !== undefined) Vue.set(soundEffect, 'dpcSweepMatch', !!soundEffect.dpcSweepMatch);
     Vue.set(soundEffect, 'sweepEnd', whole(soundEffect.sweepEnd, DEFAULT_SWEEP_END, 0, 31));
     Vue.set(soundEffect, 'sweepStep', whole(soundEffect.sweepStep, DEFAULT_SWEEP_STEP, 1, MAX_SWEEP_STEP));

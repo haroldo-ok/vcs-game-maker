@@ -226,7 +226,7 @@ let soundDescriptions = [];
 export const resetSoundDescriptions = () => {
   soundDescriptions = [];
 };
-// envelopeConfig is the number of the shape the sound plays, on a channel that has no variable of its own for it (see
+// envelopeConfig is the number of the shape the sound plays, on a channel that has no separate variable for it (see
 // envelopeMergedChannels in generators/bbasic.js): the sound's number then says which shape the envelope check plays.
 export const registerSoundDescription = (channel, {loopLines = null, pitchTableId = 0, envelopeConfig = null}) => {
   if (!loopLines && !pitchTableId && envelopeConfig === null) return 0;
@@ -383,7 +383,7 @@ export default (Blockly) => {
       // branch at all.
       const stageVar = Blockly.BBasic.nameDB_.getName(
           `envelopeStage${channel}`, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-      // The number of the shape the channel plays: a byte of its own, 255 for no envelope.
+      // The number of the shape the channel plays: a separate byte, 255 for no envelope.
       const merged = !!(Blockly.BBasic.envelopeMergedChannels && Blockly.BBasic.envelopeMergedChannels.has(`${channel}`));
       const flat = envelopeFlatOn();
       const configVar = (flat || merged) ? null : Blockly.BBasic.nameDB_.getName(
@@ -501,7 +501,7 @@ export default (Blockly) => {
   // high byte when the Text Minikernel's score-bar integration is also on,
   // which this would collide with in that specific combination; there is no
   // further safe slot to fall back to within the same 4-byte margin.
-  // (The number of the shape each channel plays is a variable of its own now, envelopeConfig0 to envelopeConfig3, reserved with the
+  // (The number of the shape each channel plays is a separate variable now, envelopeConfig0 to envelopeConfig3, reserved with the
   // channel's envelope countdown: nothing is dimmed here any more.)
   Blockly.BBasic.generateEnvelopeDims = function() {
     return '';

@@ -2626,7 +2626,7 @@ Blockly.BBasic.init = function(workspace) {
   if (this.envelopeStage1Used) {
     reserveDevVar('envelopeStage1', undefined, 'channel 1\'s attack+decay frame countdown');
   }
-  // The number of the volume shape each channel plays (a byte of its own; 255 is no envelope).
+  // The number of the volume shape each channel plays (a separate byte; 255 is no envelope).
   // (Not with the one table of every shape: there the countdown also says which shape a channel plays. Nor on a channel that only
   // Sound blocks play an envelope on and that has the variable of the loops and pitch tables anyway: the number of the sound playing,
   // which is in that variable, says which shape it is.)
@@ -6822,7 +6822,7 @@ Blockly.BBasic.generateMulticolorFadeChecks = function(kind) {
     for (let row = 0; row < rowCount; row++) real.push(realColor(row));
     group.realLabel = tableLabelFor(real, rowCount);
   });
-  // The pick: background, then color, then step (a step 4 that no color's table answers shows the background's own rows).
+  // The pick: background, then color, then step (a step 4 that no color's table answers shows the background's rows).
   groups.forEach((group) => {
     const nextBackground = `_rowfade_${number}_bg${group.index}`;
     lines.push(` if ${bgVar} <> ${group.index} then goto ${nextBackground}`);
@@ -8079,7 +8079,7 @@ Blockly.BBasic.spillInternalVariablesFirst = function(workspace, code) {
   if (config.kernel !== 'dpcplus' || this.dpcPlusScroll || dpcPlusPfresOf(config) > 127) return code;
   const readByAsm = new Set([textRow2ColorVarName, textLinesBaseVarName, textLinesMaxVarName, textScrollCursorColorVarName,
     textEndIconColorVarName].map((varName) => this.nameDB_.getName(varName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)));
-  // (A variable of the project that init() left on a letter, because a block uses it in a way its own Display RAM handling does not
+  // (A variable of the project that init() left on a letter, because a block uses it in a way the Display RAM handling does not
   // cover, is looked at in the generated code like any other: if every use is in a plain place it goes too.)
   const internal = (this.letterVarAssignments || []).map(({name}) => name)
       .concat(this.spillableSystemVars(config))

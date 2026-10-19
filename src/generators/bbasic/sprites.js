@@ -383,7 +383,7 @@ export const missileFireFracVarName = (index) => `missileFireFrac${index}`;
 // byte: the low nibble is the main axis's leftover and the high nibble the other axis's, and the
 // slot is the index of the byte (missileFireFracVarName).
 export const missileFireFracSlots = (usedFor, used16) => {
-  // Every object that fires in 16 directions keeps its leftover sixteenths in a byte of its own. That makes the movement smooth
+  // Every object that fires in 16 directions keeps its leftover sixteenths in a separate byte. That makes the movement smooth
   // for any speed and however often the object moves; working them out from the frame counter made the halfway directions
   // slower and jerky when the movement is throttled (it only runs on some frames of the counter).
   const slots = new Map();

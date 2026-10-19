@@ -165,7 +165,7 @@ Every version from 0.50.37 on, in order, as it was committed.
 === 0.50.37 ===
 Merge remote-tracking branch 'origin/main'
 
-Scrub "own" from the Title tab's Score card hint text
+Reword the Title tab's Score card hint text
 
 === 0.50.38 ===
 Add sprite Inertia/Bounce, 16-way Fire directions, music/cycle optimizations; bump version
@@ -216,7 +216,7 @@ this project's earlier Javatari-based key remapping.
 Also fixes a hover-highlight bug on every "No, don't delete" confirmation
 list item across the editors (missing the `link` prop Vuetify needs to
 apply its interactive/hover styling), and folds in the accumulated
-"own"-wording scrub and dev-var cleanup from recent sessions.
+Wording scrub and dev-var cleanup from recent sessions.
 
 Add unified GraphicEditorToolbar across all tabs; sound bank import picker; nav-drawer polish
 
@@ -239,12 +239,12 @@ Add Title screen animation/scroll fix, Quick colors + frame import on Title/Spri
 - Add a per-card "Test this title screen" preview button using an isolated build pipeline that can't corrupt the real project's compiled ROM
 - Add a "Soft Colors" desaturated theme option
 - Fix keyboard mapping not applying until the Keyboard Mapping dialog was opened once
-- Give the Text/Score font tabs their own default zoom level
+- Give the Text/Score font tabs their default zoom level
 
 === 0.51.1 ===
 Fix Title Screen preview builds, project save/load, and reload-triggered UI resets; port shared undo/tool state and swatch styling
 
-- Give the Title Screen preview build its own dedicated bank (matching the Titlescreen Kernel docs) and only bump romsize when the project's real setting can't fit it
+- Give the Title Screen preview build a dedicated bank (matching the Titlescreen Kernel docs) and only bump romsize when the project's real setting can't fit it
 - Fix .vcsgm save/load silently dropping Title Screen pages/graphics
 - Persist the last-loaded ROM across a page reload so "Refresh emulator" doesn't blank the preview
 - Fix collapse-all-on-first-visit re-collapsing every card after a page reload
@@ -263,7 +263,7 @@ Adds a flood-fill Bucket tool, a Shift-to-45-degree Line tool, and Shift-to-squa
 
 Rework Music tab to a single-song editor with a dedicated toolbar; fix note volume/envelope-graph/instrument defaults; darken Subdued Palette cards
 
-Replaces the Music tab's list of song cards with a single active-song editor (song select/add/duplicate combobox mirroring the existing pattern picker, persisted activeSongId), moves Export/Import/playback controls into their own sticky toolbar above a full-width divider, and turns the pattern editor into a collapsible section matching the Options screen's own header style instead of a nested card. Fixes a new pattern/song always starting collapsed, a newly placed note inheriting an unrelated instrument's custom volume instead of its own instrument's base volume, the envelope graph drawing a redundant overlapping point when Decay or Sustain length is zero, and the default sound card not being usable as a Music tab instrument out of the box. Also darkens Subdued Palette's card background ~2%.
+Replaces the Music tab's list of song cards with a single active-song editor (song select/add/duplicate combobox mirroring the existing pattern picker, persisted activeSongId), moves Export/Import/playback controls into a sticky toolbar above a full-width divider, and turns the pattern editor into a collapsible section matching the Options screen's header style instead of a nested card. Fixes a new pattern/song always starting collapsed, a newly placed note inheriting an unrelated instrument's custom volume instead of that instrument's base volume, the envelope graph drawing a redundant overlapping point when Decay or Sustain length is zero, and the default sound card not being usable as a Music tab instrument out of the box. Also darkens Subdued Palette's card background ~2%.
 
 === 0.51.5 ===
 Add Move/marquee selection tools, graphic flip, and background aspect-ratio fix
@@ -303,7 +303,7 @@ Add piano roll Move/Draw/Erase/Select tools; fix Blockly undo wiping all blocks;
   stack; now wrapped in Blockly.Events.disable()/enable()
 - Fix sprite "Player 1 set" blocks silently writing to Player 0's
   variables when switching the Player dropdown after duplicating a block,
-  including Horizontal flip specifically missing its own translation
+  including Horizontal flip specifically missing a translation
 - Fix sprite pixel aspect ratio (square at 1x) and background pixel
   aspect ratio (now derived from the real per-background row count and
   scanline height, not a flat constant)
@@ -1073,7 +1073,7 @@ Title screen animation blocks and smaller stored data, emulator debug info, Play
   "Play animation once" plays it through once; an animation only runs while its page is the one drawn.
   Animations can last 255 ticks in all; the build says so when one is longer.
 - Title tab: frames can be dragged into a new order; Add frame copies the selected frame; frames copy
-  their picture background along with pixels; row colors can be copied and pasted on their own; Fill
+  their picture background along with pixels; row colors can be copied and pasted separately; Fill
   works on the row color bar; Set height and the selection act on the right graphic when several pages
   use the same ids; the import popups have a "Keep row and box colors" switch next to "Replace frames".
 - Title screen data takes less ROM: a graphic that repeats one picture under different row colors stores the
@@ -1390,7 +1390,7 @@ Sound loops, sweeps, frequency envelopes and staircase volume, smaller music eng
   the Set, Get and Change blocks, and not in a Repeat while condition). The ROM capacity list shows where each one is.
 - Display RAM get and Data stream read: a statement can now have more than two of them (extra scratch bytes are reserved when needed).
 - Score bar "set health" / "set lives" / "change" with 0 leave nothing behind (a batari Basic for loop always runs its body once).
-- Fired objects in 16 directions: the halfway angles keep their leftover sixteenths of a pixel in a byte of their own, so they move at
+- Fired objects in 16 directions: the halfway angles keep their leftover sixteenths of a pixel in a separate byte, so they move at
   the speed of a diagonal and smoothly, also when the movement is throttled; with "Check playfield while moving" the cell is looked at
   after each axis moves, so an object cannot slip between two lit cells that touch at a corner.
 - "Fade playfield rows from color" keeps each row color table once, however many backgrounds and fades use it, and finds the table
@@ -1414,7 +1414,7 @@ Sound loops, sweeps, frequency envelopes and staircase volume, smaller music eng
   while a fade is running), a bank that holds no music is no longer set aside for it, and units are placed in the banks by their
   size in bytes, not by how many there are. When the assembler reports that a bank is over, units move out of that bank, and
   several move at once when the main bank is far over, so a big build takes seconds instead of minutes.
-- Variables the Text Minikernel's own code reads are no longer moved into Display RAM when a DPC+ project has too many variables.
+- Variables the Text Minikernel's code reads are no longer moved into Display RAM when a DPC+ project has too many variables.
 - Every unit that can leave the main bank now does, before the first build: events, backgrounds, animations, subroutines. The units
   go to the other banks by size, and the main bank only gets the ones that do not fit anywhere else. With DPC+ the code that loads
   the backgrounds is one subroutine in another bank, called only on the frame a background changes.
@@ -1432,7 +1432,7 @@ Sound loops, sweeps, frequency envelopes and staircase volume, smaller music eng
   they are used in plain places and not many times (each use of one costs about a dozen bytes and cycles). The Display RAM spill now
   also handles a bit of a variable, an if that does one plain statement (with an else), and writes that sit next to other uses of
   the scratch bytes.
-- DPC+: a variable of the project that a block uses in a way the Display RAM handling of its own does not cover is looked at in the
+- DPC+: a variable of the project that a block uses in a way the Display RAM handling does not cover is looked at in the
   generated code like any internal variable, and goes to Display RAM when every use is in a plain place. How many uses of the
   system variables may be spilled depends on how much room the last build left (a few when it was nearly full, many when not).
 - DPC+: the memory the kernel leaves free (the unused virtual sprites' bytes) is used for variables before the letters, not after.
@@ -1496,9 +1496,9 @@ Sound loops, sweeps, frequency envelopes and staircase volume, smaller music eng
   steps. It plays from blocks, on the Music tab (a note of such an instrument plays the steps of its envelope) and in both previews, and it
   uses one of the 15 envelope shapes a project can have.
 - The Music tab's piano roll has a Freq 0 to Freq 31 row under the Hit row (for every sound but percussion; a sound type with in-tune notes keeps its piano rows too): a note on
-  a row plays that frequency, in the preview and in the ROM (the Hit row stays, with the sound's own frequency). Not for percussion sounds or the DPC+ chip.
+  a row plays that frequency, in the preview and in the ROM (the Hit row stays, with the sound's frequency). Not for percussion sounds or the DPC+ chip.
 - A project can have up to 254 different volume shapes (envelopes and staircases together) instead of 14: the number of the shape each channel plays is
-  a byte of its own (envelopeConfig0 to envelopeConfig3, one more variable than before for two channels) instead of half a byte.
+  a separate byte (envelopeConfig0 to envelopeConfig3, one more variable than before for two channels) instead of half a byte.
 - Sound banks show the kernels their sounds have settings for: a sound made under DPC+ has Standard and DPC+ settings, so a bank of them (and the
   sound in the Import Sound Bank popup) says "Standard and DPC+" where it said the one kernel in its header; a bank of sounds never converted says "Standard".
 - Sound cards under the DPC+ kernel have a "TIA" / "ARM" switch at the top: the Standard side shows the Standard sound type, frequency, sweep and envelope settings (for sounds played by the TIA on channel 1) and the Play button previews the way the TIA plays it.

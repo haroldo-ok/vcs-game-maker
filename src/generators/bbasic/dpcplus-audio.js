@@ -89,7 +89,7 @@ export const createDpcPlusAudioPlan = (config, channels = [0], keySeed = null) =
     return id;
   };
 
-  // The frequency table entry of a pitch: a piano key if it is one, otherwise an entry of its own.
+  // The frequency table entry of a pitch: a piano key if it is one, otherwise a separate entry.
   const pitchIdFor = (hz) => {
     if (!(hz > 0)) return 0;
     const semitones = 12 * Math.log2(hz / 440) + 69;

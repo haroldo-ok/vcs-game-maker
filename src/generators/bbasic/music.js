@@ -1023,7 +1023,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         notePlayedIndex,
         // The instrument, for a note whose pitch changes while it plays (see bakedFrames).
         bakeSound: soundEffect.sweep || soundEffect.pitchEnvelope || (soundEffect.envelope && soundEffect.staircase) ? soundEffect : null,
-        // For a note of the DPC+ chip: its plan, and the frequency of the piano key the note is on (a hit plays at the sound's own).
+        // For a note of the DPC+ chip: its plan, and the frequency of the piano key the note is on (a hit plays at the sound's frequency).
         bakePlan: chipPlan,
         bakeStartHz: chipPlan && rawFrequency !== null ? chipPlan.tiaFrequency(soundEffect.audc, rawFrequency) :
           chipPlan && isTunable && note.midi !== 'hit' ? frequencyForMidi(note.midi) : null,
@@ -1074,7 +1074,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       // consecutive events on this channel's one linear timeline, no dev
       // var or runtime resume check needed at all.
       // A note whose pitch changes is a run of events, so it is cut by taking them out and writing the part before the new note, the new
-      // note, and the part after it again from the note's own frames.
+      // note, and the part after it again from the note's frames.
       if (overlapsOpenNote && openNote.note.bakeSound) {
         const bg = openNote.note;
         perChannel[channel].splice(openNote.eventIndex, openNote.eventCount);
@@ -3093,7 +3093,7 @@ export default (Blockly) => {
       // same way soundfx_play's  generator already does, rather than
       // through resolveVar/nameDB_ (which is only for the reserved-letter
       // pool).
-      // The number of the shape the channel plays is a variable of its own (255 for no envelope), like the countdown.
+      // The number of the shape the channel plays is a separate variable (255 for no envelope), like the countdown.
       const flatEnvelopes = envelopeFlatOn();
       const envelopeConfigVar = hasEnvelope && !flatEnvelopes ? resolveVar(`envelopeConfig${channel}`) : null;
       const envelopeStageVar = hasEnvelope ? resolveVar(`envelopeStage${channel}`) : null;

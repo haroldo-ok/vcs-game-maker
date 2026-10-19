@@ -18,7 +18,7 @@ export const MAX_SWEEP_STEP = 8;
 
 export const DEFAULT_PITCH_ENVELOPE_AMOUNT = 8;
 export const MAX_PITCH_ENVELOPE_AMOUNT = 31;
-// A pitch envelope starts out as a short fall back to the sound's own pitch.
+// A pitch envelope starts out as a short fall back to the sound's pitch.
 export const DEFAULT_PITCH_ENVELOPE_ATTACK = 0;
 export const DEFAULT_PITCH_ENVELOPE_DECAY = 8;
 export const DEFAULT_PITCH_ENVELOPE_DECAY_END = 0;
@@ -141,7 +141,7 @@ export const MAX_DPC_SWEEP_STEP = 12;
 export const dpcKeyForHz = (hz) => Math.round(12 * Math.log2(Math.max(hz, 1) / 440) + 69) - 20;
 
 // Whether a sound of the DPC+ chip follows the pitch of its Standard settings (see buildDpcPitchOffsets): when it says so itself, and
-// otherwise for a sweep that has no end note of its own set.
+// otherwise for a sweep that has no end note set.
 export const dpcFollowsStandardPitch = (soundEffect) => !!(soundEffect && (soundEffect.dpcSweepMatch !== undefined ?
   soundEffect.dpcSweepMatch : soundEffect.sweep && !soundEffect.dpcSweepEnd));
 
@@ -152,7 +152,7 @@ export const buildDpcPitchOffsets = (soundEffect, startHz, {arpeggioFrames: song
 
   // A sound that follows the pitch of its Standard (TIA) settings: each frame the chip plays the frequency the TIA's divider of that frame
   // gives (the sweep, the frequency envelope and the arpeggio of the Standard settings, steps of the divider, not of semitones), as
-  // semitones above the pitch of the sound's own frequency divider. So the chip sweeps through the same pitches as the TIA does.
+  // semitones above the pitch of the sound's frequency divider. So the chip sweeps through the same pitches as the TIA does.
   if (dpcFollowsStandardPitch(soundEffect)) {
     const table = buildPitchTable(soundEffect, {arpeggioFrames: songArpeggioFrames});
     const baseHz = frequencyForTia(soundEffect.audc, clampAudf(Number(soundEffect.audf) || 0), {});
