@@ -2280,13 +2280,8 @@ export default (Blockly) => {
       return [
         ...(stopAtEdgeToo ? [up ? ` if ${offset} >= ${rows - 1} then goto ${skip}` : ` if ${offset} = 0 then goto ${skip}`] : []),
         ...(everyCall ? [] : [` if playfieldpos <> ${up ? pfRowDivisorFor(config) : 1} then goto ${skip}`]),
-        ...(up ? [
-          ` ${offset} = ${offset} + 1`,
-          ` if ${offset} >= ${rows} then ${offset} = 0`,
-        ] : [
-          ` if ${offset} = 0 then ${offset} = ${rows - 1} else ${offset} = ${offset} - 1`,
-        ]),
-        Blockly.BBasic.backgroundColorScrollApplyLines(),
+        // The routine moves the offset a row and sets the colors (see buildBackgroundColorScroll).
+        Blockly.BBasic.backgroundColorRotateLines(up),
         `@ ${skip}`,
       ];
     };
@@ -2403,7 +2398,7 @@ export default (Blockly) => {
       const step = Math.abs(delta);
       const visibleRows = backgroundDataRows(config);
       const forward = delta < 0;
-      const {rowMask, indexMask} = Blockly.BBasic.backgroundScrollPacking;
+      const {rowMask} = Blockly.BBasic.backgroundScrollPacking;
       const gosubPatch = ` gosub ${BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(
           Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME))}`;
       // temp6 = the active background's furthest scroll row (row count minus
@@ -2444,33 +2439,15 @@ export default (Blockly) => {
       lines.push(forward ?
         ` if playfieldpos <> ${rowHeight} then goto ${doneLabel}` :
         ` if playfieldpos <> 1 then goto ${doneLabel}`);
-      // Row update. The row sits in the packed byte's low bits, so a plain
-      // +1/-1 is safe only while it can't carry into/borrow from the index
-      // bits: with stop-at-edge the row stays within 0..max; without it the
-      // position wraps around the whole background (row count = max +
-      // visibleRows) through temp4 first, never reaching a row value that
-      // doesn't fit its bits.
-      if (forward) {
-        if (stopAtEdge) {
-          lines.push(` ${rowVar} = ${rowVar} + 1`);
-        } else {
-          // Leaves temp6 = the row count (max + visible rows), reused below.
-          loadMax();
-          lines.push(` temp4 = ${rowVar} & ${rowMask}`);
-          lines.push(' temp4 = temp4 + 1');
-          lines.push(` temp6 = temp6 + ${visibleRows}`);
-          lines.push(` if temp4 >= temp6 then ${rowVar} = ${rowVar} & ${indexMask} else ${rowVar} = ${rowVar} + 1`);
-        }
-      } else if (stopAtEdge) {
-        lines.push(` ${rowVar} = ${rowVar} - 1`);
-      } else {
-        lines.push(` temp4 = ${rowVar} & ${rowMask}`);
-        loadMax();
-        lines.push(` temp6 = temp6 + ${visibleRows - 1}`);
-        lines.push(` if temp4 > 0 then ${rowVar} = ${rowVar} - 1 else ${rowVar} = ${rowVar} | temp6`);
-      }
-      // Edge flags, from the row just stored. temp6 still holds what the row
-      // update left: the maximum (stop-at-edge) or the row count (without it).
+      // The rest of the row-step is one call of the scroll patch (modes 240 to 247, see generateBackgroundScrollPatch): the row
+      // moves by one (round the background, or stopping at the edge: the pre-check above saw to it that it can), the playfield colors
+      // follow when ticked, and the row that has come into view is copied into the window. Bit 0 of the mode is "forward", bit 1 "colors",
+      // bit 2 "stop at the edge". It leaves temp6 as the furthest row (stop at the edge) or the number of rows (without), for the edge watch.
+      Blockly.BBasic.backgroundScrollStepUsed = true;
+      nudgeSprites();
+      lines.push(` temp5 = ${240 + (forward ? 1 : 0) + (colorsOn ? 2 : 0) + (stopAtEdge ? 4 : 0)}`);
+      lines.push(gosubPatch);
+      // Edge flags, from the row just stored.
       if (forward && edgeWatches.has('bottom')) {
         lines.push(` temp4 = ${rowVar} & ${rowMask}`);
         if (!stopAtEdge) lines.push(` temp4 = temp4 + ${visibleRows}`);
@@ -2479,29 +2456,6 @@ export default (Blockly) => {
         lines.push(` temp4 = ${rowVar} & ${rowMask}`);
         setEdgeFlag('top', 'temp4 = 0');
       }
-      nudgeSprites();
-      if (colorsOn) {
-        // The colors follow the top row of the window.
-        lines.push(` ${Blockly.BBasic.nameDB_.getName(backgroundColorOffsetVarName(),
-            Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${rowVar} & ${rowMask}`);
-        lines.push(Blockly.BBasic.backgroundColorScrollApplyLines());
-      }
-      if (forward) {
-        // The newly-visible BOTTOM row: top row + visibleRows - 1, wrapped
-        // around the background's row count.
-        // temp6 already holds what the row update above left: the row count
-        // (no stop-at-edge) or the maximum (stop-at-edge), so no second gosub.
-        lines.push(` temp3 = ${rowVar} & ${rowMask}`);
-        lines.push(` temp3 = temp3 + ${visibleRows - 1}`);
-        if (stopAtEdge) lines.push(` temp6 = temp6 + ${visibleRows}`);
-        lines.push(' if temp3 >= temp6 then temp3 = temp3 - temp6');
-        lines.push(` temp5 = ${visibleRows - 1}`);
-      } else {
-        // The newly-visible TOP row is simply the new top row.
-        lines.push(` temp3 = ${rowVar} & ${rowMask}`);
-        lines.push(' temp5 = 0');
-      }
-      lines.push(gosubPatch);
     }
     // "@ label" (not a bare label), same reasoning as collision_check_
     // position/object_bounce's labels elsewhere in this codebase - this

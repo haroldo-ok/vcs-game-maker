@@ -2952,6 +2952,7 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar('_dpcScrollOffset', undefined,
         'DPC+ playfield scroll: how far the view has moved, starting one background height in');
   }
+  this.backgroundScrollStepUsed = false;
   this.backgroundScrollOverflowBackgrounds = (this.backgroundScrollUsed && !dpcPlusScroll) ?
     backgroundsWithOverflowRows(includedBackgrounds, backgroundDataRows(config)) :
     [];
@@ -6300,6 +6301,15 @@ Blockly.BBasic.generateBackgrounds = function() {
   // function's returned bank-1 splice text, since it now rides the
   // ordinary user-subroutine relocation machinery (Blockly.BBasic.
   // subroutines) instead of always being inline-spliced into bank 1.
+  // Scrolling the playfield colors with the pixels: each background gets a
+  // separate color table instead of the compiler's "pfcolors:" one (see
+  // buildBackgroundColorScroll). (Before the scroll patch, which carries the routine for a tall background.)
+  this.backgroundColorScrollTablesAsm = '';
+  this.backgroundColorScrollTopBank = 0;
+  this.backgroundColorScrollCoreLines = null;
+  this.backgroundColorScrollSmallTables = null;
+  const colorScroll = !!this.backgroundColorScrollUsed && usePfColors;
+  if (colorScroll) this.buildBackgroundColorScroll(backgrounds, config);
   Blockly.BBasic.generateBackgroundScrollPatch(backgrounds, visibleRows);
   // Without Superchip RAM the extra 12th row of a background (see
   // backgroundDataRows) is only put in the playfield data when the project
@@ -6309,13 +6319,6 @@ Blockly.BBasic.generateBackgrounds = function() {
   const drawnRows = (this.backgroundScrollUsed || this.backgroundScrollOverflowBackgrounds.length > 0) ?
     visibleRows : effectiveBackgroundRows(config);
   const dpcPlusDrawsAllRows = config.kernel === 'dpcplus';
-  // Scrolling the playfield colors with the pixels: each background gets a
-  // separate color table instead of the compiler's "pfcolors:" one (see
-  // buildBackgroundColorScroll).
-  this.backgroundColorScrollTablesAsm = '';
-  this.backgroundColorScrollTopBank = 0;
-  const colorScroll = !!this.backgroundColorScrollUsed && usePfColors;
-  if (colorScroll) this.buildBackgroundColorScroll(backgrounds, config);
 
   // The standard kernel keeps each "pfcolors:" table in the kernel bank (4 bytes a row, the compiler puts it there
   // wherever the statement is), once for every statement. Backgrounds with the same row colors would each add a
@@ -6507,11 +6510,28 @@ Blockly.BBasic.generateBackgrounds = function() {
 // buildBackgroundColorScroll).
 Blockly.BBasic.backgroundColorScrollApplyLines = function() {
   const resolve = (name) => this.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  // With a background taller than the playfield the routine is mode 248 of the scroll patch (see generateBackgroundScrollPatch).
+  if ((this.backgroundScrollOverflowBackgrounds || []).length > 0) {
+    return ` temp1 = ${resolve(backgroundColorBgVarName())}\n` +
+      ` temp2 = ${resolve(backgroundColorOffsetVarName())}\n` +
+      ` temp5 = 248\n` +
+      ` gosub ${BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME}${this.bankJumpSuffix(this.getCurrentBank(),
+          this.getSubroutineBank(BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME))}`;
+  }
   const suffix = this.bankJumpSuffix(this.getCurrentBank(),
       this.getSubroutineBank(BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME));
   return ` temp1 = ${resolve(backgroundColorBgVarName())}\n` +
     ` temp2 = ${resolve(backgroundColorOffsetVarName())}\n` +
+    ` temp5 = 0\n` +
     ` gosub ${BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME}${suffix}`;
+};
+
+// The same for a playfield that rotates in place (no background taller than the playfield): the routine moves the color offset one row
+// itself (mode 1: the colors go up a row, 2: down) and sets the colors, so a row-step is one call.
+Blockly.BBasic.backgroundColorRotateLines = function(up) {
+  const suffix = this.bankJumpSuffix(this.getCurrentBank(),
+      this.getSubroutineBank(BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME));
+  return ` temp5 = ${up ? 1 : 2}\n gosub ${BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME}${suffix}`;
 };
 
 // Builds what "Background scroll" needs to scroll the playfield colors with
@@ -6623,12 +6643,11 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     BANK_COUNT_BY_ROMSIZE_MINI[config.romSize] : 0;
 
   const playfieldColorVar = this.nameDB_.getName('playfieldrealcolor', Blockly.VARIABLE_CATEGORY_NAME);
-  const tableStarts = Array.from({length: groupCount}, (_, group) => `bgcolortable${group}-${before}`);
-  // The routine itself (temp1 = background index, temp2 = row offset): finds the page (the background's first page plus the row offset / 16)
-  // and its place in its table, sets pfcolortable to the table minus the bytes before the first row the kernel reads, plus 4 bytes per row
-  // within the page, plus the page's place in the table, then reads the top row's color.
-  this.subroutines[BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME] = [
-    'asm',
+  // Where each page starts for the pointer: its table minus the bytes before the first row the kernel reads, plus the page's place in the table.
+  const pageStarts = pageIndex.map((unique) => `bgcolortable${Math.floor(unique / 4)}-${before}+${unique % 4}`);
+  // The routine itself (temp1 = background index, temp2 = row offset): finds the page (the background's first page plus the row offset / 16),
+  // sets pfcolortable to the page's start plus 4 bytes per row within the page, then reads the top row's color.
+  const coreLines = [
     'lda temp2',
     'lsr',
     'lsr',
@@ -6638,20 +6657,10 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     'clc',
     'adc bgcolor_first,x',
     'tax',
-    'lda bgcolor_pages,x',
-    'tax',
-    'and #3',
-    'sta temp3',
-    'txa',
-    'lsr',
-    'lsr',
-    'tax',
     'lda temp2',
     'and #15',
     'asl',
     'asl',
-    'clc',
-    'adc temp3',
     'clc',
     'adc bgcolor_low,x',
     'sta pfcolortable',
@@ -6665,24 +6674,58 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
     'tax',
     'lda bgcolor_rows,x',
     `sta ${playfieldColorVar}`,
-    '@end',
-    ' return',
-    '',
-    'asm',
+  ];
+  const smallTables = [
     '@bgcolor_first',
     ...byteLines(firstPage),
-    '@bgcolor_pages',
-    ...byteLines(pageIndex),
     '@bgcolor_low',
-    ...byteLines(tableStarts.map((start) => `<(${start})`)),
+    ...byteLines(pageStarts.map((start) => `<(${start})`)),
     '@bgcolor_high',
-    ...byteLines(tableStarts.map((start) => `>(${start})`)),
+    ...byteLines(pageStarts.map((start) => `>(${start})`)),
     '@bgcolor_rowstart',
     ...byteLines(rowStart.map((start) => Math.min(start, 255))),
     '@bgcolor_rows',
     ...byteLines(rowList.slice(0, 256)),
-    '@end',
-  ].join('\n');
+  ];
+  // With a background taller than the playfield the scroll patch (see generateBackgroundScrollPatch) carries this routine and its tables
+  // (mode 248 of it sets the colors for a background and a row), so a scroll step is one call; else it is a separate subroutine.
+  this.backgroundColorScrollCoreLines = coreLines;
+  this.backgroundColorScrollSmallTables = smallTables;
+  if (!overflowMode) {
+    // temp5 0: the colors for background temp1 and row temp2; 1 and 2: the row offset (kept in bgColorOffset, of background bgColorBg) goes up or
+    // down a row first, round the rows of the playfield.
+    const offsetVar = this.nameDB_.getName(backgroundColorOffsetVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const backgroundVar = this.nameDB_.getName(backgroundColorBgVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const rows = backgroundDataRows(config);
+    const rotate = [
+      'lda temp5',
+      'beq bgcolorcore',
+      'cmp #2',
+      'beq bgcolordown',
+      `lda ${offsetVar}`,
+      'clc',
+      'adc #1',
+      `cmp #${rows}`,
+      'bcc bgcolorsave',
+      'lda #0',
+      'jmp bgcolorsave',
+      '@bgcolordown',
+      `lda ${offsetVar}`,
+      'beq bgcolorwrap',
+      'sec',
+      'sbc #1',
+      'jmp bgcolorsave',
+      '@bgcolorwrap',
+      `lda #${rows - 1}`,
+      '@bgcolorsave',
+      `sta ${offsetVar}`,
+      'sta temp2',
+      `lda ${backgroundVar}`,
+      'sta temp1',
+      '@bgcolorcore',
+    ];
+    this.subroutines[BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME] = ['asm', ...rotate, ...coreLines, '@end', ' return', '', 'asm', ...smallTables, '@end'].join('\n');
+  }
 };
 
 // Per-frame step of the multicolor fades: "Fade playfield rows from color to playfield colors", and "Fade color to" while the
@@ -6932,6 +6975,110 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
   // visibleRows-1), used once when a background is switched in, and temp5 =
   // 254 just returns the active background's furthest scroll row (its row
   // count minus the visible rows) in temp6, from a ROM table instead of RAM.
+  // The scroll step (modes 240 to 247 of temp5, bit 0: the row goes forward, bit 1: the playfield colors follow, bit 2: it stops at the edge) and
+  // the playfield colors alone (mode 248, temp1 = background and temp2 = row), for a background taller than the playfield. The whole row update of a scroll block
+  // that does not stop at the edge is done here with one call: the row goes forward or back round the background, the colors are set for
+  // it (the same routine as bgcolorscroll) and the row that has come into view is copied into the window (bgscrollrow). Y is the background.
+  const stepUsed = !!this.backgroundScrollStepUsed;
+  const colorCore = this.backgroundColorScrollCoreLines;
+  const hasModes = stepUsed || !!colorCore;
+  const rowMask = packing.rowMask;
+  const indexMask = packing.indexMask;
+  const stepRoutine = !hasModes ? [] : [
+    '@bgscrollstepmode',
+    ...(colorCore && !stepUsed ? [...colorCore, 'jmp bgscrolldone'] : []),
+    ...(colorCore && stepUsed ? [
+      'lda temp5',
+      'cmp #248',
+      'bne bgscrollnotcolors',
+      'jmp bgscrollcolorcore',
+      '@bgscrollnotcolors',
+    ] : []),
+    ...(!stepUsed ? [] : [
+      'lda temp5',
+      'lsr',
+      'bcc bgscrollstepback',
+      // forward: bit 2 of the mode is "stop at the edge", where the caller has seen to it that the row is not the last (temp6 is left as the
+      // furthest row for an edge watch); else the row after, round to the first one at the end (temp6 is left as the number of rows)
+      'lda bgscroll_max,y',
+      'sta temp6',
+      'lda temp5',
+      'and #4',
+      'beq bgscrollfwdround',
+      `lda ${rowVar}`,
+      `and #${rowMask}`,
+      'clc',
+      'adc #1',
+      'sta temp4',
+      'clc',
+      `adc #${visibleRows - 1}`,
+      'sta temp3',
+      'jmp bgscrollfwdslot',
+      '@bgscrollfwdround',
+      'lda temp6',
+      'clc',
+      `adc #${visibleRows}`,
+      'sta temp6',
+      `lda ${rowVar}`,
+      `and #${rowMask}`,
+      'clc',
+      'adc #1',
+      'cmp temp6',
+      'bcc bgscrollfwdok',
+      'lda #0',
+      '@bgscrollfwdok',
+      'sta temp4',
+      'clc',
+      `adc #${visibleRows - 1}`,
+      'cmp temp6',
+      'bcc bgscrollfwdrow',
+      'sbc temp6',
+      '@bgscrollfwdrow',
+      'sta temp3',
+      '@bgscrollfwdslot',
+      `lda #${visibleRows - 1}`,
+      'jmp bgscrollstepstore',
+      // back: the row before (round to the last one at the top, unless it stops at the edge); the row to copy in is the new top one
+      '@bgscrollstepback',
+      `lda ${rowVar}`,
+      `and #${rowMask}`,
+      'beq bgscrollbackwrap',
+      'sec',
+      'sbc #1',
+      'jmp bgscrollbackset',
+      '@bgscrollbackwrap',
+      'lda bgscroll_max,y',
+      'clc',
+      `adc #${visibleRows - 1}`,
+      '@bgscrollbackset',
+      'sta temp4',
+      'sta temp3',
+      'lda #0',
+      '@bgscrollstepstore',
+      'pha',
+      `lda ${rowVar}`,
+      `and #${indexMask}`,
+      'ora temp4',
+      `sta ${rowVar}`,
+      ...(colorCore ? [
+        'lda temp5',
+        'and #2',
+        'beq bgscrollstepcopy',
+        'sty temp1',
+        'lda temp4',
+        'sta temp2',
+        '@bgscrollcolorcore',
+        ...colorCore,
+        'lda temp5',
+        'cmp #248',
+        'bne bgscrollstepcopy',
+        'jmp bgscrolldone',
+      ] : []),
+      '@bgscrollstepcopy',
+      'pla',
+      'jmp bgscrollrow',
+    ]),
+  ];
   const copyRoutine = [
     'asm',
     ...(packing.packed ?
@@ -6939,8 +7086,20 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
       [`lda ${backgroundScrollActiveVarName()}`]),
     'tay',
     'lda temp5',
-    'cmp #254',
-    'bcc bgscrollrow',
+    ...(hasModes ? [
+      'cmp #240',
+      'bcs bgscrollnotrow',
+      'jmp bgscrollrow',
+      '@bgscrollnotrow',
+      'cmp #249',
+      'bcs bgscrollnotstep',
+      'jmp bgscrollstepmode',
+      '@bgscrollnotstep',
+      'cmp #254',
+    ] : [
+      'cmp #254',
+      'bcc bgscrollrow',
+    ]),
     // temp5 254/255: the less common modes, kept off the one-row path.
     'bne bgscrollfull',
     'lda bgscroll_max,y',
@@ -6988,6 +7147,7 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
     `cpx #${lastByte + 1}`,
     'bne bgscrollcopy',
     'jmp bgscrolldone',
+    ...stepRoutine,
     // One row: dest slot temp5 * 4 into X (A still holds temp5), the
     // background's table pointer into temp1/temp2 (Y = background index),
     // then table row temp3 * 4 into Y.
@@ -7023,6 +7183,7 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
     `.byte ${backgrounds.map((_, index) => `>PF_data${index}`).join(', ')}`,
     '@bgscroll_max',
     `.byte ${backgrounds.map(({pixels}) => Math.max(0, pixels.length - visibleRows)).join(', ')}`,
+    ...(colorCore ? this.backgroundColorScrollSmallTables : []),
     '@end',
   ].join('\n');
 
