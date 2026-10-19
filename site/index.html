@@ -46,6 +46,14 @@
     .features { border-top: 1px solid #2c303c; padding: 2.25rem 0 0; margin: 0 0 2rem; }
     .features h2 { font-family: 'Bungee', Impact, 'Arial Black', sans-serif; font-weight: 400; line-height: 1.3; letter-spacing: .01em; font-size: 1.8rem; text-align: center; margin: 0 0 1.5rem; }
     .feature h2, .card h2 { font-family: 'Bungee', Impact, 'Arial Black', sans-serif; font-weight: 400; line-height: 1.3; letter-spacing: .01em; }
+    [id] { scroll-margin-top: 4.5rem; }
+    body { padding-top: 3.4rem; }
+    .topnav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; background: rgba(20, 22, 28, .94); border-bottom: 1px solid #2c303c; }
+    .topnav div { display: flex; gap: .25rem 1.5rem; max-width: 56rem; margin: 0 auto; padding: .75rem 1.25rem; overflow-x: auto; white-space: nowrap; justify-content: center; scrollbar-width: none; }
+    .topnav div::-webkit-scrollbar { display: none; }
+    .topnav a { color: var(--muted); text-decoration: none; font-weight: 600; font-size: .9rem; padding: .15rem 0; border-bottom: 2px solid transparent; }
+    .topnav a:hover, .topnav a:focus-visible, .topnav a.current { color: var(--accent); border-bottom-color: var(--accent); outline: none; }
+    @media (max-width: 42rem) { .topnav div { justify-content: flex-start; } }
     .carousel { display: flex; align-items: center; gap: .5rem; margin: 1.5rem 0 0; }
     .track { flex: 1; min-width: 0; }
     .track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; scrollbar-width: none; overscroll-behavior-x: contain; }
@@ -62,10 +70,24 @@
     .feature h2 { grid-column: 1 / -1; text-align: center; font-size: 1.8rem; margin: 0 0 .5rem; }
     .feature p { margin: 0 0 .6rem; color: var(--muted); }
     footer { color: var(--muted); font-size: .9rem; border-top: 1px solid #2c303c; padding-top: 1rem; }
+    .copyright { text-align: center; margin: 1rem 0 0; }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 2rem; margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid #2c303c; }
     footer a { color: var(--accent); }
   </style>
 </head>
 <body>
+  <nav class="topnav" aria-label="Sections">
+    <div>
+      <a href="#download">Download</a>
+      <a href="#features">Features</a>
+      <a href="#sprites">Sprites</a>
+      <a href="#playfield">Playfield</a>
+      <a href="#sound">Sound</a>
+      <a href="#text">Text</a>
+      <a href="#views">Views</a>
+      <a href="#updates">Updates</a>
+    </div>
+  </nav>
   <main>
     <h1><img src="logo.svg" alt="VCS Game Maker AbsPly"></h1>
     <p class="tagline">Build Atari 2600 games with blocks.</p>
@@ -78,7 +100,7 @@
     </div>
 
     <section class="intro">
-      <p>VCS Game Maker is a visual environment for building Atari 2600 games. Build your game's logic with <a href="https://www.blockly.com/">Blockly</a> blocks, and behind the scenes VCSGM generates <a href="https://github.com/batari-Basic/batari-Basic">batari Basic</a> source code (along with a bit of assembly), compiles it into an Atari 2600 ROM, and runs it in the built-in emulator preview, using either <a href="https://github.com/6502ts/6502.ts">6502.ts</a> or <a href="https://github.com/jetsetilly/gopher2600">Gopher2600</a>.</p>
+      <p>VCS Game Maker is a visual development environment for building Atari 2600 games. Design your game's logic with <a href="https://www.blockly.com/">Blockly</a> blocks, and behind the scenes VCSGM generates <a href="https://github.com/batari-Basic/batari-Basic">batari Basic</a> source code (along with a bit of assembly), compiles it into an Atari 2600 ROM, and runs it in the built-in emulator preview, using either <a href="https://github.com/6502ts/6502.ts">6502.ts</a> or <a href="https://github.com/jetsetilly/gopher2600">Gopher2600</a>.</p>
       <p><em>This is very much a work-in-progress.</em></p>
     </section>
 
@@ -107,7 +129,7 @@
       </div>
     </section>
 
-    <section class="features">
+    <section class="features" id="features">
       <h2>Features</h2>
       <div class="grid">
         <section class="card">
@@ -160,7 +182,7 @@
       </div>
     </section>
 
-    <section class="feature">
+    <section class="feature" id="sprites">
       <h2>Sprites and animation</h2>
       <div class="text">
         <p>Draw your graphics and animations right in the app, or import directionly from Aseprite.</p>
@@ -169,7 +191,7 @@
       <img src="shot-sprites.jpg" alt="The Sprites tab of VCS Game Maker, with a player animation being drawn.">
     </section>
 
-    <section class="feature">
+    <section class="feature" id="playfield">
       <h2>BACKGROUNDS &amp; PlayfieldS</h2>
       <div class="text">
         <p>Draw full-screen playfield backgrounds in the editor, where each pixel is on or off, and keep as many backgrounds as you need. It has the same drawing tools as the sprite editor, plus a display of pixel coordinates, and with per-row colors turned on every row of the playfield can be given a different color. A preview button shows a background on the emulator's screen, and you can import and export images. With the DPC+ kernel a background can be taller than the screen.</p>
@@ -177,16 +199,16 @@
       <img src="shot-playfield.jpg" alt="The Playfield tab of VCS Game Maker, with a playfield background being drawn next to the running game.">
     </section>
 
-    <section class="feature">
-      <h2>Sound and music</h2>
+    <section class="feature" id="sound">
+      <h2>Sound &amp; music</h2>
       <div class="text">
         <p>Make sound effects and songs without writing any code. The sound effect editor shapes TIA sounds with envelopes and arpeggios, and on DPC+ it lets you draw a waveform that the coprocessor plays. The music editor builds songs from patterns and instruments, and the instruments are simply sounds from the Sound tab. You can also download sound banks and example projects from inside the app.</p>
       </div>
       <img src="shot-music.jpg" alt="The Music tab of VCS Game Maker, with a pattern of notes from several instruments in the piano roll.">
     </section>
 
-    <section class="feature">
-      <h2>Text, scores and title screens</h2>
+    <section class="feature" id="text">
+      <h2>Text, scores &amp; title screens</h2>
       <div class="text">
         <p>The text minikernel shows messages on the screen, by name or by ID, as scrolling text, or as text that clears itself after a number of frames. You can choose a score font, set the score and its colors, and design title screens in an editor made for them.</p>
         <p>Pick the Standard kernel for a plain 2600 game, or the DPC+ kernel for more sprites, a taller playfield and a coprocessor.</p>
@@ -194,8 +216,8 @@
       <img src="shot-text.jpg" alt="The Text tab of VCS Game Maker, with the text messages the game can show.">
     </section>
 
-    <section class="feature wide">
-      <h2>Ways to view the app</h2>
+    <section class="feature wide" id="views">
+      <h2>USE IT YOUR WAY</h2>
       <p>Pick the look that suits you in the Options tab. Dark mode, the subdued palette, high contrast and expert mode each work alone or together, and either toolbar can be hidden. Here is the same project in every combination.</p>
       <div class="carousel" role="group" aria-roledescription="carousel" aria-label="Ways to view the app">
         <button class="arrow prev" type="button" aria-label="Previous view" disabled>&#8249;</button>
@@ -330,7 +352,7 @@
       <p class="count" aria-live="polite"></p>
     </section>
 
-    <section class="feature wide">
+    <section class="feature wide" id="updates">
       <h2>Recent updates</h2>
       <p><strong>Version 0.52.28</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
       <p>The Playfield offset block and the box test for collisions run on the DPC+ coprocessor, for any area and in all directions, with fewer variables and less time each frame. The offset block has a new "alternate rows right and left" option.</p>
@@ -341,10 +363,14 @@
     </section>
 
     <footer>
-      <p>VCS Game Maker was started by <a href="https://github.com/haroldo-ok">Haroldo de Oliveira Pinheiro</a> (MIT License).<br>
-    AbstractPolygon changes are under the <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE">PolyForm Shield License 1.0.0</a>.<br>
-    This is a work in progress.</p>
-      <p>Atari and Atari 2600 are trademarks of Atari Interactive, Inc. <a href="disclaimer.html">Atari is not affiliated with this software.</a></p>
+      <p>VCS Game Maker was started by <a href="https://github.com/haroldo-ok">Haroldo de Oliveira Pinheiro</a>&nbsp;under the <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE-MIT-haroldo">MIT License</a>.<br>
+    AbstractPolygon updates are released under the <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE">PolyForm Shield License 1.0.0</a>.<br>
+    <em>This is a work in progress.</em></p>
+      <p>Atari and Atari 2600 are trademarks of Atari Interactive, Inc.<br>
+      <a href="disclaimer.html">Atari is not affiliated with this software.</a></p>
+      <p class="footer-links"><a href="https://github.com/AbstractPolygon/vcs-game-maker-absply">GitHub</a> <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/wiki">Documentation</a> <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE">License</a></p>
+      <p class="copyright">&copy; 2021 Haroldo de Oliveira Pinheiro.<br>
+      &copy; 2026 AbstractPolygon.</p>
     </footer>
   </main>
   <script>
@@ -395,6 +421,48 @@
           document.getElementById('dl-version').textContent = 'Version ' + release.tag_name;
         })
         .catch(function () {});
+    })();
+    // The top menu scrolls the page to the section, easing in and out, instead of jumping to it.
+    (function () {
+      var frame = null;
+      function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+      function scrollToY(target) {
+        var from = window.pageYOffset;
+        var start = null;
+        var duration = Math.min(1200, 500 + Math.abs(target - from) * 0.15);
+        window.cancelAnimationFrame(frame);
+        function step(now) {
+          if (start === null) start = now;
+          var t = Math.min(1, (now - start) / duration);
+          window.scrollTo(0, from + (target - from) * ease(t));
+          if (t < 1) frame = window.requestAnimationFrame(step);
+        }
+        frame = window.requestAnimationFrame(step);
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.topnav a'), function (link) {
+        link.addEventListener('click', function (e) {
+          var el = document.getElementById(link.getAttribute('href').slice(1));
+          if (!el) return;
+          e.preventDefault();
+          var top = el.getBoundingClientRect().top + window.pageYOffset - parseFloat(getComputedStyle(el).scrollMarginTop || 0);
+          scrollToY(Math.max(0, top));
+          if (window.history && history.replaceState) history.replaceState(null, '', link.getAttribute('href'));
+        });
+      });
+      // A touch or a wheel while it is moving takes over.
+      ['wheel', 'touchstart'].forEach(function (name) { window.addEventListener(name, function () { window.cancelAnimationFrame(frame); }, { passive: true }); });
+    })();
+    // The top menu marks the section that is on the screen.
+    (function () {
+      var links = Array.prototype.slice.call(document.querySelectorAll('.topnav a'));
+      var targets = links.map(function (l) { return document.getElementById(l.getAttribute('href').slice(1)); });
+      function mark() {
+        var current = -1;
+        targets.forEach(function (el, i) { if (el && el.getBoundingClientRect().top <= window.innerHeight * 0.35) current = i; });
+        links.forEach(function (l, i) { l.classList.toggle('current', i === current); });
+      }
+      window.addEventListener('scroll', mark, { passive: true });
+      mark();
     })();
   </script>
 </body>

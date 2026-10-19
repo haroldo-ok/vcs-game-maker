@@ -5,7 +5,7 @@
   });
   const style = document.createElement('style');
   style.textContent = '[data-edit]{cursor:text}[data-edit]:hover{outline:1px dashed #ff8a3d;outline-offset:3px}[data-edit]:focus{outline:2px solid #ff8a3d;outline-offset:3px}' +
-    '#edit-bar{position:fixed;top:.75rem;right:.75rem;z-index:99;background:#1d2029;color:#e8eaf0;border:1px solid #ff8a3d;padding:.5rem .8rem;font:13px/1.4 system-ui,sans-serif;max-width:20rem}#edit-bar b{color:#ff8a3d}';
+    '#edit-bar{position:fixed;top:4.25rem;right:.75rem;z-index:99;background:#1d2029;color:#e8eaf0;border:1px solid #ff8a3d;padding:.5rem .8rem;font:13px/1.4 system-ui,sans-serif;max-width:20rem}#edit-bar b{color:#ff8a3d}';
   document.head.appendChild(style);
   const bar = document.createElement('div');
   bar.id = 'edit-bar';
