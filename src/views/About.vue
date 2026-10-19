@@ -13,7 +13,7 @@
       <div class="about-website">
         <strong>Official:</strong> <a href="https://haroldo-ok.itch.io/vcs-game-maker" target="_blank" rel="noopener">haroldo-ok.itch.io/vcs-game-maker</a>
         <br />
-        <strong>Experimental:</strong> <a href="https://abstractpolygon.com/vcs-game-maker" target="_blank" rel="noopener">abstractpolygon.com/vcs-game-maker</a>
+        <strong>Experimental:</strong> <a href="https://abstractpolygon.github.io/vcs-game-maker-absply/" target="_blank" rel="noopener">abstractpolygon.github.io/vcs-game-maker-absply</a>
         <br />
         <strong>Documentation/Wiki:</strong> <a href="https://github.com/haroldo-ok/vcs-game-maker/wiki" target="_blank" rel="noopener">github.com/haroldo-ok/vcs-game-maker/wiki</a>
       </div>
@@ -75,6 +75,13 @@
           </v-list-item-content>
         </v-list-item>
       </v-list>
+
+      <span class="text-subtitle-1 about-label">Licenses</span>
+      <p class="about-description">
+        VCS Game Maker was created by Haroldo de Oliveira Pinheiro under the <a href="https://github.com/haroldo-ok/vcs-game-maker/blob/master/LICENSE-MIT-haroldo" target="_blank" rel="noopener">MIT License</a>.
+        <br />
+        AbstractPolygon updates are released under the <a href="https://polyformproject.org/licenses/shield/1.0.0" target="_blank" rel="noopener">PolyForm Shield License 1.0.0</a>.
+      </p>
     </v-card-text>
   </v-card>
 </template>

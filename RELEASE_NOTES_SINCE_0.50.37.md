@@ -1598,3 +1598,8 @@ Music engine savings, black background rows, taller DPC+ preview picture
 
 - Options: the descriptions of "Load last project on startup", the startup tip and the option that hides hints are reworded.
 - Linux: a "VCS portable" download for the Atari VCS (and other 64-bit Intel/AMD Linux systems): a tar.gz that runs from the folder it is unpacked into, with no installation.
+
+### 0.52.32
+
+- A project that sets a value after "End title screen" in code that runs while the title screen is on (the stage a menu picked, say) keeps that value when gameplay starts: starting gameplay no longer sets back to zero the variables that share a slot with a Title Screen variable once the End block has run. Bricks that are hit were not cleared in a project where the brick rows came from such a stage number.
+- About: the Experimental link points to the GitHub Pages version, and the Licenses section names the MIT License (original code) and the PolyForm Shield License 1.0.0 (AbstractPolygon updates).
