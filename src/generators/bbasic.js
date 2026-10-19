@@ -3126,8 +3126,8 @@ Blockly.BBasic.init = function(workspace) {
   });
   this.titleUnhostedCount = pendingTitleVars.length - this.titleSharedSlots.length;
   // "End title screen" sets back to zero the variables that only code running after it uses, which took a Title Screen variable's slot.
-  this.titleEndResets = [...new Set(this.titleSharedSlots.map(({target}) => target).filter((name) => afterEndNames.has(name)))]
-      .map((name) => `${name} = 0`);
+  this.titleEndNames = new Set(this.titleSharedSlots.map(({target}) => target).filter((name) => afterEndNames.has(name)));
+  this.titleEndResets = [...this.titleEndNames].map((name) => `${name} = 0`);
   // The bytes that are another page's graphics' as well take the same slot as the one they share it with.
   (this.titleAliasPairs || []).forEach(({alias, rep}) => {
     const hosted = this.titleSharedSlots.find(({titleVar}) => titleVar === rep);
@@ -5012,7 +5012,12 @@ Blockly.BBasic.generateGameEvent = function(eventName,
       (eventName === 'title_start' || eventName === 'gameplay_start')) {
     const names = this.titleSharedSlots.map((shared) => (eventName === 'title_start' ? shared.titleVar : shared.target));
     const startValue = (name) => (eventName === 'gameplay_start' && this.titleSharedInit && this.titleSharedInit.get(name)) || 0;
-    eventCode = names.map((name) => `${name} = ${startValue(name)}`).join('\n') + '\n' + eventCode;
+    // A variable only the code after "End title screen" uses was set back to zero when that block ran, and that code may have given it a
+    // value since (the stage a title screen menu picked, say): gameplay starts with it as it is once the block has run.
+    const keepsAfterEnd = (name) => eventName === 'gameplay_start' && this.titleEndUsed && this.titleEndNames && this.titleEndNames.has(name);
+    eventCode = names.map((name) => (keepsAfterEnd(name) ?
+      `if !${titleKernelEndedVar()}{${titleKernelEndedBit()}} then ${name} = ${startValue(name)}` : `${name} = ${startValue(name)}`)).join('\n') +
+      '\n' + eventCode;
   }
   // The run-once bit pairs both sides use: the other side's fired bit would still be set from its last frame.
   if (this.runOnceSharedPairs && ['title_start', 'gameplay_start', 'gameover_start'].includes(eventName)) {

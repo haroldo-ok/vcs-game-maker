@@ -1597,3 +1597,4 @@ Music engine savings, black background rows, taller DPC+ preview picture
 ### 0.52.31
 
 - Options: the descriptions of "Load last project on startup", the startup tip and the option that hides hints are reworded.
+- Linux: a "VCS portable" download for the Atari VCS (and other 64-bit Intel/AMD Linux systems): a tar.gz that runs from the folder it is unpacked into, with no installation.
