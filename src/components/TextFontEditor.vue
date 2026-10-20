@@ -196,6 +196,7 @@ import PixelGridToggle from './PixelGridToggle.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useConfigurationStorage, usePixelGridOverlayStorage, useTextFontStorage} from '../hooks/project';
 import {useEditorZoom, ZOOM_LEVELS} from '../hooks/zoom';
+import {recordReorder} from '../hooks/reorder-history';
 
 // Each glyph is a tiny fixed 4x5 grid - unlike every other tab's graphics,
 // zooming below 100% here makes it too small to usefully edit at all, so
@@ -351,10 +352,28 @@ export default defineComponent({
     const handleCopyGlyph = (index) => {
       copiedGlyphData.value = structuredClone(state.value.glyphs[index]);
     };
+    // Pasting a glyph and resetting the font replace the pictures from outside the pixel editors (which start again with no
+    // history): the font before and after is kept so Undo and Redo can put either back.
+    const copyOfFont = () => JSON.parse(JSON.stringify({glyphs: state.value.glyphs, cursor: state.value.cursor}));
+    const putBackFont = (font) => {
+      state.value = JSON.parse(JSON.stringify(font));
+      resetToken.value++;
+    };
+    const recordFontChange = (before) => {
+      const after = copyOfFont();
+      if (JSON.stringify(before) === JSON.stringify(after)) return;
+      recordReorder({
+        undo: () => putBackFont(before),
+        redo: () => putBackFont(after),
+        isCurrent: () => JSON.stringify(copyOfFont()) === JSON.stringify(after),
+      });
+    };
     const handlePasteGlyph = (index) => {
       if (!copiedGlyphData.value) return;
+      const before = copyOfFont();
       state.value.glyphs[index] = structuredClone(copiedGlyphData.value);
       handleChange();
+      recordFontChange(before);
       // PixelEditor only reads its "value" prop once, on mount (see
       // resetToken's comment right below) - pasting writes the new
       // pixels from OUTSIDE the target glyph's editor instance, so
@@ -374,11 +393,13 @@ export default defineComponent({
     // trick as ScoreFontEditor.vue's  resetToken.
     const resetToken = ref(0);
     const handleReset = () => {
+      const before = copyOfFont();
       state.value = {
         glyphs: defaultGlyphs.value.map((rows) => rows.map((row) => row.slice())),
         cursor: DEFAULT_TEXT_CURSOR.map((row) => row.slice()),
       };
       resetToken.value++;
+      recordFontChange(before);
     };
 
     return {

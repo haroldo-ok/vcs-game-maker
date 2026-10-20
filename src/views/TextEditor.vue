@@ -187,9 +187,10 @@ import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import TextFontEditor from '../components/TextFontEditor.vue';
 import {useCollapsedIds} from '../hooks/collapse';
-import {recordReorder, sameItems, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
+import {tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {undoRedoKind} from '../utils/undo-hotkey';
-import {CSS_CLASS_DRAGGING, dragGroupFor, moveCards} from '../hooks/drag-reorder';
+import {useDragReorder} from '../hooks/drag-reorder';
+import {removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import {useConfigurationStorage, useTextStringsStorage, useTextColumnsStorage} from '../hooks/project';
 import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WIDTH,
@@ -309,8 +310,9 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
-        () => state.value.textStrings.map(({id}) => id), selectedCardId);
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+      useCardSelection(
+          () => state.value.textStrings.map(({id}) => id), selectedCardId);
 
     const state = computed({
       get() {
@@ -334,102 +336,26 @@ export default defineComponent({
     // Every card starts collapsed on every visit to this tab (see
     // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
-    const {isCollapsed, toggleCollapsed, ensureExpanded, collapseAll} = useCollapsedIds('text', true);
+    const {isCollapsed, toggleCollapsed, ensureExpanded, collapseAll, remapIds: remapCollapsedIds} = useCollapsedIds('text', true);
     collapseAll();
 
-    // Card reordering - NOT built on hooks/drag-reorder.js's
-    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's
-    // single-column card lists), since that hook's  top-border
-    // drag-over convention only makes sense for a strictly vertical stack.
-    // .text-list is a CSS grid (see its  comment - two or more cards can
-    // sit side by side on a wide enough window), where the meaningful
-    // drop-target edge is left/right (which card this lands before/after in
-    // reading order), not top/bottom - confirmed directly as a real gap
-    // otherwise: the shared hook's top-border highlight only ever offered
-    // "insert above," with no way to drop a card at the END of a row or
-    // between two cards sharing that row.
-    const draggedEntryIndex = ref(null);
-    // Every card being dragged: the selected ones when the one dragged is one of them.
-    const draggedGroup = ref([]);
-    // {index, side} - side is 'before' or 'after', which HALF of card
-    // `index` the pointer is currently over - same halfway-point
-    // convention MusicEditor.vue's  dragOverSideFor/DataEditor.vue's
-    // valueRowListeners already use for their identical grid-drop
-    // problem.
-    const dragOverEntry = ref(null);
-    const isEntryDragging = (index) => draggedEntryIndex.value === index || draggedGroup.value.includes(index);
-    const isEntryDragOver = (index) =>
-      !!dragOverEntry.value && dragOverEntry.value.index === index && !isEntryDragging(index);
-    const entryDragOverSide = (index) => (isEntryDragOver(index) ? dragOverEntry.value.side : null);
-    const dragCardClass = (index) => ({
-      [CSS_CLASS_DRAGGING]: isEntryDragging(index),
-      'text-card-drag-over-before': entryDragOverSide(index) === 'before',
-      'text-card-drag-over-after': entryDragOverSide(index) === 'after',
-    });
-    const dragOverSideFor = (event) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    // Card reordering (see hooks/drag-reorder.js). .text-list is a CSS grid (see its comment: two or more cards can sit side by side on
+    // a wide enough window), so the hook marks the left or right edge of the card the pointer is over (sideBySide). The messages
+    // are numbered by their place: after a move or a delete each keeps what it holds by number (collapsed, selected) and the blocks
+    // and data table cells that name a message follow.
+    const renumbered = (idMap) => {
+      remapSelectedIds(idMap);
+      remapCollapsedIds(idMap);
     };
-    const dragAttrs = () => ({draggable: true});
-    const dragHandleListeners = (index) => ({
-      dragstart: (event) => {
-        draggedEntryIndex.value = index;
-        draggedGroup.value = dragGroupFor(index, getSelectedIndices());
-        event.dataTransfer.effectAllowed = 'move';
-        // Same Firefox requirement as hooks/drag-reorder.js's
-        // dragHandleListeners - the value itself is never read back.
-        event.dataTransfer.setData('text/plain', String(index));
-      },
-      dragend: () => {
-        draggedEntryIndex.value = null;
-        draggedGroup.value = [];
-        dragOverEntry.value = null;
-      },
-    });
-    const dragTargetListeners = (index) => ({
-      dragover: (event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        const side = dragOverSideFor(event);
-        const current = dragOverEntry.value;
-        if (!current || current.index !== index || current.side !== side) {
-          dragOverEntry.value = {index, side};
-        }
-      },
-      dragleave: (event) => {
-        if (event.currentTarget.contains(event.relatedTarget)) return;
-        if (isEntryDragOver(index) || isEntryDragging(index)) dragOverEntry.value = null;
-      },
-      drop: (event) => {
-        event.preventDefault();
-        const from = draggedEntryIndex.value;
-        const group = draggedGroup.value.length ? draggedGroup.value : [from];
-        draggedEntryIndex.value = null;
-        draggedGroup.value = [];
-        dragOverEntry.value = null;
-        if (from == null || group.includes(index)) return;
-        // Computed fresh off the actual drop event's  pointer position -
-        // see MusicEditor.vue's  sequenceChipListeners drop handler for
-        // why this isn't just read back off dragOverEntry instead.
-        const side = dragOverSideFor(event);
-        const insertAt = side === 'after' ? index + 1 : index;
-        const before = state.value.textStrings.slice();
-        const items = moveCards(before, group, insertAt);
-        if (sameItems(items, before)) return;
-        state.value.textStrings = items;
-        handleChildChange();
-        const after = items.slice();
-        const restore = (order) => {
-          state.value.textStrings = order.slice();
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.textStrings,
+        (items) => {
+          state.value.textStrings = items;
           handleChildChange();
-        };
-        recordReorder({
-          undo: () => restore(before),
-          redo: () => restore(after),
-          isCurrent: () => sameItems(state.value.textStrings, after),
-        });
-      },
-    });
+        },
+        getSelectedIndices,
+        {sideBySide: true, renumber: {kind: 'text', onRenumbered: renumbered}},
+    );
 
     const instance = getCurrentInstance();
     const handleAddEntry = () => {
@@ -453,7 +379,9 @@ export default defineComponent({
     const handleDeleteEntry = (entry) => {
       if (state.value.textStrings.length <= 1) return;
       const doomed = idsToDelete(entry.id, 1);
-      state.value.textStrings = state.value.textStrings.filter(({id}) => !doomed.includes(id));
+      const {remaining, idMap} = removeCards('text', state.value.textStrings, doomed);
+      state.value.textStrings = remaining;
+      if (idMap) renumbered(idMap);
       if (doomed.length > 1) deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -658,16 +586,16 @@ export default defineComponent({
 }
 
 /* Which side of THIS card a dragged one would land on (see
-   entryDragOverSide/dragOverSideFor) - left/right, not hooks/
+   useDragReorder's sideBySide option) - left/right, not hooks/
    drag-reorder.js's top-border convention, since .text-list is a CSS
    grid that can put more than one card on the same row (see its
    comment) - left/right is what actually reflects reading-order position
    within it. */
-.text-card-drag-over-before {
+.drag-reorder-side-before {
   border-left: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
-.text-card-drag-over-after {
+.drag-reorder-side-after {
   border-right: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 

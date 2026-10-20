@@ -300,6 +300,16 @@
         <span class="text-subtitle-1">VCSGM Options</span>
       </div>
       <div v-if="!isSectionCollapsed('vcsgm')" class="option-section-content">
+        <v-text-field
+          v-model.number="undoLimit"
+          type="number"
+          :min="MIN_UNDO_LIMIT"
+          :max="MAX_UNDO_LIMIT"
+          label="Undo steps"
+          hint="How many steps back Undo can go, across all tabs. From 1 to 999, default 99."
+          persistent-hint
+          class="undo-limit-field"
+        />
         <v-switch
           v-model="loadLastProject"
           label="Load last project on startup"
@@ -418,6 +428,7 @@ import {useConfigurationStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage,
   useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
+import {MAX_UNDO_LIMIT, MIN_UNDO_LIMIT, useUndoLimitStorage} from '../hooks/undo-limit';
 import {useEmulatorSettings} from '../hooks/emulator-settings';
 import {optionToReveal} from '../hooks/option-reveal';
 import {BANK_COUNT_BY_ROMSIZE, countUsedVariables, usesPlayer0RainbowColors} from '../hooks/rom';
@@ -498,6 +509,7 @@ export default defineComponent({
     // below so it survives clearProjectStorage() and can be checked at
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
+    const undoLimit = useUndoLimitStorage();
     const showStartupTips = useShowStartupTipsStorage();
     // Same reasoning as loadLastProject above - these three used to round-trip
     // with the project itself via configurationState, silently resetting
@@ -886,7 +898,7 @@ export default defineComponent({
       kernelIsDpcPlus,
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
-      loadLastProject, showStartupTips,
+      loadLastProject, showStartupTips, undoLimit, MIN_UNDO_LIMIT, MAX_UNDO_LIMIT,
       muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
       hideToolbarLabels,
@@ -967,6 +979,11 @@ export default defineComponent({
 
    Vuetify aligns a switch's hint under the toggle track by default; indent it
    to line up under the label text instead, matching the toggle's width. */
+.undo-limit-field {
+  max-width: 24rem;
+  margin-bottom: 8px;
+}
+
 .option-switch >>> .v-messages {
   margin-left: 46px;
 }

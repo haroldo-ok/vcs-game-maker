@@ -3,6 +3,7 @@
 import Vue from 'vue';
 
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
+import {cardOptions} from '../utils/card-refs';
 
 // Matches text12b.asm's TextPointersLoop, which always reads exactly 12
 // bytes starting at TextIndex, unconditionally - a hard hardware ceiling
@@ -144,6 +145,8 @@ export const buildTextStringOptions = () => {
     return [['Error', '0']];
   }
 };
+
+cardOptions('text', buildTextStringOptions);
 
 // Looks up one stored text string by id, or null if it can't be found (e.g.
 // a block still references one that was since deleted).

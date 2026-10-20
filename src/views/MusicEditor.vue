@@ -798,7 +798,9 @@ import {max} from 'lodash';
 
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import {useCollapsedIds} from '../hooks/collapse';
+import {removeCards} from '../utils/card-refs';
 import {recordReorder, sameItems} from '../hooks/reorder-history';
+import {newestSteps} from '../hooks/undo-limit';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useMusicEditorActiveState, usePlaybackStatusState} from '../hooks/music-editor-state';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSongsStorage,
@@ -1211,7 +1213,7 @@ export default defineComponent({
           if (last !== undefined && last !== snapshot) {
             const stack = patternUndoStacks.value[pattern.id] || [];
             noteEdit();
-            patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: [...stack, last]};
+            patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: newestSteps([...stack, last])};
             // A fresh edit invalidates whatever redo history existed from an
             // earlier undo - same convention as any standard undo/redo stack.
             if ((patternRedoStacks.value[pattern.id] || []).length) {
@@ -1242,7 +1244,7 @@ export default defineComponent({
       const stack = patternUndoStacks.value[pattern.id] || [];
       if (!stack.length) return;
       const redoStack = patternRedoStacks.value[pattern.id] || [];
-      patternRedoStacks.value = {...patternRedoStacks.value, [pattern.id]: [...redoStack, snapshotPattern(pattern)]};
+      patternRedoStacks.value = {...patternRedoStacks.value, [pattern.id]: newestSteps([...redoStack, snapshotPattern(pattern)])};
       patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: stack.slice(0, -1)};
       applyPatternSnapshot(pattern, stack[stack.length - 1]);
       recalculateFitBaseWidth(song, pattern);
@@ -1256,7 +1258,7 @@ export default defineComponent({
       const stack = patternRedoStacks.value[pattern.id] || [];
       if (!stack.length) return;
       const undoStack = patternUndoStacks.value[pattern.id] || [];
-      patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: [...undoStack, snapshotPattern(pattern)]};
+      patternUndoStacks.value = {...patternUndoStacks.value, [pattern.id]: newestSteps([...undoStack, snapshotPattern(pattern)])};
       patternRedoStacks.value = {...patternRedoStacks.value, [pattern.id]: stack.slice(0, -1)};
       applyPatternSnapshot(pattern, stack[stack.length - 1]);
       recalculateFitBaseWidth(song, pattern);
@@ -1321,7 +1323,7 @@ export default defineComponent({
     // toggleSequenceCollapsed's  comment just below), so no synthetic
     // compound entry is needed here either.
     const {isCollapsed: isInstrumentsCollapsedRaw, toggleCollapsed: toggleInstrumentsCollapsedRaw,
-      setCollapsed: setInstrumentsCollapsed, collapseAll: collapseAllInstruments} =
+      setCollapsed: setInstrumentsCollapsed, collapseAll: collapseAllInstruments, remapIds: remapInstrumentsCollapsedIds} =
       useCollapsedIds('music-instruments', true);
     collapseAllInstruments();
     const isInstrumentsCollapsed = (song) => isInstrumentsCollapsedRaw(song);
@@ -1334,7 +1336,7 @@ export default defineComponent({
     // key off the song object directly instead of needing a synthetic
     // compound entry.
     const {isCollapsed: isSequenceCollapsed, toggleCollapsed: toggleSequenceCollapsed,
-      setCollapsed: setSequenceCollapsed, collapseAll: collapseAllSequences} =
+      setCollapsed: setSequenceCollapsed, collapseAll: collapseAllSequences, remapIds: remapSequenceCollapsedIds} =
       useCollapsedIds('music-sequence', true);
     collapseAllSequences();
 
@@ -1473,7 +1475,7 @@ export default defineComponent({
     // Router destroying and recreating this component when the user leaves
     // and returns to the Music tab.
     const {activePatternIdsRef, activeTrackIdsRef, activeSongIdRef, setActivePatternId, setActiveTrackId,
-      setActiveSongId} = useMusicEditorActiveState();
+      setActiveSongId, remapSongIds} = useMusicEditorActiveState();
     const activePatternId = (song) =>
       activePatternIdsRef.value[song.id] || (song.patterns[0] && song.patterns[0].id);
     const setActivePattern = (song, patternId) => {
@@ -1716,8 +1718,16 @@ export default defineComponent({
     };
 
     const handleDeleteSong = (song) => {
-      state.value.songs = state.value.songs.filter(({id}) => id != song.id);
-      if (activeSongId() === song.id) {
+      const wasActive = activeSongId() === song.id;
+      // The songs after it are numbered again, and what names a song (blocks, data table cells) follows.
+      const {remaining, idMap} = removeCards('music', state.value.songs, [song.id]);
+      state.value.songs = remaining;
+      if (idMap) {
+        remapInstrumentsCollapsedIds(idMap);
+        remapSequenceCollapsedIds(idMap);
+        remapSongIds(idMap);
+      }
+      if (wasActive) {
         setActiveSong(state.value.songs[0] && state.value.songs[0].id);
       }
       handleChildChange();

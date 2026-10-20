@@ -493,7 +493,7 @@ import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {useCardSelection} from '../hooks/card-selection';
-import {recordRowColorsChange} from '../utils/row-color-history';
+import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-history';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
 import {DEFAULT_SPRITES, processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {useColorPaletteStorage, useConfigurationStorage, useErrorStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage} from '../hooks/project';
@@ -510,7 +510,7 @@ import {createCroppedResizedCanvas, createResizedCanvas} from '../utils/image';
 import {parseAsepriteSheet} from '../utils/aseprite';
 import {escapeHtml} from '../utils/build-error';
 import {clampFrameDuration} from '../utils/duration';
-import {remapAnimationReferences} from '../utils/animation-refs';
+import {REMOVED, removeCards} from '../utils/card-refs';
 import {parseSpriteFile, resizeRowsToWidth, setAnimationWide, widthOfAnimation} from '../utils/wide-sprite';
 
 // Width of one frame editor at 100% zoom. The container is normally sized by
@@ -626,8 +626,9 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
-        () => state.value.animations.map(({id}) => id), selectedCardId);
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+      useCardSelection(
+          () => state.value.animations.map(({id}) => id), selectedCardId);
 
     // Tracks whichever frame's PixelEditor instance was last clicked
     // into (see its "activate" event, emitted from PixelEditor.vue's
@@ -836,20 +837,34 @@ export default defineComponent({
     // Every card starts collapsed on every visit to this tab (see
     // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
-    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds(props.name, true);
+    const {isCollapsed, toggleCollapsed, collapseAll, remapIds: remapCollapsedIds} = useCollapsedIds(props.name, true);
     collapseAll();
 
+    // The animations are numbered by their place (see utils/card-refs.js): after a move or a delete each keeps what the tab holds by
+    // number (collapsed, selected, being edited) under its new number.
+    const renumbered = (idMap) => {
+      remapSelectedIds(idMap);
+      remapCollapsedIds(idMap);
+      if (activeAnimationId.value !== null && idMap.has(activeAnimationId.value)) {
+        activeAnimationId.value = idMap.get(activeAnimationId.value) === REMOVED ? null : idMap.get(activeAnimationId.value);
+      }
+      if (importMenuOpenAnimationId.value !== null && idMap.has(importMenuOpenAnimationId.value)) {
+        importMenuOpenAnimationId.value = idMap.get(importMenuOpenAnimationId.value) === REMOVED ?
+          null : idMap.get(importMenuOpenAnimationId.value);
+      }
+    };
+
     // Card reordering - same hook/pattern as Text/SoundFX/Data/Music/
-    // Background (see hooks/drag-reorder.js's  comment).
+    // Background (see hooks/drag-reorder.js's  comment). The blocks, data table cells and title screen players that pick an animation
+    // hold its place in the list: they follow it to the new place.
     const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
         () => state.value.animations,
         (items) => {
-          // The blocks that pick an animation hold its place in the list: they follow it to the new place.
-          remapAnimationReferences(state.value.animations, items);
           state.value.animations = items;
           handleChildChange();
         },
         getSelectedIndices,
+        {renumber: {kind: 'animation', onRenumbered: renumbered}},
     );
 
     // Frame reordering: one drag-reorder instance per animation, made on
@@ -860,8 +875,9 @@ export default defineComponent({
     const frameDrag = (animation) => {
       // Looked up again on every drop: the stored state can be rebuilt between renders.
       const currentAnimation = () => state.value.animations.find(({id}) => id === animation.id) || animation;
-      if (!frameDragByAnimationId.has(animation.id)) {
-        frameDragByAnimationId.set(animation.id, useDragReorder(
+      // Kept by the animation itself, not its number, which changes when the animations are numbered again.
+      if (!frameDragByAnimationId.has(animation)) {
+        frameDragByAnimationId.set(animation, useDragReorder(
             () => currentAnimation().frames,
             (items) => {
               currentAnimation().frames = items;
@@ -869,7 +885,7 @@ export default defineComponent({
             },
         ));
       }
-      return frameDragByAnimationId.get(animation.id);
+      return frameDragByAnimationId.get(animation);
     };
 
     // The frame's drag listeners: the hook's, plus showing the whole frame as the thing being dragged.
@@ -1235,9 +1251,9 @@ export default defineComponent({
 
     const handleDeleteAnimation = (animation) => {
       const doomed = idsToDelete(animation.id, 1);
-      const remaining = state.value.animations.filter(({id}) => !doomed.includes(id));
-      remapAnimationReferences(state.value.animations, remaining);
+      const {remaining, idMap} = removeCards('animation', state.value.animations, doomed);
       state.value.animations = remaining;
+      if (idMap) renumbered(idMap);
       if (doomed.length > 1) deselectCard();
       console.info('Deleted ', animation);
       handleChildChange();
@@ -1331,12 +1347,18 @@ export default defineComponent({
     };
     const handlePasteFrame = (frame) => {
       if (!copiedFrameData.value) return;
-      frame.pixels = structuredClone(copiedFrameData.value.pixels);
-      if (spriteColorsEnabled.value && copiedFrameData.value.rowColors) {
-        frame.rowColors = structuredClone(copiedFrameData.value.rowColors);
-      }
-      handleChildChange();
-      instance.proxy.$forceUpdate();
+      const saveAndRedraw = () => {
+        handleChildChange();
+        instance.proxy.$forceUpdate();
+      };
+      // Can be undone (see recordFieldsChange): the history of the pixel editor does not see a pasted image.
+      recordFieldsChange([{owner: frame, fields: ['pixels', 'rowColors']}], () => {
+        frame.pixels = structuredClone(copiedFrameData.value.pixels);
+        if (spriteColorsEnabled.value && copiedFrameData.value.rowColors) {
+          frame.rowColors = structuredClone(copiedFrameData.value.rowColors);
+        }
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
     };
 
     // Same reasoning/mechanism as BackgroundEditor's  editorRowColors.

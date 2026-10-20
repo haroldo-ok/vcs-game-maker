@@ -104,7 +104,8 @@ import {loadImageFromFile, openFileDialog} from '../utils/file';
 import {createResizedCanvas} from '../utils/image';
 import {usePixelTool, useMirrorDraw, useDrawColor} from '../hooks/pixel-tool';
 import {colorByteToCss} from '../utils/palette';
-import {noteEdit} from '../hooks/reorder-history';
+import {noteEdit, recordReorder} from '../hooks/reorder-history';
+import {limitPixelHistory} from '../hooks/undo-limit';
 import {resizePixelMatrixHeight} from '../utils/pixels';
 
 export default {
@@ -723,7 +724,7 @@ export default {
         historyLength: this.editor.history.undoStack.length,
         redoStack: [...this.editor.history.redoStack],
         selection: this.selection,
-        // The history keeps at most 100 entries, so once it is full a stroke adds none
+        // The history keeps at most the app's number of undo steps (see hooks/undo-limit.js), so once it is full a stroke adds none
         // and the length alone can't tell what the stroke drew.
         pixels: this.getPixels(),
       };
@@ -894,6 +895,9 @@ export default {
       const last = this.rowMoveUndo[this.rowMoveUndo.length - 1];
       const depth = this.editor.history.undoStack.length;
       this.editor.undo();
+      // The picture is what the project keeps: undoing a stroke without telling the tab that holds it would leave the old one saved
+      // (and built into the ROM) until the next stroke.
+      this.$emit('input', this.getPixels());
       if (last && last.depth === depth) {
         this.rowMoveUndo.pop();
         this.rowMoveRedo.push(last);
@@ -906,6 +910,7 @@ export default {
       const next = this.rowMoveRedo[this.rowMoveRedo.length - 1];
       const depth = this.editor.history.undoStack.length;
       this.editor.redo();
+      this.$emit('input', this.getPixels());
       if (next && next.depth === depth + 1) {
         this.rowMoveRedo.pop();
         this.rowMoveUndo.push(next);
@@ -998,7 +1003,20 @@ export default {
 
             const pixels = chunk(pixelValues.map((v) => v > 32 ? 1 : 0), canvas.width);
             if (targetHeight !== this.editor.height) {
+              // An image of another height builds the editor again, which the pixel history does not cover: undo and redo bring
+              // back the picture as it was, at the height it had.
+              const previousPixels = this.getPixels();
+              const previousHeight = this.editor.height;
               this.initEditor(targetHeight, pixels);
+              const restore = (height, matrix) => {
+                this.initEditor(height, matrix);
+                this.$emit('input', matrix);
+              };
+              recordReorder({
+                undo: () => restore(previousHeight, previousPixels),
+                redo: () => restore(targetHeight, pixels),
+                isCurrent: () => !!this.editor && this.editor.height === targetHeight,
+              });
             } else {
               this.setPixels(pixels);
             }
@@ -1035,6 +1053,7 @@ export default {
       // toolbar, until setTool() was called again to actually apply it.
       const initialTool = this.toolFor(this.toggledTool);
       this.editor = new PixelEditor(canvas, this.width, rowCount, initialTool, history);
+      limitPixelHistory(this.editor.history);
       // Every tool draws through editor.set(), so mirror drawing hooks in here
       // (see mirrorPixels).
       const set = this.editor.set.bind(this.editor);
