@@ -1603,3 +1603,10 @@ Music engine savings, black background rows, taller DPC+ preview picture
 
 - A project that sets a value after "End title screen" in code that runs while the title screen is on (the stage a menu picked, say) keeps that value when gameplay starts: starting gameplay no longer sets back to zero the variables that share a slot with a Title Screen variable once the End block has run. Bricks that are hit were not cleared in a project where the brick rows came from such a stage number.
 - About: the Experimental link points to the GitHub Pages version, and the Licenses section names the MIT License (original code) and the PolyForm Shield License 1.0.0 (AbstractPolygon updates).
+
+### 0.52.33
+
+- Cards are numbered by their place on every tab that has them (data tables, title screens and the graphics in them, playfields, sounds, songs, text messages, sprite animations): dragging a card to another place, deleting one or copying one numbers the cards again, and everything that names a card follows it: the Actions tab's blocks (dropdowns and numbers typed into the "by ID" blocks), the cells of data tables whose format names a card, the instruments of a song's tracks and the animations of a title screen's player cards. What named a deleted card is set to nothing (a sprite animation has no "nothing", so blocks that named a deleted animation are left as they were). Numbers a block works out when the game runs (a variable, a calculation) can't be followed.
+- Options: "Undo steps", in the VCSGM options, sets how many steps back Undo goes on every tab (1 to 999, default 99): the pixel editors, the order of cards, the tables, sounds and patterns, and the blocks.
+- Undo and Redo in a pixel editor save the picture to the project at once; before, the undone picture was saved only with the next stroke.
+- Undo and Redo also cover: Clear's reset of the row colors, the background row colors of DPC+, pasting a background, a sprite frame, a score digit or a text glyph, resetting a score or text font, importing an image of another height, and the colors and picture background boxes of title screen graphics and the colors of their Player cards.
