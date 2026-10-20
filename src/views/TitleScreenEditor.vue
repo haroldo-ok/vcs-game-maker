@@ -405,6 +405,41 @@
                                   class="titlescreen-player-select"
                                   @change="handleChildChange"
                                 />
+                                <v-text-field
+                                  label="Start X"
+                                  title="Where Player 0 starts on the screen (X), 0 to 255. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 0 set X&quot; block in Title screen update can move it from then on."
+                                  v-model.number="card.player0X"
+                                  type="number"
+                                  min="0"
+                                  max="255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player0X')"
+                                />
+                                <v-text-field
+                                  label="Start Y"
+                                  title="Where Player 0 starts in this card, counted down from the top of the card's window: 0 is its top line, and the window height is its bottom. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 0 set Y&quot; block in Title screen update can move it from then on (it counts the same way)."
+                                  v-model.number="card.player0Y"
+                                  type="number"
+                                  min="0"
+                                  :max="card.windowHeight || 255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player0Y')"
+                                />
+                                <v-select
+                                  label="Width"
+                                  title="How wide Player 0 is drawn on the title screen: 1x, 2x or 4x (the TIA can only stretch a sprite to these). Set after the blocks of Title screen start."
+                                  :items="TITLE_PLAYER_WIDTH_OPTIONS"
+                                  :value="card.player0Width || 1"
+                                  hide-details
+                                  class="titlescreen-player-width-field"
+                                  @change="(value) => handlePlayerWidthChange(card, 'player0Width', value)"
+                                />
                                 <playfield-color-strip
                                   class="titlescreen-player-color"
                                   :value="[card.player0Color || 0]"
@@ -423,6 +458,41 @@
                                   class="titlescreen-player-select"
                                   @change="handleChildChange"
                                 />
+                                <v-text-field
+                                  label="Start X"
+                                  title="Where Player 1 starts on the screen (X), 0 to 255. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 1 set X&quot; block in Title screen update can move it from then on."
+                                  v-model.number="card.player1X"
+                                  type="number"
+                                  min="0"
+                                  max="255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player1X')"
+                                />
+                                <v-text-field
+                                  label="Start Y"
+                                  title="Where Player 1 starts in this card, counted down from the top of the card's window: 0 is its top line, and the window height is its bottom. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 1 set Y&quot; block in Title screen update can move it from then on (it counts the same way)."
+                                  v-model.number="card.player1Y"
+                                  type="number"
+                                  min="0"
+                                  :max="card.windowHeight || 255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player1Y')"
+                                />
+                                <v-select
+                                  label="Width"
+                                  title="How wide Player 1 is drawn on the title screen: 1x, 2x or 4x (the TIA can only stretch a sprite to these). Set after the blocks of Title screen start."
+                                  :items="TITLE_PLAYER_WIDTH_OPTIONS"
+                                  :value="card.player1Width || 1"
+                                  hide-details
+                                  class="titlescreen-player-width-field"
+                                  @change="(value) => handlePlayerWidthChange(card, 'player1Width', value)"
+                                />
                                 <playfield-color-strip
                                   class="titlescreen-player-color"
                                   :value="[card.player1Color || 0]"
@@ -434,8 +504,10 @@
                               </div>
                               <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
                                 "Fallback color" is only used when the chosen animation doesn't have its
-                                per-row sprite colors (Options tab). Position with the normal "Player 0/1 set
-                                X/Y" blocks, and pick a starting frame with "Set title screen player sprite
+                                per-row sprite colors (Options tab). "Start X" and "Start Y" set where each
+                                player begins when the title screen starts, after the blocks of Title screen
+                                start have run (leave them empty to leave that to the blocks); move a player
+                                later with the normal "Player 0/1 set X/Y" blocks in Title screen update, and pick a starting frame with "Set title screen player sprite
                                 frame to" (Actions tab).
                               </p>
                               <div class="titlescreen-player-row">
@@ -534,6 +606,7 @@
                                       @clear="() => handleClearCardColors(card)"
                                       @clear-colors="() => handleClearCardColors(card)"
                                       @move-rows="(move) => handleMoveRows(card, frame, move)"
+                                      @flip-rows="() => handleFlipRowColors(card, frame)"
                                       @activate="(editorInstance) => setActiveFrame(editorInstance, card.id, frame.id, screen.id)"
                                     >
                                       <template v-if="cardHasRowColors(card)" v-slot:sidebar>
@@ -1164,6 +1237,25 @@ export default defineComponent({
       }, {key: changeKeyOf(card, 'color'), afterChange: saveAndRedraw});
     };
     // The color of the Player 0 or Player 1 sprite of a Player card.
+    const TITLE_PLAYER_WIDTH_OPTIONS = [{text: '1x', value: 1}, {text: '2x', value: 2}, {text: '4x', value: 4}];
+    // 1x is what a player is without a setting, so the key is removed for it.
+    const handlePlayerWidthChange = (card, key, value) => {
+      if (value === 2 || value === 4) instance.proxy.$set(card, key, value);
+      else instance.proxy.$delete(card, key);
+      handleChildChange();
+    };
+    // The starting position of a Player card's sprite: empty (or not a number) means none is set, and the key is removed.
+    const handlePlayerStartChange = (card, key) => {
+      const value = card[key];
+      if (value === '' || value === null || value === undefined || !Number.isFinite(Number(value))) {
+        instance.proxy.$delete(card, key);
+      } else {
+        // A Y counts inside the card's window, so it can not be below its bottom.
+        const top = /Y$/.test(key) ? Math.max(1, Number(card.windowHeight) || 255) : 255;
+        card[key] = Math.max(0, Math.min(top, Math.round(Number(value))));
+      }
+      handleChildChange();
+    };
     const handleSetPlayerColor = (card, field, color) => {
       recordFieldsChange([{owner: card, fields: [field]}], () => {
         card[field] = color;
@@ -1239,6 +1331,11 @@ export default defineComponent({
     // Moving selected pixels with the Move tool takes the colors of their rows along
     // (PixelEditor.vue's 'move-rows' event - see utils/row-color-move.js).
 
+    // Turning the whole picture upside down turns its row colors with it (one step for Undo, see recordRowColorsChange).
+    const handleFlipRowColors = (card, frame) => {
+      if (!cardHasRowColors(card) || !frame.rowColors) return;
+      handleRowColorsInput(frame, frame.rowColors.slice().reverse());
+    };
     const handleMoveRows = (card, frame, move) => {
       if (!cardHasRowColors(card)) return;
       const colors = rowColorsForMove(frame, move);
@@ -1913,8 +2010,9 @@ export default defineComponent({
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,
       handleClearBox,
       exportableScreen, handleExportTitleScreen, handleImportTitleScreen,
-      handleSetBackgroundColor, handleSetCardColor, handleSetPlayerColor, handleClearCardColors,
-      handleFramePixelsInput, handleRowColorsInput, handleMoveRows, cardFrameHeight,
+      handleSetBackgroundColor, handleSetCardColor, handleSetPlayerColor, handlePlayerStartChange, handleClearCardColors,
+      TITLE_PLAYER_WIDTH_OPTIONS, handlePlayerWidthChange,
+      handleFramePixelsInput, handleRowColorsInput, handleMoveRows, handleFlipRowColors, cardFrameHeight,
       handleAddFrame, handleDeleteFrame,
       frameDrag, armedFrameKey, frameKey, armFrameDrag, frameHandleListeners,
       handleImportCardFrames, replaceFramesOnImport, keepColorsOnImport, importMenuOpenCardRef,
@@ -2349,6 +2447,15 @@ export default defineComponent({
 .titlescreen-player-select,
 .titlescreen-player-window-field {
   max-width: 260px;
+}
+/* Start X and Start Y: only as wide as three digits need. */
+.titlescreen-player-start-field {
+  flex: 0 0 72px;
+  max-width: 72px;
+}
+.titlescreen-player-width-field {
+  flex: 0 0 72px;
+  max-width: 72px;
 }
 
 .titlescreen-player-color {

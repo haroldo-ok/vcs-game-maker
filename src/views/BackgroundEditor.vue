@@ -278,6 +278,7 @@
                       @clear="() => handleClearRowColors(background)"
                       @clear-colors="() => handleClearRowColors(background)"
                       @move-rows="(move) => handleMoveRows(background, move)"
+                      @flip-rows="() => handleFlipRowColors(background)"
                       @activate="(editorInstance) => setActiveEditor(editorInstance, background.id)"
                     >
                       <template v-if="pfColorsEnabled" v-slot:sidebar>
@@ -727,6 +728,14 @@ export default defineComponent({
     // an ordinary pixel edit) resets its row colors back to the same default
     // every row starts at, rather than leaving old per-row picks behind on
     // an otherwise blank graphic.
+    // Turning the whole picture upside down turns the row colors with it (both lists, when the project has them), and Undo puts them back.
+    const handleFlipRowColors = (background) => {
+      recordFieldsChange([{owner: background, fields: ['rowColors', 'bkRowColors']}], () => {
+        if (pfColorsEnabled.value && background.rowColors) background.rowColors = background.rowColors.slice().reverse();
+        if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.slice().reverse();
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
+    };
     const handleClearRowColors = (background) => {
       recordFieldsChange([{owner: background, fields: ['rowColors', 'bkRowColors']}], () => {
         if (pfColorsEnabled.value && background.rowColors) background.rowColors = clearRowColors(background.rowColors);
@@ -851,7 +860,7 @@ export default defineComponent({
       state, handleChildChange, handleBackgroundPixelsInput, handleAddBackground, handleDeleteBackground, handleDuplicateBackground,
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
-      handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
+      handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,

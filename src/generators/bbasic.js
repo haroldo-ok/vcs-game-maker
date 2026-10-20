@@ -50,7 +50,7 @@ import {bbTvSetting} from '../utils/tv-standard';
 import {keypadKeyVarName} from '../utils/keypad';
 import {clampFrameDuration} from '../utils/duration';
 import {isWideAnimation, splitWideRow} from '../utils/wide-sprite';
-import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar,
+import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStartLines, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar,
   titleKernelEndedBit, TITLE_CARD_HOLD_FAMILY, titleCardHoldVar, TITLE_BG_OVERRIDE_FAMILY,
   titleBgOverrideVar, titleBgOverrideBit, titleCardHoldBit, TITLE_CARD_ONCE_FAMILY, titleCardOnceVar,
   TITLE_CARD_REVERSE_FAMILY, titleCardReverseVar, titleCardReverseBit,
@@ -4993,6 +4993,12 @@ Blockly.BBasic.generateGameEvent = function(eventName,
   // Title screen start turns the kernel back on after "End title screen" turned it off.
   if (this.titleEndUsed && eventName === 'title_start') {
     eventCode = `${titleKernelEndedVar()}{${titleKernelEndedBit()}} = 0\n` + eventCode;
+  }
+  // The Start X and Start Y of the Player card of a title screen: put in after the blocks of "Title screen start", so the card has the say
+  // (a block in "Title screen update" can still move the sprite from then on).
+  if (this.titleScreenDrawUsed && eventName === 'title_start') {
+    const startLines = titlePlayerStartLines();
+    if (startLines.length) eventCode = eventCode + '\n' + startLines.join('\n') + '\n';
   }
   // The Titlescreen Kernel moves the sprites' positions around while it draws (it counts frames in missile0x, for
   // one). A project with no block that sets or changes where a sprite is has nothing to put them back, so

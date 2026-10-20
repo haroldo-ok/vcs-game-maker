@@ -372,6 +372,7 @@
                         @clear="() => handleClearRowColors(frame)"
                         @clear-colors="() => handleClearRowColors(frame)"
                         @move-rows="(move) => handleMoveRows(frame, move)"
+                        @flip-rows="() => handleFlipRowColors(frame)"
                         @activate="(editorInstance) => setActiveFrame(editorInstance, animation.id, frame.id)"
                       >
                         <template v-if="spriteColorsEnabled" v-slot:sidebar>
@@ -1308,6 +1309,11 @@ export default defineComponent({
     // an ordinary pixel edit) resets its row colors back to the same
     // default every row starts at, rather than leaving old per-row picks
     // behind on an otherwise blank frame.
+    // Turning the whole frame upside down turns its row colors with it (one step for Undo, see recordRowColorsChange).
+    const handleFlipRowColors = (frame) => {
+      if (!spriteColorsEnabled.value || !frame.rowColors) return;
+      handleRowColorsInput(frame, frame.rowColors.slice().reverse());
+    };
     const handleClearRowColors = (frame) => {
       if (!spriteColorsEnabled.value || !frame.rowColors) return;
       handleRowColorsInput(frame, clearRowColors(frame.rowColors));
@@ -1380,7 +1386,7 @@ export default defineComponent({
       handleAddAnimation, handleDeleteAnimation, handleDuplicateAnimation, handleSetPreviewScale, handleSetWide, handleImportSpriteFiles,
       widthOfAnimation, isDpcPlus,
       testingId, buildInProgress, handleTestAnimation,
-      handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, spriteColorsEnabled,
+      handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, editorRowColors, spriteColorsEnabled,
       copiedFrameRowColors, handleCopyRowColors, handlePasteRowColors,
       copiedFrameData, handleCopyFrame, handlePasteFrame,
       spriteColorPalette, selectedQuickColor,

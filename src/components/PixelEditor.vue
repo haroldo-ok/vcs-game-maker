@@ -1182,16 +1182,16 @@ export default {
       this.$emit('input', pixels);
     },
 
-    // Reverses the row order top-to-bottom. Note this only flips the
-    // pixel DATA - a caller with per-row colors (rowColors - see
-    // BackgroundEditor.vue) keeps its existing row-color assignment, since
-    // that's driven by row position on the actual hardware playfield, not
-    // by whatever's currently drawn there.
+    // Reverses the row order top-to-bottom. A caller with per-row colors (rowColors) is told with 'flip-rows' so it can turn them
+    // the same way.
     flipVertical() {
       if (this.flipSelection(false)) return;
       const pixels = [...this.getPixels()].reverse();
       this.setPixels(pixels);
       this.$emit('input', pixels);
+      // The whole picture turned upside down: a graphic with a color for each row turns its colors with it (the tab that holds them
+      // does it, see "flip-rows").
+      this.$emit('flip-rows');
     },
 
     // With a selection, flips only the selected pixels, within the box that surrounds the selection, and
