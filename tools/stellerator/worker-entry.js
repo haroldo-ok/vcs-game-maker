@@ -32,7 +32,7 @@ const IDLE_WIDTH = 160;
 const IDLE_HEIGHT = 220;
 // gopher2600 shows 220 lines of an NTSC picture (also PAL60, which has NTSC timing), the first of them 6 lines above where 6502.ts
 // starts a frame by default, so a ROM fills the screen the same way in both (6502.ts alone made a picture 212 lines tall, which is
-// stretched to the same 4:3, so everything in it looked taller). The frame manager counts lines from the end of VSYNC.
+// shown in a box of a different shape than gopher2600's, so everything in it looked taller). The frame manager counts lines from the end of VSYNC.
 const NTSC_FRAME_START = 23;
 const NTSC_PICTURE_LINES = 200; // plus the 20 lines the frame manager adds: 220 lines
 
