@@ -50,7 +50,7 @@ import {bbTvSetting} from '../utils/tv-standard';
 import {keypadKeyVarName} from '../utils/keypad';
 import {clampFrameDuration} from '../utils/duration';
 import {isWideAnimation, splitWideRow} from '../utils/wide-sprite';
-import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar,
+import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStartLines, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar,
   titleKernelEndedBit, TITLE_CARD_HOLD_FAMILY, titleCardHoldVar, TITLE_BG_OVERRIDE_FAMILY,
   titleBgOverrideVar, titleBgOverrideBit, titleCardHoldBit, TITLE_CARD_ONCE_FAMILY, titleCardOnceVar,
   TITLE_CARD_REVERSE_FAMILY, titleCardReverseVar, titleCardReverseBit,
@@ -3277,7 +3277,7 @@ Blockly.BBasic.init = function(workspace) {
     // regardless, so this is purely a display choice made right here at the
     // one place every description actually gets rendered into a comment,
     // not something worth threading through every reserveDevVar call site.
-    const showVariableComments = config.showVariableComments ?? true;
+    const showVariableComments = config.showVariableComments ?? false;
     this.definitions_['variables'] = defvars
         .map((v, i) => {
           const description = showVariableComments && this.devVarDescriptions[v];
@@ -3291,7 +3291,7 @@ Blockly.BBasic.init = function(workspace) {
               this.dpcPlusSpriteVarSlot(name) : availableLetters[runOnceDefvarsStart + i]));
   }
   if (this.dpcPlusSpriteVars.length) {
-    const showComments = config.showVariableComments ?? true;
+    const showComments = config.showVariableComments ?? false;
     const spriteDims = this.dpcPlusSpriteVars.map((name) => {
       const description = showComments && this.devVarDescriptions[name];
       return `  dim ${name} = ${this.dpcPlusSpriteVarSlot(name)}${description ? `  ; ${description}` : ''}`;
@@ -4994,6 +4994,12 @@ Blockly.BBasic.generateGameEvent = function(eventName,
   if (this.titleEndUsed && eventName === 'title_start') {
     eventCode = `${titleKernelEndedVar()}{${titleKernelEndedBit()}} = 0\n` + eventCode;
   }
+  // The Start X and Start Y of the Player card of a title screen: put in after the blocks of "Title screen start", so the card has the say
+  // (a block in "Title screen update" can still move the sprite from then on).
+  if (this.titleScreenDrawUsed && eventName === 'title_start') {
+    const startLines = titlePlayerStartLines();
+    if (startLines.length) eventCode = eventCode + '\n' + startLines.join('\n') + '\n';
+  }
   // The Titlescreen Kernel moves the sprites' positions around while it draws (it counts frames in missile0x, for
   // one). A project with no block that sets or changes where a sprite is has nothing to put them back, so
   // gameplay starts them from the positions a new project begins with.
@@ -6087,7 +6093,7 @@ Blockly.BBasic.generateRomSize = function() {
 Blockly.BBasic.generateSystemDims = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const showVariableComments = config.showVariableComments ?? true;
+  const showVariableComments = config.showVariableComments ?? false;
   const omitted = this.omittedSystemVars || new Set();
   const systemDims = SYSTEM_VARIABLES
       .map(([name, letter, description], i) => {
@@ -6118,7 +6124,7 @@ Blockly.BBasic.generateSuperchipVarDims = function() {
   if (!this.superchipVars || !this.superchipVars.length) return '';
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const showVariableComments = config.showVariableComments ?? true;
+  const showVariableComments = config.showVariableComments ?? false;
   return '\n' + this.superchipVars
       .map((name, i) => {
         const description = showVariableComments && this.devVarDescriptions[name];
@@ -6138,7 +6144,7 @@ Blockly.BBasic.generateDpcPlusVarDims = function() {
   if (!this.dpcPlusVars || !this.dpcPlusVars.length) return '';
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const showVariableComments = config.showVariableComments ?? true;
+  const showVariableComments = config.showVariableComments ?? false;
   return '\n' + this.dpcPlusVars
       .map((name, i) => {
         const description = showVariableComments && this.devVarDescriptions[name];

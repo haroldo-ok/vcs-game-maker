@@ -394,7 +394,7 @@ export default (Blockly) => {
     // that block needs a real, independent byte of its  to write to,
     // not backgroundrealcolor's  raw target.
     if (this.usesScoreBkColorSetter || !this.scoreBkColorIsBackground(config.scoreBkColor)) return '';
-    const comment = (config.showVariableComments ?? true) ?
+    const comment = (config.showVariableComments ?? false) ?
       '  ; score row\'s background color, aliased onto the live background color' : '';
     return `\n dim scorebkcolor = ${this.backgroundRealColorRawTarget()}${comment}`;
   };
@@ -432,7 +432,7 @@ export default (Blockly) => {
     // unlike writing to them.
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    Blockly.BBasic.definitions_['score_digit_aliases'] = scoreDigitAliases(config.showVariableComments ?? true);
+    Blockly.BBasic.definitions_['score_digit_aliases'] = scoreDigitAliases(config.showVariableComments ?? false);
     const {alias, high} = scoreDigitTarget(block.getFieldValue('DIGIT'));
     // Integer division drops the low nibble.
     const code = high ? `(${alias} / 16)` : `(${alias} & $0F)`;
@@ -464,7 +464,7 @@ export default (Blockly) => {
     // 0-9 themselves rather than claiming any automatic correction.
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    Blockly.BBasic.definitions_['score_digit_aliases'] = scoreDigitAliases(config.showVariableComments ?? true);
+    Blockly.BBasic.definitions_['score_digit_aliases'] = scoreDigitAliases(config.showVariableComments ?? false);
     const {alias, address, high} = scoreDigitTarget(block.getFieldValue('DIGIT'));
     const currentDigit = high ? `(${alias} / 16)` : `(${alias} & $0F)`;
     const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',

@@ -289,6 +289,33 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     frameDurations: frames.map((f) => clampFrameDuration(f.duration)), frameOffsets, colorOffsets, colorPages, colorSplit};
 };
 
+// The lines that put the Player 0 and Player 1 sprites where the Player card of a title screen says they start (its Start X and
+// Start Y fields; one that is empty is left alone) and how wide they are drawn (its Width: 2x or 4x; 1x is left alone). Run last
+// in "Title screen start", so the card has the say over the blocks there.
+export const titlePlayerStartLines = () => {
+  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const lines = [];
+  screens.forEach((screen) => (screen.cards || []).filter((card) => card.type === 'player').forEach((card) => {
+    [0, 1].forEach((player) => ['x', 'y'].forEach((axis) => {
+      const value = card[`player${player}${axis.toUpperCase()}`];
+      if (value === undefined || value === null || value === '' || !Number.isFinite(Number(value))) return;
+      const line = `player${player}${axis} = ${Math.max(0, Math.min(255, Math.round(Number(value))))}`;
+      if (!lines.includes(line)) lines.push(line);
+    }));
+  }));
+  // The TIA stretches a sprite to 2x (NUSIZ 5) or 4x (NUSIZ 7); the other bits of the size byte (a flag of the title screen loop,
+  // the pause bit) stay as they are.
+  screens.forEach((screen) => (screen.cards || []).filter((card) => card.type === 'player').forEach((card) => {
+    [0, 1].forEach((player) => {
+      const nusiz = {2: '$05', 4: '$07'}[Number(card[`player${player}Width`])];
+      if (!nusiz) return;
+      const first = `player${player}size = player${player}size & $F8`;
+      if (!lines.includes(first)) lines.push(first, `player${player}size = player${player}size | ${nusiz}`);
+    });
+  }));
+  return lines;
+};
+
 // Resolves a "player" card's  player0Animation/player1Animation field
 // (an index into the shared animation pool, same convention as
 // sprite_player_animation_select's  dropdown - see blocks/sprites.js's

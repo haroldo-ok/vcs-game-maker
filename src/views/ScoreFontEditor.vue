@@ -158,6 +158,7 @@ import PixelGridToggle from '../components/PixelGridToggle.vue';
 import {useConfigurationStorage, usePixelGridOverlayStorage, useScoreFontEditsStorage, useScoreFontStorage,
   useSquishCustomScoreFontStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
+import {recordReorder} from '../hooks/reorder-history';
 import {colorByteToCss} from '../utils/palette';
 import {SCORE_FONT_NAMES} from '../generators/score-fonts';
 import {
@@ -513,10 +514,30 @@ export default defineComponent({
     const handleCopyDigit = (index) => {
       copiedDigitData.value = structuredClone(state.value.digits[index]);
     };
+    // Pasting a digit and resetting the font replace the pictures from outside the pixel editors (which start again with no
+    // history): the pictures before and after are kept so Undo and Redo can put either back.
+    const copyOfDigits = () => JSON.parse(JSON.stringify(working.value.digits));
+    const putBackDigits = (digits) => {
+      working.value = {...working.value, digits: JSON.parse(JSON.stringify(digits))};
+      persist();
+      resetToken.value++;
+    };
+    const recordDigitsChange = (before) => {
+      const after = copyOfDigits();
+      const font = editKey.value;
+      if (JSON.stringify(before) === JSON.stringify(after)) return;
+      recordReorder({
+        undo: () => putBackDigits(before),
+        redo: () => putBackDigits(after),
+        isCurrent: () => editKey.value === font && JSON.stringify(copyOfDigits()) === JSON.stringify(after),
+      });
+    };
     const handlePasteDigit = (index) => {
       if (!copiedDigitData.value) return;
+      const before = copyOfDigits();
       state.value.digits[index] = structuredClone(copiedDigitData.value);
       handleChange();
+      recordDigitsChange(before);
       // PixelEditor only reads its "value" prop once, on mount (see
       // resetToken's comment right below) - pasting writes the new
       // pixels from OUTSIDE the target digit's editor instance, so
@@ -526,6 +547,7 @@ export default defineComponent({
     };
 
     const handleReset = () => {
+      const before = copyOfDigits();
       if (editKey.value === null) {
         working.value = {digits: fontToDigits(originalBytes.value, activeDigitHeight.value)};
         persist();
@@ -537,6 +559,7 @@ export default defineComponent({
         loadWorking();
       }
       resetToken.value++;
+      recordDigitsChange(before);
     };
 
     return {

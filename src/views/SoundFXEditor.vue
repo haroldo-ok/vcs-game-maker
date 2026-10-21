@@ -825,8 +825,10 @@ import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
+import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
+import {newestSteps} from '../hooks/undo-limit';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage,
   useSoundFxColumnsStorage} from '../hooks/project';
 import {frequencyForMidi, midiForPianoIndex, normalizeTiaShape, PIANO_KEY_COUNT} from '../utils/dpc-sound';
@@ -893,8 +895,9 @@ export default defineComponent({
     const selectedCardId = ref(null);
     // Every selected card (Shift+click selects a range, Ctrl/Cmd+click adds or removes one); see hooks/card-selection.js.
     // selectedCardId stays the one the shared toolbar's per-sound buttons act on: the card clicked last.
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
-        () => state.value.soundEffects.map(({id}) => id), selectedCardId);
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+      useCardSelection(
+          () => state.value.soundEffects.map(({id}) => id), selectedCardId);
     // The sound effect the shared toolbar below acts on - whichever card is
     // currently selected, same pattern as DataEditor.vue's selectedTable
     // and MusicEditor.vue's activeSong().
@@ -1000,7 +1003,7 @@ export default defineComponent({
           if (last !== undefined && last !== snapshot) {
             const stack = envelopeUndoStacks.value[soundEffect.id] || [];
             noteEdit();
-            envelopeUndoStacks.value = {...envelopeUndoStacks.value, [soundEffect.id]: [...stack, last]};
+            envelopeUndoStacks.value = {...envelopeUndoStacks.value, [soundEffect.id]: newestSteps([...stack, last])};
             if ((envelopeRedoStacks.value[soundEffect.id] || []).length) {
               envelopeRedoStacks.value = {...envelopeRedoStacks.value, [soundEffect.id]: []};
             }
@@ -1031,7 +1034,7 @@ export default defineComponent({
       if (!stack.length) return;
       const redoStack = envelopeRedoStacks.value[soundEffect.id] || [];
       envelopeRedoStacks.value = {...envelopeRedoStacks.value,
-        [soundEffect.id]: [...redoStack, snapshotEnvelope(soundEffect)]};
+        [soundEffect.id]: newestSteps([...redoStack, snapshotEnvelope(soundEffect)])};
       envelopeUndoStacks.value = {...envelopeUndoStacks.value, [soundEffect.id]: stack.slice(0, -1)};
       applyEnvelopeSnapshot(soundEffect, stack[stack.length - 1]);
       settleEdits();
@@ -1043,7 +1046,7 @@ export default defineComponent({
       if (!stack.length) return;
       const undoStack = envelopeUndoStacks.value[soundEffect.id] || [];
       envelopeUndoStacks.value = {...envelopeUndoStacks.value,
-        [soundEffect.id]: [...undoStack, snapshotEnvelope(soundEffect)]};
+        [soundEffect.id]: newestSteps([...undoStack, snapshotEnvelope(soundEffect)])};
       envelopeRedoStacks.value = {...envelopeRedoStacks.value, [soundEffect.id]: stack.slice(0, -1)};
       applyEnvelopeSnapshot(soundEffect, stack[stack.length - 1]);
     };
@@ -1066,7 +1069,7 @@ export default defineComponent({
       handleChildChange();
     };
 
-    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('soundfx', true);
+    const {isCollapsed, toggleCollapsed, collapseAll, remapIds: remapCollapsedIds} = useCollapsedIds('soundfx', true);
     // Every sound card starts collapsed on every visit to this tab, not just
     // ones never expanded before (see collapseAll's  comment) - a
     // deliberate request, unlike every other card list in the app, which
@@ -1108,12 +1111,20 @@ export default defineComponent({
       return true;
     };
 
-    // Card reordering (see hooks/drag-reorder.js and TextEditor.vue's
-    // first use of this same hook) - sound effects are already referenced
-    // everywhere by their  permanent id (see findSoundEffectById/
-    // buildSoundEffectOptions in blocks/soundfx.js), never by array
-    // position, so unlike the Text tab this needed no separate
-    // display-order/ROM-order decoupling work - reordering is already safe.
+    // The sounds are numbered by their place (see utils/card-refs.js): after a move, a delete or a copy each keeps what it holds by
+    // number (undo history, collapsed, selected) under its new number.
+    const renumbered = (idMap) => {
+      remapSelectedIds(idMap);
+      remapCollapsedIds(idMap);
+      envelopeUndoStacks.value = remapKeyed(envelopeUndoStacks.value, idMap);
+      envelopeRedoStacks.value = remapKeyed(envelopeRedoStacks.value, idMap);
+      const snapshots = remapKeyed(envelopeLastSnapshot, idMap);
+      Object.keys(envelopeLastSnapshot).forEach((key) => delete envelopeLastSnapshot[key]);
+      Object.assign(envelopeLastSnapshot, snapshots);
+    };
+
+    // Card reordering (see hooks/drag-reorder.js): the sounds get the numbers of their new places, and the blocks, data table cells
+    // and song tracks that use a sound follow.
     const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
         () => state.value.soundEffects,
         (items) => {
@@ -1122,6 +1133,7 @@ export default defineComponent({
         },
         // Dragging one of several selected cards moves all of them.
         getSelectedIndices,
+        {renumber: {kind: 'sound', onRenumbered: renumbered}},
     );
 
     const instance = getCurrentInstance();
@@ -1247,14 +1259,13 @@ export default defineComponent({
       instance.proxy.$forceUpdate();
     };
 
-    // A copy of a sound effect (every parameter, its color and instrument tag) added at the end
-    // of the list under a new id, so no existing id or block that uses one changes.
+    // A copy of a sound effect (every parameter, its color and instrument tag) put right after it: the sounds after it are numbered
+    // again.
     const handleDuplicateSoundEffect = (soundEffect) => {
-      const soundEffects = state.value.soundEffects;
       const copy = JSON.parse(JSON.stringify(soundEffect));
-      copy.id = (max(soundEffects.map((o) => o.id)) || 0) + 1;
       copy.name = `${soundEffect.name || 'Sound effect'} copy`;
-      soundEffects.push(copy);
+      const idMap = insertCardAfter('sound', state.value.soundEffects, soundEffect, copy);
+      if (idMap) renumbered(idMap);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -1263,7 +1274,9 @@ export default defineComponent({
     const deleteTitleFor = (soundEffect) => deleteQuestion(soundEffect.id, 'sound effect', 1);
     const handleDeleteSoundEffect = (soundEffect) => {
       const doomed = idsToDelete(soundEffect.id, 1);
-      state.value.soundEffects = state.value.soundEffects.filter(({id}) => !doomed.includes(id));
+      const {remaining, idMap} = removeCards('sound', state.value.soundEffects, doomed);
+      state.value.soundEffects = remaining;
+      if (idMap) renumbered(idMap);
       if (doomed.length > 1) deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();

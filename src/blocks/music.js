@@ -4,6 +4,7 @@ import * as Blockly from 'blockly/core';
 
 import {buildSoundEffectOptions} from './soundfx';
 import {useSongsStorage} from '../hooks/project';
+import {cardOptions} from '../utils/card-refs';
 import {MUSIC_ICON, STOP_ICON} from './icon';
 
 const MUSIC_COLOR = 'rgb(255, 87, 34)';
@@ -295,6 +296,8 @@ const buildSongOptions = () => {
     return [['Error', '1']];
   }
 };
+
+cardOptions('music', buildSongOptions);
 
 // Starts (or restarts) playback of one song created on the Music tab. Any
 // number of distinct songs can be referenced across a project's

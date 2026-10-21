@@ -1,4 +1,5 @@
 import {ref} from '@vue/composition-api';
+import {REMOVED, remapKeyed} from '../utils/card-refs';
 
 // Which pattern and instrument are being edited on the Music tab is a
 // per-tab view preference, so it's kept out of the project storage that
@@ -51,8 +52,16 @@ export const useMusicEditorActiveState = () => {
     localStorage.setItem(ACTIVE_SONG_KEY, JSON.stringify(songId));
   };
 
+  // The songs were numbered again (see utils/card-refs.js's renumberCards): idMap says old id -> new id, 0 for a song that is gone.
+  const remapSongIds = (idMap) => {
+    activePatternIdsRef.value = remapKeyed(activePatternIdsRef.value, idMap);
+    localStorage.setItem(ACTIVE_PATTERN_KEY, JSON.stringify(activePatternIdsRef.value));
+    const song = activeSongIdRef.value;
+    if (song !== null && song !== undefined && idMap.has(song)) setActiveSongId(idMap.get(song) === REMOVED ? null : idMap.get(song));
+  };
+
   return {activePatternIdsRef, activeTrackIdsRef, activeSongIdRef,
-    setActivePatternId, setActiveTrackId, setActiveSongId};
+    setActivePatternId, setActiveTrackId, setActiveSongId, remapSongIds};
 };
 
 // Which song/pattern is currently playing, if any - a plain in-memory

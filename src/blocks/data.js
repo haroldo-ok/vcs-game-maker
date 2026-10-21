@@ -4,6 +4,7 @@ import * as Blockly from 'blockly/core';
 
 import {BIT_OPTIONS} from './bit';
 import {useDataTablesStorage} from '../hooks/project';
+import {cardOptions} from '../utils/card-refs';
 import {BIT_ICON, DATA_ICON} from './icon';
 
 const DATA_COLOR = 'rgb(121, 85, 72)';
@@ -76,6 +77,8 @@ const buildDataTableOptions = () => {
     return [['Error', '1']];
   }
 };
+
+cardOptions('datatable', buildDataTableOptions);
 
 // Looks up one stored data table by id, or null if it can't be found.
 export const findDataTableById = (id) => {

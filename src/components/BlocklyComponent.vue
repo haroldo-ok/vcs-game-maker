@@ -47,6 +47,7 @@ import {installBlocklyClipboardSync} from '../utils/blockly-clipboard';
 import '@blockly/toolbox-search';
 
 import {useDarkModeStorage, useDesaturateBlocklyColorsStorage} from '../hooks/project';
+import {getUndoLimit} from '../hooks/undo-limit';
 
 // @blockly/toolbox-search indexes EVERY registered block type for its
 // search category (BlockSearcher.indexBlocks, node_modules/@blockly/
@@ -591,6 +592,11 @@ export default {
     options.plugins.blockDragger = MultiselectBlockDragger;
 
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
+    // Blockly keeps this many steps back (the app's setting, see hooks/undo-limit.js), also when the setting changes while it is open.
+    this.workspace.MAX_UNDO = getUndoLimit();
+    this.unwatchUndoLimit = this.$watch(() => getUndoLimit(), (limit) => {
+      if (this.workspace) this.workspace.MAX_UNDO = limit;
+    });
     // WorkspaceSvg's constructor (node_modules/blockly/blockly_
     // compressed.js) auto-registers the "custom=VARIABLE" toolbox
     // category's callback itself, as
@@ -812,6 +818,7 @@ export default {
   },
   beforeDestroy() {
     this.unwatchFontLoading();
+    if (this.unwatchUndoLimit) this.unwatchUndoLimit();
     // Flushes any pending debounced save (see mounted()'s comment on
     // debouncedHandleChange) before the workspace below is disposed and
     // this component's "value" prop's last-known state becomes the

@@ -621,6 +621,38 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="updateNoticeOpen" max-width="520">
+      <v-card v-if="updateInfo">
+        <v-card-title>A new version is available</v-card-title>
+        <v-card-text class="pb-2">
+          <p class="tip-message">
+            <strong>Version {{ updateInfo.version }}</strong> is out; you have version {{ appVersion }}.
+          </p>
+          <p v-if="updateInfo.downloadUrl" class="tip-message">
+            <a :href="updateInfo.downloadUrl" target="_blank" rel="noopener">Download for {{ updateInfo.system }}</a>
+            <br>
+            <span class="update-notice-file">{{ updateInfo.fileName }}<template v-if="updateInfo.size">, {{ Math.round(updateInfo.size / 1048576) }} MB</template></span>
+          </p>
+          <p v-if="!updateInfo.downloadUrl" class="tip-message">
+            <a :href="updateInfo.releaseUrl" target="_blank" rel="noopener">Open the release page</a>
+          </p>
+          <div v-if="updateInfo.notes" class="update-notice-notes-header">
+            <span class="update-notice-notes-title">Release notes</span>
+            <a :href="updateInfo.releaseUrl" target="_blank" rel="noopener">View on GitHub</a>
+          </div>
+          <div v-if="updateInfo.notes" class="update-notice-notes" v-html="renderReleaseNotes(updateInfo.notes)"></div>
+          <p class="tip-message update-notice-hint">
+            The "Notify me of new versions" switch under VCSGM Options on the Options tab turns this notice off.
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn text @click="skipUpdate">Skip this version</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn text color="primary" @click="updateNoticeOpen = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="tipsOffNoticeOpen" max-width="520">
       <v-card>
         <v-card-title>Tips are turned off</v-card-title>
@@ -665,7 +697,7 @@
 
 <script>
 import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useStellaPathStorage, useSoundEffectsStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useCheckForUpdatesStorage, useSkippedUpdateStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
@@ -686,6 +718,7 @@ import EmulatorSettingsDialog from './components/EmulatorSettingsDialog.vue';
 import DebugSettingsDialog from './components/DebugSettingsDialog.vue';
 import {useDebugVariables} from './hooks/debug-symbols';
 import pkg from '../package.json';
+import {checkForUpdate, renderReleaseNotes} from './utils/update-check';
 const {productName, version} = pkg;
 
 // Below this fraction of the bank's usable space remaining, the capacity
@@ -820,6 +853,8 @@ export default {
       romSaveMenuOpen: false,
       showStartupTipsStorage: useShowStartupTipsStorage(), tipOpen: false, tip: null, tipDontShowAgain: false,
       tipNear, tipsOffNoticeOpen: false,
+      checkForUpdatesStorage: useCheckForUpdatesStorage(), skippedUpdateStorage: useSkippedUpdateStorage(),
+      updateInfo: null, updateNoticeOpen: false, appVersion: version,
       stellaPathStorage: useStellaPathStorage(),
     };
   },
@@ -829,6 +864,7 @@ export default {
       this.tip = nextTip();
       this.tipOpen = !!this.tip;
     }
+    this.lookForNewVersion();
     // Once per page load: fetch new/changed example projects (see hooks/examples.js).
     syncExamples();
     syncSoundBanks();
@@ -1190,6 +1226,21 @@ export default {
     },
   },
   methods: {
+    // The desktop app (only: the web version is always the newest one) looks at the newest release when it starts and, when it is newer
+    // than this version and not one the user skipped, shows the notice with the download for this system.
+    async lookForNewVersion() {
+      const api = window.electronAPI;
+      if (!api || !this.checkForUpdatesStorage) return;
+      const update = await checkForUpdate({currentVersion: version, platform: api.platform, arch: api.arch});
+      if (!update || this.skippedUpdateStorage === update.version) return;
+      this.updateInfo = update;
+      this.updateNoticeOpen = true;
+    },
+    renderReleaseNotes,
+    skipUpdate() {
+      if (this.updateInfo) this.skippedUpdateStorage = this.updateInfo.version;
+      this.updateNoticeOpen = false;
+    },
     // The link in the notice that follows turning tips off: opens the Options tab at the switch that turns them on.
     goToStartupTipsSetting() {
       this.tipsOffNoticeOpen = false;
@@ -2223,6 +2274,59 @@ export default {
 /* The line that goes to the front page of the documentation: the same text as the tip, smaller. */
 /* It sits right above the bottom row of the popup, so it is the same distance from the checkbox and buttons whatever the
    tip above it is. */
+.update-notice-file {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.update-notice-notes-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.update-notice-notes-title {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.update-notice-notes {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 13px;
+  padding: 8px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.update-notice-notes p {
+  margin: 0 0 6px;
+}
+
+.update-notice-notes ul,
+.update-notice-notes ol {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+
+.update-notice-notes .notes-heading {
+  font-weight: 600;
+  margin: 6px 0 4px;
+}
+
+.update-notice-notes code {
+  padding: 0 3px;
+  font-size: 12px;
+}
+
+.update-notice-hint {
+  margin-bottom: 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
 .tip-message.tip-footnote {
   font-size: 0.8rem;
   line-height: 1.25;

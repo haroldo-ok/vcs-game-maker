@@ -4,6 +4,7 @@ import * as Blockly from 'blockly/core';
 
 import {TITLE_ICON} from './icon';
 import {useTitleScreenStorage} from '../hooks/project';
+import {cardOptions} from '../utils/card-refs';
 
 const TITLESCREEN_COLOR = 'rgb(233, 30, 99)';
 
@@ -446,6 +447,8 @@ const buildTitleScreenOptions = () => {
   }
 };
 
+cardOptions('titlescreen', buildTitleScreenOptions);
+
 // Programmatic block definition (not defineBlocksWithJsonArray) - a JSON
 // definition can only take a fixed list of dropdown options, but this one
 // needs to rebuild its list from storage every time it's opened (see
@@ -507,6 +510,8 @@ const buildColorCardOptions = buildCardOptions((card) => card.type === '48x1', '
 const buildFadeCardOptions = buildCardOptions((card) => card.type === '48x1' || card.type === '48x2',
     'No single-color (48x1) or multicolor (48x2) graphics');
 const buildFrameCardOptions = buildCardOptions((card) => isCardAnimated(card), 'No graphics with more than one frame');
+
+[buildBoxCardOptions, buildColorCardOptions, buildFadeCardOptions, buildFrameCardOptions].forEach((builder) => cardOptions('titlecard', builder));
 
 // Changes a single-color (48x1) graphic's color while the title screen runs.
 Blockly.Blocks['titlescreen_card_color_set'] = {
@@ -699,6 +704,8 @@ const buildScrollableCardOptions = () => {
     return [['Error', '']];
   }
 };
+
+cardOptions('titlecard', buildScrollableCardOptions);
 
 Blockly.Blocks['titlescreen_scroll_set'] = {
   init: function() {

@@ -29,7 +29,12 @@ const palettes = require('6502.ts/lib/machine/stella/tia/palette');
 const FRAME_WIDTH = 160;
 const MAX_FRAME_HEIGHT = 320;
 const IDLE_WIDTH = 160;
-const IDLE_HEIGHT = 212;
+const IDLE_HEIGHT = 220;
+// gopher2600 shows 220 lines of an NTSC picture (also PAL60, which has NTSC timing), the first of them 6 lines above where 6502.ts
+// starts a frame by default, so a ROM fills the screen the same way in both (6502.ts alone made a picture 212 lines tall, which is
+// shown in a box of a different shape than gopher2600's, so everything in it looked taller). The frame manager counts lines from the end of VSYNC.
+const NTSC_FRAME_START = 23;
+const NTSC_PICTURE_LINES = 200; // plus the 20 lines the frame manager adds: 220 lines
 
 // A refresh this early still counts as due (ordinary timing jitter on a 60 Hz display must not
 // skip or double a frame), and after a stall only this many frames are run to catch up.
@@ -105,10 +110,13 @@ const createBoard = async () => {
     pcmAudio: true,
     emulatePaddles: false,
     randomSeed: (Math.random() * 0x7fffffff) | 0,
+    frameStart: pal ? -1 : NTSC_FRAME_START,
     cpuType: state.cpuAccuracy === 'instruction' ? CpuFactory.Type.batchedAccess : CpuFactory.Type.stateMachine,
   });
   const cartridge = await new CartridgeFactory().createCartridge(state.rom);
   const board = new Board(config, cartridge);
+  // The field is private to 6502.ts (like the palette below); the frame is this many lines plus 20.
+  if (!pal && board._tia && board._tia._frameManager) board._tia._frameManager._kernelLines = NTSC_PICTURE_LINES;
   board.getVideoOutput().setSurfaceFactory(() =>
     ArrayBufferSurface.createFromArrayBuffer(FRAME_WIDTH, MAX_FRAME_HEIGHT,
         new ArrayBuffer(FRAME_WIDTH * MAX_FRAME_HEIGHT * 4)));
