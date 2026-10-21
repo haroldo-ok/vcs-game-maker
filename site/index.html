@@ -365,8 +365,12 @@
     </section>
 
     <section class="feature wide" id="updates">
-      <h2>Recent updates</h2>
+      <h2>Latest updates</h2>
       <p><strong>Version 0.52.37</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
+      <p>The desktop version now tells you when a newer release is out, with a popup that shows the release notes and a link that downloads the file for your system. You can skip a version, or turn it off with "Notify me of new versions" in the options.</p>
+      <p>Songs take about half the space, and sound effects/instruments the same. Rests and hits are stored in a single byte, what the notes of an instrument share is stored once, and patterns with the same notes are stored once. Long arpeggio notes no longer skip a beat, and a long note with an envelope keeps its envelope for the whole note. A song and the Text minikernel no longer compete for the same bank of a ROM.</p>
+      <p>On a Title Screen, each Player sprite has a Start X, Start Y and Width, and the card no longer breaks the picture in some ROM layouts. Flipping a graphic upside down in the graphic editor now flips its row colors too.</p>
+      <p>The 6502.ts emulator shows the same picture as gopher2600, with the same shape of pixel.</p>
       <p>Moving, deleting or copying a card (data table, title screen, playfield, sound, song, text message or sprite animation) numbers the cards again, and every block, data table cell and song instrument that names a card follows it.</p>
       <p>A new "Undo steps" option sets how many steps back Undo goes on every tab (1 to 999, default 99). Undo and Redo now cover every drawing tool, Clear, pastes, the row color bars and the colors of title screen graphics, and save the picture at once.</p>
       <p>New "VCS portable" download for Linux: an archive that runs from the folder it is unpacked into with no installation, made for AtariOS on the 2021 Atari VCS 800.</p>
