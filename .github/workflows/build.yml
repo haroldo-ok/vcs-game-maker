@@ -27,7 +27,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest, ubuntu-24.04-arm]
+        # ubuntu-24.04, not ubuntu-latest: GitHub is moving the latest label to 26.04, where the rpm maker finds nothing to package.
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -70,7 +71,7 @@ jobs:
       # is Debian 10). The Electron program itself needs glibc 2.25 or older, so it runs on that system as it is; the launcher turns the
       # sandbox off, which needs a setuid helper only an installed package can have.
       - name: Make the VCS portable build
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           app=$(find out -maxdepth 1 -type d -name '*-linux-x64' | head -1)
           folder="VCS-Game-Maker-VCS-portable"
