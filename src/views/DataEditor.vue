@@ -351,7 +351,9 @@ import {max} from 'lodash';
 import {saveAs} from 'file-saver';
 
 import {useCollapsedIds} from '../hooks/collapse';
+import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {recordReorder, sameItems} from '../hooks/reorder-history';
+import {newestSteps} from '../hooks/undo-limit';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useDragReorder, CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
 import {useCardSelection} from '../hooks/card-selection';
@@ -495,8 +497,9 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
-        () => state.value.dataTables.map(({id}) => id), selectedCardId);
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+      useCardSelection(
+          () => state.value.dataTables.map(({id}) => id), selectedCardId);
     // The table the shared toolbar below acts on - whichever card is
     // currently selected, same pattern as MusicEditor.vue's activeSong()
     // and GraphicEditorToolbar.vue's activeEditor driving each toolbar.
@@ -525,7 +528,7 @@ export default defineComponent({
     // Every card starts collapsed on every visit to this tab (see
     // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
-    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('data', true);
+    const {isCollapsed, toggleCollapsed, collapseAll, remapIds: remapCollapsedIds} = useCollapsedIds('data', true);
     collapseAll();
 
     // Undo/redo for a whole table's  content (name/columns/values/
@@ -569,7 +572,7 @@ export default defineComponent({
           if (last !== undefined && last !== snapshot) {
             const stack = tableUndoStacks.value[table.id] || [];
             noteEdit();
-            tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: [...stack, last]};
+            tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: newestSteps([...stack, last])};
             // A fresh edit invalidates whatever redo history existed from an
             // earlier undo - same convention as any standard undo/redo stack.
             if ((tableRedoStacks.value[table.id] || []).length) {
@@ -610,7 +613,7 @@ export default defineComponent({
       const stack = tableUndoStacks.value[table.id] || [];
       if (!stack.length) return;
       const redoStack = tableRedoStacks.value[table.id] || [];
-      tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: [...redoStack, snapshotTable(table)]};
+      tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: newestSteps([...redoStack, snapshotTable(table)])};
       tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: stack.slice(0, -1)};
       applyTableSnapshot(table, stack[stack.length - 1]);
       settleEdits();
@@ -621,17 +624,27 @@ export default defineComponent({
       const stack = tableRedoStacks.value[table.id] || [];
       if (!stack.length) return;
       const undoStack = tableUndoStacks.value[table.id] || [];
-      tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: [...undoStack, snapshotTable(table)]};
+      tableUndoStacks.value = {...tableUndoStacks.value, [table.id]: newestSteps([...undoStack, snapshotTable(table)])};
       tableRedoStacks.value = {...tableRedoStacks.value, [table.id]: stack.slice(0, -1)};
       applyTableSnapshot(table, stack[stack.length - 1]);
     };
 
+    // The tables are numbered by their place (see utils/card-refs.js): after a move, a delete or a copy each keeps what it holds by
+    // number (undo history, the value selected, collapsed, selected), under its new number.
+    const renumbered = (idMap) => {
+      remapSelectedIds(idMap);
+      remapCollapsedIds(idMap);
+      tableUndoStacks.value = remapKeyed(tableUndoStacks.value, idMap);
+      tableRedoStacks.value = remapKeyed(tableRedoStacks.value, idMap);
+      const snapshots = remapKeyed(tableLastSnapshot, idMap);
+      Object.keys(tableLastSnapshot).forEach((key) => delete tableLastSnapshot[key]);
+      Object.assign(tableLastSnapshot, snapshots);
+      selectedValueIndex.value = remapKeyed(selectedValueIndex.value, idMap);
+    };
+
     // Card reordering (see hooks/drag-reorder.js and TextEditor.vue/
-    // SoundFXEditor.vue/MusicEditor.vue's  uses of this same hook) -
-    // tables are already referenced everywhere by their  permanent id
-    // (see dataTableSymbolName/buildDataTableOptions in blocks/data.js),
-    // never by array position, so reordering the display order here is
-    // already safe.
+    // SoundFXEditor.vue/MusicEditor.vue's  uses of this same hook): the tables get the numbers of their new places, and the blocks
+    // and data table cells that name a table follow.
     const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners: rawDragTargetListeners} =
       useDragReorder(
           () => state.value.dataTables,
@@ -640,6 +653,7 @@ export default defineComponent({
             handleChildChange();
           },
           getSelectedIndices,
+          {renumber: {kind: 'datatable', onRenumbered: renumbered}},
       );
 
     const instance = getCurrentInstance();
@@ -699,7 +713,9 @@ export default defineComponent({
 
     const handleDeleteTable = (table) => {
       const doomed = idsToDelete(table.id, 1);
-      state.value.dataTables = state.value.dataTables.filter(({id}) => !doomed.includes(id));
+      const {remaining, idMap} = removeCards('datatable', state.value.dataTables, doomed);
+      state.value.dataTables = remaining;
+      if (idMap) renumbered(idMap);
       if (doomed.length > 1) deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -712,15 +728,12 @@ export default defineComponent({
     // shallow spread) since values/columns are the table's  real data,
     // not just a reference the copy should keep sharing with the original.
     const handleDuplicateTable = (table) => {
-      const dataTables = state.value.dataTables;
-      const maxId = max(dataTables.map((o) => o.id)) || 0;
       const newTable = {
         ...structuredClone(table),
-        id: maxId + 1,
         name: `${table.name || 'Table'} copy`,
       };
-      const sourceIndex = dataTables.findIndex(({id}) => id === table.id);
-      dataTables.splice(sourceIndex + 1, 0, newTable);
+      const idMap = insertCardAfter('datatable', state.value.dataTables, table, newTable);
+      if (idMap) renumbered(idMap);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };

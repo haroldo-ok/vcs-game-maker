@@ -4,6 +4,7 @@ import {superchipOn} from '../utils/superchip';
 import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
+import {cardOptions} from '../utils/card-refs';
 import {playfieldToMatrix} from '../utils/pixels';
 import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON, PLAYER_ICON, MISSILE_ICON, BALL_ICON} from './icon';
 
@@ -800,6 +801,8 @@ const buildBackgroundOptions = () => {
     return [['Error', '1']];
   }
 };
+
+cardOptions('background', buildBackgroundOptions);
 
 // These two are defined below instead of in the JSON array, because a JSON
 // definition can only take a fixed list of options. Passing the function to

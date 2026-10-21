@@ -17,7 +17,7 @@ const create = (config) => {
   const newFrame = new Event();
   const endpoint = {
     width: 160,
-    height: 212,
+    height: 220,
     getWidth() {
       return this.width;
     },

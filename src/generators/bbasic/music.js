@@ -61,23 +61,10 @@ const arpeggioToEvents = (event) => {
 };
 
 const FRAMES_PER_SECOND = 60; // NTSC - matches "set tv ntsc" in bbasic.bb.hbs
-// A held note's duration is stored in the low 7 bits of its  byte (see
-// eventsToPages) - bit 7 is reused as the "this note has an envelope" flag,
-// so a channel with any envelope in use caps a single event's hold at 127
-// frames instead of 255 (channels with no envelope at all keep the full 255
-// range - see the final chunking pass in flattenPatternEvents).
-const MAX_EVENT_FRAMES_WITH_ENVELOPE = 127;
-const MAX_EVENT_FRAMES_NO_ENVELOPE = 255;
-// Only an event that ITSELF arpeggiates needs 3 more bits (see
-// ARPEGGIO_PHASE_SEQUENCES) for its range/shape, cutting its  duration
-// down to this - a rest or non-arpeggiating note on the very same channel
-// isn't forced into this narrow cap too (see the per-event maxFrames in
-// flattenPatternEvents' final chunking pass, and the arpSpeedVar branch in
-// generateMusicChecks' durationRead), since its duration byte doesn't need
-// to carry any range bits at all.
-const MAX_EVENT_FRAMES_WITH_ARPEGGIO = 15;
-const ENVELOPE_BIT = 0x80;
-const ARPEGGIO_RANGE_BITS_SHIFT = 4;
+// How many frames one event (a note or a rest) holds at most, the duration being a byte: a longer note is written as several events (see
+// the final chunking pass in flattenPatternEvents). The duration of an event stays below VOLUME_MARKER_BASE: the resume of a sound effect
+// looks at the byte before a note for a volume marker.
+const MAX_EVENT_FRAMES = 223;
 // Same numeric limit as MAX_EVENT_FRAMES_WITH_ARPEGGIO (both are bounded by
 // a 4-bit nibble), but a separate name since they bound conceptually
 // different things - one a note's held duration, the other how many frames
@@ -122,6 +109,31 @@ const INSTRUMENT_CHANGE_SENTINEL = 253;
 // INSTRUMENT_CHANGE_SENTINEL, still safely above the highest real AUDV byte
 // (239).
 const ENVELOPE_CHANGE_SENTINEL = 252;
+// What the notes of an instrument have in common (the sound type and the arpeggio, the volume, the "note played" watch, the pitch of a
+// hit) is not stored with every note: it is a line of the instrument tables (see resolveProjectMusic), picked by an
+// INSTRUMENT_CHANGE_SENTINEL marker.
+// A note or a rest on a channel of the TIA is 1 or 2 bytes, by the top bit of the first one:
+//  - top bit clear: a note with its pitch stored: the pitch (AUDF, 5 bits), TUNED_PACKED_FLAG and WATCH_FLAG above it, then a byte of
+//    duration (in frames);
+//  - top bit set (SHORT_FORM_FLAG): a rest (REST_FLAG) or a hit, a note that has the pitch of its instrument (WATCH_FLAG for the note);
+//    the duration is in the low 5 bits when it is 1 to 31 frames, else those bits are 0 and a byte of duration follows.
+// The chip of DPC+ has pitch numbers up to 255 (8 bits), so a note or a rest on a channel of the chip has no flags: a rest is a first byte of
+// 0 and a duration, a hit is just its duration (the instrument has its pitch), a note with its pitch stored is the pitch and the
+// duration. Its "note played" watch and its volume are markers before the note (see NOWATCH_MARKER and VOLUME_MARKER_BASE).
+const SHORT_FORM_FLAG = 128;
+const REST_FLAG = 32; // of a short form
+const WATCH_FLAG = 64; // the note starts a watched instrument's note
+const TUNED_PACKED_FLAG = 32; // of a note with its pitch stored: its volume is in the high nibble of the duration byte
+const SHORT_FORM_FRAMES = 31;
+// A note with a volume other than the volume of its instrument says so one of three ways. On the TIA, a note with its pitch stored and 15
+// frames or less (and not of volume 14) has the volume in the high nibble of its duration byte (the duration in the low one) and
+// TUNED_PACKED_FLAG on its first byte; any other has a 1-byte marker before it: this plus the volume (0-15), for that note only. On the
+// chip it is always the marker. A watched instrument's note on the chip counts as a watched note unless a 1-byte NOWATCH_MARKER comes
+// before it (the events of a note written as several: only the first starts the note).
+const VOLUME_MARKER_BASE = 224;
+const NOWATCH_MARKER = 240;
+const PACKED_DURATION_LIMIT = 15;
+const UNPACKABLE_VOLUME = 14;
 // A generous ceiling on how many pages one channel can spread across, purely
 // as a sanity guard against a pathologically long song generating enormous
 // amounts of dispatch code - not a hard format limit. Applies to the SUM of
@@ -168,6 +180,9 @@ export const musicTimerVarName = (channel) => `musicCh${channel}Timer`;
 // no AUDC byte of its  at all has no such offset to re-read, so this
 // dev var is what resumeCheck copies from instead.
 export const musicLastAudcVarName = (channel) => `musicCh${channel}LastAudc`;
+// Only for a channel of the TIA that a sound effect can interrupt (see the resume check in generateMusicChecks): where the record of the
+// note being played starts in its page, as the records have different sizes.
+export const musicStartVarName = (channel) => `musicCh${channel}Start`;
 // Only reserved/used for a channel whose data spans more than one page (see
 // eventsToPages/MAX_DATA_TABLE_VALUES) - which table (of that channel's
 // set) is currently being read.
@@ -542,6 +557,13 @@ const musicDataTableName = (channel, page) => `_musicCh${channel}Data${page}`;
 // per-channel or per-song, since an instrument's  byte value means the
 // same thing regardless of which channel or song plays it.
 const musicInstrumentTableName = () => '_musicInstruments';
+// The other tables of the instrument lines (see instrumentSetOf), by the same index: volume; the watch index of "When note played"
+// (shifted up a nibble); the arpeggio speed with its range, and its interval (shifted up 5 bits), for a channel that arpeggiates.
+const musicInstrumentVolumeTableName = () => '_musicInstrVolume';
+const musicInstrumentWatchTableName = () => '_musicInstrWatch';
+const musicInstrumentPitchTableName = () => '_musicInstrPitch';
+const musicInstrumentArpSpeedTableName = () => '_musicInstrArpSpeed';
+const musicInstrumentArpIntervalTableName = () => '_musicInstrArpInterval';
 // One entry per position in a song's  sequence (see resolveProjectMusic)
 // - the page that channel's data starts at for whichever pattern plays at
 // that position, so a repeated pattern's page only has to be looked up
@@ -875,7 +897,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   // its original pieces happened to have.
   const pushEvent = (channel, audv, audc, audf, frames, envelope = false, arpeggioSpeed = 0, arpeggioInterval = 0,
       arpeggioRange = 0, notePlayedIndex = 0, envelopeAttack = 0, envelopeDecay = 0, envelopeDecayEnd = 0,
-      envelopeRelease = 0, envelopeSustainLength = 0, envelopeReleaseStart = 0) => {
+      envelopeRelease = 0, envelopeSustainLength = 0, envelopeReleaseStart = 0, instrumentNp = 0, instrumentAudv = 0, hitPitch = 255) => {
     if (frames <= 0) return;
     const events = perChannel[channel];
     const prev = events[events.length - 1];
@@ -885,12 +907,14 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       prev.arpeggioRange === arpeggioRange && prev.notePlayedIndex === notePlayedIndex &&
       prev.envelopeAttack === envelopeAttack && prev.envelopeDecay === envelopeDecay &&
       prev.envelopeDecayEnd === envelopeDecayEnd && prev.envelopeRelease === envelopeRelease &&
-      prev.envelopeSustainLength === envelopeSustainLength && prev.envelopeReleaseStart === envelopeReleaseStart) {
+      prev.envelopeSustainLength === envelopeSustainLength && prev.envelopeReleaseStart === envelopeReleaseStart &&
+      prev.instrumentNp === instrumentNp && prev.instrumentAudv === instrumentAudv &&
+      prev.hitPitch === hitPitch) {
       prev.frames += frames;
     } else {
       events.push({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
         notePlayedIndex, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
-        envelopeReleaseStart});
+        envelopeReleaseStart, instrumentNp, instrumentAudv, hitPitch});
     }
   };
 
@@ -923,7 +947,8 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     if (!note.bakeSound) {
       pushEvent(channel, note.audv, note.audc, note.audf, frames, note.envelope, note.arpeggioSpeed,
           note.arpeggioInterval, note.arpeggioRange, note.notePlayedIndex, note.envelopeAttack, note.envelopeDecay,
-          note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength, note.envelopeReleaseStart);
+          note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength, note.envelopeReleaseStart,
+          note.instrumentNp, note.instrumentAudv, note.hitPitch);
       return;
     }
     const perFrame = bakedFrames(note, totalFrames).slice(offset, offset + frames);
@@ -931,7 +956,8 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     for (let i = 0; i < perFrame.length;) {
       let end = i + 1;
       while (end < perFrame.length && perFrame[end].audv === perFrame[i].audv && perFrame[end].audf === perFrame[i].audf) end++;
-      pushEvent(channel, perFrame[i].audv, note.audc, perFrame[i].audf, end - i, false, 0, 0, 0, notePlayedIndex);
+      pushEvent(channel, perFrame[i].audv, note.audc, perFrame[i].audf, end - i, false, 0, 0, 0, notePlayedIndex,
+          0, 0, 0, 0, 0, 0, note.instrumentNp, note.instrumentAudv, 255);
       notePlayedIndex = 0;
       i = end;
     }
@@ -1021,6 +1047,15 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         arpeggioInterval,
         arpeggioRange,
         notePlayedIndex,
+        // The watch index of the instrument, which stays the same for every event of the note (notePlayedIndex above is only for the
+        // event the note starts with when the note is written as several).
+        instrumentNp: notePlayedIndex,
+        // The volume of the instrument (the volume of the note is audv, which can be set for the note on the Music tab).
+        instrumentAudv: Number(soundEffect.audv) || 0,
+        // The pitch of a hit (a note that plays at the pitch of its instrument, which is stored once in the instrument tables); 255 for a
+        // note with its pitch stored. The pitch of the TIA is up to 31, the pitch number of the chip up to 254.
+        hitPitch: rawFrequency === null && (!isTunable || note.midi === 'hit') && Number(audf) >= 0 &&
+          Number(audf) <= (chipPlan ? 254 : 31) ? Number(audf) : 255,
         // The instrument, for a note whose pitch changes while it plays (see bakedFrames).
         bakeSound: soundEffect.sweep || soundEffect.pitchEnvelope || (soundEffect.envelope && soundEffect.staircase) ? soundEffect : null,
         // For a note of the DPC+ chip: its plan, and the frequency of the piano key the note is on (a hit plays at the sound's frequency).
@@ -1162,48 +1197,20 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     }
   });
 
-  // A duration byte can only hold so many bits of actual frame count - fewer
-  // the more flags/fields it also has to carry (see MAX_EVENT_FRAMES_WITH_*)
-  // - expand each (now fully merged) event into consecutive max-length
-  // events, done as this one final pass so a long merged run gets the fewest
-  // possible chunks. Only the LAST chunk of a note that got split keeps the
-  // envelope flag - a long held note split into several chunks should only
-  // apply its envelope once, right before it actually ends, not at every
-  // chunk boundary. Arpeggio speed/interval/range, unlike envelope, carry
-  // through every chunk unchanged - they describe the whole note, not just
-  // its tail.
+  // A duration byte holds up to MAX_EVENT_FRAMES: expand each (now fully merged) event longer than that into consecutive events of
+  // that length, done as this one final pass so a long merged run gets the fewest possible chunks. Only the LAST chunk of a note that got
+  // split keeps the envelope flag - a long held note split into several chunks should only apply its envelope once, right before it
+  // actually ends, not at every chunk boundary. Arpeggio speed/interval/range, unlike envelope, carry through every chunk unchanged -
+  // they describe the whole note, not just its tail.
   const chunked = {};
   Object.entries(perChannel).forEach(([channel, events]) => {
-    // Reader side (generateMusicChecks) masks off the duration byte's bit 7
-    // based on channelHasEnvelope[channel] - OR'd across EVERY pattern on
-    // this channel (see resolveProjectMusic, ~line 1381), not just this one
-    // pattern. Chunking here MUST cap to the same MAX_EVENT_FRAMES_WITH_ENVELOPE
-    // limit whenever the reader will apply that mask, even if THIS pattern
-    // alone has no enveloped notes - otherwise a long rest/note in an
-    // envelope-free pattern can write a duration byte with bit 7 legitimately
-    // part of the frame count, which the reader then silently strips,
-    // truncating that note's duration by up to 128 frames and desyncing this
-    // channel's timing (reported as "missing notes"). channelHasEnvelopeOverride
-    // is null only when this function is called before that global flag is
-    // known yet (see the pre-pass in resolveProjectMusic that computes it) -
-    // in that case falling back to this pattern's  local scope is safe,
-    // since that pre-pass only cares whether ANY event.envelope is true, which
-    // chunking preserves regardless of maxFrames.
-    const hasEnvelope = channelHasEnvelopeOverride ? channelHasEnvelopeOverride[channel] :
-      events.some((event) => event.envelope);
     chunked[channel] = [];
     const playedEvents = dpcPlusPlan && dpcPlusPlan.isChannel(channel) ?
       events.flatMap((event) => (event.arpeggioSpeed > 0 && event.audv > 0 ? arpeggioToEvents(event) : [event])) : events;
     playedEvents.forEach(({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
-      notePlayedIndex, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
+      notePlayedIndex, instrumentNp, instrumentAudv, hitPitch, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
       envelopeReleaseStart}) => {
-      // Only THIS event's  arpeggio use caps it to 15 frames - a rest or
-      // non-arpeggiating note on the same channel isn't dragged down to that
-      // cap too (see generateMusicChecks' durationRead, which branches on
-      // this same event's arpSpeedVar - already known by the time duration
-      // is read - to decide how many bits its  duration byte carries).
-      const maxFrames = arpeggioSpeed > 0 ? MAX_EVENT_FRAMES_WITH_ARPEGGIO :
-        (hasEnvelope ? MAX_EVENT_FRAMES_WITH_ENVELOPE : MAX_EVENT_FRAMES_NO_ENVELOPE);
+      const maxFrames = MAX_EVENT_FRAMES;
       let remaining = frames;
       while (remaining > 0) {
         const chunkFrames = Math.min(remaining, maxFrames);
@@ -1211,7 +1218,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         // notePlayedIndex carries through every chunk unchanged, same as
         // arpeggio's  fields - a "note played" watch on an instrument
         // whose note is long enough to split into several chunks (past
-        // MAX_EVENT_FRAMES_NO_ENVELOPE/_WITH_ENVELOPE/_WITH_ARPEGGIO) fires
+        // MAX_EVENT_FRAMES) fires
         // once per CHUNK, not once for the whole held note, since each chunk
         // is its  independently-fetched event at runtime with no concept
         // of "this is a continuation" - an accepted rare-case quirk rather
@@ -1219,7 +1226,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         const isFinalChunk = remaining === 0;
         chunked[channel].push({
           audv, audc, audf, frames: chunkFrames, envelope: envelope && isFinalChunk,
-          arpeggioSpeed, arpeggioInterval, arpeggioRange, notePlayedIndex,
+          arpeggioSpeed, arpeggioInterval, arpeggioRange, notePlayedIndex, instrumentNp, instrumentAudv, hitPitch,
           envelopeAttack: isFinalChunk ? envelopeAttack : 0,
           envelopeDecay: isFinalChunk ? envelopeDecay : 0,
           envelopeDecayEnd: isFinalChunk ? envelopeDecayEnd : 0,
@@ -1243,145 +1250,128 @@ export const musicChannelHasEnvelope = (events) => events.some((event) => event.
 // vars/per-frame check at all (see resolveProjectMusic/generateMusicChecks).
 export const musicChannelHasArpeggio = (events) => events.some((event) => event.arpeggioSpeed > 0);
 
-// Converts one channel's event list into the raw byte pages for its data
-// tables: 3 bytes/event - AUDV, AUDF, duration-in-frames - plus a 4th on a
-// channel that has ANY enveloped note anywhere (see hasEnvelope below),
-// since the other three are already fully packed with nothing left to spare
-// for a per-note envelope-config reference. AUDC is NOT part of the regular
-// record at all any more (see the INSTRUMENT_CHANGE_SENTINEL marker below for where it
-// actually lives now) - it doesn't vary per note in the first place (it
-// comes straight from the note's  track/instrument, never the note
-// itself), so repeating it in every single record was pure waste: a real
-// project's  music engine payload measured over 4x the size of its data
-// tables combined, entirely from this kind of per-note duplication of
-// values that don't actually change per note.
+// What an instrument gives to each of its notes, one line of the instrument tables for each distinct set (see getInstrumentIndex in
+// resolveProjectMusic): the sound type and the arpeggio speed (byte), the volume, the "note played" watch index (shifted up a nibble, as
+// the watch checks compare it), the arpeggio speed with its range (as the arpeggio byte of the channel holds them) and its interval
+// (shifted, as it is combined with the pitch). The volume is the volume of the instrument: a note with another volume has a marker for it.
+const instrumentSetOf = (event) => {
+  const arpeggioSpeed = Number(event.arpeggioSpeed) || 0;
+  return {
+    byte: Number(event.audc) | (arpeggioSpeed << 4),
+    volume: Number(event.instrumentAudv) & 15,
+    watch: (Number(event.instrumentNp) || 0) << 4,
+    speedRange: arpeggioSpeed | ((Number(event.arpeggioRange) || 0) << 4),
+    interval: (Number(event.arpeggioInterval) || 0) << 5,
+    // The pitch of the hits of the instrument (255 when its notes have their pitch stored).
+    fixed: Number(event.hitPitch) <= 254 ? Number(event.hitPitch) : 255,
+  };
+};
+const instrumentSetKey = (set) => `${set.byte},${set.volume},${set.watch},${set.speedRange},${set.interval},${set.fixed}`;
+// Whether a note of a TIA channel is a hit written in the short form (see SHORT_FORM_FLAG).
+const isHitEvent = (event) => !isRestEvent(event) && Number(event.hitPitch) <= 254;
+// A rest has no volume and no watched note (it keeps its pitch, which a silent note of a sound that changes its pitch has).
+const isRestEvent = (event) => !(Number(event.audv) > 0) && !(Number(event.notePlayedIndex) > 0);
+// How a note says its volume is not the one of its instrument: 0 it is, 1 in its duration byte, 2 with a marker before it (see
+// VOLUME_MARKER_BASE).
+const volumeModeOf = (event, chip) => {
+  const volume = Number(event.audv) & 15;
+  if (isRestEvent(event) || volume === (Number(event.instrumentAudv) & 15)) return 0;
+  if (chip) return 2;
+  return Number(event.frames) <= PACKED_DURATION_LIMIT && volume !== UNPACKABLE_VOLUME && !isHitEvent(event) ? 1 : 2;
+};
+// Whether the channel is played by the chip of DPC+, where a pitch is a number up to 88 instead of the 5 bits of an AUDF.
+const isChipChannel = (channel) => !!(dpcPlusPlan && dpcPlusPlan.isChannel(Number(channel)));
+
+// Converts one channel's event list into the raw byte pages for its data tables. An event is a note or a rest of 1 to 3 bytes (see
+// SHORT_FORM_FLAG and noteBytes: a rest or a hit is 1 byte when it lasts 31 frames or less, a note with its pitch stored is 2). Everything
+// else a note has comes from its instrument, a line of the instrument tables that a 2-byte INSTRUMENT_CHANGE_SENTINEL marker picks whenever
+// the instrument of the notes changes (the sound type, volume, arpeggio, "note played" watch and hit pitch of the instrument, see
+// instrumentSetOf). A note with another volume than its instrument has a 1-byte marker before it or the volume in its bytes (see
+// VOLUME_MARKER_BASE).
 //
-// Two of the 3 always-present bytes still carry a little more than their
-// hardware register needs, in spare bits the TIA never reads, at zero
-// extra cost per event:
-// - Duration bit 7: this note has an envelope (see ENVELOPE_BIT/generateMusicChecks).
-// - Duration bits 6-4: arpeggio range/shape, an index into
-//   ARPEGGIO_PHASE_SEQUENCES (0 when not arpeggiating - harmless, since
-//   arpeggioSpeed 0 already means the reader ignores this note's arpeggio
-//   fields entirely).
-// - AUDF bits 7-5 (hardware only reads 4-0): arpeggio interval, the fixed
-//   AUDF bump to the "other" pitch.
-// - AUDV bits 7-4 (hardware only reads 3-0): this note's "note played"
-//   watch index (see resolveNotePlayedInstruments) - 0 means no instrument
-//   playing this note is currently watched. Capped at 14, not the full
-//   nibble's 15, specifically so this byte can never reach 253/254/255 (see
-//   MAX_WATCHED_NOTE_PLAYED_INSTRUMENTS's  comment) and collide with
-//   INSTRUMENT_CHANGE_SENTINEL/PAGE_BREAK_SENTINEL/LOOP_SENTINEL below.
-// There is no 4th byte: every record is a fixed 3 bytes regardless of
-// envelope use (see eventsToPages'  comment on why a config-index 4th
-// byte was tried and reverted). Only the ENVELOPE_BIT flag survives - the
-// runtime doesn't yet apply an envelope shape to music notes at all, it
-// just knows a note WAS authored with one on. arpeggioSpeed itself (0
-// meaning "not arpeggiating") is folded into the instrument byte a marker
-// carries - see below - exactly like AUDC, since it's the same kind of
-// per-track constant, never per-note.
+// Every pattern's first note is preceded by a marker (lastInstrumentKey starts null on every call, never carried in from a caller): a
+// pattern can be reached from many points of a song's sequence (see resolveProjectMusic's sequenceStartPage), so nothing here may
+// assume which instrument the pattern played before it left.
 //
-// getInstrumentIndex (see resolveProjectMusic's  build pass, ALWAYS
-// called first, project-wide, before this function ever runs for any
-// channel - see its  comment on why that ordering matters) resolves an
-// AUDC|arpeggioSpeed<<4 byte to its stable index in the shared instrument
-// table. Whenever an AUDIBLE event's (audv > 0 - see the same reasoning in
-// that build pass) instrument differs from the last one THIS pass
-// itself wrote, a 2-byte marker (INSTRUMENT_CHANGE_SENTINEL, index) is
-// inserted right before it. Reset per pattern (lastInstrument starts null
-// on every call, never carried in from a caller) rather than tracked
-// globally across patterns - a pattern can be reached from many different
-// points in a song's  sequence (see resolveProjectMusic/
-// generateMusicChecks'  sequenceStartPage), so assuming continuity from
-// "whatever pattern happened to be encoded right before this one" would be
-// wrong the instant actual playback order differs from encoding order.
-// Every pattern's  first audible note is therefore always preceded by
-// an explicit marker, guaranteeing correct playback no matter which
-// sequence position jumps straight to it.
+// The envelope of a note depends on its length and its volume, so it has its marker too, whenever the shape changes (see
+// ENVELOPE_CHANGE_SENTINEL). The 3 flags in the byte of a note: rest (volume 0, nothing to watch), and the watch flag (this note starts
+// a note of an instrument the project watches with "When note played").
 //
-// A single "data" table can only hold MAX_DATA_TABLE_VALUES bytes, so
-// events (and now markers) are split across multiple pages/tables as
-// needed - never splitting a single item's  bytes across a page
-// boundary, since the reader always reads one whole item at a time. Every
-// page but the last is terminated by PAGE_BREAK_SENTINEL alone (advance to
-// the next page and keep reading); the last page is terminated by
-// LOOP_SENTINEL alone (loop back to page 0) - neither is padded out to a
-// full record, the reader checks for them before trying to read the rest
-// of an item (see generateMusicChecks below).
-const eventsToPages = (events, getInstrumentIndex) => {
-  // Fixed 3 bytes/event, regardless of envelope use - a 4th byte (this
-  // note's  envelopeConfigIndex) was tried here and reverted: NOTHING in
-  // the runtime reader below (durationReadPlain/durationRead/audfRead/etc.)
-  // ever accounts for a variable record size - every read advances indexVar
-  // by exactly 1 per byte it ITSELF reads, with no conditional extra skip
-  // for a 4th byte. Emitting one anyway (gated on hasEnvelope, the same
-  // shape the old Fade feature originally used) silently desynced every
-  // read after the first enveloped event on that channel - confirmed
-  // directly as real, audible pitch/timing corruption once a project
-  // actually had a music instrument with its envelope on (the OLD Fade
-  // feature had this exact same latent bug, just never exercised, since it
-  // was permanently forced off - see blocks/soundfx.js's  git history).
-  // The ENVELOPE_BIT flag alone is still safe to keep (see below) - it
-  // costs no extra byte, just repurposes a spare bit already in the
-  // duration byte - only the config-INDEX needed its  byte, which is
-  // what actually broke this. Re-add a 4th byte only alongside whatever
-  // future work actually reads it back at runtime, updating every affected
-  // read site in the same change.
+// A single "data" table can only hold MAX_DATA_TABLE_VALUES bytes, so events (and markers) are split across multiple pages/tables as
+// needed - never splitting an item's bytes across a page boundary, since the reader always reads one whole item at a time. Every
+// page but the last is terminated by PAGE_BREAK_SENTINEL alone (advance to the next page and keep reading); the last page is
+// terminated by LOOP_SENTINEL alone - neither is padded out to a full record, the reader checks for them before trying to read the
+// rest of an item (see generateMusicChecks below).
+// The bytes of a note or a rest (see SHORT_FORM_FLAG), without its markers.
+const noteBytes = (item, chip) => {
+  const {audf, audv, frames, notePlayedIndex} = item.event;
+  const watched = Number(notePlayedIndex) > 0;
+  if (chip) {
+    if (item.rest) return [0, frames];
+    if (!item.hit && Number(audf) >= VOLUME_MARKER_BASE) throw new Error('The music uses a pitch number of the DPC+ chip above 223.');
+    return item.hit ? [frames] : [Number(audf), frames];
+  }
+  if (item.rest || item.hit) {
+    const flags = SHORT_FORM_FLAG | (item.rest ? REST_FLAG : 0) | (watched ? WATCH_FLAG : 0);
+    return frames <= SHORT_FORM_FRAMES ? [flags | frames] : [flags, frames];
+  }
+  const packed = item.volumeMode === 1;
+  return [(Number(audf) & 31) | (packed ? TUNED_PACKED_FLAG : 0) | (watched ? WATCH_FLAG : 0),
+    packed ? ((Number(audv) & 15) << 4) | frames : frames];
+};
+
+const eventsToPages = (events, getInstrumentIndex, chip) => {
   const MARKER_SIZE = 2;
 
   const items = [];
-  let lastInstrumentByte = null;
-  // NO_ENVELOPE_SENTINEL (never a real config index) as the initial value
-  // guarantees this pattern's  FIRST event always gets an explicit
-  // envelope marker, same reasoning as lastInstrumentByte's  null start:
-  // a pattern can be reached from many different sequence positions (see
-  // the instrument-marker comment above), so nothing here can assume what
-  // envelopeConfig was left holding by whatever played immediately before
-  // it. Tracked for EVERY event, not just audible ones (unlike the
-  // instrument marker, which only matters for AUDC/arpeggio - irrelevant
-  // during a rest): a stale envelopeConfig/envelopeStage{channel} left
-  // pointing at a previous note's config would otherwise keep being read by
-  // the per-frame check (generateEnvelopeChecks in soundfx.js) all through
-  // a following rest or non-enveloped note, spuriously writing to AUDV.
+  let lastInstrumentKey = null;
+  // NO_ENVELOPE_SENTINEL (never a real config index) as the initial value guarantees this pattern's FIRST event always gets an
+  // explicit envelope marker, same reasoning as lastInstrumentKey's null start. Tracked for EVERY event, rests included: a stale
+  // envelopeConfig/envelopeStage{channel} left pointing at a previous note's config would otherwise keep being read by the per-frame
+  // check (generateEnvelopeChecks in soundfx.js) all through a following rest or non-enveloped note, spuriously writing to AUDV.
   let lastEnvelopeSelector = NO_ENVELOPE_SENTINEL;
   events.forEach((event) => {
-    const {audv, audc, arpeggioSpeed, frames, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd,
-      envelopeRelease, envelopeSustainLength, envelopeReleaseStart} = event;
-    if (Number(audv) > 0) {
-      const instrumentByte = Number(audc) | (arpeggioSpeed << 4);
-      if (instrumentByte !== lastInstrumentByte) {
-        items.push({marker: true, instrument: true, index: getInstrumentIndex(instrumentByte)});
-        lastInstrumentByte = instrumentByte;
+    const {audv, frames, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
+      envelopeReleaseStart} = event;
+    const rest = isRestEvent(event);
+    let volumeMode = 0;
+    let noWatch = false;
+    if (!rest) {
+      const set = instrumentSetOf(event);
+      const key = instrumentSetKey(set);
+      if (key !== lastInstrumentKey) {
+        items.push({marker: true, instrument: true, index: getInstrumentIndex(set)});
+        lastInstrumentKey = key;
       }
+      volumeMode = volumeModeOf(event, chip);
+      noWatch = chip && Number(event.notePlayedIndex) === 0 && set.watch !== 0;
     }
-    // The RAW envelopeAttack/Decay/SustainLength/Release values
-    // (registerEnvelopeConfig does its clamping internally - see its
-    // comment in generators/bbasic/soundfx.js), with loopSustain explicitly
-    // on: a note placed in the piano roll longer than its instrument's
-    // envelope loops the Decay End -> Release Start ramp to fill the gap
-    // instead of falling silent (see utils/envelope.js's comment on
-    // clampEnvelopeStages for why this is Music-only, not shared with
-    // Sound Effects).
+    // The RAW envelopeAttack/Decay/SustainLength/Release values (registerEnvelopeConfig does its clamping internally - see its comment
+    // in generators/bbasic/soundfx.js), with loopSustain explicitly on: a note placed in the piano roll longer than its instrument's
+    // envelope loops the Decay End -> Release Start ramp to fill the gap instead of falling silent (see utils/envelope.js's comment on
+    // clampEnvelopeStages for why this is Music-only, not shared with Sound Effects).
     const envelopeSelector = envelope ? registerEnvelopeConfig({
       attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
       release: envelopeRelease, decayEndPercent: envelopeDecayEnd, releaseStartPercent: envelopeReleaseStart,
       peakVolume: Number(audv), totalFrames: frames, loopSustain: true,
     }) : NO_ENVELOPE_SENTINEL;
     if (envelopeSelector !== lastEnvelopeSelector) {
+      if (envelopeSelector >= VOLUME_MARKER_BASE && envelopeSelector < NO_ENVELOPE_SENTINEL) {
+        throw new Error('The music uses more than 223 different envelope shapes: use fewer volumes on the instruments with an envelope.');
+      }
       items.push({marker: true, instrument: false, index: envelopeSelector});
       lastEnvelopeSelector = envelopeSelector;
     }
-    items.push({marker: false, event});
+    items.push({marker: false, event, rest, volumeMode, noWatch, hit: isHitEvent(event)});
   });
 
-  const RECORD_SIZE = 3;
   const pages = [];
   let current = [];
   let currentSize = 0;
   items.forEach((item) => {
-    const size = item.marker ? MARKER_SIZE : RECORD_SIZE;
-    // +size for the item about to be added, +1 reserved for this page's
-    // terminator byte.
+    // A volume marker and the note it is for are one item: a page can end between markers, but not between this and its note.
+    const size = item.marker ? MARKER_SIZE : noteBytes(item, chip).length + (item.volumeMode === 2 ? 1 : 0) + (item.noWatch ? 1 : 0);
+    // +size for the item about to be added, +1 reserved for this page's terminator byte.
     if (currentSize + size + 1 > MAX_DATA_TABLE_VALUES) {
       pages.push(current);
       current = [];
@@ -1399,12 +1389,9 @@ const eventsToPages = (events, getInstrumentIndex) => {
         bytes.push(item.instrument ? INSTRUMENT_CHANGE_SENTINEL : ENVELOPE_CHANGE_SENTINEL, item.index);
         return;
       }
-      const {audv, audf, frames, envelope, arpeggioInterval, arpeggioRange, notePlayedIndex} = item.event;
-      bytes.push(
-          Number(audv) | ((notePlayedIndex || 0) << 4),
-          Number(audf) | (arpeggioInterval << 5),
-          frames | (envelope ? ENVELOPE_BIT : 0) | (arpeggioRange << ARPEGGIO_RANGE_BITS_SHIFT),
-      );
+      if (item.noWatch) bytes.push(NOWATCH_MARKER);
+      if (item.volumeMode === 2) bytes.push(VOLUME_MARKER_BASE + (Number(item.event.audv) & 15));
+      bytes.push(...noteBytes(item, chip));
     });
     bytes.push(pageIndex === pages.length - 1 ? LOOP_SENTINEL : PAGE_BREAK_SENTINEL);
     return bytes;
@@ -1542,13 +1529,16 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   // assign a different index to the same instrument depending on which
   // channel or pattern happened to encode it first, silently corrupting
   // playback for whichever channel didn't "win" that race.
-  const instrumentBytes = [];
-  const instrumentIndexByByte = new Map();
-  const getInstrumentIndex = (byte) => {
-    if (instrumentIndexByByte.has(byte)) return instrumentIndexByByte.get(byte);
-    const index = instrumentBytes.length;
-    instrumentBytes.push(byte);
-    instrumentIndexByByte.set(byte, index);
+  const instrumentSets = [];
+  const instrumentIndexByKey = new Map();
+  const getInstrumentIndex = (set) => {
+    const key = instrumentSetKey(set);
+    if (instrumentIndexByKey.has(key)) return instrumentIndexByKey.get(key);
+    const index = instrumentSets.length;
+    // A marker holds the index in 1 byte and an index must stay clear of the sentinels (252 and up).
+    if (index >= VOLUME_MARKER_BASE) throw new Error('The music uses more than 223 different instruments (sound type, volume, arpeggio and watch).');
+    instrumentSets.push(set);
+    instrumentIndexByKey.set(key, index);
     return index;
   };
   resolvedSongs.forEach(({song}) => {
@@ -1557,9 +1547,9 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
       const pattern = (song.patterns || []).find(({id: pid}) => `${pid}` === patternId);
       if (!pattern) return;
       const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById);
-      Object.values(perChannel).forEach((events) => {
-        events.forEach(({audv, audc, arpeggioSpeed}) => {
-          if (Number(audv) > 0) getInstrumentIndex(Number(audc) | (arpeggioSpeed << 4));
+      Object.entries(perChannel).forEach(([channel, events]) => {
+        events.forEach((event) => {
+          if (!isRestEvent(event)) getInstrumentIndex(instrumentSetOf(event));
         });
       });
     });
@@ -1624,6 +1614,15 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   });
 
   const channelPages = {};
+  // Whether any note of the project starts a note of a watched instrument (see resolveNotePlayedInstruments): only then do the
+  // instrument tables have the watch index.
+  let anyWatch = false;
+  // Which channels have a note with a volume other than the one of its instrument (a volume marker before it).
+  const channelHasVolumeMarkers = {};
+  const channelHasPackedVolumes = {};
+  const channelHasFixedNotes = {};
+  const channelHasTunedNotes = {};
+  const channelHasNoWatchMarkers = {};
   const channelHasEnvelope = {};
   const channelHasArpeggio = {};
   // Parallel to channelPages[channel] - which song's  songId contributed
@@ -1636,6 +1635,11 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
   channels.forEach((channel) => {
     channelPages[channel] = [];
     channelHasEnvelope[channel] = false;
+    channelHasVolumeMarkers[channel] = false;
+    channelHasPackedVolumes[channel] = false;
+    channelHasFixedNotes[channel] = false;
+    channelHasTunedNotes[channel] = false;
+    channelHasNoWatchMarkers[channel] = false;
     channelHasArpeggio[channel] = false;
     channelPageSongIds[channel] = [];
   });
@@ -1680,12 +1684,36 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
       const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById,
           channelHasEnvelopeGlobal);
       Object.entries(perChannel).forEach(([channel, events]) => {
-        const pages = eventsToPages(events, getInstrumentIndex);
-        patternStartPage[channel][patternId] = channelPages[channel].length;
-        channelPages[channel].push(...pages);
-        pages.forEach(() => channelPageSongIds[channel].push(id));
+        const pages = eventsToPages(events, getInstrumentIndex, isChipChannel(channel));
+        // A pattern whose bytes are the same as those of one already stored (a pattern repeated with another name, or a copy that was
+        // never edited) is read from there: the pages of the two are the same run of tables, so they are stored once.
+        const stored = channelPages[channel];
+        const sameRun = (start) => pages.every((page, i) => stored[start + i] && stored[start + i].join() === page.join());
+        let sharedStart = -1;
+        for (let start = 0; start + pages.length <= stored.length && sharedStart === -1; start++) {
+          if (sameRun(start)) sharedStart = start;
+        }
+        if (sharedStart !== -1) {
+          patternStartPage[channel][patternId] = sharedStart;
+        } else {
+          patternStartPage[channel][patternId] = stored.length;
+          channelPages[channel].push(...pages);
+          pages.forEach(() => channelPageSongIds[channel].push(id));
+        }
         if (musicChannelHasEnvelope(events)) channelHasEnvelope[channel] = true;
         if (musicChannelHasArpeggio(events)) channelHasArpeggio[channel] = true;
+        if (events.some((event) => Number(event.notePlayedIndex) > 0 && !isRestEvent(event))) anyWatch = true;
+        const channelChip = isChipChannel(channel);
+        events.forEach((event) => {
+          const mode = volumeModeOf(event, channelChip);
+          if (mode === 1) channelHasPackedVolumes[channel] = true;
+          if (!isRestEvent(event)) {
+            if (isHitEvent(event)) channelHasFixedNotes[channel] = true;
+            else channelHasTunedNotes[channel] = true;
+            if (channelChip && Number(event.notePlayedIndex) === 0 && Number(event.instrumentNp) !== 0) channelHasNoWatchMarkers[channel] = true;
+          }
+          if (mode === 2) channelHasVolumeMarkers[channel] = true;
+        });
         if (channelPages[channel].length > MAX_MUSIC_PAGES) {
           throw new Error(`Combined music data needs ${channelPages[channel].length} data tables on ` +
             `channel ${channel} (summed across every song used for playback), but only ${MAX_MUSIC_PAGES} ` +
@@ -1781,7 +1809,15 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     // in stable index order. Empty (never emitted as a real "data" table -
     // see generateMusicDataTables) for a project with no audible notes at
     // all.
-    instrumentBytes,
+    instrumentBytes: instrumentSets.map((set) => set.byte),
+    // The lines of the instrument tables (see instrumentSetOf), in index order.
+    instrumentSets,
+    hasWatch: anyWatch,
+    channelHasVolumeMarkers,
+    channelHasPackedVolumes,
+    channelHasFixedNotes,
+    channelHasTunedNotes,
+    channelHasNoWatchMarkers,
     // True as soon as ANY included song has ANY group repeating more than
     // once - gates whether musicSeqRepeatVarName/musicSeqRepeatTableName are
     // reserved/generated at all (see bbasic.js's dev-var reservation and
@@ -1834,6 +1870,9 @@ export const reserveMusicDevVars = (reserveDevVar, reserveDevVarRW, music, music
     // (see musicLastAudcVarName's  comment).
     if (music.instrumentBytes.length) {
       reserveDevVarRW(musicLastAudcVarName(channel), 'this channel\'s last-played AUDC value');
+    }
+    if (music.channelHasSoundEffectDuration[channel]) {
+      reserveDevVarRW(musicStartVarName(channel), 'this channel\'s where the note being played starts in its data');
     }
     // Only reserved for a channel with at least one arpeggiating note (see
     // musicChannelHasArpeggio/channelHasArpeggio) - per-channel gated so a
@@ -2356,13 +2395,13 @@ export default (Blockly) => {
   Blockly.BBasic.generateMusicDataTables = function() {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return '';
-    // Configuration.vue's "Show detailed comments" toggle (default on) -
+    // Configuration.vue's "Show detailed comments" toggle (default off) -
     // same flag generators/bbasic.js's  dev-var "; description" comments
     // read, applied here to every data table's  explanatory "rem" line
     // too, not just variables.
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const showComments = config.showVariableComments ?? true;
+    const showComments = config.showVariableComments ?? false;
     const tableComment = (text) => showComments ? ` rem ${text}\n` : '';
     const eventTables = Object.entries(music.channelPages).map(([channel, pages]) => pages.map((bytes, page) => {
       const rows = chunk(bytes, 16).map((row) => '  ' + row.join(', '));
@@ -2372,19 +2411,31 @@ export default (Blockly) => {
       // somehow missing for this page, rather than a misleading guess.
       const songId = (music.channelPageSongIds && music.channelPageSongIds[channel] || [])[page];
       const songNote = songId != null ? ` for ${songLabel(songId)}` : '';
-      return tableComment(`Channel ${channel}${songNote} note data${pageNote} (AUDV, AUDF, duration per note - ` +
-        `instrument changes are interleaved as their 2-byte markers, see the instrument table below)`) +
+      return tableComment(`Channel ${channel}${songNote} note data${pageNote} (pitch with flags, duration per note - ` +
+        `instrument changes are interleaved as their 2-byte markers, see the instrument tables below)`) +
         ` data ${musicDataTableName(channel, page)}\n${rows.join('\n')}\nend`;
     }).join('\n\n')).join('\n\n');
-    // See musicInstrumentTableName's  comment - one AUDC|arpeggioSpeed<<4
-    // byte per distinct instrument, in instrumentBytes'  stable index
-    // order. Empty (this whole table omitted) for a project with no audible
-    // notes anywhere.
-    const instrumentTable = music.instrumentBytes.length ?
-      tableComment(`Shared instrument table (AUDC|arpeggioSpeed<<4 per instrument) - indexed by an ` +
-        `INSTRUMENT_CHANGE_SENTINEL marker in the note data above`) +
-      ` data ${musicInstrumentTableName()}\n${chunk(music.instrumentBytes, 16).map((row) => '  ' + row.join(', ')).join('\n')}\nend` :
-      '';
+    // See musicInstrumentTableName's  comment: one line for each distinct set of what the notes of an instrument have in common (see
+    // instrumentSetOf), in the index order of the sets. Empty (all the tables left out) for a project with no audible notes anywhere.
+    const sets = music.instrumentSets || [];
+    const anyArpeggio = Object.values(music.channelHasArpeggio || {}).some(Boolean);
+    const instrumentTableOf = (name, comment, values) => tableComment(comment) +
+      ` data ${name}\n${chunk(values, 16).map((row) => '  ' + row.join(', ')).join('\n')}\nend`;
+    const instrumentTable = sets.length ? [
+      instrumentTableOf(musicInstrumentTableName(), 'Instrument tables: AUDC|arpeggioSpeed<<4 of each instrument line - ' +
+        'indexed by an INSTRUMENT_CHANGE_SENTINEL marker in the note data above', sets.map((set) => set.byte)),
+      instrumentTableOf(musicInstrumentVolumeTableName(), 'Volume of each instrument line', sets.map((set) => set.volume)),
+      ...(music.hasWatch ? [instrumentTableOf(musicInstrumentWatchTableName(),
+          'The "note played" watch index of each instrument line, shifted up 4 bits', sets.map((set) => set.watch))] : []),
+      ...(Object.values(music.channelHasFixedNotes || {}).some(Boolean) ? [instrumentTableOf(musicInstrumentPitchTableName(),
+          'The pitch of the hits of each instrument line (255: the notes have their pitch stored)', sets.map((set) => set.fixed))] : []),
+      ...(anyArpeggio ? [
+        instrumentTableOf(musicInstrumentArpSpeedTableName(), 'Arpeggio speed (bits 0-3) and range (bits 4-6) of each instrument line',
+            sets.map((set) => set.speedRange)),
+        instrumentTableOf(musicInstrumentArpIntervalTableName(), 'Arpeggio interval of each instrument line, shifted up 5 bits',
+            sets.map((set) => set.interval)),
+      ] : []),
+    ].join('\n\n') : '';
     // One small lookup table per channel - see generateMusicChecks'
     // loop-reset for the one place these are ever read. Single-song project:
     // only generated for a song with any real repetition at all (totalSteps,
@@ -2586,6 +2637,8 @@ export default (Blockly) => {
     '       sta temp2',
     'end',
   ];
+  // table[index] into a target, as asm (the index can be a Superchip read variable).
+  const tableLookupAsm = (table, indexVar, target) => [' asm', `       ldx ${indexVar}`, `       lda ${table},x`, `       sta ${target}`, 'end'];
   const buildPageDispatchSubroutine = (channel, tables, pageVar) => {
     if (tables.length <= 1) return null;
     const doneLabel = `_musicpr${channel}_done`;
@@ -2689,7 +2742,7 @@ export default (Blockly) => {
     const notePlayedInstruments = Blockly.BBasic.notePlayedInstruments || new Map();
     const notePlayedFlags = (Blockly.BBasic.musicEventFlags && Blockly.BBasic.musicEventFlags.notePlayed) ||
       new Map();
-    const notePlayedSetLinesForChannel = (channel) => {
+    const notePlayedSetLinesForChannel = (channel, instrumentVar) => {
       const checks = [...notePlayedInstruments.entries()]
           .filter(([id]) => (music.notePlayedChannelsById.get(id) || new Set()).has(Number(channel)))
           .map(([id, index]) => {
@@ -2706,10 +2759,9 @@ export default (Blockly) => {
       // site's comment: audfRead reuses it right after), and temp2 is free
       // here (whatever it held before is about to be overwritten by the very
       // next real table read regardless).
-      return checks.length ? [' temp2 = temp1 & $F0', ...checks] : [];
+      return checks.length ? [...tableLookupAsm(musicInstrumentWatchTableName(), instrumentVar, 'temp2'), ...checks] : [];
     };
     const perChannelChecks = allChannels.map((channel) => {
-      const notePlayedSetLines = notePlayedSetLinesForChannel(channel);
       const pages = music.channelPages[channel];
       const tables = pages.map((_, page) => musicDataTableName(channel, page));
       const multiPage = tables.length > 1;
@@ -2872,6 +2924,23 @@ export default (Blockly) => {
       const lastAudcPair = music.instrumentBytes.length ? resolveRW(musicLastAudcVarName(channel)) : null;
       const lastAudcVar = lastAudcPair ? lastAudcPair.read : null;
       const lastAudcVarWrite = lastAudcPair ? lastAudcPair.write : null;
+      // The index of the instrument line the notes use (what the last INSTRUMENT_CHANGE_SENTINEL marker said).
+      const instrumentVar = lastAudcVar;
+      const chip = isChipChannel(channel);
+      const notePlayedSetLines = instrumentVar && music.hasWatch ? notePlayedSetLinesForChannel(channel, instrumentVar) : [];
+      // The notes of a channel: those with their pitch stored, and the hits (see SHORT_FORM_FLAG).
+      const hasTuned = !!(instrumentVar && music.channelHasTunedNotes && music.channelHasTunedNotes[channel]);
+      const hasFixed = !!(instrumentVar && music.channelHasFixedNotes && music.channelHasFixedNotes[channel]);
+      // A watched instrument's note of the chip is watched, unless a marker before it says it is not (temp5 is 0 for it, see the fetch).
+      const hasNoWatch = chip && !!(instrumentVar && music.channelHasNoWatchMarkers && music.channelHasNoWatchMarkers[channel]);
+      // Whether a note of this channel can have a volume other than its instrument's: its marker comes right before it.
+      const volumeMarkers = !!(instrumentVar && music.channelHasVolumeMarkers && music.channelHasVolumeMarkers[channel]);
+      const packedVolumes = !!(instrumentVar && music.channelHasPackedVolumes && music.channelHasPackedVolumes[channel]);
+      // Any note with its volume said by itself: the volume goes through temp4 (the instrument's, or the one of the note).
+      const volumeOverrides = volumeMarkers || packedVolumes;
+      // The volume in the high nibble of temp2 into temp4 (and the low nibble of it left in temp2, for a duration byte).
+      const unpackVolumeAsm = (keepLow) => [' asm', '       lda temp2', '       lsr', '       lsr', '       lsr', '       lsr', '       sta temp4',
+        ...(keepLow ? ['       lda temp2', '       and #15', '       sta temp2'] : []), 'end'];
 
       // Only reserved/used for a channel with at least one arpeggiating note
       // (see musicChannelHasArpeggio) - all of these describe the CURRENTLY
@@ -2966,57 +3035,6 @@ export default (Blockly) => {
       // right above it. Per-channel gated the same way arpeggio already is,
       // so a project that never uses envelope on Music instruments pays
       // nothing extra for this at all.
-      // Plain, full-width duration read - also reused as-is for a REST on an
-      // arpeggio channel (see the rest/note branch spliced into channelBody
-      // below), since a rest's  duration byte is never packed with range
-      // bits either way (see flattenPatternEvents'  per-event maxFrames,
-      // which only narrows an event that ITSELF has arpeggioSpeed > 0 - a
-      // rest always has arpeggioSpeed 0, regardless of whether this channel's
-      // CURRENTLY SELECTED instrument happens to arpeggio).
-      // On a channel with any enveloped note, bit 7 of this same byte is
-      // ENVELOPE_BIT (see eventsToPages) - masked off here (& 127) before
-      // it ever reaches timerVar, or a set flag would add 128 frames to the
-      // note's actual held duration, corrupting playback timing for every
-      // note read afterward. A channel with no envelope in use never has
-      // this bit set on any of its  bytes (see flattenPatternEvents'
-      // channel-wide maxFrames cap), so skipping the mask there is safe and
-      // keeps the full 0-255 duration range available on channels that
-      // don't need the bit at all.
-      const durationReadPlain = [
-        ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${advanceIndex(1)}`,
-        hasEnvelope ? ` ${timerVar} = temp1 & 127` : ` ${timerVar} = temp1`,
-      ];
-      // arpSpeedRangeVar's speed nibble was already set (if this channel's
-      // instrument actually arpeggios) moments ago, by
-      // buildInstrumentMarkerSubroutine - the low nibble is cleared first,
-      // then the new range bits added in - NOT a blind add - since range is
-      // refreshed here every note while the speed nibble only changes on an
-      // instrument change, so a stale high nibble left over from a previous,
-      // larger range would otherwise accumulate instead of being replaced.
-      // Only reached at all for a genuine (non-rest) note - see channelBody's
-      // rest/note branch, which routes a rest to durationReadPlain
-      // instead, since arpSpeedRangeVar reflects the channel's CURRENTLY
-      // SELECTED instrument (persistent across rests, only refreshed on an
-      // actual instrument change), not whether THIS SPECIFIC event was
-      // itself packed with range bits.
-      const durationRead = hasArpeggio ? [
-        // temp4 already holds this byte - see audfRead's  comment on why
-        // a second pagedReadLines dispatch isn't needed here. Still has to
-        // advance past this byte's  position, same as before.
-        ` temp1 = temp4`,
-        ` ${advanceIndex(1)}`,
-        ` if ${arpSpeedRangeVar} = 0 then goto _music${channel}_dur_noarp`,
-        ` ${timerVar} = temp1 & 15`,
-        ` temp2 = temp1 & 112`,
-        ` ${arpSpeedRangeVar} = ${arpSpeedRangeVar} & 15`,
-        ` ${arpSpeedRangeVar} = ${arpSpeedRangeVar} + temp2`,
-        ` goto _music${channel}_dur_done`,
-        `_music${channel}_dur_noarp`,
-        hasEnvelope ? ` ${timerVar} = temp1 & 127` : ` ${timerVar} = temp1`,
-        `_music${channel}_dur_done`,
-      ] : durationReadPlain;
-
       // AUDC is no longer part of the regular per-note record at all (see
       // eventsToPages'  comment) - it's applied here instead, whenever an
       // INSTRUMENT_CHANGE_SENTINEL marker (see that same comment) is
@@ -3042,19 +3060,12 @@ export default (Blockly) => {
         ` ${advanceIndex(1)}`,
         ...pagedReadLines(tables, pageVar, indexVar, channel),
         ` ${advanceIndex(1)}`,
-        ` temp1 = ${musicInstrumentTableName()}[temp1]`,
+        // The marker holds the index of the instrument line: what the notes after it have in common (the sound type, the volume, the
+        // watch, the arpeggio) is read by that index when they are played (see the note lines below). The sound type goes to AUDC
+        // here, once for all of them, and the speed and range of the arpeggio to its byte.
         ` ${lastAudcVarWrite} = temp1`,
-        // This instrument's  arpeggio speed lives in the SAME shared byte
-        // (see instrumentBytes'  comment: AUDC | (arpeggioSpeed << 4)) -
-        // extracted into arpSpeedRangeVar's low nibble here, the one place
-        // an instrument change is actually detected, rather than re-read
-        // every note. Its high nibble (range) is left untouched here - that
-        // gets refreshed separately, every note, by durationRead below.
-        ...(hasArpeggio ? [
-          ` temp2 = temp1 / 16`,
-          ` ${arpSpeedRangeVar} = ${arpSpeedRangeVar} & 112`,
-          ` ${arpSpeedRangeVar} = ${arpSpeedRangeVar} + temp2`,
-        ] : []),
+        ...(hasArpeggio ? [` ${arpSpeedRangeVar} = ${musicInstrumentArpSpeedTableName()}[temp1]`] : []),
+        ` temp1 = ${musicInstrumentTableName()}[temp1]`,
         ...suppressibleWrite('audc', ` AUDC${channel} = temp1`),
         ...pagedReadLines(tables, pageVar, indexVar, channel),
         ` goto ${instrumentMarkerLabel}`,
@@ -3127,87 +3138,61 @@ export default (Blockly) => {
       // identical convention in utils/music-playback.js's
       // arpeggioPitchVariants, so the ROM's arpeggio pitch direction matches
       // the Music tab's  preview.
-      // Plain AUDF read - also reused as-is for a REST on an arpeggio
-      // channel (see channelBody's  rest/note branch below): a rest is
-      // always AUDF 0 with no interval, so there's nothing for the "same
-      // note vs. continuation chunk" comparison below to usefully do for it,
-      // and arpSpeedRangeVar (which durationRead - the arpeggio-aware
-      // variant - would otherwise consult) needs to keep reflecting the
-      // channel's  currently-selected instrument, not get reset by a
-      // rest that never triggers its  instrument-change marker.
-      // suppressibleWrite tag ("audfplain", not "audf") - unlike the old
-      // single if/else shape, this and audfRead's  arpeggio-branch write
-      // below can BOTH end up present in the same channel's generated code
-      // at once now (reached via different runtime branches - see
-      // channelBody's rest/note split - rather than one replacing the other
-      // at code-generation time), so they need distinct tags: suppressibleWrite
-      // emits its  skip label per call, and two calls sharing one tag
-      // would emit that same label twice and fail to assemble.
-      const audfReadPlain = [
-        ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${advanceIndex(1)}`,
-        ...suppressibleWrite('audfplain', ` AUDF${channel} = temp1`),
+      // The pitch of the note: in temp3 on the chip, in temp5 on the TIA (where temp3 has the first byte of the note, with its flags).
+      const pitchVar = chip ? 'temp3' : 'temp5';
+      // A rest: volume 0 and pitch 0 (a rest of the chip keeps the pitch it has).
+      const restLines = [
+        ...suppressibleWrite('audvrest', ` AUDV${channel} = 0`),
+        ...suppressibleWrite('audfrest', ` AUDF${channel} = ${chip ? 'temp3' : '0'}`),
       ];
-      // Combines audfReadPlain + durationReadPlain into a single dispatch -
-      // AUDF and duration are always the next two consecutive bytes in a
-      // note record (see eventsToPages), so pagedReadLines'  temp2 (see
-      // its comment) already holds duration's byte by the time temp1 holds
-      // AUDF's, with no second page-compare-chain walk needed. Used
-      // wherever those two used to run back to back (channelBody's
-      // !hasArpeggio case, and the rest branch inside hasArpeggio) - never
-      // for audfRead's  arpeggio-aware variant below, which has its
-      // branching between the AUDF write and the duration read that a
-      // single combined dispatch can't shortcut.
-      const audfAndDurationReadPlain = [
-        ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${advanceIndex(2)}`,
-        ...suppressibleWrite('audfplain', ` AUDF${channel} = temp1`),
-        hasEnvelope ? ` ${timerVar} = temp2 & 127` : ` ${timerVar} = temp2`,
-      ];
-      const audfRead = hasArpeggio ? [
-        ...pagedReadLines(tables, pageVar, indexVar, channel),
-        ` ${advanceIndex(1)}`,
-        // pagedReadLines'  temp2 (see its comment) already holds the
-        // duration byte that immediately follows this AUDF byte in the note
-        // record - stashed into temp4 (otherwise unused anywhere in this
-        // file) before the "same note" check below overwrites temp2, so
-        // durationRead's  arpeggio branch can reuse it instead of running
-        // a second full pagedReadLines dispatch to re-fetch the identical
-        // byte from scratch.
-        ` temp4 = temp2`,
-        // A long held note gets split into several data-table chunks purely
-        // because of arpeggio's  duration cap (see
-        // MAX_EVENT_FRAMES_WITH_ARPEGGIO) - each chunk re-fetches as if it
-        // were a new note. Comparing this fetch's base|interval byte
-        // (already exactly arpBaseIntervalVar's  packed layout, see its
-        // comment) against the previous one (saved into temp2 before it's
-        // overwritten, no extra dev var needed) tells a genuine new note
-        // apart from an internal continuation chunk of the same held note:
-        // identical byte means "still the same note, let phase/counter keep
-        // running uninterrupted"; a different byte means a real new note, so
-        // reset to a clean phase 0. Everything below the branch (the AUDF
-        // write included) only runs for a genuine new note - a continuation
-        // chunk keeps whatever pitch its  in-progress arpeggio cycle was
-        // already playing, rather than being stomped back to plain base
-        // every ~15 frames (see MAX_EVENT_FRAMES_WITH_ARPEGGIO).
+      // A note of an arpeggio instrument: the pitch with the interval (the same layout as the pitch byte of the arpeggio, so that
+      // the check of whether this is the note it already plays can compare them), then a note that begins a new cycle (not one that
+      // goes on after being cut by the duration limit) writes its pitch and starts the phase and the counter again.
+      const arpeggioPitchLines = hasArpeggio ? [
         ` temp2 = ${arpBaseIntervalVar}`,
+        ' temp1 = temp5 & 31',
+        ...tableLookupAsm(musicInstrumentArpIntervalTableName(), instrumentVar, 'temp4'),
+        ' temp1 = temp1 | temp4',
         ` ${arpBaseIntervalVar} = temp1`,
         ` if temp2 = ${arpBaseIntervalVar} then goto _music${channel}_arp_samenote`,
-        ` temp1 = temp1 & 31`,
+        ' temp1 = temp1 & 31',
         ...suppressibleWrite('audf', ` AUDF${channel} = temp1`),
-        // Refilled from this note's  speed nibble (already sitting in
-        // arpSpeedRangeVar's low bits, set by buildInstrumentMarkerSubroutine
-        // whenever the instrument last changed), not a bare 1 - a bare 1
-        // counts down to the first flip in a single frame no matter the
-        // configured speed, so every note's very first flip would land far
-        // sooner than every flip after it. This makes the first flip wait
-        // exactly as long as every other one. A plain "= temp2" (not
-        // "|"/masked) also resets phase to 0 for free - temp2 is always
-        // 0-15, so the high (phase) nibble comes along already zeroed.
+        // Refilled from this note's speed (already in arpSpeedRangeVar's low bits, set when the instrument last changed), not a bare 1:
+        // a bare 1 counts down to the first flip in a single frame no matter the configured speed. A plain "= temp2" (not "|"/masked)
+        // also resets the phase to 0 for free - temp2 is always 0-15, so the high (phase) nibble comes along zeroed.
         ` temp2 = ${arpSpeedRangeVar} & 15`,
         ` ${arpCounterPhaseVar} = temp2`,
         `_music${channel}_arp_samenote`,
-      ] : audfReadPlain;
+      ] : [];
+      // The watch of the notes of an instrument the project watches: on the TIA a flag of the first byte of the note (temp3), on the chip
+      // every note unless a marker said otherwise (temp5). tag makes the labels of each copy different.
+      const watchLines = (tag) => (!notePlayedSetLines.length ? [] : [
+        ...(chip ? (hasNoWatch ? [` if temp5 = 0 then goto _music${channel}_nowatch${tag}`] : []) : [
+          ` temp1 = temp3 & ${WATCH_FLAG}`,
+          ` if temp1 = 0 then goto _music${channel}_nowatch${tag}`,
+        ]),
+        ...notePlayedSetLines,
+        `_music${channel}_nowatch${tag}`,
+      ]);
+      // A note: the volume (temp4: the instrument's or the one the note says, or its line of the instrument tables), the pitch.
+      const noteLines = !instrumentVar ? [] : [
+        ...(volumeOverrides ? [' temp1 = temp4'] : tableLookupAsm(musicInstrumentVolumeTableName(), instrumentVar, 'temp1')),
+        ...suppressibleWrite('audvfetch', volumeWrite('fetch')),
+        ...(chip ? watchLines('') : []),
+        ...(hasArpeggio ? arpeggioPitchLines : suppressibleWrite('audfnote', ` AUDF${channel} = ${pitchVar}`)),
+      ];
+      // Where the note being played starts, for the resume of a sound effect.
+      const startPair = hasSoundEffectDuration ? resolveRW(musicStartVarName(channel)) : null;
+      // The volume of the instrument into temp4 (until the note says another).
+      const defaultVolumeLines = volumeOverrides ? tableLookupAsm(musicInstrumentVolumeTableName(), instrumentVar, 'temp4') : [];
+      // A note with a volume other than its instrument's can have a marker before it: temp1 is the marker, and the note is read again after it.
+      const volumeMarkerLines = volumeMarkers ? [
+        ` if temp1 < ${VOLUME_MARKER_BASE} then goto _music${channel}_novol`,
+        ' temp4 = temp1 & 15',
+        ` ${advanceIndex(1)}`,
+        ...pagedReadLines(tables, pageVar, indexVar, channel),
+        `_music${channel}_novol`,
+      ] : [];
 
       // None of B/A/UB/UA/DB/DA are kept in their  dev vars (see
       // arpBaseIntervalVar's  comment) - every one is derived fresh,
@@ -3406,78 +3391,105 @@ export default (Blockly) => {
       // LDA did, but work correctly relocated to any bank, which matters
       // far more for a project that actually needs music moved out of
       // bank 1 to fit at all.
-      // Lets a sound effect sharing this channel (see soundfx.js's
-      // soundfx_play/channnel0duration+channnel1duration) mute music's
-      // hardware output for its  duration, then hand it back once that
-      // duration ends, WITHOUT any new dev var to remember what was playing:
-      // AUDV/AUDC/AUDF for whichever note is CURRENTLY due are always
-      // exactly the last bytes this channel fetched from its  data table
-      // (see the AUDV/audfRead reads below - each is always followed by
-      // "indexVar += 1", so right after a fetch, indexVar points 1 past the
-      // AUDF byte just read: AUDV is indexVar-3, AUDF is indexVar-2). Those
-      // bytes are read-only ROM, so re-reading them costs nothing extra to
-      // keep around - built fresh here on every check (this per-channel
-      // block already has tables/pageVar/indexVar/pagedReadLines in scope)
-      // rather than cached in any new dev var. AUDC is different: it isn't
-      // part of the regular per-note record at all any more (see
-      // eventsToPages'  comment), so there's no fixed offset to re-read
-      // it FROM - lastAudcVar (see its  comment) is what this restores
-      // it from instead, a plain dev-var copy rather than another table
-      // read. This does NOT freeze anything: timerVar/indexVar keep
-      // advancing every frame regardless of whether a sound effect
-      // currently owns this channel's hardware output, so by the time the
-      // effect ends, indexVar/pageVar already point at whichever note is
-      // genuinely due AT THAT MOMENT (not the one that was playing when the
-      // effect started), with timerVar already holding its  true
-      // remaining length - a note that finished partway through the
-      // interruption is never replayed (indexVar has already moved past
-      // it), and a still-active note resumes with whatever's left of its
-      // duration, not a fresh restart.
+      // Lets a sound effect sharing this channel (see soundfx.js's soundfx_play/channnel0duration+channnel1duration) mute music's
+      // hardware output for its duration, then hand it back once that duration ends, WITHOUT any new dev var to remember what was
+      // playing: the note that is due is always the last record this channel fetched (each is 2 bytes, and indexVar points right
+      // after it), and its volume, AUDC and the rest of what it has in common with the notes of its instrument come from the line of
+      // the instrument tables that lastAudcVar (the index of the instrument, see musicLastAudcVarName) picks. This does NOT freeze
+      // anything: timerVar/indexVar keep advancing every frame regardless of whether a sound effect currently owns this channel's
+      // hardware output, so by the time the effect ends, indexVar/pageVar already point at whichever note is genuinely due AT THAT
+      // MOMENT, with timerVar already holding its true remaining length.
       //
-      // Deliberately generated as part of THIS channel's  per-frame
-      // check (which lives inside musicEngine's  relocatable payload,
-      // see wrapRelocatableMusic below) rather than spliced into
-      // commongamelogic (bbasic.bb.hbs), which is always fixed in bank 1 -
-      // musicEngine's  data tables travel to whatever bank musicEngine
-      // itself gets relocated to (see wrapRelocatableMusic's  comment),
-      // so reading them from bank-1-fixed code would silently read the
-      // WRONG bank's data once relocated (see bankJumpSuffix's  comment
-      // on this exact class of mistake). Running from here instead means
-      // this is always in the same bank as its  tables, automatically,
-      // with no bank tag needed - exactly like every other table read this
-      // same function already does. Runs BEFORE the ordinary paused/active
-      // early-exits below (a sound effect can end on a frame this channel
-      // would otherwise skip entirely, e.g. mid-note with plenty of timerVar
-      // left) - checked independently of them, so it never depends on this
-      // frame's  fetch/advance logic actually running at all. `if
-      // indexVar < 3` guards a fetch that's never actually happened yet on
-      // this channel (indexVar still at its dim'd-0 default) - only
-      // reachable at all if activeBit is somehow set before this channel's
-      // very first real fetch, which shouldn't happen, but costs one cheap
-      // comparison to rule out for certain rather than risk an 8-bit
-      // underflow wrapping the read index to 253+ (now genuinely reachable
-      // math - see INSTRUMENT_CHANGE_SENTINEL's  value - not just a
-      // theoretical concern this guard was already cheap insurance against).
-      const resumeRead = (offset, targetVar, writeLine = ` ${targetVar} = temp1`) => [
-        ` temp1 = ${indexVar} - ${offset}`,
-        ...pagedReadLines(tables, pageVar, 'temp1', channel),
-        writeLine,
+      // Deliberately generated as part of THIS channel's per-frame check (which lives inside musicEngine's relocatable payload, see
+      // wrapRelocatableMusic below) rather than spliced into commongamelogic, which is always fixed in bank 1: the data tables travel
+      // to whatever bank musicEngine itself gets relocated to, so reading them from bank-1-fixed code would silently read the WRONG
+      // bank's data once relocated (see bankJumpSuffix's comment). `if indexVar < 2` guards a fetch that has never happened yet on
+      // this channel (indexVar still at its dim'd-0 default), which would otherwise wrap the read index to 254+.
+      // The note being played starts where startPair says (at its markers, if it has any).
+      const chipResumeLines = !startPair ? [] : [
+        ...(instrumentVar ? tableLookupAsm(musicInstrumentVolumeTableName(), instrumentVar, 'temp4') : []),
+        ...(volumeMarkers || hasNoWatch ? [
+          ` temp5 = ${startPair.read}`,
+          `_musicresume${channel}_cmark`,
+          ' temp1 = temp5',
+          ...pagedReadLines(tables, pageVar, 'temp1', channel),
+          ` if temp1 < ${VOLUME_MARKER_BASE} then goto _musicresume${channel}_cnomark`,
+          ...(hasNoWatch ? [` if temp1 = ${NOWATCH_MARKER} then goto _musicresume${channel}_cnext`] : []),
+          ' temp4 = temp1 & 15',
+          `_musicresume${channel}_cnext`,
+          ' temp5 = temp5 + 1',
+          ` goto _musicresume${channel}_cmark`,
+          `_musicresume${channel}_cnomark`,
+        ] : [
+          ` temp1 = ${startPair.read}`,
+          ...pagedReadLines(tables, pageVar, 'temp1', channel),
+        ]),
+        ' temp3 = temp1',
+        ` if temp3 = 0 then goto _musicresume${channel}_rest`,
+        ...(hasFixed ? [
+          ...tableLookupAsm(musicInstrumentPitchTableName(), instrumentVar, 'temp6'),
+          ` if temp6 = 255 then goto _musicresume${channel}_note`,
+          ' temp3 = temp6',
+        ] : []),
+        ...(instrumentVar ? [
+          `_musicresume${channel}_note`,
+          ' temp1 = temp4',
+          volumeWrite('resume'),
+          ...tableLookupAsm(musicInstrumentTableName(), instrumentVar, 'temp1'),
+          ` AUDC${channel} = temp1`,
+          ` AUDF${channel} = temp3`,
+          ` goto _musicresume${channel}_skip`,
+        ] : []),
+        `_musicresume${channel}_rest`,
+        ` AUDV${channel} = 0`,
+        ` AUDF${channel} = 0`,
       ];
-      // A pure no-op (nothing at all, not even the cheap-looking guard
-      // checks) when this channel never shares hardware with a "Play
-      // sound" block in the first place - see channelHasSoundEffectDuration
-      // above/suppressibleWrite's  identical gate. Without a sound
-      // effect ever able to set durationVar to 1 on this channel, every one
-      // of these three checks would run every single frame only to always
-      // take their "skip" branch - real, paid-for cycles for a
-      // hand-off this channel can never actually receive.
+      const tiaResumeLines = !startPair ? [] : [
+        ` temp1 = ${startPair.read}`,
+        ...pagedReadLines(tables, pageVar, 'temp1', channel),
+        ...(instrumentVar ? tableLookupAsm(musicInstrumentVolumeTableName(), instrumentVar, 'temp4') : []),
+        ...(volumeMarkers ? [
+          ` if temp1 < ${VOLUME_MARKER_BASE} then goto _musicresume${channel}_novol`,
+          ' temp4 = temp1 & 15',
+          ` temp1 = ${startPair.read} + 1`,
+          ...pagedReadLines(tables, pageVar, 'temp1', channel),
+          `_musicresume${channel}_novol`,
+        ] : []),
+        ' temp3 = temp1',
+        ...(hasTuned ? [` if temp3 < ${SHORT_FORM_FLAG} then goto _musicresume${channel}_tuned`] : []),
+        // A rest or a hit.
+        ...(hasFixed ? [
+          ` temp1 = temp3 & ${REST_FLAG}`,
+          ` if temp1 <> 0 then goto _musicresume${channel}_rest`,
+          ...tableLookupAsm(musicInstrumentPitchTableName(), instrumentVar, 'temp5'),
+          ` goto _musicresume${channel}_note`,
+        ] : [` goto _musicresume${channel}_rest`]),
+        ...(hasTuned ? [
+          `_musicresume${channel}_tuned`,
+          ' temp5 = temp3',
+          ...(packedVolumes ? [
+            ` temp1 = temp3 & ${TUNED_PACKED_FLAG}`,
+            ` if temp1 = 0 then goto _musicresume${channel}_note`,
+            ...unpackVolumeAsm(false),
+          ] : []),
+        ] : []),
+        ...(instrumentVar ? [
+          `_musicresume${channel}_note`,
+          ' temp1 = temp4',
+          volumeWrite('resume'),
+          ...tableLookupAsm(musicInstrumentTableName(), instrumentVar, 'temp1'),
+          ` AUDC${channel} = temp1`,
+          ` AUDF${channel} = temp5`,
+          ` goto _musicresume${channel}_skip`,
+        ] : []),
+        `_musicresume${channel}_rest`,
+        ` AUDV${channel} = 0`,
+        ` AUDF${channel} = 0`,
+      ];
       const resumeCheck = !hasSoundEffectDuration ? [] : [
         ` if ${durationVar} <> 1 then goto _musicresume${channel}_skip`,
         ` if !${activeBit} then goto _musicresume${channel}_skip`,
-        ` if ${indexVar} < 3 then goto _musicresume${channel}_skip`,
-        ...resumeRead(3, `AUDV${channel}`, volumeWrite('resume')),
-        ...(lastAudcVar ? [` AUDC${channel} = ${lastAudcVar}`] : []),
-        ...resumeRead(2, `AUDF${channel}`),
+        ...(chip ? chipResumeLines : tiaResumeLines),
         `_musicresume${channel}_skip`,
       ];
 
@@ -3699,38 +3711,94 @@ export default (Blockly) => {
         ...skipInstrumentMarkers,
         ...skipEnvelopeMarkers,
         `_music${channel}_read`,
-        ` ${advanceIndex(1)}`,
-        ...suppressibleWrite('audvfetch', volumeWrite('fetch')),
-        // Every watched "note played" instrument's  set-flag check (see
-        // notePlayedSetLines above, including why this is a masked compare
-        // rather than a division) - temp1 still holds the just-fetched AUDV
-        // byte unmodified here (audfRead below reuses temp1 for its
-        // read right after, so this has to run before that). AUDC is no
-        // longer read here at all - see skipInstrumentMarkers/
-        // buildInstrumentMarkerSubroutine's  comment.
-        ...notePlayedSetLines,
-        // A rest (AUDV byte, still in temp1 here, exactly 0) always uses the
-        // plain, full-width AUDF/duration read, even on an arpeggio channel
-        // whose CURRENTLY SELECTED instrument does arpeggio - a rest never
-        // triggers its  instrument-change marker, so arpSpeedRangeVar
-        // just keeps reflecting whatever instrument was last actually
-        // played, not "is THIS event itself arpeggiating" (which is what
-        // audfRead/durationRead's  arpeggio branches actually need to
-        // know - see flattenPatternEvents'  per-event maxFrames, which
-        // only narrows an event that ITSELF has arpeggioSpeed > 0, never a
-        // rest). Read once, one path or the other, never both - indexVar
-        // only ever advances past exactly one AUDF byte and one duration
-        // byte per fetch either way.
-        ...(hasArpeggio ? [
-          ` if temp1 <> 0 then goto _music${channel}_notrest`,
-          ...audfAndDurationReadPlain,
-          ` goto _music${channel}_read_done`,
-          `_music${channel}_notrest`,
-          ...audfRead,
-          ...durationRead,
-          `_music${channel}_read_done`,
+        ...(chip ? [
+          // A note of the chip is a hit (1 byte, the duration), a note with its pitch stored (the pitch and the duration) or a rest (0 and
+          // the duration), with markers before it for the volume and the watch (see noteBytes): temp1 is the first byte and temp2 the next.
+          ...(startPair ? [` ${startPair.write} = ${indexVar}`] : []),
+          ...defaultVolumeLines,
+          ...(hasNoWatch ? [' temp5 = 1'] : []),
+          ...(volumeMarkers || hasNoWatch ? [
+            `_music${channel}_cmark`,
+            ` if temp1 < ${VOLUME_MARKER_BASE} then goto _music${channel}_cnomark`,
+            ...(hasNoWatch ? [` if temp1 = ${NOWATCH_MARKER} then goto _music${channel}_cnw`] : []),
+            ' temp4 = temp1 & 15',
+            ` goto _music${channel}_cnext`,
+            ...(hasNoWatch ? [`_music${channel}_cnw`, ' temp5 = 0'] : []),
+            `_music${channel}_cnext`,
+            ` ${advanceIndex(1)}`,
+            ...pagedReadLines(tables, pageVar, indexVar, channel),
+            ` goto _music${channel}_cmark`,
+            `_music${channel}_cnomark`,
+          ] : []),
+          ' temp3 = temp1',
+          ` if temp3 = 0 then goto _music${channel}_crest`,
+          ...(hasFixed ? [
+            ...tableLookupAsm(musicInstrumentPitchTableName(), instrumentVar, 'temp6'),
+            ` if temp6 = 255 then goto _music${channel}_ctuned`,
+            ` ${timerVar} = temp3`,
+            ' temp3 = temp6',
+            ` ${advanceIndex(1)}`,
+            ` goto _music${channel}_cnote`,
+          ] : []),
+          `_music${channel}_ctuned`,
+          ` ${timerVar} = temp2`,
+          ` ${advanceIndex(2)}`,
+          ...(instrumentVar ? [
+            `_music${channel}_cnote`,
+            ...noteLines,
+            ` goto _music${channel}_skip`,
+          ] : []),
+          `_music${channel}_crest`,
+          ` ${timerVar} = temp2`,
+          ` ${advanceIndex(2)}`,
+          ...restLines,
         ] : [
-          ...audfAndDurationReadPlain,
+          // A note of the TIA is 1 or 2 bytes, or 3 with a volume marker, read by the last peek (see SHORT_FORM_FLAG): temp1 is its first byte
+          // and temp2 the next.
+          ...(startPair ? [` ${startPair.write} = ${indexVar}`] : []),
+          ...defaultVolumeLines,
+          ...volumeMarkerLines,
+          ' temp3 = temp1',
+          ...(hasTuned ? [` if temp3 < ${SHORT_FORM_FLAG} then goto _music${channel}_tuned`] : []),
+          // A rest or a hit: the duration is in the low 5 bits of the first byte, or (those bits being 0) in the next byte.
+          ' temp1 = temp3 & 31',
+          ` if temp1 = 0 then goto _music${channel}_blong`,
+          ` ${timerVar} = temp1`,
+          ` ${advanceIndex(1)}`,
+          ` goto _music${channel}_bdone`,
+          `_music${channel}_blong`,
+          ` ${timerVar} = temp2`,
+          ` ${advanceIndex(2)}`,
+          `_music${channel}_bdone`,
+          ...(hasFixed ? [
+            ` temp1 = temp3 & ${REST_FLAG}`,
+            ` if temp1 <> 0 then goto _music${channel}_rest`,
+            ...watchLines('b'),
+            ...tableLookupAsm(musicInstrumentPitchTableName(), instrumentVar, 'temp5'),
+            ` goto _music${channel}_note`,
+          ] : [` goto _music${channel}_rest`]),
+          // A note with its pitch stored: the pitch, the duration in the next byte (with the volume in its high nibble when the note has the
+          // packed flag).
+          ...(hasTuned ? [
+            `_music${channel}_tuned`,
+            ` ${advanceIndex(2)}`,
+            ...(packedVolumes ? [
+              ` temp1 = temp3 & ${TUNED_PACKED_FLAG}`,
+              ` if temp1 = 0 then goto _music${channel}_notpacked`,
+              ...unpackVolumeAsm(true),
+              `_music${channel}_notpacked`,
+            ] : []),
+            ` ${timerVar} = temp2`,
+            ...watchLines('t'),
+            ' temp5 = temp3',
+          ] : []),
+          ...(instrumentVar ? [
+            `_music${channel}_note`,
+            ...noteLines,
+            ` goto _music${channel}_skip`,
+          ] : []),
+          `_music${channel}_rest`,
+          ...restLines,
         ]),
         `_music${channel}_skip`,
       ].join('\n');

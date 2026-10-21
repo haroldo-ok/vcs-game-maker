@@ -531,7 +531,7 @@ export default (Blockly) => {
     }
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const showVariableComments = config.showVariableComments ?? true;
+    const showVariableComments = config.showVariableComments ?? false;
     return configs.map(({index, envelopeTable}) => {
       if (!envelopeTable) return '';
       const comment = showVariableComments ?

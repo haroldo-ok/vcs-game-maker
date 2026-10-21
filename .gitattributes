@@ -1,0 +1,2 @@
+# Shell scripts keep Unix line endings so they run on Linux when checked out on Windows.
+*.sh text eol=lf

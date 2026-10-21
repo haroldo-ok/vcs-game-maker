@@ -1,4 +1,5 @@
 import {ref} from '@vue/composition-api';
+import {REMOVED} from '../utils/card-refs';
 
 // Selecting several cards of a tab's list at once: Shift+click selects the cards from the anchor (the card clicked last
 // without Shift) to the one clicked; Ctrl/Cmd+click adds a card to the selection or takes it out. selectedCardId (the
@@ -64,6 +65,17 @@ export const useCardSelection = (getIds, selectedCardId) => {
   // Whether the Delete key opens this card's confirmation: only the card clicked last does.
   const isDeleteTarget = (id, selectedId) => selectedId === id && selectedCardIds.value.includes(id);
 
+  // The cards were numbered again (see utils/card-refs.js's renumberCards): idMap says old id -> new id, REMOVED for a card that is gone.
+  const remapIds = (idMap) => {
+    const next = (id) => (idMap.has(id) ? idMap.get(id) : id);
+    selectedCardIds.value = selectedCardIds.value.map(next).filter((id) => id !== REMOVED);
+    if (selectedCardId.value !== null && selectedCardId.value !== undefined) {
+      const id = next(selectedCardId.value);
+      selectedCardId.value = id === REMOVED ? null : id;
+    }
+    if (anchorCardId !== null) anchorCardId = next(anchorCardId) === REMOVED ? null : next(anchorCardId);
+  };
+
   return {selectedCardIds, selectCard, deselectCard, isSelected, getSelectedIndices, idsToDelete, deleteQuestion,
-    isDeleteTarget};
+    isDeleteTarget, remapIds};
 };

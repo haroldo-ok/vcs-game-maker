@@ -96,6 +96,10 @@ init_variables
 	lda #bmp_player_kernellines
 	sta temp4
 	lda #0
+	; The first line reads (player1color),y before anything has set y, and it was left at $FF by the code above. With the
+	; color table in the wrong place, table + $FF is a bank switching address: reading it switched banks in the middle of
+	; the kernel and the frame ran for hundreds of scanlines (a green flicker, the sprites never drawn).
+	tay
 
 draw_players
         sta WSYNC

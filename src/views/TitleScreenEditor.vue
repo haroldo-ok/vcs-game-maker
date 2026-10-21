@@ -397,48 +397,6 @@
 
                             <template v-else-if="card.type === 'player'">
                               <div class="titlescreen-player-row">
-                                <v-select
-                                  label="Player 0 animation"
-                                  :items="playerAnimationOptions()"
-                                  v-model="card.player0Animation"
-                                  hide-details
-                                  class="titlescreen-player-select"
-                                  @change="handleChildChange"
-                                />
-                                <playfield-color-strip
-                                  class="titlescreen-player-color"
-                                  :value="[card.player0Color || 0]"
-                                  :quickColors="quickColorPalette"
-                                  :activeQuickColor="selectedQuickColor"
-                                  @input="(colors) => { card.player0Color = colors[0]; handleChildChange(); }"
-                                />
-                                <span class="titlescreen-player-color-label">Fallback color</span>
-                              </div>
-                              <div class="titlescreen-player-row">
-                                <v-select
-                                  label="Player 1 animation"
-                                  :items="playerAnimationOptions()"
-                                  v-model="card.player1Animation"
-                                  hide-details
-                                  class="titlescreen-player-select"
-                                  @change="handleChildChange"
-                                />
-                                <playfield-color-strip
-                                  class="titlescreen-player-color"
-                                  :value="[card.player1Color || 0]"
-                                  :quickColors="quickColorPalette"
-                                  :activeQuickColor="selectedQuickColor"
-                                  @input="(colors) => { card.player1Color = colors[0]; handleChildChange(); }"
-                                />
-                                <span class="titlescreen-player-color-label">Fallback color</span>
-                              </div>
-                              <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
-                                "Fallback color" is only used when the chosen animation doesn't have its
-                                per-row sprite colors (Options tab). Position with the normal "Player 0/1 set
-                                X/Y" blocks, and pick a starting frame with "Set title screen player sprite
-                                frame to" (Actions tab).
-                              </p>
-                              <div class="titlescreen-player-row">
                                 <v-text-field
                                   label="Window height"
                                   title="How tall the whole player minikernel's draw region is, in scanlines - independent of either player's sprite height."
@@ -459,24 +417,140 @@
                                   @change="handleChildChange"
                                 />
                               </div>
+                              <div class="titlescreen-player-row">
+                                <v-select
+                                  label="Player 0 animation"
+                                  :items="playerAnimationOptions()"
+                                  v-model="card.player0Animation"
+                                  hide-details
+                                  class="titlescreen-player-select"
+                                  @change="handleChildChange"
+                                />
+                                <v-text-field
+                                  label="Start X"
+                                  title="Where Player 0 starts on the screen (X), 0 to 255. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 0 set X&quot; block in Title screen update can move it from then on."
+                                  v-model.number="card.player0X"
+                                  type="number"
+                                  min="0"
+                                  max="255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player0X')"
+                                />
+                                <v-text-field
+                                  label="Start Y"
+                                  title="Where Player 0 starts in this card, counted down from the top of the card's window: 0 is its top line, and the window height is its bottom. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 0 set Y&quot; block in Title screen update can move it from then on (it counts the same way)."
+                                  v-model.number="card.player0Y"
+                                  type="number"
+                                  min="0"
+                                  :max="card.windowHeight || 255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player0Y')"
+                                />
+                                <v-select
+                                  label="Width"
+                                  title="How wide Player 0 is drawn on the title screen: 1x, 2x or 4x (the TIA can only stretch a sprite to these). Set after the blocks of Title screen start."
+                                  :items="TITLE_PLAYER_WIDTH_OPTIONS"
+                                  :value="card.player0Width || 1"
+                                  hide-details
+                                  class="titlescreen-player-width-field"
+                                  @change="(value) => handlePlayerWidthChange(card, 'player0Width', value)"
+                                />
+                                <playfield-color-strip
+                                  class="titlescreen-player-color"
+                                  :value="[card.player0Color || 0]"
+                                  :quickColors="quickColorPalette"
+                                  :activeQuickColor="selectedQuickColor"
+                                  @input="(colors) => handleSetPlayerColor(card, 'player0Color', colors[0])"
+                                />
+                                <span class="titlescreen-player-color-label">Fallback color</span>
+                              </div>
+                              <div class="titlescreen-player-row">
+                                <v-select
+                                  label="Player 1 animation"
+                                  :items="playerAnimationOptions()"
+                                  v-model="card.player1Animation"
+                                  hide-details
+                                  class="titlescreen-player-select"
+                                  @change="handleChildChange"
+                                />
+                                <v-text-field
+                                  label="Start X"
+                                  title="Where Player 1 starts on the screen (X), 0 to 255. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 1 set X&quot; block in Title screen update can move it from then on."
+                                  v-model.number="card.player1X"
+                                  type="number"
+                                  min="0"
+                                  max="255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player1X')"
+                                />
+                                <v-text-field
+                                  label="Start Y"
+                                  title="Where Player 1 starts in this card, counted down from the top of the card's window: 0 is its top line, and the window height is its bottom. Empty: not set (the blocks of Title screen start decide). Set after the blocks of Title screen start; a &quot;Player 1 set Y&quot; block in Title screen update can move it from then on (it counts the same way)."
+                                  v-model.number="card.player1Y"
+                                  type="number"
+                                  min="0"
+                                  :max="card.windowHeight || 255"
+                                  hide-details
+                                  placeholder="none"
+                                  persistent-placeholder
+                                  class="titlescreen-player-start-field"
+                                  @change="handlePlayerStartChange(card, 'player1Y')"
+                                />
+                                <v-select
+                                  label="Width"
+                                  title="How wide Player 1 is drawn on the title screen: 1x, 2x or 4x (the TIA can only stretch a sprite to these). Set after the blocks of Title screen start."
+                                  :items="TITLE_PLAYER_WIDTH_OPTIONS"
+                                  :value="card.player1Width || 1"
+                                  hide-details
+                                  class="titlescreen-player-width-field"
+                                  @change="(value) => handlePlayerWidthChange(card, 'player1Width', value)"
+                                />
+                                <playfield-color-strip
+                                  class="titlescreen-player-color"
+                                  :value="[card.player1Color || 0]"
+                                  :quickColors="quickColorPalette"
+                                  :activeQuickColor="selectedQuickColor"
+                                  @input="(colors) => handleSetPlayerColor(card, 'player1Color', colors[0])"
+                                />
+                                <span class="titlescreen-player-color-label">Fallback color</span>
+                              </div>
+                              <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
+                                "Fallback color" is only used when the chosen animation doesn't have its
+                                per-row sprite colors (Options tab). "Start X" and "Start Y" set where each
+                                player begins when the title screen starts, after the blocks of Title screen
+                                start have run (leave them empty to leave that to the blocks); move a player
+                                later with the normal "Player 0/1 set X/Y" blocks in Title screen update, and pick a starting frame with "Set title screen player sprite
+                                frame to" (Actions tab).
+                              </p>
                             </template>
 
                             <template v-else>
+                              <div class="titlescreen-player-row">
+                                <v-text-field
+                                  class="titlescreen-player-window-field"
+                                  label="Window height (0 = no scrolling)"
+                                  title="How many rows show at once - leave at 0 (or at/above one frame's full height) to show the whole current frame with no scrolling. Once set smaller, use the Set title screen scroll position block (Actions tab) to scroll within whichever frame is currently showing."
+                                  v-model.number="card.scrollWindow"
+                                  type="number"
+                                  min="0"
+                                  :max="cardFrameHeight(card)"
+                                  hide-details
+                                  @change="handleChildChange"
+                                />
+                              </div>
                               <p v-if="card.frames.length > 1" class="v-messages theme--light v-messages__message titlescreen-player-hint">
                                 Plays back automatically (each frame's Duration is in real frame ticks,
                                 same as a Player sprite animation) - no trigger block needed.
                               </p>
-                              <v-text-field
-                                class="titlescreen-scroll-window-field"
-                                label="Window height (0 = no scrolling)"
-                                title="How many rows show at once - leave at 0 (or at/above one frame's full height) to show the whole current frame with no scrolling. Once set smaller, use the Set title screen scroll position block (Actions tab) to scroll within whichever frame is currently showing."
-                                v-model.number="card.scrollWindow"
-                                type="number"
-                                min="0"
-                                :max="cardFrameHeight(card)"
-                                hide-details
-                                @change="handleChildChange"
-                              />
                               <v-switch
                                 v-if="card.frames.length > 1"
                                 v-model="card.playOnce"
@@ -534,6 +608,7 @@
                                       @clear="() => handleClearCardColors(card)"
                                       @clear-colors="() => handleClearCardColors(card)"
                                       @move-rows="(move) => handleMoveRows(card, frame, move)"
+                                      @flip-rows="() => handleFlipRowColors(card, frame)"
                                       @activate="(editorInstance) => setActiveFrame(editorInstance, card.id, frame.id, screen.id)"
                                     >
                                       <template v-if="cardHasRowColors(card)" v-slot:sidebar>
@@ -753,8 +828,9 @@ import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {recordCardDeletion} from '../hooks/card-delete-undo';
 import {useDragReorder} from '../hooks/drag-reorder';
+import {insertCardAfter, REMOVED, remapCardReferences, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
-import {recordRowColorsChange} from '../utils/row-color-history';
+import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-history';
 import {useTitleScreenStorage, useErrorStorage, usePixelGridOverlayStorage,
   usePlayerAnimationsStorage, useColorPaletteStorage} from '../hooks/project';
 import {useEditorZoom, ZOOM_LEVELS} from '../hooks/zoom';
@@ -869,13 +945,10 @@ export default defineComponent({
     // screen, so they stay as they are.
     const handleDuplicateScreen = (screen) => {
       if (!canDuplicateScreen(screen)) return;
-      const index = state.value.screens.findIndex(({id}) => id === screen.id);
       const copy = JSON.parse(JSON.stringify(screen));
-      copy.id = getMaxId(state.value.screens) + 1;
       copy.name = `${screen.name || 'Title screen'} copy`;
-      const screens = state.value.screens.slice();
-      screens.splice(index + 1, 0, copy);
-      state.value.screens = screens;
+      const idMap = insertCardAfter('titlescreen', state.value.screens, screen, copy);
+      if (idMap) screensRenumbered(idMap);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -883,7 +956,9 @@ export default defineComponent({
     const handleDeleteScreen = (screen) => {
       if (state.value.screens.length <= 1) return;
       const doomed = screenSelection.idsToDelete(screen.id, 1);
-      state.value.screens = state.value.screens.filter(({id}) => !doomed.includes(id));
+      const {remaining, idMap} = removeCards('titlescreen', state.value.screens, doomed);
+      state.value.screens = remaining;
+      if (idMap) screensRenumbered(idMap);
       if (doomed.length > 1) screenSelectionRef.value.deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -1030,12 +1105,9 @@ export default defineComponent({
     // copies of each kind of card, so it is only offered while one is left.
     const handleDuplicateCard = (screen, card) => {
       if (!canAddCardType(card.type)) return;
-      const index = screen.cards.findIndex(({id}) => id === card.id);
       const copy = JSON.parse(JSON.stringify(card));
-      copy.id = getMaxId(screen.cards) + 1;
-      const cards = screen.cards.slice();
-      cards.splice(index + 1, 0, copy);
-      screen.cards = cards;
+      const idMap = insertCardAfter('titlecard', screen.cards, card, copy, {screenId: screen.id});
+      if (idMap) cardsRenumbered(screen, idMap);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -1049,31 +1121,25 @@ export default defineComponent({
     };
     const handleDeleteCard = (screen, card) => {
       const doomed = cardIdsToDelete(screen, card);
-      if (doomed.length > 1) {
-        const original = screen.cards.slice();
-        screen.cards = screen.cards.filter(({id}) => !doomed.includes(id));
-        cardSelection.deselectCard();
-        handleChildChange();
-        instance.proxy.$forceUpdate();
-        recordCardDeletion(() => {
-          screen.cards = original;
-          handleChildChange();
-          instance.proxy.$forceUpdate();
-        });
-        return;
-      }
-      const index = screen.cards.findIndex(({id}) => id === card.id);
-      screen.cards = screen.cards.filter(({id}) => id !== card.id);
+      const original = screen.cards.slice();
+      const oldIds = new Map(original.map((each) => [each, each.id]));
+      const {remaining, idMap} = removeCards('titlecard', screen.cards, doomed, {screenId: screen.id});
+      screen.cards = remaining;
+      if (idMap) cardsRenumbered(screen, idMap);
+      if (doomed.length > 1) cardSelection.deselectCard();
       handleChildChange();
       instance.proxy.$forceUpdate();
-      // Lets the shared graphics toolbar's Undo button (see
-      // hooks/card-delete-undo.js) bring this card back at the same
-      // position, rather than deleting a card being the one action on this
-      // tab Undo can never touch.
+      // Lets the shared graphics toolbar's Undo button (see hooks/card-delete-undo.js) bring the cards back at the same places, with
+      // the numbers they had: the blocks that name the ones that stayed follow them back (a block that named a deleted card was set
+      // to nothing, and stays so).
       recordCardDeletion(() => {
-        const restored = screen.cards.slice();
-        restored.splice(index, 0, card);
-        screen.cards = restored;
+        const back = new Map(remaining.map((each) => [each.id, oldIds.get(each)]));
+        remapCardReferences('titlecard', back, {screenId: screen.id});
+        original.forEach((each) => {
+          each.id = oldIds.get(each);
+        });
+        screen.cards = original;
+        cardsRenumbered(screen, back);
         handleChildChange();
         instance.proxy.$forceUpdate();
       });
@@ -1107,13 +1173,27 @@ export default defineComponent({
       });
     };
     // Writes all of a frame's picture background values, so it no longer follows the graphic's.
-    const setFrameBox = (screen, card, frame, changes) => {
-      const box = {...titleFrameBox(card, frame, pageColorOf(screen)), ...changes};
-      frame.pf1 = box.pf1;
-      frame.pf2 = box.pf2;
-      frame.background = box.background;
+    // What changes the colors and boxes of a graphic without a history is recorded for undo and redo (see
+    // recordFieldsChange); the key makes the changes of one thing that follow each other quickly one step.
+    const saveAndRedraw = () => {
       handleChildChange();
       instance.proxy.$forceUpdate();
+    };
+    const changeKeys = new WeakMap();
+    const changeKeyOf = (owner, name) => {
+      if (!changeKeys.has(owner)) changeKeys.set(owner, {});
+      const keys = changeKeys.get(owner);
+      if (!keys[name]) keys[name] = {};
+      return keys[name];
+    };
+    const setFrameBox = (screen, card, frame, changes) => {
+      recordFieldsChange([{owner: frame, fields: ['pf1', 'pf2', 'background']}], () => {
+        const box = {...titleFrameBox(card, frame, pageColorOf(screen)), ...changes};
+        frame.pf1 = box.pf1;
+        frame.pf2 = box.pf2;
+        frame.background = box.background;
+        saveAndRedraw();
+      }, {key: changes.background !== undefined ? changeKeyOf(frame, 'box') : undefined, afterChange: saveAndRedraw});
     };
     const handleSetFrameBoxColor = (screen, card, frame, color) => setFrameBox(screen, card, frame, {background: color});
     const handleToggleFrameBoxCell = (screen, card, frame, cell) => {
@@ -1133,24 +1213,56 @@ export default defineComponent({
       });
     };
     const setAllFramesBox = (screen, card, pf2) => {
-      card.pf1 = 0;
-      card.pf2 = pf2;
-      card.frames.forEach((frame) => {
-        frame.pf1 = 0;
-        frame.pf2 = pf2;
-        if (frame.background === undefined || frame.background === null) {
-          frame.background = titleFrameBox(card, frame, pageColorOf(screen)).background;
-        }
-      });
-      handleChildChange();
-      instance.proxy.$forceUpdate();
+      recordFieldsChange([
+        {owner: card, fields: ['pf1', 'pf2']},
+        ...card.frames.map((frame) => ({owner: frame, fields: ['pf1', 'pf2', 'background']})),
+      ], () => {
+        card.pf1 = 0;
+        card.pf2 = pf2;
+        card.frames.forEach((frame) => {
+          frame.pf1 = 0;
+          frame.pf2 = pf2;
+          if (frame.background === undefined || frame.background === null) {
+            frame.background = titleFrameBox(card, frame, pageColorOf(screen)).background;
+          }
+        });
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
     };
     const handleFitBox = (screen, card) => setAllFramesBox(screen, card, 0xfc);
     const handleClearBox = (screen, card) => setAllFramesBox(screen, card, 0);
 
     const handleSetCardColor = (card, color) => {
-      card.color = color;
+      recordFieldsChange([{owner: card, fields: ['color']}], () => {
+        card.color = color;
+        handleChildChange();
+      }, {key: changeKeyOf(card, 'color'), afterChange: saveAndRedraw});
+    };
+    // The color of the Player 0 or Player 1 sprite of a Player card.
+    const TITLE_PLAYER_WIDTH_OPTIONS = [{text: '1x', value: 1}, {text: '2x', value: 2}, {text: '4x', value: 4}];
+    // 1x is what a player is without a setting, so the key is removed for it.
+    const handlePlayerWidthChange = (card, key, value) => {
+      if (value === 2 || value === 4) instance.proxy.$set(card, key, value);
+      else instance.proxy.$delete(card, key);
       handleChildChange();
+    };
+    // The starting position of a Player card's sprite: empty (or not a number) means none is set, and the key is removed.
+    const handlePlayerStartChange = (card, key) => {
+      const value = card[key];
+      if (value === '' || value === null || value === undefined || !Number.isFinite(Number(value))) {
+        instance.proxy.$delete(card, key);
+      } else {
+        // A Y counts inside the card's window, so it can not be below its bottom.
+        const top = /Y$/.test(key) ? Math.max(1, Number(card.windowHeight) || 255) : 255;
+        card[key] = Math.max(0, Math.min(top, Math.round(Number(value))));
+      }
+      handleChildChange();
+    };
+    const handleSetPlayerColor = (card, field, color) => {
+      recordFieldsChange([{owner: card, fields: [field]}], () => {
+        card[field] = color;
+        handleChildChange();
+      }, {key: changeKeyOf(card, field), afterChange: saveAndRedraw});
     };
 
     // Clearing a card's  graphic (PixelEditor.vue's "clear" event,
@@ -1165,22 +1277,27 @@ export default defineComponent({
     // (PixelEditor.vue's "clear" event only ever touches that one
     // v-model, i.e. just that one frame's pixels - this only covers color).
     const handleClearCardColors = (card) => {
-      if (cardHasRowColors(card)) {
-        card.frames.forEach((frame) => {
-          frame.rowColors = clearRowColors(frame.rowColors);
-        });
-      } else {
-        card.color = 0x0f;
-      }
-      // The picture background colors go back to the page's color (the blocks that are on stay on).
-      if (cardWidth(card) === 48) {
-        delete card.background;
-        card.frames.forEach((frame) => {
-          delete frame.background;
-        });
-        instance.proxy.$forceUpdate();
-      }
-      handleChildChange();
+      recordFieldsChange([
+        {owner: card, fields: ['color', 'background']},
+        ...card.frames.map((frame) => ({owner: frame, fields: ['rowColors', 'background']})),
+      ], () => {
+        if (cardHasRowColors(card)) {
+          card.frames.forEach((frame) => {
+            frame.rowColors = clearRowColors(frame.rowColors);
+          });
+        } else {
+          card.color = 0x0f;
+        }
+        // The picture background colors go back to the page's color (the blocks that are on stay on).
+        if (cardWidth(card) === 48) {
+          delete card.background;
+          card.frames.forEach((frame) => {
+            delete frame.background;
+          });
+          instance.proxy.$forceUpdate();
+        }
+        handleChildChange();
+      }, {afterChange: saveAndRedraw});
     };
 
     // Keeps a frame's rowColors in sync with its  current height
@@ -1216,6 +1333,11 @@ export default defineComponent({
     // Moving selected pixels with the Move tool takes the colors of their rows along
     // (PixelEditor.vue's 'move-rows' event - see utils/row-color-move.js).
 
+    // Turning the whole picture upside down turns its row colors with it (one step for Undo, see recordRowColorsChange).
+    const handleFlipRowColors = (card, frame) => {
+      if (!cardHasRowColors(card) || !frame.rowColors) return;
+      handleRowColorsInput(frame, frame.rowColors.slice().reverse());
+    };
     const handleMoveRows = (card, frame, move) => {
       if (!cardHasRowColors(card)) return;
       const colors = rowColorsForMove(frame, move);
@@ -1517,21 +1639,23 @@ export default defineComponent({
     };
     const handlePasteFrame = (card, frame) => {
       if (!copiedFrameData.value) return;
-      frame.pixels = structuredClone(copiedFrameData.value.pixels);
-      if (cardHasRowColors(card) && copiedFrameData.value.rowColors) {
-        frame.rowColors = structuredClone(copiedFrameData.value.rowColors);
-      }
-      const copiedBox = copiedFrameData.value.box || {};
-      FRAME_BOX_FIELDS.forEach((field) => {
-        if (copiedBox[field] !== undefined) frame[field] = copiedBox[field];
-        else delete frame[field];
-      });
-      handleChildChange();
-      instance.proxy.$forceUpdate();
+      // Can be undone (see recordFieldsChange): the history of the pixel editor does not see a pasted image.
+      recordFieldsChange([{owner: frame, fields: ['pixels', 'rowColors', ...FRAME_BOX_FIELDS]}], () => {
+        frame.pixels = structuredClone(copiedFrameData.value.pixels);
+        if (cardHasRowColors(card) && copiedFrameData.value.rowColors) {
+          frame.rowColors = structuredClone(copiedFrameData.value.rowColors);
+        }
+        const copiedBox = copiedFrameData.value.box || {};
+        FRAME_BOX_FIELDS.forEach((field) => {
+          if (copiedBox[field] !== undefined) frame[field] = copiedBox[field];
+          else delete frame[field];
+        });
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
     };
 
-    const {isCollapsed: isScreenCollapsed, toggleCollapsed: toggleScreenCollapsed, collapseAll: collapseAllScreens} =
-      useCollapsedIds('titlescreen-screens', true);
+    const {isCollapsed: isScreenCollapsed, toggleCollapsed: toggleScreenCollapsed, collapseAll: collapseAllScreens,
+      remapIds: remapScreenCollapsedIds} = useCollapsedIds('titlescreen-screens', true);
     collapseAllScreens();
 
     // Card collapse state is shared across every screen (one storage
@@ -1540,8 +1664,8 @@ export default defineComponent({
     // per screen) - so two different screens' cards can share the same raw
     // id. cardCollapseKey combines both into one id useCollapsedIds can
     // safely key on without those colliding.
-    const {isCollapsed: isCollapsedRaw, toggleCollapsed: toggleCollapsedRaw, collapseAll: collapseAllCards} =
-      useCollapsedIds('titlescreen-cards', true);
+    const {isCollapsed: isCollapsedRaw, toggleCollapsed: toggleCollapsedRaw, collapseAll: collapseAllCards,
+      remapKeys: remapCardCollapsedKeys} = useCollapsedIds('titlescreen-cards', true);
     collapseAllCards();
     const cardCollapseKey = (screen, card) => ({id: `${screen.id}-${card.id}`});
     const isCollapsed = (key) => isCollapsedRaw(key);
@@ -1556,6 +1680,35 @@ export default defineComponent({
       isDeleteTarget: (...args) => screenSelectionRef.value.isDeleteTarget(...args),
       idsToDelete: (...args) => screenSelectionRef.value.idsToDelete(...args),
     };
+    // The pages are numbered by their place, and the graphics of a page by theirs within the page (see utils/card-refs.js): after a
+    // move, a delete or a copy each keeps what the tab holds by number (collapsed, selected, being edited) under its new number,
+    // and the blocks and data table cells that name a page or a graphic follow.
+    const keptNumber = (idMap, id) => {
+      const next = idMap.has(id) ? idMap.get(id) : id;
+      return next === REMOVED ? null : next;
+    };
+    const screensRenumbered = (idMap) => {
+      screenSelectionRef.value.remapIds(idMap);
+      remapScreenCollapsedIds(idMap);
+      remapCardCollapsedKeys((key) => {
+        const [screen, card] = key.split('-').map(Number);
+        if (!idMap.has(screen)) return undefined;
+        return idMap.get(screen) === REMOVED ? null : `${idMap.get(screen)}-${card}`;
+      });
+      selectedCardScreenId.value = selectedCardScreenId.value === null ? null : keptNumber(idMap, selectedCardScreenId.value);
+      activeScreenId.value = activeScreenId.value === null ? null : keptNumber(idMap, activeScreenId.value);
+    };
+    const cardsRenumbered = (screen, idMap) => {
+      if (screen.id === selectedCardScreenId.value) cardSelection.remapIds(idMap);
+      remapCardCollapsedKeys((key) => {
+        const [screenId, card] = key.split('-').map(Number);
+        if (screenId !== screen.id || !idMap.has(card)) return undefined;
+        return idMap.get(card) === REMOVED ? null : `${screenId}-${idMap.get(card)}`;
+      });
+      if (screen.id === activeScreenId.value && activeCardId.value !== null) {
+        activeCardId.value = keptNumber(idMap, activeCardId.value);
+      }
+    };
     const {dragAttrs: screenDragAttrs, dragCardClass: screenDragCardClass,
       dragHandleListeners: screenDragHandleListeners, dragTargetListeners: screenDragTargetListeners} = useDragReorder(
         () => state.value.screens,
@@ -1564,6 +1717,7 @@ export default defineComponent({
           handleChildChange();
         },
         () => screenSelection.getSelectedIndices(),
+        {renumber: {kind: 'titlescreen', onRenumbered: screensRenumbered}},
     );
 
     // One useDragReorder instance PER SCREEN (each screen's  card list
@@ -1572,20 +1726,25 @@ export default defineComponent({
     // more than once/lazily like this. Cached by screen id so every card in
     // the same screen shares one instance (its  draggedIndex/
     // dragOverIndex refs), rather than creating a fresh, disconnected one
-    // per card.
+    // per card. Kept by the screen itself, not its number, which changes when the pages are numbered again.
     const cardDragReordersByScreen = new Map();
     const cardDragReorderFor = (screen) => {
-      if (!cardDragReordersByScreen.has(screen.id)) {
-        cardDragReordersByScreen.set(screen.id, useDragReorder(
+      if (!cardDragReordersByScreen.has(screen)) {
+        cardDragReordersByScreen.set(screen, useDragReorder(
             () => screen.cards,
             (items) => {
               screen.cards = items;
               handleChildChange();
             },
             () => (screen.id === selectedCardScreenId.value ? cardSelection.getSelectedIndices() : []),
+            {renumber: {
+              kind: 'titlecard',
+              context: () => ({screenId: screen.id}),
+              onRenumbered: (idMap) => cardsRenumbered(screen, idMap),
+            }},
         ));
       }
-      return cardDragReordersByScreen.get(screen.id);
+      return cardDragReordersByScreen.get(screen);
     };
     const cardDragAttrs = (screen, index) => cardDragReorderFor(screen).dragAttrs(index);
     const cardDragCardClass = (screen, index) => cardDragReorderFor(screen).dragCardClass(index);
@@ -1596,7 +1755,8 @@ export default defineComponent({
     // another moves it there. Frame ids stay as they are.
     const frameDragByCard = new Map();
     const frameDrag = (screen, card) => {
-      const cardKey = `${screen.id}:${card.id}`;
+      // Kept by the graphic itself, not its numbers, which change when the cards are numbered again.
+      const cardKey = card;
       if (!frameDragByCard.has(cardKey)) {
         // Looked up again on every drop: the stored state can be rebuilt between renders.
         const currentCard = () => (state.value.screens.find(({id}) => id === screen.id) || screen)
@@ -1852,8 +2012,9 @@ export default defineComponent({
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,
       handleClearBox,
       exportableScreen, handleExportTitleScreen, handleImportTitleScreen,
-      handleSetBackgroundColor, handleSetCardColor, handleClearCardColors,
-      handleFramePixelsInput, handleRowColorsInput, handleMoveRows, cardFrameHeight,
+      handleSetBackgroundColor, handleSetCardColor, handleSetPlayerColor, handlePlayerStartChange, handleClearCardColors,
+      TITLE_PLAYER_WIDTH_OPTIONS, handlePlayerWidthChange,
+      handleFramePixelsInput, handleRowColorsInput, handleMoveRows, handleFlipRowColors, cardFrameHeight,
       handleAddFrame, handleDeleteFrame,
       frameDrag, armedFrameKey, frameKey, armFrameDrag, frameHandleListeners,
       handleImportCardFrames, replaceFramesOnImport, keepColorsOnImport, importMenuOpenCardRef,
@@ -2289,6 +2450,15 @@ export default defineComponent({
 .titlescreen-player-window-field {
   max-width: 260px;
 }
+/* Start X and Start Y: only as wide as three digits need. */
+.titlescreen-player-start-field {
+  flex: 0 0 72px;
+  max-width: 72px;
+}
+.titlescreen-player-width-field {
+  flex: 0 0 72px;
+  max-width: 72px;
+}
 
 .titlescreen-player-color {
   display: inline-flex;
@@ -2454,14 +2624,6 @@ export default defineComponent({
   color: rgba(0, 0, 0, 0.5);
 }
 
-.titlescreen-scroll-window-field {
-  max-width: 320px;
-  margin-top: 0;
-  /* Room for the floating label, which is cut off at the top without it (most visible in Expert mode, with the
-     description text above hidden). */
-  padding-top: 12px;
-  margin-bottom: 12px;
-}
 
 /* Room on the left for the switch's round highlight, which the card would otherwise clip. */
 .titlescreen-play-once-switch {

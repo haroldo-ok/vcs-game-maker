@@ -1,4 +1,5 @@
 import {ref} from '@vue/composition-api';
+import {REMOVED} from '../utils/card-refs';
 
 // Which cards are collapsed is a per-tab view preference, so it is kept out
 // of the project storage that gets saved and loaded with a project - same
@@ -134,5 +135,27 @@ export const useCollapsedIds = (name, defaultCollapsed = false) => {
     stored.value = {};
     localStorage.setItem(keyOf(name), JSON.stringify(stored.value));
   };
-  return {isCollapsed, toggleCollapsed, ensureExpanded, setCollapsed, collapseAll};
+  // The cards were numbered again (see utils/card-refs.js's renumberCards): each keeps its collapsed state. idMap says old id -> new
+  // id, 0 for a card that is gone.
+  const remapIds = (idMap) => remapKeys((key) => {
+    if (!idMap.has(Number(key))) return undefined;
+    const id = idMap.get(Number(key));
+    return id === REMOVED ? null : String(id);
+  });
+  // For a tab that keys the state by something made of more than a card's id (a title screen's cards: "screen-card"): mapKey(key)
+  // gives the new key, null for a card that is gone, or undefined for a key that is not in the list of cards.
+  const remapKeys = (mapKey) => {
+    const next = {};
+    Object.keys(stored.value).forEach((key) => {
+      const mappedKey = mapKey(key);
+      if (mappedKey !== undefined && mappedKey !== null) next[mappedKey] = stored.value[key];
+    });
+    // What was kept for keys that are not in the list (a deleted card's, long ago) stays unless a card took its key.
+    Object.keys(stored.value).forEach((key) => {
+      if (mapKey(key) === undefined && !(key in next)) next[key] = stored.value[key];
+    });
+    stored.value = next;
+    localStorage.setItem(keyOf(name), JSON.stringify(stored.value));
+  };
+  return {isCollapsed, toggleCollapsed, ensureExpanded, setCollapsed, collapseAll, remapIds, remapKeys};
 };

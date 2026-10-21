@@ -4,6 +4,7 @@ import Vue from 'vue';
 import * as Blockly from 'blockly/core';
 
 import {useSoundEffectsStorage} from '../hooks/project';
+import {cardOptions} from '../utils/card-refs';
 import {channelOptions} from './sound';
 import {SOUND_ICON} from './icon';
 import {STAIRCASE_FRAME_OPTIONS, DEFAULT_STAIRCASE_STEP, DEFAULT_STAIRCASE_FRAMES, MAX_STAIRCASE_STEP} from '../utils/staircase';
@@ -349,6 +350,8 @@ export const buildSoundEffectOptions = () => {
     return [['Error', '1']];
   }
 };
+
+cardOptions('sound', buildSoundEffectOptions);
 
 // Looks up one stored sound effect preset by id, or null if it can't be found.
 export const findSoundEffectById = (id) => {

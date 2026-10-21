@@ -278,6 +278,7 @@
                       @clear="() => handleClearRowColors(background)"
                       @clear-colors="() => handleClearRowColors(background)"
                       @move-rows="(move) => handleMoveRows(background, move)"
+                      @flip-rows="() => handleFlipRowColors(background)"
                       @activate="(editorInstance) => setActiveEditor(editorInstance, background.id)"
                     >
                       <template v-if="pfColorsEnabled" v-slot:sidebar>
@@ -350,9 +351,10 @@ import {computed, defineComponent, getCurrentInstance, ref} from '@vue/compositi
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
-import {recordReorder, sameItems} from '../hooks/reorder-history';
-import {recordRowColorsChange} from '../utils/row-color-history';
-import {CSS_CLASS_DRAGGING, dragGroupFor, moveCards} from '../hooks/drag-reorder';
+import {recordReorder} from '../hooks/reorder-history';
+import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-history';
+import {useDragReorder} from '../hooks/drag-reorder';
+import {insertCardAfter, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EditorZoom from '../components/EditorZoom.vue';
@@ -365,7 +367,6 @@ import {useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage,
   usePixelGridOverlayStorage, usePixelGridLabelsStorage} from '../hooks/project';
 import {buildBackgroundPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useEditorZoom} from '../hooks/zoom';
-import {remapBackgroundReferences} from '../utils/background-refs';
 import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
@@ -483,8 +484,9 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion} = useCardSelection(
-        () => state.value.backgrounds.map(({id}) => id), selectedCardId);
+    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+      useCardSelection(
+          () => state.value.backgrounds.map(({id}) => id), selectedCardId);
 
     // Tracks whichever background's PixelEditor instance was last
     // clicked into (see its "activate" event, emitted from PixelEditor.vue's
@@ -661,117 +663,27 @@ export default defineComponent({
     // Every card starts collapsed on every visit to this tab (see
     // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
-    const {isCollapsed, toggleCollapsed, collapseAll} = useCollapsedIds('background', true);
+    const {isCollapsed, toggleCollapsed, collapseAll, remapIds: remapCollapsedIds} = useCollapsedIds('background', true);
     collapseAll();
 
-    // Card reordering - NOT built on hooks/drag-reorder.js's
-    // useDragReorder (used as-is by SoundFXEditor.vue/MusicEditor.vue's
-    // single-column card lists), since that hook's  top-border
-    // drag-over convention only makes sense for a strictly vertical stack.
-    // .background-list is a CSS grid (see its  comment - two or more
-    // cards can sit side by side on a wide enough window), where the
-    // meaningful drop-target edge is left/right (which card this lands
-    // before/after in reading order), not top/bottom - same reasoning as
-    // TextEditor.vue's  identical replacement.
-    const draggedIndex = ref(null);
-    // Every card being dragged: the selected ones when the one dragged is one of them.
-    const draggedGroup = ref([]);
-    // {index, side} - side is 'before' or 'after', which HALF of card
-    // `index` the pointer is currently over.
-    const dragOverEntry = ref(null);
-    const isEntryDragging = (index) => draggedIndex.value === index || draggedGroup.value.includes(index);
-    const isEntryDragOver = (index) =>
-      !!dragOverEntry.value && dragOverEntry.value.index === index && !isEntryDragging(index);
-    const entryDragOverSide = (index) => (isEntryDragOver(index) ? dragOverEntry.value.side : null);
-    const dragCardClass = (index) => ({
-      [CSS_CLASS_DRAGGING]: isEntryDragging(index),
-      'background-card-drag-over-before': entryDragOverSide(index) === 'before',
-      'background-card-drag-over-after': entryDragOverSide(index) === 'after',
-    });
-    const dragOverSideFor = (event) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    // Card reordering (see hooks/drag-reorder.js). .background-list is a CSS grid (see its comment: two or more cards can sit side by
+    // side on a wide enough window), so the hook marks the left or right edge of the card the pointer is over (sideBySide). The
+    // backgrounds are numbered 1, 2, 3... by their place after a move, a delete or a copy, so the ID shown on a card and the number the
+    // game switches backgrounds with follow the order of the list. Everything that referred to a background by its old id is pointed
+    // at its new one (see utils/card-refs.js), and each card keeps its collapsed state and selection.
+    const renumbered = (idMap) => {
+      remapSelectedIds(idMap);
+      remapCollapsedIds(idMap);
     };
-    const dragAttrs = () => ({draggable: true});
-    const dragHandleListeners = (index) => ({
-      dragstart: (event) => {
-        draggedIndex.value = index;
-        draggedGroup.value = dragGroupFor(index, getSelectedIndices());
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', String(index));
-      },
-      dragend: () => {
-        draggedIndex.value = null;
-        draggedGroup.value = [];
-        dragOverEntry.value = null;
-      },
-    });
-    // After a reorder the backgrounds are numbered 1, 2, 3... by their new
-    // position, so the ID shown on a card and the number the game switches
-    // backgrounds with follow the order of the list. Everything that referred to
-    // a background by its old id is pointed at its new one (see
-    // utils/background-refs.js), and each card keeps its collapsed state and
-    // selection.
-    const renumberBackgrounds = () => {
-      const backgrounds = state.value.backgrounds;
-      const idMap = new Map(backgrounds.map((background, index) => [background.id, index + 1]));
-      if (backgrounds.every((background) => idMap.get(background.id) === background.id)) return;
-      const collapsed = backgrounds.map((background) => isCollapsed(background));
-      const selected = backgrounds.find((background) => background.id === selectedCardId.value);
-      remapBackgroundReferences(idMap);
-      backgrounds.forEach((background, index) => {
-        background.id = index + 1;
-      });
-      backgrounds.forEach((background, index) => {
-        if (isCollapsed(background) !== collapsed[index]) toggleCollapsed(background);
-      });
-      if (selected) selectedCardId.value = selected.id;
-      selectedCardIds.value = selectedCardIds.value.map((id) => idMap.get(id) || id);
-    };
-
-    const dragTargetListeners = (index) => ({
-      dragover: (event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        const side = dragOverSideFor(event);
-        const current = dragOverEntry.value;
-        if (!current || current.index !== index || current.side !== side) {
-          dragOverEntry.value = {index, side};
-        }
-      },
-      dragleave: (event) => {
-        if (event.currentTarget.contains(event.relatedTarget)) return;
-        if (isEntryDragOver(index) || isEntryDragging(index)) dragOverEntry.value = null;
-      },
-      drop: (event) => {
-        event.preventDefault();
-        const from = draggedIndex.value;
-        const group = draggedGroup.value.length ? draggedGroup.value : [from];
-        draggedIndex.value = null;
-        draggedGroup.value = [];
-        dragOverEntry.value = null;
-        if (from == null || group.includes(index)) return;
-        const side = dragOverSideFor(event);
-        const insertAt = side === 'after' ? index + 1 : index;
-        const before = state.value.backgrounds.slice();
-        const items = moveCards(before, group, insertAt);
-        if (sameItems(items, before)) return;
-        state.value.backgrounds = items;
-        renumberBackgrounds();
-        handleChildChange();
-        const after = items.slice();
-        const restore = (order) => {
-          state.value.backgrounds = order.slice();
-          renumberBackgrounds();
+    const {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners} = useDragReorder(
+        () => state.value.backgrounds,
+        (items) => {
+          state.value.backgrounds = items;
           handleChildChange();
-        };
-        recordReorder({
-          undo: () => restore(before),
-          redo: () => restore(after),
-          isCurrent: () => sameItems(state.value.backgrounds, after),
-        });
-      },
-    });
+        },
+        getSelectedIndices,
+        {sideBySide: true, renumber: {kind: 'background', onRenumbered: renumbered}},
+    );
 
     const setRowColors = (background, colors) => {
       background.rowColors = colors;
@@ -788,10 +700,20 @@ export default defineComponent({
     };
 
 
-    const handleBkRowColorsInput = (background, colors) => {
-      background.bkRowColors = colors;
+    // What changes a background's fields without a history (the background row colors, Clear, Paste) is recorded for
+    // undo and redo (see recordFieldsChange).
+    const saveAndRedraw = () => {
       handleChildChange();
       instance.proxy.$forceUpdate();
+    };
+    const bkRowColorsKeys = new WeakMap();
+    const handleBkRowColorsInput = (background, colors) => {
+      // Picking colors for a run of rows within a moment of each other is one step.
+      if (!bkRowColorsKeys.has(background)) bkRowColorsKeys.set(background, {});
+      recordFieldsChange([{owner: background, fields: ['bkRowColors']}], () => {
+        background.bkRowColors = colors;
+        saveAndRedraw();
+      }, {key: bkRowColorsKeys.get(background), afterChange: saveAndRedraw});
     };
 
     // Moving selected pixels with the Move tool takes the colors of their rows along
@@ -806,11 +728,20 @@ export default defineComponent({
     // an ordinary pixel edit) resets its row colors back to the same default
     // every row starts at, rather than leaving old per-row picks behind on
     // an otherwise blank graphic.
+    // Turning the whole picture upside down turns the row colors with it (both lists, when the project has them), and Undo puts them back.
+    const handleFlipRowColors = (background) => {
+      recordFieldsChange([{owner: background, fields: ['rowColors', 'bkRowColors']}], () => {
+        if (pfColorsEnabled.value && background.rowColors) background.rowColors = background.rowColors.slice().reverse();
+        if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.slice().reverse();
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
+    };
     const handleClearRowColors = (background) => {
-      if (pfColorsEnabled.value && background.rowColors) background.rowColors = clearRowColors(background.rowColors);
-      if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.map(() => DEFAULT_BK_ROW_COLOR);
-      handleChildChange();
-      instance.proxy.$forceUpdate();
+      recordFieldsChange([{owner: background, fields: ['rowColors', 'bkRowColors']}], () => {
+        if (pfColorsEnabled.value && background.rowColors) background.rowColors = clearRowColors(background.rowColors);
+        if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.map(() => DEFAULT_BK_ROW_COLOR);
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
     };
 
     // CSS colors passed to the pixel editor so it can tint each row. Returns
@@ -860,18 +791,19 @@ export default defineComponent({
       // Same reasoning as handleBackgroundPixelsInput's customHeight
       // check - pasting a taller/shorter image is just as much a resize as
       // dragging the pixel editor's "Set height" slider.
-      if (copiedBackgroundData.value.pixels.length !== background.pixels.length) {
-        background.customHeight = true;
-      }
-      background.pixels = structuredClone(copiedBackgroundData.value.pixels);
-      if (pfColorsEnabled.value && copiedBackgroundData.value.rowColors) {
-        background.rowColors = structuredClone(copiedBackgroundData.value.rowColors);
-      }
-      if (bkColorsEnabled.value && copiedBackgroundData.value.bkRowColors) {
-        background.bkRowColors = structuredClone(copiedBackgroundData.value.bkRowColors);
-      }
-      handleChildChange();
-      instance.proxy.$forceUpdate();
+      recordFieldsChange([{owner: background, fields: ['pixels', 'rowColors', 'bkRowColors', 'customHeight']}], () => {
+        if (copiedBackgroundData.value.pixels.length !== background.pixels.length) {
+          background.customHeight = true;
+        }
+        background.pixels = structuredClone(copiedBackgroundData.value.pixels);
+        if (pfColorsEnabled.value && copiedBackgroundData.value.rowColors) {
+          background.rowColors = structuredClone(copiedBackgroundData.value.rowColors);
+        }
+        if (bkColorsEnabled.value && copiedBackgroundData.value.bkRowColors) {
+          background.bkRowColors = structuredClone(copiedBackgroundData.value.bkRowColors);
+        }
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
     };
 
     const handleAddBackground = () => {
@@ -903,21 +835,21 @@ export default defineComponent({
       }
     };
 
-    // A copy of a background (pixels, row colors, height) added at the end of the
-    // list under a new id, so no existing id or block that uses one changes.
+    // A copy of a background (pixels, row colors, height) put right after it: the backgrounds after it are numbered again.
     const handleDuplicateBackground = (background) => {
-      const backgrounds = state.value.backgrounds;
       const copy = JSON.parse(JSON.stringify(background));
-      copy.id = (max(backgrounds.map((o) => o.id)) || 0) + 1;
       copy.name = `${background.name || 'Background'} copy`;
-      backgrounds.push(copy);
+      const idMap = insertCardAfter('background', state.value.backgrounds, background, copy);
+      if (idMap) renumbered(idMap);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
 
     const handleDeleteBackground = (background) => {
       const doomed = idsToDelete(background.id, 1);
-      state.value.backgrounds = state.value.backgrounds.filter(({id}) => !doomed.includes(id));
+      const {remaining, idMap} = removeCards('background', state.value.backgrounds, doomed);
+      state.value.backgrounds = remaining;
+      if (idMap) renumbered(idMap);
       if (doomed.length > 1) deselectCard();
       console.info('Deleted ', background);
       handleChildChange();
@@ -928,7 +860,7 @@ export default defineComponent({
       state, handleChildChange, handleBackgroundPixelsInput, handleAddBackground, handleDeleteBackground, handleDuplicateBackground,
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
-      handleRowColorsInput, handleMoveRows, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
+      handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
@@ -1107,11 +1039,11 @@ export default defineComponent({
    CSS grid that can put more than one card on the same row (see its
    comment) - left/right is what actually reflects reading-order position
    within it. */
-.background-card-drag-over-before {
+.drag-reorder-side-before {
   border-left: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 
-.background-card-drag-over-after {
+.drag-reorder-side-after {
   border-right: 3px solid var(--v-primary-base, #1976d2) !important;
 }
 

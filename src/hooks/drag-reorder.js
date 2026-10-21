@@ -1,5 +1,6 @@
 import {ref} from '@vue/composition-api';
 import {recordReorder, sameItems} from './reorder-history';
+import {renumberCards} from '../utils/card-refs';
 
 // Click-and-drag reordering for a list of cards, built to be reusable
 // across any tab that renders one - TextEditor.vue and SoundFXEditor.vue
@@ -44,6 +45,10 @@ export const CSS_CLASS_DRAG_OVER = 'drag-reorder-over';
 // position, so it will land AFTER the one dragged over - for lists laid out
 // side by side, where the drop mark goes on the near edge.
 export const CSS_CLASS_DRAG_OVER_AFTER = 'drag-reorder-over-after';
+// For cards laid out in a grid (see the sideBySide option): the half of the card the pointer is over says whether the dragged
+// cards go before it or after it, and the mark goes on that edge.
+export const CSS_CLASS_SIDE_BEFORE = 'drag-reorder-side-before';
+export const CSS_CLASS_SIDE_AFTER = 'drag-reorder-side-after';
 
 // getSelectedIndices (optional) returns the indices of the cards selected with Shift or Ctrl/Cmd+click: dragging one of
 // two or more selected cards then moves all of them, together and in their order.
@@ -69,15 +74,40 @@ export const dragGroupFor = (index, selected) => {
   return sorted.length > 1 && sorted.includes(index) ? sorted : [index];
 };
 
-export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []) => {
+// options:
+// - sideBySide: the cards are in a grid, so the half of a card the pointer is over (left or right) says whether the dragged cards go
+//   before or after it, instead of the place they came from; the card shows it with CSS_CLASS_SIDE_BEFORE/AFTER.
+// - renumber: {kind, context, onRenumbered}: the cards are numbered by their place (see utils/card-refs.js). After every move (and
+//   after undoing or redoing one) the cards get the numbers of their new places, and what refers to them follows.
+//   context() gives the extra facts of kind (the screenId of the cards of a title screen); onRenumbered(idMap) lets the tab
+//   move what it keeps by number (collapsed cards, the selection) to the new numbers.
+export const useDragReorder = (getItems, setItems, getSelectedIndices = () => [], options = {}) => {
   const draggedIndex = ref(null);
   const dragOverIndex = ref(null);
+  // {index, side} while sideBySide: the card the pointer is over and which half of it.
+  const dragOverSide = ref(null);
+  const {sideBySide = false, renumber = null} = options;
+
+  // Puts the cards in an order: numbers them by their place first (the cards are the same objects, so setItems stores the new numbers),
+  // then lets the tab store the list.
+  const applyOrder = (order) => {
+    const idMap = renumber ?
+      renumberCards(renumber.kind, order, {...(renumber.context ? renumber.context() : {}), previous: getItems().slice()}) : null;
+    setItems(order);
+    if (idMap && renumber.onRenumbered) renumber.onRenumbered(idMap);
+  };
+
+  const sideOf = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return (event.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+  };
   // The indices being dragged: just the one card, or every selected card when it is one of them.
   const draggedGroup = ref([]);
 
   const reset = () => {
     draggedIndex.value = null;
     dragOverIndex.value = null;
+    dragOverSide.value = null;
     draggedGroup.value = [];
   };
 
@@ -85,8 +115,15 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
     draggable: true,
   });
 
-  const dragCardClass = (index) => ({
-    [CSS_CLASS_DRAGGING]: draggedIndex.value === index || draggedGroup.value.includes(index),
+  const dragging = (index) => draggedIndex.value === index || draggedGroup.value.includes(index);
+  const dragCardClass = (index) => (sideBySide ? {
+    [CSS_CLASS_DRAGGING]: dragging(index),
+    [CSS_CLASS_SIDE_BEFORE]: !dragging(index) && !!dragOverSide.value && dragOverSide.value.index === index &&
+      dragOverSide.value.side === 'before',
+    [CSS_CLASS_SIDE_AFTER]: !dragging(index) && !!dragOverSide.value && dragOverSide.value.index === index &&
+      dragOverSide.value.side === 'after',
+  } : {
+    [CSS_CLASS_DRAGGING]: dragging(index),
     [CSS_CLASS_DRAG_OVER]: dragOverIndex.value === index && !draggedGroup.value.includes(index) &&
       draggedIndex.value !== index,
     [CSS_CLASS_DRAG_OVER_AFTER]: dragOverIndex.value === index && draggedIndex.value != null &&
@@ -114,6 +151,11 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       dragOverIndex.value = index;
+      if (sideBySide) {
+        const side = sideOf(event);
+        const current = dragOverSide.value;
+        if (!current || current.index !== index || current.side !== side) dragOverSide.value = {index, side};
+      }
       // Stops this dragover from also reaching an ANCESTOR's
       // dragTargetListeners (e.g. TitleScreenEditor.vue's per-screen card
       // list nested inside that screen's draggable-card list) -
@@ -125,7 +167,9 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
       event.stopPropagation();
     },
     dragleave: (event) => {
+      if (sideBySide && event.currentTarget.contains(event.relatedTarget)) return;
       if (dragOverIndex.value === index) dragOverIndex.value = null;
+      if (dragOverSide.value && dragOverSide.value.index === index) dragOverSide.value = null;
       event.stopPropagation();
     },
     drop: (event) => {
@@ -133,21 +177,25 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
       event.stopPropagation();
       const from = draggedIndex.value;
       const group = draggedGroup.value.length ? draggedGroup.value : [from];
+      // Read off the drop itself, not off where the last dragover left the mark.
+      const side = sideBySide ? sideOf(event) : null;
       reset();
       if (from == null || group.includes(index)) return;
       const before = getItems().slice();
       // The dragged cards go where the one dropped on is: after it when they came from above it, before it when
-      // they came from below.
-      const items = moveCards(before, group, from < index ? index + 1 : index);
-      setItems(items);
+      // they came from below (in a grid: on the side of the card the pointer is on).
+      const insertAt = sideBySide ? (side === 'after' ? index + 1 : index) : (from < index ? index + 1 : index);
+      const items = moveCards(before, group, insertAt);
+      if (sameItems(items, before)) return;
+      applyOrder(items);
       const after = items.slice();
       recordReorder({
-        undo: () => setItems(before.slice()),
-        redo: () => setItems(after.slice()),
+        undo: () => applyOrder(before.slice()),
+        redo: () => applyOrder(after.slice()),
         isCurrent: () => sameItems(getItems(), after),
       });
     },
   });
 
-  return {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners};
+  return {dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, applyOrder};
 };

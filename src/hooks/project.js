@@ -258,6 +258,12 @@ export const useHideToolbarLabelsStorage = () =>
 // turns it off, and the VCSGM Options switch turns it back on.
 export const useShowStartupTipsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.showStartupTips', true);
+// Desktop app only: whether it looks at the release page when it starts and tells you about a newer version (see App.vue and
+// utils/update-check.js). On unless turned off in the VCSGM Options.
+export const useCheckForUpdatesStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.checkForUpdates', true);
+// The newest version the user chose not to hear about again (the update notice's "Skip this version").
+export const useSkippedUpdateStorage = () => useLocalStorage('vcs-game-maker.skippedUpdate');
 export const useMuteBlocklySoundsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.muteBlocklySounds');
 // On by default (see public/js/gopher2600-worker.js's adaptive frame skipping): it only does

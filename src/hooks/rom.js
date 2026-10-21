@@ -1063,7 +1063,10 @@ const musicReservedBank = (maxBanks, textMinikernelActive, minBank) => {
   // A project without music has nothing to keep there: the bank joins the shared pool.
   if (!BlocklyBB.getMusicUnitKeys().length) return null;
   const lowestBank = minBank || 2;
-  const highestBank = textMinikernelActive ? maxBanks - 1 : maxBanks;
+  let highestBank = textMinikernelActive ? maxBanks - 1 : maxBanks;
+  // The Text Minikernel's drawing code and messages are in the bank below the kernel's (textKernelBank), which is the one the line
+  // above lands on: music there shares 4 KB with the text, and a song and its engine did not fit in what is left of it.
+  if (textMinikernelActive && highestBank === BlocklyBB.textKernelBank()) highestBank--;
   return highestBank - lowestBank >= 1 ? highestBank : null;
 };
 

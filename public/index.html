@@ -220,9 +220,10 @@
         stelleratorDriverKey = '';
         stelleratorTargetSize = '';
       };
-      // A real TV shows the picture at 4:3, which is also how 6502.ts's driver lays it out.
+      // The same box as gopher2600's (see gopher2600SizeCanvas): twice as wide as the 160 clocks of a line, so a pixel has the same shape
+      // in both emulators (a fixed 4:3 stretched the 220 lines of the picture 9% less than gopher2600 does).
       const stelleratorSizeCanvas = (canvas, width, height) => {
-        canvas.style.width = Math.round(height * 4 / 3) + 'px';
+        canvas.style.width = (width * 2) + 'px';
         canvas.style.height = height + 'px';
       };
       const stelleratorDriverConfig = () => ({

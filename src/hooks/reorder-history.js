@@ -1,6 +1,7 @@
 'use strict';
 
 import {ref} from '@vue/composition-api';
+import {getUndoLimit} from './undo-limit';
 
 // Undo and redo for dragging cards (and rows, chips, frames) into a new order, and for edits that
 // keep no history in the editor itself (a row's color), shared by every tab that has them. Each
@@ -33,6 +34,13 @@ const changed = () => {
 };
 
 const available = (entries) => entries.some((entry) => entry.route === route.value);
+
+// A tab remembers at most the app's number of steps back (see hooks/undo-limit.js): the oldest of its entries go first.
+const trimTab = (entries, here) => {
+  const mine = entries.filter((entry) => entry.route === here);
+  const drop = new Set(mine.slice(0, Math.max(0, mine.length - getUndoLimit())));
+  return drop.size ? entries.filter((entry) => !drop.has(entry)) : entries;
+};
 
 // Whether this tab has a reorder to undo or redo (reactive, for a button's disabled state).
 export const canUndoReorder = () => {
@@ -71,7 +79,7 @@ export const recordReorder = (entry) => {
     return;
   }
   undoEntries.push({...entry, route: here, stamp: ++counter, time: now});
-  if (undoEntries.length > 50) undoEntries.shift();
+  undoEntries = trimTab(undoEntries, here);
   redoEntries = redoEntries.filter((other) => other.route !== here);
   changed();
 };
@@ -113,6 +121,7 @@ export const tryUndoReorder = () => {
   }
   entry.undo();
   redoEntries.push(entry);
+  redoEntries = trimTab(redoEntries, entry.route);
   changed();
   return true;
 };
@@ -127,6 +136,7 @@ export const tryRedoReorder = () => {
   redoEntries = redoEntries.filter((other) => other !== entry);
   entry.redo();
   undoEntries.push(entry);
+  undoEntries = trimTab(undoEntries, entry.route);
   changed();
   return true;
 };
