@@ -20,9 +20,11 @@
     h1 img { display: block; width: min(100%, 26rem); height: auto; margin: 0 auto; filter: invert(1); opacity: .92; }
     .tagline { color: var(--muted); font-size: 1.15rem; margin: 0 0 1.75rem; text-align: center; }
     .buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; margin: 0 0 2rem; }
-    a.button { display: inline-block; padding: .7rem 1.2rem; text-decoration: none; font-weight: 600; border: 2px solid var(--accent); color: var(--accent); }
+    a.button { display: inline-block; padding: .7rem 1.2rem; text-decoration: none; font-weight: 600; border: 2px solid var(--accent); color: var(--accent); transition: background-color .15s ease, color .15s ease, filter .15s ease; }
     a.button.primary { background: var(--accent); color: var(--accent-text); }
-    a.button:hover, a.button:focus-visible { filter: brightness(1.12); outline: none; box-shadow: 0 0 0 3px rgba(255, 138, 61, .35); }
+    a.button:hover, a.button:focus-visible { filter: brightness(1.12); outline: none; }
+    /* An outline button fills with the accent color on hover, and its text turns dark to stay readable. */
+    a.button:not(.primary):hover, a.button:not(.primary):focus-visible { background: var(--accent); color: var(--accent-text); }
     img.shot { width: 100%; height: auto; border: 1px solid #2c303c; margin: 0 0 2rem; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 0 0 2rem; }
     .card { background: var(--panel); padding: 1rem 1.1rem; }
@@ -97,6 +99,7 @@
 
     <div class="buttons">
       <a class="button primary" href="app/">Open in your browser</a>
+      <a class="button" href="https://haroldo-ok.itch.io/vcs-game-maker">Official itch.io</a>
       <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/wiki">Documentation / Wiki</a>
     </div>
 
@@ -111,22 +114,22 @@
       <div class="dl-groups">
         <div class="dl-group">
           <p class="dl-title">Windows</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
         </div>
         <div class="dl-group">
           <p class="dl-title">macOS</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-macOS-arm64.dmg" data-asset="macOS-arm64.dmg">Apple silicon (dmg)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-macOS-arm64.dmg" data-asset="macOS-arm64.dmg">Apple silicon (dmg)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
         </div>
         <div class="dl-group">
           <p class="dl-title">Linux</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.35/VCS-Game-Maker-0.52.35-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS Portable</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.37/VCS-Game-Maker-0.52.37-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS Portable</a>
         </div>
       </div>
     </section>
@@ -187,7 +190,7 @@
     <section class="feature" id="sprites">
       <h2>Sprites &amp; animation</h2>
       <div class="text">
-        <p>Draw sprites with the built-in drawing tools, or import sprite strips from Aseprite. Animations are made of frames that each last as long as you choose, whether you set that in the editor or bring it in from Aseprite. Every row of pixels in a sprite can have a different color, and sprites can be 8 or 16 pixels wide.</p>
+        <p>Draw sprites with extensive built-in drawing tools, or import files from Aseprite, automatically creating all of your animations with perfect frame timing.</p>
       </div>
       <img src="shot-sprites.jpg" alt="The Sprites tab of VCS Game Maker, with a player animation being drawn.">
     </section>
@@ -195,7 +198,7 @@
     <section class="feature" id="playfield">
       <h2>BACKGROUNDS &amp; PlayfieldS</h2>
       <div class="text">
-        <p>Draw full-screen playfield backgrounds in the editor, where each pixel is on or off, and keep as many backgrounds as you need. It has the same drawing tools as the sprite editor, plus a display of pixel coordinates, and with per-row colors turned on every row of the playfield can be given a different color. A preview button shows a background on the emulator's screen, and you can import and export images. With the DPC+ kernel a background can be taller than the screen.</p>
+        <p>Draw full-screen playfield backgrounds in the editor. It has the same drawing tools as the sprite editor, with per-row playfield and background colors. Preview backgrounds directly in the emulator so you can get things pixel-perfect easily.</p>
       </div>
       <img src="shot-playfield.jpg" alt="The Playfield tab of VCS Game Maker, with a playfield background being drawn next to the running game.">
     </section>
@@ -203,7 +206,7 @@
     <section class="feature" id="sound">
       <h2>Sound &amp; music</h2>
       <div class="text">
-        <p>Make sound effects and songs without writing any code. The sound effect editor shapes TIA sounds with envelopes and arpeggios, and on DPC+ it lets you draw a waveform that the coprocessor plays. The music editor builds songs from patterns and instruments, and the instruments are simply sounds from the Sound tab. You can also download sound banks and example projects from inside the app.</p>
+        <p>Make sound effects and songs without writing any code. The sound effect editor shapes TIA sounds with envelopes and arpeggios, and on DPC+ lets you directly waveforms.<br><br>The music editor lets you builds songs from patterns, with downloaded or custom instruments designed on the Sound tab.</p>
       </div>
       <img src="shot-music.jpg" alt="The Music tab of VCS Game Maker, with a pattern of notes from several instruments in the piano roll.">
     </section>
@@ -211,8 +214,8 @@
     <section class="feature" id="text">
       <h2>Text &amp; scores</h2>
       <div class="text">
-        <p>The text minikernel shows messages on the screen, by name or by ID, as scrolling text, or as text that clears itself after a number of frames. You can choose a score font and set the score and its colors.</p>
-        <p>Pick the Standard kernel for a plain 2600 game, or the DPC+ kernel for more sprites, a taller playfield and a coprocessor.</p>
+        <p>The <a href="https://forums.atariage.com/topic/287652-text-minikernel/">Text minikernel</a> shows messages on screen, by text name or ID. VCS Game Maker additions include up to 2 lines of text on-screen with independent line colors, scrolling text, and multi-line dialog text up to 255 characters long.</p>
+        <p>The score is a six-digit display (or five, if you prefer) that your blocks can set, add to and read. Pick a built-in font, a compact Squish font that frees room for the text rows, or draw custom digits, and give the score row a background color that can differ from the playfield's.</p>
       </div>
       <img src="shot-text.jpg" alt="The Text tab of VCS Game Maker, with the text messages the game can show.">
     </section>
@@ -363,11 +366,11 @@
 
     <section class="feature wide" id="updates">
       <h2>Recent updates</h2>
-      <p><strong>Version 0.52.35</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
+      <p><strong>Version 0.52.37</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
       <p>Moving, deleting or copying a card (data table, title screen, playfield, sound, song, text message or sprite animation) numbers the cards again, and every block, data table cell and song instrument that names a card follows it.</p>
       <p>A new "Undo steps" option sets how many steps back Undo goes on every tab (1 to 999, default 99). Undo and Redo now cover every drawing tool, Clear, pastes, the row color bars and the colors of title screen graphics, and save the picture at once.</p>
       <p>New "VCS portable" download for Linux: an archive that runs from the folder it is unpacked into with no installation, made for AtariOS on the 2021 Atari VCS 800.</p>
-      <p>A value a project sets after "End title screen" (the stage a menu picked, say) now survives the start of gameplay, so bricks that are hit are cleared again when their rows depend on it.</p>
+      <p>A value a project sets after "End title screen" (the stage a menu picked, say) now survives the start of gameplay.</p>
       <p>The Playfield offset block and the box test for collisions run on the DPC+ coprocessor, for any area and in all directions, with fewer variables and less time each frame. The offset block has a new "alternate rows right and left" option.</p>
       <p>Collided blocks that name Player 1 are now exact in a DPC+ project that uses Players 2 to 9, so a virtual sprite no longer triggers Player 1's collisions.</p>
       <p>A new "Clear text after N frames" block clears any text block's message after the time you set. "Set animation to" can start at any frame, and "When animation has finished" runs once. Reordering or deleting animations keeps the blocks that name them pointing at the right one.</p>
