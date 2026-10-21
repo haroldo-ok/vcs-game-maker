@@ -22,6 +22,9 @@ module.exports = {
         manufacturer: 'AbstractPolygon',
         // The Start Menu folder is named after the manufacturer unless this says otherwise.
         shortcutFolderName: 'VCS Game Maker',
+        // The ID Windows gives the app's shortcuts. The maker makes it from the name, with spaces in it, which Windows does not allow and
+        // some Start menus (Start11) then leave the app out of their list.
+        appUserModelId: 'com.abstractpolygon.vcsgamemaker',
         // The same code in every version: Windows Installer takes it as the same product, and installing a newer version removes the older
         // one first (without it the maker makes a new code for each build and the versions pile up side by side). A version built
         // before this was set has another code, so it has to be uninstalled once by hand. The ARM installer is a separate product.
