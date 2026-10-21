@@ -642,7 +642,7 @@
           </div>
           <div v-if="updateInfo.notes" class="update-notice-notes" v-html="renderReleaseNotes(updateInfo.notes)"></div>
           <p class="tip-message update-notice-hint">
-            The "Check for new versions at startup" switch under VCSGM Options on the Options tab turns this notice off.
+            The "Notify me of new versions" switch under VCSGM Options on the Options tab turns this notice off.
           </p>
         </v-card-text>
         <v-card-actions>

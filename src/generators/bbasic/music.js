@@ -2395,13 +2395,13 @@ export default (Blockly) => {
   Blockly.BBasic.generateMusicDataTables = function() {
     const music = Blockly.BBasic.projectMusic;
     if (!music) return '';
-    // Configuration.vue's "Show detailed comments" toggle (default on) -
+    // Configuration.vue's "Show detailed comments" toggle (default off) -
     // same flag generators/bbasic.js's  dev-var "; description" comments
     // read, applied here to every data table's  explanatory "rem" line
     // too, not just variables.
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const showComments = config.showVariableComments ?? true;
+    const showComments = config.showVariableComments ?? false;
     const tableComment = (text) => showComments ? ` rem ${text}\n` : '';
     const eventTables = Object.entries(music.channelPages).map(([channel, pages]) => pages.map((bytes, page) => {
       const rows = chunk(bytes, 16).map((row) => '  ' + row.join(', '));

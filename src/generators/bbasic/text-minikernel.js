@@ -1134,7 +1134,7 @@ export default (Blockly) => {
     if (!this.isTextMinikernelActive()) return '';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const showVariableComments = config.showVariableComments ?? true;
+    const showVariableComments = config.showVariableComments ?? false;
     const textIndexComment = showVariableComments ?
       '  ; which message/character is currently shown, and the scroll position tracker (see text-scroll.js)' : '';
     const textDataPtrComment = showVariableComments ? '  ; Text Minikernel\'s message-table pointer' : '';

@@ -3277,7 +3277,7 @@ Blockly.BBasic.init = function(workspace) {
     // regardless, so this is purely a display choice made right here at the
     // one place every description actually gets rendered into a comment,
     // not something worth threading through every reserveDevVar call site.
-    const showVariableComments = config.showVariableComments ?? true;
+    const showVariableComments = config.showVariableComments ?? false;
     this.definitions_['variables'] = defvars
         .map((v, i) => {
           const description = showVariableComments && this.devVarDescriptions[v];
@@ -3291,7 +3291,7 @@ Blockly.BBasic.init = function(workspace) {
               this.dpcPlusSpriteVarSlot(name) : availableLetters[runOnceDefvarsStart + i]));
   }
   if (this.dpcPlusSpriteVars.length) {
-    const showComments = config.showVariableComments ?? true;
+    const showComments = config.showVariableComments ?? false;
     const spriteDims = this.dpcPlusSpriteVars.map((name) => {
       const description = showComments && this.devVarDescriptions[name];
       return `  dim ${name} = ${this.dpcPlusSpriteVarSlot(name)}${description ? `  ; ${description}` : ''}`;
@@ -6093,7 +6093,7 @@ Blockly.BBasic.generateRomSize = function() {
 Blockly.BBasic.generateSystemDims = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const showVariableComments = config.showVariableComments ?? true;
+  const showVariableComments = config.showVariableComments ?? false;
   const omitted = this.omittedSystemVars || new Set();
   const systemDims = SYSTEM_VARIABLES
       .map(([name, letter, description], i) => {
@@ -6124,7 +6124,7 @@ Blockly.BBasic.generateSuperchipVarDims = function() {
   if (!this.superchipVars || !this.superchipVars.length) return '';
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const showVariableComments = config.showVariableComments ?? true;
+  const showVariableComments = config.showVariableComments ?? false;
   return '\n' + this.superchipVars
       .map((name, i) => {
         const description = showVariableComments && this.devVarDescriptions[name];
@@ -6144,7 +6144,7 @@ Blockly.BBasic.generateDpcPlusVarDims = function() {
   if (!this.dpcPlusVars || !this.dpcPlusVars.length) return '';
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
-  const showVariableComments = config.showVariableComments ?? true;
+  const showVariableComments = config.showVariableComments ?? false;
   return '\n' + this.dpcPlusVars
       .map((name, i) => {
         const description = showVariableComments && this.devVarDescriptions[name];

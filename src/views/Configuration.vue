@@ -311,17 +311,17 @@
           class="undo-limit-field"
         />
         <v-switch
-          v-if="isElectron"
-          v-model="checkForUpdates"
-          label="Check for new versions at startup"
-          hint="When on, the desktop app looks at the release page when it starts and tells you when a newer version is out, with a link to download it for your system. Skipping a version in the notice keeps it from asking about that one again."
+          v-model="loadLastProject"
+          label="Load last project on startup"
+          hint="When on, the app starts with your last open project, so you can pick up where you left off."
           persistent-hint
           class="option-switch"
         />
         <v-switch
-          v-model="loadLastProject"
-          label="Load last project on startup"
-          hint="When on, the app starts with your last open project, so you can pick up where you left off."
+          v-if="isElectron"
+          v-model="checkForUpdates"
+          label="Notify me of new versions"
+          hint="Tells you at startup when a newer version is out, with a download link for your system."
           persistent-hint
           class="option-switch"
         />
@@ -498,7 +498,7 @@ const DEFAULT_CONFIGURATION = {
   scoreFont: '',
   secondaryScoreFont: '',
   muteAllAudio: false,
-  showVariableComments: true,
+  showVariableComments: false,
 };
 
 // Standard/DPC+ dropdown items for the new Kernel select - a plain, static
@@ -885,6 +885,7 @@ export default defineComponent({
 
       loadLastProject.value = false;
       showStartupTips.value = true;
+      checkForUpdates.value = true;
       muteBlocklySounds.value = false;
       adaptiveFrameSkip.value = true;
       hideDescriptionText.value = false;
