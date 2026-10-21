@@ -1610,3 +1610,16 @@ Music engine savings, black background rows, taller DPC+ preview picture
 - Options: "Undo steps", in the VCSGM options, sets how many steps back Undo goes on every tab (1 to 999, default 99): the pixel editors, the order of cards, the tables, sounds and patterns, and the blocks.
 - Undo and Redo in a pixel editor save the picture to the project at once; before, the undone picture was saved only with the next stroke.
 - Undo and Redo also cover: Clear's reset of the row colors, the background row colors of DPC+, pasting a background, a sprite frame, a score digit or a text glyph, resetting a score or text font, importing an image of another height, and the colors and picture background boxes of title screen graphics and the colors of their Player cards.
+
+### 0.52.34
+
+- Desktop app: it looks at the release page when it starts and, when a newer version is out, shows a popup with the release notes and a link that downloads the file made for the system it runs on. "Skip this version" keeps it from asking about that one again, and "Check for new versions at startup" in the VCSGM options turns it off.
+- Title screens: the Player sprites card has Start X, Start Y (counted from the top of the card's window) and Width (1x, 2x or 4x) for each player, and its Window height and Scanlines per pixel row are above the players. A graphic's Window height field has the same style.
+- Title screens: the Player sprites card no longer breaks the picture when the layout of the ROM puts its color table at a bank switching address (the frame ran for hundreds of scanlines and the sprites never showed).
+- Flipping a graphic upside down also flips its row colors (Playfield, Sprites and Title tabs).
+- Music: the song data is about half the size, and the music engine uses the space better. A note or a rest is 1 or 2 bytes (3 before), what the notes of an instrument have in common (sound type, volume, arpeggio, the note played watch, the pitch of a hit) is stored once in a table, a note with another volume has it in its bytes or in a 1-byte marker, and patterns with the same notes are stored once. The sound is the same.
+- Music: an arpeggio note or a note with an envelope can last up to 223 frames in one piece (15 and 127 before). Arpeggio flips no longer jump a frame where a long note was cut, and a note over 127 frames gets its envelope over the whole note.
+- Music: the music is no longer put in the bank of the Text Minikernel, which left a project with a song and text too big for its bank ("try a larger ROM size" did not help).
+- Music on DPC+: a note of the chip is 2 bytes (3 before).
+- A music note with the volume of the "Set max sound volume" block played at the maximum for a watched instrument; it plays at the volume it has now.
+- The 6502.ts emulator shows the same picture as gopher2600 (220 lines, starting at the same line, for NTSC) instead of a 212 line picture that looked taller.

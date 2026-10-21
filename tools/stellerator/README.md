@@ -50,5 +50,5 @@ WebAssembly in Chrome 152.
 ## Known differences
 
 - PAL60 runs with NTSC timing and the PAL palette, swapped into the TIA by the worker (the field is private to 6502.ts, so a 6502.ts update could need that line revisited).
-- The picture is 212 lines of the TV image shown at 4:3; gopher2600 crops 220 lines.
+- The PAL picture is 248 lines of the TV image shown at 4:3; gopher2600 crops 229. An NTSC (and PAL60) picture is 220 lines, starting at the line gopher2600's window starts at.
 - "Adaptive frame skipping" (Options tab) only affects gopher2600.

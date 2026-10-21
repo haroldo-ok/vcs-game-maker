@@ -397,6 +397,27 @@
 
                             <template v-else-if="card.type === 'player'">
                               <div class="titlescreen-player-row">
+                                <v-text-field
+                                  label="Window height"
+                                  title="How tall the whole player minikernel's draw region is, in scanlines - independent of either player's sprite height."
+                                  v-model.number="card.windowHeight"
+                                  type="number"
+                                  min="1"
+                                  hide-details
+                                  class="titlescreen-player-window-field"
+                                  @change="handleChildChange"
+                                />
+                                <v-select
+                                  label="Scanlines per pixel row"
+                                  title="1 = half-height pixels (sharper), 2 = roughly square pixels."
+                                  :items="[{text: '1 (sharper)', value: 1}, {text: '2 (square pixels)', value: 2}]"
+                                  v-model.number="card.kernelLines"
+                                  hide-details
+                                  class="titlescreen-player-window-field"
+                                  @change="handleChildChange"
+                                />
+                              </div>
+                              <div class="titlescreen-player-row">
                                 <v-select
                                   label="Player 0 animation"
                                   :items="playerAnimationOptions()"
@@ -510,45 +531,26 @@
                                 later with the normal "Player 0/1 set X/Y" blocks in Title screen update, and pick a starting frame with "Set title screen player sprite
                                 frame to" (Actions tab).
                               </p>
-                              <div class="titlescreen-player-row">
-                                <v-text-field
-                                  label="Window height"
-                                  title="How tall the whole player minikernel's draw region is, in scanlines - independent of either player's sprite height."
-                                  v-model.number="card.windowHeight"
-                                  type="number"
-                                  min="1"
-                                  hide-details
-                                  class="titlescreen-player-window-field"
-                                  @change="handleChildChange"
-                                />
-                                <v-select
-                                  label="Scanlines per pixel row"
-                                  title="1 = half-height pixels (sharper), 2 = roughly square pixels."
-                                  :items="[{text: '1 (sharper)', value: 1}, {text: '2 (square pixels)', value: 2}]"
-                                  v-model.number="card.kernelLines"
-                                  hide-details
-                                  class="titlescreen-player-window-field"
-                                  @change="handleChildChange"
-                                />
-                              </div>
                             </template>
 
                             <template v-else>
+                              <div class="titlescreen-player-row">
+                                <v-text-field
+                                  class="titlescreen-player-window-field"
+                                  label="Window height (0 = no scrolling)"
+                                  title="How many rows show at once - leave at 0 (or at/above one frame's full height) to show the whole current frame with no scrolling. Once set smaller, use the Set title screen scroll position block (Actions tab) to scroll within whichever frame is currently showing."
+                                  v-model.number="card.scrollWindow"
+                                  type="number"
+                                  min="0"
+                                  :max="cardFrameHeight(card)"
+                                  hide-details
+                                  @change="handleChildChange"
+                                />
+                              </div>
                               <p v-if="card.frames.length > 1" class="v-messages theme--light v-messages__message titlescreen-player-hint">
                                 Plays back automatically (each frame's Duration is in real frame ticks,
                                 same as a Player sprite animation) - no trigger block needed.
                               </p>
-                              <v-text-field
-                                class="titlescreen-scroll-window-field"
-                                label="Window height (0 = no scrolling)"
-                                title="How many rows show at once - leave at 0 (or at/above one frame's full height) to show the whole current frame with no scrolling. Once set smaller, use the Set title screen scroll position block (Actions tab) to scroll within whichever frame is currently showing."
-                                v-model.number="card.scrollWindow"
-                                type="number"
-                                min="0"
-                                :max="cardFrameHeight(card)"
-                                hide-details
-                                @change="handleChildChange"
-                              />
                               <v-switch
                                 v-if="card.frames.length > 1"
                                 v-model="card.playOnce"
@@ -2622,14 +2624,6 @@ export default defineComponent({
   color: rgba(0, 0, 0, 0.5);
 }
 
-.titlescreen-scroll-window-field {
-  max-width: 320px;
-  margin-top: 0;
-  /* Room for the floating label, which is cut off at the top without it (most visible in Expert mode, with the
-     description text above hidden). */
-  padding-top: 12px;
-  margin-bottom: 12px;
-}
 
 /* Room on the left for the switch's round highlight, which the card would otherwise clip. */
 .titlescreen-play-once-switch {

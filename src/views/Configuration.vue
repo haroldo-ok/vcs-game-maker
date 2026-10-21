@@ -311,6 +311,14 @@
           class="undo-limit-field"
         />
         <v-switch
+          v-if="isElectron"
+          v-model="checkForUpdates"
+          label="Check for new versions at startup"
+          hint="When on, the desktop app looks at the release page when it starts and tells you when a newer version is out, with a link to download it for your system. Skipping a version in the notice keeps it from asking about that one again."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-switch
           v-model="loadLastProject"
           label="Load last project on startup"
           hint="When on, the app starts with your last open project, so you can pick up where you left off."
@@ -425,7 +433,7 @@ import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
 import {useConfigurationStorage,
   useColorblindModeStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
-  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage,
+  useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage, useCheckForUpdatesStorage,
   useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
   useProjectAutoIncrementVersionStorage, useStellaPathStorage} from '../hooks/project';
 import {MAX_UNDO_LIMIT, MIN_UNDO_LIMIT, useUndoLimitStorage} from '../hooks/undo-limit';
@@ -510,6 +518,7 @@ export default defineComponent({
     // startup, before deciding whether to call that at all.
     const loadLastProject = useLoadLastProjectStorage();
     const undoLimit = useUndoLimitStorage();
+    const checkForUpdates = useCheckForUpdatesStorage();
     const showStartupTips = useShowStartupTipsStorage();
     // Same reasoning as loadLastProject above - these three used to round-trip
     // with the project itself via configurationState, silently resetting
@@ -898,7 +907,7 @@ export default defineComponent({
       kernelIsDpcPlus,
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
-      loadLastProject, showStartupTips, undoLimit, MIN_UNDO_LIMIT, MAX_UNDO_LIMIT,
+      loadLastProject, showStartupTips, checkForUpdates, undoLimit, MIN_UNDO_LIMIT, MAX_UNDO_LIMIT,
       muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
       hideToolbarLabels,

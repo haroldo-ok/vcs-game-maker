@@ -8,6 +8,10 @@ const {contextBridge, ipcRenderer} = require('electron');
 // isElectron checks) to tell "running inside the desktop app" apart from
 // "running in a browser", where none of this exists at all.
 contextBridge.exposeInMainWorld('electronAPI', {
+  // The system the app runs on ('win32', 'darwin' or 'linux'; 'x64' or 'arm64'): the update notice links the download made for it
+  // (see src/utils/update-check.js).
+  platform: process.platform,
+  arch: process.arch,
   pickStellaPath: () => ipcRenderer.invoke('stella:pick-path'),
   // romBytes: a Uint8Array (App.vue's compiledRomBytes.output - see
   // hooks/rom-status.js) - structured-cloned across the IPC boundary
