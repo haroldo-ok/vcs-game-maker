@@ -2878,7 +2878,9 @@ Blockly.BBasic.init = function(workspace) {
         const repeats = backgroundLines(background) / fine;
         const rows = background.pixels.length * repeats;
         // The rows on screen, and so how far down the picture the top of the view can go.
-        const screenLines = Math.min(DPC_PLUS_SCREEN_LINES, Math.max(1, backgroundPfresOf(background, config)) * backgroundLines(background));
+        // With the score hidden the kernel draws the lines the score takes too (192 in all).
+        const screenLines = Math.min(config.showScore === false ? 192 : DPC_PLUS_SCREEN_LINES,
+          Math.max(1, backgroundPfresOf(background, config)) * backgroundLines(background));
         const windowRows = Math.ceil(screenLines / fine);
         return {...common, repeats, rows, windowRows, limit: Math.max(0, rows - windowRows)};
       };
@@ -6188,8 +6190,8 @@ const buildPfcolorsBlock = (rowCount, rowColors, blankLinesShown) => {
 // one cut into `repeats` thinner rows, so stepping a whole background-height either way shows the same picture
 // again. The row colors get the same layout, so the colors on screen are the same whether or not they scroll.
 const DPC_PLUS_SCROLL_ROWS = 255;
-// How many lines of playfield the DPC+ kernel draws (measured on the emulator), whatever pfres says; the picture's last lines are
-// only reached by a scroll that goes this far.
+// How many lines of playfield the DPC+ kernel draws with the score showing (measured on the emulator), whatever pfres says; the
+// picture's last lines are only reached by a scroll that goes this far.
 const DPC_PLUS_SCREEN_LINES = 176;
 // The ROM keeps only this many rows when it can (a whole number of repeats of the picture, at least this many so the copies that
 // fill the rest at load time stay few): the code in utils/dpc-tile.js has the coprocessor copy them over the rest of the 255 rows.

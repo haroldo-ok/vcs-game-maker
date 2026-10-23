@@ -114,7 +114,7 @@ Blockly.Blocks['data_stream_write'] = {
 // temporary variables, and stop when they have done COUNT bytes; a run that goes past byte 127 of an area carries on
 // into the next one.
 const BULK_TOOLTIP = 'DPC+ only: works through a run of Display RAM bytes, one after another (up to 255), in ' +
-  'about 20 cycles a byte. Going past byte 127 of an area carries on into the next area of the display memory.';
+  'about 22 cycles a byte. Going past byte 127 of an area carries on into the next area of the display memory.';
 
 Blockly.Blocks['display_ram_fill'] = {
   init: function() {
