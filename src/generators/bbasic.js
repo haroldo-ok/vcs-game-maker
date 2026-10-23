@@ -2880,7 +2880,7 @@ Blockly.BBasic.init = function(workspace) {
         // The rows on screen, and so how far down the picture the top of the view can go.
         // With the score hidden the kernel draws the lines the score takes too (192 in all).
         const screenLines = Math.min(config.showScore === false ? 192 : DPC_PLUS_SCREEN_LINES,
-          Math.max(1, backgroundPfresOf(background, config)) * backgroundLines(background));
+            Math.max(1, backgroundPfresOf(background, config)) * backgroundLines(background));
         const windowRows = Math.ceil(screenLines / fine);
         return {...common, repeats, rows, windowRows, limit: Math.max(0, rows - windowRows)};
       };
