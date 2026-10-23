@@ -2237,6 +2237,7 @@ Blockly.BBasic.init = function(workspace) {
   // this byte says the call came from there.
   if (this.isTitleTextUsed()) {
     reserveDevVar('titleTextFlag', undefined, 'the text kernel was called by the Title Screen kernel: it returns to that bank');
+    reserveDevVar('titleTextColor', undefined, 'the color of the text under a Title Screen page (the stack of the call to the text kernel runs over the usual byte)');
   }
 
   // Same bucket again, for "Scroll text lines up/down"'s  valid-range
@@ -8084,7 +8085,9 @@ Blockly.BBasic.spillableSystemVars = function(config) {
   return SYSTEM_VARIABLES.map(([name]) => name).filter((name) => !omitted.has(name) && !shared.has(name) &&
     !(partnered && /^player[01](animation|frame|realcolor)$/.test(name)) &&
     // (The text cursor's blink reads the frame counter by name.)
-    !(name === 'framecounter' && config.enableTextScrollCursor));
+    !(name === 'framecounter' && config.enableTextScrollCursor) &&
+    // (The Title Screen's player kernel reads the sizes of the players by name, in a file the code analysis does not see.)
+    !(this.titleScreenDrawUsed && /^player[01]size$/.test(name)));
 };
 
 Blockly.BBasic.spillInternalVariablesFirst = function(workspace, code) {

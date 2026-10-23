@@ -1,7 +1,7 @@
 'use strict';
 
 import {useConfigurationStorage} from '../../hooks/project';
-import {OFFSET_ARM_SUBROUTINE, OFFSET_ARM_FUNCTION, buildOffsetArmBody, ensureArmProgram} from './offset-arm';
+import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, ensureArmProgram} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
 import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
   backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS, rowFadeStartColor, multicolorFadeVarName,
@@ -1919,14 +1919,26 @@ export default (Blockly) => {
     ];
     // Under DPC+ the coprocessor does it (see offset-arm.js): the columns and the function number in bytes, the rows in temp5 and temp6.
     if (dpcPlus) {
+      // The columns and the rows go to the coprocessor as they are, and it keeps them inside the playfield and puts them in order itself
+      // (see offset-arm.js): no work for the 6502 beyond writing the bytes, in the block itself (no subroutine to call). A number that is
+      // plain is written as it is; the others are worked out first, in a byte of their own.
+      const plain = (text) => (/^[0-9]+$/.test(String(text).trim()) ? String(Number(text)) : null);
       const resolveArm = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const shared = Blockly.BBasic.offsetArmShared || {};
-      const armVars = {b1: resolveArm(shared.b1 || OFFSET_AREA_VARS.b1), b2: resolveArm(shared.b2 || OFFSET_AREA_VARS.b2), fn: resolveArm(shared.fn || OFFSET_AREA_VARS.m1)};
-      if (!Blockly.BBasic.subroutines[OFFSET_ARM_SUBROUTINE]) Blockly.BBasic.subroutines[OFFSET_ARM_SUBROUTINE] = buildOffsetArmBody(armVars);
+      const setups = [];
+      const operandOf = (text, byte) => {
+        const number = plain(text);
+        if (number !== null) return `#${number}`;
+        setups.push(`${byte} = ${text}`);
+        return byte;
+      };
+      const x1 = whole ? '#0' : operandOf(arg('X1'), resolveArm(shared.b1 || OFFSET_AREA_VARS.b1));
+      const x2 = whole ? '#31' : operandOf(arg('X2'), resolveArm(shared.b2 || OFFSET_AREA_VARS.b2));
+      const last = plain(maxRow) !== null ? `#${maxRow}` : maxRow;
+      const y1 = whole ? '#0' : operandOf(arg('Y1'), 'temp5');
+      const y2 = whole ? last : operandOf(arg('Y2'), 'temp6');
       ensureArmProgram(Blockly);
-      const armSuffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(OFFSET_ARM_SUBROUTINE));
-      return [`${armVars.b1} = ${whole ? '0' : arg('X1')}`, `${armVars.b2} = ${whole ? '31' : arg('X2')}`, ...rowLines,
-        `${armVars.fn} = ${OFFSET_ARM_FUNCTION[direction]}`, `gosub ${OFFSET_ARM_SUBROUTINE}${armSuffix}`].join('\n') + '\n';
+      return [...setups, buildOffsetArmCall({fn: OFFSET_ARM_FUNCTION[direction], x1, x2, y1, y2, last})].join('\n') + '\n';
     }
     // The whole playfield, or an area whose edges are plain numbers that are whole bytes of eight columns, goes by the routine that moves whole
     // bytes (a good deal faster than the one that works the edges out when the game runs, below).

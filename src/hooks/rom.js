@@ -401,8 +401,8 @@ const titleScreenOverflowHint = (e) => {
   // after the <pre>, see App.vue's template) rather than split between a
   // plain-text "text" paragraph and a separate bold summary - text stays
   // empty below, this is the one and only paragraph shown.
-  const highlight = `This may be caused by the Title Screen's graphics data: every animation frame on ` +
-    `every page is baked into ROM at once, and the title screen's bank (bank ${bank}) ` +
+  const highlight = `This may be caused by the Title Screen's graphics data: every different picture and every different row color list ` +
+    `on every page is baked into ROM at once (one that repeats is stored once), and the title screen's bank (bank ${bank}) ` +
     `${isEstimate ? 'is estimated to need at least' : 'is using'} <b>${usedBytes} of its ${totalBytes}</b> ` +
     `usable bytes${isEstimate ? ' (a real build can still fail even under this estimate)' : ''}.` +
     `${rowsClause} Try reducing animation frame counts, shrinking card heights, ` +
@@ -1410,6 +1410,11 @@ const buildRomInner = async () => {
       // text12b.asm in the first place then), and only actually returns an
       // override once the Text Font Editor has ever written to storage.
       if (textMinikernelActive) {
+        // The text on a Title Screen page: the stack of the Title Screen kernel's call to the text kernel runs over statusbarlength ($f5),
+        // where the text color is by default, so there it is a variable of its own (see titleTextColor in generators/bbasic.js).
+        if (BlocklyBB.isTitleTextUsed() && siblingFiles['text12a.asm']) {
+          siblingFiles['text12a.asm'] = siblingFiles['text12a.asm'].replace(/^TextColor = statusbarlength/m, 'TextColor = titleTextColor');
+        }
         // DPC+ keeps its whole text kernel in one file, the standard kernel's drawing code is text12b.asm
         const textKernelFile = config.kernel === 'dpcplus' ? 'text12DPCplus.asm' : 'text12b.asm';
         const textFontOverride = await buildTextFontOverride(
