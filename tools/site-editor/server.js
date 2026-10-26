@@ -1,5 +1,5 @@
-// Local preview of the web page (the site folder) with a text edit mode: run "npm run site:edit", open http://127.0.0.1:8771/?edit and click any
-// text to change it. Each change is written straight into site/index.html (and logged in site_edits.log next to this file), so nothing has to be
+// Local preview of the web page (the site folder) with a text edit mode: run "npm run site:edit", open http://127.0.0.1:8771/ and click any
+// text to change it (add ?view to the address to see the page without the edit mode). Each change is written straight into site/index.html (and logged in site_edits.log next to this file), so nothing has to be
 // downloaded. The page on the web has none of this.
 const http = require('http'); const fs = require('fs'); const path = require('path');
 const SITE = path.resolve(__dirname, '../../site');
@@ -59,7 +59,7 @@ http.createServer((req, res) => {
     res.statusCode = 404; res.end('not found'); return;
   }
   let body = fs.readFileSync(file);
-  if (name === '/index.html' && url.searchParams.has('edit')) {
+  if (name === '/index.html' && !url.searchParams.has('view')) {
     body = Buffer.from(body.toString('utf8').replace('</body>', '<script>' + EDITOR + '</script></body>'));
   }
   res.setHeader('Content-Type', TYPES[path.extname(file)] || 'application/octet-stream');
