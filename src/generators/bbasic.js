@@ -91,6 +91,7 @@ import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprit
 import {reservePfBoxDevVars, generatePfHitChecks} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool} from './bbasic/flag-pool';
+import {overlapTargetsOf, overlapPairsOf, overlapFamilies, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
@@ -1505,6 +1506,13 @@ Blockly.BBasic.init = function(workspace) {
           if (locked) extra.add(Number(locked[1]));
         });
       }
+      // Sprite overlap starts / stops names its sprite and the ones to compare with.
+      if (block.type === 'sprite_overlap_event') {
+        [block.getFieldValue('VAR0'), ...overlapTargetsOf(block)].forEach((name) => {
+          const overlapped = /^player([2-9])$/.exec(name);
+          if (overlapped) extra.add(Number(overlapped[1]));
+        });
+      }
       // Collided ... and ... picks its two objects by name as well.
       ['VAR0', 'VAR1'].forEach((fieldName) => {
         const collided = block.type === 'collision_get' && /^player([2-9])$/.exec(block.getFieldValue(fieldName));
@@ -2305,6 +2313,10 @@ Blockly.BBasic.init = function(workspace) {
       boxPairKeys.add(pairKey(names[0], names[1]));
     }
   });
+  // The "Sprite overlap starts / stops" blocks that have a sprite ticked compare the boxes of their sprites as well.
+  this.overlapBlocks = workspace.getAllBlocks(false).filter((block) =>
+    block.isEnabled() && block.type === 'sprite_overlap_event' && overlapTargetsOf(block).length > 0);
+  overlapPairsOf(this.overlapBlocks).pairs.forEach((key) => boxPairKeys.add(key));
   this.boxPairOrder = [...boxPairKeys].sort();
   planFlagPool([
     {family: ROM_NOISE_FLAGS_FAMILY, bits: [
@@ -2335,6 +2347,7 @@ Blockly.BBasic.init = function(workspace) {
     {family: SWITCH_EDGE_FAMILY, bits: switchEdgeOwnBits(this.switchEdgeUsedFor)},
     {family: JOY_TAP_FAMILY, bits: joyTapOwnBits(this.joyTapOnlyFor)},
     ...boxHitFamilies(this.boxPairOrder),
+    ...overlapFamilies(this.overlapBlocks),
     ...colorSetFamilies(this.colorOverridePlayers),
   ]);
   reserveSwitchEdgeDevVars(reserveDevVar, this.switchEdgeUsedFor);
@@ -2437,6 +2450,10 @@ Blockly.BBasic.init = function(workspace) {
       this.pfBoxPlayers.add(this.widePartners[owner]);
     }
   };
+  const overlapSprites = overlapPairsOf(this.overlapBlocks);
+  overlapSprites.pairs.forEach((key) => this.boxPairs.add(key));
+  [...overlapSprites.names].filter(isPlayerName).forEach((name) => this.boxWidthPlayers.add(name));
+  reserveOverlapDevVars(reserveDevVar, this.overlapBlocks);
   workspace.getAllBlocks(false).forEach((block) => {
     if (!block.isEnabled()) return;
     if (block.type === 'collision_check_position') {
@@ -4271,7 +4288,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedLockChecks = generateLockChecks(Blockly);
   const generatedWidePartnerSync = Blockly.BBasic.generateWidePartnerSync();
   // The boxes of the sprites and the pairs that overlap are in a subroutine, that can be moved to another bank (it is long, with several pairs).
-  const boxChecks = generateBoxChecks(Blockly);
+  const boxChecks = generateBoxChecks(Blockly) + generateOverlapChecks(Blockly);
   if (boxChecks) this.subroutines[SPRITE_BOX_CHECKS_NAME] = asSubroutineBody(boxChecks + ' return\n');
   const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(SPRITE_BOX_CHECKS_NAME))}
@@ -7583,6 +7600,7 @@ const playersUsedByBlocks = (workspace) => {
     if (!block.isEnabled() || !block.getField) return;
     const player = block.getField('PLAYER') ? block.getFieldValue('PLAYER') : null;
     if (/^[0-9]$/.test(String(player))) used.add(`player${player}`);
+    if (block.type === 'sprite_overlap_event') overlapTargetsOf(block).filter(isPlayerName).forEach((name) => used.add(name));
     ['OBJECT', 'MISSILE', 'VAR0', 'VAR1', 'CHILD', 'PARENT', 'VAR'].forEach((fieldName) => {
       const value = block.getField(fieldName) ? String(block.getFieldValue(fieldName)) : '';
       const named = /^(?:__)?(player\d)/.exec(value);
@@ -8120,6 +8138,7 @@ import sound from './bbasic/sound';
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
+import spriteOverlap from './bbasic/sprite-overlap-block';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
 import textMinikernel from './bbasic/text-minikernel';
@@ -8131,7 +8150,7 @@ import {runOnceResetLines, runOnceClearLines, runOnceStartupLines} from '../util
 import {collectChipChannels, createDpcPlusAudioPlan, DPC_AUDIO_SUBROUTINE_NAME, dpcAudioVars, redirectSoundRegisters} from './bbasic/dpcplus-audio';
 
 [background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
-  random, score, sound, soundfx, sprites, spriteLock, subroutine, text, textMinikernel, titlescreen, variables]
+  random, score, sound, soundfx, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
     .forEach((init) => init(Blockly));
 
 // Which of OMITTABLE_SYSTEM_VARIABLES the finished code never touches apart from the template's starting

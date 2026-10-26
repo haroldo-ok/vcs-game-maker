@@ -175,3 +175,36 @@ Blockly.defineBlocksWithJsonArray([
 // checked one-frame-delayed - see collision_check_position above) instead of
 // continuing to chase custom pfread() box math. See git history on this file
 // and on generators/bbasic/collision.js for the full account.
+
+// "Sprite overlap starts / stops": true for the one frame in which the sprite begins to overlap one of the ticked sprites, or the last
+// of them stops overlapping it (see generators/bbasic/sprite-overlap.js).
+const OVERLAP_TARGETS = [
+  ...Array.from({length: 10}, (_, i) => [PLAYER_ICON + i, 'player' + i]),
+  [MISSILE_ICON + '0', 'missile0'], [MISSILE_ICON + '1', 'missile1'], [BALL_ICON, 'ball'],
+];
+Blockly.Blocks['sprite_overlap_event'] = {
+  init: function() {
+    const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
+    this.appendDummyInput()
+        .appendField('Sprite')
+        .appendField(new Blockly.FieldDropdown(() => collisionOptions().filter((option) => option[1] !== 'playfield')), 'VAR0')
+        .appendField(new Blockly.FieldDropdown([['overlap starts', 'starts'], ['overlap stops', 'stops']]), 'MODE')
+        .appendField('with');
+    const targets = this.appendDummyInput();
+    OVERLAP_TARGETS.forEach(([label, name]) => {
+      const extraPlayer = /^player[2-9]$/.test(name);
+      const checkbox = new Blockly.FieldCheckbox('FALSE');
+      const text = new Blockly.FieldLabel(label);
+      targets.appendField(text, `L_${name}`).appendField(checkbox, `T_${name}`);
+      if (extraPlayer && !dpcPlus) {
+        text.setVisible(false);
+        checkbox.setVisible(false);
+      }
+    });
+    this.setOutput(true, 'Boolean');
+    this.setColour('purple');
+    this.setTooltip('True for the one frame in which the sprite begins to overlap one of the ticked sprites (overlap starts), or the last of ' +
+      'them stops overlapping it (overlap stops). Overlap is the boxes of the two sprites touching, as of the end of the last frame. ' +
+      'Each block takes two bits of memory, shared with the other blocks of its kind.');
+  },
+};
