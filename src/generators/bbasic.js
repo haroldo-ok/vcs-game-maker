@@ -6543,9 +6543,11 @@ Blockly.BBasic.generateBackgrounds = function() {
     // What the code that works with this background's rows is told about them (see init).
     const rowLines = backgroundRowLinesFor(background, config);
     if (this.dpcPlusColorFracVars) {
-      // The step of a color list: one color for every scanline of 192 / rows (read once every two scanlines, a byte), and by the pixel rows' step when it has no separate rows.
+      // The step of a color list: its rows are spread over the height of the picture (its pixel rows, each rowLines scanlines tall), so a color row is
+      // pictureLines / rows scanlines; the colors are read once every two scanlines (a byte of fraction), and with no separate rows it is the pixel rows' step.
+      const pictureLines = Math.max(1, (background.pixels || []).length * rowLines);
       const colorStep = (kind) => (backgroundHasColorRows(background, kind) ?
-        Math.min(255, Math.round(backgroundColorRows(background, kind) * 512 / 192)) :
+        Math.min(255, Math.round(backgroundColorRows(background, kind) * 512 / pictureLines)) :
         Math.min(255, dpcPlusRowFracOf(rowLines) * 2));
       payloadLines.push(` ${this.dpcPlusColorFracVars.pf} = ${colorStep('pf')}`, ` ${this.dpcPlusColorFracVars.bk} = ${colorStep('bk')}`);
     }

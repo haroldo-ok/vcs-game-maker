@@ -272,6 +272,12 @@ int checkswap(int a, int b)
   }
 }
 
+// The y a sprite is put in order by: the one checkswap works with.
+int sortkey(int a)
+{
+  return (unsigned char)checkwrap(RIOT[player1y+a],RIOT[player1height+a]);
+}
+
 void copynybble(unsigned char num)
 {
     int i;
@@ -493,6 +499,23 @@ int main()
 
   //passed the sprite max as a parameter instead
   maxsprites=C_function1;
+
+  // The sprites are put in order of their y first, whatever order they had in the last frame. The pass below only swaps a sprite with the one next to it
+  // and takes the sprite it swapped with out of the frame, so a sprite whose y jumped past others (a hidden one set to y 0 or 255) made those others
+  // disappear for a frame. With the sprites in order already, only the ones that overlap are left out, as before.
+  // (A sprite is only put past one it overlaps by the pass below, which swaps those every frame so that they take turns being left out.)
+  for (i=1;i<maxsprites;i++)
+  {
+    int moving=spritesort[i];
+    int key=sortkey(moving);
+    int before=i-1;
+    while (before>=0 && sortkey(spritesort[before])>key && sortkey(spritesort[before])-key>RIOT[player1height+moving]+5)
+    {
+      spritesort[before+1]=spritesort[before];
+      before--;
+    }
+    spritesort[before+1]=moving;
+  }
 
   for (i=0;i<maxsprites;i++)
   {

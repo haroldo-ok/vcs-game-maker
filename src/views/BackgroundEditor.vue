@@ -184,7 +184,7 @@
                       :value="background.pfColorRows || ''"
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
-                      title="How many rows of colors the playfield colors have, each one color for every scanline of 192 / rows. Left empty it is the number of rows of the picture."
+                      title="How many rows of colors the playfield colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
                       @change="(value) => handleChangeColorRows(background, 'pf', value)"
                     />
                     <v-text-field
@@ -197,7 +197,7 @@
                       :value="background.bkColorRows || ''"
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
-                      title="How many rows of colors the background colors have, each one color for every scanline of 192 / rows. Left empty it is the number of rows of the picture."
+                      title="How many rows of colors the background colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
                       @change="(value) => handleChangeColorRows(background, 'bk', value)"
                     />
                   </div>
@@ -676,7 +676,7 @@ export default defineComponent({
     };
 
     // DPC+: the playfield colors and the background colors can have a number of separate rows (pfColorRows, bkColorRows; see
-    // backgroundColorRows), each one color for every scanline of 192 / rows. The list of colors is cut or stretched to the new number.
+    // backgroundColorRows), spread over the height of the picture. The list of colors is cut or stretched to the new number.
     const handleChangeColorRows = (background, kind, value) => {
       const key = kind === 'bk' ? 'bkColorRows' : 'pfColorRows';
       const listKey = kind === 'bk' ? 'bkRowColors' : 'rowColors';

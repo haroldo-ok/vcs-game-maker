@@ -179,7 +179,12 @@ export default {
   height: 100%;
   flex: 0 0 auto;
   margin-right: 4px;
+  /* Only the sides are borders: the lines above and below are shadows outside the strip, so the swatches fill exactly the height of the picture
+     beside it (a border there made every swatch a little lower and shorter than its row). */
   border: 1px solid rgba(0, 0, 0, 0.4);
+  border-top: none;
+  border-bottom: none;
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.4), 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .playfield-color-strip-right {
@@ -191,11 +196,12 @@ export default {
   flex: 1 1 0;
   min-height: 0;
   cursor: pointer;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+  /* The line between two rows is inside the swatch, so the swatches are all exactly one row tall. */
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
 }
 
 .row-swatch:last-child {
-  border-bottom: none;
+  box-shadow: none;
 }
 
 .row-swatch:hover {

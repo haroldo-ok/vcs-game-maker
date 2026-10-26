@@ -330,7 +330,7 @@ export const backgroundPfresOf = (background, config) => {
 
 // DPC+ reads the playfield colors and the background colors through data separate fetchers, each with a separate row step, so a background can have
 // a number of color rows apart from its playfield's rows: pfColorRows for the playfield colors, bkColorRows for the background colors (each one
-// color for every scanline of 192 / rows, the rows of the pixels when the number is not set). The lists rowColors and bkRowColors have that many colors.
+// color for every scanline of picture height / rows, the rows of the pixels when the number is not set). The lists rowColors and bkRowColors have that many colors.
 export const backgroundColorRows = (background, kind) => {
   const rows = Math.round(Number(background && background[kind === 'bk' ? 'bkColorRows' : 'pfColorRows']));
   return rows > 0 ? Math.min(255, rows) : ((background && background.pixels) || []).length;
