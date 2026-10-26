@@ -141,10 +141,25 @@ const buildPlatformerStateBlock = () => ({
     'animation for each, for example.',
 });
 
+// The number of jumps a player moved by the Jump block has made since it last stood on the ground (a number for the comparison blocks).
+const buildPlatformerJumpsBlock = () => ({
+  'type': 'sprite_platformer_jumps',
+  'message0': `${PLAYER_ICON} %1 jumps made`,
+  'args0': [
+    {'type': 'field_dropdown', 'name': 'PLAYER', 'options': jumpSpriteOptions},
+  ],
+  'output': 'Number',
+  'colour': 'purple',
+  'tooltip': 'How many jumps the player, moved by the "Platform" block, has made since it last stood on the ground: 0 on the ground, 1 after ' +
+    'the first jump, 2 after a second one in the air (with multi-jump on), up to 4. Walking off an edge counts as a jump used. Use it with a ' +
+    'comparison block in an if block, for example "jumps made = 2".',
+});
+
 Blockly.defineBlocksWithJsonArray([
   buildCollisionCheckBlock(),
   buildPlatformerBlock(),
   buildPlatformerStateBlock(),
+  buildPlatformerJumpsBlock(),
 ]);
 
 // A predictive (check-BEFORE-moving) software playfield collision block
@@ -160,3 +175,23 @@ Blockly.defineBlocksWithJsonArray([
 // checked one-frame-delayed - see collision_check_position above) instead of
 // continuing to chase custom pfread() box math. See git history on this file
 // and on generators/bbasic/collision.js for the full account.
+
+// "Sprite overlap starts / stops": true for the one frame in which two sprites begin to overlap, or stop overlapping (see
+// generators/bbasic/sprite-overlap.js).
+const overlapOptions = () => collisionOptions().filter((option) => option[1] !== 'playfield');
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'sprite_overlap_event',
+    'message0': 'Sprite %1 and %2 overlap %3',
+    'args0': [
+      {'type': 'field_dropdown', 'name': 'VAR0', 'options': overlapOptions},
+      {'type': 'field_dropdown', 'name': 'VAR1', 'options': () => overlapOptions().slice(1).concat(overlapOptions().slice(0, 1))},
+      {'type': 'field_dropdown', 'name': 'MODE', 'options': [['starts', 'starts'], ['stops', 'stops']]},
+    ],
+    'output': 'Boolean',
+    'colour': 'purple',
+    'tooltip': 'True for the one frame in which the two sprites begin to overlap (starts), or stop overlapping (stops). Overlap is the ' +
+      'boxes of the two sprites touching, as of the end of the last frame. Each block takes two bits of memory, shared with the other ' +
+      'blocks of its kind.',
+  },
+]);

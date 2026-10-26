@@ -1,5 +1,7 @@
 'use strict';
 
+import {sameColumnsLines} from './box-columns';
+
 // utils/playfield-coords.js has PLAYER_PF_X_OFFSET (17); it is a parameter here so this file needs nothing else.
 const DEFAULT_PF_X_OFFSET = 17;
 
@@ -44,7 +46,7 @@ const DEFAULT_PF_X_OFFSET = 17;
 // partnerFrameVar: for a 16 pixel wide player, the frame byte of the sprite that shows its right half (255 while it is not shown);
 // the box is twice as wide while it is shown. partnerHiddenVar: a bit that also hides it.
 export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: baseHeightVar, resultVar, maxRow, rowDivisor, dpcPlusRows, dpcPlusRowSets, rowFracVar, maxRowVar,
-  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0, extVar, dpcPlusScan = false, armRows = false, quickLastXVar, armBox = false}) => {
+  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0, extVar, dpcPlusScan = false, armRows = false, quickLastXVar, armBox = false, armGroups = false}) => {
   const heightVar = extraHeight ? `(${baseHeightVar} ${extraHeight < 0 ? '-' : '+'} ${Math.abs(extraHeight)})` : baseHeightVar;
   const lab = (name) => `${label}_${name}`;
   const at = (name) => `@ ${lab(name)}`;
@@ -109,14 +111,15 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
         `@${lab(`lds${name}`)}`, 'sbc temp2', 'inc temp1', `@${lab(`ldn${name}`)}`, 'dex', `bne ${lab(`ld${name}`)}`,
         'lda temp3', `beq ${lab(`ldk${name}`)}`, 'lda #255', 'sta temp1', `@${lab(`ldk${name}`)}`, 'lda temp1'];
     };
-    const fallingDpcPlus = tableMode ? [
+    // The coprocessor with groups of columns that have separate rows answers in lines (the line, plus one): see box in armprog.c.
+    const fallingDpcPlus = armGroups ? ['lda temp4', 'sec', 'sbc #1'] : tableMode ? [
       // Looks down from the line the bottom is on for the first line whose row is the one found.
       'lda temp4', 'sec', 'sbc #1', 'sta temp1',
       `lda ${yVar}`, 'clc', `adc ${baseHeightVar}`, 'sec', 'sbc #1', 'tax',
       `@${lab('lf')}`, 'inx', 'cpx #192', `bcs ${lab('lff')}`, `lda ${lab('rowtab')},x`, 'cmp temp1', `bcc ${lab('lf')}`,
       `@${lab('lff')}`, 'txa',
     ] : ['lda temp4', 'sec', 'sbc #1', ...startOfRow('f')];
-    const risingDpcPlus = tableMode ? [
+    const risingDpcPlus = armGroups ? ['lda temp4', 'sec', 'sbc #1'] : tableMode ? [
       // Looks up from the line the top was on for the first line of the rows above the one found.
       `lda ${extVar}`, 'and #127', 'clc', `adc ${yVar}`, 'tax',
       `@${lab('lr')}`, 'dex', 'cpx #192', `bcs ${lab('lr')}`, `lda ${lab('rowtab')},x`, 'cmp temp4', `bcs ${lab('lr')}`,
@@ -648,11 +651,7 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
   const quickEntry = quickLastXVar && !partnerFrameVar ? [
     at('chk'),
     'asm',
-    `lda ${sizeVar}`, 'and #7', `bne ${lab('chkfull')}`,
-    `lda ${xVar}`, 'sec', `sbc #${pfXOffset}`, 'lsr', 'lsr', 'sta temp1',
-    `lda ${quickLastXVar}`, 'sec', `sbc #${pfXOffset}`, 'lsr', 'lsr', 'cmp temp1', `bne ${lab('chkfull')}`,
-    `lda ${xVar}`, 'sec', `sbc #${pfXOffset - 7}`, 'lsr', 'lsr', 'sta temp1',
-    `lda ${quickLastXVar}`, 'sec', `sbc #${pfXOffset - 7}`, 'lsr', 'lsr', 'cmp temp1', `bne ${lab('chkfull')}`,
+    ...sameColumnsLines({sizeVar, xA: xVar, xB: quickLastXVar, tmp: 'temp1', full: lab('chkfull'), prefix: lab('qc'), offset: pfXOffset, dpcPlus: armBox}),
     'lda #0', `sta ${resultVar}`, `jmp .${lab('chkdone')}`,
     `@${lab('chkfull')}`, `jmp .${lab('start')}`,
     '@end',
@@ -662,20 +661,44 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
   // armBox: one box of a player without a partner sprite is tested by the coprocessor (function 128 and up of custom/main.c, the program of
   // offset-arm.js; the numbers of the rows are in the program): the height, x, y, the width of the sprite (in bits 5 and 6 of the sweep byte) and the sweep go to it
   // and it gives back 0, 1 or, for a sweep, the number of the first lit row plus one, and the code goes on at the hit or clear labels of the 6502 test.
+  // A missile or the ball (objectWidth): kind 3 with its width less one (0, 1, 3 or 7) in the low bits, its height with the correction of its
+  // geometry (extraHeight); a player whose partner sprite shows is twice as wide: a double width box one pixel to the left (the same columns),
+  // or a quad one when it is stretched already.
+  const partnerHiddenOperand = partnerHiddenVar ? /^(w+){(d)}$/.exec(partnerHiddenVar) : null;
   const armOne = armBox ? [
+    ...(objectWidth ? [`temp1 = ${objectWidth}`] : []),
     'asm',
     'lda #<C_function', 'sta DF0LOW', 'lda #(>C_function) & $0F', 'sta DF0HI',
-    `lda ${baseHeightVar}`, 'and #$7F', 'ora #$80', 'sta DF0WRITE',
-    `lda ${xVar}`, 'sta DF0WRITE',
-    `lda ${yVar}`, 'sta DF0WRITE',
-    // Normal width 0, double 1, quad 2.
-    `lda ${sizeVar}`, 'and #7', 'ldx #0', 'cmp #5', `bne ${lab('armw5')}`, 'ldx #$20', `@${lab('armw5')}`, 'cmp #7', `bne ${lab('armw7')}`, 'ldx #$40', `@${lab('armw7')}`,
-    extVar ? `lda ${extVar}` : 'lda #0', 'and #$9F', 'sta temp1', 'txa', 'ora temp1', 'sta DF0WRITE',
+    `lda ${baseHeightVar}`,
+    ...(extraHeight < 0 ? ['sec', `sbc #${-extraHeight}`] : extraHeight > 0 ? ['clc', `adc #${extraHeight}`] : []),
+    'and #$7F', 'ora #$80', 'sta DF0WRITE',
+    ...(objectWidth ? [
+      `lda ${xVar}`, 'sta DF0WRITE',
+      `lda ${yVar}`, 'sta DF0WRITE',
+      extVar ? `lda ${extVar}` : 'lda #0', 'and #$9F', 'ora #$60', 'sta DF0WRITE',
+      // The width code 0 to 3 as the width less one (0, 1, 3, 7), in the fifth byte.
+      'lda #0', 'ldx temp1', `beq ${lab('armo')}`, 'lda #1', 'cpx #2', `bcc ${lab('armo')}`, 'lda #3', 'cpx #3', `bcc ${lab('armo')}`, 'lda #7',
+      `@${lab('armo')}`, 'sta DF0WRITE',
+    ] : [
+      // Normal width 0, double 1, quad 2 (bits 5 and 6 of the last byte), in temp1; the x in temp2.
+      `lda ${sizeVar}`, 'and #7', 'ldx #0', 'cmp #5', `bne ${lab('armw5')}`, 'ldx #$20', `@${lab('armw5')}`, 'cmp #7', `bne ${lab('armw7')}`, 'ldx #$40', `@${lab('armw7')}`,
+      'stx temp1', `lda ${xVar}`, 'sta temp2',
+      ...(partnerFrameVar ? [
+        `lda ${partnerFrameVar}`, 'cmp #255', `beq ${lab('armnp')}`,
+        ...(partnerHiddenOperand ? [`lda ${partnerHiddenOperand[1]}`, `and #${1 << Number(partnerHiddenOperand[2])}`, `bne ${lab('armnp')}`] : []),
+        'lda temp1', `bne ${lab('armpn')}`, 'lda #$20', 'sta temp1', 'dec temp2', `jmp ${lab('armnp')}`,
+        `@${lab('armpn')}`, 'cmp #$20', `bne ${lab('armnp')}`, 'lda #$40', 'sta temp1',
+        `@${lab('armnp')}`,
+      ] : []),
+      'lda temp2', 'sta DF0WRITE',
+      `lda ${yVar}`, 'sta DF0WRITE',
+      extVar ? `lda ${extVar}` : 'lda #0', 'and #$9F', 'ora temp1', 'sta DF0WRITE',
+    ]),
     'lda #255', 'sta CALLFUNCTION',
     'lda #<(C_function+1)', 'sta DF0LOW', 'lda DF0DATA', 'sta temp4',
+    // (A hit goes on at the hit label; no hit is the clear label's work, done here without a jump to it.)
+    `bne .${lab('hit')}`, `sta ${resultVar}`, `jmp .${lab('done')}`,
     '@end',
-    `if temp4 then goto ${lab('hit')}`,
-    `goto ${lab('clear')}`,
     ...oneTail,
   ] : [];
   const start = [
@@ -713,7 +736,7 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     `goto ${lab('start')}`,
     ...rowTableLines,
     at('one'),
-    ...oneBox,
+    ...(armBox ? armOne : oneBox),
     at('start'),
     ...(yShift ? [`${yVar} = ${yVar} ${yShift < 0 ? '-' : '+'} ${Math.abs(yShift)}`] : []),
     `if ${xVar} >= ${pfXOffset + 160} then ${resultVar} = 0 : goto ${lab('finish')}`,

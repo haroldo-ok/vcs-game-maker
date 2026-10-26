@@ -1,5 +1,7 @@
 'use strict';
 
+import {sameColumnsLines} from './box-columns';
+
 import {PF_BOX_X, PF_BOX_Y, PF_BOX_HIT, PF_BOX_EXT, pfHitVarName, callPfBox, callPfBoxQuick} from './pf-box-sub';
 import {useConfigurationStorage} from '../../hooks/project';
 import {pairKey, boxHitRef, isPlayerName} from './sprite-box-width';
@@ -82,10 +84,8 @@ export const platformerPlanOf = (blocks) => {
   return plan;
 };
 const ALL_VARYING_PLAN = {slots: {jump: 0, fall: 1, gravity: 2, jumps: 3}, constants: {}, bytes: [true, true]};
-export const PLATFORMER_COUNT_VAR = 'platCount';
 export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers = new Set(), wallsPlayers = new Set(), plans = {}) => {
   if (!players || !players.size) return;
-  reserveDevVar(PLATFORMER_COUNT_VAR, undefined, 'pixels the Platform block still has to move the player this frame');
   [...players].sort().forEach((playerNum) => {
     reserveDevVar(platformerSpeedVar(playerNum), undefined, `player ${playerNum}'s jump and fall speed (eighths of a pixel a frame)`);
     reserveDevVar(platformerFracVar(playerNum), undefined, `player ${playerNum}'s eighths of a pixel not yet moved`);
@@ -227,18 +227,14 @@ export default (Blockly) => {
     // One byte from two nibbles: both plain numbers is one assignment; a nibble that is a block is put in by a few statements.
     const packByte = (variable, high, low) => {
       if (high.constant !== undefined && low.constant !== undefined) return [`${variable} = ${high.constant * 16 + low.constant}`];
-      const lines = [];
-      if (high.constant !== undefined) {
-        lines.push(`${variable} = ${variable} & 15`, `${variable} = ${variable} | ${high.constant * 16}`);
-      } else {
-        lines.push(...high.lines, 'temp1 = temp1 * 16', `${variable} = ${variable} & 15`, `${variable} = ${variable} | temp1`);
-      }
+      // (The whole byte is written, so what it held is not read: the high nibble goes in first, the low one is put on it.)
       if (low.constant !== undefined) {
-        lines.push(`${variable} = ${variable} & 240`, `${variable} = ${variable} | ${low.constant}`);
-      } else {
-        lines.push(...low.lines, `${variable} = ${variable} & 240`, `${variable} = ${variable} | temp1`);
+        return [...high.lines, `${variable} = temp1 * 16`, ...(low.constant ? [`${variable} = ${variable} | ${low.constant}`] : [])];
       }
-      return lines;
+      if (high.constant !== undefined) {
+        return [...low.lines, `${variable} = temp1${high.constant ? ` | ${high.constant * 16}` : ''}`];
+      }
+      return [...high.lines, `${variable} = temp1 * 16`, ...low.lines, `${variable} = ${variable} | temp1`];
     };
     // The numbers that change go in their nibbles; a number that is always the same is in the code of the jump.
     const nibbles = [{constant: 0}, {constant: 0}, {constant: 0}, {constant: 0}];
@@ -275,7 +271,8 @@ export default (Blockly) => {
       const plan = (Blockly.BBasic.platformerPlans || {})[playerNum] || ALL_VARYING_PLAN;
       const lim = plan.bytes[0] ? resolveVar(platformerLimitVar(playerNum)) : '';
       const par = plan.bytes[1] ? resolveVar(platformerParamsVar(playerNum)) : '';
-      const cnt = resolveVar(PLATFORMER_COUNT_VAR);
+      // The pixels the player still has to move this frame: a scratch byte, put on the stack over the call of the box test (which uses them all).
+      const cnt = 'temp3';
       const bx = resolveVar(PF_BOX_X);
       const by = resolveVar(PF_BOX_Y);
       const hit = resolveVar(PF_BOX_HIT);
@@ -319,11 +316,7 @@ export default (Blockly) => {
                 '@' + lab('wmoved'), 'lda ' + lastX, `bne ${lab('wlast')}`, `jmp .${lab('wallsdone')}`,
                 '@' + lab('wlast'),
                 ...(sameColumnsOk ? [
-                  'lda ' + `${player}size`, 'and #7', `bne ${lab('wcheck')}`,
-                  'lda ' + px, 'sec', `sbc #${boxOffset}`, 'lsr', 'lsr', 'sta ' + cnt,
-                  'lda ' + lastX, 'sec', `sbc #${boxOffset}`, 'lsr', 'lsr', 'cmp ' + cnt, `bne ${lab('wcheck')}`,
-                  'lda ' + px, 'sec', `sbc #${boxOffset - 7}`, 'lsr', 'lsr', 'sta ' + cnt,
-                  'lda ' + lastX, 'sec', `sbc #${boxOffset - 7}`, 'lsr', 'lsr', 'cmp ' + cnt, `bne ${lab('wcheck')}`,
+                  ...sameColumnsLines({sizeVar: `${player}size`, xA: px, xB: lastX, tmp: cnt, full: lab('wcheck'), prefix: lab('wsc'), offset: boxOffset, dpcPlus}),
                   `jmp .${lab('wallsdone')}`,
                 ] : []),
                 '@' + lab('wcheck'),
@@ -359,19 +352,18 @@ export default (Blockly) => {
               // Standing on something and not jumping: a one pixel fall that the box test turns back (landing again) when the pixel
               // under the player is lit. So nothing moves; it counts as a jump made only if it really fell.
               '@' + lab('nojump'),
-              'lda ' + st, 'and #8', 'bne ' + lab('move'),
-              'lda ' + st, 'and #$20', 'beq ' + lab('move'),
+              // (X still has the state byte the frame started with; bits 3 and 5 have not changed since: standing is on the ground (bit 5) and not rising (bit 3).)
+              'txa', 'and #$28', 'cmp #$20', 'beq ' + lab('standing'), 'jmp ' + lab('move'), '@' + lab('standing'),
               // Standing and not moved sideways since the ground was last looked at (the x is kept in the fraction byte, which is not used
               // while standing): the ground is looked at again only every 16th frame, which saves a box test most frames.
               ...(sameColumnsOk ? [
                 // (A plain player 8 pixels wide that has moved sideways but is still in the same playfield columns, (x - offset) / 4 to
                 // (x - offset + 7) / 4, has the same ground under it.)
-                'lda ' + `${player}size`, 'and #7', 'bne ' + lab('fallcheck'),
-                'lda ' + px, 'sec', `sbc #${boxOffset}`, 'lsr', 'lsr', 'sta ' + cnt,
-                'lda ' + frac, 'sec', `sbc #${boxOffset}`, 'lsr', 'lsr', 'cmp ' + cnt, 'bne ' + lab('fallcheck'),
-                'lda ' + px, 'sec', `sbc #${boxOffset - 7}`, 'lsr', 'lsr', 'sta ' + cnt,
-                'lda ' + frac, 'sec', `sbc #${boxOffset - 7}`, 'lsr', 'lsr', 'cmp ' + cnt, 'bne ' + lab('fallcheck'),
+                // The x it landed at: nothing to work out.
+                'lda ' + px, 'cmp ' + frac, 'bne ' + lab('stx'), 'jmp ' + lab('stand'), '@' + lab('stx'),
+                ...sameColumnsLines({sizeVar: `${player}size`, xA: px, xB: frac, tmp: cnt, full: lab('fallcheck'), prefix: lab('stc'), offset: boxOffset, dpcPlus}),
               ] : ['lda ' + px, 'cmp ' + frac, 'bne ' + lab('fallcheck')]),
+              '@' + lab('stand'),
               'inc ' + spd, 'lda ' + spd, 'and #15', 'beq ' + lab('fallcheck'), 'jmp ' + lab('end'),
               '@' + lab('fallcheck'),
               'lda ' + st, 'and #$DF', 'ora #$10', 'sta ' + st,
@@ -406,9 +398,11 @@ export default (Blockly) => {
               ...(dpcPlus ? ['lda ' + py, 'sec', 'sbc ' + cnt, 'sta ' + by] : ['lda ' + py, 'sta ' + by]),
               '@' + lab('setx'),
               'lda ' + px, 'sta ' + bx,
+              'lda ' + cnt, 'pha',
           ),
           ` ${callPfBox(Blockly, player)}`,
           asm(
+              'pla', 'sta ' + cnt,
               'lda ' + hit, 'bne ' + lab('dohit'),
               // Nothing lit in the way: all the lines are moved.
               'lda ' + st, 'and #8', 'bne ' + lab('moveup'),
@@ -482,6 +476,12 @@ export default (Blockly) => {
     return [`${state}{${bit}}`, Blockly.BBasic.ORDER_ATOMIC];
   };
 
+  // The jumps a player has made since it stood on the ground: the low three bits of its state byte.
+  Blockly.BBasic['sprite_platformer_jumps'] = function(block) {
+    const state = Blockly.BBasic.nameDB_.getName(platformerStateVar(block.getFieldValue('PLAYER')), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    return [`(${state} & 7)`, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   // Undo last move: this block only saves where the player is now (before this frame's blocks move it) and marks that it ran. The check
   // itself is done once a frame, after everything that moves sprites has run and before the picture is drawn (see
   // generateCollisionMoveChecks), with the box test of pf-box.js: the box is the whole of the sprite (its full width and height,
@@ -530,12 +530,9 @@ export default (Blockly) => {
         // seen here, in assembly, without a call to the box test (a call across banks is dear). Anything else, a change of y too, is looked at in full.
         ...(firstBox === box ? [`${boxX} = ${player}x`, `${boxY} = ${player}y`, box] : [
           ' asm',
-          `       lda ${player}y`, `       cmp ${lastY}`, `       bne ${lab('full')}`,
-          `       lda ${player}size`, '       and #7', `       bne ${lab('full')}`,
-          `       lda ${player}x`, '       sec', `       sbc #${boxOffset}`, '       lsr', '       lsr', '       sta temp1',
-          `       lda ${lastX}`, '       sec', `       sbc #${boxOffset}`, '       lsr', '       lsr', '       cmp temp1', `       bne ${lab('full')}`,
-          `       lda ${player}x`, '       sec', `       sbc #${boxOffset - 7}`, '       lsr', '       lsr', '       sta temp1',
-          `       lda ${lastX}`, '       sec', `       sbc #${boxOffset - 7}`, '       lsr', '       lsr', '       cmp temp1', `       bne ${lab('full')}`,
+          `       lda ${player}y`, `       cmp ${lastY}`, `       beq ${lab('ysame')}`, `       jmp ${lab('full')}`, lab('ysame'),
+          ...sameColumnsLines({sizeVar: `${player}size`, xA: `${player}x`, xB: lastX, tmp: 'temp1', full: lab('full'), prefix: lab('sc'), offset: boxOffset,
+            dpcPlus: boxOffset === 16}).map((line) => (line[0] === '@' ? line.slice(1) : `       ${line}`)),
           `       jmp .${lab('done')}`,
           lab('full'),
           'end',

@@ -455,11 +455,11 @@ const buildScoreDataAsm = () => {
 // directly, 85*2 = 170*1), unaffected by how many frames an animated card
 // has (only the CURRENTLY selected frame's rows ever get drawn) or how many
 // OTHER pages exist (only one page's routine runs per actual frame
-// rendered). This instead estimates ROM STORAGE: every animation frame is a
-// separate, permanently-baked-in byte table (the kernel just changes which
-// one it points at), so unlike the draw-time budget, MORE frames or MORE
-// pages both genuinely add up here even though nothing about what's ever
-// visible at once changes. Deliberately a LOWER bound, not a byte-exact
+// rendered). This instead estimates ROM STORAGE: every DIFFERENT picture and every different row color list is a
+// permanently-baked-in byte table (the kernel just changes which one it points at), so unlike the draw-time budget,
+// more different frames or more pages add up here even though nothing about what's ever visible at once changes. A
+// picture that repeats (a held frame, the same picture under other row colors, the same graphic on another page) is
+// stored once, and so is a row color list that repeats (see buildCardDataAsm), and is counted once here. Deliberately a LOWER bound, not a byte-exact
 // prediction - it counts each card/frame's pixel and row-color bytes
 // (matching buildCardDataAsm/buildPlayerDataAsm/buildScoreDataAsm's real
 // output exactly), but skips the 256-byte alignment padding a card's
@@ -472,13 +472,39 @@ export const estimateTitleScreenGraphicsBytes = (storage) => {
   let bytes = 0;
   let countedPlayerCard = false;
   let countedScoreCard = false;
+  const seenPictures = new Set();
+  const seenColors = new Set();
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
       const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
       if (typeInfo) {
-        const height = cardFrameHeight(card) * ((card.frames && card.frames.length) || 1);
-        bytes += height * typeInfo.blockCount;
-        bytes += typeInfo.hasRowColors ? height : 1;
+        // As buildCardDataAsm stores it: a picture that repeats (in a held frame, under other row colors, or in another graphic)
+        // and a row color list that repeats are in the ROM once.
+        const {frameHeight, paddedFrames} = padTitleCardFrames(card, typeInfo);
+        const split = titleCardColorSplit(card, `${screen.id}:${card.id}`);
+        const distinct = (list) => [...new Set(list)];
+        // A graphic whose rows are stored per frame (no row colors, or its colors not split off) keeps a frame once when its
+        // picture and its row colors are the same; a split one keeps each picture once, and each row color list once.
+        const stored = distinct(paddedFrames.map(({pixelRows, colorRows}) =>
+          JSON.stringify(split || !typeInfo.hasRowColors ? [pixelRows] : [pixelRows, colorRows])));
+        const pictures = distinct(paddedFrames.map(({pixelRows}) => JSON.stringify(pixelRows)));
+        const pictureCount = split || !typeInfo.hasRowColors ? pictures.length : stored.length;
+        const pictureSignature = JSON.stringify([typeInfo.blockCount, split ? 1 : 0, split || !typeInfo.hasRowColors ? pictures : stored]);
+        if (!seenPictures.has(pictureSignature)) {
+          seenPictures.add(pictureSignature);
+          bytes += pictureCount * frameHeight * typeInfo.blockCount;
+        }
+        if (typeInfo.hasRowColors) {
+          const colorLists = distinct(paddedFrames.map(({colorRows}) => JSON.stringify(colorRows)));
+          const colorCount = split ? colorLists.length : stored.length;
+          const colorSignature = JSON.stringify([split, frameHeight, split ? colorLists : stored]);
+          if (!seenColors.has(colorSignature)) {
+            seenColors.add(colorSignature);
+            bytes += colorCount * frameHeight;
+          }
+        } else {
+          bytes += 1;
+        }
         return;
       }
       if (card.type === 'player' && !countedPlayerCard) {

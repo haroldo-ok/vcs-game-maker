@@ -10,7 +10,7 @@
           its color instead of one fixed color for the whole background.
         </p>
 
-        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveEditor" @height-hotkey="handleSetHeightHotkey">
+        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveEditor" :card-columns.sync="cardColumns" card-columns-what="backgrounds" @height-hotkey="handleSetHeightHotkey">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" />
             <pixel-grid-toggle v-model="showPixelGrid" />
@@ -118,7 +118,7 @@
         </graphic-editor-toolbar>
         <v-list
           class="background-list"
-          :style="{gridTemplateColumns: `repeat(auto-fill, calc(${editorWidth} + 24px))`}"
+          :style="{gridTemplateColumns: cardColumns ? `repeat(auto-fill, calc(${editorWidth} + 24px))` : '100%'}"
         >
           <v-list-item
             class="entry-list-item"
@@ -162,7 +162,7 @@
                       @change="handleChildChange"
                     />
                     <v-text-field
-                      v-if="kernelIsDpcPlus"
+                      v-if="kernelIsDpcPlus && !background.groupPfres"
                       class="background-name-field background-pfres-field"
                       label="pfres"
                       type="number"
@@ -174,9 +174,47 @@
                       :title="`How many rows this background has on screen, 1 to 192. Left empty it uses the project's pfres (${defaultPfres}, set in Options).`"
                       @change="(value) => handleChangeBackgroundPfres(background, value)"
                     />
+                    <v-text-field
+                      v-if="kernelIsDpcPlus && pfColorsEnabled"
+                      class="background-name-field background-pfres-field background-color-rows-field"
+                      label="pf color rows"
+                      type="number"
+                      min="1"
+                      max="192"
+                      :value="background.pfColorRows || ''"
+                      :placeholder="String(background.pixels.length)"
+                      persistent-placeholder
+                      title="How many rows of colors the playfield colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
+                      @input="(value) => handleTypeColorRows(background, 'pf', value)"
+                      @change="(value) => handleLeaveColorRows(background, 'pf', value)"
+                    />
+                    <v-text-field
+                      v-if="kernelIsDpcPlus && bkColorsEnabled"
+                      class="background-name-field background-pfres-field background-color-rows-field"
+                      label="bg color rows"
+                      type="number"
+                      min="1"
+                      max="192"
+                      :value="background.bkColorRows || ''"
+                      :placeholder="String(background.pixels.length)"
+                      persistent-placeholder
+                      title="How many rows of colors the background colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
+                      @input="(value) => handleTypeColorRows(background, 'bk', value)"
+                      @change="(value) => handleLeaveColorRows(background, 'bk', value)"
+                    />
                   </div>
 
                   <div class="background-corner-toolbar">
+                    <pixel-grid-toggle
+                      v-if="kernelIsDpcPlus"
+                      class="player-icon-btn-size background-corner-toggle"
+                      tall
+                      :value="!!background.groupPfres"
+                      icon="mdi-view-column"
+                      title-on="The four playfield columns have separate resolutions (pfres) - click to give them all the same one"
+                      title-off="Give each of the four playfield columns (8 pixels wide) a separate resolution (pfres)"
+                      @input="() => handleToggleGroupPfres(background)"
+                    />
                     <v-btn
                       icon
                       small
@@ -258,8 +296,94 @@
                        row count while using a FIXED per-row height, which is what actually
                        broke for other pfres values before - see git history), since
                        pfRowDivisorFor itself already accounts for pfres correctly. -->
-                  <div class="pixel-editor-container" :style="{width: editorWidth, maxWidth: editorWidth}">
+                  <div class="pixel-editor-container" :style="cardColumns ? {width: editorWidth, maxWidth: editorWidth} : {width: editorWidth, maxWidth: '100%'}">
+                    <div v-if="background.groupPfres" class="group-editors-row">
+                      <div class="group-pfres-row">
+                        <v-text-field
+                          v-for="(rows, group) in background.groupPfres"
+                          :key="group"
+                          class="group-pfres-field"
+                          hide-details
+                          :label="`pfres column ${group + 1}`"
+                          type="number"
+                          min="1"
+                          max="192"
+                          :value="rows"
+                          :title="`How many rows playfield column ${group + 1} (pixels ${group * 8} to ${group * 8 + 7}) has on screen, 1 to 192.`"
+                          @change="(value) => handleChangeGroupPfres(background, group, value)"
+                        />
+                      </div>
+                      <div v-if="pfColorsEnabled" class="group-color-strip">
+                        <playfield-color-strip
+                          :value="background.rowColors"
+                          :quickColors="quickColorPalette"
+                          :activeQuickColor="selectedQuickColor"
+                          title="Playfield row colors (shared by every group)"
+                          @input="(colors) => handleRowColorsInput(background, colors)"
+                        />
+                      </div>
+                      <div class="group-editors">
+                      <pixel-editor
+                        v-for="(rows, group) in background.groupPfres"
+                        :key="group"
+                        :ref="pixelEditorRefKey(background)"
+                        class="group-editor"
+                        :width="8"
+                        :height="rows"
+                        :aspectRatio="groupAspectRatio(rows)"
+                        name="background"
+                        :value="groupPixels(background, group)"
+                        fgColor="orange"
+                        :rowColors="groupColors(editorRowColors(background), rows)"
+                        :rowBackdrop="groupColors(editorBkRowColors(background), rows)"
+                        :rowColorsFine="fineColors(editorRowColors(background), rows)"
+                        :rowBackdropFine="fineColors(editorBkRowColors(background), rows)"
+                        :allowChangingHeight="false"
+                        :showGrid="showPixelGrid"
+                        :showCellIds="showPixelGrid && showPixelGridLabels"
+                        :cellIdColumnOffset="group * 8"
+                        :hideToolbar="true"
+                        @input="(pixels) => handleGroupPixelsInput(background, group, pixels)"
+                        @activate="(editorInstance) => setActiveEditor(editorInstance, background.id)"
+                      />
+                      </div>
+                      <div v-if="bkColorsEnabled" class="group-color-strip">
+                        <playfield-color-strip
+                          :value="background.bkRowColors"
+                          :quickColors="quickColorPalette"
+                          :activeQuickColor="selectedQuickColor"
+                          title="Background row colors (shared by every group)"
+                          side="right"
+                          :defaultColor="DEFAULT_BK_ROW_COLOR"
+                          @input="(colors) => handleBkRowColorsInput(background, colors)"
+                        />
+                      </div>
+                      <!-- The same buttons under the picture as a background without groups has (see the actions of PixelEditor.vue): clear the
+                           playfield colors, copy, paste and clear, clear the background colors. -->
+                      <div v-if="pfColorsEnabled" class="group-tools group-tools-left">
+                        <v-btn icon small title="Clear this graphic's color data only (leaves the drawing itself untouched)" @click="() => handleClearPlayfieldRowColors(background)">
+                          <v-icon>mdi-invert-colors-off</v-icon>
+                        </v-btn>
+                      </div>
+                      <div class="group-tools group-tools-center">
+                        <v-btn icon small title="Copy this background's image (and row colors, if any)" @click="() => handleCopyBackground(background)">
+                          <v-icon>mdi-content-copy</v-icon>
+                        </v-btn>
+                        <v-btn icon small :disabled="!copiedBackgroundData" title="Paste copied image (and row colors, if any) onto this background" @click="() => handlePasteBackground(background)">
+                          <v-icon>mdi-content-paste</v-icon>
+                        </v-btn>
+                        <v-btn icon small title="Clear" @click="() => handleClearGroupBackground(background)">
+                          <v-icon>mdi-broom</v-icon>
+                        </v-btn>
+                      </div>
+                      <div v-if="bkColorsEnabled" class="group-tools group-tools-right">
+                        <v-btn icon small title="Clear this graphic's background row colors only (leaves the drawing and the playfield row colors untouched)" @click="() => handleClearBkRowColors(background)">
+                          <v-icon>mdi-invert-colors-off</v-icon>
+                        </v-btn>
+                      </div>
+                    </div>
                     <pixel-editor
+                      v-else
                       :ref="pixelEditorRefKey(background)"
                       :width="32"
                       :height="background.pixels.length"
@@ -267,8 +391,10 @@
                       name="background"
                       :value="background.pixels"
                       fgColor="orange"
-                      :rowColors="editorRowColors(background)"
-                      :rowBackdrop="editorBkRowColors(background)"
+                      :rowColors="pixelRowColors(editorRowColors(background), background)"
+                      :rowBackdrop="pixelRowColors(editorBkRowColors(background), background)"
+                      :rowColorsFine="fineColors(editorRowColors(background), background.pixels.length)"
+                      :rowBackdropFine="fineColors(editorBkRowColors(background), background.pixels.length)"
                       :allowChangingHeight="true"
                       :showClearButton="true"
                       :showGrid="showPixelGrid"
@@ -276,7 +402,8 @@
                       :hideToolbar="true"
                       @input="(pixels) => handleBackgroundPixelsInput(background, pixels)"
                       @clear="() => handleClearRowColors(background)"
-                      @clear-colors="() => handleClearRowColors(background)"
+                      @clear-colors="() => handleClearPlayfieldRowColors(background)"
+                      @clear-bk-colors="() => handleClearBkRowColors(background)"
                       @move-rows="(move) => handleMoveRows(background, move)"
                       @flip-rows="() => handleFlipRowColors(background)"
                       @activate="(editorInstance) => setActiveEditor(editorInstance, background.id)"
@@ -364,14 +491,14 @@ import PixelGridToggle from '../components/PixelGridToggle.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
 import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage,
-  usePixelGridOverlayStorage, usePixelGridLabelsStorage} from '../hooks/project';
+  usePixelGridOverlayStorage, usePixelGridLabelsStorage, useBackgroundCardColumnsStorage} from '../hooks/project';
 import {buildBackgroundPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
-import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
+import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor, dpcPlusRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
 import {rowColorsForMove} from '../utils/row-color-move';
-import {DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
+import {backgroundColorRows, backgroundHasColorRows, colorsAtRows, DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
   processBackgroundStorageDefaults} from '../blocks/background';
 
 // Width of one background editor at 100% zoom.
@@ -417,6 +544,8 @@ export default defineComponent({
     // Shared with PlayerEditor.vue's  Player 0/1 tabs (see
     // PixelGridToggle.vue's  comment).
     const showPixelGrid = usePixelGridOverlayStorage();
+    // The cards in several columns (the window wide enough for more than one) or in one.
+    const cardColumns = useBackgroundCardColumnsStorage();
     // Background-tab-only (see usePixelGridLabelsStorage's  comment) -
     // controls the grid overlay's "X,Y" cell labels independently of the
     // grid lines themselves (showPixelGrid above).
@@ -456,21 +585,24 @@ export default defineComponent({
     // has one whenever per-row colors are enabled, without clobbering colors
     // the user already picked. Left alone (not deleted) while the option is
     // off, so re-enabling it doesn't lose prior work.
-    const ensureRowColors = (background, rows) => {
+    const ensureRowColors = (background, pixelRows) => {
+      // (A list has as many colors as the pixel rows, unless the background has separate color rows, see backgroundColorRows.)
+      const pfRows = backgroundHasColorRows(background, 'pf') ? backgroundColorRows(background, 'pf') : pixelRows;
+      const bkRows = backgroundHasColorRows(background, 'bk') ? backgroundColorRows(background, 'bk') : pixelRows;
       if (pfColorsEnabled.value) {
         const existing = background.rowColors || [];
-        if (existing.length !== rows) {
-          const next = existing.slice(0, rows);
-          while (next.length < rows) next.push(DEFAULT_ROW_COLOR);
+        if (existing.length !== pfRows) {
+          const next = existing.slice(0, pfRows);
+          while (next.length < pfRows) next.push(DEFAULT_ROW_COLOR);
           background.rowColors = next;
         }
       }
       // The background rows start out black, and are a separate list from the playfield's colors.
       if (bkColorsEnabled.value) {
         const existing = background.bkRowColors || [];
-        if (!background.bkRowColors || existing.length !== rows) {
-          const next = existing.slice(0, rows);
-          while (next.length < rows) next.push(DEFAULT_BK_ROW_COLOR);
+        if (!background.bkRowColors || existing.length !== bkRows) {
+          const next = existing.slice(0, bkRows);
+          while (next.length < bkRows) next.push(DEFAULT_BK_ROW_COLOR);
           background.bkRowColors = next;
         }
       }
@@ -541,6 +673,113 @@ export default defineComponent({
       const rows = Math.round(Number(value));
       if (rows > 0) background.pfres = Math.min(192, rows);
       else delete background.pfres;
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+
+    // DPC+: the playfield colors and the background colors can have a number of separate rows (pfColorRows, bkColorRows; see
+    // backgroundColorRows), spread over the height of the picture. The list of colors is cut or stretched to the new number.
+    // `before` is the list of colors to cut or stretch (while a number is being typed it is the list the field started from, so that the colors
+    // are not cut to the first digit on the way to the second).
+    const handleChangeColorRows = (background, kind, value, before = null) => {
+      const key = kind === 'bk' ? 'bkColorRows' : 'pfColorRows';
+      const listKey = kind === 'bk' ? 'bkRowColors' : 'rowColors';
+      const rows = Math.round(Number(value));
+      const from = before || background[listKey] || [];
+      if (rows > 0) background[key] = Math.min(192, rows);
+      else delete background[key];
+      const next = backgroundColorRows(background, kind);
+      if (from.length && next > 0) background[listKey] = colorsAtRows(from, next);
+      ensureRowColors(background, background.pixels.length);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    // The arrows of the number field change its value without a change event (that comes when the field is left), so the color bars follow on
+    // every change of the value. The colors the field started from are kept until it is left, and every number is made from those.
+    const colorRowsStart = new Map();
+    const currentBackground = (id) => state.value.backgrounds.find((candidate) => candidate.id === id);
+    const handleTypeColorRows = (background, kind, value) => {
+      const key = `${background.id}-${kind}`;
+      // (The background is looked up again: the list is read again from storage after every change, so the object the field had when it
+      // was first used is not the current one by the next change.)
+      const current = currentBackground(background.id);
+      if (!current) return;
+      if (!colorRowsStart.has(key)) colorRowsStart.set(key, (current[kind === 'bk' ? 'bkRowColors' : 'rowColors'] || []).slice());
+      handleChangeColorRows(current, kind, value, colorRowsStart.get(key));
+    };
+    // The field is left: the next change starts from the colors as they are now.
+    const handleLeaveColorRows = (background, kind, value) => {
+      const current = currentBackground(background.id);
+      if (current) handleChangeColorRows(current, kind, value, colorRowsStart.get(`${background.id}-${kind}`) || null);
+      colorRowsStart.delete(`${background.id}-${kind}`);
+    };
+    // The colors as the rows of the picture show them: the color of the row at the middle of a row when the colors have fewer rows than the picture
+    // (the lists are then not the rows of the pixels), and the colors the row covers, as bands, when they have more.
+    const pixelRowColors = (colors, background) => colorsAtRows(colors, background.pixels.length);
+
+    // DPC+: each group of 8 columns can have a number of separate rows on screen (groupPfres, four numbers). The picture is one
+    // matrix as tall as the tallest group; a shorter group is drawn in the top of its columns and the rows under are dimmed.
+    const handleToggleGroupPfres = (background) => {
+      if (background.groupPfres) delete background.groupPfres;
+      else {
+        const rows = Math.min(192, Math.max(1, background.pfres || defaultPfres.value));
+        background.groupPfres = [rows, rows, rows, rows];
+        // The picture is as tall as the groups.
+        if (background.pixels.length !== rows) {
+          background.customHeight = true;
+          background.pixels = resizePixelMatrixHeight(background.pixels, rows, 32, false);
+          ensureRowColors(background, rows);
+        }
+      }
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    // One group's columns as a picture of the rows it has, drawn as tall as the others (every group fills the screen height).
+    const groupAspectRatio = (rows) => {
+      const config = configurationStorage.value;
+      return (8 * PF_COLUMN_WIDTH_PX) / (rows * dpcPlusRowLinesFor(config, rows) / 2);
+    };
+    const groupPixels = (background, group) => background.pixels.slice(0, background.groupPfres[group]).map((row) => row.slice(group * 8, group * 8 + 8));
+    // The row colors (kept at the resolution of the tallest group) as the rows of a group show them.
+    const groupColors = (colors, rows) => {
+      if (!colors) return null;
+      return Array.from({length: rows}, (unused, row) => colors[Math.min(colors.length - 1, Math.floor((row + 0.5) * colors.length / rows))]);
+    };
+    // The colors of a list that has a number of rows other than the picture's (null when it has the same number, or none): the picture draws them at the
+    // heights they have, whatever the rows of the picture are.
+    const fineColors = (colors, rows) => (colors && colors.length !== rows ? colors : null);
+    // The Clear button of a background with groups: the drawing and the row colors, as the broom of a background without groups does.
+    const handleClearGroupBackground = (background) => {
+      background.pixels = background.pixels.map((row) => row.map(() => 0));
+      handleClearRowColors(background);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const handleGroupPixelsInput = (background, group, pixels) => {
+      const rows = background.groupPfres[group];
+      if (pixels.length !== rows) return;
+      background.pixels = background.pixels.map((row, y) => {
+        if (y >= rows) return row;
+        const next = row.slice();
+        pixels[y].forEach((value, x) => {
+          next[group * 8 + x] = value;
+        });
+        return next;
+      });
+      handleChildChange();
+    };
+    const handleChangeGroupPfres = (background, group, value) => {
+      const rows = Math.min(192, Math.max(1, Math.round(Number(value)) || background.groupPfres[group]));
+      background.groupPfres.splice(group, 1, rows);
+      const tallest = Math.max(...background.groupPfres);
+      if (tallest > background.pixels.length) {
+        background.customHeight = true;
+        background.pixels = resizePixelMatrixHeight(background.pixels, tallest, 32, false);
+        ensureRowColors(background, tallest);
+      }
+      background.pixels.forEach((row, y) => row.forEach((cell, x) => {
+        if (cell && y >= background.groupPfres[x >> 3]) row[x] = 0;
+      }));
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
@@ -621,11 +860,11 @@ export default defineComponent({
         // silently undo this resize.
         background.customHeight = true;
         // Scaling the contents scales each row's color along with its pixels.
-        if (heightMenuScaleContents.value && background.rowColors) {
+        if (heightMenuScaleContents.value && background.rowColors && !backgroundHasColorRows(background, 'pf')) {
           background.rowColors = scaleRowColors(
               background.rowColors, background.pixels.length, heightMenuValue.value);
         }
-        if (heightMenuScaleContents.value && background.bkRowColors) {
+        if (heightMenuScaleContents.value && background.bkRowColors && !backgroundHasColorRows(background, 'bk')) {
           background.bkRowColors = scaleRowColors(
               background.bkRowColors, background.pixels.length, heightMenuValue.value);
         }
@@ -682,7 +921,7 @@ export default defineComponent({
           handleChildChange();
         },
         getSelectedIndices,
-        {sideBySide: true, renumber: {kind: 'background', onRenumbered: renumbered}},
+        {sideBySide: () => cardColumns.value, renumber: {kind: 'background', onRenumbered: renumbered}},
     );
 
     const setRowColors = (background, colors) => {
@@ -719,7 +958,8 @@ export default defineComponent({
     // Moving selected pixels with the Move tool takes the colors of their rows along
     // (PixelEditor.vue's 'move-rows' event - see utils/row-color-move.js).
     const handleMoveRows = (background, move) => {
-      if (!pfColorsEnabled.value) return;
+      // (Color separate rows are not the rows of the pixels, so the colors stay.)
+      if (!pfColorsEnabled.value || backgroundHasColorRows(background, 'pf')) return;
       const colors = rowColorsForMove(background, move);
       if (colors) setRowColors(background, colors);
     };
@@ -733,6 +973,19 @@ export default defineComponent({
       recordFieldsChange([{owner: background, fields: ['rowColors', 'bkRowColors']}], () => {
         if (pfColorsEnabled.value && background.rowColors) background.rowColors = background.rowColors.slice().reverse();
         if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.slice().reverse();
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
+    };
+    // The two buttons under the color strips: each clears the colors of its strip only.
+    const handleClearPlayfieldRowColors = (background) => {
+      recordFieldsChange([{owner: background, fields: ['rowColors']}], () => {
+        if (pfColorsEnabled.value && background.rowColors) background.rowColors = clearRowColors(background.rowColors);
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
+    };
+    const handleClearBkRowColors = (background) => {
+      recordFieldsChange([{owner: background, fields: ['bkRowColors']}], () => {
+        if (bkColorsEnabled.value && background.bkRowColors) background.bkRowColors = background.bkRowColors.map(() => DEFAULT_BK_ROW_COLOR);
         saveAndRedraw();
       }, {afterChange: saveAndRedraw});
     };
@@ -784,6 +1037,8 @@ export default defineComponent({
           {rowColors: structuredClone(background.rowColors)} : {}),
         ...(bkColorsEnabled.value && background.bkRowColors ?
           {bkRowColors: structuredClone(background.bkRowColors)} : {}),
+        pfColorRows: background.pfColorRows,
+        bkColorRows: background.bkColorRows,
       };
     };
     const handlePasteBackground = (background) => {
@@ -791,10 +1046,15 @@ export default defineComponent({
       // Same reasoning as handleBackgroundPixelsInput's customHeight
       // check - pasting a taller/shorter image is just as much a resize as
       // dragging the pixel editor's "Set height" slider.
-      recordFieldsChange([{owner: background, fields: ['pixels', 'rowColors', 'bkRowColors', 'customHeight']}], () => {
+      recordFieldsChange([{owner: background, fields: ['pixels', 'rowColors', 'bkRowColors', 'customHeight', 'pfColorRows', 'bkColorRows']}], () => {
         if (copiedBackgroundData.value.pixels.length !== background.pixels.length) {
           background.customHeight = true;
         }
+        // The copy's color rows go with its colors.
+        ['pfColorRows', 'bkColorRows'].forEach((key) => {
+          if (copiedBackgroundData.value[key] > 0) background[key] = copiedBackgroundData.value[key];
+          else delete background[key];
+        });
         background.pixels = structuredClone(copiedBackgroundData.value.pixels);
         if (pfColorsEnabled.value && copiedBackgroundData.value.rowColors) {
           background.rowColors = structuredClone(copiedBackgroundData.value.rowColors);
@@ -860,15 +1120,16 @@ export default defineComponent({
       state, handleChildChange, handleBackgroundPixelsInput, handleAddBackground, handleDeleteBackground, handleDuplicateBackground,
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
-      handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
-      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
+      handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
+      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
       activeEditor, setActiveEditor, selectedBackground,
       effectiveEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
-      handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres};
+      handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres,
+      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, handleTypeColorRows, handleLeaveColorRows, pixelRowColors};
   },
 });
 </script>
@@ -1006,6 +1267,8 @@ export default defineComponent({
 .pixel-editor-container >>> .v-card__text {
   padding-left: 0 !important;
   padding-right: 0 !important;
+  /* The fields above are 8px from the picture, not 8px plus the padding of the card. */
+  padding-top: 0 !important;
 }
 
 .pixel-editor-container >>> .v-card__actions {
@@ -1053,6 +1316,10 @@ export default defineComponent({
    editor. Same "one flex row of whichever buttons are actually present"
    reasoning as PlayerEditor.vue's .frame-corner-toolbar - the color
    copy/paste pair is only shown while per-row playfield colors is on. */
+/* The columns toggle in the corner: the same size as the buttons beside it (the toolbar's gap is the space between them). */
+.background-corner-toolbar .background-corner-toggle {
+  margin-left: 0;
+}
 .background-corner-toolbar {
   position: absolute;
   top: 8px;
@@ -1173,14 +1440,112 @@ export default defineComponent({
 .background-name-row {
   display: flex;
   gap: 16px;
+  /* Clear of the buttons in the corner above. */
+  margin-top: 10px;
+  margin-bottom: -2px;
 }
 
 .background-name-row .background-name-field:first-child {
   flex: 1 1 auto;
 }
 
+/* The four groups of columns side by side, each as tall as the screen however many rows it has. */
+.group-editors-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+/* Each pfres field sits over its group of columns (the strips at the sides are the first and third grid columns). */
+.group-pfres-row {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+}
+.group-pfres-row > .group-pfres-field {
+  margin-top: 20px;
+  margin-bottom: 8px;
+  padding-top: 0;
+  flex: 1 1 0 !important;
+  max-width: none;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 8px 0 0;
+}
+.group-editors-row > .group-color-strip,
+.group-editors-row > .group-editors {
+  grid-row: 2;
+}
+.group-editors-row > .group-color-strip {
+  grid-column: 1;
+}
+.group-editors-row > .group-editors ~ .group-color-strip {
+  grid-column: 3;
+}
+.group-editors-row > .group-editors {
+  grid-column: 2;
+}
+.group-editors {
+  display: flex;
+  align-items: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.group-color-strip {
+  flex: 0 0 auto;
+  display: flex;
+}
+/* The buttons under the picture, in the grid row under it: the first under the playfield colors, the last under the background colors. */
+.group-tools {
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  padding: 8px 0 2px;
+}
+.group-tools-left {
+  grid-column: 1;
+  justify-content: center;
+}
+.group-tools-center {
+  grid-column: 2;
+  justify-content: center;
+}
+.group-tools-right {
+  grid-column: 3;
+  justify-content: center;
+}
+.group-tools >>> .v-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+}
+.group-tools >>> .v-btn::before {
+  display: none;
+}
+.group-tools >>> .v-btn .v-icon {
+  font-size: 19px;
+  color: rgba(0, 0, 0, 0.38) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+.group-tools >>> .v-btn:hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+.group-tools >>> .v-btn:active .v-icon {
+  transform: scale(0.82);
+}
+.group-editors .group-editor {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.group-editors >>> .v-card__text {
+  padding: 0 !important;
+}
 .background-pfres-field {
   flex: 0 0 96px;
+}
+.background-color-rows-field {
+  flex: 0 0 112px;
 }
 
 .add-frame-buttom {

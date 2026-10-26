@@ -454,15 +454,20 @@ export default (Blockly) => {
   };
   // Puts a named entry's  first line on just one row, reusing the same
   // registerFreeTypedRowMessage mechanism text_minikernel_show_row uses for
-  // its  free-typed text - the entry's justify setting isn't applied
-  // here (registerFreeTypedRowMessage always left-justifies, the same
-  // limitation "Show text: <free-typed text>" already has - see
-  // registerFreeTypedMessage's  comment), only its raw first-line text.
+  // its  free-typed text. That always left-justifies, so the entry's  justify setting
+  // (Left, Center, Right on the Text tab) is applied here, by padding the line with the
+  // spaces encodeTextMessage would put in front of it.
   Blockly.BBasic['text_minikernel_show_named_row'] = function(block) {
     markTextMinikernelUsed();
     const row = block.getFieldValue('ROW');
     const id = block.getFieldValue('TEXT_ID');
-    const offset = registerFreeTypedRowMessage(row, namedMessageFirstLine(id));
+    const entry = listTextStrings().find((candidate) => `${candidate.id}` === `${id}`);
+    const maxWidth = resolveTextMaxDisplayWidth();
+    const line = namedMessageFirstLine(id).toUpperCase().slice(0, maxWidth);
+    const totalPad = maxWidth - line.length;
+    const justify = entry && entry.justify;
+    const leftPad = justify === 'right' ? totalPad : justify === 'center' ? Math.floor(totalPad / 2) : 0;
+    const offset = registerFreeTypedRowMessage(row, ' '.repeat(leftPad) + line);
     return emitScrollSetup(offset, 0, DEFAULT_SCROLL_SPEED, DEFAULT_SCROLL_PAUSE) +
       setTextRow2ActiveCode(true) +
       setTextLinesRangeCode(offset, offset);

@@ -197,9 +197,9 @@ Blockly.Blocks['input_joystick_fire_pattern'] = {
     Blockly.Extensions.apply('input_fire_pattern_frames_sync', this, false);
     this.setTooltip('Reads the chosen joystick\'s Fire button press pattern - "frames" means ' +
       'something different depending on which pattern is picked (60 frames = 1 second), and is ' +
-      'ignored entirely for "released" (hidden for that pattern - there\'s nothing to set):\n' +
-      '• tapped - true for exactly one frame, the instant Fire is released, but only if the ' +
-      'press that just ended lasted no longer than "frames" (a quick press-and-release).\n' +
+      'ignored entirely for "tapped" and "released" (hidden for those patterns - there\'s nothing to set):\n' +
+      '• tapped - true for exactly one frame, the instant Fire is pushed down (no waiting for it ' +
+      'to be released; "frames" is ignored).\n' +
       '• held - true on every frame Fire has been continuously held down for at least ' +
       '"frames" so far - stays true for as long as it\'s still held past that point, not just one ' +
       'frame.\n' +
@@ -244,7 +244,7 @@ Blockly.Extensions.register('input_fire_pattern_frames_sync', function() {
     if (!block.workspace || !block.workspace.rendered) return;
     const input = block.getInput('FRAMES_INPUT');
     if (!input) return;
-    const shouldBeVisible = mode !== 'RELEASED';
+    const shouldBeVisible = mode !== 'RELEASED' && mode !== 'TAP';
     if (input.isVisible() === shouldBeVisible) return;
     input.setVisible(shouldBeVisible);
     if (typeof block.queueRender === 'function') block.queueRender();

@@ -10,7 +10,7 @@
           player size) setting, which will be set automatically when that sprite is activated.
         </p>
 
-        <graphic-editor-toolbar class="tight-under-intro" import-export-first :active-editor="effectiveFrameEditor" @height-hotkey="handleSetHeightHotkey">
+        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="animations" @height-hotkey="handleSetHeightHotkey">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" :levels="playerZoomLevels" />
             <pixel-grid-toggle v-model="showPixelGrid" />
@@ -152,7 +152,7 @@
             <quick-color-palette v-model="selectedQuickColor" :active-editor="effectiveFrameEditor" />
           </template>
         </graphic-editor-toolbar>
-        <v-list class="animation-list">
+        <v-list class="animation-list" :class="{'animation-list-columns': cardColumns}">
           <v-list-item
             class="entry-list-item"
             v-for="(animation, index) in state.animations"
@@ -497,7 +497,8 @@ import {useCardSelection} from '../hooks/card-selection';
 import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-history';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
 import {DEFAULT_SPRITES, processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
-import {useColorPaletteStorage, useConfigurationStorage, useErrorStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage} from '../hooks/project';
+import {useColorPaletteStorage, useConfigurationStorage, useErrorStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage,
+  useSpriteCardColumnsStorage} from '../hooks/project';
 import {buildPlayerAnimationPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useEditorZoom, ZOOM_LEVELS} from '../hooks/zoom';
 
@@ -548,6 +549,8 @@ export default defineComponent({
     // PixelGridToggle.vue's  comment) - not per-player like zoom above.
     const showPixelGrid = usePixelGridOverlayStorage();
     const showPixelGridLabels = usePixelGridLabelsStorage();
+    // The animation cards in several columns (the window wide enough for more than one) or in one.
+    const cardColumns = useSpriteCardColumnsStorage();
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
     // Widens the frame editor's  container by the SAME factor the
     // aspectRatio calculation below scales by, instead of just increasing
@@ -865,7 +868,7 @@ export default defineComponent({
           handleChildChange();
         },
         getSelectedIndices,
-        {renumber: {kind: 'animation', onRenumbered: renumbered}},
+        {sideBySide: () => cardColumns.value, renumber: {kind: 'animation', onRenumbered: renumbered}},
     );
 
     // Frame reordering: one drag-reorder instance per animation, made on
@@ -1393,7 +1396,7 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, frameDrag, frameHandleListeners,
       armedFrameKey, frameKey, armFrameDrag,
-      zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, editorWidth, frameEditorWidth,
+      zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, frameEditorWidth,
       activeFrameEditor, setActiveFrame, isFrameActive, frameHighlightState, selectedAnimation,
       effectiveFrameEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents,
@@ -1444,6 +1447,13 @@ export default defineComponent({
   margin-top: 4px;
 }
 
+/* Several columns of cards when the window is wide enough: each card at least as wide as its frames need to be useful. */
+.animation-list-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+  align-items: start;
+}
+
 /* A real <v-list> (unlike Title screen's equivalent .titlescreen-frame-list,
    a plain div), so it carries Vuetify's default 8px top/bottom padding
    unless stripped - stacking on top of .animation-card's 12px bottom
@@ -1451,6 +1461,8 @@ export default defineComponent({
    the same card's edges elsewhere (confirmed as a real reported bug). */
 .animation-frame-list {
   padding: 0;
+  /* 8px under the 1x/2x/4x and 8px/16px buttons above. */
+  margin-top: 8px;
 }
 
 .pixel-editor-container {
@@ -1603,8 +1615,9 @@ export default defineComponent({
    rather than leaving this card noticeably taller than every other tab's
    for no visible reason. */
 .animation-name-field {
-  margin-top: 20px;
-  margin-bottom: -12px;
+  /* 8px under the buttons in the corner and 8px above what follows. */
+  margin-top: 30px;
+  margin-bottom: -13px;
 }
 
 /* Sits right after the name field, in the same normal-flow row as the rest

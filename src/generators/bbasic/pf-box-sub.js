@@ -107,13 +107,17 @@ export const callPfBox = (Blockly, player) => {
     if (divisors.some((divisor) => divisor & (divisor - 1))) Blockly.BBasic.usesDivMul = true;
     if (dpcPlus && varying) Blockly.BBasic.pfBoxArmRows = true;
     // A player under DPC+ with one row height for the whole game is tested by the coprocessor (see armBox in pf-box.js).
-    const armPlayer = dpcPlus && !varying && !objectBox && /^player\d$/.test(player) && !(Blockly.BBasic.widePartners || {})[player];
+    // (With groups of columns that have separate rows it is the coprocessor that knows the rows of each group, from the table the load of a
+    // background puts in the display memory, see buildGroupRowsLoad in offset-arm.js; a missile, the ball or a wide player's partner are not.)
+    const groupRows = dpcPlus && !!Blockly.BBasic.dpcPlusGroupFracVars;
+    const armPlayer = dpcPlus && (!varying || groupRows) && (groupRows ? (!!objectBox || /^player\d$/.test(player)) :
+      !objectBox && /^player\d$/.test(player) && !(Blockly.BBasic.widePartners || {})[player]);
     const frac = geometry.dpcPlusRows ? geometry.dpcPlusRows.frac : 0;
     const shiftRows = frac > 0 && Number.isInteger(256 / frac) && ((256 / frac) & (256 / frac - 1)) === 0;
     let armBox = false;
-    if (armPlayer && frac > 0) {
+    if (armPlayer && (frac > 0 || groupRows)) {
       armBox = true;
-      ensureArmProgram(Blockly, {inc: frac, maxRow: geometry.maxRow, clamp: !shiftRows});
+      ensureArmProgram(Blockly, {inc: frac, maxRow: geometry.maxRow, clamp: groupRows || !shiftRows, groups: groupRows});
       Blockly.BBasic.pfBoxArm = true;
     }
     Blockly.BBasic.subroutines[name] = buildPlayfieldBoxLines({
@@ -130,6 +134,7 @@ export const callPfBox = (Blockly, player) => {
       directRead: !dpcPlus,
       quickLastXVar: undoQuickLastX(Blockly, player),
       armBox,
+      armGroups: armBox && groupRows,
       dpcPlusScan: dpcPlus,
       armRows: dpcPlus && varying,
       extVar: Blockly.BBasic.pfBoxSweep ? resolveVar(PF_BOX_EXT) : undefined,

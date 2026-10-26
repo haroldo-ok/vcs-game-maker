@@ -86,7 +86,9 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
   const dragOverIndex = ref(null);
   // {index, side} while sideBySide: the card the pointer is over and which half of it.
   const dragOverSide = ref(null);
-  const {sideBySide = false, renumber = null} = options;
+  // sideBySide can be a function, for a list that goes between one column and several.
+  const {renumber = null} = options;
+  const isSideBySide = () => (typeof options.sideBySide === 'function' ? !!options.sideBySide() : !!options.sideBySide);
 
   // Puts the cards in an order: numbers them by their place first (the cards are the same objects, so setItems stores the new numbers),
   // then lets the tab store the list.
@@ -116,7 +118,7 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
   });
 
   const dragging = (index) => draggedIndex.value === index || draggedGroup.value.includes(index);
-  const dragCardClass = (index) => (sideBySide ? {
+  const dragCardClass = (index) => (isSideBySide() ? {
     [CSS_CLASS_DRAGGING]: dragging(index),
     [CSS_CLASS_SIDE_BEFORE]: !dragging(index) && !!dragOverSide.value && dragOverSide.value.index === index &&
       dragOverSide.value.side === 'before',
@@ -151,7 +153,7 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       dragOverIndex.value = index;
-      if (sideBySide) {
+      if (isSideBySide()) {
         const side = sideOf(event);
         const current = dragOverSide.value;
         if (!current || current.index !== index || current.side !== side) dragOverSide.value = {index, side};
@@ -167,7 +169,7 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
       event.stopPropagation();
     },
     dragleave: (event) => {
-      if (sideBySide && event.currentTarget.contains(event.relatedTarget)) return;
+      if (isSideBySide() && event.currentTarget.contains(event.relatedTarget)) return;
       if (dragOverIndex.value === index) dragOverIndex.value = null;
       if (dragOverSide.value && dragOverSide.value.index === index) dragOverSide.value = null;
       event.stopPropagation();
@@ -178,6 +180,7 @@ export const useDragReorder = (getItems, setItems, getSelectedIndices = () => []
       const from = draggedIndex.value;
       const group = draggedGroup.value.length ? draggedGroup.value : [from];
       // Read off the drop itself, not off where the last dragover left the mark.
+      const sideBySide = isSideBySide();
       const side = sideBySide ? sideOf(event) : null;
       reset();
       if (from == null || group.includes(index)) return;

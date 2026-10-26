@@ -18,7 +18,7 @@
           adds a little overhead too, so stay comfortably under that.
         </p>
 
-        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveFrameEditor" @height-hotkey="handleSetHeightHotkey">
+        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="title pages" @height-hotkey="handleSetHeightHotkey">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" :levels="titlescreenZoomLevels" />
             <pixel-grid-toggle v-model="showPixelGrid" />
@@ -178,7 +178,7 @@
           </template>
         </graphic-editor-toolbar>
 
-        <v-list class="titlescreen-list">
+        <v-list class="titlescreen-list" :class="{'titlescreen-list-columns': cardColumns}">
           <v-list-item
             class="entry-list-item"
             v-for="(screen, screenIndex) in state.screens"
@@ -832,7 +832,7 @@ import {insertCardAfter, REMOVED, remapCardReferences, removeCards} from '../uti
 import {useCardSelection} from '../hooks/card-selection';
 import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-history';
 import {useTitleScreenStorage, useErrorStorage, usePixelGridOverlayStorage,
-  usePlayerAnimationsStorage, useColorPaletteStorage} from '../hooks/project';
+  usePlayerAnimationsStorage, useColorPaletteStorage, useTitleCardColumnsStorage} from '../hooks/project';
 import {useEditorZoom, ZOOM_LEVELS} from '../hooks/zoom';
 
 // A 96-wide card at 50% (the lowest level every other tab offers) can still
@@ -869,6 +869,8 @@ export default defineComponent({
     const titleScreenStorage = useTitleScreenStorage();
     const zoom = useEditorZoom('titlescreen', undefined, TITLESCREEN_ZOOM_LEVELS);
     const showPixelGrid = usePixelGridOverlayStorage();
+    // The pages in several columns (the window wide enough for more than one) or in one.
+    const cardColumns = useTitleCardColumnsStorage();
 
     // Read-only here - components/QuickColorPalette.vue (mounted below)
     // owns writing to this same shared storage; this component only needs
@@ -1717,7 +1719,7 @@ export default defineComponent({
           handleChildChange();
         },
         () => screenSelection.getSelectedIndices(),
-        {renumber: {kind: 'titlescreen', onRenumbered: screensRenumbered}},
+        {sideBySide: () => cardColumns.value, renumber: {kind: 'titlescreen', onRenumbered: screensRenumbered}},
     );
 
     // One useDragReorder instance PER SCREEN (each screen's  card list
@@ -2000,7 +2002,7 @@ export default defineComponent({
     };
 
     return {
-      state, handleChildChange, handleFrameDurationChange,
+      state, cardColumns, handleChildChange, handleFrameDurationChange,
       quickColorPalette, selectedQuickColor,
       handleAddScreen, handleDeleteScreen, handleDuplicateScreen, canDuplicateScreen,
       isScreenCollapsed, toggleScreenCollapsed,
@@ -2082,6 +2084,14 @@ export default defineComponent({
 .unified-toolbar-scale-checkbox {
   margin-top: -30px;
   padding-left: 16px;
+}
+
+/* Several columns of pages when the window is wide enough: each page at least 480px wide. */
+.titlescreen-list-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  gap: 8px;
+  align-items: start;
 }
 
 .titlescreen-list {

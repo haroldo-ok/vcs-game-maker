@@ -239,13 +239,39 @@ export const applySpill = (code, slots) => {
   };
   const entries = entriesOf(code);
   const spilledIn = (text) => names.filter((name) => wordRegex(name, '').test(text));
+  // A label that only the jumps of tests reach, each with the same bytes holding the same names, and that the line before it does not
+  // run into (a goto), is entered with those bytes still holding them: the test that follows it need not read them again (the frame checks
+  // of an animation, one after another, test the same counter). The words of the code are counted for that, to know every jump to a label.
+  const wordCounts = new Map();
+  entries.forEach(({line, kind}) => {
+    if (kind === 'ignored') return;
+    (line.match(WORD) || []).forEach((word) => wordCounts.set(word, (wordCounts.get(word) || 0) + 1));
+  });
+  const carried = new Map();
+  const labelOf = (entry) => (entry.kind === 'statement' && !entry.shape && /^[A-Za-z_]\w*$/.test(entry.line.trim()) ? entry.line.trim() : null);
+  let held = null;
+  let previous = null;
   // A line that tests variables in the display memory and jumps away (or on) leaves the bytes it read where they are, so the tests that
   // follow it one after another (a long chain of "if x = 3 then goto ...", as the fades make) read each variable once, not for every line.
   const isTest = (entry) => entry.shape && entry.shape.type === 'if' && spilledIn(entry.shape.cond).length > 0;
   for (let at = 0; at < entries.length; at++) {
     const {line, shape, words} = entries[at];
-    if (!shape || !names.some((name) => words.has(name) && wordRegex(name, '').test(line))) {
+    if (entries[at].kind === 'ignored') {
       out.push(line);
+      continue;
+    }
+    const label = labelOf(entries[at]);
+    const reached = held;
+    held = null;
+    if (label) {
+      const mine = carried.get(label);
+      const lastJump = previous && previous.shape && previous.shape.type === 'jump' && /^goto\b/.test(previous.shape.text);
+      if (mine && mine.where && lastJump && wordCounts.get(label) === mine.count + 1) held = mine.where;
+    }
+    previous = entries[at];
+    if (label || !shape || !names.some((name) => words.has(name) && wordRegex(name, '').test(line))) {
+      out.push(line);
+      if (!label) held = null;
       continue;
     }
     if (isTest(entries[at])) {
@@ -263,9 +289,13 @@ export const applySpill = (code, slots) => {
         run.push(next);
         next++;
       }
-      const where = new Map([...union].map((name, index) => [name, SCRATCH[index]]));
-      [...union].forEach((name) => out.push(`${shape.indent}asm`, ...pointerLines(shape.indent, slots.get(name)),
-          `${shape.indent}lda DF6DATA`, `${shape.indent}sta ${where.get(name)}`, 'end'));
+      // (Arriving from a test that read them already, the bytes hold the names still.)
+      const reuse = reached && [...union].every((name) => reached.has(name));
+      const where = reuse ? new Map(reached) : new Map([...union].map((name, index) => [name, SCRATCH[index]]));
+      if (!reuse) {
+        [...union].forEach((name) => out.push(`${shape.indent}asm`, ...pointerLines(shape.indent, slots.get(name)),
+            `${shape.indent}lda DF6DATA`, `${shape.indent}sta ${where.get(name)}`, 'end'));
+      }
       for (let k = at; k < next; k++) {
         const entry = entries[k];
         if (!run.includes(k)) {
@@ -276,6 +306,14 @@ export const applySpill = (code, slots) => {
         where.forEach((scratch, name) => {
           cond = cond.replace(wordRegex(name), scratch);
         });
+        const jumpTo = /^goto\s+([A-Za-z_]\w*)(\s+bank\d+)?$/.exec(entry.shape.jump);
+        if (jumpTo && !jumpTo[2]) {
+          const key = JSON.stringify([...where]);
+          const mine = carried.get(jumpTo[1]);
+          if (!mine) carried.set(jumpTo[1], {where, key, count: 1});
+          else if (mine.key === key) mine.count++;
+          else mine.where = null;
+        }
         out.push(`${entry.shape.indent}if ${cond} then ${entry.shape.jump}`);
       }
       at = next - 1;

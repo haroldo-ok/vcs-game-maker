@@ -19,16 +19,29 @@ static u load(volatile b8 *p,u r)
   return conv((p[r]<<24)|(p[256+r]<<16)|(p[512+r]<<8)|p[768+r]);
 }
 
-static void offset(volatile b8 *p)
+// Built twice (see offset-arm.js): as it is, for a project whose columns all have the same rows, and with -DGROUPS (the code marked GROUPS below
+// too) for a project with groups of columns that have separate rows, which is a good deal bigger.
+// The numbers of the project's rows, put in by the generator in place of these: rows of a line = line * K[0] / 256, the last row K[1],
+// whether a line is held to 191 first K[2], whether the groups of columns have separate rows K[3]. Then each group (column byte) has its
+// increment and last row in the display memory instead (see G in box), put there when a background is loaded.
+static const volatile b8 K[4]={0xA5,0x5A,0xC3,0x3C};
+
+#ifdef GROUPS
+// The columns of the groups that have a row r (with separate rows for each group of columns, the last rows are at G in box).
+static u valid(volatile b8 *p,u r)
 {
-  u op=CF[0];
-  u dir=(op&3)|((op>>1)&4);          // 0 alternate, 1 left, 2 right, 3 up, 4 down, 5 alternate the other way round
-  u w=(CF[1]<<16)|(CF[2]<<8)|CF[3];  // x1 5 bits, x2 5, y1 7, y2 7
-  u x1=w>>19,x2=(w>>14)&31,y1=(w>>7)&127,y2=w&127;
-  u t,r,e,old,c,pin,mask,hi,lo,left;
+  u g,v=0;
+  for (g=0;g<4;g++) if (p[1276+g]>=r) v|=0xFF000000u>>(8*g);
+  return v;
+}
+#endif
+
+// One offset over columns x1 to x2 (in order, in the playfield) and rows y1 to y2. grouped: the rows a group has are separate, and a row
+// is only offset in the columns of the groups that have it.
+static void pass(volatile b8 *p,u dir,u x1,u x2,u y1,u y2,u grouped)
+{
+  u t,r,e,old,c,pin,mask,hi,lo,left,m;
   int step=1;
-  if (x1>x2) { t=x1; x1=x2; x2=t; }
-  if (y1>y2) { t=y1; y1=y2; y2=t; }
   mask=(0xFFFFFFFFu>>x1)&(0xFFFFFFFFu<<(31-x2));
   hi=0x80000000u>>x1;
   lo=1u<<(31-x2);
@@ -49,22 +62,70 @@ static void offset(volatile b8 *p)
       if (left) { t=((old<<1)&~lo)|(pin?lo:0); pin=old&hi; }
       else { t=((old>>1)&~hi)|(pin?hi:0); pin=old&lo; }
     }
-    t=conv((old&~mask)|(t&mask));
+    m=mask;
+#ifdef GROUPS
+    if (grouped) m&=valid(p,r);
+#endif
+    t=conv((old&~m)|(t&m));
     p[r]=t>>24; p[256+r]=t>>16; p[512+r]=t>>8; p[768+r]=t;
     if (r==e) break;
     r+=step;
   }
 }
 
-// The numbers of the project's rows, put in by the generator in place of these: rows of a line = line * K[0] / 256, the last row K[1],
-// whether a line is held to 191 first K[2].
-static const volatile b8 K[4]={0xA5,0x5A,0xC3,0x3C};
+static void offset(volatile b8 *p)
+{
+  u op=CF[0];
+  u dir=(op&3)|((op>>1)&4);          // 0 alternate, 1 left, 2 right, 3 up, 4 down, 5 alternate the other way round
+  u x1=CF[1],x2=CF[2],y1=CF[3],y2=CF[4],last=CF[5];   // as the block has them, and the last row of the playfield
+  u t;
+#ifdef GROUPS
+  u g,gx1,gx2,gy2,rows;
+#endif
+  if (x1>31) x1=31;
+  if (x2>31) x2=31;
+  if (y1>last) y1=last;
+  if (y2>last) y2=last;
+  if (x1>x2) { t=x1; x1=x2; x2=t; }
+  if (y1>y2) { t=y1; y1=y2; y2=t; }
+#ifdef GROUPS
+  if (K[3] && (dir==3||dir==4))
+  {
+    // Up and down: each group of columns turns round in the rows it has.
+    for (g=0;g<4;g++)
+    {
+      gx1=x1>g*8?x1:g*8;
+      gx2=x2<g*8+7?x2:g*8+7;
+      rows=p[1276+g];
+      if (gx1>gx2 || y1>rows) continue;
+      gy2=y2>rows?rows:y2;
+      pass(p,dir,gx1,gx2,y1,gy2,0);
+    }
+    return;
+  }
+#endif
+  pass(p,dir,x1,x2,y1,y2,K[3]);
+}
 
-static u rowof(u line)
+static u rowof(u line,u inc)
 {
   if (K[2] && line>191) line=191;
-  return (line*K[0])>>8;
+  return (line*inc)>>8;
 }
+
+#ifdef GROUPS
+// The first line of a row (found by halving the range).
+static u startline(u row,u inc)
+{
+  u lo=0,hi=255,mid;
+  while (lo<hi)
+  {
+    mid=(lo+hi)>>1;
+    if (((mid*inc)>>8)>=row) hi=mid; else lo=mid+1;
+  }
+  return lo;
+}
+#endif
 
 // The box test of pf-box.js for a player. C_function[0] = 128 | height, [1] = x, [2] = y, [3] = the sweep (0 for none; bit 7 up, the
 // low 5 bits lines) and the width in bits 5 and 6 (0 normal, 1 double, 2 quad). Returns 0 for nothing, 1 for a plain test that hit, and for a sweep the number of the first row with a lit pixel (looking
@@ -74,8 +135,12 @@ static u box(volatile b8 *p)
   u h=CF[0]&127,x=CF[1],y=CF[2],ext=CF[3];
   u e7=ext&31,up=ext>>7,kind=(ext>>5)&3;
   u ofs=kind?15:16,w1=kind==0?7:(kind==1?15:31);
+  // Kind 3 is a missile or the ball: its width less one pixel in the fifth byte of the call, and its left edge four pixels further left.
+#ifdef GROUPS
+  if (kind==3) { ofs=20; w1=CF[4]; }
+#endif
   ext&=0x9F;
-  u lc,rc,first,last,s,t,bi,lo,hi,mask,r,v,best=0,maxrow=K[1];
+  u lc,rc,first,last,s,t,bi,lo,hi,mask,r,v,cand,best=0,inc,maxrow;
   if (x>=176 || x+w1<ofs) return 0;
   rc=(x+w1-ofs)>>2;
   if (rc>31) rc=31;
@@ -83,31 +148,36 @@ static u box(volatile b8 *p)
   if (lc>=32) return 0;
   s=y+h;
   t=s>255?254:(s?s-1:0);                // the bottom line of the box
-  if (!ext)
-  {
-    first=rowof(y);
-    last=rowof(t);
-  }
-  else if (!up)
-  {
-    s=t+e7;
-    if (s>255) s=255;
-    first=rowof(t)+1;
-    last=rowof(s);
-  }
-  else
-  {
-    s=y+e7;
-    if (s>255) s=255;
-    first=rowof(y);
-    last=rowof(s);
-    if (last==0) return 0;
-    last--;
-  }
-  if (last>maxrow) last=maxrow;
-  if (first>last) return 0;
   for (bi=lc>>3;bi<=(rc>>3);bi++)
   {
+    inc=K[0];
+    maxrow=K[1];
+#ifdef GROUPS
+    if (K[3]) { inc=p[1272+bi]; maxrow=p[1276+bi]; }
+#endif
+    if (!ext)
+    {
+      first=rowof(y,inc);
+      last=rowof(t,inc);
+    }
+    else if (!up)
+    {
+      s=t+e7;
+      if (s>255) s=255;
+      first=rowof(t,inc)+1;
+      last=rowof(s,inc);
+    }
+    else
+    {
+      s=y+e7;
+      if (s>255) s=255;
+      first=rowof(y,inc);
+      last=rowof(s,inc);
+      if (last==0) continue;
+      last--;
+    }
+    if (last>maxrow) last=maxrow;
+    if (first>last) continue;
     lo=lc>bi*8?lc-bi*8:0;
     hi=rc-bi*8>=8?7:rc-bi*8;
     mask=bi&1?(0xFF<<lo)&(0xFF>>(7-hi)):(0xFF>>lo)&(0xFF<<(7-hi));
@@ -118,7 +188,16 @@ static u box(volatile b8 *p)
       if (v)
       {
         if (!ext) return 1;
-        if (!best || (up?r+1>best:r+1<best)) best=r+1;
+        // With separate rows the groups answer in lines (the first line of the row, or the first below it), plus one.
+        cand=r+1;
+#ifdef GROUPS
+        if (K[3])
+        {
+          cand=startline(up?r+1:r,inc)+1;
+          if (cand>255) cand=255;
+        }
+#endif
+        if (!best || (up?cand>best:cand<best)) best=cand;
         break;
       }
       if (up) { if (r==first) break; r--; }
