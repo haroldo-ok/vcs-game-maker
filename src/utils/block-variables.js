@@ -8,6 +8,7 @@ const jumpPlayers = (workspace) => {
   workspace.getAllBlocks(false).forEach((block) => {
     if (!block.isEnabled() || block.getInheritedDisabled()) return;
     if (block.type === 'sprite_platformer') players.add(`${block.getFieldValue('PLAYER')}`);
+    if (block.type === 'sprite_platformer_jumps') players.add(`${block.getFieldValue('PLAYER')}`);
     if (block.type === 'sprite_platformer_state') {
       players.add(`${block.getFieldValue('PLAYER')}`);
       if (block.getFieldValue('STATE') === 'moving') moving.add(`${block.getFieldValue('PLAYER')}`);

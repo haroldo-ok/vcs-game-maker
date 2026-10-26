@@ -2,6 +2,7 @@
 
 import {superchipOn} from '../utils/superchip';
 import {shareIdenticalPlayerData} from '../utils/dpc-share-data';
+import {resolveDpcPictureTables, hasUnresolvedPictureTables, trimRedundantHeightLoads} from '../utils/dpc-picture-tables';
 import {expandDpcPlusTiles} from '../utils/dpc-tile';
 import {shareDpcPlusPlayerSource, aliasSharedPlayerData} from '../utils/dpc-share-source';
 import {dpcPlusRamUsage} from '../utils/dpc-ram-usage';
@@ -210,6 +211,16 @@ const shareDpcPlusPlayerData = (compiled, config) => {
   }
 };
 
+// The animations load their pictures from tables of addresses: the statements that make the rows' addresses are cut out of the
+// assembly, and the tables use the names they leave (see utils/dpc-picture-tables.js).
+const resolveAnimationPictureTables = (compiled) => {
+  compiled.mainAsm = trimRedundantHeightLoads(resolveDpcPictureTables(compiled.mainAsm).asm).asm;
+  if (hasUnresolvedPictureTables(compiled.mainAsm)) {
+    // (Left in, the code would assemble with names that have no address and run as garbage.)
+    throw new Error('An animation picture could not be found in the compiled code.');
+  }
+};
+
 // The DPC+ kernel keeps every graphic of the project in a single bank (the player frames and their color rows, the playfield
 // rows and the row color tables), and nothing moves out of it, so relocating events or graphics to other banks cannot help.
 const isDpcPlusGraphicsOverflow = (e) => isOverflowError(e) && /DPC_graphics_end/.test((e && e.message) || '');
@@ -401,8 +412,8 @@ const titleScreenOverflowHint = (e) => {
   // after the <pre>, see App.vue's template) rather than split between a
   // plain-text "text" paragraph and a separate bold summary - text stays
   // empty below, this is the one and only paragraph shown.
-  const highlight = `This may be caused by the Title Screen's graphics data: every animation frame on ` +
-    `every page is baked into ROM at once, and the title screen's bank (bank ${bank}) ` +
+  const highlight = `This may be caused by the Title Screen's graphics data: every different picture and every different row color list ` +
+    `on every page is baked into ROM at once (one that repeats is stored once), and the title screen's bank (bank ${bank}) ` +
     `${isEstimate ? 'is estimated to need at least' : 'is using'} <b>${usedBytes} of its ${totalBytes}</b> ` +
     `usable bytes${isEstimate ? ' (a real build can still fail even under this estimate)' : ''}.` +
     `${rowsClause} Try reducing animation frame counts, shrinking card heights, ` +
@@ -1074,7 +1085,6 @@ const musicReservedBank = (maxBanks, textMinikernelActive, minBank) => {
 // has long labels and comments, and an animation's text is mostly the graphics, which go to the graphics bank, not the code).
 const COMPILED_BYTES_PER_EVENT_CHAR = 0.3;
 const BANK_FULL_ESTIMATE = 3500;
-const SPILL_TIGHT_AFTER_ATTEMPTS = 5;
 const BANK_PACK_ESTIMATE = 2800;
 const SQUEEZE_MARGIN = 1.3;
 const MAX_SQUEEZE_ATTEMPTS = 12;
@@ -1229,7 +1239,6 @@ const buildRomInner = async () => {
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
   BlocklyBB.displayRamExcludedSeed = null;
-  BlocklyBB.spillTight = false;
 
   // Tracks every bank each unit has already been tried in during THIS
   // build (keyed by "kind:name"), so the fallback below (see its
@@ -1410,6 +1419,11 @@ const buildRomInner = async () => {
       // text12b.asm in the first place then), and only actually returns an
       // override once the Text Font Editor has ever written to storage.
       if (textMinikernelActive) {
+        // The text on a Title Screen page: the stack of the Title Screen kernel's call to the text kernel runs over statusbarlength ($f5),
+        // where the text color is by default, so there it is a variable of its own (see titleTextColor in generators/bbasic.js).
+        if (BlocklyBB.isTitleTextUsed() && siblingFiles['text12a.asm']) {
+          siblingFiles['text12a.asm'] = siblingFiles['text12a.asm'].replace(/^TextColor = statusbarlength/m, 'TextColor = titleTextColor');
+        }
         // DPC+ keeps its whole text kernel in one file, the standard kernel's drawing code is text12b.asm
         const textKernelFile = config.kernel === 'dpcplus' ? 'text12DPCplus.asm' : 'text12b.asm';
         const textFontOverride = await buildTextFontOverride(
@@ -1479,6 +1493,7 @@ const buildRomInner = async () => {
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
+      resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
@@ -1592,8 +1607,6 @@ const buildRomInner = async () => {
       // block's  git history/comments below), starting from true
       // scratch exactly like a never-seeded build's  first failure would.
       if (attempt === 0 && seededFromLastSuccess) resetRelocationBanks();
-      // Several overflows in: the code has to get smaller, so the variables that did not have to go in Display RAM stay where they are.
-      if (attempt >= SPILL_TIGHT_AFTER_ATTEMPTS) BlocklyBB.spillTight = true;
       const maxBanks = BANK_COUNT_BY_ROMSIZE[bankSizeKeyFor(config)];
       if (isOverflowError(e) && maxBanks && !isDpcPlusGraphicsOverflow(e)) {
         // Diagnostic-only for now (see bb-compiler.js's  comment on
@@ -2324,6 +2337,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
+      resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);

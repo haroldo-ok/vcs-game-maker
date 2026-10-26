@@ -107,5 +107,5 @@ export const superchipRwFreeCount = (config) => {
 // The height in lines of the rows of this background under DPC+: the pfres it sets, when it sets one (see backgroundPfresOf), else the
 // project's.
 export const backgroundRowLinesFor = (background, config) =>
-  (config && config.kernel === 'dpcplus' && Math.round(Number(background && background.pfres)) > 0) ?
+  (config && config.kernel === 'dpcplus' && (Math.round(Number(background && background.pfres)) > 0 || (background && Array.isArray(background.groupPfres)))) ?
     dpcPlusRowLinesFor(config, backgroundPfresOf(background, config)) : dpcPlusRowLinesFor(config);

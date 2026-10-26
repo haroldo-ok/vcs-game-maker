@@ -318,8 +318,51 @@ export const dpcPlusPfresOf = (config) => {
 // keeps the project's.
 export const backgroundPfresOf = (background, config) => {
   const rows = Math.round(Number(background && background.pfres));
+  // A background whose groups of columns have separate rows (groupPfres, see backgroundGroupPfres) counts as the most rows of its groups
+  // (the finest resolution: the row colors have it, and so does the scroll's layout).
+  const groups = background && background.groupPfres;
+  if (config && config.kernel === 'dpcplus' && Array.isArray(groups) && groups.length === 4 && groups.every((value) => Math.round(Number(value)) > 0)) {
+    return Math.min(192, Math.max(...groups.map((value) => Math.round(Number(value)))));
+  }
   if (config && config.kernel === 'dpcplus' && rows > 0) return Math.min(192, rows);
   return dpcPlusPfresOf(config);
+};
+
+// DPC+ reads the playfield colors and the background colors through data separate fetchers, each with a separate row step, so a background can have
+// a number of color rows apart from its playfield's rows: pfColorRows for the playfield colors, bkColorRows for the background colors (each one
+// color for every scanline of picture height / rows, the rows of the pixels when the number is not set). The lists rowColors and bkRowColors have that many colors.
+export const backgroundColorRows = (background, kind) => {
+  const rows = Math.round(Number(background && background[kind === 'bk' ? 'bkColorRows' : 'pfColorRows']));
+  return rows > 0 ? Math.min(255, rows) : ((background && background.pixels) || []).length;
+};
+export const backgroundHasColorRows = (background, kind) => Math.round(Number(background && background[kind === 'bk' ? 'bkColorRows' : 'pfColorRows'])) > 0;
+// A list of row colors as the rows of another number of rows show it (each new row takes the color of the row at its middle).
+export const colorsAtRows = (colors, rows) => ((!colors || !colors.length || colors.length === rows) ? colors :
+  Array.from({length: rows}, (unused, i) => colors[Math.min(colors.length - 1, Math.floor((i + 0.5) * colors.length / rows))]));
+// The same for a background whose color rows are separate: the colors at the rows of its pixels (the list as it is when the number is not set).
+export const colorsAtPixelRows = (background, kind) => {
+  const colors = kind === 'bk' ? background.bkRowColors : background.rowColors;
+  return backgroundHasColorRows(background, kind) ? colorsAtRows(colors, (background.pixels || []).length) : colors;
+};
+
+// DPC+ draws the playfield as four groups of eight columns, each read by a data separate fetcher with a separate row step, so a background can
+// give every group a number of separate rows (groupPfres: four numbers, the rows on screen of the columns 0 to 7, 8 to 15, 16 to 23 and
+// 24 to 31). The pixel matrix of such a background is one matrix of the most rows: a group with fewer rows has them at the top of its columns
+// and leaves the rest empty. Returns the four numbers (the background's pfres for each when it has none).
+export const backgroundGroupPfres = (background, config) => {
+  const base = backgroundPfresOf(background, config);
+  const groups = background && background.groupPfres;
+  if (!config || config.kernel !== 'dpcplus' || !Array.isArray(groups) || groups.length !== 4) return [base, base, base, base];
+  return groups.map((rows) => {
+    const n = Math.round(Number(rows));
+    return n > 0 ? Math.min(192, n) : base;
+  });
+};
+
+// Whether the groups of columns of a background have different numbers of rows.
+export const backgroundHasGroups = (background, config) => {
+  const rows = backgroundGroupPfres(background, config);
+  return rows.some((value) => value !== rows[0]);
 };
 
 export const effectiveBackgroundRows = (config) => {
@@ -1147,7 +1190,7 @@ Blockly.defineBlocksWithJsonArray([
   // by it.
   {
     'type': `background_pixel_to_sprite`,
-    'message0': `${BACKGROUND_ICON} Convert playfield %1 %2 to %3`,
+    'message0': `${BACKGROUND_ICON} Convert playfield %1 %2 to %3 column %4`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1170,16 +1213,18 @@ Blockly.defineBlocksWithJsonArray([
           ['double/quad-wide sprite', 'WIDE'],
         ],
       },
+      {'type': 'input_value', 'name': 'COLUMN', 'check': 'Number'},
     ],
     'inputsInline': true,
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
     'tooltip': `Converts a playfield pixel column (0-31) or row to the matching Player/Missile/Ball X or ` +
-      `Y coordinate.`,
+      `Y coordinate. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
+      `that the column (0-31, the empty one is the first column) is in.`,
   },
   {
     'type': `background_sprite_to_pixel`,
-    'message0': `${BACKGROUND_ICON} Convert %3 %1 %2 to playfield`,
+    'message0': `${BACKGROUND_ICON} Convert %3 %1 %2 to playfield column %4`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1202,12 +1247,14 @@ Blockly.defineBlocksWithJsonArray([
           ['double/quad-wide sprite', 'WIDE'],
         ],
       },
+      {'type': 'input_value', 'name': 'COLUMN', 'check': 'Number'},
     ],
     'inputsInline': true,
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
     'tooltip': `Converts a Player/Missile/Ball X or Y coordinate to the matching playfield pixel column ` +
-      `(0-31) or row.`,
+      `(0-31) or row. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
+      `that the column (0-31, the empty one is the first column) is in.`,
   },
   // Given a sprite that just registered a hardware collision with the
   // Playfield (see collision_get/collision_check_position in blocks/

@@ -124,7 +124,8 @@ export const pokeScoreLiteral = (value) => {
 // "96-scanline-tall half-screen" comment), so the real total is double one
 // half's row-height*rows.
 export const generateScanlinesDebugScoreCode = (config) => {
-  if (!config || !config.enableScanlinesDebug) return '';
+  // (The cycle score writes the score every frame as well, so it is the one that shows when both are on.)
+  if (!config || !config.enableScanlinesDebug || config.enableCycleScore) return '';
   const rows = superchipOn(config) ? effectiveBackgroundRows(config) : 12;
   const scanlines = 2 * pfRowDivisorFor(config) * rows;
   return pokeScoreLiteral(scanlines);

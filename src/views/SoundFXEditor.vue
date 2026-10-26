@@ -298,8 +298,9 @@
 
                 <v-card-text v-if="!isCollapsed(soundEffect)" class="soundfx-fields-section">
                   <div class="soundfx-fields">
+                    <!-- With the chip's settings showing, the switch is at the left of the waveform's tools (see the slot below); otherwise it has the row to itself. -->
                     <v-btn-toggle
-                      v-if="dpcPlusSoundCards"
+                      v-if="dpcPlusSoundCards && !cardDpc(soundEffect)"
                       :value="cardView(soundEffect)"
                       mandatory
                       dense
@@ -322,7 +323,21 @@
                       :sound="soundEffect"
                       class="soundfx-waveform"
                       @change="(wave) => handleWaveformChange(soundEffect, wave)"
-                    />
+                    >
+                      <template v-slot:toolbar-start>
+                        <v-btn-toggle
+                            v-if="dpcPlusSoundCards"
+                            :value="cardView(soundEffect)"
+                            mandatory
+                            dense
+                            class="soundfx-kernel-toggle soundfx-kernel-toggle-inline"
+                            @change="(view) => setCardView(soundEffect, view)"
+                          >
+                            <v-btn value="standard" small title="The sound the TIA plays, which is channel 1 and any sound that uses the Standard sound types">TIA</v-btn>
+                            <v-btn value="dpcplus" small title="The sound the DPC+ chip plays, which the ARM mixes (channels 0, 2 and 3)">ARM</v-btn>
+                          </v-btn-toggle>
+                      </template>
+                    </WaveformEditor>
                     <div class="soundfx-basic-fields-row">
                       <v-select
                         v-if="cardDpc(soundEffect)"
@@ -2090,12 +2105,31 @@ export default defineComponent({
 .soundfx-kernel-toggle {
   flex: 1 1 100%;
   margin: 4px 0 8px;
+  /* The toggle takes the whole row, and Vuetify gives it a separate background (grey in dark mode), which showed as a strip of another
+     color to the right of its two buttons: the card's color shows through instead. */
+  background-color: transparent !important;
 }
 
 .soundfx-kernel-toggle .v-btn.v-btn--active {
   background-color: var(--v-primary-base, #1976d2) !important;
   color: #fff !important;
 }
+
+/* In the waveform's toolbar, at its left: not a separate row, and the buttons keep the text size they have here (the toolbar makes its buttons small icons). */
+.soundfx-kernel-toggle-inline {
+  flex: 0 0 auto;
+  margin: 0 8px 0 0;
+  /* (The waveform toolbar spaces the buttons of its toggles 4px apart, which split these two.) */
+  gap: 0 !important;
+}
+.soundfx-kernel-toggle-inline .v-btn {
+  width: auto !important;
+  min-width: 44px !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  background-color: rgba(128, 128, 128, 0.18) !important;
+}
+
 
 .soundfx-waveform {
   /* The shape drawn on the card takes the card's whole width, on a line by itself. */

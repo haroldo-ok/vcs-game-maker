@@ -5,7 +5,7 @@
     :disabled="disabled"
     :title="disabled ? (disabledTitle || titleOff) : (value ? titleOn : titleOff)"
     class="pixel-grid-toggle-btn"
-    :class="{'pixel-grid-toggle-btn-active': value}"
+    :class="{'pixel-grid-toggle-btn-active': value, 'pixel-grid-toggle-btn-tall': tall}"
     @click="$emit('input', !value)"
   >
     <v-icon v-if="icon">{{ icon }}</v-icon>
@@ -34,6 +34,8 @@ export default {
     value: {type: Boolean, default: false},
     icon: {type: String, default: 'mdi-grid'},
     label: {type: String, default: null},
+    // The icon stretched up (a glyph that is wider than it is tall, like the columns one, otherwise looks small beside the XY badge).
+    tall: {type: Boolean, default: false},
     titleOn: {type: String, default: 'Hide pixel grid (\')'},
     titleOff: {type: String, default: 'Show pixel grid (\')'},
     // Lets a caller gate this toggle behind some OTHER condition (see
@@ -91,6 +93,16 @@ export default {
    without needing to fight that !important. */
 .pixel-grid-toggle-btn.v-btn--disabled {
   opacity: 0.35;
+}
+
+/* (The columns glyph's bars sit half a pixel above the middle of its 24px box, which the stretch makes 0.8px: moved back down so the bars are centered
+   on the same line as the other icons'.) */
+.pixel-grid-toggle-btn-tall >>> .v-icon {
+  transform: translateY(0.8px) scaleY(1.6);
+}
+
+.pixel-grid-toggle-btn-tall:not(.v-btn--disabled):active >>> .v-icon {
+  transform: translateY(0.8px) scale(0.82, 1.3);
 }
 
 .pixel-grid-toggle-btn-active >>> .v-icon,
