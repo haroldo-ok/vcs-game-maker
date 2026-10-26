@@ -334,8 +334,8 @@
                         fgColor="orange"
                         :rowColors="groupColors(editorRowColors(background), rows)"
                         :rowBackdrop="groupColors(editorBkRowColors(background), rows)"
-                        :rowColorBands="groupColorBands(editorRowColors(background), rows)"
-                        :rowBackdropBands="groupColorBands(editorBkRowColors(background), rows)"
+                        :rowColorsFine="fineColors(editorRowColors(background), rows)"
+                        :rowBackdropFine="fineColors(editorBkRowColors(background), rows)"
                         :allowChangingHeight="false"
                         :showGrid="showPixelGrid"
                         :showCellIds="showPixelGrid && showPixelGridLabels"
@@ -391,8 +391,8 @@
                       fgColor="orange"
                       :rowColors="pixelRowColors(editorRowColors(background), background)"
                       :rowBackdrop="pixelRowColors(editorBkRowColors(background), background)"
-                      :rowColorBands="pixelRowBands(editorRowColors(background), background)"
-                      :rowBackdropBands="pixelRowBands(editorBkRowColors(background), background)"
+                      :rowColorsFine="fineColors(editorRowColors(background), background.pixels.length)"
+                      :rowBackdropFine="fineColors(editorBkRowColors(background), background.pixels.length)"
                       :allowChangingHeight="true"
                       :showClearButton="true"
                       :showGrid="showPixelGrid"
@@ -693,7 +693,6 @@ export default defineComponent({
     // The colors as the rows of the picture show them: the color of the row at the middle of a row when the colors have fewer rows than the picture
     // (the lists are then not the rows of the pixels), and the colors the row covers, as bands, when they have more.
     const pixelRowColors = (colors, background) => colorsAtRows(colors, background.pixels.length);
-    const pixelRowBands = (colors, background) => groupColorBands(colors, background.pixels.length);
 
     // DPC+: each group of 8 columns can have a number of separate rows on screen (groupPfres, four numbers). The picture is one
     // matrix as tall as the tallest group; a shorter group is drawn in the top of its columns and the rows under are dimmed.
@@ -723,12 +722,9 @@ export default defineComponent({
       if (!colors) return null;
       return Array.from({length: rows}, (unused, row) => colors[Math.min(colors.length - 1, Math.floor((row + 0.5) * colors.length / rows))]);
     };
-    // A group row that covers several of the color rows has a color for each scanline of it, so it is shown in bands, one for each: the colors
-    // of the rows it covers, from the top (null for a row that covers only one).
-    const groupColorBands = (colors, rows) => {
-      if (!colors || colors.length <= rows) return null;
-      return Array.from({length: rows}, (unused, row) => colors.slice(Math.floor(row * colors.length / rows), Math.floor((row + 1) * colors.length / rows)));
-    };
+    // The colors of a list that has a number of rows other than the picture's (null when it has the same number, or none): the picture draws them at the
+    // heights they have, whatever the rows of the picture are.
+    const fineColors = (colors, rows) => (colors && colors.length !== rows ? colors : null);
     // The Clear button of a background with groups: the drawing and the row colors, as the broom of a background without groups does.
     const handleClearGroupBackground = (background) => {
       background.pixels = background.pixels.map((row) => row.map(() => 0));
@@ -1110,7 +1106,7 @@ export default defineComponent({
       effectiveEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
       handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres,
-      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, groupColorBands, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, pixelRowColors, pixelRowBands};
+      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, pixelRowColors};
   },
 });
 </script>

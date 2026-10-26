@@ -1,5 +1,8 @@
 <template>
   <div class="playfield-color-strip" :class="{'playfield-color-strip-right': side === 'right'}" :title="title">
+    <!-- The colors are drawn on a canvas, scaled the way the picture's own canvas is (see drawBackdrop in PixelEditor.vue), so that the edge of each
+         row is exactly where the edge of the picture's row is; the swatches over it only take the clicks. -->
+    <canvas ref="paint" class="strip-paint" />
     <v-menu
       v-for="(colorByte, rowIndex) in value"
       :key="rowIndex"
@@ -10,7 +13,6 @@
         <div
           class="row-swatch"
           :class="{'row-swatch-armed': paintColor != null, 'row-swatch-fill': fillMode}"
-          :style="{backgroundColor: cssColor(colorByte)}"
           :title="fillMode ?
             (paintColor != null ?
               `Click to fill the rows around row ${rowIndex + 1} that have its color with the selected quick color` :
@@ -119,7 +121,18 @@ export default {
       dragColor: null,
     };
   },
+  watch: {
+    value: {
+      handler() {
+        this.$nextTick(() => this.paint());
+      },
+      deep: true,
+    },
+  },
   mounted() {
+    this.paint();
+    this.resizeObserver = new ResizeObserver(() => this.paint());
+    this.resizeObserver.observe(this.$el);
     // Not just a per-swatch mouseup (the drag can end anywhere - outside
     // the strip entirely, e.g. if the pointer leaves it before the button
     // is released) - a window-level listener is the only way to reliably
@@ -128,8 +141,31 @@ export default {
   },
   beforeDestroy() {
     window.removeEventListener('mouseup', this.handleDragEnd);
+    if (this.resizeObserver) this.resizeObserver.disconnect();
   },
   methods: {
+    // Paints the row colors: a canvas of a whole number of pixels for every row, a little more than the device pixels it covers, scaled down smoothly
+    // (the same as the picture's backdrop canvas), with a faint line at the end of each row but the last.
+    paint() {
+      const canvas = this.$refs.paint;
+      if (!canvas) return;
+      const rows = this.value.length;
+      const dpr = window.devicePixelRatio || 1;
+      const cssHeight = canvas.clientHeight;
+      if (!rows || !cssHeight) return;
+      canvas.width = 1;
+      canvas.height = rows * Math.max(2, Math.ceil(Math.round(cssHeight * dpr) / rows));
+      const ctx = canvas.getContext('2d');
+      const rowHeight = canvas.height / rows;
+      this.value.forEach((colorByte, row) => {
+        ctx.fillStyle = this.cssColor(colorByte);
+        ctx.fillRect(0, Math.round(row * rowHeight), 1, Math.round((row + 1) * rowHeight) - Math.round(row * rowHeight));
+        if (row < rows - 1) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+          ctx.fillRect(0, Math.round((row + 1) * rowHeight) - 1, 1, 1);
+        }
+      });
+    },
     cssColor(byte) {
       return colorByteToCss(byte);
     },
@@ -173,6 +209,7 @@ export default {
 </script>
 <style scoped>
 .playfield-color-strip {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 22px;
@@ -192,16 +229,21 @@ export default {
   margin-left: 4px;
 }
 
+.strip-paint {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
+  pointer-events: none;
+}
+
 .row-swatch {
+  position: relative;
   flex: 1 1 0;
   min-height: 0;
   cursor: pointer;
-  /* The line between two rows is inside the swatch, so the swatches are all exactly one row tall. */
-  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
-}
-
-.row-swatch:last-child {
-  box-shadow: none;
 }
 
 .row-swatch:hover {

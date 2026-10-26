@@ -31,7 +31,7 @@
             @mousemove="(e) => { handleMouse(e); handleHover(e); }"
           />
           <canvas
-            v-if="columnBackdrop || rowBackdrop || rowColorBands"
+            v-if="columnBackdrop || rowBackdrop || rowColorsFine"
             ref="backdropOverlay"
             class="editor-canvas backdrop-canvas"
           />
@@ -158,11 +158,11 @@ export default {
     columnBackdrop: {type: Array, default: null},
     // One CSS color per row, drawn over the cells that are off the same way (the background colors behind a DPC+ background).
     rowBackdrop: {type: Array, default: null},
-    // For a row that covers several scanlines' colors (a group of columns with fewer rows than the color rows: the kernel colors each
-    // scanline of it separately): per row, the list of CSS colors from the top of the row to the bottom, drawn as bands over the cells that are on
-    // (rowColorBands) or off (rowBackdropBands). A row with no list, or one color, is drawn in its one color as usual.
-    rowColorBands: {type: Array, default: null},
-    rowBackdropBands: {type: Array, default: null},
+    // Colors with a number of rows that is not the number of rows of the picture (the color rows of a DPC+ background, each one color for a part of
+    // the height of the picture): one CSS color for each of them, drawn over the cells that are on (rowColorsFine) or off (rowBackdropFine) so that the
+    // colors change at exactly the heights they have, in the middle of a picture row where that is where they change. Null for the usual one color a row.
+    rowColorsFine: {type: Array, default: null},
+    rowBackdropFine: {type: Array, default: null},
   },
   data() {
     return {
@@ -220,8 +220,8 @@ export default {
   },
   computed: {
     rowBackdropKey() {
-      return (this.rowBackdrop ? this.rowBackdrop.join() : '') + '|' + (this.rowColorBands ? this.rowColorBands.join('/') : '') + '|' +
-        (this.rowBackdropBands ? this.rowBackdropBands.join('/') : '');
+      return (this.rowBackdrop ? this.rowBackdrop.join() : '') + '|' + (this.rowColorsFine ? this.rowColorsFine.join() : '') + '|' +
+        (this.rowBackdropFine ? this.rowBackdropFine.join() : '');
     },
     // Changes whenever a mirror drawing switch is flipped, so the hover
     // highlight can be redrawn with or without the mirrored cells.
@@ -480,17 +480,24 @@ export default {
       const cssWidth = canvas.clientWidth;
       const cssHeight = canvas.clientHeight;
       if (!cssWidth || !cssHeight) return;
-      canvas.width = Math.round(cssWidth * dpr);
-      canvas.height = Math.round(cssHeight * dpr);
+      // Drawn on a canvas whose number of pixels is a whole number of pixels for every cell and for every row of colors in each direction, a little
+      // more than the device pixels the canvas takes, and scaled down smoothly: every row is then exactly the same height as the others (a canvas of
+      // any other number of pixels has some of them a pixel taller than the rest).
+      const rows = this.editor.height;
+      const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+      let heightUnit = rows;
+      [this.rowColorsFine, this.rowBackdropFine].forEach((fine) => {
+        if (fine && fine.length) heightUnit = heightUnit / gcd(heightUnit, fine.length) * fine.length;
+      });
+      canvas.width = this.width * Math.max(1, Math.ceil(Math.round(cssWidth * dpr) / this.width));
+      canvas.height = heightUnit * Math.max(1, Math.ceil(Math.round(cssHeight * dpr) / heightUnit));
       const ctx = canvas.getContext('2d');
-      // Drawn in device pixels, so every cell edge lands on a whole pixel (a scaled context would blend
-      // neighbouring cells along their edges).
       const cellWidth = canvas.width / this.width;
-      const cellHeight = canvas.height / this.editor.height;
+      const cellHeight = canvas.height / rows;
       // The whole picture is repainted here (off cells in their backdrop color, the others as they are),
       // so the drawing underneath, scaled a little differently, can't show through between cells.
       this.editor.pixels.forEach((px) => {
-        if (!px.color || px.y < 0 || px.y >= this.editor.height) return;
+        if (!px.color || px.y < 0 || px.y >= rows) return;
         const off = px.color === this.bgColor;
         const color = (off && ((this.rowBackdrop && this.rowBackdrop[px.y]) || (this.columnBackdrop && this.columnBackdrop[px.x]))) ||
           px.color;
@@ -499,16 +506,19 @@ export default {
         const top = Math.round(px.y * cellHeight);
         const right = Math.round((px.x + 1) * cellWidth);
         const bottom = Math.round((px.y + 1) * cellHeight);
-        const bands = (off ? this.rowBackdropBands : this.rowColorBands);
-        const rowBands = bands && bands[px.y];
-        if (rowBands && rowBands.length > 1) {
-          // One band for each scanline's color of the row.
-          rowBands.forEach((bandColor, band) => {
-            ctx.fillStyle = bandColor;
-            const bandTop = top + Math.round(band * (bottom - top) / rowBands.length);
-            const bandBottom = top + Math.round((band + 1) * (bottom - top) / rowBands.length);
-            ctx.fillRect(left, bandTop, right - left, bandBottom - bandTop);
-          });
+        const fine = off ? this.rowBackdropFine : this.rowColorsFine;
+        if (fine && fine.length && (off || px.color !== this.bgColor)) {
+          // Each row of colors that the cell is in, from the top of the cell to the bottom, for the part of the cell it covers.
+          const count = fine.length;
+          const first = Math.floor(px.y * count / rows);
+          const last = Math.ceil((px.y + 1) * count / rows) - 1;
+          for (let k = first; k <= last; k++) {
+            const partTop = Math.max(top, Math.round(k * canvas.height / count));
+            const partBottom = Math.min(bottom, Math.round((k + 1) * canvas.height / count));
+            if (partBottom <= partTop) continue;
+            ctx.fillStyle = fine[k];
+            ctx.fillRect(left, partTop, right - left, partBottom - partTop);
+          }
           return;
         }
         ctx.fillStyle = color;
@@ -1100,7 +1110,7 @@ export default {
         const inside = pixels.filter((pixel) =>
           pixel.x >= 0 && pixel.y >= 0 && pixel.x < width && pixel.y < height);
         const result = set(this.mirrorPixels(inside, logToHistory), logToHistory);
-        if (this.columnBackdrop || this.rowBackdrop || this.rowColorBands) this.scheduleBackdrop();
+        if (this.columnBackdrop || this.rowBackdrop || this.rowColorsFine) this.scheduleBackdrop();
         return result;
       };
       // Not logged to the history: this is loading the image, not an edit, and as
@@ -1362,6 +1372,7 @@ export default {
    underneath, not get intercepted by this purely visual layer). */
 .backdrop-canvas {
   /* Same box as the drawing canvas (including its border), so cells line up exactly. */
+  image-rendering: auto;
   pointer-events: none;
   border-color: transparent;
   width: 100%;
