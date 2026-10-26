@@ -32,6 +32,14 @@
           @click.stop
         >
           <div class="data-toolbar-row">
+            <pixel-grid-toggle
+              v-model="dataColumns"
+              icon="mdi-view-column"
+              tall
+              title-on="Show the tables in one column"
+              title-off="Show the tables in several columns"
+            />
+            <v-divider class="data-toolbar-divider data-toolbar-outer-divider" vertical />
             <v-btn
               icon
               small
@@ -104,14 +112,6 @@
             >
               <v-icon>mdi-content-paste</v-icon>
             </v-btn>
-            <v-divider class="data-toolbar-divider" vertical />
-            <v-switch
-              v-model="dataColumns"
-              label="Columns"
-              title="Lay data table cards out in multiple columns when there's room, instead of one full-width column."
-              hide-details
-              class="data-columns-switch"
-            />
           </div>
         </div>
 
@@ -371,6 +371,7 @@ import {processTitleScreenStorageDefaults} from '../blocks/titlescreen';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
+import PixelGridToggle from '../components/PixelGridToggle.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
@@ -433,7 +434,7 @@ const DATA_VALUE_CELL_MIN_PX = 120;
 const copiedTableData = ref(null);
 
 export default defineComponent({
-  components: {ColorSwatchPicker, ConfirmDeleteMenu},
+  components: {ColorSwatchPicker, ConfirmDeleteMenu, PixelGridToggle},
   setup() {
     const dataTablesStorage = useDataTablesStorage();
     const dataColumns = useDataColumnsStorage();
@@ -1306,20 +1307,6 @@ export default defineComponent({
   padding-right: 0;
 }
 
-/* Same margin-top/padding-top override as SoundFXEditor.vue's
-   .soundfx-columns-switch - Vuetify's selection-control margin-top
-   (meant for stacking below other fields) otherwise pushes this out of
-   line with the intro paragraph above it. */
-.data-columns-switch {
-  flex: 0 0 auto;
-  margin: 0 !important;
-  /* Room between the divider before it and the switch itself, on top of the
-     row's 4px gap (the icon buttons' padding already gives them this). */
-  margin-left: 8px !important;
-  padding: 0 !important;
-}
-
-
 /* Same fix, and matching 8px/12px values, as BackgroundEditor.vue's
    .background-list/.entry-list-item rules - v-list-item__content's default
    12px top/bottom padding was adding extra space between cards beyond
@@ -1502,6 +1489,8 @@ export default defineComponent({
   padding-top: 4px;
   padding-bottom: 4px;
   transition: padding 0.15s ease;
+  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   /* Matches GraphicEditorToolbar.vue's 16px gap above exactly (measured
      live against its padding plus its neighbours' margins, not guessed) -
      a real reported case of this not already matching ("the spacing seems
@@ -1552,6 +1541,11 @@ export default defineComponent({
   margin: 0;
 }
 
+/* The wider gap the graphic editor toolbar leaves after its first group of controls. */
+.data-toolbar-outer-divider {
+  margin: 0 2px !important;
+}
+
 .data-toolbar-divider {
   margin: 0;
   /* Same 26px as the icon buttons (the graphic editor toolbar's inner
@@ -1564,20 +1558,20 @@ export default defineComponent({
    rest color, a dimmer color when disabled (Vuetify's default disabled color was
    a visibly stronger grey), darker on hover only while enabled, and the same
    small press-in. */
-.data-toolbar-row >>> .v-btn .v-icon {
+.data-toolbar-row >>> .v-btn:not(.pixel-grid-toggle-btn) .v-icon {
   color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
   transition: color 0.15s ease, transform 0.08s ease;
 }
 
-.data-toolbar-row >>> .v-btn--disabled .v-icon {
+.data-toolbar-row >>> .v-btn--disabled:not(.pixel-grid-toggle-btn) .v-icon {
   color: rgba(0, 0, 0, 0.18) !important;
 }
 
-.data-toolbar-row >>> .v-btn:not(.v-btn--disabled):hover .v-icon {
+.data-toolbar-row >>> .v-btn:not(.v-btn--disabled):not(.pixel-grid-toggle-btn):hover .v-icon {
   color: rgba(0, 0, 0, 0.87) !important;
 }
 
-.data-toolbar-row >>> .v-btn:not(.v-btn--disabled):active .v-icon {
+.data-toolbar-row >>> .v-btn:not(.v-btn--disabled):not(.pixel-grid-toggle-btn):active .v-icon {
   transform: scale(0.82);
 }
 
@@ -1852,10 +1846,9 @@ export default defineComponent({
   margin-left: 5px;
 }
 
-/* A value that has a note: its number is underlined and no longer faded. */
+/* A value that has a note: its number is no longer faded. */
 .data-value-index.data-value-index-has-note {
   opacity: 1;
-  text-decoration: underline dotted;
 }
 
 /* One shared sizing rule for every format (decimal, binary, hex) - it used

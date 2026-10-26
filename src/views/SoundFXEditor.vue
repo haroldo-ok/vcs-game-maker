@@ -1758,6 +1758,8 @@ export default defineComponent({
   padding-left: 16px;
   padding-right: 16px;
   transition: padding 0.15s ease;
+  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .soundfx-toolbar-row {

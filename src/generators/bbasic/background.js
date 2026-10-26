@@ -41,6 +41,12 @@ const FADE_INCREMENT = 2;
 // their.
 export const spriteXOffset = (width) => (width === 'SINGLE' ? 17 : 16);
 
+// DPC+: how many times a Background scroll block has to run for one step of the picture: the playfield rows are cut `fine` lines thick (see
+// generateBackgrounds) and a block moves two lines a time (four for the "2x" directions), rounded to a power of two.
+const DPC_PLUS_SCROLL_LINES = {up: 1, down: 1, upup: 2, downdown: 2};
+export const dpcPlusScrollDivider = (direction, fine) =>
+  Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, fine / ((DPC_PLUS_SCROLL_LINES[direction] || 1) * 2)))));
+
 const isInsideFunctionDefine = (block) => {
   let ancestor = block.getParent();
   while (ancestor) {
@@ -403,7 +409,7 @@ export default (Blockly) => {
     const lab = (name) => `_rowsconv_${id}_${name}`;
     // (With groups of columns that have separate rows the increment is in temp1 already, put there by the lines of the group.)
     return [`temp2 = ${source}`, ...selectLines, 'asm',
-      'lda temp2', 'sta temp3', increment === null ? 'lda temp1' : `lda #${increment}`, 'sta temp2', 'sec', 'sbc #1', 'sta temp1', 'lda #0', 'ldx #16',
+      'lda temp2', 'sta temp3', increment === null ? 'lda temp1' : typeof increment === 'string' ? `lda ${increment}` : `lda #${increment}`, 'sta temp2', 'sec', 'sbc #1', 'sta temp1', 'lda #0', 'ldx #16',
       `@${lab('l')}`, 'asl temp1', 'rol temp3', 'rol', `bcs ${lab('t')}`, 'cmp temp2', `bcc ${lab('n')}`,
       `@${lab('t')}`, 'sbc temp2', 'inc temp1', `@${lab('n')}`, 'dex', `bne ${lab('l')}`,
       'lda temp3', `beq ${lab('k')}`, 'lda #255', 'sta temp1', `@${lab('k')}`, 'lda temp1',
@@ -2201,7 +2207,7 @@ export default (Blockly) => {
   Blockly.BBasic['background_scroll_colors'] = function(block) {
     const fields = {DIRECTION: block.getFieldValue('DIRECTION'), STOPATEDGE: block.getFieldValue('STOPATEDGE'),
       COLORS: 'FALSE', COLORS_ONLY: 'TRUE', PFCOLORS: block.getFieldValue('PFCOLORS'), BKCOLORS: block.getFieldValue('BKCOLORS')};
-    return Blockly.BBasic['background_scroll']({getFieldValue: (name) => fields[name]});
+    return Blockly.BBasic['background_scroll']({id: block.id, getFieldValue: (name) => fields[name]});
   };
 
   Blockly.BBasic[`background_scroll`] = function(block) {
@@ -2260,14 +2266,19 @@ export default (Blockly) => {
       const rows = scroll.rows;
       const rowsText = rowsVar || rows;
       const stepRows = Math.max(1, Math.round(lineCount / scroll.fine));
-      const divider = Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, scroll.fine / lineCount))));
+      const divider = dpcPlusScrollDivider(direction, scroll.fine);
       const value = delta > 0 ? 256 - stepRows : stepRows;
       // The playfield holds the background repeated over and over (see tileForDpcPlusScroll in
       // generators/bbasic.js), the view starts one background-height in, and the offset variable follows how far
       // it has moved, between 1 and one background-height. Moving past either end shows the same picture as
       // a whole background-height further along, so the view jumps by that much and never runs out of picture.
       const uid = Blockly.BBasic.blockNumbers.next('dpcscroll');
-      const lines = divider > 1 ? [` temp1 = framecounter & ${divider - 1}`, ` if temp1 <> 0 then goto _dpcscroll_${uid}_done`] : [];
+      // A step is taken every `divider` times the block runs, counted by a byte kept for it (the frame counter would never match when the
+      // block only runs on some frames, like inside "Every 2 frames").
+      const counterName = (Blockly.BBasic.dpcPlusScrollCounters || {})[block.id];
+      const counter = counterName ? Blockly.BBasic.nameDB_.getName(counterName, Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+      const lines = divider > 1 && counter ? [` ${counter} = ${counter} + 1`, ` temp1 = ${counter} & ${divider - 1}`,
+        ` if temp1 <> 0 then goto _dpcscroll_${uid}_done`] : [];
       sequences.forEach(({queueSets, offsetName, main}, sequenceIndex) => {
         const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         const scrollLines = (amount) => queueSets.map((queues) => ` pfscroll ${amount}${queues}`);

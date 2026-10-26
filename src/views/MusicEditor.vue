@@ -277,6 +277,7 @@
                         :min="minPatternSteps"
                         :max="maxPatternSteps"
                         v-model.number="activePattern(song).stepCount"
+                        @input="() => handleStepCountTyping(song, activePattern(song))"
                         @change="() => handleStepCountChange(song, activePattern(song))"
                       />
                       <div class="pattern-length-tempo-group">
@@ -1082,7 +1083,9 @@ export default defineComponent({
         return;
       }
       const stepCount = stepsFor(pattern) || 1;
-      const availableWidth = el.clientWidth - PIANO_ROLL_LABEL_WIDTH;
+      // (Never wider than the box that holds it: while the page is still being laid out the scrolling element can be as wide as its content.)
+      const holder = el.parentElement;
+      const availableWidth = Math.min(el.clientWidth, holder ? holder.clientWidth : el.clientWidth) - PIANO_ROLL_LABEL_WIDTH;
       pianoRollBaseWidth.value = Math.max(1, availableWidth / stepCount);
     };
 
@@ -1105,6 +1108,28 @@ export default defineComponent({
     const handleFitZoom = (song, pattern) => {
       recalculateFitBaseWidth(song, pattern);
       pianoRollZoom.value = 1;
+    };
+    // Fits the zoom to the pattern's length as soon as its piano roll is in the page with a width. Right after the tab opens, or a song is
+    // switched, the roll is not drawn yet (or has no width yet), so a measurement taken at that moment would be of nothing and the zoom would
+    // stay at whatever it was left at; this waits for the roll and then fits. A newer request (another song, or the tab closing) cancels it.
+    let fitZoomRequest = 0;
+    const fitZoomWhenShown = (songId) => {
+      const request = ++fitZoomRequest;
+      let frames = 0;
+      const attempt = () => {
+        if (request !== fitZoomRequest) return;
+        const song = state.value.songs.find(({id}) => id === songId);
+        const pattern = song && activePattern(song);
+        if (!pattern) return;
+        const el = document.querySelector(`[data-song-id="${songId}"] .piano-roll-scroll`);
+        // (Once the scrolling element is no wider than the box that holds it, it has been laid out.)
+        if (el && el.clientWidth > PIANO_ROLL_LABEL_WIDTH && (!el.parentElement || el.clientWidth <= el.parentElement.clientWidth)) {
+          handleFitZoom(song, pattern);
+          return;
+        }
+        if (++frames < 180) requestAnimationFrame(attempt);
+      };
+      nextTick(() => requestAnimationFrame(attempt));
     };
 
 
@@ -1567,6 +1592,8 @@ export default defineComponent({
       const song = state.value.songs.find(({id}) => id === songId);
       const pattern = song && activePattern(song);
       if (pattern) handleFitZoom(song, pattern);
+      // (The new song's piano roll is not in the page yet, so it is fitted again once it is.)
+      if (song) fitZoomWhenShown(song.id);
       forceUpdate();
     };
 
@@ -2024,6 +2051,14 @@ export default defineComponent({
       forceUpdate();
     };
 
+    // While the length is being typed or stepped, the roll follows it (a number in range is fitted to at once). The notes past the end are only
+    // cut, and the number kept in range, when the change is done (handleStepCountChange).
+    const handleStepCountTyping = (song, pattern) => {
+      const steps = Number(pattern.stepCount);
+      if (!Number.isFinite(steps) || steps < MIN_PATTERN_STEPS || steps > MAX_PATTERN_STEPS) return;
+      handleFitZoom(song, pattern);
+      forceUpdate();
+    };
     const handleStepCountChange = (song, pattern) => {
       pattern.stepCount = clampPatternSteps(pattern.stepCount);
       const maxUnits = pattern.stepCount * LENGTH_UNITS_PER_STEP;
@@ -3936,6 +3971,8 @@ export default defineComponent({
       window.removeEventListener('mousemove', handleMarqueeSelectMove);
       window.removeEventListener('mouseup', stopMarqueeSelect);
       window.removeEventListener('keydown', handlePianoRollToolHotkey);
+      // (A fit that is still waiting for the piano roll to be shown is cancelled.)
+      fitZoomRequest++;
     });
 
     // So 100% already reads as "fit" on first load/navigation too, not only
@@ -3945,6 +3982,11 @@ export default defineComponent({
     const handleWindowResize = () => {
       const song = activeSong();
       if (song) recalculateFitBaseWidth(song, activePattern(song));
+    };
+    // Every time the tab opens: the zoom is kept from the last time (one value for every song), so it is fitted to the pattern shown.
+    const fitZoomOnOpen = () => {
+      const song = activeSong();
+      if (song) fitZoomWhenShown(song.id);
     };
 
     // Same letters as GraphicEditorToolbar.vue's Move/Pencil/Eraser/
@@ -4027,6 +4069,7 @@ export default defineComponent({
 
     onMounted(() => {
       handleWindowResize();
+      fitZoomOnOpen();
       window.addEventListener('resize', handleWindowResize);
       window.addEventListener('keydown', handlePianoRollToolHotkey);
     });
@@ -4039,7 +4082,7 @@ export default defineComponent({
       handleTempoChange, minTempo: MIN_TEMPO, maxTempo: MAX_TEMPO,
       handleAddSong, handleDeleteSong, handleDuplicateSong, handleExportSong, handleImportSong, handleExportSongBank, handleImportSongBank,
       activeSongId, activeSong, activeSongArray, setActiveSong, songName, songOptions, handleSongFieldChange,
-      handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange,
+      handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange, handleStepCountTyping,
       handlePatternFieldChange,
       canUndoPattern, canRedoPattern, handleUndoPattern, handleRedoPattern, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE,
       handleExportPattern, handleImportPattern,
@@ -4351,6 +4394,8 @@ export default defineComponent({
      already does now that the redundant static one is gone. */
   margin-bottom: 4px;
   transition: padding 0.15s ease;
+  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 /* Same "grows + gains a bottom border once actually scrolled" treatment as

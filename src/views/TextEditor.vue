@@ -478,6 +478,9 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 16px;
+  /* The line under the controls, like the one the Sprites tab's toolbar has above its Quick colors. */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  padding-bottom: 8px;
 }
 
 .text-max-width-help {

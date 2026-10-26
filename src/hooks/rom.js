@@ -35,11 +35,12 @@ import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2Color
 import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
   textScrollCursorColorVarName, textEndIconColorVarName} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
+import {expandSceneBlocks} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
-  usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
+  useDataTablesStorage, usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
   useWorkspaceStorage} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
   recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
@@ -96,6 +97,11 @@ const withHeadlessWorkspace = (callback, xmlOverride) => {
     // package's real signature, confirmed directly against core/xml.d.ts.
     const dom = Blockly.utils.xml.textToDom(
         xmlText && xmlText !== 'null' ? xmlText : EMPTY_WORKSPACE);
+    // The "Set scene" blocks become the blocks of the scenes, so the build only meets ordinary ones.
+    if (xmlOverride === undefined) {
+      const tables = useDataTablesStorage().value;
+      expandSceneBlocks(dom, tables && tables.dataTables, Blockly, (useConfigurationStorage() || {}).value || {});
+    }
     Blockly.Xml.domToWorkspace(dom, workspace);
     return callback(workspace);
   } finally {

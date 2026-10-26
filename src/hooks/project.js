@@ -375,6 +375,9 @@ export const useBackgroundCardColumnsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.backgroundCardColumns', true);
 export const useSpriteCardColumnsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.spriteCardColumns', false);
+// The same for the Scene tab's cards (one column).
+export const useSceneCardColumnsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.sceneCardColumns', false);
 // The same for the Title tab's pages (one column, as they always were).
 export const useTitleCardColumnsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.titleCardColumns', false);

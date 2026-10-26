@@ -3023,6 +3023,15 @@ Blockly.BBasic.init = function(workspace) {
     }
     reserveDevVar('_dpcScrollOffset', undefined,
         'DPC+ playfield scroll: how far the view has moved, starting one background height in');
+    // A Background scroll block that takes a step every few runs counts its runs in a byte kept for it.
+    Blockly.BBasic.dpcPlusScrollCounters = {};
+    workspace.getAllBlocks(false).forEach((block) => {
+      if (!block.isEnabled() || (block.type !== 'background_scroll' && block.type !== 'background_scroll_colors')) return;
+      if (!this.dpcPlusScroll || dpcPlusScrollDivider(block.getFieldValue('DIRECTION'), this.dpcPlusScroll.fine) <= 1) return;
+      const name = `_dpcScrollCount${Object.keys(Blockly.BBasic.dpcPlusScrollCounters).length}`;
+      Blockly.BBasic.dpcPlusScrollCounters[block.id] = name;
+      reserveDevVar(name, undefined, 'DPC+ scroll: how many times this Background scroll block has run, so that it moves every few runs');
+    });
   }
   this.backgroundScrollStepUsed = false;
   this.backgroundScrollOverflowBackgrounds = (this.backgroundScrollUsed && !dpcPlusScroll) ?
@@ -5439,10 +5448,12 @@ Blockly.BBasic.rowDivisorText = function(config, lines) {
 // finds the row of a line as line * increment / 256 (DFxFRACINC, see rowof in custom/main.c). The code that turns a y into a row (the pixel
 // collision blocks, the conversion blocks, the fire and bounce steps) divides by a whole number of lines, which is exact only when that is what a row
 // is; for the others it does the same sum as the coprocessor. unitLines: how many lines the y counts in (1 for the lines of a sprite, 2 for the
-// steps of two lines of the conversion blocks). Returns the increment, or null when the whole number divisor is exact (or the rows are not one
-// number for the project: a background with a different pfres, a scroll).
+// steps of two lines of the conversion blocks). Returns the increment, the name of the variable that holds it when the backgrounds of the project
+// have different numbers of rows (it is set as a background loads), or null when the whole number divisor is exact (or the rows are not one
+// number for the project: a scroll).
 Blockly.BBasic.exactRowIncrement = function(config, unitLines) {
-  if (config.kernel !== 'dpcplus' || this.dpcPlusRowFracVar || this.dpcPlusScroll) return null;
+  if (config.kernel !== 'dpcplus' || this.dpcPlusScroll) return null;
+  if (this.dpcPlusRowFracVar) return this.dpcPlusRowFracVar;
   const lines = dpcPlusRowLinesFor(config);
   const step = lines / unitLines;
   if (step >= 1 && Number.isInteger(step)) return null;
@@ -5457,7 +5468,7 @@ Blockly.BBasic.rowOfLineCode = function(config, dest, source, divisor, unitLines
   const lab = (name) => `_rowsconv_${id}_${name}`;
   return [`temp2 = ${source}`, 'asm', ...(unitLines === 2 ? ['lda temp2', 'sec', 'sbc #1', `bcs ${lab('a')}`, 'lda #0', `@${lab('a')}`,
     'asl', `bcc ${lab('b')}`, 'lda #255', `@${lab('b')}`, 'sta temp2'] : []),
-  ...(Array.isArray(incrementVar) ? incrementVar : [incrementVar ? `lda ${incrementVar}` : `lda #${increment}`]), 'sta temp1', 'lda #0', 'ldx #8', 'lsr temp1',
+  ...(Array.isArray(incrementVar) ? incrementVar : [incrementVar ? `lda ${incrementVar}` : typeof increment === 'string' ? `lda ${increment}` : `lda #${increment}`]), 'sta temp1', 'lda #0', 'ldx #8', 'lsr temp1',
   `@${lab('m')}`, `bcc ${lab('s')}`, 'clc', 'adc temp2', `@${lab('s')}`, 'ror', 'ror temp1', 'dex', `bne ${lab('m')}`,
   `sta ${dest}`, '@end'];
 };
@@ -8302,7 +8313,7 @@ Blockly.BBasic.generateAnimations = function() {
   return [...(partnerResets.length ? [partnerResets.join('\n')] : []), ...hardwareCode, ...extraCode, ...partnerCode].join('\n\n\n');
 };
 import background, {backgroundGetPixelDevVarsNeeded, registerBackgroundLineSubroutine,
-  reserveShakeScreenDevVar, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, reserveBackgroundColorOverrideDevVars, generateShakeScreenChecks} from './bbasic/background';
+  reserveShakeScreenDevVar, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, reserveBackgroundColorOverrideDevVars, generateShakeScreenChecks, dpcPlusScrollDivider} from './bbasic/background';
 import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';

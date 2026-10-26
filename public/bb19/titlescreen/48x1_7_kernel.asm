@@ -5,6 +5,7 @@ draw_bmp_48x1_7
 	sta GRP0
 	sta GRP1
 
+ ifconst bmp_48x1_7_index
 	ldy #11
 bmp_48x1_7_pointersetup
 	lda bmp_48x1_7_values,y
@@ -18,6 +19,34 @@ bmp_48x1_7_pointersetup
 	sta scorepointers,y
 	dey
 	bpl bmp_48x1_7_pointersetup
+ else
+; vcs-game-maker: a graphic that does not animate or scroll has its pointers as constants, set directly: a line less of blank space
+; above the graphic than the loop that copies them from the table makes
+	lda #<(bmp_48x1_7_00+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+0
+	lda #>(bmp_48x1_7_00+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+1
+	lda #<(bmp_48x1_7_01+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+2
+	lda #>(bmp_48x1_7_01+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+3
+	lda #<(bmp_48x1_7_02+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+4
+	lda #>(bmp_48x1_7_02+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+5
+	lda #<(bmp_48x1_7_03+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+6
+	lda #>(bmp_48x1_7_03+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+7
+	lda #<(bmp_48x1_7_04+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+8
+	lda #>(bmp_48x1_7_04+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+9
+	lda #<(bmp_48x1_7_05+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+10
+	lda #>(bmp_48x1_7_05+#bmp_48x1_7_height-#bmp_48x1_7_window)
+	sta scorepointers+11
+ endif
 	
 	ldy (#bmp_48x1_7_window-1)
 	sty aux2
