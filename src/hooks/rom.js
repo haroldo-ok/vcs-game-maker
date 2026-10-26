@@ -2,6 +2,7 @@
 
 import {superchipOn} from '../utils/superchip';
 import {shareIdenticalPlayerData} from '../utils/dpc-share-data';
+import {resolveDpcPictureTables, hasUnresolvedPictureTables, trimRedundantHeightLoads} from '../utils/dpc-picture-tables';
 import {expandDpcPlusTiles} from '../utils/dpc-tile';
 import {shareDpcPlusPlayerSource, aliasSharedPlayerData} from '../utils/dpc-share-source';
 import {dpcPlusRamUsage} from '../utils/dpc-ram-usage';
@@ -207,6 +208,16 @@ const shareDpcPlusPlayerData = (compiled, config) => {
   compiled.mainAsm = asm;
   if (saved || aliases.aliased) {
     appendCompileLog(`Shared the sprite graphics and colors that repeat (${aliases.aliased} frames pointed at an earlier copy).`);
+  }
+};
+
+// The animations load their pictures from tables of addresses: the statements that make the rows' addresses are cut out of the
+// assembly, and the tables use the names they leave (see utils/dpc-picture-tables.js).
+const resolveAnimationPictureTables = (compiled) => {
+  compiled.mainAsm = trimRedundantHeightLoads(resolveDpcPictureTables(compiled.mainAsm).asm).asm;
+  if (hasUnresolvedPictureTables(compiled.mainAsm)) {
+    // (Left in, the code would assemble with names that have no address and run as garbage.)
+    throw new Error('An animation picture could not be found in the compiled code.');
   }
 };
 
@@ -1482,6 +1493,7 @@ const buildRomInner = async () => {
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
+      resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
@@ -2325,6 +2337,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
+      resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);

@@ -186,7 +186,7 @@
                       persistent-placeholder
                       title="How many rows of colors the playfield colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
                       @input="(value) => handleTypeColorRows(background, 'pf', value)"
-                      @change="(value) => handleChangeColorRows(background, 'pf', value)"
+                      @change="(value) => handleLeaveColorRows(background, 'pf', value)"
                     />
                     <v-text-field
                       v-if="kernelIsDpcPlus && bkColorsEnabled"
@@ -200,7 +200,7 @@
                       persistent-placeholder
                       title="How many rows of colors the background colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
                       @input="(value) => handleTypeColorRows(background, 'bk', value)"
-                      @change="(value) => handleChangeColorRows(background, 'bk', value)"
+                      @change="(value) => handleLeaveColorRows(background, 'bk', value)"
                     />
                   </div>
 
@@ -475,7 +475,7 @@
 </template>
 <script>
 import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
-import {max, debounce} from 'lodash';
+import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {recordReorder} from '../hooks/reorder-history';
@@ -679,26 +679,39 @@ export default defineComponent({
 
     // DPC+: the playfield colors and the background colors can have a number of separate rows (pfColorRows, bkColorRows; see
     // backgroundColorRows), spread over the height of the picture. The list of colors is cut or stretched to the new number.
-    const handleChangeColorRows = (background, kind, value) => {
+    // `before` is the list of colors to cut or stretch (while a number is being typed it is the list the field started from, so that the colors
+    // are not cut to the first digit on the way to the second).
+    const handleChangeColorRows = (background, kind, value, before = null) => {
       const key = kind === 'bk' ? 'bkColorRows' : 'pfColorRows';
       const listKey = kind === 'bk' ? 'bkRowColors' : 'rowColors';
       const rows = Math.round(Number(value));
-      const before = background[listKey] || [];
+      const from = before || background[listKey] || [];
       if (rows > 0) background[key] = Math.min(192, rows);
       else delete background[key];
       const next = backgroundColorRows(background, kind);
-      if (before.length && next > 0) background[listKey] = colorsAtRows(before, next);
+      if (from.length && next > 0) background[listKey] = colorsAtRows(from, next);
       ensureRowColors(background, background.pixels.length);
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
-    // The arrows of the number field change its value without a change event (that comes when the field is left), so the color bars follow after a short
-    // pause in the typing or clicking: not on every key, which would cut the colors to the first digit of a number on the way to the second.
-    const colorRowsTyped = new Map();
+    // The arrows of the number field change its value without a change event (that comes when the field is left), so the color bars follow on
+    // every change of the value. The colors the field started from are kept until it is left, and every number is made from those.
+    const colorRowsStart = new Map();
+    const currentBackground = (id) => state.value.backgrounds.find((candidate) => candidate.id === id);
     const handleTypeColorRows = (background, kind, value) => {
       const key = `${background.id}-${kind}`;
-      if (!colorRowsTyped.has(key)) colorRowsTyped.set(key, debounce((rows) => handleChangeColorRows(background, kind, rows), 400));
-      colorRowsTyped.get(key)(value);
+      // (The background is looked up again: the list is read again from storage after every change, so the object the field had when it
+      // was first used is not the current one by the next change.)
+      const current = currentBackground(background.id);
+      if (!current) return;
+      if (!colorRowsStart.has(key)) colorRowsStart.set(key, (current[kind === 'bk' ? 'bkRowColors' : 'rowColors'] || []).slice());
+      handleChangeColorRows(current, kind, value, colorRowsStart.get(key));
+    };
+    // The field is left: the next change starts from the colors as they are now.
+    const handleLeaveColorRows = (background, kind, value) => {
+      const current = currentBackground(background.id);
+      if (current) handleChangeColorRows(current, kind, value, colorRowsStart.get(`${background.id}-${kind}`) || null);
+      colorRowsStart.delete(`${background.id}-${kind}`);
     };
     // The colors as the rows of the picture show them: the color of the row at the middle of a row when the colors have fewer rows than the picture
     // (the lists are then not the rows of the pixels), and the colors the row covers, as bands, when they have more.
@@ -1116,7 +1129,7 @@ export default defineComponent({
       effectiveEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
       handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres,
-      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, handleTypeColorRows, pixelRowColors};
+      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, handleTypeColorRows, handleLeaveColorRows, pixelRowColors};
   },
 });
 </script>

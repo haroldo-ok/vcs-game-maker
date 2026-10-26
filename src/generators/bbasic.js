@@ -7754,7 +7754,10 @@ Blockly.BBasic.generateAnimations = function() {
     const pixelKeyToGraphicLabel = new Map();
     const fullKeyToEntryLabel = new Map();
     let frameLimit = 0;
-    const stateMachine = animation.frames.map((frame, frameIndex) => {
+    // An animation of several pictures finds the one to show in a table and loads it from tables (see pictureTables below), instead of a test
+    // and the instructions that load it for every picture; an animation of one picture keeps the statements.
+    const tableMode = animation.frames.length > 1;
+    const stateMachine = (tableMode ? [] : animation.frames).map((frame, frameIndex) => {
       frameLimit += clampFrameDuration(frame.duration);
       const endLabel = `${animationLabel}frame${frameIndex}End`;
       const entryLabel = `${animationLabel}frame${frameIndex}Entry`;
@@ -7867,13 +7870,164 @@ Blockly.BBasic.generateAnimations = function() {
     // the toggle has no place for, are used with an animated player).
     const sizeSet = this.sizeSetPlayers && this.sizeSetPlayers.has(name) ?
       this.nameDB_.getName(sizeSetVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
-    const sizeSkipLabel = `${animationLabel}sizeSet`;
-    const sizeLines = (sizeSet ? `  if ${sizeSet} then goto ${sizeSkipLabel}\n` : '') +
-      `  ${name}size = ${name}size & $F8\n` +
-      `  ${name}size = ${name}size | ${sizeCode}\n` +
-      (sizeSet ? `${sizeSkipLabel}\n` : '');
 
-    const pauseSkipLabel = `${animationLabel}pauseSkip`;
+    // The picture to show is the first one whose end is past the frame counter (the table has the end of each picture, and a byte before the
+    // first one holds 0 for the start of the first). Its rows (and row colors) are loaded from tables that hold their addresses, with the few
+    // instructions that every picture needs written once. The statements that hold the rows are put after the code, where nothing runs: the
+    // assembly step (see utils/dpc-picture-tables.js) takes their addresses and cuts the statements out.
+    const pictureTables = !tableMode ? '' : (() => {
+      const nextRef = !slaveOf && this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name) ?
+        this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+      const at = (suffix) => `.${animationLabel}${suffix}`;
+      // The kernel reads the rows of a DPC+ sprite top to bottom, a row for each scanline (so each row is doubled), and the standard
+      // kernel from the bottom up.
+      const orderGraphicRows = (rows) => (isDpcPlus ? rows.flatMap((row) => [row, row]) : rows.slice().reverse());
+      const symbols = {g: new Map(), c: new Map()};
+      const stubs = [];
+      const stubFor = (kind, key, lines) => {
+        if (symbols[kind].has(key)) return symbols[kind].get(key);
+        const symbol = `_dpcpic_${kind}_${animationLabel}_${symbols[kind].size}`;
+        symbols[kind].set(key, symbol);
+        stubs.push(`${symbol}_s`, ...lines, `${symbol}_e`);
+        return symbol;
+      };
+      const graphicLines = (rows) => [`  ${name}:`, ...orderGraphicRows(rows).map((row) => '  %' + row.join('')), 'end'];
+      const rowColored = this.useAnimationRowColors(slaveOf || name);
+      const overrideFlag = this.colorOverridePlayers && this.colorOverridePlayers.has(slaveOf || name) ?
+        colorOverrideRef(Blockly, slaveOf || name) : null;
+      let limit = 0;
+      const pictures = [];
+      animation.frames.forEach((frame) => {
+        limit += clampFrameDuration(frame.duration);
+        const firstRows = halfOf(frame.pixels, firstSide);
+        const pixelKey = frame.pixels.map((row) => row.join('')).join('|');
+        const picture = {
+          end: Math.min(limit + 1, totalDuration, 255),
+          // The height the kernel is given: the number of rows on the DPC+ kernel, one less on the standard one.
+          height: orderGraphicRows(firstRows).length - (isDpcPlus ? 0 : 1),
+          graphic: stubFor('g', pixelKey + (slaveOf ? '#R' : '#L'), graphicLines(firstRows)),
+          flipped: wide ? stubFor('g', pixelKey + (slaveOf ? '#L' : '#R'), graphicLines(halfOf(frame.pixels, otherSide))) : null,
+          color: null,
+        };
+        if (rowColored) {
+          const rowColors = frame.rowColors || [];
+          const resolved = orderGraphicRows(frame.pixels.map((_, i) => [colorByteToBuildBBasic(rowColors[i] ?? DEFAULT_ROW_COLOR)]))
+              .map((row) => '  ' + row[0]);
+          picture.color = stubFor('c', resolved.join('|'), [`  ${name}color:`, ...resolved, 'end']);
+        }
+        const last = pictures[pictures.length - 1];
+        if (last && last.graphic === picture.graphic && last.flipped === picture.flipped && last.color === picture.color &&
+            last.height === picture.height) {
+          last.end = picture.end;
+        } else {
+          pictures.push(picture);
+        }
+      });
+      // The flipped halves of a wide picture follow the others in the tables: the flip bit adds the number of pictures to the index.
+      const rows = wide ? [...pictures, ...pictures.map((picture) => ({...picture, graphic: picture.flipped}))] : pictures;
+      const count = pictures.length;
+      // The virtual sprites of the DPC+ kernel (Players 1 to 9) are loaded through the kernel's data fetcher; the others by storing the address.
+      const slot = isDpcPlus ? /^player([1-9])$/.exec(name) : null;
+      const pointerSlot = slot ? 2 * (Number(slot[1]) - 1) : null;
+      const colorSlot = slot ? 18 + 2 * (Number(slot[1]) - 1) : null;
+      // (The address of rows is stored on the DPC+ kernel with bits 4 to 6 of its high byte moved down.)
+      const highByte = (symbol) => (isDpcPlus ? `  .byte ((>${symbol}) & $0f) | (((>${symbol}) / 2) & $70)` : `  .byte >${symbol}`);
+      const override = overrideFlag ? /^(.+)\{(\d)\}$/.exec(overrideFlag) : null;
+      const code = [
+        ' asm',
+        `  lda ${name}frame`,
+        '  ldy #0',
+        at('Sel'),
+        `  cmp ${at('Ends')},y`,
+        `  bcc ${at('Found')}`,
+        '  iny',
+        `  cpy #${count}`,
+        `  bcc ${at('Sel')}`,
+        `  jmp .${animationLabel}animationEnd`,
+        at('Found'),
+        ...(nextRef ? [`  lda ${at('Ends')},y`, `  sta ${nextRef}`] : []),
+        // (The DPC+ kernel keeps a loaded picture: bit 7 of the size byte says there is one, and the code is only entered again at the
+        // start of a picture.)
+        ...(isDpcPlus ? [
+          `  lda ${name}size`,
+          `  bpl ${at('Load')}`,
+          `  lda ${name}frame`,
+          `  cmp ${at('Starts')},y`,
+          `  beq ${at('Load')}`,
+          `  jmp .${animationLabel}animationEnd`,
+          at('Load'),
+          `  lda ${name}size`,
+          '  ora #$80',
+          `  sta ${name}size`,
+        ] : []),
+        ...(wide ? [
+          `  lda ${name}size`,
+          '  and #8',
+          `  beq ${at('Plain')}`,
+          '  tya',
+          '  clc',
+          `  adc #${count}`,
+          '  tay',
+          at('Plain'),
+        ] : []),
+        ...(slot ? [
+          `  lda #<(playerpointers+${pointerSlot})`,
+          '  sta DF0LOW',
+          `  lda #(>(playerpointers+${pointerSlot})) & $0F`,
+          '  sta DF0HI',
+          `  lda ${at('GraphicLow')},y`,
+          '  sta DF0WRITE',
+          `  lda ${at('GraphicHigh')},y`,
+          '  sta DF0WRITE',
+        ] : [
+          `  lda ${at('GraphicLow')},y`,
+          `  sta ${name}pointerlo`,
+          `  lda ${at('GraphicHigh')},y`,
+          `  sta ${name}pointerhi`,
+        ]),
+        ...(rowColored ? [
+          ...(override ? [`  lda ${override[1]}`, `  and #${1 << Number(override[2])}`, `  bne ${at('Height')}`] : []),
+          ...(slot ? [
+            `  lda #<(playerpointers+${colorSlot})`,
+            '  sta DF0LOW',
+            `  lda #(>(playerpointers+${colorSlot})) & $0F`,
+            '  sta DF0HI',
+            `  lda ${at('ColorLow')},y`,
+            '  sta DF0WRITE',
+            `  lda ${at('ColorHigh')},y`,
+            '  sta DF0WRITE',
+          ] : [
+            `  lda ${at('ColorLow')},y`,
+            `  sta ${name}color`,
+            `  lda ${at('ColorHigh')},y`,
+            `  sta ${name}color+1`,
+          ]),
+        ] : []),
+        at('Height'),
+        `  lda ${at('Heights')},y`,
+        `  sta ${name}height`,
+        `  jmp .${animationLabel}animationEnd`,
+        at('Starts'),
+        '  .byte 0',
+        at('Ends'),
+        ...pictures.map((picture) => `  .byte ${picture.end}`),
+        at('GraphicLow'),
+        ...rows.map((picture) => `  .byte <${picture.graphic}`),
+        at('GraphicHigh'),
+        ...rows.map((picture) => highByte(picture.graphic)),
+        ...(rowColored ? [
+          at('ColorLow'),
+          ...rows.map((picture) => `  .byte <${picture.color}`),
+          at('ColorHigh'),
+          ...rows.map((picture) => highByte(picture.color)),
+        ] : []),
+        at('Heights'),
+        ...rows.map((picture) => `  .byte ${picture.height}`),
+        'end',
+      ];
+      return code.join('\n') + '\n\n' + stubs.join('\n') + '\n\n';
+    })();
+
     // Bit 4 of {name}size ("loop disabled" - see blocks/sprites.js's LOOP
     // checkbox/animationLoopBitsCode in generators/bbasic/sprites.js, both
     // of which write it) decides what happens once the frame counter
@@ -7888,30 +8042,61 @@ Blockly.BBasic.generateAnimations = function() {
     // flag nothing reads" reasoning generateBackgroundFadeChecks' isWatched
     // already uses) - a no-loop animation with no matching watch block
     // anywhere just freezes, same as one with the watch.
-    const noLoopLabel = `${animationLabel}noLoop`;
-    const wrapDoneLabel = `${animationLabel}wrapDone`;
     const finishedWatches = Blockly.BBasic.playerAnimationFinishedWatches;
     const isFinishedWatched = !!(finishedWatches && finishedWatches.has(name));
     if (slaveOf) {
       return `  rem Animation ${animationIndex} ${animation.name} for ${name}, the right half of ${slaveOf}:\n\n` +
-        stateMachine.join('\n\n') +
+        pictureTables +
+        stateMachine.filter((block) => block !== '').join('\n\n') +
         `\n\n${animationLabel}animationEnd`;
     }
-    return `  rem Animation ${animationIndex} ${animation.name} for ${name}:\n\n` +
-      sizeLines +
-      `  if ${name}size{6} then goto ${pauseSkipLabel}\n` +
-      `  ${name}frame = ${name}frame + 1\n` +
-      `  if ${name}frame < ${totalDuration} then goto ${wrapDoneLabel}\n` +
-      `  if ${name}size{4} then goto ${noLoopLabel}\n` +
-      `  ${name}frame = 0\n` +
-      `  goto ${wrapDoneLabel}\n` +
-      `${noLoopLabel}\n` +
-      `  ${name}frame = ${totalDuration} - 1\n` +
+    // The width, the pause, the frame counter and what happens at its end, in assembly: it is run every frame the animation is, and the
+    // statements of batari Basic for it take twice the room.
+    const at = (suffix) => `.${animationLabel}${suffix}`;
+    const finishedRef = isFinishedWatched ? /^(.+)\{(\d)\}$/.exec(animFinishedDoneRef(Blockly, name)) : null;
+    const lastFrame = Math.min(totalDuration, 255);
+    const counterLines = [
+      ' asm',
+      ...(sizeSet ? [`  lda ${sizeSet}`, `  bne ${at('sizeSet')}`] : []),
+      `  lda ${name}size`,
+      '  and #$F8',
+      `  ora #${sizeCode}`,
+      `  sta ${name}size`,
+      ...(sizeSet ? [at('sizeSet')] : []),
+      `  bit ${name}size`,
+      `  bvs ${at('pauseSkip')}`,
+      `  ldx ${name}frame`,
+      '  inx',
+      `  cpx #${lastFrame}`,
+      `  bcc ${at('store')}`,
+      `  lda ${name}size`,
+      '  and #$10',
+      `  bne ${at('noLoop')}`,
+      '  ldx #0',
+      `  beq ${at('store')}`,
+      at('noLoop'),
+      `  ldx #${lastFrame - 1}`,
       // (Once for the animation: the frame stays on the last one, and this runs on every frame it stays.)
-      (isFinishedWatched ? `  if ${animFinishedDoneRef(Blockly, name)} then goto ${wrapDoneLabel}\n  ${animFinishedDoneRef(Blockly, name)} = 1\n  ${name}size{5} = 1\n` : '') +
-      `${wrapDoneLabel}\n` +
-      `${pauseSkipLabel}\n\n` +
-      stateMachine.join('\n\n') +
+      ...(finishedRef ? [
+        `  lda ${finishedRef[1]}`,
+        `  and #${1 << Number(finishedRef[2])}`,
+        `  bne ${at('store')}`,
+        `  lda ${finishedRef[1]}`,
+        `  ora #${1 << Number(finishedRef[2])}`,
+        `  sta ${finishedRef[1]}`,
+        `  lda ${name}size`,
+        '  ora #$20',
+        `  sta ${name}size`,
+      ] : []),
+      at('store'),
+      `  stx ${name}frame`,
+      at('pauseSkip'),
+      'end',
+    ].join('\n') + '\n\n';
+    return `  rem Animation ${animationIndex} ${animation.name} for ${name}:\n\n` +
+      counterLines +
+      pictureTables +
+      stateMachine.filter((block) => block !== '').join('\n\n') +
       `\n\n${animationLabel}animationEnd`;
   };
 
