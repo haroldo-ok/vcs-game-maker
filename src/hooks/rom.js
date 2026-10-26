@@ -1074,7 +1074,6 @@ const musicReservedBank = (maxBanks, textMinikernelActive, minBank) => {
 // has long labels and comments, and an animation's text is mostly the graphics, which go to the graphics bank, not the code).
 const COMPILED_BYTES_PER_EVENT_CHAR = 0.3;
 const BANK_FULL_ESTIMATE = 3500;
-const SPILL_TIGHT_AFTER_ATTEMPTS = 5;
 const BANK_PACK_ESTIMATE = 2800;
 const SQUEEZE_MARGIN = 1.3;
 const MAX_SQUEEZE_ATTEMPTS = 12;
@@ -1229,7 +1228,6 @@ const buildRomInner = async () => {
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
   BlocklyBB.displayRamExcludedSeed = null;
-  BlocklyBB.spillTight = false;
 
   // Tracks every bank each unit has already been tried in during THIS
   // build (keyed by "kind:name"), so the fallback below (see its
@@ -1597,8 +1595,6 @@ const buildRomInner = async () => {
       // block's  git history/comments below), starting from true
       // scratch exactly like a never-seeded build's  first failure would.
       if (attempt === 0 && seededFromLastSuccess) resetRelocationBanks();
-      // Several overflows in: the code has to get smaller, so the variables that did not have to go in Display RAM stay where they are.
-      if (attempt >= SPILL_TIGHT_AFTER_ATTEMPTS) BlocklyBB.spillTight = true;
       const maxBanks = BANK_COUNT_BY_ROMSIZE[bankSizeKeyFor(config)];
       if (isOverflowError(e) && maxBanks && !isDpcPlusGraphicsOverflow(e)) {
         // Diagnostic-only for now (see bb-compiler.js's  comment on

@@ -447,8 +447,7 @@
           </v-btn>
           <v-menu v-model="romSaveMenuOpen" top offset-y>
             <template v-slot:activator="{ attrs }">
-              <!-- Where the browser has a save dialog with a "Save as type" list, the button
-                   opens that; otherwise it opens this small menu to pick .bin or .a26. -->
+              <!-- The button opens this small menu to pick .bin or .a26. -->
               <v-btn
                 color="primary"
                 :disabled="!hasCompiledRom"
@@ -1636,10 +1635,9 @@ export default {
         URL.revokeObjectURL(link.href);
       }, 'image/png');
     },
-    // Opens the save dialog with a "Save as type" list (.bin or .a26 - the same raw
-    // ROM image either way; a26 is the usual name for an Atari 2600 ROM) where the
-    // browser has one (Chrome and Edge). Others download compiled-rom.bin or
-    // compiled-rom.a26, picked from the menu on the button.
+    // The button's menu picks .bin or .a26 (the same raw ROM image either way; a26 is
+    // the usual name for an Atari 2600 ROM). A browser with a save dialog (Chrome and
+    // Edge) opens it for that type; others download the file.
     // The ROM's file name (without the extension): the Project tab's Title followed
     // by its Version (0.0.0 when none is set), dots as dashes like the saved
     // project's name, e.g. My_Game_1-0-0. With no Title it is just compiled-rom.
@@ -1651,8 +1649,7 @@ export default {
       return `${title}_${version}`;
     },
     handleSaveRomClick() {
-      if (window.showSaveFilePicker) this.handleRomDownload();
-      else this.romSaveMenuOpen = !this.romSaveMenuOpen;
+      this.romSaveMenuOpen = !this.romSaveMenuOpen;
     },
     // extension: which one to download as when there is no save dialog with a type
     // list (see handleSaveRomClick); ignored when there is one.
@@ -1666,15 +1663,14 @@ export default {
       if (window.showSaveFilePicker) {
         try {
           const handle = await window.showSaveFilePicker({
-            suggestedName: `${this.romBaseName()}.bin`,
+            suggestedName: `${this.romBaseName()}.${extension === 'a26' ? 'a26' : 'bin'}`,
             // Each type has its own made-up MIME type. A shared one is merged into a
             // single entry, and a real one such as application/octet-stream is
             // expanded by the browser into every extension it knows for it (the
             // dialog then showed .bin on its own, or both extensions on each entry).
-            types: [
-              {description: 'Atari 2600 ROM (.bin)', accept: {'application/x-atari-2600-rom-bin': ['.bin']}},
-              {description: 'Atari 2600 ROM (.a26)', accept: {'application/x-atari-2600-rom-a26': ['.a26']}},
-            ],
+            types: extension === 'a26' ?
+              [{description: 'Atari 2600 ROM (.a26)', accept: {'application/x-atari-2600-rom-a26': ['.a26']}}] :
+              [{description: 'Atari 2600 ROM (.bin)', accept: {'application/x-atari-2600-rom-bin': ['.bin']}}],
             excludeAcceptAllOption: true,
           });
           const writable = await handle.createWritable();

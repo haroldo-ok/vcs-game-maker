@@ -16,7 +16,7 @@ goog.provide('Blockly.BBasic.logic');
 goog.require('Blockly.BBasic');
 */
 
-import {joyButtonLastPressFramesVarName} from './input';
+import {joyButtonHeldVarName, joyTapJustRef} from './input';
 
 // The joysticks whose "Fire tapped" a condition block contains.
 const tappedJoysticksIn = (condition) => {
@@ -180,12 +180,16 @@ export default (Blockly) => {
           lines.push(`@ ${bodyLabel}`);
         }
       }
-      // The tap has been acted on: clear the joystick's press timer so the same tap cannot trigger
+      // The tap has been acted on: the frames Fire has been held go on to 2, so the same tap cannot trigger
       // again, e.g. when this branch changes the game state and the new state's code looks at it.
       tappedJoysticksIn(block.getInputTargetBlock(`IF${n}`)).forEach((joy) => {
         if (finalCondition === 'true') return;
-        lines.push(`  ${Blockly.BBasic.nameDB_.getName(joyButtonLastPressFramesVarName(joy),
-            Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`);
+        if ((Blockly.BBasic.joyTapOnlyFor || new Set()).has(joy)) {
+          lines.push(`  ${joyTapJustRef(Blockly, joy)} = 0`);
+          return;
+        }
+        const held = Blockly.BBasic.superchipRwPairs[joyButtonHeldVarName(joy)];
+        if (held) lines.push(`  if ${held.read} = 1 then ${held.write} = 2`);
       });
       if (branchCode) lines.push(branchCode);
       if (jumpsOverRest && !alwaysTaken) lines.push(`goto ${endLabel}`);

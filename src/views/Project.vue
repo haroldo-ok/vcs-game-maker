@@ -1740,6 +1740,8 @@ export default defineComponent({
   flex-wrap: wrap;
   align-items: center;
   gap: 0 24px;
+  /* The same space to the Developer row below as that row has to the Website row (26px between the fields). */
+  margin-bottom: -12px;
 }
 
 .project-title-field {

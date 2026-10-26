@@ -266,15 +266,13 @@ export const OFFSET_AREA_VARS = {
   b1: 'offsetb1', m1: 'offsetm1', b2: 'offsetb2', m2: 'offsetm2', pixel: 'offsetpixel',
   mask: ['offsetmask0', 'offsetmask1', 'offsetmask2', 'offsetmask3'],
 };
-// The bytes the Playfield offset block of the coprocessor needs while its blocks run: the left and right column and the function number. The
-// bytes the box test uses for the position it tries, and the one the Jump block counts pixels in, are only used when the end of the frame
-// runs, so they do the job when the project has them. Returns the names (null for the ones to reserve here).
-export const offsetArmSharedVars = ({boxTest, jump}) => ({b1: boxTest ? 'pfboxx' : null, b2: boxTest ? 'pfboxy' : null, fn: jump ? 'platCount' : null});
+// The bytes the Playfield offset block of the coprocessor needs while its blocks run: the left and right column. The bytes the box test uses for
+// the position it tries are only used when the end of the frame runs, so they do the job when the project has them. Returns the names (null for the ones to reserve here).
+export const offsetArmSharedVars = ({boxTest}) => ({b1: boxTest ? 'pfboxx' : null, b2: boxTest ? 'pfboxy' : null});
 export const reserveOffsetAreaDevVars = (reserveDevVar, used, coprocessor = false, shared = {}) => {
   if (coprocessor) {
     if (!shared.b1) reserveDevVar(OFFSET_AREA_VARS.b1, undefined, 'Playfield offset (coprocessor): the left column');
     if (!shared.b2) reserveDevVar(OFFSET_AREA_VARS.b2, undefined, 'Playfield offset (coprocessor): the right column');
-    if (!shared.fn) reserveDevVar(OFFSET_AREA_VARS.m1, undefined, 'Playfield offset (coprocessor): the function number of the direction');
     return;
   }
   if (!used) return;
@@ -398,12 +396,41 @@ export default (Blockly) => {
   // (unlike X's fixed /4, always a shift) it needs usesDivMul/div_mul.asm -
   // set unconditionally on both blocks for simplicity, same as
   // emitColorFadeTrigger above does even for its  power-of-2 case.
+  // The sprite y of the playfield row in `source`: the first line whose row is that one (ceil(row * 256 / increment), at most 255), halved,
+  // and one more.
+  const spriteYOfRow = (increment, source, selectLines = []) => {
+    const id = Blockly.BBasic.blockNumbers.next('rowsconv');
+    const lab = (name) => `_rowsconv_${id}_${name}`;
+    // (With groups of columns that have separate rows the increment is in temp1 already, put there by the lines of the group.)
+    return [`temp2 = ${source}`, ...selectLines, 'asm',
+      'lda temp2', 'sta temp3', increment === null ? 'lda temp1' : `lda #${increment}`, 'sta temp2', 'sec', 'sbc #1', 'sta temp1', 'lda #0', 'ldx #16',
+      `@${lab('l')}`, 'asl temp1', 'rol temp3', 'rol', `bcs ${lab('t')}`, 'cmp temp2', `bcc ${lab('n')}`,
+      `@${lab('t')}`, 'sbc temp2', 'inc temp1', `@${lab('n')}`, 'dex', `bne ${lab('l')}`,
+      'lda temp3', `beq ${lab('k')}`, 'lda #255', 'sta temp1', `@${lab('k')}`, 'lda temp1',
+      'lsr', 'clc', 'adc #1', 'sta temp4', '@end', 'temp4'].join('\n');
+  };
+
+  // Under DPC+ with groups of columns that have separate rows (see backgroundGroupPfres), the lines that put the row increment of the group
+  // of the block's column input (the first group while it is empty) in the temp variable `into`; null without groups.
+  const groupIncrementLines = (block, into) => {
+    const vars = Blockly.BBasic.dpcPlusGroupFracVars;
+    if (!vars) return null;
+    const column = Blockly.BBasic.valueToCode(block, 'COLUMN', Blockly.BBasic.ORDER_DIVISION);
+    const other = into === 'temp1' ? 'temp3' : 'temp1';
+    return [`${into} = ${vars[0]}`, ...(column ? [`${other} = (${column}) / 8`,
+      `if ${other} = 1 then ${into} = ${vars[1]}`, `if ${other} = 2 then ${into} = ${vars[2]}`, `if ${other} > 2 then ${into} = ${vars[3]}`] : [])];
+  };
+
   Blockly.BBasic[`background_pixel_to_sprite`] = function(block) {
     const axis = block.getFieldValue('AXIS');
     if (axis === 'Y') {
       const y = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
       const configurationStorage = useConfigurationStorage();
       const config = (configurationStorage && configurationStorage.value) || {};
+      const groups = groupIncrementLines(block, 'temp1');
+      if (groups) return [spriteYOfRow(null, y, groups), Blockly.BBasic.ORDER_ATOMIC];
+      const increment = Blockly.BBasic.exactRowIncrement(config, 2);
+      if (increment !== null) return [spriteYOfRow(increment, y), Blockly.BBasic.ORDER_ATOMIC];
       Blockly.BBasic.usesDivMul = true;
       return [`${Blockly.BBasic.rowDivisorText(config)} * ${y} + 1`, Blockly.BBasic.ORDER_ADDITION];
     }
@@ -418,6 +445,10 @@ export default (Blockly) => {
       const y = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_SUBTRACTION) || '0';
       const configurationStorage = useConfigurationStorage();
       const config = (configurationStorage && configurationStorage.value) || {};
+      const groups = groupIncrementLines(block, 'temp3');
+      if (groups) return [[...groups, ...Blockly.BBasic.rowOfLineCode(config, 'temp4', y, 1, 2, 'temp3'), 'temp4'].join('\n'), Blockly.BBasic.ORDER_ATOMIC];
+      const increment = Blockly.BBasic.exactRowIncrement(config, 2);
+      if (increment !== null) return [[...Blockly.BBasic.rowOfLineCode(config, 'temp4', y, 1, 2), 'temp4'].join('\n'), Blockly.BBasic.ORDER_ATOMIC];
       Blockly.BBasic.usesDivMul = true;
       return [`(${y} - 1) / ${Blockly.BBasic.rowDivisorText(config)}`, Blockly.BBasic.ORDER_DIVISION];
     }
@@ -505,7 +536,10 @@ export default (Blockly) => {
     const movingDown = Blockly.BBasic.valueToCode(block, 'MOVING_DOWN', Blockly.BBasic.ORDER_LOGICAL_AND) || '0';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const maxRow = Blockly.BBasic.maxRowText(config);
+    // Groups of columns with separate rows: the row comes from the increment of the group the column is in, and the rows past the last
+    // of a group are empty, so the last row looked at is the tallest there can be.
+    const groupRows = !!Blockly.BBasic.dpcPlusGroupFracVars;
+    const maxRow = groupRows ? '191' : Blockly.BBasic.maxRowText(config);
     // Under DPC+ a missile's or the ball's y counts lines, not the two-line steps of a player's.
     const rowDivisor = Blockly.BBasic.rowDivisorText(config, !!coords.heightVar);
     Blockly.BBasic.usesDivMul = true;
@@ -531,7 +565,8 @@ export default (Blockly) => {
       `${col.write} = (${coords.x} - ${coords.pfXOffset}) / 4`,
       `if ${coords.stretched} then ${col.write} = (${coords.x} - ${coords.pfXOffset - 1}) / 4`,
       `if ${col.read} > 31 then ${col.write} = 31`,
-      `${row.write} = (${topYText(coords, config)}) / ${rowDivisor}`,
+      ...(groupRows ? Blockly.BBasic.rowOfLineCode(config, row.write, coords.y, 1, coords.heightVar ? 1 : 2, Blockly.BBasic.groupIncrementAsm(col.read)) :
+        coords.heightVar ? Blockly.BBasic.rowOfLineCode(config, row.write, topYText(coords, config), rowDivisor) : [`${row.write} = (${topYText(coords, config)}) / ${rowDivisor}`]),
       `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
       // Exact cell.
       `if pfread(${col.read}, ${row.read}) then goto ${doneLabel}`,
@@ -587,7 +622,7 @@ export default (Blockly) => {
   // the sprite's right column; temp5 = the sprite's bottom row; temp6 = vertical
   // step, then the row above or below (all of temp3-temp6 survive pfread, which
   // only overwrites temp1/temp2).
-  const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, topY, col, row}) => {
+  const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, topY, col, row, groupRows}) => {
     const coords = spriteCollisionCoords(sprite);
     const label = (part) => `_fp_${sprite}_${is16 ? 16 : 8}_${part}`;
     const lab = (part) => `@ ${label(part)}`;
@@ -637,13 +672,18 @@ export default (Blockly) => {
           `if temp4 > 31 then temp4 = 31`);
     }
     lines.push(
-        `${row.write} = (${topY}) / ${rowDivisor}`,
+        ...(groupRows ? Blockly.BBasic.rowOfLineCode(useConfigurationStorage().value || {}, row.write, coords.y, 1, coords.heightVar ? 1 : 2,
+            Blockly.BBasic.groupIncrementAsm(col.read)) :
+          coords.heightVar ? Blockly.BBasic.rowOfLineCode(useConfigurationStorage().value || {}, row.write, topY, rowDivisor) : [`${row.write} = (${topY}) / ${rowDivisor}`]),
         `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
         // The bottom row: a sprite more than one row unit tall can reach into the next row.
         `temp5 = ${row.read}`,
         ...(coords.heightVar ? [
           // One row unit taller than the height says, for the same reason.
-          `if ${coords.heightVar} > 0 then temp5 = (${coords.y} + ${coords.heightVar} - 1) / ${rowDivisor}`,
+          `if ${coords.heightVar} = 0 then goto ${label('nobottom')}`,
+          ...Blockly.BBasic.rowOfLineCode(useConfigurationStorage().value || {}, 'temp5', `${coords.y} + ${coords.heightVar} - 1`, rowDivisor, 1,
+              groupRows ? Blockly.BBasic.groupIncrementAsm(col.read) : null),
+          lab('nobottom'),
           `if temp5 > ${maxRow} then temp5 = ${maxRow}`,
           `if temp5 < ${row.read} then temp5 = ${row.read}`,
         ] : []),
@@ -720,7 +760,7 @@ export default (Blockly) => {
     const direction = Blockly.BBasic.valueToCode(block, 'DIRECTION', Blockly.BBasic.ORDER_NONE) || '255';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
-    const maxRow = Blockly.BBasic.maxRowText(config);
+    const maxRow = Blockly.BBasic.dpcPlusGroupFracVars ? '191' : Blockly.BBasic.maxRowText(config);
     // Under DPC+ a missile's or the ball's y counts lines, not the two-line steps of a player's.
     const rowDivisor = Blockly.BBasic.rowDivisorText(config, !!spriteCollisionCoords(sprite).heightVar);
     Blockly.BBasic.usesDivMul = true;
@@ -753,7 +793,8 @@ export default (Blockly) => {
 
     const name = findPixelSubroutineName(sprite, is16);
     if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = buildFindPixelBody({sprite, is16, maxRow, rowDivisor, topY: topYText(spriteCollisionCoords(sprite), config), col, row});
+      Blockly.BBasic.subroutines[name] = buildFindPixelBody({sprite, is16, maxRow, rowDivisor, topY: topYText(spriteCollisionCoords(sprite), config), col, row,
+        groupRows: !!Blockly.BBasic.dpcPlusGroupFracVars});
     }
     const suffix = Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
@@ -1745,16 +1786,16 @@ export default (Blockly) => {
       const writeBase = superchip ? 'playfield-128' : 'playfield';
       const write = (byte) => `${writeBase}+${byte},x`;
       // The standard kernel: X is the row times four. The pixel that leaves goes to temp6 until the row is done.
+      // The pixel on its way to the next row is kept as a mask, $FF for a lit pixel and 0 for none (so that it can be merged in with xors).
       const exitPixel = (which) => ['txa', 'clc', `adc ${which === 1 ? v.b1 : v.b2}`, 'tay', 'lda playfield,y',
-        `and ${which === 1 ? v.m1 : v.m2}`, 'cmp #1', 'lda #0', 'rol'];
+        `and ${which === 1 ? v.m1 : v.m2}`, 'cmp #1', 'lda #0', 'adc #$FF', 'eor #$FF'];
+      // A byte of the row: the rotated byte where the mask has bits and the byte as it was elsewhere (old ^ ((old ^ new) & mask)).
       const chain = (toLeft) => ['clc', ...order(toLeft).flatMap((byte) => [
-        `lda ${read(byte)}`, 'sta temp1', 'lda temp1', rotate(byte, toLeft), `and ${v.mask[byte]}`, 'sta temp2',
-        `lda ${v.mask[byte]}`, 'eor #$FF', 'and temp1', 'ora temp2', `sta ${write(byte)}`])];
+        `lda ${read(byte)}`, 'sta temp1', rotate(byte, toLeft), 'eor temp1', `and ${v.mask[byte]}`, 'eor temp1', `sta ${write(byte)}`])];
       const entry = (which) => {
-        const skip = fresh('noentry');
-        const [byteVar, bitVar] = which === 1 ? [v.b1, v.m1] : [v.b2, v.m2];
-        return ['txa', 'clc', `adc ${byteVar}`, 'tay', `lda ${bitVar}`, 'eor #$FF', 'sta temp1', 'lda playfield,y', 'and temp1', 'sta temp1',
-          `lda ${v.pixel}`, `beq ${skip}`, 'lda temp1', `ora ${bitVar}`, 'sta temp1', `@${skip}`, 'lda temp1', `sta ${writeBase},y`];
+        const byteVar = which === 1 ? v.b1 : v.b2;
+        const bitVar = which === 1 ? v.m1 : v.m2;
+        return ['txa', 'clc', `adc ${byteVar}`, 'tay', `lda ${v.pixel}`, 'eor playfield,y', `and ${bitVar}`, 'eor playfield,y', `sta ${writeBase},y`];
       };
       const row = (toLeft) => [...exitPixel(toLeft ? 1 : 2), 'sta temp6', ...chain(toLeft), ...entry(toLeft ? 2 : 1),
         'lda temp6', `sta ${v.pixel}`];
@@ -1787,8 +1828,8 @@ export default (Blockly) => {
         const up = direction === 'up';
         const merge = (source, kept, byte) => {
           const skip = fresh('skipbyte');
-          return [`lda ${v.mask[byte]}`, `beq ${skip}`, kept ? `lda ${kept}` : `lda ${source}`, `and ${v.mask[byte]}`, 'sta temp6',
-            `lda ${v.mask[byte]}`, 'eor #$FF', `and ${read(byte)}`, 'ora temp6', `sta ${write(byte)}`, `@${skip}`];
+          return [`lda ${v.mask[byte]}`, `beq ${skip}`, kept ? `lda ${kept}` : `lda ${source}`, `eor ${read(byte)}`, `and ${v.mask[byte]}`,
+            `eor ${read(byte)}`, `sta ${write(byte)}`, `@${skip}`];
         };
         const step = up ? ['inx', 'inx', 'inx', 'inx'] : ['dex', 'dex', 'dex', 'dex'];
         lines.push(
@@ -1905,7 +1946,9 @@ export default (Blockly) => {
     const superchip = !dpcPlus && !!config.enableSuperchip;
     const direction = block.getFieldValue('DIRECTION');
     const whole = block.getFieldValue('WHOLE') === 'TRUE';
-    const maxRow = Blockly.BBasic.maxRowText(config);
+    // (With groups of columns that have separate rows the coprocessor keeps each group to the rows it has, see offset in armprog.c.)
+    const groupRows = dpcPlus && !!Blockly.BBasic.dpcPlusGroupFracVars;
+    const maxRow = groupRows ? '191' : Blockly.BBasic.maxRowText(config);
     const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     // The first and last row go in temp3 and temp4 (standard kernel) or temp5 and temp6 (DPC+, whose temp1 to temp4 hold a row).
     const [first, last] = dpcPlus ? ['temp5', 'temp6'] : ['temp3', 'temp4'];
@@ -1937,7 +1980,7 @@ export default (Blockly) => {
       const last = plain(maxRow) !== null ? `#${maxRow}` : maxRow;
       const y1 = whole ? '#0' : operandOf(arg('Y1'), 'temp5');
       const y2 = whole ? last : operandOf(arg('Y2'), 'temp6');
-      ensureArmProgram(Blockly);
+      ensureArmProgram(Blockly, groupRows ? {inc: 0, maxRow: 0, clamp: true, groups: true} : undefined);
       return [...setups, buildOffsetArmCall({fn: OFFSET_ARM_FUNCTION[direction], x1, x2, y1, y2, last})].join('\n') + '\n';
     }
     // The whole playfield, or an area whose edges are plain numbers that are whole bytes of eight columns, goes by the routine that moves whole

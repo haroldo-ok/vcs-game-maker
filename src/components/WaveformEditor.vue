@@ -2,6 +2,8 @@
   <div class="waveform-editor">
     <!-- The same kind of toolbar the graphic editors have: icon buttons (a Material Design icon per shape), then the number of bars. -->
     <div class="waveform-toolbar get-tools" @click.stop>
+      <!-- Something a caller puts at the left end of the toolbar (the Sound tab's TIA / ARM switch). -->
+      <slot name="toolbar-start" />
       <v-btn-toggle :value="activePreset" borderless>
         <v-btn
           v-for="preset in presets"

@@ -85,6 +85,14 @@ export const processPlayerAnimationsStorageDefaults = (playerAnimationsStorage) 
 // The byte, per player, that remembers a "Player set width/quantity" block ran for it: 0 until then, else the size code it set plus
 // one. The player's animations apply a width every frame, and leave the player's size alone once a block set it.
 export const sizeSetVarName = (name) => `${name}sizeset`;
+// DPC+: the frame counter value at which a player's animation has to run again (the next picture, or the end of the animation); until the
+// counter gets there the animation code is not entered at all (see processAnimations in generators/bbasic.js).
+export const animNextVarName = (name) => `${name}animnext`;
+export const reserveAnimNextDevVars = (reserveDevVar, players) => {
+  (players || new Set()).forEach((name) => {
+    reserveDevVar(animNextVarName(name), undefined, `The frame counter value at which ${name}'s animation code runs next (DPC+)`);
+  });
+};
 export const reserveSizeSetDevVars = (reserveDevVar, players) => {
   (players || new Set()).forEach((name) => {
     reserveDevVar(sizeSetVarName(name), undefined, `0, or the width/quantity code a block set for ${name} plus 1`);
@@ -1293,8 +1301,8 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
     Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
   const cellCheck = (tag) => [
     ...(stagePair ? [` if ${stagePair.read}{4} then goto ${label(`skip${tag}`)}`, ` if ${stagePair.read}{5} then goto ${label(`skip${tag}`)}`] : []),
+    ...Blockly.BBasic.rowOfLineCode(config, 'temp2', `${name}y - 1`, rowDivisor),
     ` temp1 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
-    ` temp2 = (${name}y - 1) / ${rowDivisor}`,
     ` if temp1 > 31 then goto ${label(`skip${tag}`)}`,
     ` if temp2 > ${maxRow} then goto ${label(`skip${tag}`)}`,
     ` if pfread(temp1, temp2) then goto ${label('end')}`,
@@ -2035,7 +2043,7 @@ const assignAndReload = (varName, valueCode) => {
   return `temp1 = ${valueCode}\nif ${varName} <> temp1 then ${sizeVar}{7} = 0\n${varName} = temp1\n`;
 };
 
-const animationLoopBitsCode = (block, varName, clearDone = '') => {
+const animationLoopBitsCode = (block, varName, clearDone = '', clearNext = '') => {
   const loopField = block.getField('LOOP');
   const loop = loopField ? block.getFieldValue('LOOP') === 'TRUE' : true;
   const sizeVar = varName.replace('animation', 'size');
@@ -2046,7 +2054,7 @@ const animationLoopBitsCode = (block, varName, clearDone = '') => {
   return `${sizeVar}{4} = ${loop ? 0 : 1}\n` +
     `${sizeVar}{5} = 0\n` +
     clearDone +
-    (restart ? `${varName.replace('animation', 'frame')} = 0\n` : '');
+    (restart ? `${varName.replace('animation', 'frame')} = 0\n` + clearNext : '');
 };
 
 // How many frames of the game the frames of an animation before the given frame (1 is the first) last: where the frame counter is when that frame starts.
@@ -2063,12 +2071,17 @@ const animationStartTicks = (index, startFrame) => {
 };
 
 export default (Blockly) => {
+  // A write of a player's frame counter (DPC+): the animation code has to run on the next frame to find where it is now.
+  const animNextClear = (player) => (Blockly.BBasic.animSkipPlayers && Blockly.BBasic.animSkipPlayers.has(player) &&
+    !Blockly.BBasic.animSkipConst.has(player) ?
+    `${Blockly.BBasic.nameDB_.getName(animNextVarName(player), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0\n` : '');
   // The loop and finished bits the blocks that set an animation write; a player that has a "When animation has finished" block also forgets
   // that the animation already finished.
   const loopBitsCode = (block, varName) => {
     const player = varName.replace('animation', '');
     const watched = Blockly.BBasic.playerAnimationFinishedWatches;
-    return animationLoopBitsCode(block, varName, watched && watched.has(player) ? `${animFinishedDoneRef(Blockly, player)} = 0\n` : '');
+    return animationLoopBitsCode(block, varName, watched && watched.has(player) ? `${animFinishedDoneRef(Blockly, player)} = 0\n` : '',
+        animNextClear(player));
   };
   // Players 2 to 9 (DPC+) keep their animation, frame, color and size in bytes the generator reserves itself, so the name is used as it
   // is: asking the variable names for it handed back a renamed one (player3animation2, player2realcolor2) that nothing declares.
@@ -2242,7 +2255,7 @@ export default (Blockly) => {
         if (literal) return `${varName} = ${Number(literal[1]) === 1 ? 2 : literal[1]}\n`;
         return `${varName} = ${argument0}\nif ${varName} = 1 then ${varName} = 2\n`;
       }
-      return varName + ' = ' + argument0 + '\n';
+      return varName + ' = ' + argument0 + '\n' + (varName.endsWith('frame') ? animNextClear(varName.replace('frame', '')) : '');
     };
 
     Blockly.BBasic[`sprite_${name}_change`] = function(block) {
@@ -2259,7 +2272,8 @@ export default (Blockly) => {
       if (varName.endsWith('animation') && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
         return assignment + `${varName.replace('animation', 'size')}{7} = 0\n` + loopBitsCode(block, varName);
       }
-      return varName.endsWith('animation') ? assignment + loopBitsCode(block, varName) : assignment;
+      return varName.endsWith('animation') ? assignment + loopBitsCode(block, varName) :
+        assignment + (varName.endsWith('frame') ? animNextClear(varName.replace('frame', '')) : '');
     };
   };
 
@@ -2298,7 +2312,7 @@ export default (Blockly) => {
       // Starting at a frame other than the first: the counter of the animation (the durations of the frames added up) is put where that frame starts.
       const startTicks = block.getFieldValue('RESTART') === 'TRUE' ? animationStartTicks(index, Number(block.getFieldValue('START')) || 1) : 0;
       return assignAndReload(varName, index) + loopBitsCode(block, varName) +
-        (startTicks > 0 ? `${varName.replace('animation', 'frame')} = ${startTicks}\n` : '');
+        (startTicks > 0 ? `${varName.replace('animation', 'frame')} = ${startTicks}\n` + animNextClear(varName.replace('animation', '')) : '');
     };
 
     // Same assignment, for buildAnimationSetByIdBlock's VALUE-input sibling -
@@ -2996,7 +3010,7 @@ export default (Blockly) => {
       // the object's cell (clamped), stepping back out of it when it is
       // already inside the wall
       ` temp3 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
-      ` temp4 = (${name}y - 1) / ${rowDivisor}`,
+      ...Blockly.BBasic.rowOfLineCode(config, 'temp4', `${name}y - 1`, rowDivisor),
       ` if temp3 > 31 then temp3 = 31`,
       ` if temp4 > ${maxRow} then temp4 = ${maxRow}`,
       ` if pfread(temp3, temp4) then goto ${label('inside')}`,

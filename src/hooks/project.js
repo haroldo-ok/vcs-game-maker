@@ -368,6 +368,17 @@ export const usePixelGridOverlayStorage = () =>
 export const usePixelGridLabelsStorage = () =>
   useBooleanAppSetting('vcs-game-maker.pixelGridLabels', true);
 
+// Whether the cards of the Playfield tab (backgrounds) or of the Sprites tab (animations) sit in more than one column when the window is
+// wide enough, or in one: a view preference that is kept between visits. The backgrounds have been in columns since they got a grid, the
+// animations (wide cards with their frames in a row) in one.
+export const useBackgroundCardColumnsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.backgroundCardColumns', true);
+export const useSpriteCardColumnsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.spriteCardColumns', false);
+// The same for the Title tab's pages (one column, as they always were).
+export const useTitleCardColumnsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.titleCardColumns', false);
+
 // Which Music-tab instrument rows are muted/soloed - a view preference (see
 // MusicEditor.vue's  mutedTrackIds/soloedTrackIds refs, which load these
 // once at setup() time) that survives navigating away and back, same

@@ -141,10 +141,25 @@ const buildPlatformerStateBlock = () => ({
     'animation for each, for example.',
 });
 
+// The number of jumps a player moved by the Jump block has made since it last stood on the ground (a number for the comparison blocks).
+const buildPlatformerJumpsBlock = () => ({
+  'type': 'sprite_platformer_jumps',
+  'message0': `${PLAYER_ICON} %1 jumps made`,
+  'args0': [
+    {'type': 'field_dropdown', 'name': 'PLAYER', 'options': jumpSpriteOptions},
+  ],
+  'output': 'Number',
+  'colour': 'purple',
+  'tooltip': 'How many jumps the player, moved by the "Platform" block, has made since it last stood on the ground: 0 on the ground, 1 after ' +
+    'the first jump, 2 after a second one in the air (with multi-jump on), up to 4. Walking off an edge counts as a jump used. Use it with a ' +
+    'comparison block in an if block, for example "jumps made = 2".',
+});
+
 Blockly.defineBlocksWithJsonArray([
   buildCollisionCheckBlock(),
   buildPlatformerBlock(),
   buildPlatformerStateBlock(),
+  buildPlatformerJumpsBlock(),
 ]);
 
 // A predictive (check-BEFORE-moving) software playfield collision block

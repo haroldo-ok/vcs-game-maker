@@ -276,7 +276,7 @@
         />
         <v-switch
           v-model="configurationState.enableCycleScore"
-          @change="handleChangeConfiguration"
+          @change="handleToggleCycleScore"
           label="Show remaining CPU cycles as the score (cyclescore)"
           hint="Displays an estimate (accurate to about +/- 64 cycles) of how many machine cycles are left in the current frame, using the score digits - white means positive (cycles to spare), red means negative (over budget). Only measures +/- 2000 cycles; a bigger deficit may show garbage or crash. Meant for debugging - turn it back off before shipping. Has no effect while a Title screen is being shown."
           persistent-hint
@@ -284,7 +284,7 @@
         />
         <v-switch
           v-model="configurationState.enableScanlinesDebug"
-          @change="handleChangeConfiguration"
+          @change="handleToggleScanlinesScore"
           label="Show NTSC scanlines used as the score"
           hint="Writes the playfield kernel's scanline count (out of the 192-line NTSC visible picture) into the score once at startup, computed from the current pfres/pfrowheight settings. Useful for spotting a kernel overrun that shows up as screen rolling/tearing. Meant for debugging - turn it back off before shipping."
           persistent-hint
@@ -767,6 +767,17 @@ export default defineComponent({
       }
       handleChangeConfiguration();
     };
+    // Both of these write the score every frame, so only one can be on (together they garble the digits).
+    const handleToggleCycleScore = () => {
+      const state = configurationState.value;
+      if (state.enableCycleScore) state.enableScanlinesDebug = false;
+      handleChangeConfiguration();
+    };
+    const handleToggleScanlinesScore = () => {
+      const state = configurationState.value;
+      if (state.enableScanlinesDebug) state.enableCycleScore = false;
+      handleChangeConfiguration();
+    };
     const handleChangeResolution = () => {
       const state = configurationState.value;
       state.pfres = Math.min(MAX_PFRES, Math.max(MIN_PFRES, Number(state.pfres) || MIN_PFRES));
@@ -895,7 +906,7 @@ export default defineComponent({
 
     return {
       configurationState,
-      handleChangeConfiguration,
+      handleChangeConfiguration, handleToggleCycleScore, handleToggleScanlinesScore,
       handleChangeResolution, handleInputPfres, handleTogglePfRowHeight, pfRowHeightShown, handleInputPfRowHeight, handleChangeDpcPlusPfres, handleChangeDpcPlusPfresPreset, dpcPlusPfresPreset, dpcPlusSpriteMax, dpcPlusSpriteVariableSlots, handleToggleDpcPlusSprite,
       DPC_PLUS_PFRES_PRESETS,
       handleChangePfRowHeight,

@@ -31,7 +31,7 @@
             @mousemove="(e) => { handleMouse(e); handleHover(e); }"
           />
           <canvas
-            v-if="columnBackdrop || rowBackdrop"
+            v-if="columnBackdrop || rowBackdrop || rowColorBands"
             ref="backdropOverlay"
             class="editor-canvas backdrop-canvas"
           />
@@ -83,6 +83,16 @@
           <v-icon>mdi-broom</v-icon>
         </v-btn>
       </div>
+      <v-btn
+        v-if="$slots['sidebar-right']"
+        icon
+        small
+        title="Clear this graphic's background row colors only (leaves the drawing and the playfield row colors untouched)"
+        class="pixel-editor-clear-colors-btn pixel-editor-clear-colors-btn-right"
+        @click="$emit('clear-bk-colors')"
+      >
+        <v-icon>mdi-invert-colors-off</v-icon>
+      </v-btn>
     </v-card-actions>
   </v-card>
 </template>
@@ -141,11 +151,18 @@ export default {
     // frame has no room to render it legibly and no matching "X" concept
     // worth calling out cell by cell.
     showCellIds: {type: Boolean, default: false},
+    // The column the first column of this editor is in a picture that is shown in several editors side by side (the labels count on from it).
+    cellIdColumnOffset: {type: Number, default: 0},
     // One CSS color per column, drawn over the cells that are off (a preview of what shows behind
     // the picture, such as the Title tab's picture background); null leaves the cells as they are.
     columnBackdrop: {type: Array, default: null},
     // One CSS color per row, drawn over the cells that are off the same way (the background colors behind a DPC+ background).
     rowBackdrop: {type: Array, default: null},
+    // For a row that covers several scanlines' colors (a group of columns with fewer rows than the color rows: the kernel colors each
+    // scanline of it separately): per row, the list of CSS colors from the top of the row to the bottom, drawn as bands over the cells that are on
+    // (rowColorBands) or off (rowBackdropBands). A row with no list, or one color, is drawn in its one color as usual.
+    rowColorBands: {type: Array, default: null},
+    rowBackdropBands: {type: Array, default: null},
   },
   data() {
     return {
@@ -203,7 +220,8 @@ export default {
   },
   computed: {
     rowBackdropKey() {
-      return this.rowBackdrop ? this.rowBackdrop.join() : '';
+      return (this.rowBackdrop ? this.rowBackdrop.join() : '') + '|' + (this.rowColorBands ? this.rowColorBands.join('/') : '') + '|' +
+        (this.rowBackdropBands ? this.rowBackdropBands.join('/') : '');
     },
     // Changes whenever a mirror drawing switch is flipped, so the hover
     // highlight can be redrawn with or without the mirrored cells.
@@ -476,11 +494,25 @@ export default {
         const off = px.color === this.bgColor;
         const color = (off && ((this.rowBackdrop && this.rowBackdrop[px.y]) || (this.columnBackdrop && this.columnBackdrop[px.x]))) ||
           px.color;
-        ctx.fillStyle = color;
         // Edges rounded to whole pixels, so neighbouring cells meet without gaps or overlap.
         const left = Math.round(px.x * cellWidth);
         const top = Math.round(px.y * cellHeight);
-        ctx.fillRect(left, top, Math.round((px.x + 1) * cellWidth) - left, Math.round((px.y + 1) * cellHeight) - top);
+        const right = Math.round((px.x + 1) * cellWidth);
+        const bottom = Math.round((px.y + 1) * cellHeight);
+        const bands = (off ? this.rowBackdropBands : this.rowColorBands);
+        const rowBands = bands && bands[px.y];
+        if (rowBands && rowBands.length > 1) {
+          // One band for each scanline's color of the row.
+          rowBands.forEach((bandColor, band) => {
+            ctx.fillStyle = bandColor;
+            const bandTop = top + Math.round(band * (bottom - top) / rowBands.length);
+            const bandBottom = top + Math.round((band + 1) * (bottom - top) / rowBands.length);
+            ctx.fillRect(left, bandTop, right - left, bandBottom - bandTop);
+          });
+          return;
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(left, top, right - left, bottom - top);
       });
     },
 
@@ -658,7 +690,7 @@ export default {
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           ctx.fillStyle = labelColorFor(cellColors.get(`${col},${row}`));
-          ctx.fillText(`${col},${row}`, (col + 0.5) * cellWidth, (row + 0.5) * cellHeight);
+          ctx.fillText(`${col + this.cellIdColumnOffset},${row}`, (col + 0.5) * cellWidth, (row + 0.5) * cellHeight);
         }
       }
     },
@@ -1068,7 +1100,7 @@ export default {
         const inside = pixels.filter((pixel) =>
           pixel.x >= 0 && pixel.y >= 0 && pixel.x < width && pixel.y < height);
         const result = set(this.mirrorPixels(inside, logToHistory), logToHistory);
-        if (this.columnBackdrop || this.rowBackdrop) this.scheduleBackdrop();
+        if (this.columnBackdrop || this.rowBackdrop || this.rowColorBands) this.scheduleBackdrop();
         return result;
       };
       // Not logged to the history: this is loading the image, not an edit, and as
@@ -1432,6 +1464,12 @@ export default {
   flex: 0 0 22px;
   width: 22px !important;
   margin-right: 4px !important;
+}
+
+/* The same under the strip on the right of the canvas (the background row colors): the gap is on its left. */
+.pixel-editor-clear-colors-btn-right {
+  margin-right: 0 !important;
+  margin-left: 4px !important;
 }
 
 /* The Clear button - centered as one group with the "toolbar-end" slot's

@@ -373,6 +373,21 @@ export const reserveJoystickButtonDevVars = (reserveDevVar, usedFor, needsReleas
   });
 };
 
+// A joystick whose Fire is only asked "tapped" (true for the frame it goes down) needs no count of the frames it is held: two bits, "was down
+// last frame" and "went down this frame", for each, in a pool byte.
+export const JOY_TAP_FAMILY = 'joyTapFlags';
+const joyTapPrevBit = (name) => flagPoolBit(JOY_TAP_FAMILY, name === 'joy1' ? 2 : 0);
+const joyTapJustBit = (name) => flagPoolBit(JOY_TAP_FAMILY, name === 'joy1' ? 3 : 1);
+export const joyTapFlagsVarName = () => flagPoolVar(JOY_TAP_FAMILY);
+export const joyTapOwnBits = (tapOnly) => [...(tapOnly || [])].flatMap((name) => (name === 'joy1' ? [2, 3] : [0, 1]));
+export const reserveJoyTapDevVars = (reserveDevVar, tapOnly) => {
+  if (!tapOnly || !tapOnly.size) return;
+  reserveDevVar(joyTapFlagsVarName(), undefined, 'joysticks Fire: down last frame / went down this frame');
+};
+// The bit that says the joystick's Fire went down this frame.
+export const joyTapJustRef = (Blockly, name) =>
+  `${Blockly.BBasic.nameDB_.getName(joyTapFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${joyTapJustBit(name)}}`;
+
 // "Switch ... was just switched on": the console switches in the order their two flag bits are given in
 // (the switch's value in the Switch block's dropdown). The family keeps, for each used switch, a bit for
 // "was on last frame" and one for "went on this frame".
@@ -440,6 +455,22 @@ export const generateJoystickButtonChecks = (Blockly) => {
   ['joy0', 'joy1'].forEach((name) => {
     if (!used.has(name)) return;
     const fireVar = resolveSystemVar(`${name}fire`);
+    if ((Blockly.BBasic.joyTapOnlyFor || new Set()).has(name)) {
+      const flagsVar = resolveDevVar(joyTapFlagsVarName());
+      const prev = `${flagsVar}{${joyTapPrevBit(name)}}`;
+      const just = `${flagsVar}{${joyTapJustBit(name)}}`;
+      lines.push(
+          ` if ${fireVar} then goto _${name}tap_down`,
+          ` ${prev} = 0`,
+          ` ${just} = 0`,
+          ` goto _${name}tap_done`,
+          `_${name}tap_down`,
+          ` ${just} = 0`,
+          ` if !${prev} then ${just} = 1`,
+          ` ${prev} = 1`,
+          `_${name}tap_done`);
+      return;
+    }
     const held = Blockly.BBasic.superchipRwPairs[joyButtonHeldVarName(name)];
     if (!(Blockly.BBasic.joyButtonNeedsReleaseFor && Blockly.BBasic.joyButtonNeedsReleaseFor.has(name))) {
       // Only "held" is checked: count the frames Fire has been down, nothing more.
@@ -628,15 +659,11 @@ export default (Blockly) => {
           joyDoubleTapResultVarName(entry.index), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       return [`${resultVar} = 1`, Blockly.BBasic.ORDER_EQUALITY];
     }
-    // TAP (also the fallback for a stale/unrecognized MODE value). Same
-    // bare-bit-read fix as RELEASED above - "{n} && ..." not "{n} = 1 &&
-    // ...".
-    const lastPressFramesVar = Blockly.BBasic.nameDB_.getName(
-        joyButtonLastPressFramesVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    // On the release frame the variable holds 128 + the press length (capped at
-    // 127), so "released and no longer than N frames" is one comparison.
-    return [`${lastPressFramesVar}{${JOY_BUTTON_JUST_RELEASED_BIT}} && ${lastPressFramesVar} <= ${128 + Math.min(frames, 127)}`,
-      Blockly.BBasic.ORDER_LOGICAL_AND];
+    // TAP (also the fallback for a stale/unrecognized MODE value): true for the one frame Fire goes down (the frames it has been
+    // held is 1 then), so what it does happens as the button is pushed, not when it is let go.
+    if ((Blockly.BBasic.joyTapOnlyFor || new Set()).has(name)) return [joyTapJustRef(Blockly, name), Blockly.BBasic.ORDER_ATOMIC];
+    const held = Blockly.BBasic.superchipRwPairs[joyButtonHeldVarName(name)];
+    return [`${held.read} = 1`, Blockly.BBasic.ORDER_EQUALITY];
   };
 
   // Both combined Keypad 0/1 blocks (see blocks/input.js) read their
