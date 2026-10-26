@@ -1219,8 +1219,8 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
     'tooltip': `Converts a playfield pixel column (0-31) or row to the matching Player/Missile/Ball X or ` +
-      `Y coordinate. Under DPC+, when the groups of columns of a background have separate rows, a row means the rows of the group ` +
-      `that the column (0-31, the empty one is the first group) is in.`,
+      `Y coordinate. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
+      `that the column (0-31, the empty one is the first column) is in.`,
   },
   {
     'type': `background_sprite_to_pixel`,
@@ -1253,8 +1253,8 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
     'tooltip': `Converts a Player/Missile/Ball X or Y coordinate to the matching playfield pixel column ` +
-      `(0-31) or row. Under DPC+, when the groups of columns of a background have separate rows, a row means the rows of the group ` +
-      `that the column (0-31, the empty one is the first group) is in.`,
+      `(0-31) or row. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
+      `that the column (0-31, the empty one is the first column) is in.`,
   },
   // Given a sprite that just registered a hardware collision with the
   // Playfield (see collision_get/collision_check_position in blocks/

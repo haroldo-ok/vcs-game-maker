@@ -211,8 +211,8 @@
                       tall
                       :value="!!background.groupPfres"
                       icon="mdi-view-column"
-                      title-on="Columns have separate resolutions (pfres) - click to give every column the same one"
-                      title-off="Give each group of 8 columns a separate resolution (pfres)"
+                      title-on="The four playfield columns have separate resolutions (pfres) - click to give them all the same one"
+                      title-off="Give each of the four playfield columns (8 pixels wide) a separate resolution (pfres)"
                       @input="() => handleToggleGroupPfres(background)"
                     />
                     <v-btn
@@ -304,12 +304,12 @@
                           :key="group"
                           class="group-pfres-field"
                           hide-details
-                          :label="`pfres ${group * 8 + 1}-${group * 8 + 8}`"
+                          :label="`pfres column ${group + 1}`"
                           type="number"
                           min="1"
                           max="192"
                           :value="rows"
-                          :title="`How many rows columns ${group * 8 + 1} to ${group * 8 + 8} have on screen, 1 to 192.`"
+                          :title="`How many rows playfield column ${group + 1} (pixels ${group * 8} to ${group * 8 + 7}) has on screen, 1 to 192.`"
                           @change="(value) => handleChangeGroupPfres(background, group, value)"
                         />
                       </div>
