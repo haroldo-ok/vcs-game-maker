@@ -2313,7 +2313,7 @@ Blockly.BBasic.init = function(workspace) {
       boxPairKeys.add(pairKey(names[0], names[1]));
     }
   });
-  // The "Sprite overlap starts / stops" blocks that have a sprite ticked compare the boxes of their sprites as well.
+  // The "Sprite overlap starts / stops" blocks compare the boxes of their two sprites as well.
   this.overlapBlocks = workspace.getAllBlocks(false).filter((block) =>
     block.isEnabled() && block.type === 'sprite_overlap_event' && overlapTargetsOf(block).length > 0);
   overlapPairsOf(this.overlapBlocks).pairs.forEach((key) => boxPairKeys.add(key));

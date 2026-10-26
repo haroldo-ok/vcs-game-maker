@@ -1,25 +1,22 @@
 'use strict';
 
-// The "Sprite overlap starts / stops" block: true for the one frame in which a sprite begins to overlap any of the sprites ticked in the block
-// (starts), or the last of them stops overlapping it (stops). Overlap is the boxes of the two sprites touching, worked out once a frame by the
-// subroutine of sprite-box-width.js, so the block answers as of the end of the last frame like "Collided" does.
+// The "Sprite overlap starts / stops" block: true for the one frame in which two sprites begin to overlap or stop overlapping. Overlap is
+// the boxes of the two sprites touching, worked out once a frame by the subroutine of sprite-box-width.js, so the block answers as of the end
+// of the last frame like "Collided" does.
 //
-// Each block keeps two bits: whether the sprite overlapped one of the ticked sprites at the end of the last frame, and the answer. The bits of
+// Each block keeps two bits: whether the sprite overlapped the other at the end of the last frame, and the answer. The bits of
 // four blocks fill a byte (see flag-pool.js).
 
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {pairKey, boxHitRef} from './sprite-box-width';
 
-export const OVERLAP_TARGETS = ['player0', 'player1', 'player2', 'player3', 'player4', 'player5', 'player6', 'player7', 'player8', 'player9',
-  'missile0', 'missile1', 'ball'];
 const BLOCKS_PER_BYTE = 4;
 export const overlapFamily = (index) => `overlapFlags${Math.floor(index / BLOCKS_PER_BYTE)}`;
 const WAS_BIT = 0;
 const ANSWER_BIT = 1;
 
-// The sprites a block compares its own sprite with: the ticked ones other than the sprite itself.
-export const overlapTargetsOf = (block) => OVERLAP_TARGETS.filter((name) =>
-  name !== block.getFieldValue('VAR0') && block.getField(`T_${name}`) && block.getFieldValue(`T_${name}`) === 'TRUE');
+// The sprite a block compares its first sprite with: none when both are the same one.
+export const overlapTargetsOf = (block) => (block.getFieldValue('VAR1') === block.getFieldValue('VAR0') ? [] : [block.getFieldValue('VAR1')]);
 
 // The pairs of sprites the enabled overlap blocks compare: [pairKey]. The names of the sprites come with them, for the box widths.
 export const overlapPairsOf = (blocks) => {
@@ -52,7 +49,7 @@ const bitRef = (Blockly, index, bit) => {
 export const reserveOverlapDevVars = (reserveDevVar, blockIds) => {
   overlapFamilies(blockIds).forEach(({family}) => {
     reserveDevVar(flagPoolVar(family), undefined,
-        'two bits for each "Sprite overlap starts / stops" block: the sprite overlapped one of the others at the end of the last frame, and the answer of the block');
+        'two bits for each "Sprite overlap starts / stops" block: the sprites overlapped at the end of the last frame, and the answer of the block');
   });
 };
 
