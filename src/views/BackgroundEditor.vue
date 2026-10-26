@@ -185,6 +185,7 @@
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
                       title="How many rows of colors the playfield colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
+                      @input="(value) => handleTypeColorRows(background, 'pf', value)"
                       @change="(value) => handleChangeColorRows(background, 'pf', value)"
                     />
                     <v-text-field
@@ -198,6 +199,7 @@
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
                       title="How many rows of colors the background colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
+                      @input="(value) => handleTypeColorRows(background, 'bk', value)"
                       @change="(value) => handleChangeColorRows(background, 'bk', value)"
                     />
                   </div>
@@ -473,7 +475,7 @@
 </template>
 <script>
 import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
-import {max} from 'lodash';
+import {max, debounce} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {recordReorder} from '../hooks/reorder-history';
@@ -689,6 +691,14 @@ export default defineComponent({
       ensureRowColors(background, background.pixels.length);
       handleChildChange();
       instance.proxy.$forceUpdate();
+    };
+    // The arrows of the number field change its value without a change event (that comes when the field is left), so the color bars follow after a short
+    // pause in the typing or clicking: not on every key, which would cut the colors to the first digit of a number on the way to the second.
+    const colorRowsTyped = new Map();
+    const handleTypeColorRows = (background, kind, value) => {
+      const key = `${background.id}-${kind}`;
+      if (!colorRowsTyped.has(key)) colorRowsTyped.set(key, debounce((rows) => handleChangeColorRows(background, kind, rows), 400));
+      colorRowsTyped.get(key)(value);
     };
     // The colors as the rows of the picture show them: the color of the row at the middle of a row when the colors have fewer rows than the picture
     // (the lists are then not the rows of the pixels), and the colors the row covers, as bands, when they have more.
@@ -1106,7 +1116,7 @@ export default defineComponent({
       effectiveEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
       handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres,
-      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, pixelRowColors};
+      handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, handleTypeColorRows, pixelRowColors};
   },
 });
 </script>
