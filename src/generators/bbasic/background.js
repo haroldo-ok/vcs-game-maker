@@ -1561,6 +1561,12 @@ export default (Blockly) => {
   // keeps each of the four columns in display RAM at dffraclow/dffrachi, one byte a row, read and written through a
   // data fetcher. The rows to move go in temp3 (first) and temp4 (last).
   const leftIsHigh = (byte) => byte % 2 === 0;
+  // "Alternate columns up and down" moves every other column up and the ones between down. The first column of the playfield is a
+  // bit 7 in the first byte of a row and the columns of the second byte run the other way round, so the even columns are $AA in the
+  // first and third bytes and $55 in the second and fourth; "alternate columns down and up" is the other columns. This is the mask of
+  // the columns of a byte that go up.
+  const isAlternateColumns = (direction) => direction === 'alternate_ud' || direction === 'alternate_du';
+  const upColumnsMask = (direction, byte) => ((byte % 2 === 0) === (direction === 'alternate_ud') ? 0xAA : 0x55);
   const offsetSubroutineName = (direction, byte1, byte2, dpcPlus, superchip) =>
     `_background_offset_${direction}_${byte1}${byte2}${dpcPlus ? 'd' : superchip ? 's' : ''}`;
 
@@ -1615,7 +1621,23 @@ export default (Blockly) => {
     const writerOf = (byte) => (byte - byte1 < 3 ? `DF${4 + byte - byte1}` : null);
     const lines = ['asm'];
     const horizontal = direction === 'alternate' || direction === 'left' || direction === 'right';
-    if (horizontal && !dpcPlus) {
+    if (isAlternateColumns(direction)) {
+      // Alternate columns up and down, a byte at a time: the columns that go up take the byte of the row below and the others the row above
+      // (the first and last row take each other's). temp5 and temp6 are the last and first row times four, temp1 the first row's byte (the
+      // one the last row takes) and temp2 the row above, as it was.
+      lines.push('lda temp4', 'asl', 'asl', 'sta temp5', 'lda temp3', 'asl', 'asl', 'sta temp6');
+      bytes.forEach((byte) => {
+        const up = upColumnsMask(direction, byte);
+        const write = superchip ? `playfield-128+${byte},x` : `playfield+${byte},x`;
+        const name = (part) => lab(`${part}${byte}`);
+        lines.push('ldx temp5', `lda playfield+${byte},x`, 'sta temp2', 'ldx temp6', `lda playfield+${byte},x`, 'sta temp1',
+            at(`loop${byte}`), 'cpx temp5', `beq ${name('last')}`, `lda playfield+${byte + 4},x`, `jmp ${name('got')}`,
+            at(`last${byte}`), 'lda temp1',
+            at(`got${byte}`), `and #$${up.toString(16).toUpperCase()}`, 'sta temp3', 'lda temp2', `and #$${(255 - up).toString(16).toUpperCase()}`,
+            'ora temp3', 'sta temp4', `lda playfield+${byte},x`, 'sta temp2', 'lda temp4', `sta ${write}`,
+            'cpx temp5', `beq ${name('done')}`, 'inx', 'inx', 'inx', 'inx', `jmp ${name('loop')}`, at(`done${byte}`));
+      });
+    } else if (horizontal && !dpcPlus) {
       // X is the row times four. Right and alternate go down the rows, left goes up; Y starts as the pixel the first
       // row to be moved takes in, which is the one the last row to be moved loses.
       const down = direction !== 'left';
@@ -1805,7 +1827,23 @@ export default (Blockly) => {
       };
       const row = (toLeft) => [...exitPixel(toLeft ? 1 : 2), 'sta temp6', ...chain(toLeft), ...entry(toLeft ? 2 : 1),
         'lda temp6', `sta ${v.pixel}`];
-      if (horizontal) {
+      if (isAlternateColumns(direction)) {
+        // Alternate columns up and down, a byte at a time (see buildOffsetBody): the new byte is only used in the columns of the area, which
+        // are in the byte's mask. temp5 and temp6 are the last and first row times four.
+        lines.push('lda temp4', 'asl', 'asl', 'sta temp5', 'lda temp3', 'asl', 'asl', 'sta temp6');
+        allBytes.forEach((byte) => {
+          const up = upColumnsMask(direction, byte);
+          const name = (part) => lab(`${part}${byte}`);
+          lines.push(`lda ${v.mask[byte]}`, `bne ${name('go')}`, `jmp ${name('done')}`, at(`go${byte}`),
+              'ldx temp5', `lda ${read(byte)}`, 'sta temp2', 'ldx temp6', `lda ${read(byte)}`, 'sta temp1',
+              at(`loop${byte}`), 'cpx temp5', `beq ${name('last')}`, `lda playfield+${byte + 4},x`, `jmp ${name('got')}`,
+              at(`last${byte}`), 'lda temp1',
+              at(`got${byte}`), `and #$${up.toString(16).toUpperCase()}`, 'sta temp3', 'lda temp2', `and #$${(255 - up).toString(16).toUpperCase()}`,
+              'ora temp3', `eor ${read(byte)}`, `and ${v.mask[byte]}`, `eor ${read(byte)}`, 'sta temp4', `lda ${read(byte)}`, 'sta temp2',
+              'lda temp4', `sta ${write(byte)}`, 'cpx temp5', `bne ${name('more')}`, `jmp ${name('done')}`,
+              at(`more${byte}`), 'inx', 'inx', 'inx', 'inx', `jmp ${name('loop')}`, at(`done${byte}`));
+        });
+      } else if (horizontal) {
         const down = direction !== 'left';
         if (direction === 'left') {
           lines.push('lda temp3', 'asl', 'asl', 'sta temp5', 'tax', ...exitPixel(1), `sta ${v.pixel}`, 'lda temp4', 'asl', 'asl', 'tax');

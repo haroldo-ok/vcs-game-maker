@@ -713,6 +713,8 @@ export const BACKGROUND_OFFSET_OPTIONS = [
   ['alternate rows right and left', 'alternate_rl'],
   ['all left', 'left'],
   ['all right', 'right'],
+  ['alternate columns up and down', 'alternate_ud'],
+  ['alternate columns down and up', 'alternate_du'],
   ['all up', 'up'],
   ['all down', 'down'],
 ];
@@ -739,7 +741,9 @@ Blockly.Blocks['background_offset'] = {
         `and one that leaves the last row comes back on the first, and "all up" and "all down" wrap the top and ` +
         `the bottom. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
         `pixels run along the rows like a belt ("alternate rows right and left" starts the other way round: the first row ` +
-        `of the playfield goes right, the next left). Untick "whole playfield" to move just an area: its left and right edges ` +
+        `of the playfield goes right, the next left). "alternate columns up and down" moves one column up, the next down, and so on, ` +
+        `each column wrapping from the top to the bottom ("alternate columns down and up" starts the other way round: the first ` +
+        `column goes down, the next up). Untick "whole playfield" to move just an area: its left and right edges ` +
         `are any of the playfield's columns 0 to 31 and its top and bottom are rows counted from 0 like "Playfield get ` +
         `pixel". Run it every few frames ` +
         `for a slower drift. Pixels only move; per-row colors stay where they are.`);

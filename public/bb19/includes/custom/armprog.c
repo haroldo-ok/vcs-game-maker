@@ -73,10 +73,29 @@ static void pass(volatile b8 *p,u dir,u x1,u x2,u y1,u y2,u grouped)
   }
 }
 
+// Alternate columns up and down (dir 6 moves the even columns up and the odd ones down, dir 7 the other way round): a row takes the row below it
+// in the columns that go up and the row above it in the others, and the first and last row of the area take each other's.
+static void columns(volatile b8 *p,u dir,u x1,u x2,u y1,u y2)
+{
+  u r,first,cur,prev,next,t,m,up=dir==6?0xAAAAAAAAu:0x55555555u;
+  m=(0xFFFFFFFFu>>x1)&(0xFFFFFFFFu<<(31-x2));
+  first=cur=load(p,y1);
+  prev=load(p,y2);
+  for (r=y1;;r++)
+  {
+    next=r==y2?first:load(p,r+1);
+    t=conv((cur&~m)|(((next&up)|(prev&~up))&m));
+    p[r]=t>>24; p[256+r]=t>>16; p[512+r]=t>>8; p[768+r]=t;
+    if (r==y2) break;
+    prev=cur;
+    cur=next;
+  }
+}
+
 static void offset(volatile b8 *p)
 {
   u op=CF[0];
-  u dir=(op&3)|((op>>1)&4);          // 0 alternate, 1 left, 2 right, 3 up, 4 down, 5 alternate the other way round
+  u dir=(op&3)|((op>>1)&4);          // 0 alternate, 1 left, 2 right, 3 up, 4 down, 5 alternate the other way round, 6 alternate columns up and down, 7 down and up
   u x1=CF[1],x2=CF[2],y1=CF[3],y2=CF[4],last=CF[5];   // as the block has them, and the last row of the playfield
   u t;
 #ifdef GROUPS
@@ -89,7 +108,7 @@ static void offset(volatile b8 *p)
   if (x1>x2) { t=x1; x1=x2; x2=t; }
   if (y1>y2) { t=y1; y1=y2; y2=t; }
 #ifdef GROUPS
-  if (K[3] && (dir==3||dir==4))
+  if (K[3] && (dir==3||dir==4||dir>=6))
   {
     // Up and down: each group of columns turns round in the rows it has.
     for (g=0;g<4;g++)
@@ -99,12 +118,14 @@ static void offset(volatile b8 *p)
       rows=p[1276+g];
       if (gx1>gx2 || y1>rows) continue;
       gy2=y2>rows?rows:y2;
-      pass(p,dir,gx1,gx2,y1,gy2,0);
+      if (dir>=6) columns(p,dir,gx1,gx2,y1,gy2);
+      else pass(p,dir,gx1,gx2,y1,gy2,0);
     }
     return;
   }
 #endif
-  pass(p,dir,x1,x2,y1,y2,K[3]);
+  if (dir>=6) columns(p,dir,x1,x2,y1,y2);
+  else pass(p,dir,x1,x2,y1,y2,K[3]);
 }
 
 static u rowof(u line,u inc)
