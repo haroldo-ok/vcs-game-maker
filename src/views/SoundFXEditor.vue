@@ -179,6 +179,18 @@
               class="soundfx-filter"
             />
           </div>
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Sounds"
+            noun="sound"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
         </div>
 
         <SoundBankImportDialog
@@ -188,7 +200,7 @@
         />
         <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
           <v-list-item
-            v-for="(soundEffect, index) in state.soundEffects"
+            v-for="{card: soundEffect, index} in visibleEntries()"
             v-show="matchesSoundFilter(soundEffect)"
             class="entry-list-item"
             v-bind:key="soundEffect.id"
@@ -207,7 +219,7 @@
                   class="soundfx-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(index)"
-                  v-on="dragHandleListeners(index)"
+                  v-on="cardHandleListeners(index)"
                 />
                 <v-btn
                   :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
@@ -840,6 +852,7 @@ import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
+import {useCardFolders} from '../hooks/card-folders';
 import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
@@ -872,13 +885,14 @@ import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import WaveformEditor from '../components/WaveformEditor.vue';
 import PixelGridToggle from '../components/PixelGridToggle.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
+import CardFolderBar from '../components/CardFolderBar.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EnvelopeGraph from '../components/EnvelopeGraph.vue';
 import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
-  components: {WaveformEditor, ColorSwatchPicker, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog},
+  components: {WaveformEditor, ColorSwatchPicker, CardFolderBar, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     // App-wide preference, not part of this project's  saved
@@ -911,9 +925,12 @@ export default defineComponent({
     const selectedCardId = ref(null);
     // Every selected card (Shift+click selects a range, Ctrl/Cmd+click adds or removes one); see hooks/card-selection.js.
     // selectedCardId stays the one the shared toolbar's per-sound buttons act on: the card clicked last.
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
       useCardSelection(
-          () => state.value.soundEffects.map(({id}) => id), selectedCardId);
+          () => visibleEntries().map(({card}) => card.id), selectedCardId);
+    // The indices, in the whole list, of the selected cards (dragging one of them moves them all).
+    const getSelectedFullIndices = () => state.value.soundEffects
+        .map((soundEffect, index) => (selectedCardIds.value.includes(soundEffect.id) ? index : -1)).filter((index) => index >= 0);
     // The sound effect the shared toolbar below acts on - whichever card is
     // currently selected, same pattern as DataEditor.vue's selectedTable
     // and MusicEditor.vue's activeSong().
@@ -1148,11 +1165,35 @@ export default defineComponent({
           handleChildChange();
         },
         // Dragging one of several selected cards moves all of them.
-        getSelectedIndices,
+        getSelectedFullIndices,
         {renumber: {kind: 'sound', onRenumbered: renumbered}},
     );
 
     const instance = getCurrentInstance();
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the sounds keep their numbers and their place in the
+    // one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a sound is in its `folder`.
+    const foldersOf = () => {
+      const data = state.value;
+      if (!Array.isArray(data.folders)) data.folders = [];
+      return data.folders;
+    };
+    const refresh = () => {
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const {openFolderId, visibleEntries, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners,
+      handleDropCards} = useCardFolders({
+      getCards: () => state.value.soundEffects,
+      getFolders: foldersOf,
+      setFolders: (folders) => {
+        state.value.folders = folders;
+      },
+      refresh,
+      getSelectedIndices: getSelectedFullIndices,
+      deselectCard,
+    });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
 
     // Same "growing padding + a bottom border once actually scrolled"
     // treatment as GraphicEditorToolbar.vue's .graphic-editor-toolbar/
@@ -1230,6 +1271,7 @@ export default defineComponent({
       const maxId = max(soundEffects.map((o) => o.id)) || 0;
       const newSoundEffect = {
         id: maxId + 1,
+        ...newCardFolder(),
         name: `Sound effect ${maxId + 1}`,
         audc: '4',
         audf: 16,
@@ -1584,6 +1626,8 @@ export default defineComponent({
       handleEnvelopeGraphChange,
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
+      cardHandleListeners,
     };
   },
 });
