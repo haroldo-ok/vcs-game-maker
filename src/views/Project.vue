@@ -297,7 +297,7 @@
             <div v-if="soundBankWebsiteLink(bank)" class="example-card-line">
               <a :href="soundBankWebsiteLink(bank)" target="_blank" rel="noopener noreferrer" @click.stop>{{ bank.website }}</a>
             </div>
-            <div class="example-card-line example-card-kernel">{{ soundBankKernelLabel(bank) }} {{ bank.kernels && bank.kernels.length > 1 ? 'Kernels' : 'Kernel' }}</div>
+            <div class="example-card-line example-card-kernel">{{ soundBankChipLabel(bank) }}</div>
           </div>
         </v-card>
       </div>
@@ -355,7 +355,7 @@
             <div class="example-card-title">{{ exampleTitle(example) }}</div>
             <div v-if="example.version" class="example-card-line">Version {{ example.version }}</div>
             <div v-if="example.developer" class="example-card-line">by {{ example.developer }}</div>
-            <div class="example-card-line example-card-kernel">{{ soundBankKernelLabel(example) }} Kernel</div>
+            <div class="example-card-line example-card-kernel">{{ soundBankChipLabel(example) }}</div>
           </div>
         </v-card>
       </div>
@@ -369,7 +369,7 @@
       <v-card v-if="data.selectedExample" class="example-card">
         <v-card-title>{{ exampleTitle(data.selectedExample) }}</v-card-title>
         <v-card-text class="example-info-fields">
-          <div class="example-card-line example-dialog-kernel">{{ soundBankKernelLabel(data.selectedExample) }} Kernel</div>
+          <div class="example-card-line example-dialog-kernel">{{ soundBankChipLabel(data.selectedExample) }}</div>
           <div v-if="data.selectedExample.screenshot" class="example-screenshot-frame example-dialog-screenshot">
             <img
               :src="data.selectedExample.screenshot"
@@ -1443,6 +1443,10 @@ export default defineComponent({
     soundBankKernelLabel(bank) {
       // A bank or sound with settings for both kernels says so ("Standard and DPC+"); one without the list goes by its header.
       return bank.kernels && bank.kernels.length ? kernelSettingsLabel(bank.kernels) : (KERNEL_NAMES[bank.kernel] || bank.kernel);
+    },
+    // What a sound file is set up for: "TIA", "ARM" or "TIA / ARM".
+    soundBankChipLabel(bank) {
+      return this.soundBankKernelLabel(bank).replace(/Standard/g, 'TIA').replace(/DPC\+/g, 'ARM').replace(/ and /g, ' / ');
     },
     soundBankKindLabel(bank) {
       return {bank: 'Sound bank', instrument: 'Instrument', percussion: 'Percussion'}[bank.kind] || 'Sound';

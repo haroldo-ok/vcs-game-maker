@@ -49,11 +49,6 @@
           <span class="top-toolbar-label">Music</span>
         </v-btn>
 
-        <v-btn to="/scorefont" link text class="scorefont-item" title="Score" elevation="0">
-          <v-icon>mdi-numeric</v-icon>
-          <span class="top-toolbar-label">Score</span>
-        </v-btn>
-
         <v-btn to="/text" link text class="text-tab-item" title="Text" elevation="0">
           <v-icon>mdi-card-text-outline</v-icon>
           <span class="top-toolbar-label">Text</span>
@@ -62,6 +57,11 @@
         <v-btn to="/data" link text class="data-item" title="Data" elevation="0">
           <v-icon>mdi-table</v-icon>
           <span class="top-toolbar-label">Data</span>
+        </v-btn>
+
+        <v-btn to="/scorefont" link text class="scorefont-item" title="Score" elevation="0">
+          <v-icon>mdi-numeric</v-icon>
+          <span class="top-toolbar-label">Score</span>
         </v-btn>
 
         <v-btn to="/generated" link text class="generated-item" title="Generated" elevation="0">
@@ -206,20 +206,6 @@
         </v-list-item>
 
         <v-list-item
-          to="/scorefont"
-          link
-          class="scorefont-item"
-          :title="hideToolbarLabels ? 'Score' : null"
-        >
-          <v-list-item-icon>
-            <v-icon>mdi-numeric</v-icon>
-          </v-list-item-icon>
-          <v-list-item-content>
-            <v-list-item-title>Score</v-list-item-title>
-          </v-list-item-content>
-        </v-list-item>
-
-        <v-list-item
           to="/text"
           link
           class="text-tab-item"
@@ -244,6 +230,20 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Data</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/scorefont"
+          link
+          class="scorefont-item"
+          :title="hideToolbarLabels ? 'Score' : null"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-numeric</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Score</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -583,7 +583,7 @@
 
     <v-main class="app-main">
       <div class="app-main-inner" :style="{height: `calc(100% - ${errorHeight}px)`}">
-        <router-view/>
+        <router-view :key="viewRemountKey"/>
       </div>
     </v-main>
 
@@ -720,6 +720,7 @@ import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDar
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
 import {safeWithGopher2600} from './hooks/emulator';
+import {useRemountKey} from './hooks/delete-history';
 import {useEmulatorSettings, saveEmulatorSettings} from './hooks/emulator-settings';
 import {escapeHtml} from './utils/build-error';
 import {captureEmulatorScreenshot} from './utils/emulator-screenshot';
@@ -853,6 +854,7 @@ export default {
     const syncSounds = () => syncSoundsToKernel(soundEffectsRef, configurationRef.value || {});
     console.info('Text', version);
     return {
+      viewRemountKey: useRemountKey(),
       emulatorSettings: useEmulatorSettings(), debugSymbols: useDebugVariables(),
       errorStorage, errorBannerHighlight: useErrorBannerHighlight(),
       compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),

@@ -1010,7 +1010,9 @@ export default {
       });
 
       canvas.toBlob((blob) => {
-        saveAs(blob, `${this.name}-${getDateInfix()}.png`);
+        // The file is named after the card (its name with anything a file name cannot hold made into an underscore).
+        const base = String(this.name || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'image';
+        saveAs(blob, `${base}-${getDateInfix()}.png`);
       });
     },
 

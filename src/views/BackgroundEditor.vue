@@ -205,6 +205,14 @@
                   </div>
 
                   <div class="background-corner-toolbar">
+                    <confirm-delete-menu
+                      v-if="state.backgrounds.length > 1"
+                      :title="deleteQuestion(background.id, 'background', 1)"
+                      :selected="background.id === selectedCardId && selectedCardIds.includes(background.id)"
+                      :activator-title="deleteQuestion(background.id, 'background', 1).replace('?', '')"
+                      icon-btn-class="player-icon-btn-size"
+                      @confirm="handleDeleteBackground(background)"
+                    />
                     <pixel-grid-toggle
                       v-if="kernelIsDpcPlus"
                       class="player-icon-btn-size background-corner-toggle"
@@ -260,14 +268,6 @@
                     >
                       <v-icon>mdi-play</v-icon>
                     </v-btn>
-                    <confirm-delete-menu
-                      v-if="state.backgrounds.length > 1"
-                      :title="deleteQuestion(background.id, 'background', 1)"
-                      :selected="background.id === selectedCardId && selectedCardIds.includes(background.id)"
-                      :activator-title="deleteQuestion(background.id, 'background', 1).replace('?', '')"
-                      icon-btn-class="player-icon-btn-size"
-                      @confirm="handleDeleteBackground(background)"
-                    />
                   </div>
                 </v-list-item-title>
                 <v-list-item-subtitle v-if="!isCollapsed(background)">
@@ -331,7 +331,7 @@
                         :width="8"
                         :height="rows"
                         :aspectRatio="groupAspectRatio(rows)"
-                        name="background"
+                        :name="background.name || 'background'"
                         :value="groupPixels(background, group)"
                         fgColor="orange"
                         :rowColors="groupColors(editorRowColors(background), rows)"
@@ -388,7 +388,7 @@
                       :width="32"
                       :height="background.pixels.length"
                       :aspectRatio="backgroundAspectRatio(background)"
-                      name="background"
+                      :name="background.name || 'background'"
                       :value="background.pixels"
                       fgColor="orange"
                       :rowColors="pixelRowColors(editorRowColors(background), background)"

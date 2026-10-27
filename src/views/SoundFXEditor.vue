@@ -31,6 +31,14 @@
           @click.stop
         >
           <div class="soundfx-toolbar-row">
+            <pixel-grid-toggle
+              v-model="soundFxColumns"
+              icon="mdi-view-column"
+              tall
+              title-on="Show the sounds in one column"
+              title-off="Show the sounds in several columns"
+            />
+            <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
             <v-btn
               icon
               small
@@ -161,14 +169,6 @@
               <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
             </div>
             <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
-            <v-switch
-              v-model="soundFxColumns"
-              label="Columns"
-              title="Lay sound effect cards out in multiple columns when there's room, instead of one full-width column."
-              hide-details
-              class="soundfx-columns-switch"
-            />
-            <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
             <v-select
               v-model="soundFilter"
               prefix="Show"
@@ -228,6 +228,14 @@
                      the delete button to the top right of each card, like
                      it is on data table cards. use the same positioning"). -->
                 <div class="soundfx-toolbar-top-right">
+                  <confirm-delete-menu
+                    v-if="state.soundEffects.length > 1"
+                    :title="deleteTitleFor(soundEffect)"
+                    :selected="selectedCardId === soundEffect.id && selectedCardIds.includes(soundEffect.id)"
+                    :activator-title="deleteTitleFor(soundEffect).replace('?', '')"
+                    icon-btn-class="soundfx-delete-btn soundfx-icon-btn-size"
+                    @confirm="handleDeleteSoundEffect(soundEffect)"
+                  />
                   <v-btn
                     icon
                     small
@@ -237,14 +245,6 @@
                   >
                     <v-icon>mdi-content-duplicate</v-icon>
                   </v-btn>
-                  <confirm-delete-menu
-                    v-if="state.soundEffects.length > 1"
-                    :title="deleteTitleFor(soundEffect)"
-                    :selected="selectedCardId === soundEffect.id && selectedCardIds.includes(soundEffect.id)"
-                    :activator-title="deleteTitleFor(soundEffect).replace('?', '')"
-                    icon-btn-class="soundfx-delete-btn soundfx-icon-btn-size"
-                    @confirm="handleDeleteSoundEffect(soundEffect)"
-                  />
                 </div>
 
                 <v-card-text class="soundfx-name-section">
@@ -870,6 +870,7 @@ import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
 import {buildSoundBankImportEntries, importSoundBankEntries} from '../utils/sound-bank';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import WaveformEditor from '../components/WaveformEditor.vue';
+import PixelGridToggle from '../components/PixelGridToggle.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EnvelopeGraph from '../components/EnvelopeGraph.vue';
@@ -877,7 +878,7 @@ import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
-  components: {WaveformEditor, ColorSwatchPicker, ConfirmDeleteMenu, EnvelopeGraph, SoundBankImportDialog},
+  components: {WaveformEditor, ColorSwatchPicker, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     // App-wide preference, not part of this project's  saved
@@ -1722,14 +1723,6 @@ export default defineComponent({
   align-self: center;
 }
 
-/* Room between the divider before it and the switch itself, on top of the
-   row's 4px gap (the same 8px as the Data tab's Columns switch). */
-.soundfx-columns-switch {
-  flex: 0 0 auto;
-  margin: 0 !important;
-  margin-left: 8px !important;
-  padding: 0 !important;
-}
 
 /* Same sticky/full-bleed toolbar treatment as DataEditor.vue's
    .data-toolbar (see that file's comments for the full reasoning behind

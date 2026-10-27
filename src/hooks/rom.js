@@ -35,7 +35,7 @@ import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2Color
 import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
   textScrollCursorColorVarName, textEndIconColorVarName} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
-import {expandSceneBlocks} from '../utils/scene';
+import {expandSceneBlocks, sceneBlocksXml} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
@@ -2095,6 +2095,26 @@ export const buildBackgroundPreviewRom = (backgroundId, name) => {
   return buildPreviewRom({
     name: name ? `Background ${backgroundId} (${name})` : `Background ${backgroundId}`,
     // The score area is left out whether score fade is on or off, so the text row sits in the same place.
+    configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
+    xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
+      `<block type="event_block"><field name="EVENT">system_start</field>` +
+      `<statement name="DO">${chain}</statement></block></xml>`,
+  });
+};
+
+// Same for one scene of the Scene tab: the project as it is, with the blocks of the scene run once at the start (the ones a "Set scene" block
+// stands for, see utils/scene.js), so the playfield and the sprites show as placed. A sprite that is not in the scene is hidden.
+export const buildScenePreviewRom = (table) => {
+  const config = useConfigurationStorage().value || {};
+  const hide = (player) => `<block type="sprite_player_set"><field name="PLAYER">${player}</field>` +
+    `<field name="VAR">player${player}visibility</field><value name="VALUE"><shadow type="math_number">` +
+    `<field name="NUM">0</field></shadow></value>`;
+  // The name of the scene shows on the Text Minikernel's first line, as the previews of a playfield and of a sprite show theirs.
+  const steps = [previewNameBlockXml(table.name), hide(0), hide(1)];
+  const chain = steps.map((step) => step + '<next>').join('') + sceneBlocksXml(table, config) + steps.map(() => '</next></block>').join('');
+  return buildPreviewRom({
+    name: `Scene ${table.id}${table.name ? ` (${table.name})` : ''}`,
+    // The score area is left out, so the text row sits in the same place as in the other previews.
     configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +

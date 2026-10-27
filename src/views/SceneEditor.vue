@@ -79,6 +79,13 @@
                 <div class="scene-id-badge" title="The ID for the Set scene by ID block">ID:{{ scene.table.id }}</div>
 
                 <div class="scene-toolbar-top-right">
+                  <confirm-delete-menu
+                    :title="deleteQuestion(scene.table.id, 'scene')"
+                    :selected="scene.table.id === selectedCardId && selectedCardIds.includes(scene.table.id)"
+                    :activator-title="deleteQuestion(scene.table.id, 'scene').replace('?', '')"
+                    icon-btn-class="scene-icon-btn-size"
+                    @confirm="handleDeleteScene(scene)"
+                  />
                   <v-btn
                     icon
                     small
@@ -88,13 +95,19 @@
                   >
                     <v-icon>mdi-content-duplicate</v-icon>
                   </v-btn>
-                  <confirm-delete-menu
-                    :title="deleteQuestion(scene.table.id, 'scene')"
-                    :selected="scene.table.id === selectedCardId && selectedCardIds.includes(scene.table.id)"
-                    :activator-title="deleteQuestion(scene.table.id, 'scene').replace('?', '')"
-                    icon-btn-class="scene-icon-btn-size"
-                    @confirm="handleDeleteScene(scene)"
-                  />
+                  <v-btn
+                    :title="testingId === scene.table.id ? 'Building...' :
+                      buildInProgress ? 'Another build is already running - try again once it finishes' :
+                      'Test this scene in the emulator'"
+                    icon
+                    small
+                    :disabled="buildInProgress && testingId !== scene.table.id"
+                    :loading="testingId === scene.table.id"
+                    class="titlescreen-play-btn scene-icon-btn-size"
+                    @click.stop="() => handleTestScene(scene)"
+                  >
+                    <v-icon>mdi-play</v-icon>
+                  </v-btn>
                 </div>
 
                 <v-card-text class="scene-name-section">
@@ -130,6 +143,7 @@
                         width="160"
                         height="192"
                         @pointerdown="(event) => handlePointerDown(scene, event)"
+                        @pointermove="(event) => handlePointerHover(scene, event)"
                       />
                       <canvas v-if="showGrid" :id="`scene-grid-${scene.table.id}`" class="scene-grid-canvas" />
                     </div>
@@ -153,7 +167,10 @@
                           v-bind:key="sprite.object"
                           small
                           :outlined="!isSelected(scene, sprite.object)"
-                          :color="isSelected(scene, sprite.object) ? 'primary' : null"
+                          :color="spriteColor(sprite.object)"
+                          :text-color="isSelected(scene, sprite.object) ? 'white' : null"
+                          :class="{'scene-chip-idle': !isSelected(scene, sprite.object)}"
+                          :style="{'--scene-chip-colour': spriteColor(sprite.object)}"
                           @click.stop="select(scene, sprite.object)"
                         >{{ objectLabel(sprite.object) }}</v-chip>
                         <span v-if="!scene.objects.length" class="scene-empty">No sprites yet: use Add sprite.</span>
@@ -270,16 +287,19 @@ import {useEditorZoom} from '../hooks/zoom';
 import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage,
   usePlayerAnimationsStorage, useSceneCardColumnsStorage} from '../hooks/project';
 import {processDataTablesStorageDefaults} from '../blocks/data';
-import {processBackgroundStorageDefaults, colorsAtPixelRows, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR} from '../blocks/background';
+import {sceneObjectColour} from '../blocks/sprites';
+import {adjustedBlockColour} from '../utils/block-colours';
+import {processBackgroundStorageDefaults, colorsAtRows} from '../blocks/background';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
+import {buildScenePreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useCardSelection} from '../hooks/card-selection';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {canRedoReorder, canUndoReorder, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 import {colorByteToCss} from '../utils/palette';
-import {pfRowDivisorFor, backgroundRowLinesFor, playerPfXOffset, missileBallPfXOffset} from '../utils/playfield-coords';
+import {pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
 import {
   SCENE_FLAG_ANIMATION, SCENE_FLAG_COLOR, SCENE_FLAG_FLIPPED, SCENE_FLAG_HEIGHT, SCENE_FLAG_HIDDEN, SCENE_FLAG_SIZE, SCENE_NO_ANIMATION,
   MISSILE_WIDTHS, availableSceneObjects, decodeScene, encodeScene, isScenePlayer, isSceneTable, newSceneObject, sceneObjectLabel,
@@ -301,6 +321,26 @@ const contrastingLabelColor = (cssColor) => {
   const luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
   return 1.05 / (luminance + 0.05) > (luminance + 0.05) / 0.05 ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.9)';
 };
+
+// What the Playfield tab's picture shows (see BackgroundEditor.vue's editorRowColors and editorBkRowColors): the colors of the rows of the
+// playfield when the project uses them, and of the background behind it with DPC+ when it uses those; the cells of a playfield that has no row
+// colors are orange.
+const PLAYFIELD_COLOR = 'orange';
+const rowColorCss = (byte) => {
+  const css = colorByteToCss(byte);
+  return css === '#000000' ? '#010101' : css;
+};
+const backgroundRowColors = (background, config) => ({
+  pf: config.enablePfColors && background.rowColors && background.rowColors.length ? background.rowColors.map(rowColorCss) : null,
+  bk: config.kernel === 'dpcplus' && config.enableDpcPlusBkColors && background.bkRowColors && background.bkRowColors.length ?
+    background.bkRowColors.map((byte) => colorByteToCss(byte)) : null,
+});
+// The color that covers a height (in lines, of total) when the colors are spread over the whole picture.
+const colorAtHeight = (colors, line, total) => colors[Math.min(colors.length - 1, Math.floor(line * colors.length / total))];
+// How tall a row of the playfield is, in lines: the rows come from the playfield that is set (its pfres under DPC+), not the project's.
+const backgroundLayout = (background, config) => ({
+  rowLines: config.kernel === 'dpcplus' ? backgroundRowLinesFor(background, config) : 2 * pfRowDivisorFor(config),
+});
 
 const SCREEN_WIDTH = 160;
 const SCREEN_LINES = 192;
@@ -470,6 +510,9 @@ export default defineComponent({
     };
 
     const objectLabel = sceneObjectLabel;
+    // The colors of the sprite blocks, which change with the sprite chosen in their dropdown.
+    // (Muted or darkened with the Soft Blockly colors and Dark Mode settings, as the blocks are.)
+    const spriteColor = (object) => adjustedBlockColour(sceneObjectColour(object));
     const isPlayer = isScenePlayer;
     const hasFlag = (sprite, flag) => !!(sprite.flags & flag);
     const hasColor = (object) => isScenePlayer(object) || (object !== 12 && config().kernel === 'dpcplus');
@@ -540,6 +583,18 @@ export default defineComponent({
       if (doomed.length > 1) deselectCard();
       selected.value = null;
     };
+    // Builds and loads a throwaway ROM showing just this scene (see buildScenePreviewRom); the busy handling of the Play buttons of the other tabs.
+    const testingId = ref(null);
+    const buildInProgress = useBuildInProgress();
+    const handleTestScene = async (scene) => {
+      if (buildInProgress.value) return;
+      testingId.value = scene.table.id;
+      try {
+        await buildScenePreviewRom(scene.table);
+      } finally {
+        testingId.value = null;
+      }
+    };
     const handleDeselect = () => {
       deselectCard();
       selected.value = null;
@@ -608,8 +663,20 @@ export default defineComponent({
     // ---- Drawing -------------------------------------------------------------------------------------------------------------------
     // Sprite positions are drawn the way the playfield conversions of the project place them (see utils/playfield-coords.js): the left
     // edge of a player is x minus its offset from the playfield's first column, and a y step is two lines.
-    const spriteLeft = (sprite) => PLAYFIELD_LEFT + sprite.x - (isScenePlayer(sprite.object) ? playerPfXOffset(config()) : missileBallPfXOffset(config()));
-    const spriteTop = (sprite) => 2 * sprite.y;
+    // Measured against the emulator (the preview of a scene) on both kernels: a sprite's left edge is its X minus an offset, and its Y is where its
+    // BOTTOM edge is, in steps of two lines from the top of the playfield. A DPC+ missile or ball is the exception: its Y is its top edge in lines.
+    const dpcPlus = () => config().kernel === 'dpcplus';
+    const spriteLeft = (sprite) => {
+      if (!isScenePlayer(sprite.object)) return PLAYFIELD_LEFT + sprite.x - (dpcPlus() ? 14 : 18);
+      // (Under DPC+ Player 0 is 13 and the players after it 16 in the measurements.)
+      return PLAYFIELD_LEFT + sprite.x - (dpcPlus() ? (sprite.object === 0 ? 13 : 16) : 17);
+    };
+    // Under DPC+ the Y of a player is converted with the height of the tallest picture of the project, not of the sprite itself (the Y blocks make
+    // it 2 * Y minus that height in lines, see dpcPlusSpriteLines in the generator), so a sprite shorter than that one sits higher.
+    const tallestPicture = () => Math.max(16, 2 * Math.max(0, ...animations().map((animation) =>
+      Math.max(0, ...((animation && animation.frames) || []).map((frame) => frame.pixels.length)))));
+    // How many lines a step of Y is.
+    const linesPerY = (sprite) => (dpcPlus() && !isScenePlayer(sprite.object) ? 1 : 2);
 
     const frameOf = (sprite) => {
       const animation = hasFlag(sprite, SCENE_FLAG_ANIMATION) ? animations()[sprite.animation] : animations()[0];
@@ -625,16 +692,17 @@ export default defineComponent({
     // The rectangles a sprite covers, in pixels and lines, for drawing and for finding what the pointer is on.
     const spriteRects = (sprite) => {
       const left = spriteLeft(sprite);
-      const top = spriteTop(sprite);
       if (isScenePlayer(sprite.object)) {
         const frame = frameOf(sprite);
         const width = frame && frame.pixels[0] ? frame.pixels[0].length : 8;
         const rows = frame ? frame.pixels.length : 8;
         const size = hasFlag(sprite, SCENE_FLAG_SIZE) ? Math.min(7, sprite.size) : 0;
+        const top = 2 * sprite.y - (dpcPlus() ? tallestPicture() : rows * 2);
         return COPY_OFFSETS[size].map((offset) => ({left: left + offset, top, width: width * COPY_STRETCH[size], height: rows * 2}));
       }
       const size = hasFlag(sprite, SCENE_FLAG_SIZE) ? Math.min(3, sprite.size) : 0;
-      return [{left, top, width: MISSILE_WIDTHS[size], height: Math.max(2, 2 * sprite.height)}];
+      const height = Math.max(2, linesPerY(sprite) * sprite.height);
+      return [{left, top: dpcPlus() ? sprite.y : 2 * sprite.y - height, width: MISSILE_WIDTHS[size], height}];
     };
 
     const drawScene = (scene) => {
@@ -646,23 +714,28 @@ export default defineComponent({
       context.fillStyle = '#000';
       context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_LINES);
       const background = backgrounds().find(({id}) => id === scene.background);
-      if (background && background.pixels) {
-        const rowLines = cfg.kernel === 'dpcplus' ? backgroundRowLinesFor(background, cfg) : 2 * pfRowDivisorFor(cfg);
-        const pfColors = colorsAtPixelRows(background, 'pf') || [];
-        const bkColors = colorsAtPixelRows(background, 'bk') || [];
-        background.pixels.forEach((row, y) => {
-          const top = Math.round(y * rowLines);
-          const height = Math.round((y + 1) * rowLines) - top;
-          const bk = bkColors[y];
-          if (bk !== undefined && bk !== DEFAULT_BK_ROW_COLOR) {
-            context.fillStyle = colorByteToCss(bk);
-            context.fillRect(0, top, SCREEN_WIDTH, height);
-          }
-          context.fillStyle = colorByteToCss(pfColors[y] !== undefined ? pfColors[y] : DEFAULT_ROW_COLOR);
-          row.forEach((pixel, x) => {
-            if (pixel) context.fillRect(PLAYFIELD_LEFT + 4 * x, top, 4, height);
+      if (background && background.pixels && background.pixels.length) {
+        // The rows and their height come from the playfield of the scene (its pfres), and the colors are the ones its card shows.
+        const {rowLines} = backgroundLayout(background, cfg);
+        const {pf, bk} = backgroundRowColors(background, cfg);
+        const rows = background.pixels.length;
+        const total = rows * rowLines;
+        // A list of colors can have more or fewer colors than the picture has rows: each is drawn at the height it covers.
+        for (let line = 0; line < Math.min(SCREEN_LINES, Math.ceil(total)); line++) {
+          const row = Math.min(rows - 1, Math.floor(line / rowLines));
+          const pfColor = pf ? colorAtHeight(pf, line + 0.5, total) : PLAYFIELD_COLOR;
+          const bkColor = bk ? colorAtHeight(bk, line + 0.5, total) : null;
+          background.pixels[row].forEach((pixel, x) => {
+            if (pixel) {
+              context.fillStyle = pfColor;
+            } else if (bkColor) {
+              context.fillStyle = bkColor;
+            } else {
+              return;
+            }
+            context.fillRect(PLAYFIELD_LEFT + 4 * x, line, 4, 1);
           });
-        });
+        }
       }
       scene.objects.forEach((sprite) => {
         context.globalAlpha = hasFlag(sprite, SCENE_FLAG_HIDDEN) ? 0.35 : 1;
@@ -695,7 +768,7 @@ export default defineComponent({
         }
         context.globalAlpha = 1;
         if (selected.value && selected.value.scene === scene.table.id && selected.value.object === sprite.object) {
-          context.strokeStyle = '#ffeb3b';
+          context.strokeStyle = '#00e676';
           context.lineWidth = 1;
           rects.forEach((rect) => context.strokeRect(rect.left - 0.5, rect.top - 0.5, rect.width + 1, rect.height + 1));
         }
@@ -709,7 +782,7 @@ export default defineComponent({
       const ratio = window.devicePixelRatio || 1;
       // The size the picture is shown at: the zoom's, or less when the card is narrower (several columns).
       const width = canvas.parentElement.clientWidth || 480 * zoom.value;
-      const height = canvas.parentElement.clientHeight || width * 0.8;
+      const height = canvas.parentElement.clientHeight || width * 0.6;
       canvas.width = Math.round(width * ratio);
       canvas.height = Math.round(height * ratio);
       // (Its shown size follows the picture's in CSS; only the bitmap is sized here.)
@@ -718,7 +791,7 @@ export default defineComponent({
       const background = backgrounds().find(({id}) => id === scene.background);
       if (!background || !background.pixels || !background.pixels.length) return;
       const cfg = config();
-      const rowLines = cfg.kernel === 'dpcplus' ? backgroundRowLinesFor(background, cfg) : 2 * pfRowDivisorFor(cfg);
+      const {rowLines} = backgroundLayout(background, cfg);
       const rows = background.pixels.length;
       const columns = background.pixels[0] ? background.pixels[0].length : 32;
       const scaleX = width / SCREEN_WIDTH;
@@ -745,8 +818,9 @@ export default defineComponent({
       context.textAlign = 'center';
       context.textBaseline = 'middle';
       // Each label is white or black, whichever reads best against the color of its cell, as on the Playfield tab.
-      const pfColors = colorsAtPixelRows(background, 'pf') || [];
-      const bkColors = colorsAtPixelRows(background, 'bk') || [];
+      const rowColors = backgroundRowColors(background, cfg);
+      const pfCss = rowColors.pf ? colorsAtRows(rowColors.pf, rows) : null;
+      const bkCss = rowColors.bk ? colorsAtRows(rowColors.bk, rows) : null;
       const labelColors = new Map();
       const labelColorFor = (cssColor) => {
         if (!labelColors.has(cssColor)) labelColors.set(cssColor, contrastingLabelColor(cssColor));
@@ -755,8 +829,7 @@ export default defineComponent({
       for (let row = 0; row < rows; row++) {
         for (let column = 0; column < columns; column++) {
           const on = background.pixels[row][column];
-          const byte = on ? (pfColors[row] !== undefined ? pfColors[row] : DEFAULT_ROW_COLOR) : bkColors[row];
-          context.fillStyle = labelColorFor(byte === undefined ? '#000000' : colorByteToCss(byte));
+          context.fillStyle = labelColorFor(on ? (pfCss ? pfCss[row] : PLAYFIELD_COLOR) : (bkCss ? bkCss[row] : '#000000'));
           context.fillText(`${column},${row}`, left + (column + 0.5) * cellWidth, (row + 0.5) * cellHeight);
         }
       }
@@ -786,26 +859,38 @@ export default defineComponent({
         line: ((event.clientY - rect.top) / rect.height) * SCREEN_LINES,
       };
     };
+    // The sprite under the pointer (the one drawn last when they overlap).
+    const spriteAt = (scene, canvas, event) => {
+      const {px, line} = pointerAt(canvas, event);
+      return [...scene.objects].reverse().find((sprite) =>
+        spriteRects(sprite).some((rect) => px >= rect.left && px < rect.left + rect.width && line >= rect.top && line < rect.top + rect.height));
+    };
+    // The pointer is an arrow, and a hand over a sprite (a closed one while it is dragged).
+    const handlePointerHover = (scene, event) => {
+      if (drag) return;
+      event.currentTarget.style.cursor = spriteAt(scene, event.currentTarget, event) ? 'grab' : 'default';
+    };
     const handlePointerDown = (scene, event) => {
       const canvas = event.currentTarget;
       const {px, line} = pointerAt(canvas, event);
-      const hit = [...scene.objects].reverse().find((sprite) =>
-        spriteRects(sprite).some((rect) => px >= rect.left && px < rect.left + rect.width && line >= rect.top && line < rect.top + rect.height));
+      const hit = spriteAt(scene, canvas, event);
       if (!hit) {
         selected.value = null;
         return;
       }
       select(scene, hit.object);
       canvas.setPointerCapture(event.pointerId);
+      canvas.style.cursor = 'grabbing';
       drag = {scene, canvas, object: hit.object, startPx: px, startLine: line, startX: hit.x, startY: hit.y, moved: false};
     };
     const handlePointerMove = (event) => {
       if (!drag) return;
       const {px, line} = pointerAt(drag.canvas, event);
       const x = Math.min(255, Math.max(0, Math.round(drag.startX + px - drag.startPx)));
-      const y = Math.min(255, Math.max(0, Math.round(drag.startY + (line - drag.startLine) / 2)));
       const sprite = drag.scene.objects.find((candidate) => candidate.object === drag.object);
-      if (!sprite || (sprite.x === x && sprite.y === y)) return;
+      if (!sprite) return;
+      const y = Math.min(255, Math.max(0, Math.round(drag.startY + (line - drag.startLine) / linesPerY(sprite))));
+      if (sprite.x === x && sprite.y === y) return;
       // The picture follows the pointer at once; the card is written when the button is let go.
       sprite.x = x;
       sprite.y = y;
@@ -816,6 +901,7 @@ export default defineComponent({
       if (!drag) return;
       const finished = drag;
       drag = null;
+      finished.canvas.style.cursor = 'grab';
       if (!finished.moved) return;
       const sprite = finished.scene.objects.find((candidate) => candidate.object === finished.object);
       if (sprite) writeScene(finished.scene.table.id, {background: finished.scene.background, objects: finished.scene.objects});
@@ -852,10 +938,10 @@ export default defineComponent({
       scenes, selected, zoom, showGrid, showGridLabels, cardColumns, backgroundItems, animationItems, selectedCardId, selectedCardIds, selectCard, deleteQuestion, isCollapsed, handleToggle,
       tableIndex, dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, selectedScene, canUndoScene, canRedoScene,
       handleUndo, handleRedo, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, isToolbarScrolled, handleDuplicateScene,
-      handleDeselect,
-      objectLabel, isPlayer, hasFlag, hasColor, freeObjects, widthItems, selectedSprite, isSelected, select,
+      handleDeselect, testingId, buildInProgress, handleTestScene,
+      objectLabel, spriteColor, isPlayer, hasFlag, hasColor, freeObjects, widthItems, selectedSprite, isSelected, select,
       handleAddScene, handleRename, handleDeleteScene, handleBackground, handleAddObject, handleRemoveObject, handleField, handleColor,
-      handleWidth, handleAnimation, handleFlag, handlePointerDown,
+      handleWidth, handleAnimation, handleFlag, handlePointerDown, handlePointerHover,
       COLOR_FLAG: SCENE_FLAG_COLOR, SIZE_FLAG: SCENE_FLAG_SIZE, ANIMATION_FLAG: SCENE_FLAG_ANIMATION, FLIPPED_FLAG: SCENE_FLAG_FLIPPED,
       HIDDEN_FLAG: SCENE_FLAG_HIDDEN,
     };
@@ -997,13 +1083,13 @@ export default defineComponent({
   flex-wrap: wrap;
 }
 
-/* Three screen pixels across and two high per line, the shape of the emulator's picture. */
+/* The shape of the Playfield tab's picture: a step of Y (two lines) is as tall as a pixel is wide, so the 192 lines are 96 pixels high. */
 .scene-canvas-wrap {
   position: relative;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  aspect-ratio: 5 / 4;
+  aspect-ratio: 5 / 3;
   outline: 1px solid rgba(0, 0, 0, 0.3);
 }
 
@@ -1021,7 +1107,7 @@ export default defineComponent({
   height: 100%;
   display: block;
   image-rendering: pixelated;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   background: #000;
 }
@@ -1033,6 +1119,12 @@ export default defineComponent({
 
 .scene-list--columns .scene-properties {
   flex-basis: 100%;
+}
+
+/* A sprite that is not selected has the color of its block as the outline only, so its name stays readable in every color setting. */
+.scene-chips >>> .v-chip.scene-chip-idle {
+  color: inherit !important;
+  border-color: var(--scene-chip-colour) !important;
 }
 
 .scene-add-sprite-btn {

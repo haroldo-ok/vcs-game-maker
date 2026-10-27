@@ -240,6 +240,14 @@
                   </v-btn-toggle>
 
                   <div class="animation-corner-toolbar">
+                    <confirm-delete-menu
+                      v-if="state.animations.length > 1"
+                      :title="deleteQuestion(animation.id, 'animation', 1)"
+                      :selected="animation.id === selectedCardId && selectedCardIds.includes(animation.id)"
+                      :activator-title="deleteQuestion(animation.id, 'animation', 1).replace('?', '')"
+                      icon-btn-class="player-icon-btn-size"
+                      @confirm="handleDeleteAnimation(animation)"
+                    />
                     <v-btn
                       icon
                       small
@@ -313,14 +321,6 @@
                     >
                       <v-icon>mdi-play</v-icon>
                     </v-btn>
-                    <confirm-delete-menu
-                      v-if="state.animations.length > 1"
-                      :title="deleteQuestion(animation.id, 'animation', 1)"
-                      :selected="animation.id === selectedCardId && selectedCardIds.includes(animation.id)"
-                      :activator-title="deleteQuestion(animation.id, 'animation', 1).replace('?', '')"
-                      icon-btn-class="player-icon-btn-size"
-                      @confirm="handleDeleteAnimation(animation)"
-                    />
                   </div>
 
                 </v-list-item-title>
@@ -363,7 +363,7 @@
                         v-model="frame.pixels"
                         :fgColor="fgColor"
                         :rowColors="editorRowColors(frame)"
-                        :name="name"
+                        :name="animation.name || name"
                         :showClearButton="true"
                         :showGrid="showPixelGrid"
                         :showCellIds="showPixelGrid && showPixelGridLabels"
@@ -407,6 +407,15 @@
                         <template v-slot:badge>
                           <div class="frame-number-badge">ID:{{ frameIndex + 1 }}</div>
                           <div class="frame-corner-toolbar">
+                            <confirm-delete-menu
+                              v-if="animation.frames.length > 1"
+                              title="Delete this frame?"
+                              :selected="frameHighlightState(animation, frame) === 'blue'"
+                              :select-priority="2"
+                              activator-title="Delete this frame"
+                              icon-btn-class="player-icon-btn-size"
+                              @confirm="handleDeleteFrame(animation, frame)"
+                            />
                             <v-btn
                               v-if="spriteColorsEnabled"
                               icon
@@ -430,15 +439,6 @@
                               <v-icon>mdi-content-paste</v-icon>
                               <span class="copy-paste-color-badge">C</span>
                             </v-btn>
-                            <confirm-delete-menu
-                              v-if="animation.frames.length > 1"
-                              title="Delete this frame?"
-                              :selected="frameHighlightState(animation, frame) === 'blue'"
-                              :select-priority="2"
-                              activator-title="Delete this frame"
-                              icon-btn-class="player-icon-btn-size"
-                              @confirm="handleDeleteFrame(animation, frame)"
-                            />
                           </div>
                         </template>
                       </pixel-editor>

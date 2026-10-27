@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container">
-      <v-card-title>Music (alpha 0.8)</v-card-title>
+      <v-card-title>Music (alpha 0.85)</v-card-title>
       <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
         This feature is in alpha. Things may change or break. You've been warned!
       </v-alert>
@@ -255,6 +255,16 @@
                         :value="patternName(song, activePatternId(song))"
                         @change="(value) => handlePatternFieldChange(song, value)"
                       />
+                      <v-text-field
+                        class="steps-field"
+                        label="Length (steps)"
+                        type="number"
+                        :min="minPatternSteps"
+                        :max="maxPatternSteps"
+                        v-model.number="activePattern(song).stepCount"
+                        @input="() => handleStepCountTyping(song, activePattern(song))"
+                        @change="() => handleStepCountChange(song, activePattern(song))"
+                      />
                       <div class="pattern-actions-row">
                         <v-btn icon small class="music-icon-btn-size" title="Add pattern" @click="() => handleAddPattern(song)">
                           <v-icon small>mdi-plus</v-icon>
@@ -270,16 +280,6 @@
                           @confirm="handleDeletePattern(song, activePattern(song))"
                         />
                       </div>
-                      <v-text-field
-                        class="steps-field"
-                        label="Length (steps)"
-                        type="number"
-                        :min="minPatternSteps"
-                        :max="maxPatternSteps"
-                        v-model.number="activePattern(song).stepCount"
-                        @input="() => handleStepCountTyping(song, activePattern(song))"
-                        @change="() => handleStepCountChange(song, activePattern(song))"
-                      />
                       <div class="pattern-length-tempo-group">
                         <v-checkbox
                           class="use-song-tempo-checkbox"

@@ -375,6 +375,14 @@ const extraPlayerColour = (number) => EXTRA_PLAYER_COLOURS[number] || '#8a5ac2';
 const fireObjectColour = (value) => (value === 'ball' ? '#ff8800' : (value === '1' || value === 'player1') ? 'blue' :
   /^player[2-9]$/.test(value) ? extraPlayerColour(value.slice(6)) : 'red');
 
+// The color of the blocks for a sprite of a scene (utils/scene.js: 0 to 9 the players, 10 and 11 the missiles, 12 the ball).
+export const sceneObjectColour = (object) => {
+  const colour = object <= 9 ? (object === 0 ? 'red' : object === 1 ? 'blue' : extraPlayerColour(object)) :
+    fireObjectColour(object === 12 ? 'ball' : String(object - 10));
+  // The blocks draw the names red and blue as pure #ff0000 and #0000ff (a chip would take them for the Material colors).
+  return colour === 'red' ? '#ff0000' : colour === 'blue' ? '#0000ff' : colour;
+};
+
 const missileNameFromField = (block) => `missile${block && block.getFieldValue('MISSILE') === '1' ? '1' : '0'}`;
 
 // Builds the VAR dropdown's option list fresh every time it opens (the same
