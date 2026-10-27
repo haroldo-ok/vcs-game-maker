@@ -891,6 +891,8 @@ Blockly.BBasic.init = function(workspace) {
   this.platformerJumpPlayers = new Set();
   // The players a "moving" check asks about.
   this.platformerMovingPlayers = new Set();
+  // The players a "landed" check asks about.
+  this.platformerLandedPlayers = new Set();
   // The players whose Jump block also stops them at the walls to the left and right (not those with an Undo last move block, which does).
   this.platformerWallsPlayers = new Set();
   this.platformerStarts = {};
@@ -910,6 +912,7 @@ Blockly.BBasic.init = function(workspace) {
     } else if (block.type === 'sprite_platformer_state') {
       this.platformerPlayers.add(`${block.getFieldValue('PLAYER')}`);
       if (block.getFieldValue('STATE') === 'moving') this.platformerMovingPlayers.add(`${block.getFieldValue('PLAYER')}`);
+      if (block.getFieldValue('STATE') === 'landed') this.platformerLandedPlayers.add(`${block.getFieldValue('PLAYER')}`);
     } else if (block.type === 'collision_check_position') {
       const player = `player${block.getFieldValue('PLAYER')}`;
       this.pfBoxPlayers.add(player);
@@ -2479,7 +2482,7 @@ Blockly.BBasic.init = function(workspace) {
   // (An Undo last move block for the same player already stops it at the walls.)
   this.collisionMovePlayers.forEach((playerNum) => this.platformerWallsPlayers.delete(playerNum));
   this.platformerPlans = Object.fromEntries(Object.entries(platformerBlocks).map(([player, blocks]) => [player, platformerPlanOf(blocks)]));
-  reservePlatformerDevVars(reserveDevVar, this.platformerPlayers, this.platformerMovingPlayers, this.platformerWallsPlayers, this.platformerPlans);
+  reservePlatformerDevVars(reserveDevVar, this.platformerPlayers, this.platformerMovingPlayers, this.platformerWallsPlayers, this.platformerPlans, this.platformerLandedPlayers);
   // A player whose width and number of copies no block can change (and that is not two sprites wide) has a box of 8 pixels wide, always: its
   // comparisons are made with that number, and it needs none of the bytes that keep the width and the copies.
   const sizeChangedPlayers = new Set();
@@ -6568,6 +6571,18 @@ Blockly.BBasic.generateBackgrounds = function() {
       payloadLines.push(standardPfcolors ? loadPfcolors(id, pfcolorsBlock) : pfcolorsBlock.replace(/\n$/, ''));
     }
     if (bkcolorsBlock) payloadLines.push(bkcolorsBlock.replace(/\n$/, ''));
+    // The solid colors a background can have (the Playfield tab) when it has no row colors of that kind: set when the background is shown.
+    [[!pfcolorsBlock, 'playfieldColor', 'playfieldrealcolor'], [!bkcolorsBlock, 'backgroundColor', 'backgroundrealcolor']]
+        .filter(([noRows, key]) => noRows && background[key] !== undefined && background[key] !== null)
+        .forEach(([, key, variable]) => {
+          payloadLines.push(` ${variable} = ${colorByteToBuildBBasic(background[key])}`);
+          // DPC+ draws its colors from the tables of colors, not from the color registers: a table of the one color.
+          if (config.kernel === 'dpcplus') {
+            payloadLines.push(` ${key === 'playfieldColor' ? 'pfcolors' : 'bkcolors'}:
+  ${colorByteToBuildBBasic(background[key])}
+end`);
+          }
+        });
     // What the code that works with this background's rows is told about them (see init).
     const rowLines = backgroundRowLinesFor(background, config);
     if (this.dpcPlusColorFracVars) {

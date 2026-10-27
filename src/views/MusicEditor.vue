@@ -2,9 +2,6 @@
   <div>
     <v-card flat :ripple="false" class="editor-container">
       <v-card-title>Music (alpha 0.85)</v-card-title>
-      <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
-        This feature is in alpha. Things may change or break. You've been warned!
-      </v-alert>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message music-intro-paragraph">
           Compose songs here, then play one at runtime with a "Play song" block (Actions tab).
@@ -32,6 +29,27 @@
             @click="handleImportSongBank"
           >
             <v-icon>mdi-database-import</v-icon>
+          </v-btn>
+          <v-divider class="music-toolbar-divider" vertical />
+          <v-btn
+            icon
+            small
+            :title="UNDO_TITLE"
+            class="music-flat-icon-btn music-icon-btn-size"
+            :disabled="!canToolbarHistory('undo')"
+            @click="() => handleToolbarHistory('undo')"
+          >
+            <v-icon>mdi-undo</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            small
+            :title="REDO_TITLE"
+            class="music-flat-icon-btn music-icon-btn-size"
+            :disabled="!canToolbarHistory('redo')"
+            @click="() => handleToolbarHistory('redo')"
+          >
+            <v-icon>mdi-redo</v-icon>
           </v-btn>
           <v-divider class="music-toolbar-divider" vertical />
           <v-btn
@@ -118,6 +136,7 @@
             <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
           </div>
         </div>
+        <v-divider class="music-divider" />
       </div>
       <v-card-text class="song-list-section">
         <template v-for="song in activeSongArray">
@@ -1263,6 +1282,26 @@ export default defineComponent({
     const canRedoPattern = (pattern) => (patternRedoStacks.value[pattern.id] || []).length > 0;
     const reorderCanUndo = computed(() => canUndoReorder());
     const reorderCanRedo = computed(() => canRedoReorder());
+    // The Undo and Redo of the toolbar: what was changed in the pattern being edited, or a move or a delete of a song (these need no
+    // pattern, so they work with no song open).
+    const canToolbarHistory = (kind) => {
+      const song = activeSong();
+      const pattern = song && activePattern(song);
+      if (kind === 'undo') return reorderCanUndo.value || !!(pattern && canUndoPattern(pattern));
+      return reorderCanRedo.value || !!(pattern && canRedoPattern(pattern));
+    };
+    const handleToolbarHistory = (kind) => {
+      const song = activeSong();
+      const pattern = song && activePattern(song);
+      if (pattern) {
+        (kind === 'undo' ? handleUndoPattern : handleRedoPattern)(song, pattern);
+      } else if (kind === 'undo') {
+        tryUndoReorder();
+      } else {
+        tryRedoReorder();
+      }
+    };
+
     const handleUndoPattern = (song, pattern) => {
       if (tryUndoReorder()) return;
       if (!pattern) return;
@@ -4085,6 +4124,7 @@ export default defineComponent({
       handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange, handleStepCountTyping,
       handlePatternFieldChange,
       canUndoPattern, canRedoPattern, handleUndoPattern, handleRedoPattern, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE,
+      canToolbarHistory, handleToolbarHistory,
       handleExportPattern, handleImportPattern,
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
       handleAddSequenceStep, handleRemoveSequenceGroup,
@@ -4392,10 +4432,16 @@ export default defineComponent({
      border-bottom (.music-toolbar-scrolled, already matched to it) to
      show a line only once actually scrolled, the same way this toolbar
      already does now that the redundant static one is gone. */
-  margin-bottom: 4px;
+  /* Negative: the first thing in the song (its ID) is as far under the line as the sides of the tab are from the edge. */
+  margin-bottom: -8px;
   transition: padding 0.15s ease;
-  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  /* For the line inside it (see the Sprites tab's toolbar). */
+  --toolbar-bleed: 16px;
+}
+
+.music-divider {
+  margin: 8px -16px 0;
+  max-width: none;
 }
 
 /* Same "grows + gains a bottom border once actually scrolled" treatment as
@@ -4405,6 +4451,11 @@ export default defineComponent({
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;
   padding-bottom: 10px;
+}
+
+  /* The line at the bottom of the pinned toolbar takes the place of the toolbar's last divider (no double line). */
+.music-toolbar-scrolled .music-divider {
+  display: none;
 }
 
 /* Same "Soft Colors" override as GraphicEditorToolbar.vue's
@@ -4420,6 +4471,9 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 4px;
+  /* As tall as the Sound tab's row (its columns button is 28px), and the first icon in the same place as that tab's. */
+  min-height: 28px;
+  padding-left: 4px;
 }
 
 /* Zeroes .music-icon-btn-size's margin: 0 1px (needed elsewhere on

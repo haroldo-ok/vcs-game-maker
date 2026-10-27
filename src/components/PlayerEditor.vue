@@ -915,6 +915,7 @@ export default defineComponent({
         refresh,
         getSelectedIndices: getSelectedFullIndices,
         deselectCard,
+        tab: 'sprites',
       });
     const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
 

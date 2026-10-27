@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card class="editor-container" :ripple="false" @click="handleDeselect">
-      <v-card-title>Scene</v-card-title>
+      <v-card-title>Scene (alpha 0.3)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message scene-intro-paragraph">
           Set up a stage, a level or a menu here: choose a playfield, then drag the sprites that the project has onto it
@@ -41,6 +41,7 @@
               </v-btn>
             </div>
           </div>
+          <v-divider class="scene-divider" />
         </div>
 
         <v-list
@@ -250,7 +251,7 @@
                           Remove sprite
                         </v-btn>
                       </div>
-                      <div v-else-if="scene.objects.length" class="scene-empty">Click a sprite to change it, or drag it on the picture.</div>
+                      <div v-else-if="scene.objects.length" class="scene-empty">Click a sprite to change its settings, or drag/use arrow keys to place in Scene.</div>
                     </div>
                   </div>
                 </v-card-text>
@@ -384,7 +385,7 @@ export default defineComponent({
 
     const backgrounds = () => processBackgroundStorageDefaults(backgroundsStorage).backgrounds;
     const animations = () => processPlayerAnimationsStorageDefaults(animationsStorage).animations || [];
-    const backgroundItems = computed(() => [{text: 'Leave the playfield as it is', value: 0},
+    const backgroundItems = computed(() => [{text: 'None', value: 0},
       ...backgrounds().map(({id, name}) => ({text: name || `Playfield ${id}`, value: id}))]);
     const animationItems = computed(() => [{text: 'Leave as it is', value: -1},
       ...animations().map((animation, index) => ({text: animation.name || `Unnamed ${index + 1}`, value: index}))]);
@@ -711,9 +712,15 @@ export default defineComponent({
       const context = canvas.getContext('2d');
       const cfg = config();
       context.clearRect(0, 0, SCREEN_WIDTH, SCREEN_LINES);
-      context.fillStyle = '#000';
-      context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_LINES);
       const background = backgrounds().find(({id}) => id === scene.background);
+      // The solid colors a playfield can set (the Playfield tab, when it has no row colors of that kind).
+      const solid = (key, noRows) => (background && noRows && background[key] !== undefined && background[key] !== null ?
+        colorByteToCss(background[key]) : null);
+      const rowColorsOfBackground = background ? backgroundRowColors(background, cfg) : {pf: null, bk: null};
+      const solidPf = solid('playfieldColor', !rowColorsOfBackground.pf);
+      const solidBk = solid('backgroundColor', !rowColorsOfBackground.bk);
+      context.fillStyle = solidBk || '#000';
+      context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_LINES);
       if (background && background.pixels && background.pixels.length) {
         // The rows and their height come from the playfield of the scene (its pfres), and the colors are the ones its card shows.
         const {rowLines} = backgroundLayout(background, cfg);
@@ -723,7 +730,7 @@ export default defineComponent({
         // A list of colors can have more or fewer colors than the picture has rows: each is drawn at the height it covers.
         for (let line = 0; line < Math.min(SCREEN_LINES, Math.ceil(total)); line++) {
           const row = Math.min(rows - 1, Math.floor(line / rowLines));
-          const pfColor = pf ? colorAtHeight(pf, line + 0.5, total) : PLAYFIELD_COLOR;
+          const pfColor = pf ? colorAtHeight(pf, line + 0.5, total) : solidPf || PLAYFIELD_COLOR;
           const bkColor = bk ? colorAtHeight(bk, line + 0.5, total) : null;
           background.pixels[row].forEach((pixel, x) => {
             if (pixel) {
@@ -1199,6 +1206,13 @@ export default defineComponent({
   margin-right: -16px;
   padding-left: 16px;
   padding-right: 16px;
+  /* For the line inside it (see the Sprite tab's toolbar). */
+  --toolbar-bleed: 16px;
+}
+
+.scene-divider {
+  margin: 8px -16px 0;
+  max-width: none;
 }
 
 .scene-toolbar-row {
@@ -1217,9 +1231,14 @@ export default defineComponent({
   padding-bottom: 10px;
 }
 
+  /* The line at the bottom of the pinned toolbar takes the place of the toolbar's last divider (no double line). */
+.scene-toolbar-scrolled .scene-divider {
+  display: none;
+}
+
 /* The same dividers, spacing and icon colors as GraphicEditorToolbar.vue's. */
 .scene-outer-divider {
-  margin: 0 6px;
+  margin: 0 4px;
 }
 
 .scene-tools {

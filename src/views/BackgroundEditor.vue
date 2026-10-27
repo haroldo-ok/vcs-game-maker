@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card class="editor-container" :ripple="false" @click="deselectCard">
-      <v-card-title>Backgrounds</v-card-title>
+      <v-card-title>Playfield</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message background-intro-paragraph">
           Draw full-screen playfield backgrounds here, then set one as the active background
@@ -112,7 +112,7 @@
               </v-dialog>
             </div>
           </template>
-          <template v-if="pfColorsEnabled" v-slot:below-tools>
+          <template v-if="pfColorsEnabled || bkColorsEnabled" v-slot:below-tools>
             <quick-color-palette v-model="selectedQuickColor" :active-editor="effectiveEditor" />
           </template>
         </graphic-editor-toolbar>
@@ -161,6 +161,28 @@
                       v-model="background.name"
                       @change="handleChildChange"
                     />
+                    <!-- One color for the whole playfield, and one for the background behind it, set when this background is shown: for
+                         the ones that have no row colors (the Options tab). Left unset the color is not changed. -->
+                    <div v-if="!pfColorsEnabled" class="background-solid-color">
+                      <color-swatch-picker
+                        :value="background.playfieldColor === undefined ? null : background.playfieldColor"
+                        clear-label="Keep the current color"
+                        square
+                        title="Click to set the color of the playfield pixels (one color for all rows)"
+                        @input="(byte) => handleSetSolidColor(background, 'playfieldColor', byte)"
+                      />
+                      <span class="background-solid-color-label">Playfield color</span>
+                    </div>
+                    <div v-if="!bkColorsEnabled" class="background-solid-color">
+                      <color-swatch-picker
+                        :value="background.backgroundColor === undefined ? null : background.backgroundColor"
+                        clear-label="Keep the current color"
+                        square
+                        title="Click to set the color behind the playfield (one color for all rows)"
+                        @input="(byte) => handleSetSolidColor(background, 'backgroundColor', byte)"
+                      />
+                      <span class="background-solid-color-label">Background color</span>
+                    </div>
                     <v-text-field
                       v-if="kernelIsDpcPlus && !background.groupPfres"
                       class="background-name-field background-pfres-field"
@@ -474,6 +496,7 @@
   </div>
 </template>
 <script>
+import Vue from 'vue';
 import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
@@ -483,6 +506,7 @@ import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-hist
 import {useDragReorder} from '../hooks/drag-reorder';
 import {insertCardAfter, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
+import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EditorZoom from '../components/EditorZoom.vue';
 import GraphicEditorToolbar from '../components/GraphicEditorToolbar.vue';
@@ -523,7 +547,7 @@ const copiedBackgroundRowColors = ref(null);
 const copiedBackgroundData = ref(null);
 
 export default defineComponent({
-  components: {ConfirmDeleteMenu, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
+  components: {ColorSwatchPicker, ConfirmDeleteMenu, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
   setup() {
     const instance = getCurrentInstance();
     const backgroundsStorage = useBackgroundsStorage();
@@ -575,8 +599,10 @@ export default defineComponent({
     // project-wide setting (see the Options tab) - once it's on, every
     // background needs its  color list, since the compiled kernel always
     // draws every background's playfield from that color table.
-    const pfColorsEnabled = computed(() =>
-      (configurationStorage && configurationStorage.value && configurationStorage.value.enablePfColors) ?? false);
+    // (With DPC+ they are also on by that kernel's own option, as the generator takes it: dpcPlusPfColorsOn.)
+    const pfColorsEnabled = computed(() => !!(configurationStorage && configurationStorage.value &&
+      (configurationStorage.value.enablePfColors ||
+        (configurationStorage.value.kernel === 'dpcplus' && configurationStorage.value.enableDpcPlusPfColors))));
     // DPC+ can also color every row of the background behind the playfield (Options tab), separately from the playfield's.
     const bkColorsEnabled = computed(() => !!(configurationStorage && configurationStorage.value &&
       configurationStorage.value.kernel === 'dpcplus' && configurationStorage.value.enableDpcPlusBkColors));
@@ -660,6 +686,12 @@ export default defineComponent({
       },
     });
 
+    // The solid color of the playfield or of the background behind it (no row colors): a color byte, or null to keep the current one.
+    const handleSetSolidColor = (background, key, byte) => {
+      Vue.set(background, key, byte === undefined ? null : byte);
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
     const handleChildChange = () => {
       state.value = state.value;
     };
@@ -1002,18 +1034,23 @@ export default defineComponent({
     // ($00) is nudged to near-black so the editor still counts those pixels
     // as "on" rather than reading them as the black background.
     const editorRowColors = (background) => {
-      if (!pfColorsEnabled.value || !background.rowColors) {
-        return null;
-      }
-      return background.rowColors.map((byte) => {
+      const nudged = (byte) => {
         const css = colorByteToCss(byte);
         return css === '#000000' ? '#010101' : css;
-      });
+      };
+      if (!pfColorsEnabled.value || !background.rowColors) {
+        // No row colors: the solid color the background sets for the playfield, when it has one, for every row.
+        return background.playfieldColor === undefined || background.playfieldColor === null ? null : [nudged(background.playfieldColor)];
+      }
+      return background.rowColors.map(nudged);
     };
 
     // The background row colors, shown behind the cells that are off, when the DPC+ kernel colors them.
     const editorBkRowColors = (background) => {
-      if (!bkColorsEnabled.value || !background.bkRowColors) return null;
+      if (!bkColorsEnabled.value || !background.bkRowColors) {
+        // The same for the background behind the playfield.
+        return background.backgroundColor === undefined || background.backgroundColor === null ? null : [colorByteToCss(background.backgroundColor)];
+      }
       return background.bkRowColors.map((byte) => colorByteToCss(byte));
     };
 
@@ -1117,7 +1154,7 @@ export default defineComponent({
     };
 
     return {selectedCardId, selectedCardIds, selectCard, deselectCard, deleteQuestion, backgroundAspectRatio,
-      state, handleChildChange, handleBackgroundPixelsInput, handleAddBackground, handleDeleteBackground, handleDuplicateBackground,
+      state, handleChildChange, handleSetSolidColor, handleBackgroundPixelsInput, handleAddBackground, handleDeleteBackground, handleDuplicateBackground,
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
@@ -1437,6 +1474,17 @@ export default defineComponent({
 }
 
 /* The DPC+ pfres field sits beside the name, which takes the rest of the row. */
+.background-solid-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+}
+
+.background-solid-color-label {
+  font-size: 1rem;
+}
+
 .background-name-row {
   display: flex;
   gap: 16px;

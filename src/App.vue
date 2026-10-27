@@ -19,14 +19,14 @@
           <span class="top-toolbar-label">Actions</span>
         </v-btn>
 
-        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title" elevation="0">
+        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title α" elevation="0">
           <v-icon>mdi-image-frame</v-icon>
-          <span class="top-toolbar-label">Title</span>
+          <span class="top-toolbar-label">Title α</span>
         </v-btn>
 
-        <v-btn to="/player" link text class="player-item" title="Sprites" elevation="0">
+        <v-btn to="/player" link text class="player-item" title="Sprite" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
-          <span class="top-toolbar-label">Sprites</span>
+          <span class="top-toolbar-label">Sprite</span>
         </v-btn>
 
         <v-btn to="/background" link text class="background-item" title="Playfield" elevation="0">
@@ -34,9 +34,9 @@
           <span class="top-toolbar-label">Playfield</span>
         </v-btn>
 
-        <v-btn to="/scene" link text class="scene-item" title="Scene" elevation="0">
+        <v-btn to="/scene" link text class="scene-item" title="Scene α" elevation="0">
           <v-icon>mdi-image-filter-center-focus-strong</v-icon>
-          <span class="top-toolbar-label">Scene</span>
+          <span class="top-toolbar-label">Scene α</span>
         </v-btn>
 
         <v-btn to="/soundfx" link text class="sound-item" title="Sound" elevation="0">
@@ -44,9 +44,9 @@
           <span class="top-toolbar-label">Sound</span>
         </v-btn>
 
-        <v-btn to="/music" link text class="music-item" title="Music" elevation="0">
+        <v-btn to="/music" link text class="music-item" title="Music α" elevation="0">
           <v-icon>mdi-music-note</v-icon>
-          <span class="top-toolbar-label">Music</span>
+          <span class="top-toolbar-label">Music α</span>
         </v-btn>
 
         <v-btn to="/text" link text class="text-tab-item" title="Text" elevation="0">
@@ -139,13 +139,13 @@
           to="/player"
           link
           class="player-item"
-          :title="hideToolbarLabels ? 'Sprites' : null"
+          :title="hideToolbarLabels ? 'Sprite' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-human-handsup</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Sprites</v-list-item-title>
+            <v-list-item-title>Sprite</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -167,13 +167,13 @@
           to="/scene"
           link
           class="scene-item"
-          :title="hideToolbarLabels ? 'Scene' : null"
+          :title="hideToolbarLabels ? 'Scene α' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-image-filter-center-focus-strong</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Scene</v-list-item-title>
+            <v-list-item-title>Scene α</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -3400,6 +3400,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .soundfx-stop-btn .v-icon,
 .dark-mode.v-application .soundfx-play-btn .v-icon,
 .dark-mode.v-application .music-flat-icon-btn .v-icon,
+.dark-mode.v-application .card-folder-new-btn .v-icon,
 .dark-mode.v-application .titlescreen-play-btn .v-icon {
   color: rgba(255, 255, 255, 0.5) !important;
 }
@@ -3422,6 +3423,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .soundfx-stop-btn:hover .v-icon,
 .dark-mode.v-application .soundfx-play-btn:hover .v-icon,
 .dark-mode.v-application .music-flat-icon-btn:hover .v-icon,
+.dark-mode.v-application .card-folder-new-btn:hover .v-icon,
 .dark-mode.v-application .titlescreen-play-btn:hover .v-icon,
 .dark-mode.v-application .import-icon-btn:hover {
   color: #fff !important;

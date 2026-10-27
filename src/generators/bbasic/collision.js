@@ -34,6 +34,9 @@ export const platformerStateVar = (playerNum) => `platState${playerNum}`;
 export const platformerMovedVar = (playerNum) => `platMoved${playerNum}`;
 export const platformerPrevXVar = (playerNum) => `platPrevX${playerNum}`;
 export const platformerPrevYVar = (playerNum) => `platPrevY${playerNum}`;
+// For the players a "landed" check asks about: bit 0 is 1 for the one frame in which the player came down onto the ground, bit 1 says it
+// was on the ground at the end of the last frame.
+export const platformerLandedVar = (playerNum) => `platLanded${playerNum}`;
 // For the players whose Jump block stops them at the walls to the left and right: where the player was at the end of the last frame.
 export const platformerLastXVar = (playerNum) => `platLastX${playerNum}`;
 // The jump speed (high four bits) and the max fall speed (low four bits), and the gravity (high) and the jumps allowed (low), each stored as
@@ -84,7 +87,7 @@ export const platformerPlanOf = (blocks) => {
   return plan;
 };
 const ALL_VARYING_PLAN = {slots: {jump: 0, fall: 1, gravity: 2, jumps: 3}, constants: {}, bytes: [true, true]};
-export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers = new Set(), wallsPlayers = new Set(), plans = {}) => {
+export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers = new Set(), wallsPlayers = new Set(), plans = {}, landedPlayers = new Set()) => {
   if (!players || !players.size) return;
   [...players].sort().forEach((playerNum) => {
     reserveDevVar(platformerSpeedVar(playerNum), undefined, `player ${playerNum}'s jump and fall speed (eighths of a pixel a frame)`);
@@ -103,6 +106,10 @@ export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers =
         `player ${playerNum}'s jumps made (bits 0-2), jumping (3), falling (4), on the ground (5), a jump asked for last frame (6) and this frame (7)`);
     if (wallsPlayers.has(playerNum)) {
       reserveDevVar(platformerLastXVar(playerNum), undefined, `player ${playerNum}'s x at the end of the last frame (for the walls to the left and right)`);
+    }
+    if (landedPlayers.has(playerNum)) {
+      reserveDevVar(platformerLandedVar(playerNum), undefined,
+          `bit 0: 1 for the frame player ${playerNum} landed on the ground; bit 1: it was on the ground at the end of the last frame`);
     }
     if (movingPlayers.has(playerNum)) {
       reserveDevVar(platformerMovedVar(playerNum), undefined, `1 while player ${playerNum} moved in the last frame`);
@@ -282,6 +289,8 @@ export default (Blockly) => {
       const movedVar = moving ? resolveVar(platformerMovedVar(playerNum)) : '';
       const prevX = moving ? resolveVar(platformerPrevXVar(playerNum)) : '';
       const prevY = moving ? resolveVar(platformerPrevYVar(playerNum)) : '';
+      const landed = (Blockly.BBasic.platformerLandedPlayers || new Set()).has(playerNum);
+      const landedVar = landed ? resolveVar(platformerLandedVar(playerNum)) : '';
       const starts = (Blockly.BBasic.platformerStarts || {})[playerNum] || platformerStartsOf(null);
       const lab = (name) => `_plh${playerNum}_${name}`;
       // The asm that leaves a number, less one, in A: from its nibble (XOR what it starts as), or the constant if it never changes.
@@ -458,6 +467,18 @@ export default (Blockly) => {
                 '@' + lab('moved'),
                 'sta ' + movedVar, 'lda ' + px, 'sta ' + prevX, 'lda ' + py, 'sta ' + prevY,
               ] : []),
+              // A "landed" check asks about this player: on the ground now, and not at the end of the last frame (bit 0 the landing, bit 1 the ground).
+              ...(landed ? [
+                'lda ' + st, 'and #' + (1 << PLATFORMER_GROUND_BIT), 'beq ' + lab('air'),
+                'lda ' + landedVar, 'and #2', 'bne ' + lab('stood'),
+                'lda #3', 'bne ' + lab('landedset'),
+                '@' + lab('stood'),
+                'lda #2', 'bne ' + lab('landedset'),
+                '@' + lab('air'),
+                'lda #0',
+                '@' + lab('landedset'),
+                'sta ' + landedVar,
+              ] : []),
           ),
       );
     });
@@ -469,6 +490,9 @@ export default (Blockly) => {
     const playerNum = block.getFieldValue('PLAYER');
     if (block.getFieldValue('STATE') === 'moving') {
       return [Blockly.BBasic.nameDB_.getName(platformerMovedVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE), Blockly.BBasic.ORDER_ATOMIC];
+    }
+    if (block.getFieldValue('STATE') === 'landed') {
+      return [`${Blockly.BBasic.nameDB_.getName(platformerLandedVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{0}`, Blockly.BBasic.ORDER_ATOMIC];
     }
     const bit = {jumping: PLATFORMER_JUMPING_BIT, falling: PLATFORMER_FALLING_BIT, ground: PLATFORMER_GROUND_BIT}[block.getFieldValue('STATE')] ||
       PLATFORMER_GROUND_BIT;

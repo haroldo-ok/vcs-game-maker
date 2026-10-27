@@ -8,11 +8,15 @@ import {recordReorder} from './reorder-history';
 // number), and the folder it is in is the `folder` of the card (none for the top level); the folders are a list of {id, name, parent} kept
 // with the tab's cards. A card whose folder is not in the list (a card copied in from another project) is at the top level.
 //
+// The folder that is open in each tab (by the name the tab gives, see `tab` below), kept for as long as the page is open.
+const openFolderOfTab = new Map();
+
 // getCards() the tab's cards, getFolders() the list of folders (made if the project has none yet), setFolders(list) stores a new list,
 // refresh() stores the tab's data and draws it again, getSelectedIndices() the indices, in the whole list, of the selected cards,
-// deselectCard() clears the selection.
-export const useCardFolders = ({getCards, getFolders, setFolders, refresh, getSelectedIndices, deselectCard}) => {
-  const currentFolder = ref(null);
+// deselectCard() clears the selection, tab a name for the tab (the folder that is open is remembered under it).
+export const useCardFolders = ({getCards, getFolders, setFolders, refresh, getSelectedIndices, deselectCard, tab}) => {
+  // The folder that is open stays open when the tab is left and come back to (the tab is made again each time): it is kept by the name of the tab.
+  const currentFolder = ref(tab && openFolderOfTab.has(tab) ? openFolderOfTab.get(tab) : null);
   const hasFolder = (id) => getFolders().some((folder) => folder.id === id);
   // The folder that is open: the top level when it no longer exists.
   const openFolderId = () => (hasFolder(currentFolder.value) ? currentFolder.value : null);
@@ -23,6 +27,7 @@ export const useCardFolders = ({getCards, getFolders, setFolders, refresh, getSe
       .filter(({card}) => folderOf(card) === openFolderId());
   const openFolder = (id) => {
     currentFolder.value = id;
+    if (tab) openFolderOfTab.set(tab, id);
     deselectCard();
   };
   // What a card made now gets: the open folder.

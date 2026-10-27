@@ -124,21 +124,22 @@ const buildPlatformerBlock = () => ({
     'block for the same player, which does that already.)',
 });
 
-// True while a player moved by the Jump block is jumping (going up), falling, standing on the ground, or moving (its x or y changed in the last frame).
+// True while a player moved by the Jump block is jumping (going up), falling, standing on the ground, or moving (its x or y changed in the last frame); and
+// for one frame when it has landed (came down onto the ground).
 const buildPlatformerStateBlock = () => ({
   'type': 'sprite_platformer_state',
   'message0': `${PLAYER_ICON} %1 is %2`,
   'args0': [
     {'type': 'field_dropdown', 'name': 'PLAYER', 'options': jumpSpriteOptions},
     {'type': 'field_dropdown', 'name': 'STATE', 'options': [
-      ['jumping', 'jumping'], ['falling', 'falling'], ['on the ground', 'ground'], ['moving', 'moving'],
+      ['jumping', 'jumping'], ['falling', 'falling'], ['on the ground', 'ground'], ['landed', 'landed'], ['moving', 'moving'],
     ]},
   ],
   'output': 'Boolean',
   'colour': 'purple',
   'tooltip': 'True while the player, moved by the "Platform" block, is jumping (going up), falling (going down), standing on the ' +
-    'ground (on a playfield pixel), or moving (its x or y was different a frame ago, in any direction). Use it in an if block, to change the ' +
-    'animation for each, for example.',
+    'ground (on a playfield pixel), landed (true for the single frame in which it came down onto the ground, not while it stays there), or ' +
+    'moving (its x or y was different a frame ago, in any direction). Use it in an if block, to change the animation for each, for example.',
 });
 
 // The number of jumps a player moved by the Jump block has made since it last stood on the ground (a number for the comparison blocks).

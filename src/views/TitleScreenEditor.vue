@@ -2,9 +2,6 @@
   <div>
     <v-card flat class="editor-container" :ripple="false" @click="deselectCard">
       <v-card-title>Title (alpha 0.8)</v-card-title>
-      <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
-        This feature is in alpha. Things may change or break. You've been warned!
-      </v-alert>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message titlescreen-intro-paragraph">
           Compose a title screen from stacked image strips (top to bottom). 48x1 images are

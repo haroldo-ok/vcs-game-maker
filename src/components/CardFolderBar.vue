@@ -1,10 +1,9 @@
 <template>
   <!-- The folder the cards below are in, as a path, with the folders inside it in the same row (see hooks/card-folders.js for what the tab
-       does with them). A card dragged onto a folder here (a tile, or a folder of the path) is moved into it. -->
+       does with them). A card dragged onto a folder here (a tile, or a folder of the path) is moved into it. A line under it, like the one
+       under the row of tools above. -->
+  <div>
   <div class="card-folder-bar">
-    <v-btn icon small title="New folder here" class="player-icon-btn-size" @click="handleAddFolder">
-      <v-icon>mdi-folder-plus-outline</v-icon>
-    </v-btn>
     <template v-for="(crumb, crumbIndex) in folderPath()">
       <v-icon v-if="crumbIndex" :key="`sep-${crumb.id}`" small class="card-folder-separator">mdi-chevron-right</v-icon>
       <button
@@ -71,6 +70,11 @@
         />
       </div>
     </div>
+    <v-btn icon small title="New folder here" class="card-folder-new-btn" @click="handleAddFolder">
+      <v-icon>mdi-folder-plus-outline</v-icon>
+    </v-btn>
+  </div>
+  <v-divider class="card-folder-divider" />
   </div>
 </template>
 
@@ -180,6 +184,47 @@ export default {
   margin-top: 4px;
 }
 
+/* The line at the bottom of the pinned toolbar takes the place of this one (no double line). */
+.graphic-editor-toolbar-scrolled .card-folder-divider,
+.soundfx-toolbar-scrolled .card-folder-divider {
+  display: none;
+}
+
+.card-folder-divider {
+  /* No room below it: the cards are as far under it as they are from the sides of the tab. */
+  margin: 8px calc(-1 * var(--toolbar-bleed, 0px)) 0;
+  max-width: none;
+}
+
+/* The new folder button looks like the buttons of the graphic editor toolbar (see its .get-tools rules): the same size, rest color, hover and press. */
+.card-folder-new-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+  margin: 0;
+}
+
+.card-folder-new-btn::before {
+  display: none;
+}
+
+.card-folder-new-btn >>> .v-icon {
+  font-size: 19px;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.card-folder-new-btn:not(.v-btn--disabled):hover >>> .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.card-folder-new-btn:not(.v-btn--disabled):active >>> .v-icon {
+  transform: scale(0.82);
+}
+
 .card-folder-crumb {
   display: inline-flex;
   align-items: center;
@@ -253,6 +298,11 @@ export default {
   flex: 0 0 160px;
   margin: 0;
   padding: 0;
+}
+
+/* A folder is flush with the left of its box, so the outline of a card dragged over it is drawn outside the box, clear of the icon. */
+.card-folder-tile.card-folder-drop-over {
+  outline-offset: 3px;
 }
 
 .card-folder-drop-over {

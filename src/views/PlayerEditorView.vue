@@ -1,7 +1,7 @@
 <template>
   <player-editor
     :storageFactory="usePlayerAnimationsStorage"
-    title="Sprites"
+    title="Sprite"
     fgColor="orange"
     name="player"
   />

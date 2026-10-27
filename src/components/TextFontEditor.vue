@@ -1,6 +1,6 @@
 <template>
   <div class="text-font-section">
-    <v-divider class="my-2" />
+    <v-divider class="text-font-divider" />
     <div class="option-section-header" @click="toggleCollapsed(cardEntry)">
       <v-btn
         icon
@@ -184,6 +184,7 @@
         </v-btn>
       </template>
     </div>
+    <v-divider class="text-font-divider" />
   </div>
 </template>
 <script>
@@ -414,6 +415,12 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* The same line as under the row of tools on the other tabs: the full width of the tab. */
+.text-font-divider {
+  margin: 8px -16px;
+  max-width: none;
+}
+
 .text-font-section {
   margin-bottom: 16px;
 }

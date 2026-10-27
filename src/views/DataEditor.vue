@@ -113,6 +113,7 @@
               <v-icon>mdi-content-paste</v-icon>
             </v-btn>
           </div>
+          <v-divider class="data-divider" />
         </div>
 
         <v-list class="data-list" :class="{'data-list--single-column': !dataColumns}">
@@ -1489,8 +1490,8 @@ export default defineComponent({
   padding-top: 4px;
   padding-bottom: 4px;
   transition: padding 0.15s ease;
-  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  /* For the line inside it (see the Sprite tab's toolbar). */
+  --toolbar-bleed: 16px;
   /* Matches GraphicEditorToolbar.vue's 16px gap above exactly (measured
      live against its padding plus its neighbours' margins, not guessed) -
      a real reported case of this not already matching ("the spacing seems
@@ -1525,6 +1526,11 @@ export default defineComponent({
   padding-right: 16px;
 }
 
+.data-divider {
+  margin: 8px -16px 0;
+  max-width: none;
+}
+
 .data-toolbar-row {
   display: flex;
   align-items: center;
@@ -1543,7 +1549,8 @@ export default defineComponent({
 
 /* The wider gap the graphic editor toolbar leaves after its first group of controls. */
 .data-toolbar-outer-divider {
-  margin: 0 2px !important;
+  /* The same space either side as the other dividers of the row (its gap). */
+  margin: 0 !important;
 }
 
 .data-toolbar-divider {
@@ -1581,6 +1588,11 @@ export default defineComponent({
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;
   padding-bottom: 10px;
+}
+
+  /* The line at the bottom of the pinned toolbar takes the place of the toolbar's last divider (no double line). */
+.data-toolbar-scrolled .data-divider {
+  display: none;
 }
 
 /* "Soft Colors" (see App.vue's desaturate-app-colors class/comment) -

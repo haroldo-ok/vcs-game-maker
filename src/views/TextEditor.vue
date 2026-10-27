@@ -444,6 +444,8 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 8px;
+  /* As far under the intro text as the Music tab's toolbar icons are (its 4px of padding above the row). */
+  padding-top: 4px;
   margin-bottom: 16px;
 }
 

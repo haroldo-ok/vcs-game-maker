@@ -38,7 +38,7 @@
               title-on="Show the sounds in one column"
               title-off="Show the sounds in several columns"
             />
-            <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
+            <v-divider class="soundfx-toolbar-divider" vertical />
             <v-btn
               icon
               small
@@ -179,6 +179,7 @@
               class="soundfx-filter"
             />
           </div>
+          <v-divider class="soundfx-divider" />
           <card-folder-bar
             :folders="foldersOf()"
             :current="openFolderId()"
@@ -1192,6 +1193,7 @@ export default defineComponent({
       refresh,
       getSelectedIndices: getSelectedFullIndices,
       deselectCard,
+      tab: 'sounds',
     });
     const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
 
@@ -1795,8 +1797,13 @@ export default defineComponent({
   padding-left: 16px;
   padding-right: 16px;
   transition: padding 0.15s ease;
-  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  /* For the lines inside it (see the Sprites tab's toolbar). */
+  --toolbar-bleed: 16px;
+}
+
+.soundfx-divider {
+  margin: 8px -16px;
+  max-width: none;
 }
 
 .soundfx-toolbar-row {
