@@ -3529,6 +3529,9 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .piano-roll-label-spacer,
 .dark-mode.v-application .project-toolbar,
 .dark-mode.v-application .soundfx-toolbar,
+.dark-mode.v-application .text-folder-toolbar,
+.dark-mode.v-application .sprite-folder-toolbar,
+.dark-mode.v-application .sound-folder-toolbar,
 .dark-mode.v-application .editor-container.theme--dark.v-card {
   background-color: #000 !important;
 }
@@ -3549,6 +3552,9 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.desaturate-app-colors.v-application .piano-roll-label-spacer,
 .dark-mode.desaturate-app-colors.v-application .project-toolbar,
 .dark-mode.desaturate-app-colors.v-application .soundfx-toolbar,
+.dark-mode.desaturate-app-colors.v-application .text-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .sprite-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .sound-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .editor-container.theme--dark.v-card {
   background-color: #1e1e1e !important;
 }
@@ -4024,8 +4030,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .hide-toolbar-labels .nav-drawer .v-list-item {
   justify-content: flex-start;
   padding: 0 0 0 16px;
-  /* The same row height as the other sidebar sizes. */
-  min-height: 56px;
+  /* Icons only: close together, 44px apart like the icons of the top toolbar with its labels hidden. */
+  min-height: 44px;
 }
 .hide-toolbar-labels .nav-drawer .v-list-item.v-list-item--active {
   padding-left: 16px;

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>Sound</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message soundfx-intro-paragraph">
@@ -25,6 +25,21 @@
              card is selected (selectedSoundEffect) the same way
              DataEditor.vue's toolbar acts on selectedTable. @click.stop for
              the same reason GraphicEditorToolbar.vue's root div has it. -->
+        <!-- The folders are pinned above the toolbar (which sticks just under them), as on the Sprite and Text tabs. -->
+        <div ref="folderToolbar" class="sound-folder-toolbar">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Sounds"
+            noun="sound"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
         <div
           class="soundfx-toolbar"
           :class="{'soundfx-toolbar-scrolled': isSoundFxToolbarScrolled}"
@@ -180,18 +195,6 @@
             />
           </div>
           <v-divider class="soundfx-divider" />
-          <card-folder-bar
-            :folders="foldersOf()"
-            :current="openFolderId()"
-            root-label="Sounds"
-            noun="sound"
-            :accept="draggingCardIndex !== null"
-            @update:current="openFolder"
-            @change="refresh"
-            @add-folder="handleAddFolder"
-            @delete-folder="handleDeleteFolder"
-            @drop-cards="handleDropCards"
-          />
         </div>
 
         <SoundBankImportDialog
@@ -1172,6 +1175,25 @@ export default defineComponent({
 
     const instance = getCurrentInstance();
 
+    // How tall the pinned folders are: the toolbar of the sounds sticks under them, not behind them.
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = element.offsetHeight;
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = element.offsetHeight;
+        });
+        folderToolbarObserver.observe(element);
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+    });
+
     // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the sounds keep their numbers and their place in the
     // one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a sound is in its `folder`.
     const foldersOf = () => {
@@ -1629,7 +1651,7 @@ export default defineComponent({
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
-      cardHandleListeners,
+      cardHandleListeners, folderToolbar, folderToolbarHeight,
     };
   },
 });
@@ -1779,9 +1801,35 @@ export default defineComponent({
    Undo/Redo/Export/Import/Stop/Play controls moved off each card - a real
    reported request ("add a toolbar to the sound tab... with the import,
    export, stop and play controls currently on each sound card"). */
-.soundfx-toolbar {
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar of the sounds sticks just under them. */
+.sound-folder-toolbar {
   position: sticky;
   top: 0;
+  z-index: 3;
+  background-color: #fff;
+  /* Close under the intro text while it is not pinned (the toolbar under it no longer has this margin). */
+  margin-top: -10px;
+  margin-left: -16px;
+  margin-right: -16px;
+  /* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are (6px and the bar's 4px). */
+  padding: 6px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+/* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
+   under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
+.sound-folder-toolbar + .soundfx-toolbar {
+  padding-top: 8px;
+}
+
+.desaturate-app-colors .sound-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
+.soundfx-toolbar {
+  position: sticky;
+  top: var(--sticky-toolbar-offset, 0px);
   z-index: 2;
   background-color: #fff;
   padding-top: 4px;
@@ -1791,7 +1839,6 @@ export default defineComponent({
      here changes nothing - this negative one pulls the toolbar up to a 6px
      gap (16px matched the graphic editor toolbar, but with the DIM controls
      inside the toolbar it read as too large). */
-  margin-top: -10px;
   margin-left: -16px;
   margin-right: -16px;
   padding-left: 16px;
@@ -1804,6 +1851,11 @@ export default defineComponent({
 .soundfx-divider {
   margin: 8px -16px;
   max-width: none;
+}
+
+/* The columns button (the 4px the toggle has on its left is for a toggle after another button) starts at the left edge, where the first icon of the other tabs does. */
+.soundfx-toolbar-row >>> .pixel-grid-toggle-btn:first-child {
+  margin-left: 0;
 }
 
 .soundfx-toolbar-row {
@@ -1838,6 +1890,11 @@ export default defineComponent({
 
 /* Same "grows + gains a bottom border once actually scrolled" treatment as
    GraphicEditorToolbar.vue's .graphic-editor-toolbar-scrolled. */
+/* The line at the bottom of the pinned toolbar takes the place of its last divider (no double line). */
+.soundfx-toolbar-scrolled .soundfx-divider {
+  display: none;
+}
+
 .soundfx-toolbar-scrolled {
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;

@@ -99,7 +99,8 @@ import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
 import {reserveTextScrollDevVars, generateTextScrollAdvance, generateTextOffsetTables, resolveTextScrollConstants,
   setTextScrollConstants} from './bbasic/text-scroll';
 import {generateTextStaticOffsetTables, generateTextRow2OffsetsTable, textLinesBaseVarName, textLinesMaxVarName,
-  textRow2ColorVarName, textClearTimerVarName, textScrollCursorColorVarName, textEndIconColorVarName} from './bbasic/text-minikernel';
+  textRow2ColorVarName, textClearTimerVarName, textBlinkVarName, textBlinkColorVarName, textScrollCursorColorVarName,
+  textEndIconColorVarName} from './bbasic/text-minikernel';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -517,6 +518,7 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
   this.textClearAfterUsed = workspace.getAllBlocks(false).some((block) => block.type === 'text_minikernel_clear_after');
+  this.textBlinkUsed = workspace.getAllBlocks(false).some((block) => block.type === 'text_minikernel_blink');
   // A score bar block turns pfscore on, which the Text Minikernel then needs separate TextDataPtr bytes for (see generateTextMinikernelDims).
   this.scoreBarBlocksUsed = workspace.getAllBlocks(false).some((block) => block.type.startsWith('score_bar_'));
 
@@ -2272,6 +2274,10 @@ Blockly.BBasic.init = function(workspace) {
   // text-minikernel.js for why these need real dev vars, unlike TextColor.
   if (this.textClearAfterUsed) {
     reserveDevVar(textClearTimerVarName(), undefined, 'frames left before a "Clear text after" block clears the text (0: none waiting)');
+  }
+  if (this.textBlinkUsed) {
+    reserveDevVar(textBlinkVarName(), undefined, 'a "Blink text" block: blinks left (bits 0-4), forever (5), clear when done (6), text hidden now (7)');
+    reserveDevVar(textBlinkColorVarName(), undefined, 'the text color a "Blink text" block puts back when the text shows again');
   }
   if (this.isTextRow2Used() || this.textRow2ColorBlockUsed) {
     reserveDevVar(textRow2ColorVarName(), undefined,
@@ -4302,7 +4308,7 @@ Blockly.BBasic.finish = function(code) {
   // The boxes of the sprites and the pairs that overlap are in a subroutine, that can be moved to another bank (it is long, with several pairs).
   const boxChecks = generateBoxChecks(Blockly) + generateOverlapChecks(Blockly);
   if (boxChecks) this.subroutines[SPRITE_BOX_CHECKS_NAME] = asSubroutineBody(boxChecks + ' return\n');
-  const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
+  const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + Blockly.BBasic.generateTextBlinkChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(SPRITE_BOX_CHECKS_NAME))}
 ` : '');
   const generatedInertiaChecks = generateInertiaChecks(Blockly);

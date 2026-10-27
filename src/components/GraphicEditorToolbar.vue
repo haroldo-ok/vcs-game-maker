@@ -617,7 +617,8 @@ export default {
    flex row below so this outer element can stack children vertically. */
 .graphic-editor-toolbar {
   position: sticky;
-  top: 0;
+  /* (A tab with something else pinned above this toolbar, the Text tab's folders, says how far down this one sticks.) */
+  top: var(--sticky-toolbar-offset, 0px);
   z-index: 2;
   background-color: #fff;
   padding-top: 4px;

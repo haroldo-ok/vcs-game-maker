@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>Text</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message text-intro-paragraph">
@@ -41,6 +41,23 @@
           />
         </div>
 
+        <!-- The folders for the messages below, pinned to the top of the tab as the toolbars of the other tabs are, with a line above and one under. -->
+        <div ref="folderToolbar" class="text-folder-toolbar">
+          <v-divider class="text-folder-divider" />
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Text"
+            noun="message"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
+
         <text-font-editor />
 
         <div class="text-max-width-row">
@@ -67,7 +84,7 @@
         </p>
 
         <v-list class="text-list" :class="{'text-list--single-column': !textColumns}">
-          <v-list-item class="entry-list-item" v-for="(entry, index) in state.textStrings" v-bind:key="entry.id">
+          <v-list-item class="entry-list-item" v-for="{card: entry, index} in visibleEntries()" v-bind:key="entry.id">
             <v-list-item-content>
               <v-card
                 outlined
@@ -81,7 +98,7 @@
                   class="text-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(index)"
-                  v-on="dragHandleListeners(index)"
+                  v-on="cardHandleListeners(index)"
                 />
                 <v-btn
                   :title="isCollapsed(entry) ? 'Expand this message' : 'Collapse this message'"
@@ -100,9 +117,9 @@
                 </div>
                 <confirm-delete-menu
                   v-if="state.textStrings.length > 1"
-                  :title="deleteQuestion(entry.id, 'message', 1)"
+                  :title="deleteQuestion(entry.id, 'message')"
                   :selected="entry.id === selectedCardId && selectedCardIds.includes(entry.id)"
-                  :activator-title="deleteQuestion(entry.id, 'message', 1).replace('?', '')"
+                  :activator-title="deleteQuestion(entry.id, 'message').replace('?', '')"
                   icon-btn-class="text-delete-btn text-icon-btn-size"
                   absolute
                   top
@@ -183,6 +200,7 @@
 import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
+import CardFolderBar from '../components/CardFolderBar.vue';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import TextFontEditor from '../components/TextFontEditor.vue';
@@ -190,6 +208,7 @@ import {useCollapsedIds} from '../hooks/collapse';
 import {tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {undoRedoKind} from '../utils/undo-hotkey';
 import {useDragReorder} from '../hooks/drag-reorder';
+import {useCardFolders} from '../hooks/card-folders';
 import {removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import {useConfigurationStorage, useTextStringsStorage, useTextColumnsStorage} from '../hooks/project';
@@ -199,7 +218,7 @@ import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WID
 import {BLINK_SPEED_OPTIONS, DEFAULT_BLINK_SPEED} from '../utils/text-font';
 
 export default defineComponent({
-  components: {ColorSwatchPicker, ConfirmDeleteMenu, TextFontEditor},
+  components: {CardFolderBar, ColorSwatchPicker, ConfirmDeleteMenu, TextFontEditor},
   setup() {
     const textStringsStorage = useTextStringsStorage();
     const configurationStorage = useConfigurationStorage();
@@ -310,9 +329,12 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
       useCardSelection(
-          () => state.value.textStrings.map(({id}) => id), selectedCardId);
+          () => visibleEntries().map(({card}) => card.id), selectedCardId);
+    // The indices, in the whole list, of the selected cards (dragging one of them moves them all).
+    const getSelectedFullIndices = () => state.value.textStrings
+        .map((entry, index) => (selectedCardIds.value.includes(entry.id) ? index : -1)).filter((index) => index >= 0);
 
     const state = computed({
       get() {
@@ -353,16 +375,61 @@ export default defineComponent({
           state.value.textStrings = items;
           handleChildChange();
         },
-        getSelectedIndices,
+        getSelectedFullIndices,
         {sideBySide: true, renumber: {kind: 'text', onRenumbered: renumbered}},
     );
 
     const instance = getCurrentInstance();
+
+    // How tall the pinned folders are: the toolbar of the font editor below sticks under them, not behind them.
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = element.offsetHeight;
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = element.offsetHeight;
+        });
+        folderToolbarObserver.observe(element);
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+    });
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the messages keep their numbers and their place in the
+    // one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a message is in its `folder`.
+    const foldersOf = () => {
+      const data = state.value;
+      if (!Array.isArray(data.folders)) data.folders = [];
+      return data.folders;
+    };
+    const refresh = () => {
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const {openFolderId, visibleEntries, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners,
+      handleDropCards} = useCardFolders({
+      getCards: () => state.value.textStrings,
+      getFolders: foldersOf,
+      setFolders: (folders) => {
+        state.value.folders = folders;
+      },
+      refresh,
+      getSelectedIndices: getSelectedFullIndices,
+      deselectCard,
+      tab: 'text',
+    });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
     const handleAddEntry = () => {
       const textStrings = state.value.textStrings;
       const maxId = max(textStrings.map((o) => o.id)) || 0;
       const newEntry = {
         id: maxId + 1,
+        ...newCardFolder(),
         name: `Message ${maxId + 1}`,
         text: '',
         justify: DEFAULT_TEXT_JUSTIFY,
@@ -378,7 +445,9 @@ export default defineComponent({
 
     const handleDeleteEntry = (entry) => {
       if (state.value.textStrings.length <= 1) return;
-      const doomed = idsToDelete(entry.id, 1);
+      // (At least one message is kept: the ids are of the cards listed, so the whole list is counted here.)
+      let doomed = idsToDelete(entry.id);
+      if (doomed.length >= state.value.textStrings.length) doomed = doomed.slice(1);
       const {remaining, idMap} = removeCards('text', state.value.textStrings, doomed);
       state.value.textStrings = remaining;
       if (idMap) renumbered(idMap);
@@ -415,6 +484,8 @@ export default defineComponent({
       textScrollCursorBlinkSpeed, BLINK_SPEED_OPTIONS, textMaxDisplayWidth,
       TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH, textColumns,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
+      cardHandleListeners, folderToolbar, folderToolbarHeight,
     };
   },
 });
@@ -440,12 +511,36 @@ export default defineComponent({
   padding-right: 0;
 }
 
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back). */
+.text-folder-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fff;
+  margin-left: -16px;
+  margin-right: -16px;
+  padding: 0 16px;
+  --toolbar-bleed: 16px;
+}
+
+.text-folder-divider {
+  /* As far above the folders as the line under them is below them. */
+  margin: 8px -16px 8px;
+  max-width: none;
+}
+
+.desaturate-app-colors .text-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
 .text-bkcolor-row {
   display: flex;
   align-items: center;
   gap: 8px;
   /* As far under the intro text as the Music tab's toolbar icons are (its 4px of padding above the row). */
   padding-top: 4px;
+  /* As much room above the line of the folders as there is under them. */
   margin-bottom: 16px;
 }
 

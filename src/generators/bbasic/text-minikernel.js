@@ -5,6 +5,7 @@ import {chunk} from 'lodash';
 import {useConfigurationStorage} from '../../hooks/project';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {fixedFreeVariable} from '../../utils/fixed-vars';
+import {resolveBlinkMask} from '../../utils/text-font';
 import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings,
   resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 import {functionCallDiscardVarName} from '../../blocks/function';
@@ -45,6 +46,10 @@ export const textLinesMaxVarName = () => 'textLinesMax';
 // function's  doc comment).
 export const textRow2ColorVarName = () => 'textRow2Color';
 export const textClearTimerVarName = () => 'textClearTimer';
+// A "Blink text" block: the state (bits 0-4 the blinks left, bit 5 forever, bit 6 clear the text when done, bit 7 the text is hidden now) and the
+// color the text had (put back when it shows again).
+export const textBlinkVarName = () => 'textBlink';
+export const textBlinkColorVarName = () => 'textBlinkColor';
 export const textScrollCursorColorVarName = () => 'textScrollCursorColor';
 // The "end of message" icon's  color (via "Text: set end icon color",
 // text_minikernel_set_end_icon_color below) - the icon draws on GRP1 (its
@@ -746,6 +751,67 @@ export default (Blockly) => {
     const literal = /^\s*(\d+)\s*$/.exec(argument0);
     if (literal) return `${timer} = ${Math.max(1, Math.min(255, Number(literal[1])))}\n`;
     return `${timer} = ${argument0}\nif ${timer} = 0 then ${timer} = 1\n`;
+  };
+
+  // Blink text: hides the text for the off phases by giving it the color of the text background, and puts its color back for the on phases.
+  // The off phases are the frames in which the Blink speed's bit of the frame counter is set (16 frames when the speed is Never).
+  Blockly.BBasic['text_minikernel_blink'] = function(block) {
+    markTextMinikernelUsed();
+    const state = Blockly.BBasic.nameDB_.getName(textBlinkVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const saved = Blockly.BBasic.nameDB_.getName(textBlinkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const forever = block.getFieldValue('FOREVER') === 'TRUE';
+    const clear = block.getFieldValue('CLEAR') === 'TRUE';
+    // (A blink that was in its off phase has its color put back first, so the text it left is not left hidden.)
+    const lines = [`if ${state}{7} then TextColor = ${saved}`];
+    if (forever) {
+      lines.push(`${state} = 32`);
+    } else {
+      const argument0 = Blockly.BBasic.valueToCode(block, 'TIMES', Blockly.BBasic.ORDER_ASSIGNMENT) || '3';
+      const literal = /^\s*(\d+)\s*$/.exec(argument0);
+      const flag = clear ? 64 : 0;
+      if (literal) {
+        lines.push(`${state} = ${Math.max(1, Math.min(16, Number(literal[1]))) + flag}`);
+      } else {
+        lines.push(`${state} = ${argument0}`, `if ${state} = 0 then ${state} = 1`, `if ${state} > 16 then ${state} = 16`,
+            ...(clear ? [`${state} = ${state} + 64`] : []));
+      }
+    }
+    lines.push(`${saved} = TextColor`);
+    return lines.join('\n') + '\n';
+  };
+
+  Blockly.BBasic.generateTextBlinkChecks = function() {
+    if (!this.textBlinkUsed) return '';
+    const state = this.nameDB_.getName(textBlinkVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const saved = this.nameDB_.getName(textBlinkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const mask = resolveBlinkMask(((useConfigurationStorage() || {}).value || {}).textScrollCursorBlinkSpeed) || '$10';
+    const done = '_textblink_done';
+    const show = '_textblink_show';
+    const over = '_textblink_over';
+    return [
+      ` temp1 = ${state} & 63`,
+      ` if temp1 = 0 then goto ${done}`,
+      ` temp1 = framecounter & ${mask}`,
+      ` if temp1 = 0 then goto ${show}`,
+      ` if ${state}{7} then goto ${done}`,
+      ` ${saved} = TextColor`,
+      ' TextColor = textbkcolor',
+      ` ${state}{7} = 1`,
+      ` goto ${done}`,
+      show,
+      ` if !${state}{7} then goto ${done}`,
+      ` TextColor = ${saved}`,
+      ` ${state}{7} = 0`,
+      ` if ${state}{5} then goto ${done}`,
+      ` ${state} = ${state} - 1`,
+      ` temp1 = ${state} & 31`,
+      ` if temp1 > 0 then goto ${done}`,
+      ` if !${state}{6} then goto ${over}`,
+      ...this.textClearCode().split('\n').filter(Boolean).map((line) => ` ${line}`),
+      over,
+      ` ${state} = 0`,
+      done,
+    ].join('\n') + '\n';
   };
 
   Blockly.BBasic.generateTextClearTimerChecks = function() {

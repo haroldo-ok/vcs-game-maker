@@ -186,7 +186,8 @@ export default {
 
 /* The line at the bottom of the pinned toolbar takes the place of this one (no double line). */
 .graphic-editor-toolbar-scrolled .card-folder-divider,
-.soundfx-toolbar-scrolled .card-folder-divider {
+.soundfx-toolbar-scrolled .card-folder-divider,
+.data-toolbar-scrolled .card-folder-divider {
   display: none;
 }
 

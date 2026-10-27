@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message player-intro-paragraph">
@@ -10,7 +10,23 @@
           player size) setting, which will be set automatically when that sprite is activated.
         </p>
 
-        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="animations" @height-hotkey="handleSetHeightHotkey">
+        <!-- The folders are pinned above the toolbar of the graphics (which sticks just under them), as on the Text tab. -->
+        <div ref="folderToolbar" class="sprite-folder-toolbar tight-under-intro">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Sprites"
+            noun="sprite"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
+
+        <graphic-editor-toolbar :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="animations" @height-hotkey="handleSetHeightHotkey">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" :levels="playerZoomLevels" />
             <pixel-grid-toggle v-model="showPixelGrid" />
@@ -148,20 +164,8 @@
               </v-card>
             </v-menu>
           </template>
-          <template v-slot:below-tools>
-            <quick-color-palette v-if="spriteColorsEnabled" v-model="selectedQuickColor" :active-editor="effectiveFrameEditor" />
-            <card-folder-bar
-              :folders="foldersOf()"
-              :current="openFolderId()"
-              root-label="Sprites"
-              noun="sprite"
-              :accept="draggingCardIndex !== null"
-              @update:current="openFolder"
-              @change="refresh"
-              @add-folder="handleAddFolder"
-              @delete-folder="handleDeleteFolder"
-              @drop-cards="handleDropCards"
-            />
+          <template v-if="spriteColorsEnabled" v-slot:below-tools>
+            <quick-color-palette v-model="selectedQuickColor" :active-editor="effectiveFrameEditor" />
           </template>
         </graphic-editor-toolbar>
         <v-list class="animation-list" :class="{'animation-list-columns': cardColumns}" :style="cardColumns ? {'--sprite-card-min': cardColumnMin()} : null">
@@ -493,7 +497,7 @@
 <script>
 import {recordReorder} from '../hooks/reorder-history';
 import Vue from 'vue';
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
 import {chunk, max} from 'lodash';
 
 import CardFolderBar from '../components/CardFolderBar.vue';
@@ -555,6 +559,25 @@ export default defineComponent({
   props: ['storageFactory', 'title', 'fgColor', 'name'],
   setup(props) {
     const instance = getCurrentInstance();
+
+    // How tall the pinned folders are: the toolbar of the graphics sticks under them, not behind them.
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = element.offsetHeight;
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = element.offsetHeight;
+        });
+        folderToolbarObserver.observe(element);
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+    });
     // 0.75, not the shared 100% default - same "this tab reads better at a
     // different starting zoom" reasoning useEditorZoom's comment already
     // documents for Text (200%) and Score (150%).
@@ -1447,6 +1470,7 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, frameDrag, frameHandleListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
+      folderToolbar, folderToolbarHeight,
       armedFrameKey, frameKey, armFrameDrag,
       zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, cardColumns, cardColumnMin, editorWidth, frameEditorWidth,
       activeFrameEditor, setActiveFrame, isFrameActive, frameHighlightState, selectedAnimation,
@@ -1487,6 +1511,30 @@ export default defineComponent({
    does (this tab stays single-column, so grid itself isn't needed) -
    margin-top puts back the space above the FIRST card that zeroing
    v-list-item__content's padding would otherwise have also removed. */
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar of the graphics sticks just under them. */
+.sprite-folder-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fff;
+  margin-left: -16px;
+  margin-right: -16px;
+  /* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are (6px and the bar's 4px). */
+  padding: 6px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+/* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
+   under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
+.sprite-folder-toolbar + .graphic-editor-toolbar {
+  padding-top: 8px;
+}
+
+.desaturate-app-colors .sprite-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
 .animation-list {
   display: flex;
   flex-direction: column;

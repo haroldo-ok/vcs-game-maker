@@ -1,6 +1,5 @@
 <template>
   <div class="text-font-section">
-    <v-divider class="text-font-divider" />
     <div class="option-section-header" @click="toggleCollapsed(cardEntry)">
       <v-btn
         icon
@@ -416,12 +415,19 @@ export default defineComponent({
 </script>
 <style scoped>
 /* The same line as under the row of tools on the other tabs: the full width of the tab. */
+/* The collapsible content has 4px of padding on its left, which kept the toolbar and its line from reaching the left edge of the tab. */
+.text-font-section .option-section-content {
+  padding-left: 0;
+}
+
 .text-font-divider {
   margin: 8px -16px;
   max-width: none;
 }
 
 .text-font-section {
+  /* As far under the line above it as the line under it is below it (while it is collapsed). */
+  margin-top: 8px;
   margin-bottom: 16px;
 }
 

@@ -182,17 +182,20 @@
                         <v-text-field
                           label="X" type="number" outlined dense hide-details class="scene-number-field"
                           :value="selectedSprite(scene).x"
+                          @input="(value) => value !== '' && handleField(scene, 'x', value)"
                           @change="(value) => handleField(scene, 'x', value)"
                         />
                         <v-text-field
                           label="Y" type="number" outlined dense hide-details class="scene-number-field"
                           :value="selectedSprite(scene).y"
+                          @input="(value) => value !== '' && handleField(scene, 'y', value)"
                           @change="(value) => handleField(scene, 'y', value)"
                         />
                         <v-text-field
                           v-if="!isPlayer(selectedSprite(scene).object)"
                           label="Height" type="number" outlined dense hide-details class="scene-number-field"
                           :value="selectedSprite(scene).height"
+                          @input="(value) => value !== '' && handleField(scene, 'height', value)"
                           @change="(value) => handleField(scene, 'height', value)"
                         />
                         </div>
@@ -1213,6 +1216,12 @@ export default defineComponent({
 .scene-divider {
   margin: 8px -16px 0;
   max-width: none;
+}
+
+/* The first button of the row starts at the left edge, where the first icon of the other tabs does. */
+.scene-toolbar-row >>> .editor-zoom:first-child,
+.scene-toolbar-row >>> .pixel-grid-toggle-btn:first-child {
+  margin-left: 0;
 }
 
 .scene-toolbar-row {

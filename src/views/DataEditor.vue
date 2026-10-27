@@ -114,10 +114,22 @@
             </v-btn>
           </div>
           <v-divider class="data-divider" />
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Data"
+            noun="table"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
         </div>
 
         <v-list class="data-list" :class="{'data-list--single-column': !dataColumns}">
-          <v-list-item class="entry-list-item" v-for="(table, index) in state.dataTables" v-bind:key="table.id">
+          <v-list-item class="entry-list-item" v-for="{card: table, index} in visibleEntries()" v-bind:key="table.id">
             <v-list-item-content>
               <v-card
                 outlined
@@ -131,7 +143,7 @@
                   class="data-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(index)"
-                  v-on="dragHandleListeners(index)"
+                  v-on="cardHandleListeners(index)"
                 />
                 <v-btn
                   :title="isCollapsed(table) ? 'Expand this table' : 'Collapse this table'"
@@ -150,9 +162,9 @@
                 <div class="data-toolbar-top-right">
                   <confirm-delete-menu
                     v-if="state.dataTables.length > 1"
-                    :title="deleteQuestion(table.id, 'table', 1)"
+                    :title="deleteQuestion(table.id, 'table')"
                     :selected="table.id === selectedCardId && selectedCardIds.includes(table.id)"
-                    :activator-title="deleteQuestion(table.id, 'table', 1).replace('?', '')"
+                    :activator-title="deleteQuestion(table.id, 'table').replace('?', '')"
                     icon-btn-class="data-icon-btn-size"
                     @confirm="handleDeleteTable(table)"
                   />
@@ -357,6 +369,8 @@ import {recordReorder, sameItems} from '../hooks/reorder-history';
 import {newestSteps} from '../hooks/undo-limit';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useDragReorder, CSS_CLASS_DRAGGING} from '../hooks/drag-reorder';
+import {useCardFolders} from '../hooks/card-folders';
+import CardFolderBar from '../components/CardFolderBar.vue';
 import {useCardSelection} from '../hooks/card-selection';
 import {useBackgroundsStorage, useDataTablesStorage, usePlayerAnimationsStorage,
   useSoundEffectsStorage, useSongsStorage, useTextStringsStorage, useTitleScreenStorage,
@@ -435,7 +449,7 @@ const DATA_VALUE_CELL_MIN_PX = 120;
 const copiedTableData = ref(null);
 
 export default defineComponent({
-  components: {ColorSwatchPicker, ConfirmDeleteMenu, PixelGridToggle},
+  components: {CardFolderBar, ColorSwatchPicker, ConfirmDeleteMenu, PixelGridToggle},
   setup() {
     const dataTablesStorage = useDataTablesStorage();
     const dataColumns = useDataColumnsStorage();
@@ -499,9 +513,12 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
       useCardSelection(
-          () => state.value.dataTables.map(({id}) => id), selectedCardId);
+          () => visibleEntries().map(({card}) => card.id), selectedCardId);
+    // The indices, in the whole list, of the selected cards (dragging one of them moves them all).
+    const getSelectedFullIndices = () => state.value.dataTables
+        .map((table, index) => (selectedCardIds.value.includes(table.id) ? index : -1)).filter((index) => index >= 0);
     // The table the shared toolbar below acts on - whichever card is
     // currently selected, same pattern as MusicEditor.vue's activeSong()
     // and GraphicEditorToolbar.vue's activeEditor driving each toolbar.
@@ -654,11 +671,36 @@ export default defineComponent({
             state.value.dataTables = items;
             handleChildChange();
           },
-          getSelectedIndices,
+          getSelectedFullIndices,
           {renumber: {kind: 'datatable', onRenumbered: renumbered}},
       );
 
     const instance = getCurrentInstance();
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the tables keep their numbers and their place in the
+    // one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a table is in its `folder`.
+    const foldersOf = () => {
+      const data = state.value;
+      if (!Array.isArray(data.folders)) data.folders = [];
+      return data.folders;
+    };
+    const refresh = () => {
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const {openFolderId, visibleEntries, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners,
+      handleDropCards} = useCardFolders({
+      getCards: () => state.value.dataTables,
+      getFolders: foldersOf,
+      setFolders: (folders) => {
+        state.value.folders = folders;
+      },
+      refresh,
+      getSelectedIndices: getSelectedFullIndices,
+      deselectCard,
+      tab: 'data',
+    });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
 
     // Same "growing padding + a bottom border once actually scrolled"
     // treatment as GraphicEditorToolbar.vue's .graphic-editor-toolbar/
@@ -702,6 +744,7 @@ export default defineComponent({
       const maxId = max(dataTables.map((o) => o.id)) || 0;
       const newTable = {
         id: maxId + 1,
+        ...newCardFolder(),
         name: `Table ${maxId + 1}`,
         values: [0],
         columns: DEFAULT_DATA_TABLE_COLUMNS,
@@ -714,7 +757,9 @@ export default defineComponent({
     };
 
     const handleDeleteTable = (table) => {
-      const doomed = idsToDelete(table.id, 1);
+      // (At least one table is kept: the ids are of the cards listed, so the whole list is counted here.)
+      let doomed = idsToDelete(table.id);
+      if (doomed.length >= state.value.dataTables.length) doomed = doomed.slice(1);
       const {remaining, idMap} = removeCards('datatable', state.value.dataTables, doomed);
       state.value.dataTables = remaining;
       if (idMap) renumbered(idMap);
@@ -1284,6 +1329,8 @@ export default defineComponent({
       DATA_VALUES_EXTRA_SLACK_PX,
       maxColumns: MAX_DATA_TABLE_COLUMNS_DISPLAY,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
+      cardHandleListeners,
       valueDragClass, valueHandleListeners, valueRowListeners,
     };
   },
@@ -1531,6 +1578,11 @@ export default defineComponent({
   max-width: none;
 }
 
+/* The columns button (the 4px the toggle has on its left is for a toggle after another button) starts at the left edge, where the first icon of the other tabs does. */
+.data-toolbar-row >>> .pixel-grid-toggle-btn:first-child {
+  margin-left: 0;
+}
+
 .data-toolbar-row {
   display: flex;
   align-items: center;
@@ -1588,11 +1640,6 @@ export default defineComponent({
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;
   padding-bottom: 10px;
-}
-
-  /* The line at the bottom of the pinned toolbar takes the place of the toolbar's last divider (no double line). */
-.data-toolbar-scrolled .data-divider {
-  display: none;
 }
 
 /* "Soft Colors" (see App.vue's desaturate-app-colors class/comment) -

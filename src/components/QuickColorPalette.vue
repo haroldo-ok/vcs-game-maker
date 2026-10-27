@@ -1,5 +1,5 @@
 <template>
-  <div :class="{'quick-color-collapsed': collapsed}">
+  <div class="quick-color-root" :class="{'quick-color-collapsed': collapsed}">
     <div class="quick-color-label-row">
       <v-btn
         icon
@@ -204,6 +204,11 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* Clear of the line above it (padding, not a margin: the margin of the line and the one of the label would be one). */
+.quick-color-root {
+  padding-top: 6px;
+}
+
 .quick-color-label-row {
   display: flex;
   align-items: center;

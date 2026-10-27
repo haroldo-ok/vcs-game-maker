@@ -4473,7 +4473,6 @@ export default defineComponent({
   gap: 4px;
   /* As tall as the Sound tab's row (its columns button is 28px), and the first icon in the same place as that tab's. */
   min-height: 28px;
-  padding-left: 4px;
 }
 
 /* Zeroes .music-icon-btn-size's margin: 0 1px (needed elsewhere on
