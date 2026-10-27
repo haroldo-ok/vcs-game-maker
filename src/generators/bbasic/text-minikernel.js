@@ -819,9 +819,17 @@ export default (Blockly) => {
     const timer = this.nameDB_.getName(textClearTimerVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const skip = '_textcleartimer_done';
     return [
-      ` if ${timer} = 0 then goto ${skip}`,
-      ` ${timer} = ${timer} - 1`,
-      ` if ${timer} > 0 then goto ${skip}`,
+      // (Assembly: this runs every frame, and most of them nothing is counting.)
+      ' asm',
+      `  lda ${timer}`,
+      '  bne _textcleartimer_count',
+      `  jmp .${skip}`,
+      '_textcleartimer_count',
+      `  dec ${timer}`,
+      '  beq _textcleartimer_clear',
+      `  jmp .${skip}`,
+      '_textcleartimer_clear',
+      'end',
       ...this.textClearCode().split('\n').filter(Boolean).map((line) => ` ${line}`),
       skip,
     ].join('\n') + '\n';

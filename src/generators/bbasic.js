@@ -2521,18 +2521,9 @@ Blockly.BBasic.init = function(workspace) {
     const animated = ['player0', 'player1', ...(this.dpcPlusExtraPlayers || []).map((n) => `player${n}`)]
         .filter((name) => !partnerNames.has(name) && !ownerNames.has(name));
     this.animSkipPlayers = (useConfigurationStorage().value || {}).kernel === 'dpcplus' ? new Set(animated) : new Set();
-    // A player whose animations (the ones the project uses) all have one picture and last the same number of frames has the same limit
-    // whichever it is on: the number itself is compared with, and there is no byte for it.
+    // (Every player has a byte for its limit. A player whose animations all had one picture of the same length used to compare with the
+    // number itself, but an animation held on its last frame needs the byte to tell the main bank it is held, see quickPast.)
     this.animSkipConst = new Map();
-    if (this.animSkipPlayers.size) {
-      const animations = processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage()).animations || [];
-      this.animSkipPlayers.forEach((name) => {
-        const used = (this.usedPlayerAnimations || {})[name];
-        const mine = animations.filter((animation, index) => animation && (!used || used.has(index)));
-        const totals = new Set(mine.map((animation) => (animation.frames || []).length === 1 ? clampFrameDuration(animation.frames[0].duration) : 0));
-        if (mine.length && totals.size === 1 && !totals.has(0)) this.animSkipConst.set(name, [...totals][0]);
-      });
-    }
   }
   reserveAnimNextDevVars(reserveDevVar, new Set([...this.animSkipPlayers].filter((name) => !this.animSkipConst.has(name))));
 
@@ -8087,6 +8078,8 @@ Blockly.BBasic.generateAnimations = function() {
     const at = (suffix) => `.${animationLabel}${suffix}`;
     const finishedRef = isFinishedWatched ? /^(.+)\{(\d)\}$/.exec(animFinishedDoneRef(Blockly, name)) : null;
     const lastFrame = Math.min(totalDuration, 255);
+    const heldRef = this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name) ?
+      this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
     const counterLines = [
       ' asm',
       ...(sizeSet ? [`  lda ${sizeSet}`, `  bne ${at('sizeSet')}`] : []),
@@ -8108,6 +8101,10 @@ Blockly.BBasic.generateAnimations = function() {
       `  beq ${at('store')}`,
       at('noLoop'),
       `  ldx #${lastFrame - 1}`,
+      // (On the DPC+ kernel a picture that is loaded and held on the last frame needs nothing else, so the search below is left out.)
+      // (A 1 in the limit of the animation tells the code in the main bank that this one is held, so it is not entered again: see quickPast.)
+      ...(isDpcPlus && !finishedRef ? [`  bit ${name}size`, `  bpl ${at('heldLoad')}`,
+        ...(heldRef ? ['  lda #1', `  sta ${heldRef}`] : []), `  jmp .${animationLabel}animationEnd`, at('heldLoad')] : []),
       // (Once for the animation: the frame stays on the last one, and this runs on every frame it stays.)
       ...(finishedRef ? [
         `  lda ${finishedRef[1]}`,
@@ -8182,6 +8179,7 @@ Blockly.BBasic.generateAnimations = function() {
       this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const enterLabel = `${name}animationsEnter`;
     // (Bit 7 of the size byte, the loaded flag, is the sign and bit 6, paused, the overflow flag of a BIT.)
+    const heldCheck = this.animSkipConst.has(name) ? `.${name}animationsEnter` : `${name}animationsHeldCheck`;
     const quickPast = limitOperand ? [
       ' asm',
       `  bit ${name}size`,
@@ -8192,9 +8190,16 @@ Blockly.BBasic.generateAnimations = function() {
       `  ldx ${name}frame`,
       '  inx',
       `  cpx ${limitOperand}`,
-      `  bcs .${enterLabel}`,
+      `  bcs ${heldCheck}`,
       `  stx ${name}frame`,
       `  jmp .${animationsEndLabel}`,
+      ...(this.animSkipConst.has(name) ? [] : [
+        // (A limit of 1 is an animation that stays on its last frame; a write of the frame puts 0 there, and the code runs.)
+        heldCheck,
+        `  lda ${limitOperand}`,
+        '  cmp #1',
+        `  bne .${enterLabel}`,
+        `  jmp .${animationsEndLabel}`]),
       'end',
       enterLabel,
     ].join('\n') + '\n' : '';

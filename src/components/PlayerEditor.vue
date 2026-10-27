@@ -11,7 +11,7 @@
         </p>
 
         <!-- The folders are pinned above the toolbar of the graphics (which sticks just under them), as on the Text tab. -->
-        <div ref="folderToolbar" class="sprite-folder-toolbar tight-under-intro">
+        <div ref="folderToolbar" class="sprite-folder-toolbar tight-under-intro" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
           <card-folder-bar
             :folders="foldersOf()"
             :current="openFolderId()"
@@ -563,20 +563,38 @@ export default defineComponent({
     // How tall the pinned folders are: the toolbar of the graphics sticks under them, not behind them.
     const folderToolbar = ref(null);
     const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      // (Pinned, it has more room above, so it is taller: the toolbar under it sticks after that.)
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
     let folderToolbarObserver = null;
     onMounted(() => {
       const element = folderToolbar.value;
       if (!element) return;
-      folderToolbarHeight.value = element.offsetHeight;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
       if (typeof ResizeObserver !== 'undefined') {
         folderToolbarObserver = new ResizeObserver(() => {
-          folderToolbarHeight.value = element.offsetHeight;
+          folderToolbarHeight.value = pinnedHeight(element);
         });
-        folderToolbarObserver.observe(element);
+        folderToolbarObserver.observe(element, {box: 'border-box'});
       }
     });
     onBeforeUnmount(() => {
       if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
     });
     // 0.75, not the shared 100% default - same "this tab reads better at a
     // different starting zoom" reasoning useEditorZoom's comment already
@@ -1470,7 +1488,7 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, frameDrag, frameHandleListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
-      folderToolbar, folderToolbarHeight,
+      folderToolbar, folderToolbarHeight, folderToolbarPinned,
       armedFrameKey, frameKey, armFrameDrag,
       zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, cardColumns, cardColumnMin, editorWidth, frameEditorWidth,
       activeFrameEditor, setActiveFrame, isFrameActive, frameHighlightState, selectedAnimation,
@@ -1520,15 +1538,30 @@ export default defineComponent({
   background-color: #fff;
   margin-left: -16px;
   margin-right: -16px;
-  /* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are (6px and the bar's 4px). */
-  padding: 6px 16px 0;
+  /* 2px above the folders (in padding: a margin of the bar would run into the negative margin above), so they are as far under the label of the tab as
+     the toolbar of the Playfield tab is. */
+  padding: 2px 16px 0;
   --toolbar-bleed: 16px;
+}
+
+.sprite-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+/* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are. Not before, so they are as far under the label
+   of the tab as the toolbar of the Playfield tab is. */
+.sprite-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
 }
 
 /* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
    under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
 .sprite-folder-toolbar + .graphic-editor-toolbar {
   padding-top: 8px;
+}
+/* Pinned: the toolbar overlaps the folders by a pixel, so it has that pixel more above the icons: as far above them as below. */
+.sprite-folder-toolbar + .graphic-editor-toolbar.graphic-editor-toolbar-scrolled {
+  padding-top: 11px;
 }
 
 .desaturate-app-colors .sprite-folder-toolbar {

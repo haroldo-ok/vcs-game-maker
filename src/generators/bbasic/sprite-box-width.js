@@ -113,6 +113,22 @@ export const generateBoxChecks = (Blockly) => {
     const done = `_boxpair_${id}_done`;
     const a = boxesOf(Blockly, first);
     const b = boxesOf(Blockly, second);
+    // Two boxes that are a single box each of a fixed width (a player that is always 8 pixels wide, the missiles, the ball): the comparison
+    // is assembly, with the same 8 bit sums and unsigned compares as the statements below, a good deal less than half the cycles of them.
+    if (!a.count && !b.count && a.xs.length === 1 && b.xs.length === 1 && Number.isInteger(a.width) && Number.isInteger(b.width)) {
+      const over = (low, high, lowEnd) => [`  lda ${low}`, '  clc', `  adc ${high}`, `  cmp ${lowEnd}`, `  bcc .${done}`];
+      lines.push(` rem ${first} and ${second} boxes:`,
+          ` ${hit} = 0`,
+          ' asm',
+          // (a.y + a.height) < b.y: a is above b. b.y + b.height < a.y: a is below b.
+          ...over(a.y, a.height, b.y), ...over(b.y, b.height, a.y),
+          // (a.x + a width) < b.x: a is to the left of b. b.x + b width < a.x: a is to the right of b.
+          ...over(a.xs[0], `#${a.width}`, b.xs[0]), ...over(b.xs[0], `#${b.width}`, a.xs[0]),
+          'end',
+          ` ${hit} = 1`,
+          done);
+      return;
+    }
     lines.push(` rem ${first} and ${second} boxes:`,
         ` ${hit} = 0`,
         ` if (${a.y} + ${a.height}) < ${b.y} then goto ${done}`,

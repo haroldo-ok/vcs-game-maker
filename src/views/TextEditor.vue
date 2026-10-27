@@ -29,13 +29,12 @@
             class="text-scroll-cursor-switch"
           />
           <v-select
-            v-if="enableTextScrollCursor"
             v-model="textScrollCursorBlinkSpeed"
             :items="BLINK_SPEED_OPTIONS"
             item-text="text"
             item-value="value"
-            title="How often the cursor blinks off - always a power of 2 number of frames (a single framecounter bit), or Never for a steady, non-blinking cursor"
-            label="Blink speed"
+            title="How often the scroll cursor and the &quot;Blink text&quot; block blink off - always a power of 2 number of frames (a single framecounter bit). Never is a steady scroll cursor, and 16 frames for &quot;Blink text&quot;"
+            label="Blink speed (cursor and Blink text)"
             hide-details
             class="text-blink-speed-field"
           />
@@ -384,14 +383,16 @@ export default defineComponent({
     // How tall the pinned folders are: the toolbar of the font editor below sticks under them, not behind them.
     const folderToolbar = ref(null);
     const folderToolbarHeight = ref(0);
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
     let folderToolbarObserver = null;
     onMounted(() => {
       const element = folderToolbar.value;
       if (!element) return;
-      folderToolbarHeight.value = element.offsetHeight;
+      folderToolbarHeight.value = pinnedHeight(element);
       if (typeof ResizeObserver !== 'undefined') {
         folderToolbarObserver = new ResizeObserver(() => {
-          folderToolbarHeight.value = element.offsetHeight;
+          folderToolbarHeight.value = pinnedHeight(element);
         });
         folderToolbarObserver.observe(element);
       }
@@ -566,7 +567,7 @@ export default defineComponent({
    row right next to it - nudged up to bring its input line back onto
    the same baseline. */
 .text-blink-speed-field {
-  max-width: 160px;
+  max-width: 260px;
   margin-top: -12px;
   margin-left: 16px;
 }

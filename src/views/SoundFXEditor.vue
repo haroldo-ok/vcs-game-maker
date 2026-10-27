@@ -26,7 +26,7 @@
              DataEditor.vue's toolbar acts on selectedTable. @click.stop for
              the same reason GraphicEditorToolbar.vue's root div has it. -->
         <!-- The folders are pinned above the toolbar (which sticks just under them), as on the Sprite and Text tabs. -->
-        <div ref="folderToolbar" class="sound-folder-toolbar">
+        <div ref="folderToolbar" class="sound-folder-toolbar" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
           <card-folder-bar
             :folders="foldersOf()"
             :current="openFolderId()"
@@ -1178,20 +1178,38 @@ export default defineComponent({
     // How tall the pinned folders are: the toolbar of the sounds sticks under them, not behind them.
     const folderToolbar = ref(null);
     const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      // (Pinned, it has more room above, so it is taller: the toolbar under it sticks after that.)
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
     let folderToolbarObserver = null;
     onMounted(() => {
       const element = folderToolbar.value;
       if (!element) return;
-      folderToolbarHeight.value = element.offsetHeight;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
       if (typeof ResizeObserver !== 'undefined') {
         folderToolbarObserver = new ResizeObserver(() => {
-          folderToolbarHeight.value = element.offsetHeight;
+          folderToolbarHeight.value = pinnedHeight(element);
         });
-        folderToolbarObserver.observe(element);
+        folderToolbarObserver.observe(element, {box: 'border-box'});
       }
     });
     onBeforeUnmount(() => {
       if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
     });
 
     // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the sounds keep their numbers and their place in the
@@ -1651,7 +1669,7 @@ export default defineComponent({
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
-      cardHandleListeners, folderToolbar, folderToolbarHeight,
+      cardHandleListeners, folderToolbar, folderToolbarHeight, folderToolbarPinned,
     };
   },
 });
@@ -1812,15 +1830,30 @@ export default defineComponent({
   margin-top: -10px;
   margin-left: -16px;
   margin-right: -16px;
-  /* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are (6px and the bar's 4px). */
-  padding: 6px 16px 0;
+  /* 2px above the folders (in padding: a margin of the bar would run into the negative margin above), so they are as far under the label of the tab as
+     the toolbar of the Playfield tab is. */
+  padding: 2px 16px 0;
   --toolbar-bleed: 16px;
+}
+
+.sound-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+/* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are. Not before, so they are as far under the label
+   of the tab as the toolbar of the Playfield tab is. */
+.sound-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
 }
 
 /* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
    under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
 .sound-folder-toolbar + .soundfx-toolbar {
   padding-top: 8px;
+}
+/* Pinned: the toolbar overlaps the folders by a pixel, so it has that pixel more above the icons: as far above them as below. */
+.sound-folder-toolbar + .soundfx-toolbar.soundfx-toolbar-scrolled {
+  padding-top: 11px;
 }
 
 .desaturate-app-colors .sound-folder-toolbar {

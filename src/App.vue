@@ -3423,7 +3423,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .soundfx-stop-btn:hover .v-icon,
 .dark-mode.v-application .soundfx-play-btn:hover .v-icon,
 .dark-mode.v-application .music-flat-icon-btn:hover .v-icon,
-.dark-mode.v-application .card-folder-new-btn:hover .v-icon,
+.dark-mode.v-application .card-folder-new-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .titlescreen-play-btn:hover .v-icon,
 .dark-mode.v-application .import-icon-btn:hover {
   color: #fff !important;
@@ -3532,6 +3532,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .text-folder-toolbar,
 .dark-mode.v-application .sprite-folder-toolbar,
 .dark-mode.v-application .sound-folder-toolbar,
+.dark-mode.v-application .data-folder-toolbar,
 .dark-mode.v-application .editor-container.theme--dark.v-card {
   background-color: #000 !important;
 }
@@ -3555,6 +3556,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.desaturate-app-colors.v-application .text-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .sprite-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .sound-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .data-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .editor-container.theme--dark.v-card {
   background-color: #1e1e1e !important;
 }

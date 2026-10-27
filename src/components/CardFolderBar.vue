@@ -230,7 +230,8 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
+  /* (Nothing on its left: its icon is in line with the first icon of the toolbar under it.) */
+  padding: 2px 6px 2px 2px;
   border-radius: 4px;
   cursor: pointer;
 }

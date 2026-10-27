@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>Data</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message data-intro-paragraph">
@@ -26,6 +26,21 @@
              "click anywhere to deselect" handler would otherwise fire on
              every click in here too, deselecting the very card these tools
              are supposed to act on. -->
+        <!-- The folders are pinned above the toolbar (which sticks just under them), as on the Sprite, Sound and Text tabs. -->
+        <div ref="folderToolbar" class="data-folder-toolbar" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Data"
+            noun="table"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
         <div
           class="data-toolbar"
           :class="{'data-toolbar-scrolled': isDataToolbarScrolled}"
@@ -114,18 +129,6 @@
             </v-btn>
           </div>
           <v-divider class="data-divider" />
-          <card-folder-bar
-            :folders="foldersOf()"
-            :current="openFolderId()"
-            root-label="Data"
-            noun="table"
-            :accept="draggingCardIndex !== null"
-            @update:current="openFolder"
-            @change="refresh"
-            @add-folder="handleAddFolder"
-            @delete-folder="handleDeleteFolder"
-            @drop-cards="handleDropCards"
-          />
         </div>
 
         <v-list class="data-list" :class="{'data-list--single-column': !dataColumns}">
@@ -676,6 +679,43 @@ export default defineComponent({
       );
 
     const instance = getCurrentInstance();
+
+    // How tall the pinned folders are: the toolbar of the tables sticks under them, not behind them.
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      // (Pinned, it has more room above, so it is taller: the toolbar under it sticks after that.)
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = pinnedHeight(element);
+        });
+        folderToolbarObserver.observe(element, {box: 'border-box'});
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
+    });
 
     // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the tables keep their numbers and their place in the
     // one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a table is in its `folder`.
@@ -1330,7 +1370,7 @@ export default defineComponent({
       maxColumns: MAX_DATA_TABLE_COLUMNS_DISPLAY,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
-      cardHandleListeners,
+      cardHandleListeners, folderToolbar, folderToolbarHeight, folderToolbarPinned,
       valueDragClass, valueHandleListeners, valueRowListeners,
     };
   },
@@ -1529,9 +1569,50 @@ export default defineComponent({
    treatment is copied so it reads as the same kind of toolbar). Sticks to
    the top of the tab's scrolling ancestor (.editor-container) as the card
    list scrolls past underneath it. */
-.data-toolbar {
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar of the tables sticks just under them. */
+.data-folder-toolbar {
   position: sticky;
   top: 0;
+  z-index: 3;
+  background-color: #fff;
+  /* Close under the intro text while it is not pinned (the toolbar under it no longer has this margin). */
+  margin-top: -10px;
+  margin-left: -16px;
+  margin-right: -16px;
+  /* 2px above the folders (in padding: a margin of the bar would run into the negative margin above), so they are as far under the label of the tab as
+     the toolbar of the Playfield tab is. */
+  padding: 2px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+.data-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+/* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are. Not before, so they are as far under the label
+   of the tab as the toolbar of the Playfield tab is. */
+.data-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
+}
+
+/* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
+   under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
+.data-folder-toolbar + .data-toolbar {
+  padding-top: 8px;
+}
+/* Pinned: the toolbar overlaps the folders by a pixel, so it has that pixel more above the icons: as far above them as below. */
+.data-folder-toolbar + .data-toolbar.data-toolbar-scrolled {
+  padding-top: 11px;
+}
+
+.desaturate-app-colors .data-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
+.data-toolbar {
+  position: sticky;
+  top: var(--sticky-toolbar-offset, 0px);
   z-index: 2;
   background-color: #fff;
   padding-top: 4px;
@@ -1555,7 +1636,6 @@ export default defineComponent({
      down over the list's top edge, painting over whatever's there rather
      than just reducing visual distance the way a negative margin normally
      reads. */
-  margin-top: -10px;
   /* Same "full-bleed" trick as GraphicEditorToolbar.vue's bleedStyle
      (margin cancels the parent v-card-text's 16px side padding so this
      bar's background spans the full window width, padding re-adds the
@@ -1636,6 +1716,11 @@ export default defineComponent({
 
 /* Same "grows + gains a bottom border once actually scrolled" treatment as
    GraphicEditorToolbar.vue's .graphic-editor-toolbar-scrolled. */
+/* The line at the bottom of the pinned toolbar takes the place of its last divider (no double line). */
+.data-toolbar-scrolled .data-divider {
+  display: none;
+}
+
 .data-toolbar-scrolled {
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;

@@ -961,6 +961,8 @@ const familyHasExternalBareCaller = (members) => {
 // and subroutine/function names are only known after that call too, since
 // they're generated from the project's  content rather than fixed like
 // the event names.
+// (A unit that runs on every frame is not moved to free room in the main bank, only when the main bank has no other way to fit.)
+const EVERY_FRAME = 3;
 const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
   const primary = primaryBank || 1;
   const eventBanks = banks.eventBanks || {};
@@ -1027,7 +1029,21 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
           members,
         })),
   ];
-  return candidates.sort((a, b) => b.size - a.size);
+  // What leaves first is what runs least: a call into another bank costs 35-50 cycles through the bank trampolines. The events of the
+  // title and game over screens, the loads of a background, and the pictures that are only loaded when an animation changes go first;
+  // an animation's code, which the main bank steps past on most frames, and the other subroutines next; the subroutines that run on
+  // every frame (the box checks, the edge reset) last. Within a group the largest goes first, to need the fewest rebuilds.
+  const runFrequency = (unit) => {
+    if (unit.kind === 'eventBanks') return 0;
+    if (unit.kind === 'graphicsBanks') return /animation\d+$/.test(unit.name) ? 1 : 0;
+    if (unit.kind === 'subroutineBanks') {
+      if (/^_(pfbox|sprite_box|run_once_edge_reset)/.test(unit.name)) return EVERY_FRAME;
+      return /^_background_load/.test(unit.name) ? 0 : 2;
+    }
+    return 2;
+  };
+  candidates.forEach((unit) => (unit.frequency = runFrequency(unit)));
+  return candidates.sort((a, b) => a.frequency - b.frequency || b.size - a.size);
 };
 
 const pickRelocationCandidate = (banks, hasReservedMusicBank, primaryBank) =>
@@ -1052,7 +1068,7 @@ const pickSqueezeMove = (capacity, config, banks, tried) => {
     unit.kind === 'graphicsBanks' ? COMPILED_BYTES_PER_GRAPHICS_CHAR :
     unit.kind === 'musicBanks' ? 1 : COMPILED_BYTES_PER_SUBROUTINE_CHAR);
   const candidates = relocationCandidates(banks, !!reservedMusicBank, primary).filter((unit) =>
-    unit.kind !== 'musicBanks' && !tried.has(`${unit.kind}:${unit.name}`));
+    unit.kind !== 'musicBanks' && unit.frequency < EVERY_FRAME && !tried.has(`${unit.kind}:${unit.name}`));
   for (const unit of candidates) {
     const need = scaled(unit) * SQUEEZE_MARGIN;
     const fits = Object.keys(free).map(Number).filter((bank) => free[bank] >= need)
@@ -1500,6 +1516,7 @@ const buildRomInner = async () => {
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
+      window.__vcsPre = preprocessed; window.__vcsAsm = compiled.mainAsm; // TEMP profiling hook
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
@@ -1575,7 +1592,7 @@ const buildRomInner = async () => {
           variableUsage} :
         capacity);
       // Where each variable lives, for the emulator's debug info.
-      setDebugVariables(collectDebugVariables(variableUsage, compiledResult.symbolmap));
+      setDebugVariables(collectDebugVariables(variableUsage, compiledResult.symbolmap)); window.__vcsSymbols = compiledResult.symbolmap; // TEMP profiling hook
       // Remembers THIS build's  final layout as the next build's
       // first-attempt hint (see seedRelocationBanksFromLastSuccess's
       // comment in relocation-banks.js) - recorded on every success, not
