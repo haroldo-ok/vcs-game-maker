@@ -599,7 +599,7 @@ export default defineComponent({
     // project-wide setting (see the Options tab) - once it's on, every
     // background needs its  color list, since the compiled kernel always
     // draws every background's playfield from that color table.
-    // (With DPC+ they are also on by that kernel's own option, as the generator takes it: dpcPlusPfColorsOn.)
+    // (With DPC+ they are also on by that kernel's option, as the generator takes it: dpcPlusPfColorsOn.)
     const pfColorsEnabled = computed(() => !!(configurationStorage && configurationStorage.value &&
       (configurationStorage.value.enablePfColors ||
         (configurationStorage.value.kernel === 'dpcplus' && configurationStorage.value.enableDpcPlusPfColors))));
