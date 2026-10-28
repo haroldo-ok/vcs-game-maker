@@ -128,7 +128,11 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
     // new project's freshly-cloned DEFAULT_TEXT_STRINGS, still plain JS at
     // this point) - it just falls back to a plain assignment in that case.
     if (typeof entry.wrapToLine2 !== 'boolean') Vue.set(entry, 'wrapToLine2', false);
+    // The SpeakJet words the AtariVox says for the message instead of what the rules make of its text (empty: the rules).
+    if (typeof entry.speech !== 'string') Vue.set(entry, 'speech', '');
   });
+  // The project's pronunciations (see utils/speakjet-text.js).
+  if (typeof textStrings.pronunciations !== 'string') Vue.set(textStrings, 'pronunciations', '');
   return textStrings;
 };
 

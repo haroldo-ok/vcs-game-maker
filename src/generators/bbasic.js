@@ -3097,7 +3097,10 @@ Blockly.BBasic.init = function(workspace) {
   reserveSpriteHiddenDevVars(reserveDevVar, this.spriteHiddenUsedFor);
   // The AtariVox's speech: a position in the table of phrases (see bbasic/speech.js).
   if (prepareSpeech(Blockly, workspace)) {
-    reserveDevVar(SPEECH_POSITION_VAR, undefined, 'AtariVox speech: where in the table of phrases the next byte to send is (0 = nothing to send)');
+    reserveDevVar(SPEECH_POSITION_VAR, undefined, 'AtariVox speech: the ROM address (low byte) of the next byte to send of the phrase being sent');
+    reserveDevVar(SPEECH_POSITION_HIGH_VAR, undefined, 'AtariVox speech: the high byte of that address (0 = no phrase is being sent)');
+    reserveDevVar(SPEECH_QUEUE_VARS[0], undefined, 'AtariVox speech: the phrase to say next (its number + 1, 0 = none)');
+    reserveDevVar(SPEECH_QUEUE_VARS[1], undefined, 'AtariVox speech: the phrase to say after that');
   }
   reserveAnimFinishedDoneDevVars(reserveDevVar, this.playerAnimationFinishedWatches);
   // "Background scroll" with "scroll playfield colors" checked (needs the row
@@ -8477,7 +8480,8 @@ import music from './bbasic/music';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
-import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR} from './bbasic/speech';
+import avoxMemory from './bbasic/avox-memory';
+import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR, SPEECH_POSITION_HIGH_VAR, SPEECH_QUEUE_VARS} from './bbasic/speech';
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
@@ -8493,7 +8497,7 @@ import {runOnceResetLines, runOnceClearLines, runOnceStartupLines} from '../util
 import {collectChipChannels, createDpcPlusAudioPlan, DPC_AUDIO_SUBROUTINE_NAME, dpcAudioVars, redirectSoundRegisters} from './bbasic/dpcplus-audio';
 
 [background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
-  random, score, sound, soundfx, speech, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
+  random, score, sound, soundfx, speech, avoxMemory, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
     .forEach((init) => init(Blockly));
 
 // Which of OMITTABLE_SYSTEM_VARIABLES the finished code never touches apart from the template's starting

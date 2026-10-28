@@ -21,7 +21,7 @@ consistency.
 ## Local changes to the vendored gopher2600
 
 `vendor/` is gopher2600 from its main branch (commit 295b9e1, 2026-10-25; the last release, v0.57.2, has no
-AtariVox speech engine) with four local patches, kept in `patches/` so they can be reapplied after a re-vendor
+AtariVox speech engine) with five local patches, kept in `patches/` so they can be reapplied after a re-vendor
 (`git apply -p3 patches/*.patch` from this directory; `go mod vendor` brings back the unpatched files):
 
 - `0001-vcs-step-no-closure-allocation.patch`: `VCS.Step()` built a new closure for
@@ -45,6 +45,7 @@ AtariVox speech engine) with four local patches, kept in `patches/` so they can 
   package starts (new since v0.57.2). In the browser opening that file works but reading it returns no data and no
   error, which the scanner reports as an error, so the emulator panicked at start-up and no ROM could run (0.53.1
   to 0.53.3 shipped a build with this). `prefs` now reads and writes nothing when `GOOS` is `js`.
+- `0005-savekey-i2c-lines-as-on-hardware.patch`: the SaveKey (and the AtariVox's memory) read the I2C lines in a way real drivers do not drive them: a start was an SDA low at a clock rise, a data bit was SDA falling, a released line read low, and the acknowledge was lost by the next register write. Now a start is SDA falling while SCL is high, a bit is the level of SDA at the clock rise, a line that is not an output reads high, and what the SaveKey drives is let go when the clock falls.
 
 The television's frame limiter is switched off in `main.go` (`tv.SetFPSLimit(false)`):
 left on, it padded every frame to a full 16.7 ms wait, and the page paces the

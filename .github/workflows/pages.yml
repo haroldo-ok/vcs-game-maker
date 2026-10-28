@@ -1,0 +1,46 @@
+name: Publish the site
+
+# Puts the web page at https://abstractpolygon.github.io/VCS-Game-Maker-AbsPly/ (the site folder) and the online version of the app
+# under /app/ (the built app). Runs on every push to main and on demand from the Actions tab. The repository needs Pages turned on with
+# the source set to GitHub Actions (Settings, Pages).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # vuetify-loader asks for Vue 2.7 while the project is on Vue 2.6.
+      - run: npm ci --legacy-peer-deps
+      - run: npm run build
+      - name: Put the page and the app together
+        run: |
+          mkdir -p _site/app
+          cp -r dist/. _site/app/
+          cp -r site/. _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

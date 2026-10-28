@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VCS Game Maker AbsPly</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="description" content="A visual environment for building Atari 2600 games with blocks. It writes batari Basic, compiles a ROM and runs it in the browser.">
+  <style>
+    /* IBM Plex Mono by Mike Abbink (IBM), SIL Open Font License 1.1 (https://scripts.sil.org/OFL), the font the Blockly blocks use in the app. */
+    @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url(IBMPlexMono-400.woff2) format('woff2'); }
+    @font-face { font-family: 'IBM Plex Mono'; font-style: italic; font-weight: 400; font-display: swap; src: url(IBMPlexMono-400i.woff2) format('woff2'); }
+    @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url(IBMPlexMono-600.woff2) format('woff2'); }
+    /* Bungee by David Jonathan Ross, SIL Open Font License 1.1 (https://scripts.sil.org/OFL), for the headings. */
+    @font-face { font-family: 'Bungee'; font-style: normal; font-weight: 400; font-display: swap; src: url(Bungee.woff2) format('woff2'); }
+    :root { color-scheme: dark; --bg: #14161c; --panel: #1d2029; --text: #e8eaf0; --muted: #a3a9b8; --accent: #ff8a3d; --accent-text: #1a1206; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace; font-size: 15px; background: var(--bg); color: var(--text); line-height: 1.55; }
+    main { max-width: 56rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+    h1 { margin: 0 0 .5rem; line-height: 0; }
+    h1 img { display: block; width: min(100%, 26rem); height: auto; margin: 0 auto; filter: invert(1); opacity: .92; }
+    .tagline { color: var(--muted); font-size: 1.15rem; margin: 0 0 1.75rem; text-align: center; }
+    .buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; margin: 0 0 2rem; }
+    a.button { display: inline-block; padding: .7rem 1.2rem; text-decoration: none; font-weight: 600; border: 2px solid var(--accent); color: var(--accent); transition: background-color .15s ease, color .15s ease, filter .15s ease; }
+    a.button.primary { background: var(--accent); color: var(--accent-text); }
+    a.button:hover, a.button:focus-visible { filter: brightness(1.12); outline: none; }
+    /* An outline button fills with the accent color on hover, and its text turns dark to stay readable. */
+    a.button:not(.primary):hover, a.button:not(.primary):focus-visible { background: var(--accent); color: var(--accent-text); }
+    img.shot { width: 100%; height: auto; border: 1px solid #2c303c; margin: 0 0 2rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 0 0 2rem; }
+    .card { background: var(--panel); padding: 1rem 1.1rem; }
+    .card h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
+    .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+    .intro { margin: 0 0 2rem; }
+    .intro p { margin: 0 0 .75rem; }
+    .intro a, .feature a { color: var(--accent); }
+    .feature { display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem; align-items: center; margin: 0; padding: 2.25rem 0; border-top: 1px solid #2c303c; }
+    .feature.wide { display: block; }
+    .feature img { display: block; width: 100%; height: auto; border: 1px solid #2c303c; }
+    @media (max-width: 42rem) { .feature { grid-template-columns: 1fr; gap: 1.25rem; } }
+    .downloads { border-top: 1px solid #2c303c; padding: 2.25rem 0 0; margin: 0 0 2rem; }
+    .downloads h2 { font-family: 'Bungee', Impact, 'Arial Black', sans-serif; font-weight: 400; line-height: 1.3; letter-spacing: .01em; font-size: 1.8rem; text-align: center; margin: 0 0 .5rem; }
+    .dl-groups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.25rem 0 0; }
+    .dl-group { display: flex; flex-direction: column; gap: .6rem; background: var(--panel); padding: 1rem 1.1rem; }
+    .dl-title { margin: 0 0 .25rem; font-weight: 600; text-align: center; }
+    a[hidden] { display: none !important; }
+    .dl-group a.button { text-align: center; padding: .55rem .8rem; font-size: .9rem; }
+    @media (max-width: 42rem) { .dl-groups { grid-template-columns: 1fr; } }
+    .features { border-top: 1px solid #2c303c; padding: 2.25rem 0 0; margin: 0 0 2rem; }
+    .features h2 { font-family: 'Bungee', Impact, 'Arial Black', sans-serif; font-weight: 400; line-height: 1.3; letter-spacing: .01em; font-size: 1.8rem; text-align: center; margin: 0 0 1.5rem; }
+    .feature h2, .card h2 { font-family: 'Bungee', Impact, 'Arial Black', sans-serif; font-weight: 400; line-height: 1.3; letter-spacing: .01em; }
+    [id] { scroll-margin-top: 4.5rem; }
+    body { padding-top: 3.4rem; }
+    .topnav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; background: rgba(20, 22, 28, .94); border-bottom: 1px solid #2c303c; }
+    .topnav div { display: flex; gap: .25rem 1.5rem; max-width: 56rem; margin: 0 auto; padding: .75rem 1.25rem; overflow-x: auto; white-space: nowrap; justify-content: center; scrollbar-width: none; }
+    .topnav div::-webkit-scrollbar { display: none; }
+    .topnav a { color: var(--muted); text-decoration: none; font-weight: 600; font-size: .9rem; padding: .15rem 0; border-bottom: 2px solid transparent; }
+    .topnav a:hover, .topnav a:focus-visible, .topnav a.current { color: var(--accent); border-bottom-color: var(--accent); outline: none; }
+    @media (max-width: 42rem) { .topnav div { justify-content: flex-start; } }
+    .carousel { display: flex; align-items: center; gap: .5rem; margin: 1.5rem 0 0; }
+    .track { flex: 1; min-width: 0; }
+    .track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; scrollbar-width: none; overscroll-behavior-x: contain; }
+    .track::-webkit-scrollbar { display: none; }
+    .track:focus-visible { outline: 3px solid rgba(255, 138, 61, .5); outline-offset: 4px; }
+    .track figure { flex: 0 0 100%; margin: 0; scroll-snap-align: center; }
+    .track img { display: block; width: 100%; height: auto; border: 1px solid #2c303c; user-select: none; -webkit-user-drag: none; }
+    .track figcaption { margin: .75rem 0 0; text-align: center; color: var(--text); font-size: 1rem; }
+    .arrow { flex: none; width: 2.5rem; height: 4rem; padding: 0; font: 600 3rem/1 'IBM Plex Mono', monospace; color: var(--accent); background: none; border: 0; cursor: pointer; }
+    .arrow:hover:not(:disabled), .arrow:focus-visible { color: #ffb27a; outline: none; }
+    .arrow:disabled { opacity: .25; cursor: default; }
+    @media (max-width: 42rem) { .arrow { width: 1.5rem; font-size: 2.25rem; } .carousel { gap: .25rem; } }
+    .count { margin: .25rem 0 0; text-align: center; color: var(--muted); font-size: .85rem; }
+    .feature h2 { grid-column: 1 / -1; text-align: center; font-size: 1.8rem; margin: 0 0 .5rem; }
+    .feature p { margin: 0 0 .6rem; color: var(--muted); }
+    footer { color: var(--muted); font-size: .9rem; border-top: 1px solid #2c303c; padding-top: 1rem; }
+    .copyright { text-align: center; margin: 1rem 0 0; }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 2rem; margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid #2c303c; }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <nav class="topnav" aria-label="Sections">
+    <div>
+      <a href="#download">Download</a>
+      <a href="#features">Features</a>
+      <a href="#sprites">Sprites</a>
+      <a href="#playfield">Playfield</a>
+      <a href="#sound">Sound</a>
+      <a href="#text">Text</a>
+      <a href="#titles">Titles</a>
+      <a href="#views">Views</a>
+      <a href="#updates">Updates</a>
+    </div>
+  </nav>
+  <main>
+    <h1><img src="logo.svg" alt="VCS Game Maker AbsPly"></h1>
+    <p class="tagline">Build Atari 2600 games with blocks.</p>
+
+    <img class="shot" src="shot-hero.jpg" alt="The VCS Game Maker editor: the block workspace on the left and the running game in the emulator on the right.">
+
+    <div class="buttons">
+      <a class="button primary" href="app/" target="_blank" rel="noopener">Open in your browser</a>
+      <a class="button" href="https://haroldo-ok.itch.io/vcs-game-maker">Official itch.io</a>
+      <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/wiki">Documentation / Wiki</a>
+    </div>
+
+    <section class="intro">
+      <p>VCS Game Maker is a visual development environment for building Atari 2600 games. Design your game's logic with <a href="https://www.blockly.com/">Blockly</a> blocks, and behind the scenes VCSGM generates <a href="https://github.com/batari-Basic/batari-Basic">batari Basic</a> source code (along with a bit of assembly), compiles it into an Atari 2600 ROM, and runs it in the built-in emulator preview, using either <a href="https://github.com/6502ts/6502.ts">6502.ts</a> or <a href="https://github.com/jetsetilly/gopher2600">Gopher2600</a>.</p>
+      <p><em>This is very much a work-in-progress.</em></p>
+    </section>
+
+    <section class="downloads" id="download">
+      <h2>Download VCS GAME MAKER</h2>
+      <p class="count" id="dl-version"></p>
+      <div class="dl-groups">
+        <div class="dl-group">
+          <p class="dl-title">Windows</p>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
+        </div>
+        <div class="dl-group">
+          <p class="dl-title">macOS</p>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
+        </div>
+        <div class="dl-group">
+          <p class="dl-title">Linux</p>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS (portable)</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="features" id="features">
+      <h2>Features</h2>
+      <div class="grid">
+        <section class="card">
+
+          <h2>Blocks in,<br>ROM out</h2>
+
+          <p>Put the logic of your game together from <a href="https://www.blockly.com/" style="color: inherit">Blockly</a> blocks. VCS Game Maker then writes batari Basic (and a little assembly), compiles it into an Atari 2600 ROM.</p>
+
+        </section>
+
+        <section class="card">
+
+          <h2>Standard &amp; DPC+ kernels</h2>
+
+          <p>Use the Standard kernel, or upgrade to the <a href="https://forums.atariage.com/topic/163495-harmony-dpc-programming">DPC+ kernel</a> (wip) for more sprites, a taller playfield, per-row colors and a coprocessor.</p>
+
+        </section>
+
+        <section class="card">
+
+          <h2>sound &amp; music</h2>
+
+          <p>Design sound effects with envelopes, arpeggios and slides. Draw waveforms for the DPC+ sound chip, and compose songs in a full-featured music editor.</p>
+
+        </section>
+
+        <section class="card">
+
+          <h2>Runs ON... WHATEVER</h2>
+
+          <p>Use it in the browser or install the desktop app. Supports Windows, macOS, and Linux.</p>
+
+        </section>
+
+        <section class="card">
+
+          <h2>VIEW code,<br>BUILD ON IT</h2>
+
+          <p>The Generated tab shows the batari Basic created by your blocks, so you can read it, learn from it and build on it in other game development software.</p>
+
+        </section>
+
+        <section class="card">
+
+          <h2>Examples &amp; sound banks</h2>
+
+          <p>Download example projects, music, instrument and sound effect banks directly inside the app.</p>
+
+        </section>
+      </div>
+    </section>
+
+    <section class="feature" id="sprites">
+      <h2>Sprites &amp; animation</h2>
+      <div class="text">
+        <p>Draw sprites with extensive built-in drawing tools, or import files from Aseprite, automatically creating all of your animations with perfect frame timing.</p>
+      </div>
+      <img src="shot-sprites.jpg" alt="The Sprites tab of VCS Game Maker, with a player animation being drawn.">
+    </section>
+
+    <section class="feature" id="playfield">
+      <h2>BACKGROUNDS &amp; PlayfieldS</h2>
+      <div class="text">
+        <p>Draw full-screen playfield backgrounds in the editor. It has the same drawing tools as the sprite editor, with per-row playfield and background colors. Preview backgrounds directly in the emulator so you can get things pixel-perfect easily.</p>
+      </div>
+      <img src="shot-playfield.jpg" alt="The Playfield tab of VCS Game Maker, with a playfield background being drawn next to the running game.">
+    </section>
+
+    <section class="feature" id="sound">
+      <h2>Sound &amp; music</h2>
+      <div class="text">
+        <p>Make sound effects and songs without writing any code. The sound effect editor shapes TIA sounds with envelopes and arpeggios, and on DPC+ lets you directly waveforms.<br><br>The music editor lets you builds songs from patterns, with downloaded or custom instruments designed on the Sound tab.</p>
+      </div>
+      <img src="shot-music.jpg" alt="The Music tab of VCS Game Maker, with a pattern of notes from several instruments in the piano roll.">
+    </section>
+
+    <section class="feature" id="text">
+      <h2>Text &amp; scores</h2>
+      <div class="text">
+        <p>The <a href="https://forums.atariage.com/topic/287652-text-minikernel/">Text minikernel</a> shows messages on screen, by text name or ID. VCS Game Maker additions include up to 2 lines of text on-screen with independent line colors, scrolling text, and multi-line dialog text up to 255 characters long.</p>
+        <p>The score is a six-digit display (or five, if you prefer) that your blocks can set, add to and read. Pick a built-in font, a compact Squish font that frees room for the text rows, or draw custom digits, and give the score row a background color that can differ from the playfield's.</p>
+      </div>
+      <img src="shot-text.jpg" alt="The Text tab of VCS Game Maker, with the text messages the game can show.">
+    </section>
+
+    <section class="feature" id="titles">
+      <h2>Title screens</h2>
+      <div class="text">
+        <p>Design and animate high-quality, full-color title screens in the editor, and display them with built-in <a href="https://forums.atariage.com/topic/169819-the-titlescreen-kernel/">Title Screen</a> kernel support. Build each screen from stacked image strips and add as many pages as you like. Strips can be a single color for the sharpest result, or give each row a different color. The editor has the same drawing tools as the other graphics editors, and you can import and export images.</p>
+      </div>
+      <img src="shot-title.jpg" alt="The Title tab of VCS Game Maker, with a title screen page ready to draw.">
+    </section>
+
+    <section class="feature wide" id="views">
+      <h2>USE IT YOUR WAY</h2>
+      <p>Pick the look that suits you in the Options tab. Dark Mode, Subdued Palette, High Contrast and Expert Mode allow you to customize the VCS Game Maker UI to your preferences.</p>
+      <div class="carousel" role="group" aria-roledescription="carousel" aria-label="Ways to view the app">
+        <button class="arrow prev" type="button" aria-label="Previous view" disabled>&#8249;</button>
+        <div class="track" tabindex="0">
+          <figure>
+            <img src="view-default.jpg" alt="VCS Game Maker in this view: Default.">
+            <figcaption>Default</figcaption>
+          </figure>
+          <figure>
+            <img src="view-dark.jpg" alt="VCS Game Maker in this view: Dark Mode.">
+            <figcaption>Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-subdued.jpg" alt="VCS Game Maker in this view: Subdued Palette.">
+            <figcaption>Subdued Palette</figcaption>
+          </figure>
+          <figure>
+            <img src="view-subdued-dark.jpg" alt="VCS Game Maker in this view: Subdued Palette and Dark Mode.">
+            <figcaption>Subdued Palette and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-contrast.jpg" alt="VCS Game Maker in this view: High Contrast.">
+            <figcaption>High Contrast</figcaption>
+          </figure>
+          <figure>
+            <img src="view-contrast-dark.jpg" alt="VCS Game Maker in this view: High Contrast and Dark Mode.">
+            <figcaption>High Contrast and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert.jpg" alt="VCS Game Maker in this view: Expert Mode.">
+            <figcaption>Expert Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-dark.jpg" alt="VCS Game Maker in this view: Expert Mode, Dark Mode.">
+            <figcaption>Expert Mode, Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-subdued.jpg" alt="VCS Game Maker in this view: Expert Mode, Subdued Palette.">
+            <figcaption>Expert Mode, Subdued Palette</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-subdued-dark.jpg" alt="VCS Game Maker in this view: Expert Mode, Subdued Palette and Dark Mode.">
+            <figcaption>Expert Mode, Subdued Palette and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-contrast.jpg" alt="VCS Game Maker in this view: Expert Mode, High Contrast.">
+            <figcaption>Expert Mode, High Contrast</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-contrast-dark.jpg" alt="VCS Game Maker in this view: Expert Mode, High Contrast and Dark Mode.">
+            <figcaption>Expert Mode, High Contrast and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-icons.jpg" alt="VCS Game Maker in this view: Expert Mode, icons only.">
+            <figcaption>Expert Mode, icons only</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-icons-dark.jpg" alt="VCS Game Maker in this view: Expert Mode, icons only, Dark Mode.">
+            <figcaption>Expert Mode, icons only, Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-icons-subdued.jpg" alt="VCS Game Maker in this view: Expert Mode, icons only, Subdued Palette.">
+            <figcaption>Expert Mode, icons only, Subdued Palette</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-icons-subdued-dark.jpg" alt="VCS Game Maker in this view: Expert Mode, icons only, Subdued Palette and Dark Mode.">
+            <figcaption>Expert Mode, icons only, Subdued Palette and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-icons-contrast.jpg" alt="VCS Game Maker in this view: Expert Mode, icons only, High Contrast.">
+            <figcaption>Expert Mode, icons only, High Contrast</figcaption>
+          </figure>
+          <figure>
+            <img src="view-expert-icons-contrast-dark.jpg" alt="VCS Game Maker in this view: Expert Mode, icons only, High Contrast and Dark Mode.">
+            <figcaption>Expert Mode, icons only, High Contrast and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-top.jpg" alt="VCS Game Maker in this view: Top toolbar hidden.">
+            <figcaption>Top toolbar hidden</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-top-dark.jpg" alt="VCS Game Maker in this view: Top toolbar hidden, Dark Mode.">
+            <figcaption>Top toolbar hidden, Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-top-subdued.jpg" alt="VCS Game Maker in this view: Top toolbar hidden, Subdued Palette.">
+            <figcaption>Top toolbar hidden, Subdued Palette</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-top-subdued-dark.jpg" alt="VCS Game Maker in this view: Top toolbar hidden, Subdued Palette and Dark Mode.">
+            <figcaption>Top toolbar hidden, Subdued Palette and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-top-contrast.jpg" alt="VCS Game Maker in this view: Top toolbar hidden, High Contrast.">
+            <figcaption>Top toolbar hidden, High Contrast</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-top-contrast-dark.jpg" alt="VCS Game Maker in this view: Top toolbar hidden, High Contrast and Dark Mode.">
+            <figcaption>Top toolbar hidden, High Contrast and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-left.jpg" alt="VCS Game Maker in this view: Left toolbar hidden.">
+            <figcaption>Left toolbar hidden</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-left-dark.jpg" alt="VCS Game Maker in this view: Left toolbar hidden, Dark Mode.">
+            <figcaption>Left toolbar hidden, Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-left-subdued.jpg" alt="VCS Game Maker in this view: Left toolbar hidden, Subdued Palette.">
+            <figcaption>Left toolbar hidden, Subdued Palette</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-left-subdued-dark.jpg" alt="VCS Game Maker in this view: Left toolbar hidden, Subdued Palette and Dark Mode.">
+            <figcaption>Left toolbar hidden, Subdued Palette and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-left-contrast.jpg" alt="VCS Game Maker in this view: Left toolbar hidden, High Contrast.">
+            <figcaption>Left toolbar hidden, High Contrast</figcaption>
+          </figure>
+          <figure>
+            <img src="view-no-left-contrast-dark.jpg" alt="VCS Game Maker in this view: Left toolbar hidden, High Contrast and Dark Mode.">
+            <figcaption>Left toolbar hidden, High Contrast and Dark Mode</figcaption>
+          </figure>
+          <figure>
+            <img src="view-everything.jpg" alt="VCS Game Maker in this view: Everything!.">
+            <figcaption>Everything!</figcaption>
+          </figure>
+        </div>
+        <button class="arrow next" type="button" aria-label="Next view">&#8250;</button>
+      </div>
+      <p class="count" aria-live="polite"></p>
+    </section>
+
+    <section class="feature wide" id="updates">
+      <h2>Latest updates</h2>
+      <p><strong>Version 0.53.3</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
+      <p>Fixed the page freezing when you leave the Music tab after playing music or sounds (the sound code added watchers to the open tab for every note, millions after a song, and closing the tab took minutes). The Music tab also opens about three times faster with a big pattern open: the piano roll is drawn a moment after the rest of the tab.</p>
+      <p>Fixed a memory leak that made the app slower and slower until the browser or the desktop app crashed: every visit to the Music, Sound or Data tab kept the whole tab in memory. Memory now stays flat however often you switch tabs.</p>
+      <p>The Play button of a Title tab page works again for a project with big title screens: the preview compiles the page it shows only.</p>
+      <p>New "Playfield transition to [background] scrolling [Up/Down]" block: another background scrolls in over the one showing, a row at a time, with the Playfield scroll blocks you already use, instead of swapping to it at once (standard kernel).</p>
+      <p>Text on title screens works with the DPC+ kernel. With 5 score digits on DPC+ the first letter of a text line no longer loses its last pixel, and on the standard kernel the five digits next to the Text Minikernel are drawn whole, with nothing after the last one.</p>
+      <p>The emulator picture is 4:3 like an NTSC TV, and gopher2600 is newer, with AtariVox speech (an Emulator Settings switch for the Player 2 port). The macOS Apple silicon download is gone for now: that build does not work yet.</p>
+      <p>DPC+ games use fewer cycles (finished one-shot animations are not entered again, joystick directions are read in assembly), title screen data is packed into fewer pages, and a title screen that does not fit its bank says so.</p>
+      <p><strong>Version 0.53.0</strong></p>
+      <p>A deleted card can be undone and redone on every tab. Scene cards have a preview button and show the scene name, with block-colored sprite pills; the Sound tab's columns toggle is a toolbar icon; the Project page cards show TIA / ARM.</p>
+    </section>
+
+    <footer>
+      <p>VCS Game Maker was created by <a href="https://github.com/haroldo-ok">Haroldo de Oliveira Pinheiro</a>&nbsp;under the <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE-MIT-haroldo">MIT License</a>.<br>
+    <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply">AbstractPolygon</a> updates are released under the <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE">PolyForm Shield License 1.0.0</a>.<br>
+    <em>This is a work in progress.</em></p>
+      <p>Atari and Atari 2600 are trademarks of Atari Interactive, Inc.<br>
+      <a href="disclaimer.html">Atari is not affiliated with this software.</a></p>
+      <p class="footer-links"><a href="https://github.com/AbstractPolygon/vcs-game-maker-absply">GitHub</a> <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/wiki">Documentation / Wiki</a> <a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/blob/main/LICENSE">License</a></p>
+      <p class="copyright">Original code &copy; 2021-2026 Haroldo de Oliveira Pinheiro.<br>
+      Updates &amp; Additions &copy; 2026 AbstractPolygon, LLC.</p>
+    </footer>
+  </main>
+  <script>
+    // The "Ways to view the app" carousel: the slides sit side by side in a scroll-snap row, so a swipe works by itself on a touch screen;
+    // the arrows (and the left and right keys while the row has focus) move one slide.
+    (function () {
+      var track = document.querySelector('.carousel .track');
+      var prev = document.querySelector('.carousel .prev');
+      var next = document.querySelector('.carousel .next');
+      var count = document.querySelector('.carousel + .count');
+      var slides = track.children;
+      function current() { return Math.round(track.scrollLeft / track.clientWidth); }
+      function update() {
+        var i = Math.max(0, Math.min(slides.length - 1, current()));
+        prev.disabled = i === 0;
+        next.disabled = i === slides.length - 1;
+        count.textContent = (i + 1) + ' / ' + slides.length;
+      }
+      function go(step) { track.scrollTo({ left: (current() + step) * track.clientWidth, behavior: 'smooth' }); }
+      prev.addEventListener('click', function () { go(-1); });
+      next.addEventListener('click', function () { go(1); });
+      track.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft') { go(-1); e.preventDefault(); }
+        if (e.key === 'ArrowRight') { go(1); e.preventDefault(); }
+      });
+      track.addEventListener('scroll', function () { window.requestAnimationFrame(update); });
+      window.addEventListener('resize', update);
+      update();
+    })();
+    // The download buttons start out pointing straight at the files of the release that was newest when the page was written (a link with a
+    // file name of a build that is not out yet stays hidden); this points each at the file of the newest release (the file names carry the version).
+    (function () {
+      var links = document.querySelectorAll('a[data-asset]');
+      fetch('https://api.github.com/repos/AbstractPolygon/vcs-game-maker-absply/releases/latest')
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function (release) {
+          Array.prototype.forEach.call(links, function (link) {
+            var suffix = link.getAttribute('data-asset');
+            var file = release.assets.filter(function (a) { return a.name.slice(-suffix.length) === suffix; })[0];
+            if (file) {
+              link.href = file.browser_download_url;
+              link.title = file.name + ' (' + Math.round(file.size / 1048576) + ' MB)';
+              link.hidden = false;
+            } else if (link.hash === '#download') {
+              link.hidden = true;
+            }
+          });
+          document.getElementById('dl-version').textContent = 'Version ' + release.tag_name;
+        })
+        .catch(function () {});
+    })();
+    // The top menu scrolls the page to the section, easing in and out, instead of jumping to it.
+    (function () {
+      var frame = null;
+      function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+      function scrollToY(target) {
+        var from = window.pageYOffset;
+        var start = null;
+        var duration = Math.min(1200, 500 + Math.abs(target - from) * 0.15);
+        window.cancelAnimationFrame(frame);
+        function step(now) {
+          if (start === null) start = now;
+          var t = Math.min(1, (now - start) / duration);
+          window.scrollTo(0, from + (target - from) * ease(t));
+          if (t < 1) frame = window.requestAnimationFrame(step);
+        }
+        frame = window.requestAnimationFrame(step);
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.topnav a'), function (link) {
+        link.addEventListener('click', function (e) {
+          var el = document.getElementById(link.getAttribute('href').slice(1));
+          if (!el) return;
+          e.preventDefault();
+          var top = el.getBoundingClientRect().top + window.pageYOffset - parseFloat(getComputedStyle(el).scrollMarginTop || 0);
+          scrollToY(Math.max(0, top));
+          if (window.history && history.replaceState) history.replaceState(null, '', link.getAttribute('href'));
+        });
+      });
+      // A touch or a wheel while it is moving takes over.
+      ['wheel', 'touchstart'].forEach(function (name) { window.addEventListener(name, function () { window.cancelAnimationFrame(frame); }, { passive: true }); });
+    })();
+    // The top menu marks the section that is on the screen.
+    (function () {
+      var links = Array.prototype.slice.call(document.querySelectorAll('.topnav a'));
+      var targets = links.map(function (l) { return document.getElementById(l.getAttribute('href').slice(1)); });
+      function mark() {
+        var current = -1;
+        targets.forEach(function (el, i) { if (el && el.getBoundingClientRect().top <= window.innerHeight * 0.35) current = i; });
+        links.forEach(function (l, i) { l.classList.toggle('current', i === current); });
+      }
+      window.addEventListener('scroll', mark, { passive: true });
+      mark();
+    })();
+  </script>
+</body>
+</html>

@@ -100,9 +100,16 @@ func main() {
 			vcs.Step(nil)
 		}
 		if f%100 == 99 {
-			fmt.Printf("frame %d: sent %v aux samples %d (non zero %d)\n", f+1, stream(vcs), mx.auxSamples, mx.auxNonZero)
+			fmt.Printf("frame %d: sent %v memory %v aux samples %d (non zero %d)\n", f+1, stream(vcs), memory(vcs), mx.auxSamples, mx.auxNonZero)
 		}
 	}
+}
+
+func memory(vcs *hardware.VCS) []uint8 {
+	if p, ok := vcs.RIOT.Ports.RightPlayer.(*atarivox.AtariVox); ok && p.SaveKey != nil && p.SaveKey.EEPROM != nil {
+		return append([]uint8(nil), p.SaveKey.EEPROM.Data[:8]...)
+	}
+	return nil
 }
 
 func stream(vcs *hardware.VCS) []uint8 {
