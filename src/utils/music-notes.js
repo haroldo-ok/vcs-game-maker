@@ -1,6 +1,6 @@
 'use strict';
 
-import {useConfigurationStorage} from '../hooks/project';
+import {configurationValue} from '../hooks/configuration-value';
 import {tvAudioClockScale} from './tv-standard';
 import {midiForPianoIndex, PIANO_KEY_COUNT} from './dpc-sound';
 
@@ -14,7 +14,7 @@ import {midiForPianoIndex, PIANO_KEY_COUNT} from './dpc-sound';
 // other AUDC value has no well-defined single pitch at all, so those only
 // ever get a plain on/off hit.
 const NTSC_SHIFT_CLOCK = 31440;
-const shiftClock = () => NTSC_SHIFT_CLOCK * tvAudioClockScale(useConfigurationStorage().value);
+const shiftClock = () => NTSC_SHIFT_CLOCK * tvAudioClockScale(configurationValue());
 const PURE_TONE_AUDCS = new Set(['4', '5', '12', '13']);
 const SLOW_CLOCK_AUDCS = new Set(['12', '13']);
 
@@ -149,13 +149,13 @@ const nearestNote = (frequencyHz) => {
 // The project's settings when its sounds are played by the DPC+ music chip (see generators/bbasic/dpcplus-audio.js),
 // otherwise null. The chip plays any waveform at any pitch, so the notes an instrument has come from that.
 const dpcPlusSoundConfig = () => {
-  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+  const config = configurationValue() || {};
   return config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false ? config : null;
 };
 // What the note lists below depend on, so a cached list is only reused while it is still right.
 const noteSetKey = () => {
   const config = dpcPlusSoundConfig();
-  return config ? `dpcplus:${tvAudioClockScale(config)}` : `standard:${tvAudioClockScale(useConfigurationStorage().value)}`;
+  return config ? `dpcplus:${tvAudioClockScale(config)}` : `standard:${tvAudioClockScale(configurationValue())}`;
 };
 
 // A DPC+ instrument has a waveform and no sound type, and the chip can play it at any key of the piano: every

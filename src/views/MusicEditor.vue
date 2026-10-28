@@ -659,7 +659,7 @@
                         </div>
                       </div>
 
-                      <div class="piano-roll-wrapper" v-if="activePattern(song).tracks.length">
+                      <div class="piano-roll-wrapper" v-if="pianoRollReady && activePattern(song).tracks.length">
                       <div
                         class="piano-roll-height-resize-handle"
                         title="Drag to resize the pitch grid"
@@ -667,6 +667,7 @@
                       />
                       <div
                         class="piano-roll-scroll"
+                        :data-slices="refreshSliceGrid()"
                         :style="{maxHeight: `${pianoRollHeight}px`}"
                         @scroll="(event) => handlePianoRollScroll(song, event)"
                       >
@@ -1530,7 +1531,14 @@ export default defineComponent({
     // it's off. Every place that used to read state.value.subdivision
     // directly reads this instead, so flipping the toggle takes effect
     // everywhere at once without touching the stored dropdown value.
-    const effectiveSubdivision = () => (snapEnabled.value ? Math.max(1, Math.round(state.value.subdivision || 1)) : 1);
+    // (A computed: every cell of the piano roll asks for it while drawing, thousands of times when the tab opens.)
+    const effectiveSubdivisionValue = computed(() => (snapEnabled.value ? Math.max(1, Math.round(state.value.subdivision || 1)) : 1));
+    const effectiveSubdivision = () => effectiveSubdivisionValue.value;
+    // The piano roll (thousands of cells) is drawn a moment after the rest of the tab, so the tab shows at once.
+    const pianoRollReady = ref(false);
+    onMounted(() => window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      pianoRollReady.value = true;
+    })));
 
     // Which pattern is shown in each song's single pattern editor - a view
     // preference, not project data, so it isn't stored alongside the song
@@ -3165,26 +3173,27 @@ export default defineComponent({
     // itself already draws those via its  border-left) so a step's
     // edge always reads as more prominent than a slice within it. null (no
     // extra lines) when the dropdown is 1 - one slice IS the whole step.
-    const sliceGridImage = () => {
+    // (Worked out once for every drawing of the piano roll, by refreshSliceGrid, which the template calls on the element that holds
+    // it all: reading the snap for each of thousands of cells took a good part of a second when the tab opened.)
+    let sliceGridCache = null;
+    let headerSliceGridCache = null;
+    const refreshSliceGrid = () => {
       const subdivision = effectiveSubdivision();
-      if (subdivision <= 1) return null;
       const slicePercent = 100 / subdivision;
-      return `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.08) 0, rgba(0, 0, 0, 0.08) 1px, ` +
+      sliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.08) 0, rgba(0, 0, 0, 0.08) 1px, ` +
         `transparent 1px, transparent ${slicePercent}%)`;
+      headerSliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.05) 0, rgba(0, 0, 0, 0.05) 1px, ` +
+        `transparent 1px, transparent ${slicePercent}%)`;
+      return subdivision;
     };
+    const sliceGridImage = () => sliceGridCache;
 
     // Same slice divisions as sliceGridImage, echoed onto the step ruler
     // (.piano-roll-step-number) above the piano roll itself - fainter than
     // both that function's  slice lines (0.08) and .piano-roll-cell's
     // step-edge border (0.22), so the ruler stays a quiet reference rather
     // than competing with the piano roll's, more prominent grid.
-    const headerSliceGridImage = () => {
-      const subdivision = effectiveSubdivision();
-      if (subdivision <= 1) return null;
-      const slicePercent = 100 / subdivision;
-      return `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.05) 0, rgba(0, 0, 0, 0.05) 1px, ` +
-        `transparent 1px, transparent ${slicePercent}%)`;
-    };
+    const headerSliceGridImage = () => headerSliceGridCache;
 
     // A note shorter than a full step (or a multi-step note's  tail) only
     // fills part of the cell; a step can also hold several short, sequential
@@ -4165,7 +4174,7 @@ export default defineComponent({
       subdivisionOptionItems: DURATION_SUBDIVISION_OPTIONS.map((n) => ({text: `${n}`, value: n})),
       minPatternSteps: MIN_PATTERN_STEPS,
       maxPatternSteps: MAX_PATTERN_STEPS,
-      pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
+      pianoRollReady, refreshSliceGrid, pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
       volumeRowHeight, startVolumeRowResize,
       pianoRollHeight, startPianoRollResize, startPianoRollResizeTop,
       isMusicToolbarScrolled, musicToolbarHeight,
