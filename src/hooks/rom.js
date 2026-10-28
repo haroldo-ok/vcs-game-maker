@@ -2135,6 +2135,7 @@ export const buildTitleScreenPreviewRom = (screenId) => buildPreviewRom({
   name: `Title Screen ${screenId}`,
   xml: buildTitleScreenPreviewXml(screenId),
   titleScreen: true,
+  onlyTitleScreenId: screenId,
 });
 
 // Same throwaway-ROM preview for one Background tab card: "System start:
@@ -2272,7 +2273,7 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
   });
 };
 
-const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride = null}) => {
+const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride = null, onlyTitleScreenId = null}) => {
   // See buildInProgress's comment near the top of this file - running
   // this concurrently with a real buildRom() (or another preview) corrupted
   // BOTH builds' output before this guard existed, since they share
@@ -2324,6 +2325,22 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       setRelocationBank('eventBanks', 'gameover_start', 3);
     }
     let code;
+    // A title screen preview compiles the page it shows only: every page of the project goes into the one bank the preview gives the
+    // title screens, and a project with big pages did not fit it. (Put back straight after the code is generated; nothing is saved.)
+    const generateCode = () => {
+      if (onlyTitleScreenId === null) return regenerateCode(xml);
+      const storage = useTitleScreenStorage();
+      const original = storage.value;
+      const romOutdated = useRomOutdated();
+      const wasOutdated = romOutdated.value;
+      try {
+        storage.value = {...original, screens: ((original && original.screens) || []).filter(({id}) => String(id) === String(onlyTitleScreenId))};
+        return regenerateCode(xml);
+      } finally {
+        storage.value = original;
+        romOutdated.value = wasOutdated;
+      }
+    };
     // The TV standard this code was generated for, read now - the compile
     // below is async, and the standard can be changed meanwhile, which would
     // pair a ROM built for one standard with the emulator spec of the other.
@@ -2347,14 +2364,14 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         const wasOutdated = romOutdated.value;
         textStrings.value = {textStrings: []};
         try {
-          code = regenerateCode(xml);
+          code = generateCode();
         } finally {
           configurationStorage.value = original;
           textStrings.value = originalTextStrings;
           romOutdated.value = wasOutdated;
         }
       } else {
-        code = regenerateCode(xml);
+        code = generateCode();
       }
       // The score digits stay (the text sits beneath them) but are drawn in
       // black on the black score strip (scoreBkColor below), so they can't be seen. Plain string search,
