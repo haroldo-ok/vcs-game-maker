@@ -194,6 +194,7 @@
                       :placeholder="String(defaultPfres)"
                       persistent-placeholder
                       :title="`How many rows this background has on screen, 1 to 192. Left empty it uses the project's pfres (${defaultPfres}, set in Options).`"
+                      @input="(value) => handleChangeBackgroundPfres(background, value)"
                       @change="(value) => handleChangeBackgroundPfres(background, value)"
                     />
                     <v-text-field
@@ -701,7 +702,10 @@ export default defineComponent({
     // DPC+ keeps up to 255 rows of playfield; a background taller than fits with the screen scrolls without wrapping.
     const maxBackgroundRows = computed(() => kernelIsDpcPlus.value ? 255 : 64);
     const defaultPfres = computed(() => dpcPlusPfresOf(configurationStorage.value));
-    const handleChangeBackgroundPfres = (background, value) => {
+    // The arrows of the number field change its value without a change event (that comes when the field is left), so this is also called on
+    // every input, with the background looked up again (the list is read again from storage after every change).
+    const handleChangeBackgroundPfres = (staleBackground, value) => {
+      const background = state.value.backgrounds.find((candidate) => candidate.id === staleBackground.id) || staleBackground;
       const rows = Math.round(Number(value));
       if (rows > 0) background.pfres = Math.min(192, rows);
       else delete background.pfres;
