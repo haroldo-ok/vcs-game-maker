@@ -246,6 +246,10 @@ export const resolveUsedBackgroundIds = (workspace) => {
       const id = Number(block.getFieldValue('VAR'));
       if (Number.isInteger(id)) used.add(id);
       else unsafe = true;
+    } else if (block.type === 'background_transition') {
+      const id = Number(block.getFieldValue('VAR'));
+      if (Number.isInteger(id)) used.add(id);
+      else unsafe = true;
     } else if (block.type === 'background_set') {
       const value = block.getInputTargetBlock('VALUE');
       let id = NaN;
@@ -500,6 +504,12 @@ export const backgroundScrollPacking = (backgrounds) => {
 // bit when a row-step lands on that edge; the watch block clears it as it runs.
 export const backgroundScrollEdgeFlagsVarName = () => 'backgroundScrollEdgeFlags';
 export const BACKGROUND_SCROLL_EDGE_BITS = {top: 0, bottom: 1};
+
+// The background that a "Playfield transition" block is scrolling in: 0 = none, else the background's index + 1 (+ 128 when its rows
+// come in from the top, scrolling Down). backgroundTransitionCount is how many of its rows have come into the window so far; when it
+// has filled the window the target becomes the background showing (see the transition mode of bgscrollpatch).
+export const backgroundTransitionVarName = () => 'backgroundTransition';
+export const backgroundTransitionCountVarName = () => 'backgroundTransitionCount';
 
 // A requested starting row (+1, so 0 means "none") from background_scroll_set_row,
 // waiting for the next background load to apply it - see that block's
@@ -863,6 +873,28 @@ Blockly.Blocks['background_select'] = {
     this.setOutput(true, 'Number');
     this.setColour(BACKGROUND_COLOR);
     this.setTooltip('Selects a background');
+  },
+};
+
+// Scrolls another background in over the one showing, row by row, using the Playfield scroll blocks.
+Blockly.Blocks['background_transition'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BACKGROUND_ICON} Playfield transition to`)
+        .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR')
+        .appendField('scrolling')
+        .appendField(new Blockly.FieldDropdown([
+          ['Up', 'up'],
+          ['Down', 'down'],
+        ]), 'DIRECTION');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(BACKGROUND_COLOR);
+    this.setTooltip('Starts scrolling another background in, one row at a time, instead of swapping to it. ' +
+      'Each "Playfield scroll" block that moves the same way (Up or Down, 1x or 2x) then brings in one more row of ' +
+      'the new background, and once its rows fill the screen it is the background showing. Scrolling the ' +
+      'other way waits until the transition is over. Row colors change over to the new background when it ' +
+      'is complete. Standard kernel only. The backgrounds should have the same size.');
   },
 };
 

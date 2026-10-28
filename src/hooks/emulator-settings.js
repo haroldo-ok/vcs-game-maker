@@ -33,6 +33,9 @@ export const EMULATOR_SETTINGS_DEFAULTS = {
   fullscreenResolution: 'native',
   // How full screen scales the picture: 'same' as the window, or 'none', 'bilinear' or 'qis'.
   fullscreenScaling: 'qis',
+  // Whether an AtariVox (speech) is plugged into the Player 2 port. Only gopher2600 has one, so
+  // turning it on runs gopher2600.
+  atariVox: false,
 };
 
 export const useEmulatorSettings = () => {

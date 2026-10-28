@@ -217,12 +217,6 @@ func (bs *BallSprite) tickHMOVE() bool {
 
 // returns true if pixel has changed.
 func (bs *BallSprite) tick() bool {
-	// VCS GAME MAKER: report a change only when the sprite's pixel can differ from the one
-	// Video.Pixel() last worked out. An idle sprite (nothing drawing, latching or scheduled)
-	// always outputs "off", so returning true for it made every color clock look changed and
-	// Video.Pixel() never took its early return. Register writes set tiaHasChanged themselves.
-	busy := bs.Enclockifier.Active || bs.futureStart.IsActive()
-
 	bs.lastHmoveCt = bs.tia.hmove.Ripple
 
 	bs.pclk++
@@ -250,8 +244,7 @@ func (bs *BallSprite) tick() bool {
 	bs.futureReset.Tick(bs._futureResetPosition)
 	bs.futureStart.Tick(bs._futureStartDrawingEvent)
 
-	return busy || bs.Enclockifier.Active || bs.futureStart.IsActive() || bs.futureReset.IsActive() ||
-		bs.lastTickFromHmove
+	return true
 }
 
 func (bs *BallSprite) _futureStartDrawingEvent(_ uint8) {

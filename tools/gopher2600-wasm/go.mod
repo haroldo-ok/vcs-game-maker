@@ -1,6 +1,6 @@
 module vcsgm/gopher2600-wasm
 
-go 1.27.0
+go 1.27.2
 
 require github.com/jetsetilly/gopher2600 v0.57.2
 
@@ -9,6 +9,7 @@ require (
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/go-audio/wav v1.1.0 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
+	github.com/jetsetilly/speakjet v0.2.0 // indirect
 	github.com/jetsetilly/supercharge v0.3.0 // indirect
 )
 
@@ -23,4 +24,4 @@ require (
 // update needs this path to actually exist (re-create it with:
 // git clone --depth 1 https://github.com/jetsetilly/gopher2600.git <path>
 // and point this at it first).
-replace github.com/jetsetilly/gopher2600 => C:\tmp\gopher2600-vendor-src
+replace github.com/jetsetilly/gopher2600 => C:/tmp/gopher2600-src

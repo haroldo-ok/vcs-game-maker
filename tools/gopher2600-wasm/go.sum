@@ -7,6 +7,8 @@ github.com/go-audio/wav v1.1.0/go.mod h1:mpe9qfwbScEbkd8uybLuIpTgHyrISw/OTuvjUW2
 github.com/hajimehoshi/go-mp3 v0.3.4 h1:NUP7pBYH8OguP4diaTZ9wJbUbk3tC0KlfzsEpWmYj68=
 github.com/hajimehoshi/go-mp3 v0.3.4/go.mod h1:fRtZraRFcWb0pu7ok0LqyFhCUrPeMsGRSVop0eemFmo=
 github.com/hajimehoshi/oto/v2 v2.3.1/go.mod h1:seWLbgHH7AyUMYKfKYT9pg7PhUu9/SisyJvNTT+ASQo=
+github.com/jetsetilly/speakjet v0.2.0 h1:QPbyFQMBFXzKVJgm6YobOW5CfC45JQrI7lnK4yi0YWM=
+github.com/jetsetilly/speakjet v0.2.0/go.mod h1:fe1Qs7/mEVVnAk0iWJVwEfsJsavkMXE4m6WluQY765w=
 github.com/jetsetilly/supercharge v0.3.0 h1:Yqi0Y4ZTUPnmd3iZr7h4N0Wa7AEB9PTVdSWeKZdWUwU=
 github.com/jetsetilly/supercharge v0.3.0/go.mod h1:rkyz+BCLit8qzDAhzy8qpWwFNKAOctd2Y6gJGZDzqnw=
 golang.org/x/sys v0.0.0-20220712014510-0a85c31ab51e/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=

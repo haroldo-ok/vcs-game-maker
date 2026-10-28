@@ -86,6 +86,29 @@
         source.start(gopher2600AudioNextStart);
         gopher2600AudioNextStart += buffer.duration;
       };
+      // The AtariVox's speech: a separate queue, so it plays beside the console's sound and not after it.
+      let gopher2600AuxNextStart = 0;
+      window.playGopher2600AuxChunk = function(sampleRate, samples) {
+        if (typeof gopher2600Paused !== 'undefined' && gopher2600Paused) return;
+        if (!gopher2600AudioCtx) {
+          gopher2600AudioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint: 'interactive'});
+          gopher2600AudioNextStart = gopher2600AudioCtx.currentTime + GOPHER2600_AUDIO_CUSHION_SECONDS;
+        }
+        if (gopher2600AudioCtx.state === 'suspended') {
+          gopher2600AudioCtx.resume();
+        }
+        const buffer = gopher2600AudioCtx.createBuffer(1, samples.length, sampleRate);
+        buffer.getChannelData(0).set(samples);
+        const source = gopher2600AudioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(gopher2600AudioCtx.destination);
+        const now = gopher2600AudioCtx.currentTime;
+        if (gopher2600AuxNextStart < now || gopher2600AuxNextStart - now > GOPHER2600_AUDIO_MAX_LAG_SECONDS) {
+          gopher2600AuxNextStart = now + GOPHER2600_AUDIO_CUSHION_SECONDS;
+        }
+        source.start(gopher2600AuxNextStart);
+        gopher2600AuxNextStart += buffer.duration;
+      };
       // Browsers block audio until a user gesture; the emulator keeps
       // rendering silently until the first click anywhere resumes it.
       document.addEventListener('click', () => {
@@ -149,6 +172,7 @@
         scalingMode: 'none',
         fullscreenResolution: 'native',
         fullscreenScaling: 'qis',
+        atariVox: false,
       };
       const readEmulatorSettings = () => {
         try {
@@ -162,7 +186,8 @@
       // setKeypadMode below) whatever the setting says.
       let gopher2600KeypadFallback = false;
       const activeEmulatorBackend = () => {
-        if (gopher2600KeypadFallback) return 'gopher2600';
+        // (6502.ts has no AtariVox either.)
+        if (gopher2600KeypadFallback || emulatorSettings.atariVox) return 'gopher2600';
         return EMULATOR_WORKERS[emulatorSettings.backend] ? emulatorSettings.backend : 'stellerator';
       };
       // What a fresh worker is told (after a crash or a switch of emulator), so it matches the one
@@ -190,10 +215,10 @@
         if (canvas.width === width && canvas.height === height) return;
         canvas.width = width;
         canvas.height = height;
-        // TIA color clocks are not square pixels: a real 2600's picture is shown
-        // about twice as wide as its clock count, the standard stretch that gives
-        // a ~4:3 TV aspect. App.vue scales the canvas by this CSS box.
-        canvas.style.width = (width * 2) + 'px';
+        // TIA color clocks are not square pixels: the picture is shown as an NTSC TV shows it, 4:3 (so a
+        // pixel is 4/3 of the picture's height over its width, 1.83 times as wide as tall for the 220 lines
+        // of a typical picture). App.vue scales the canvas by this CSS box.
+        canvas.style.width = Math.round(height * 4 / 3) + 'px';
         canvas.style.height = height + 'px';
       };
 
@@ -220,10 +245,9 @@
         stelleratorDriverKey = '';
         stelleratorTargetSize = '';
       };
-      // The same box as gopher2600's (see gopher2600SizeCanvas): twice as wide as the 160 clocks of a line, so a pixel has the same shape
-      // in both emulators (a fixed 4:3 stretched the 220 lines of the picture 9% less than gopher2600 does).
+      // The same box as gopher2600's (see gopher2600SizeCanvas): 4:3, like an NTSC TV.
       const stelleratorSizeCanvas = (canvas, width, height) => {
-        canvas.style.width = (width * 2) + 'px';
+        canvas.style.width = Math.round(height * 4 / 3) + 'px';
         canvas.style.height = height + 'px';
       };
       const stelleratorDriverConfig = () => ({
@@ -331,6 +355,9 @@
           case 'audio':
             window.playGopher2600AudioChunk(message.frequency, new Float32Array(message.samples));
             break;
+          case 'auxaudio':
+            window.playGopher2600AuxChunk(message.frequency, new Float32Array(message.samples));
+            break;
           case 'crashed':
           case 'exited':
             recoverGopher2600Worker(message.message || message.type);
@@ -347,6 +374,7 @@
         ['left', 'right'].forEach((port) => {
           if (gopher2600KeypadMode[port]) call('setKeypadMode', [port, true]);
         });
+        if (emulatorSettings.atariVox && gopher2600RunningBackend === 'gopher2600') call('setAtariVox', [true]);
         if (gopher2600Replay.colorMode !== undefined) call('setColorMode', [gopher2600Replay.colorMode]);
         Object.keys(gopher2600Replay.difficulty).forEach((port) =>
           call('setDifficulty', [port, gopher2600Replay.difficulty[port]]));
@@ -415,7 +443,13 @@
         if (!!emulatorSettings.debugOverlay !== !!previous.debugOverlay) {
           gopher2600Worker.postMessage({type: 'setting', name: 'debugOverlay', value: !!emulatorSettings.debugOverlay});
         }
-        if (emulatorSettings.backend !== previous.backend) switchGopher2600Worker();
+        if (emulatorSettings.backend !== previous.backend || !!emulatorSettings.atariVox !== !!previous.atariVox) {
+          switchGopher2600Worker();
+          // (Already on gopher2600: the plug changes in the running worker.)
+          if (gopher2600RunningBackend === 'gopher2600') {
+            gopher2600Worker.postMessage({type: 'call', name: 'setAtariVox', args: [!!emulatorSettings.atariVox]});
+          }
+        }
         // The next frame redraws with the new effects; a paused or idle emulator has none coming.
         stelleratorTargetSize = '';
       };

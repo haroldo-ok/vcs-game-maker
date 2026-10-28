@@ -10,6 +10,7 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
   backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName,
+  backgroundTransitionVarName, backgroundTransitionCountVarName, backgroundScrollActiveVarName, backgroundColorBgVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
 import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset} from '../../utils/playfield-coords';
 
@@ -2522,6 +2523,28 @@ export default (Blockly) => {
       // call leaves the maximum in temp6 for the bottom-row math below
       // (nothing in between touches temp6, pfscroll included).
       const edgeCheckedLabel = `_bgscroll_${uid}_edgeok`;
+      // A Playfield transition under way: only the scroll that moves the way it comes in does anything, and each row-step brings in a row of
+      // the new background (modes 252 and 253 of the scroll patch); when it has filled the window the new background is the one showing.
+      if (Blockly.BBasic.backgroundTransitionUsed) {
+        const trVar = resolveVar(backgroundTransitionVarName());
+        const normalLabel = `_bgscroll_${uid}_normal`;
+        lines.push(` if ${trVar} = 0 then goto ${normalLabel}`);
+        lines.push(forward ? ` if ${trVar} >= 128 then goto ${doneLabel}` : ` if ${trVar} < 128 then goto ${doneLabel}`);
+        lines.push(` pfscroll ${mechDirection}`);
+        lines.push(forward ? ` if playfieldpos <> ${rowHeight} then goto ${doneLabel}` : ` if playfieldpos <> 1 then goto ${doneLabel}`);
+        Blockly.BBasic.backgroundScrollStepUsed = true;
+        nudgeSprites();
+        lines.push(` temp5 = ${forward ? 252 : 253}`, gosubPatch, ` if temp6 = 0 then goto ${doneLabel}`);
+        // The new background is showing: its row colors take over.
+        if (colorsOn) {
+          const colorBg = resolveVar(backgroundColorBgVarName());
+          const colorOffset = resolveVar(backgroundColorOffsetVarName());
+          const packing = Blockly.BBasic.backgroundScrollPacking;
+          lines.push(` ${colorBg} = ${packing.packed ? `${rowVar} / ${packing.indexStep}` : resolveVar(backgroundScrollActiveVarName())}`,
+              ` ${colorOffset} = ${rowVar} & ${rowMask}`, Blockly.BBasic.backgroundColorScrollApplyLines());
+        }
+        lines.push(` goto ${doneLabel}`, `@ ${normalLabel}`);
+      }
       if (stopAtEdge) {
         if (forward) {
           lines.push(` if playfieldpos > ${step} then goto ${edgeCheckedLabel}`);
@@ -2621,6 +2644,21 @@ export default (Blockly) => {
       ] : []),
       `@ ${doneLabel}`,
     ].join('\n') + '\n';
+  };
+
+  // Starts a Playfield transition: the Playfield scroll blocks then bring the chosen background in a row at a time (see background_scroll).
+  Blockly.BBasic[`background_transition`] = function(block) {
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    if (config.kernel === 'dpcplus') return ' rem Playfield transitions are not available with the DPC+ kernel\n';
+    if (!Blockly.BBasic.backgroundTransitionUsed || !(Blockly.BBasic.backgroundScrollOverflowBackgrounds || []).length) return '';
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const id = Number(block.getFieldValue('VAR'));
+    const index = Blockly.BBasic.getIncludedBackgrounds().findIndex((background) => Number(background.id) === id);
+    if (index < 0) return '';
+    const fromTop = block.getFieldValue('DIRECTION') === 'down';
+    return ` ${resolveVar(backgroundTransitionVarName())} = ${index + 1 + (fromTop ? 128 : 0)}\n` +
+      ` ${resolveVar(backgroundTransitionCountVarName())} = 0\n`;
   };
 
   Blockly.BBasic[`background_scroll_position`] = function(block) {

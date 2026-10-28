@@ -813,6 +813,7 @@
 import {
   computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onBeforeUpdate, onMounted, ref, watch,
 } from '@vue/composition-api';
+import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
@@ -1248,7 +1249,7 @@ export default defineComponent({
     // typical undo history actually reads to a user - see stopResize's
     // single "release" point for the equivalent idea applied to just resize.
     let patternHistoryDebounce = null;
-    watch(() => state.value.songs, () => {
+    watchDeep(() => state.value.songs, () => {
       clearTimeout(patternHistoryDebounce);
       patternHistoryDebounce = setTimeout(() => {
         state.value.songs.forEach((song) => song.patterns.forEach((pattern) => {
@@ -1267,7 +1268,7 @@ export default defineComponent({
           patternLastSnapshot[pattern.id] = snapshot;
         }));
       }, 500);
-    }, {deep: true});
+    });
 
     const applyPatternSnapshot = (pattern, snapshotJson) => {
       const data = JSON.parse(snapshotJson);

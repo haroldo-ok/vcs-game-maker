@@ -315,7 +315,7 @@ func getStrongArmDefinition(mem *elfMemory, name string) (bool, uint32, error) {
 			function: randint,
 			support:  true,
 		})
-	case "memset", "_aeabi_memset":
+	case "memset", "__aeabi_memset":
 		tgt, err = mem.relocateStrongArmFunction(strongArmFunctionSpec{
 			name:     name,
 			function: memset,
@@ -325,34 +325,6 @@ func getStrongArmDefinition(mem *elfMemory, name string) (bool, uint32, error) {
 		tgt, err = mem.relocateStrongArmFunction(strongArmFunctionSpec{
 			name:     name,
 			function: memcpy,
-			support:  true,
-		})
-
-	case "__aeabi_idiv":
-		tgt, err = mem.relocateStrongArmFunction(strongArmFunctionSpec{
-			name:     name,
-			function: idiv,
-			support:  true,
-		})
-
-	case "__aeabi_uidiv":
-		tgt, err = mem.relocateStrongArmFunction(strongArmFunctionSpec{
-			name:     name,
-			function: uidiv,
-			support:  true,
-		})
-
-	case "__aeabi_idivmod":
-		tgt, err = mem.relocateStrongArmFunction(strongArmFunctionSpec{
-			name:     name,
-			function: idivmod,
-			support:  true,
-		})
-
-	case "__aeabi_uidivmod":
-		tgt, err = mem.relocateStrongArmFunction(strongArmFunctionSpec{
-			name:     name,
-			function: uidivmod,
 			support:  true,
 		})
 

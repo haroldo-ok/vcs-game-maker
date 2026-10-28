@@ -1,5 +1,6 @@
 'use strict';
 
+import {packTitleData} from '../../utils/title-data-pack';
 import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
   processTitleScreenStorageDefaults, isCardAnimated, cardFrameHeight,
   titleCardFrameCounterVarName, titleCardScrollOffsetVarName,
@@ -685,10 +686,12 @@ const assignKernelSlots = (screens, Blockly) => {
 // once the layout is done, if the page's timer has enough left for it. A bankswitched ROM calls into the kernel bank the way
 // batari Basic does (the return address, the target, then the registers, through the bank switch).
 const TEXT_KERNEL_BANK_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
+// (The DPC+ text kernel, text12DPCplus.asm, is in bank 6: see "const textbank = 6" in generators/bbasic.js.)
+const DPC_PLUS_TEXT_BANK = 6;
 const buildTitleTextCall = (Blockly) => {
   if (!Blockly.BBasic.isTitleTextUsed()) return [];
   const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
-  const kernelBank = TEXT_KERNEL_BANK_BY_ROMSIZE[config.romSize] || 0;
+  const kernelBank = config.kernel === 'dpcplus' ? DPC_PLUS_TEXT_BANK : TEXT_KERNEL_BANK_BY_ROMSIZE[config.romSize] || 0;
   return [
     '\tlda INTIM',
     `\tcmp #${Blockly.BBasic.titleTextTimerTicks()}`,
@@ -933,6 +936,35 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
   return lines.join('\n');
 };
 
+// A run of "if counter >= N then variable = value" lines costs about 9 bytes each for every variable. Over four or more steps the same is
+// a loop over a table of the steps and a table of the values: the first step is the number of limits the counter has got to. The
+// assembly is written the way the generated code wants it (labels and the closing "end" marked with "@", see normalizeIndents).
+const TITLE_STEP_TABLE_MIN = 4;
+const stepTableAsm = (Blockly, counterVar, limits, targets) => {
+  const id = Blockly.BBasic.blockNumbers.next('titlestep');
+  const [loop, found, past, limitTable] = ['loop', 'found', 'past', 'limits'].map((part) => `_titlestep_${id}_${part}`);
+  const lines = [' asm', '  ldy #0', `@${loop}`, `  cpy #${limits.length}`, `  bcs ${found}`, `  lda ${counterVar}`, `  cmp ${limitTable},y`,
+    `  bcc ${found}`, '  iny', `  bne ${loop}`, `@${found}`];
+  targets.forEach((target, index) => {
+    lines.push(`  lda _titlestep_${id}_v${index},y`);
+    if (target.add) lines.push('  clc', `  adc ${target.add}`);
+    lines.push(`  sta ${target.variable}`);
+  });
+  lines.push(`  jmp ${past}`, `@${limitTable}`, `  .byte ${limits.join(', ')}`);
+  targets.forEach((target, index) => lines.push(`@_titlestep_${id}_v${index}`, `  .byte ${target.values.join(', ')}`));
+  lines.push(`@${past}`, '@end');
+  return lines;
+};
+
+// The same for "if counter = N then variable = value" (a value written when the counter is exactly at a frame's start).
+const startTableAsm = (Blockly, counterVar, starts, variable, values) => {
+  const id = Blockly.BBasic.blockNumbers.next('titlestep');
+  const [loop, hit, past, startTable, valueTable] = ['loop', 'hit', 'past', 'starts', 'values'].map((part) => `_titlestep_${id}_${part}`);
+  return [' asm', `  ldy #${starts.length - 1}`, `  lda ${counterVar}`, `@${loop}`, `  cmp ${startTable},y`, `  beq ${hit}`, '  dey', `  bpl ${loop}`,
+    `  jmp ${past}`, `@${hit}`, `  lda ${valueTable},y`, `  sta ${variable}`, `  jmp ${past}`, `@${startTable}`, `  .byte ${starts.join(', ')}`,
+    `@${valueTable}`, `  .byte ${values.join(', ')}`, `@${past}`, '@end'];
+};
+
 // Per-frame code for every animated card (more than one frame - see
 // isCardAnimated's comment in blocks/titlescreen.js), spliced into
 // commongamelogic (see generators/bbasic.bb.hbs's
@@ -1062,22 +1094,35 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
       (derivedLines[pageId] = derivedLines[pageId] || []) : lines;
     const colorPageLines = derivedVars.has(titleCardColorPageVarName(ref)) ?
       (derivedLines[pageId] = derivedLines[pageId] || []) : lines;
-    indexLines.push(` bmp_${key}_index = ${frameOffsets[0]}${scrollTerm}`);
-    // A card that keeps its colors apart (titleCardColorSplit) moves a second offset along with the picture's.
-    if (colorOffsets && !isFaded) colorIndexLines.push(` bmp_${key}_colorindex = ${colorOffsets[0]}${colorScrollTerm}`);
-    if (colorPages) colorPageLines.push(` bmp_${key}_colorpage = ${colorPages[0]}`);
-    let cumulative = 0;
-    frameDurations.forEach((duration, frameIndex) => {
-      cumulative += duration;
-      if (frameIndex === frameDurations.length - 1) return;
-      indexLines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_index = ${frameOffsets[frameIndex + 1]}${scrollTerm}`);
-      if (colorOffsets && !isFaded) {
-        colorIndexLines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_colorindex = ${colorOffsets[frameIndex + 1]}${colorScrollTerm}`);
-        if (colorPages) {
-          colorPageLines.push(` if ${counterVar} >= ${cumulative} then bmp_${key}_colorpage = ${colorPages[frameIndex + 1]}`);
-        }
-      }
-    });
+    // Over several frames the steps are a loop over tables (see stepTableAsm); the variables that go to the same place share it.
+    const limits = [];
+    frameDurations.reduce((sum, duration, frameIndex) => {
+      if (frameIndex < frameDurations.length - 1) limits.push(sum + duration);
+      return sum + duration;
+    }, 0);
+    const scrollVarOf = (term) => (term ? term.replace(' + ', '') : null);
+    const stepTargets = [
+      {lines: indexLines, variable: `bmp_${key}_index`, values: frameOffsets, add: scrollVarOf(scrollTerm), term: scrollTerm},
+      // (A card that keeps its colors apart, see titleCardColorSplit, moves a second offset along with the picture's.)
+      ...(colorOffsets && !isFaded ? [{lines: colorIndexLines, variable: `bmp_${key}_colorindex`, values: colorOffsets,
+        add: scrollVarOf(colorScrollTerm), term: colorScrollTerm}] : []),
+      ...(colorPages && colorOffsets && !isFaded ? [{lines: colorPageLines, variable: `bmp_${key}_colorpage`, values: colorPages,
+        add: null, term: ''}] : []),
+    ];
+    // (Without the steps of the offset, the page is only set for the first frame.)
+    if (colorPages && !(colorOffsets && !isFaded)) colorPageLines.push(` bmp_${key}_colorpage = ${colorPages[0]}`);
+    if (limits.length >= TITLE_STEP_TABLE_MIN) {
+      [...new Set(stepTargets.map((target) => target.lines))].forEach((destination) => {
+        destination.push(...stepTableAsm(Blockly, counterVar, limits, stepTargets.filter((target) => target.lines === destination)));
+      });
+    } else {
+      stepTargets.forEach((target) => {
+        target.lines.push(` ${target.variable} = ${target.values[0]}${target.term}`);
+        limits.forEach((limit, index) => {
+          target.lines.push(` if ${counterVar} >= ${limit} then ${target.variable} = ${target.values[index + 1]}${target.term}`);
+        });
+      });
+    }
     // A picture background that differs between the frames is written when a frame starts (so a block that
     // changes it in between lasts until the next frame).
     if ((Blockly.BBasic.titleFrameBoxRefs || new Set()).has(ref)) {
@@ -1086,10 +1131,17 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
         ['background', titleCardBoxColorVarName, toColorHexByte]].forEach(([field, varNameOf, format]) => {
         if (frameBoxes.every((box) => box[field] === frameBoxes[0][field])) return;
         const boxVar = resolveVar(varNameOf(ref));
-        let start = 0;
-        frameDurations.forEach((frameDuration, frameIndex) => {
+        const starts = [];
+        frameDurations.reduce((start, frameDuration) => {
+          starts.push(start);
+          return start + frameDuration;
+        }, 0);
+        if (starts.length >= TITLE_STEP_TABLE_MIN) {
+          lines.push(...startTableAsm(Blockly, counterVar, starts, boxVar, frameBoxes.map((box) => format(box[field]))));
+          return;
+        }
+        starts.forEach((start, frameIndex) => {
           lines.push(` if ${counterVar} = ${start} then ${boxVar} = ${format(frameBoxes[frameIndex][field])}`);
-          start += frameDuration;
         });
       });
     }
@@ -1152,12 +1204,19 @@ const generateTitlePlayerChecks = (Blockly) => {
       ` if ${counterVar} >= ${total} then ${counterVar} = 0`,
       ` ${indexVar} = 0`,
     ];
-    let cumulative = 0;
-    durations.forEach((duration, frameIndex) => {
-      cumulative += duration;
-      if (frameIndex === durations.length - 1) return;
-      lines.push(` if ${counterVar} >= ${cumulative} then ${indexVar} = ${(frameIndex + 1) * height}`);
-    });
+    const limits = [];
+    durations.reduce((sum, duration, frameIndex) => {
+      if (frameIndex < durations.length - 1) limits.push(sum + duration);
+      return sum + duration;
+    }, 0);
+    if (limits.length >= TITLE_STEP_TABLE_MIN) {
+      // (The index starts at 0, set in the lines above: the table holds it for every step, the first one too.)
+      lines.pop();
+      lines.push(...stepTableAsm(Blockly, counterVar, limits,
+          [{variable: indexVar, values: durations.map((_, index) => index * height), add: null}]));
+    } else {
+      limits.forEach((limit, index) => lines.push(` if ${counterVar} >= ${limit} then ${indexVar} = ${(index + 1) * height}`));
+    }
     return lines.join('\n');
   }).join('\n\n') + '\n';
 };
@@ -1282,7 +1341,7 @@ export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
   // straight to bmp_${key}_index for one of these, or the two would fight
   // over the same byte every frame.
   Blockly.BBasic.titleScreenCardAnimations = cardAnimationByRef;
-  const asmFiles = {'titlescreen_data.asm': dataBlocks.join('\n\n')};
+  const asmFiles = {'titlescreen_data.asm': packTitleData(dataBlocks.join('\n\n'))};
   screenPlans.forEach((plan) => {
     asmFiles[`titlescreen_layout_${plan.id}.asm`] =
       ` MAC ${plan.layoutMacroName}\n${plan.layoutLines.join('\n')}\n ENDM\n`;

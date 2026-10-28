@@ -72,7 +72,11 @@ minikernel
     sta temp1
     lda scorepointers+3
     sta temp3
+    ifconst score5digits
+    lda #<(scoretable-8)
+    else
     lda scorepointers+5
+    endif
     sta temp5
     tsx
     stx temp7
@@ -154,12 +158,6 @@ posthmove
    endif
 
 textscoreloop
-         ; vcs-game-maker: with 5 score digits the digits are drawn 2 cycles sooner (see below), so the loop waits these 2 at its start.
-         ifconst score5digits
-             ifnconst scorefade
-                 sleep 2
-             endif
-         endif
          lda (scorepointers),y      ; 5     (66)
          sta GRP0                   ; 3     (69)
          ifconst pfscore
@@ -185,13 +183,7 @@ begintextscore
          ifconst scorefade
              lda TextDataPtr+1             ; 3     (31)
          else
-             ; vcs-game-maker: with 5 score digits the digits stand 6 clocks (2 cycles) further to the left (see DIGITHMP0 in
-             ; text12b.asm), so the writes that draw them come 2 cycles sooner: 1 here and 1 below.
-             ifconst score5digits
-                 sleep 2            ; 2     (30)
-             else
-                 sleep 3            ; 3     (31)
-             endif
+             sleep 3                ; 3     (31)
          endif
 
          ifconst pfscore
@@ -206,23 +198,19 @@ begintextscore
              endif
          endif
 
-         ; vcs-game-maker: the Score tab's "5 score digits" switch leaves the sixth place blank (same 5 cycles); the pointers
-         ; already hold the other five digits one place to the left (see std_overscan.asm).
-         ifconst score5digits
-             lda #0
-             ifconst scorefade
-                 sleep 3
-             else
-                 sleep 2
-             endif
-         else
+         ; vcs-game-maker: with 5 score digits the sixth place reads the 8 zeros just before the digits (scoreblank in score_graphics_extended.asm), as the
+         ; DPC+ kernel does: the loop keeps the timing of 6 digits, which the digits need to be drawn whole.
          lda (scorepointers+$A),y   ; 5     (42)
-         endif
          stx GRP1                   ; 3     (45)
          tsx                        ; 2     (47)
          stx GRP0                   ; 3     (50)
          sta GRP1                   ; 3     (53)
+         ; vcs-game-maker: with 5 score digits the last write is a zero as well (the row counter would show next to the last digit).
+         ifconst score5digits
+         sta GRP0                   ; 3     (56)
+         else
          sty GRP0                   ; 3     (56)
+         endif
          dey                        ; 2     (58)
          bpl textscoreloop          ; 3     (61)
          ; vcs-game-maker: scorepaddinglines (0, 1, or 2 - the Score tab's

@@ -851,6 +851,7 @@
 <script>
 import Vue from 'vue';
 import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
+import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
@@ -1031,7 +1032,7 @@ export default defineComponent({
       envelopeLastSnapshot[soundEffect.id] = snapshotEnvelope(soundEffect);
     });
     let envelopeHistoryDebounce = null;
-    watch(() => state.value.soundEffects, () => {
+    watchDeep(() => state.value.soundEffects, () => {
       clearTimeout(envelopeHistoryDebounce);
       envelopeHistoryDebounce = setTimeout(() => {
         state.value.soundEffects.forEach((soundEffect) => {
@@ -1048,7 +1049,7 @@ export default defineComponent({
           envelopeLastSnapshot[soundEffect.id] = snapshot;
         });
       }, 500);
-    }, {deep: true});
+    });
 
     const applyEnvelopeSnapshot = (soundEffect, snapshotJson) => {
       const data = JSON.parse(snapshotJson);

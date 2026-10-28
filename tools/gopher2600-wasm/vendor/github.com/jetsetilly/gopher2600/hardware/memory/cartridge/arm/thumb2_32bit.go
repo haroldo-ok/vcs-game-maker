@@ -139,11 +139,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 					carry = arm.state.registers[Rm]&m == m
 
 					// perform shift (with sign extension)
-					signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-					shifted = arm.state.registers[Rm] >> imm5
-					if signExtend == 0x01 {
-						shifted |= ^uint32(0) << (31 - imm5)
-					}
+					shifted = uint32(int32(arm.state.registers[Rm]) >> imm5)
 				default:
 					panic("impossible shift for TST/AND instruction")
 				}
@@ -228,11 +224,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 					carry := arm.state.registers[Rm]&m == m
 
 					// perform shift (with sign extension)
-					signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-					shifted := arm.state.registers[Rm] >> imm5
-					if signExtend == 0x01 {
-						shifted |= ^uint32(0) << (31 - imm5)
-					}
+					shifted := uint32(int32(arm.state.registers[Rm]) >> imm5)
 
 					// perform bit clear
 					arm.state.registers[Rd] = arm.state.registers[Rn] & ^shifted
@@ -352,29 +344,25 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 				case 0b10:
 					// "4.6.10 ASR (immediate)" of "Thumb-2 Supplement"
 					// T2 encoding
+					shift := imm5
+					if shift == 0 {
+						shift = 32
+					}
 					return func() *DisasmEntry {
 						if arm.decodeOnly {
 							return &DisasmEntry{
 								Is32bit:  true,
 								Operator: fmt.Sprintf("ASR%s", setFlagsMnemonic(setFlags)),
-								Operand:  fmt.Sprintf("R%d, R%d, #%d", Rd, Rm, imm5),
+								Operand:  fmt.Sprintf("R%d, R%d, #%d", Rd, Rm, shift),
 							}
 						}
 
 						// whether to set carry bit
-						m := uint32(0x01) << (imm5 - 1)
+						m := uint32(0x01) << (shift - 1)
 						carry := arm.state.registers[Rm]&m == m
 
-						// extend sign, check for bit
-						signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-
 						// perform actual shift
-						arm.state.registers[Rd] = arm.state.registers[Rm] >> imm5
-
-						// perform sign extension
-						if signExtend == 0x01 {
-							arm.state.registers[Rd] |= ^uint32(0) << (31 - imm5)
-						}
+						arm.state.registers[Rd] = uint32(int32(arm.state.registers[Rm]) >> shift)
 
 						// change status register
 						if setFlags {
@@ -482,11 +470,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						carry = arm.state.registers[Rm]&m == m
 
 						// perform shift (with sign extension)
-						signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-						result = arm.state.registers[Rn] | arm.state.registers[Rm]>>imm5
-						if signExtend == 0x01 {
-							result |= ^uint32(0) << (31 - imm5)
-						}
+						result = arm.state.registers[Rn] | uint32(int32(arm.state.registers[Rm])>>imm5)
 					default:
 						panic("impossible shift for ORR instruction")
 					}
@@ -541,11 +525,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						carry = arm.state.registers[Rm]&m == m
 
 						// perform shift (with sign extension)
-						signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-						result = arm.state.registers[Rm] >> imm5
-						if signExtend == 0x01 {
-							result |= ^uint32(0) << (31 - imm5)
-						}
+						result = uint32(int32(arm.state.registers[Rm]) >> imm5)
 					default:
 						panic("impossible shift for MVN instruction")
 					}
@@ -622,11 +602,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 					carry = arm.state.registers[Rm]&m == m
 
 					// perform shift (with sign extension)
-					signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-					result = arm.state.registers[Rn] ^ (arm.state.registers[Rm] >> imm5)
-					if signExtend == 0x01 {
-						result |= ^uint32(0) << (31 - imm5)
-					}
+					result = arm.state.registers[Rn] ^ uint32(int32(arm.state.registers[Rm])>>imm5)
 				case 0b11:
 					if imm5 == 0b00000 {
 						result, carry = RRX_C(arm.state.registers[Rm], arm.state.status.carry)
@@ -684,11 +660,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						// (no need to worry about carry just yet)
 
 						// perform shift (with sign extension)
-						signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-						shifted = arm.state.registers[Rm] >> imm5
-						if signExtend == 0x01 {
-							shifted |= ^uint32(0) << (31 - imm5)
-						}
+						shifted = uint32(int32(arm.state.registers[Rm]) >> imm5)
 					default:
 						panic("impossible shift for ADD (register) instruction")
 					}
@@ -826,11 +798,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						shifted = arm.state.registers[Rm] >> imm5
 					case 0b10:
 						// with arithmetic right shift
-						signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-						shifted = arm.state.registers[Rm] >> imm5
-						if signExtend == 0x01 {
-							shifted |= ^uint32(0) << (31 - imm5)
-						}
+						shifted = uint32(int32(arm.state.registers[Rm]) >> imm5)
 					default:
 						panic("impossible shift for CMP (register) instruction")
 					}
@@ -874,11 +842,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						// (no need to worry about carry just yet)
 
 						// perform shift (with sign extension)
-						signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-						shifted = arm.state.registers[Rm] >> imm5
-						if signExtend == 0x01 {
-							shifted |= ^uint32(0) << (31 - imm5)
-						}
+						shifted = uint32(int32(arm.state.registers[Rm]) >> imm5)
 					default:
 						panic("impossible shift for SUB (register) instruction")
 					}
@@ -925,11 +889,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 					// (no need to worry about carry just yet)
 
 					// perform shift (with sign extension)
-					signExtend := (arm.state.registers[Rm] & 0x80000000) >> 31
-					shifted = arm.state.registers[Rm] >> imm5
-					if signExtend == 0x01 {
-						shifted |= ^uint32(0) << (31 - imm5)
-					}
+					shifted = uint32(int32(arm.state.registers[Rm]) >> imm5)
 				default:
 					panic("impossible shift for RSB (register) instruction")
 				}
@@ -1042,28 +1002,34 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						}
 					}
 
-					// whether to set carry bit
-					shift := arm.state.registers[Rm] & 0x00ff
-					m := uint32(0x01) << (shift - 1)
-					carry := arm.state.registers[Rn]&m == m
+					shift := arm.state.registers[Rm] & 0xff
+					result := arm.state.registers[Rn]
 
-					// extend sign, check for bit
-					signExtend := (arm.state.registers[Rn] & 0x80000000) >> 31
+					if shift != 0 {
+						var carry bool
 
-					// perform actual shift
-					arm.state.registers[Rd] = arm.state.registers[Rn] >> shift
+						if shift >= 32 {
+							carry = arm.state.registers[Rn]&0x80000000 != 0
+						} else {
+							m := uint32(1) << (shift - 1)
+							carry = arm.state.registers[Rn]&m != 0
+						}
 
-					// perform sign extension
-					if signExtend == 0x01 {
-						arm.state.registers[Rd] |= ^uint32(0) << (31 - shift)
+						result = uint32(int32(arm.state.registers[Rn]) >> shift)
+
+						if setFlags {
+							arm.state.status.setCarry(carry)
+						}
 					}
 
-					// change status register
+					arm.state.registers[Rd] = result
+
 					if setFlags {
-						arm.state.status.isNegative(arm.state.registers[Rd])
-						arm.state.status.isZero(arm.state.registers[Rd])
-						arm.state.status.setCarry(carry)
-						// overflow unchanged
+						arm.state.status.isNegative(result)
+						arm.state.status.isZero(result)
+						// Carry only set when shift != 0 (see above)
+						//  and
+						// Overflow unchanged
 					}
 
 					return nil
@@ -1389,19 +1355,18 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						}
 					}
 
-					var operand1 int16
-
+					var operand1 uint32
 					if nHigh {
-						operand1 = int16(arm.state.registers[Rn] >> 16)
+						operand1 = arm.state.registers[Rn] >> 16
 					} else {
-						operand1 = int16(arm.state.registers[Rn])
+						operand1 = arm.state.registers[Rn] & 0xffff
 					}
 
-					var operand2 int16
+					var operand2 uint32
 					if mHigh {
-						operand2 = int16(arm.state.registers[Rm] >> 16)
+						operand2 = arm.state.registers[Rm] >> 16
 					} else {
-						operand2 = int16(arm.state.registers[Rm])
+						operand2 = arm.state.registers[Rm] & 0xffff
 					}
 
 					arm.state.registers[Rd] = uint32(int32(operand1) * int32(operand2))
@@ -1430,18 +1395,18 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 						}
 					}
 
-					var operand1 int16
+					var operand1 uint32
 					if nHigh {
-						operand1 = int16(arm.state.registers[Rn] >> 16)
+						operand1 = arm.state.registers[Rn] >> 16
 					} else {
-						operand1 = int16(arm.state.registers[Rn])
+						operand1 = arm.state.registers[Rn] & 0xffff
 					}
 
-					var operand2 int16
+					var operand2 uint32
 					if mHigh {
-						operand2 = int16(arm.state.registers[Rm] >> 16)
+						operand2 = arm.state.registers[Rm] >> 16
 					} else {
-						operand2 = int16(arm.state.registers[Rm])
+						operand2 = arm.state.registers[Rm] & 0xffff
 					}
 
 					// sign extend accumulator for 64bit
@@ -1567,7 +1532,7 @@ func (arm *ARM) decode32bitThumb2DataProcessingNonImmediate(opcode uint16) decod
 					}
 				}
 
-				result := int64(arm.state.registers[Rn]) * int64(arm.state.registers[Rm])
+				result := int64(int32(arm.state.registers[Rn])) * int64(int32(arm.state.registers[Rm]))
 				arm.state.registers[RdHi] = uint32(result >> 32)
 				arm.state.registers[RdLo] = uint32(result)
 
@@ -1601,7 +1566,7 @@ func (arm *ARM) decode32bitThumb2LoadStoreDoubleEtc(opcode uint16) decodeFunctio
 		return func() *DisasmEntry {
 			addr := arm.state.registers[Rn]
 			if Rn == rPC {
-				addr = AlignTo32bits(addr)
+				addr = AlignTo32bits(addr - 2)
 			}
 
 			if p {
@@ -1988,36 +1953,30 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 					return nil
 				}
 			} else {
-				if arm.state.instruction32bitOpcodeHi&0x100 == 0x100 {
-					// "4.6.3 ADD (immediate)" of "Thumb-2 Supplement"
-					// T3 encoding
-					return func() *DisasmEntry {
-						if arm.decodeOnly {
-							return &DisasmEntry{
-								Is32bit:  true,
-								Operator: fmt.Sprintf("ADD%s", setFlagsMnemonic(setFlags)),
-								Operand:  fmt.Sprintf("R%d, R%d, #$%08x", Rd, Rn, imm32),
-							}
+				// "4.6.3 ADD (immediate)" of "Thumb-2 Supplement"
+				// T3 encoding
+				return func() *DisasmEntry {
+					if arm.decodeOnly {
+						return &DisasmEntry{
+							Is32bit:  true,
+							Operator: fmt.Sprintf("ADD%s", setFlagsMnemonic(setFlags)),
+							Operand:  fmt.Sprintf("R%d, R%d, #$%08x", Rd, Rn, imm32),
 						}
-
-						// perform addition and store result
-						result, carry, overflow := AddWithCarry(arm.state.registers[Rn], imm32, 0)
-						arm.state.registers[Rd] = result
-
-						// change status register
-						if setFlags {
-							arm.state.status.isNegative(result)
-							arm.state.status.isZero(result)
-							arm.state.status.setCarry(carry)
-							arm.state.status.setOverflow(overflow)
-						}
-
-						return nil
 					}
-				} else {
-					// "4.6.3 ADD (immediate)" of "Thumb-2 Supplement"
-					// T4 encoding
-					panic("unimplemented 'ADD (immediate)' T4 encoding")
+
+					// perform addition and store result
+					result, carry, overflow := AddWithCarry(arm.state.registers[Rn], imm32, 0)
+					arm.state.registers[Rd] = result
+
+					// change status register
+					if setFlags {
+						arm.state.status.isNegative(result)
+						arm.state.status.isZero(result)
+						arm.state.status.setCarry(carry)
+						arm.state.status.setOverflow(overflow)
+					}
+
+					return nil
 				}
 			}
 
@@ -2199,6 +2158,7 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 						}
 					}
 
+					// T4 encoding does NOT set flags
 					result, _, _ := AddWithCarry(arm.state.registers[Rn], imm32, 0)
 					arm.state.registers[Rd] = result
 					return nil
@@ -2221,6 +2181,7 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 						}
 					}
 
+					// T4 encoding does NOT set flags
 					result, _, _ := AddWithCarry(arm.state.registers[Rn], ^imm32, 1)
 					arm.state.registers[Rd] = result
 					return nil
@@ -2306,16 +2267,21 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 			imm3 := (opcode & 0x7000) >> 12
 			imm2 := (opcode & 0x00c0) >> 6
 			imm5 := (imm3 << 2) | imm2
-			sh := arm.state.instruction32bitOpcodeHi&0x0020 != 0x0020
+			sh := arm.state.instruction32bitOpcodeHi&0x0020 == 0x0020
 			if sh && imm5 == 0 {
-				panic("decoding error: SSAT with sh bit of 0 and imm5 of 0 is not possible")
+				panic("decoding error: SSAT with sh bit of 1 (ASR) and imm5 of 0 is SSAT16")
 			}
+
+			// for SSAT the sat_imm value is added to 1 for the actual 'saturation to' value
+			sat_to := int(sat_imm + 1)
 
 			return func() *DisasmEntry {
 				// disassembly only
 				if arm.decodeOnly {
-					operand := fmt.Sprintf("R%d, #%d, R%d", Rd, sat_imm, Rn)
+					operand := fmt.Sprintf("R%d, #%d, R%d", Rd, sat_to, Rn)
 					if sh {
+						operand = fmt.Sprintf("%s, ASR %d", operand, imm5)
+					} else if imm5 != 0 {
 						operand = fmt.Sprintf("%s, LSL %d", operand, imm5)
 					}
 					return &DisasmEntry{
@@ -2325,24 +2291,25 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 					}
 				}
 
-				// logical shift left
-				//
-				// the Thumb-2 Supplement pseudo-code includes the call to DecodeImmShift() but it's
-				// only ever called with 0x00 as the shift type, which is logical shift left
-				//
-				// also, we don't need to worry about any output carry bit
-				shifted := arm.state.registers[Rn]
+				// we don't need to worry about any output carry bit when shifting
+				var shifted uint32
 				if sh {
-					shifted <<= imm5
+					// with arithmetic right shift
+					shifted = uint32(int32(arm.state.registers[Rn]) >> imm5)
+				} else {
+					// with logical left shift
+					shifted = arm.state.registers[Rn] << imm5
 				}
 
 				// saturate result (using helper function from fpu package even though this is not
 				// an FPU instruction)
-				result, sat := fpu.SignedSatQ(int(shifted), int(sat_imm)+1)
+				result, sat := fpu.SignedSatQ(int(int32(shifted)), sat_to)
 				arm.state.registers[Rd] = uint32(result)
 
-				// set saturation flag
-				arm.state.status.setSaturation(sat)
+				// set saturation flag to true. the flag is not reset if the instruction has not saturated
+				if sat {
+					arm.state.status.setSaturation(true)
+				}
 
 				return nil
 			}
@@ -2366,10 +2333,16 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 					}
 				}
 
-				arm.state.registers[Rd] = (arm.state.registers[Rn] >> uint32(lsbit)) & ((1 << width) - 1)
-				if arm.state.registers[Rd]>>widthm1 == 0x01 {
-					arm.state.registers[Rd] = arm.state.registers[Rd] | ^((1 << width) - 1)
+				// starting with uint64 to construct the mask. a shift of 32 would overflow a uint32
+				mask := uint32((uint64(1) << width) - 1)
+				value := (arm.state.registers[Rn] >> uint32(lsbit)) & mask
+
+				// sign extension
+				if value&(uint32(1)<<(width-1)) != 0 {
+					value |= ^mask
 				}
+
+				arm.state.registers[Rd] = value
 
 				return nil
 			}
@@ -2422,16 +2395,23 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 			imm2 := (opcode & 0x00c0) >> 6
 			sat_imm := opcode & 0x001f
 			imm5 := (imm3 << 2) | imm2
-			sh := arm.state.instruction32bitOpcodeHi&0x0020 != 0x0020
+			sh := arm.state.instruction32bitOpcodeHi&0x0020 == 0x0020
 			if sh && imm5 == 0 {
-				panic("decoding error: USAT with sh bit of 0 and imm5 of 0 is not possible")
+				panic("decoding error: USAT with sh bit of 1 (ASR) and imm5 of 0 is USAT16")
 			}
+
+			// for USAT the sat_to value is the same as the sat_imm value extracted from the instruction
+			// comparte to the SSAT instruction where sat_to is adjusted by one. we use this form
+			// in the USAT instruction only so that it matches the form of SSAT
+			sat_to := int(sat_imm)
 
 			return func() *DisasmEntry {
 				// disassembly only
 				if arm.decodeOnly {
-					operand := fmt.Sprintf("R%d, #%d, R%d", Rd, sat_imm, Rn)
+					operand := fmt.Sprintf("R%d, #%d, R%d", Rd, sat_to, Rn)
 					if sh {
+						operand = fmt.Sprintf("%s, ASR %d", operand, imm5)
+					} else if imm5 != 0 {
 						operand = fmt.Sprintf("%s, LSL %d", operand, imm5)
 					}
 					return &DisasmEntry{
@@ -2441,24 +2421,25 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 					}
 				}
 
-				// logical shift left
-				//
-				// the Thumb-2 Supplement pseudo-code includes the call to DecodeImmShift() but it's
-				// only ever called with 0x00 as the shift type, which is logical shift left
-				//
-				// also, we don't need to worry about any output carry bit
-				shifted := arm.state.registers[Rn]
+				// we don't need to worry about any output carry bit when shifting
+				var shifted uint32
 				if sh {
-					shifted <<= imm5
+					// with arithmetic right shift
+					shifted = uint32(int32(arm.state.registers[Rn]) >> imm5)
+				} else {
+					// with logical left shift
+					shifted = arm.state.registers[Rn] << imm5
 				}
 
 				// saturate result (using helper function from fpu package even though this is not
 				// an FPU instruction)
-				result, sat := fpu.UnsignedSatQ(int(shifted), int(sat_imm))
+				result, sat := fpu.UnsignedSatQ(int(int32(shifted)), sat_to)
 				arm.state.registers[Rd] = uint32(result)
 
-				// set saturation flag
-				arm.state.status.setSaturation(sat)
+				// set saturation flag to true. the flag is not reset if the instruction has not saturated
+				if sat {
+					arm.state.status.setSaturation(true)
+				}
 
 				return nil
 			}
@@ -2488,7 +2469,10 @@ func (arm *ARM) decode32bitThumb2DataProcessing(opcode uint16) decodeFunction {
 					}
 				}
 
-				arm.state.registers[Rd] = (arm.state.registers[Rn] >> uint32(lsbit)) & ((1 << width) - 1)
+				// starting with uint64 to construct the mask. a shift of 32 would overflow a uint32
+				mask := uint32((uint64(1) << width) - 1)
+				arm.state.registers[Rd] = (arm.state.registers[Rn] >> uint32(lsbit)) & mask
+
 				return nil
 			}
 		default:

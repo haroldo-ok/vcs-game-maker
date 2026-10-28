@@ -20,8 +20,9 @@ consistency.
 
 ## Local changes to the vendored gopher2600
 
-`vendor/` is gopher2600 v0.57.2 with two local patches, kept in `patches/` so they can
-be reapplied after a re-vendor (`git apply patches/*.patch`):
+`vendor/` is gopher2600 from its main branch (commit 295b9e1, 2026-10-25; the last release, v0.57.2, has no
+AtariVox speech engine) with three local patches, kept in `patches/` so they can be reapplied after a re-vendor
+(`git apply -p3 patches/*.patch` from this directory; `go mod vendor` brings back the unpatched files):
 
 - `0001-vcs-step-no-closure-allocation.patch`: `VCS.Step()` built a new closure for
   every CPU instruction, which escaped to the heap (about 6,700 allocations per frame)
@@ -115,6 +116,20 @@ page's main thread, so a frame that takes 12-17 ms to emulate never blocks the U
 draws the frames it posts, plays the audio, forwards keyboard events and sends
 one "tick" per display refresh. The worker turns those ticks into a steady 60
 frames per second at any monitor refresh rate (50 for PAL).
+
+## AtariVox
+
+`main.go` can plug an AtariVox (a speech synthesizer on the right controller port) in place of the
+Player 2 joystick or keypad: `setAtariVox(true)`, set from the Emulator settings dialog. gopher2600's
+SpeakJet chip emulation (the `speakjet` module, vendored) makes the speech as an auxiliary audio source
+at a sample rate of 8192 Hz; `webAudioMixer` collects it and `g2kPostAuxAudio` hands it to the page,
+which plays it beside the console's sound. Only a ROM that sends the AtariVox serial data makes speech.
+
+## Updating on Windows
+
+gopher2600's `gui/sdlaudio/aux.go` is a reserved device name on Windows, so a plain `git clone` fails
+to check out. Check out everything except `gui/` (`git sparse-checkout`, patterns `/*` and `!/gui/`),
+the core does not need it. The module needs Go 1.27.2 or newer (`GOTOOLCHAIN=go1.27.2` downloads it).
 
 Requires a Go toolchain (this was built with Go 1.27) - only for whoever
 rebuilds this artifact, not for the app's normal `npm install`/`npm run build`.

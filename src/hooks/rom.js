@@ -217,6 +217,22 @@ const shareDpcPlusPlayerData = (compiled, config) => {
   }
 };
 
+// The multiply and divide routine (div_mul.asm) is included whenever a multiply or divide block exists, though the compiler turns a
+// multiply or divide by a power of 2 into shifts and may never call it. The routine takes room in the first bank (on DPC+ the
+// kernel's bank, which has under 100 bytes free), so when nothing in the compiled code or the files next to it calls it, the
+// include is left out.
+const dropUnusedDivMul = (compiled, siblingFiles) => {
+  const includeLine = /^[ \t]*include[ \t]+"?div_mul\.asm"?[ \t\r]*$/m;
+  if (!includeLine.test(compiled.mainAsm)) return;
+  const calls = /\b(mul8|div8|mul16|div16)\b/;
+  const rest = compiled.mainAsm.replace(includeLine, '');
+  const others = Object.entries(siblingFiles || {}).filter(([name]) => !/^div_mul/.test(name)).map(([, text]) => String(text));
+  const code = (text) => text.replace(/;.*$/gm, '');
+  if (calls.test(code(rest)) || others.some((text) => calls.test(code(text)))) return;
+  compiled.mainAsm = rest;
+  appendCompileLog('Left out the multiply and divide routine: nothing calls it (the compiler turned the multiplies and divides into shifts).');
+};
+
 // The animations load their pictures from tables of addresses: the statements that make the rows' addresses are cut out of the
 // assembly, and the tables use the names they leave (see utils/dpc-picture-tables.js).
 const resolveAnimationPictureTables = (compiled) => {
@@ -963,6 +979,19 @@ const familyHasExternalBareCaller = (members) => {
 // the event names.
 // (A unit that runs on every frame is not moved to free room in the main bank, only when the main bank has no other way to fit.)
 const EVERY_FRAME = 3;
+// How often a unit runs, from 0 (a screen or a load that comes seldom) to EVERY_FRAME.
+const unitRunFrequency = (kind, name) => {
+  if (kind === 'eventBanks') return 0;
+  if (kind === 'graphicsBanks') {
+    if (/^soundfx/.test(name)) return EVERY_FRAME;
+    return /animation\d+$/.test(name) ? 1 : 0;
+  }
+  if (kind === 'subroutineBanks') {
+    if (/^_(pfbox|sprite_box|run_once_edge_reset)/.test(name)) return EVERY_FRAME;
+    return /^_background_load/.test(name) ? 0 : 2;
+  }
+  return 2;
+};
 const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
   const primary = primaryBank || 1;
   const eventBanks = banks.eventBanks || {};
@@ -1033,16 +1062,7 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
   // title and game over screens, the loads of a background, and the pictures that are only loaded when an animation changes go first;
   // an animation's code, which the main bank steps past on most frames, and the other subroutines next; the subroutines that run on
   // every frame (the box checks, the edge reset) last. Within a group the largest goes first, to need the fewest rebuilds.
-  const runFrequency = (unit) => {
-    if (unit.kind === 'eventBanks') return 0;
-    if (unit.kind === 'graphicsBanks') return /animation\d+$/.test(unit.name) ? 1 : 0;
-    if (unit.kind === 'subroutineBanks') {
-      if (/^_(pfbox|sprite_box|run_once_edge_reset)/.test(unit.name)) return EVERY_FRAME;
-      return /^_background_load/.test(unit.name) ? 0 : 2;
-    }
-    return 2;
-  };
-  candidates.forEach((unit) => (unit.frequency = runFrequency(unit)));
+  candidates.forEach((unit) => (unit.frequency = unitRunFrequency(unit.kind, unit.name)));
   return candidates.sort((a, b) => a.frequency - b.frequency || b.size - a.size);
 };
 
@@ -1076,6 +1096,32 @@ const pickSqueezeMove = (capacity, config, banks, tried) => {
     if (fits.length) return {unit, bank: fits[0]};
   }
   return null;
+};
+
+// A unit that runs on every frame and is in another bank, and fits in the free bytes the main bank measured in the last good build: the
+// largest one that does. Each call into another bank takes 35 to 50 cycles, which the relocation of the first attempts (it moves what is
+// biggest, by estimates) can cost for no reason once the main bank turns out to have room. Null when none fits.
+const pickPullBackMove = (capacity, config, banks, tried) => {
+  const primary = primaryBankFor(config);
+  const mainBank = capacity && capacity.perBank && capacity.perBank[primary - 1];
+  if (!mainBank) return null;
+  const scale = {
+    eventBanks: COMPILED_BYTES_PER_EVENT_CHAR, graphicsBanks: COMPILED_BYTES_PER_GRAPHICS_CHAR, subroutineBanks: COMPILED_BYTES_PER_SUBROUTINE_CHAR,
+  };
+  const sizeOf = {
+    eventBanks: (name) => BlocklyBB.estimateEventSize(name), graphicsBanks: (name) => BlocklyBB.estimateGraphicsUnitSize(name),
+    subroutineBanks: (name) => BlocklyBB.estimateSubroutineSize(name),
+  };
+  const found = [];
+  Object.keys(scale).forEach((kind) => {
+    Object.entries(banks[kind] || {}).forEach(([name, bank]) => {
+      if (bank === primary || tried.has(`pull:${kind}:${name}`) || unitRunFrequency(kind, name) < EVERY_FRAME) return;
+      const need = sizeOf[kind](name) * scale[kind] * SQUEEZE_MARGIN;
+      if (need <= mainBank.freeBytes) found.push({kind, name, bank, need});
+    });
+  });
+  found.sort((a, b) => b.need - a.need);
+  return found[0] || null;
 };
 
 // The single highest-numbered available bank (excluding the Text
@@ -1260,6 +1306,8 @@ const buildRomInner = async () => {
   const errorStorage = useErrorStorage();
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
+  // How many bytes over a bank the Titlescreen Kernel was when it was moved by itself (0 when it never overflowed one).
+  let titleOverBytes = 0;
   BlocklyBB.displayRamExcludedSeed = null;
 
   // Tracks every bank each unit has already been tried in during THIS
@@ -1319,6 +1367,19 @@ const buildRomInner = async () => {
     squeeze = {members, key: `${move.unit.kind}:${move.unit.name}`, from: primaryBankFor(configurationStorage.value || {})};
     squeezeCount++;
     appendCompileLog(`Trying ${move.unit.kind.replace('Banks', '')} "${move.unit.name}" in bank ${move.bank} to free the main bank.`);
+    return true;
+  };
+
+  // The other way: a unit that runs on every frame, moved into the main bank when the last good build left room there.
+  const tryPullBack = (capacity) => {
+    if (squeezeCount >= MAX_SQUEEZE_ATTEMPTS) return false;
+    const config = configurationStorage.value || {};
+    const move = pickPullBackMove(capacity, config, getRelocationBanks(), squeezeTried);
+    if (!move) return false;
+    setRelocationBank(move.kind, move.name, primaryBankFor(config));
+    squeeze = {members: [{kind: move.kind, name: move.name}], key: `pull:${move.kind}:${move.name}`, from: move.bank};
+    squeezeCount++;
+    appendCompileLog(`Trying ${move.kind.replace('Banks', '')} "${move.name}" in the main bank, as it runs on every frame.`);
     return true;
   };
 
@@ -1443,7 +1504,7 @@ const buildRomInner = async () => {
       if (textMinikernelActive) {
         // The text on a Title Screen page: the stack of the Title Screen kernel's call to the text kernel runs over statusbarlength ($f5),
         // where the text color is by default, so there it is a variable of its own (see titleTextColor in generators/bbasic.js).
-        if (BlocklyBB.isTitleTextUsed() && siblingFiles['text12a.asm']) {
+        if (BlocklyBB.isTitleTextUsed() && config.kernel !== 'dpcplus' && siblingFiles['text12a.asm']) {
           siblingFiles['text12a.asm'] = siblingFiles['text12a.asm'].replace(/^TextColor = statusbarlength/m, 'TextColor = titleTextColor');
         }
         // DPC+ keeps its whole text kernel in one file, the standard kernel's drawing code is text12b.asm
@@ -1514,9 +1575,9 @@ const buildRomInner = async () => {
         offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      dropUnusedDivMul(compiled, siblingFiles);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
-      window.__vcsPre = preprocessed; window.__vcsAsm = compiled.mainAsm; // TEMP profiling hook
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
@@ -1592,7 +1653,7 @@ const buildRomInner = async () => {
           variableUsage} :
         capacity);
       // Where each variable lives, for the emulator's debug info.
-      setDebugVariables(collectDebugVariables(variableUsage, compiledResult.symbolmap)); window.__vcsSymbols = compiledResult.symbolmap; // TEMP profiling hook
+      setDebugVariables(collectDebugVariables(variableUsage, compiledResult.symbolmap));
       // Remembers THIS build's  final layout as the next build's
       // first-attempt hint (see seedRelocationBanksFromLastSuccess's
       // comment in relocation-banks.js) - recorded on every success, not
@@ -1602,7 +1663,7 @@ const buildRomInner = async () => {
       squeeze = null;
       goodCapacity = capacity;
       // (A layout that came from the last good build, and worked again, was squeezed then.)
-      if (!(attempt === 0 && seededFromLastSuccess) && trySqueeze(capacity)) continue;
+      if (!(attempt === 0 && seededFromLastSuccess) && (trySqueeze(capacity) || tryPullBack(capacity))) continue;
       recordSuccessfulRelocationBanks(bankSizeKey);
       appendCompileLog('Build succeeded.', 'stage');
       appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
@@ -1614,7 +1675,7 @@ const buildRomInner = async () => {
         squeezeTried.add(squeeze.key);
         squeeze = null;
         appendCompileLog('That did not fit: keeping the previous layout.');
-        if (trySqueeze(goodCapacity)) continue;
+        if (trySqueeze(goodCapacity) || tryPullBack(goodCapacity)) continue;
         regenerateCode();
         recordSuccessfulRelocationBanks(bankSizeKeyFor(configurationStorage.value || {}));
         appendCompileLog('Build succeeded.', 'stage');
@@ -1696,6 +1757,16 @@ const buildRomInner = async () => {
         // unlike the standard kernel).
         if (!candidate) {
           const freeBytes = parseBank1FreeBytesEcho(e.dasmStdout);
+          if (freeBytes != null && freeBytes < 0 && titleOverBytes > 0) {
+            // The Titlescreen Kernel was too big for every bank it was tried in, and ended in bank 1 with the others.
+            appendCompileLog('Build failed.', 'error');
+            const titleHint = titleScreenOverflowHint(e);
+            showError(errorStorage, 'Error while compiling bBasic code', code, new Error(
+                `The Title screen is ${titleOverBytes} bytes too big for a bank: its kernels and graphics take more room than one bank ` +
+                'has, and they can only go in one bank. Make the title screen smaller (fewer or shorter cards, fewer different pictures ' +
+                'or row color lists).'), titleHint.highlight);
+            return false;
+          }
           if (freeBytes != null && freeBytes < 0) {
             appendCompileLog('Build failed.', 'error');
             const bank1Error = new Error(
@@ -1896,6 +1967,9 @@ const buildRomInner = async () => {
           (candidate.members || [{kind: candidate.kind, name: candidate.name}])
               .forEach(({kind, name}) => setRelocationBank(kind, name, bank));
           relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank, members: candidate.members});
+          if (candidate.kind === 'subroutineBanks' && candidate.name === TITLE_SCREEN_SUBROUTINE_NAME) {
+            titleOverBytes = Math.max(titleOverBytes, parseBankOverflowBytes(e.dasmStdout, parseOverflowingBank(e.dasmStdout)));
+          }
           // Not an 'error'-level entry - an overflow here is an expected,
           // automatically-handled part of the relocation retry loop, not a
           // real problem the user needs to act on (see isOverflowError's
@@ -2379,6 +2453,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         rows: !!BlocklyBB.pfBoxArmRows,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      dropUnusedDivMul(compiled, siblingFiles);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');

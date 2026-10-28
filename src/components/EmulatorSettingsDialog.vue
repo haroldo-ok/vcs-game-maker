@@ -24,6 +24,14 @@
           @change="(value) => update({backend: value})"
         />
 
+        <v-switch
+          :input-value="settings.atariVox"
+          label="AtariVox (speech) in the Player 2 port"
+          hint="For ROMs that speak through an AtariVox. Runs the gopher2600 emulator, which emulates the SpeakJet chip; the Player 2 joystick is replaced while it is on."
+          persistent-hint
+          @change="(value) => update({atariVox: !!value})"
+        />
+
         <v-select
           :value="settings.tvEmulation"
           :items="tvItems"
@@ -177,7 +185,7 @@ export default {
     },
     // The effects and accuracy belong to 6502.ts.
     stellerator() {
-      return this.settings.backend === 'stellerator';
+      return this.settings.backend === 'stellerator' && !this.settings.atariVox;
     },
     backendNote() {
       return this.stellerator ?

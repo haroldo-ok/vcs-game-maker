@@ -362,7 +362,8 @@
   </div>
 </template>
 <script>
-import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
+import {watchDeep} from '../hooks/watch-deep';
 import {max} from 'lodash';
 import {saveAs} from 'file-saver';
 
@@ -585,7 +586,7 @@ export default defineComponent({
     // actually reads to a user - same 500ms debounce MusicEditor.vue/
     // SoundFXEditor.vue's  history watchers already use.
     let tableHistoryDebounce = null;
-    watch(() => state.value.dataTables, () => {
+    watchDeep(() => state.value.dataTables, () => {
       clearTimeout(tableHistoryDebounce);
       tableHistoryDebounce = setTimeout(() => {
         state.value.dataTables.forEach((table) => {
@@ -604,7 +605,7 @@ export default defineComponent({
           tableLastSnapshot[table.id] = snapshot;
         });
       }, 500);
-    }, {deep: true});
+    });
 
     const applyTableSnapshot = (table, snapshotJson) => {
       const data = JSON.parse(snapshotJson);

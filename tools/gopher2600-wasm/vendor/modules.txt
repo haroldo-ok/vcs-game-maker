@@ -18,8 +18,8 @@ github.com/hajimehoshi/go-mp3/internal/huffman
 github.com/hajimehoshi/go-mp3/internal/imdct
 github.com/hajimehoshi/go-mp3/internal/maindata
 github.com/hajimehoshi/go-mp3/internal/sideinfo
-# github.com/jetsetilly/gopher2600 v0.57.2 => C:\tmp\gopher2600-vendor-src
-## explicit; go 1.25.0
+# github.com/jetsetilly/gopher2600 v0.57.2 => C:/tmp/gopher2600-src
+## explicit; go 1.27.2
 github.com/jetsetilly/gopher2600/archivefs
 github.com/jetsetilly/gopher2600/cartridgeloader
 github.com/jetsetilly/gopher2600/coprocessor
@@ -95,7 +95,10 @@ github.com/jetsetilly/gopher2600/resources
 github.com/jetsetilly/gopher2600/resources/fs
 github.com/jetsetilly/gopher2600/resources/unique
 github.com/jetsetilly/gopher2600/version
+# github.com/jetsetilly/speakjet v0.2.0
+## explicit; go 1.27.2
+github.com/jetsetilly/speakjet
 # github.com/jetsetilly/supercharge v0.3.0
 ## explicit; go 1.25
 github.com/jetsetilly/supercharge/supercharge
-# github.com/jetsetilly/gopher2600 => C:\tmp\gopher2600-vendor-src
+# github.com/jetsetilly/gopher2600 => C:/tmp/gopher2600-src
