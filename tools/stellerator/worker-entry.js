@@ -26,6 +26,7 @@ const AudioOutputBuffer = require('6502.ts/lib/tools/AudioOutputBuffer').default
 const CpuFactory = require('6502.ts/lib/machine/cpu/Factory').default;
 const palettes = require('6502.ts/lib/machine/stella/tia/palette');
 const {matchDriverFractionalFetchers} = require('./dpcplus-driver');
+const {createAtariVox} = require('./atarivox');
 
 const FRAME_WIDTH = 160;
 const MAX_FRAME_HEIGHT = 320;
@@ -51,6 +52,9 @@ const state = {
   // The keypad controllers: whether one is plugged into a port, and the key held on it.
   keypad: {left: {mode: false, key: null}, right: {mode: false, key: null}},
   swcha: 0xff,
+  // The AtariVox (see atarivox.js): whether one is plugged into the right port, and the one of the current board.
+  atariVoxPlugged: false,
+  atariVox: null,
   debugWatch: [],
   debugLastCpuCycles: 0,
   debugLastBusyCycles: 0,
@@ -140,6 +144,8 @@ const createBoard = async () => {
   state.board = board;
   state.swcha = 0xff;
   if (state.keypad.left.mode || state.keypad.right.mode) installKeypadBus();
+  state.atariVox = null;
+  if (state.atariVoxPlugged) plugAtariVox();
   state.busyCycles = 0;
   state.debugLastBusyCycles = 0;
   state.debugLastCpuCycles = 0;
@@ -249,6 +255,7 @@ const runTick = (timestamp) => {
   if (ran) {
     postFrame();
     postAudio();
+    postAtariVox();
     postDebug();
   }
 };
@@ -306,6 +313,55 @@ const installKeypadBus = () => {
     write(address, value);
   };
   bus.__keypadInstalled = true;
+};
+
+// ---- AtariVox ------------------------------------------------------------------------------------
+// The program's writes to SWCHA and SWACNT are the serial line to the speech chip, and a read of SWCHA shows the chip's READY line on
+// bit 1 (see atarivox.js). Wraps the board's bus once, like the keypad above.
+const installAtariVoxBus = () => {
+  const bus = state.board && state.board.getBus();
+  if (!bus || bus.__atariVoxInstalled) return;
+  const read = bus.read.bind(bus);
+  const write = bus.write.bind(bus);
+  // Register 0 (SWCHA) and 1 (SWACNT) of the RIOT's I/O: not the cartridge (A12), RIOT (A7), I/O not timer (A9 set, A2 clear).
+  const riotRegister = (address) => {
+    const masked = address & 0x1fff;
+    if ((masked & 0x1000) || !(masked & 0x80) || !(masked & 0x200) || (masked & 0x4)) return -1;
+    return masked & 3;
+  };
+  bus.read = (address) => {
+    const value = read(address);
+    if (state.atariVox && riotRegister(address) === 0) return state.atariVox.read(value);
+    return value;
+  };
+  bus.write = (address, value) => {
+    if (state.atariVox) {
+      const register = riotRegister(address);
+      if (register === 0 || register === 1) state.atariVox.write(register, value & 0xff, state.board._cpuCycles);
+    }
+    write(address, value);
+  };
+  bus.__atariVoxInstalled = true;
+};
+
+// Plugs an AtariVox into the right port of the current board (the chip loads in the background; what the program sends meanwhile waits).
+const plugAtariVox = () => {
+  if (!state.board) return;
+  installAtariVoxBus();
+  const vox = createAtariVox();
+  state.atariVox = vox;
+  vox.attach().then(() => {
+    if (state.atariVox === vox) vox.state.chip.reset();
+  }).catch((error) => console.error('6502.ts worker: ' + (error && error.message ? error.message : error)));
+};
+
+// The speech of the frame just run goes to the page as the same auxiliary audio gopher2600 sends.
+const postAtariVox = () => {
+  const vox = state.atariVox;
+  if (!vox) return;
+  vox.flush(state.board._cpuCycles);
+  const samples = vox.render(state.framePeriod);
+  if (samples) post({type: 'auxaudio', frequency: vox.sampleRate, samples: samples.buffer}, [samples.buffer]);
 };
 
 const handleKey = (code, down) => {
@@ -372,6 +428,11 @@ const CALLS = {
     keypad.mode = !!enabled;
     keypad.key = null;
     if (keypad.mode) installKeypadBus();
+  },
+  setAtariVox: (enabled) => {
+    state.atariVoxPlugged = !!enabled;
+    if (!enabled) state.atariVox = null;
+    else if (state.board && !state.atariVox) plugAtariVox();
   },
   setKeyMapping: (mapping) => {
     state.keyMapping = Array.isArray(mapping) ? mapping : [];
