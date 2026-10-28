@@ -117,21 +117,21 @@
       <div class="dl-groups">
         <div class="dl-group">
           <p class="dl-title">Windows</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
         </div>
         <div class="dl-group">
           <p class="dl-title">macOS</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
         </div>
         <div class="dl-group">
           <p class="dl-title">Linux</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.52.46/VCS-Game-Maker-0.52.46-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS (portable)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.3/VCS-Game-Maker-0.53.3-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS (portable)</a>
         </div>
       </div>
     </section>
@@ -368,15 +368,16 @@
 
     <section class="feature wide" id="updates">
       <h2>Latest updates</h2>
-      <p><strong>Version 0.52.46</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
-      <p>New "Sprite [object] and [object] overlap [starts / stops]" block: true for the one frame in which two sprites begin to overlap, or stop overlapping, for an if block. Pick the two sprites in the dropdowns (players, missiles and the ball) and use a block for each pair; each block takes two bits of memory.</p>
-      <p>Sprite animations take much less ROM on both kernels: the pictures of an animation are found and loaded from small tables instead of a piece of code for every picture, and the code that counts the frames is shorter. The row color bars beside a background follow the "pf color rows" and "bg color rows" fields as soon as their value changes.</p>
-      <p>The row color strips beside a background line up exactly with the rows of its picture, also when the number of color rows is not a multiple of the picture's rows (48 color rows on 20 picture rows, say), and the colors behind the picture change at the same heights as in the emulator.</p>
-      <p>On the DPC+ kernel, each of the four playfield columns (8 pixels wide) can have a different number of rows: a Columns toggle on the background card gives it four pfres fields, and the card shows the four columns side by side, each filling the height of the screen. Playfield offset, the Jump and collision blocks, the pixel blocks, the Convert blocks (with a new column socket) and scrolling all follow the rows of each column.</p>
-      <p>The playfield colors and the background colors of a DPC+ background can have a number of rows that differs from the picture's (the "pf color rows" and "bg color rows" fields), spread over the height of the picture. The card preview shows each picture row in bands for the color rows it covers, and the color strips line up with the picture rows.</p>
-      <p>New "jumps made" block for a sprite moved by the Platform block, to use in an if block. A joystick Fire "tapped" is now true on the frame Fire is pushed, with no wait. The debug score options can no longer be on together.</p>
-      <p>DPC+: a virtual player (Players 2 to 9) whose y jumps a long way, or that is hidden, no longer makes the other sprites vanish for a frame; the sprites are put in order of y first. Animations, the Jump block, the box test and the DPC+ playfield rows use fewer cycles and variables, and the DPC+ row heights of a tall background are exact.</p>
-      <p>Cards: a Columns toggle on the Sprites, Playfield and Title tabs puts the cards in one column or several. The import and export buttons are in the same place on the Sprites and Playfield tabs, the background row color bar has a clear button, and the spacing of the card headers and buttons is tidier. The TIA / ARM switch of a sound card sits in the waveform tools.</p>
+      <p><strong>Version 0.53.3</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
+      <p>Fixed the page freezing when you leave the Music tab after playing music or sounds (the sound code added watchers to the open tab for every note, millions after a song, and closing the tab took minutes). The Music tab also opens about three times faster with a big pattern open: the piano roll is drawn a moment after the rest of the tab.</p>
+      <p>Fixed a memory leak that made the app slower and slower until the browser or the desktop app crashed: every visit to the Music, Sound or Data tab kept the whole tab in memory. Memory now stays flat however often you switch tabs.</p>
+      <p>The Play button of a Title tab page works again for a project with big title screens: the preview compiles the page it shows only.</p>
+      <p>New "Playfield transition to [background] scrolling [Up/Down]" block: another background scrolls in over the one showing, a row at a time, with the Playfield scroll blocks you already use, instead of swapping to it at once (standard kernel).</p>
+      <p>Text on title screens works with the DPC+ kernel. With 5 score digits on DPC+ the first letter of a text line no longer loses its last pixel, and on the standard kernel the five digits next to the Text Minikernel are drawn whole, with nothing after the last one.</p>
+      <p>The emulator picture is 4:3 like an NTSC TV, and gopher2600 is newer, with AtariVox speech (an Emulator Settings switch for the Player 2 port). The macOS Apple silicon download is gone for now: that build does not work yet.</p>
+      <p>DPC+ games use fewer cycles (finished one-shot animations are not entered again, joystick directions are read in assembly), title screen data is packed into fewer pages, and a title screen that does not fit its bank says so.</p>
+      <p><strong>Version 0.53.0</strong></p>
+      <p>A deleted card can be undone and redone on every tab. Scene cards have a preview button and show the scene name, with block-colored sprite pills; the Sound tab's columns toggle is a toolbar icon; the Project page cards show TIA / ARM.</p>
     </section>
 
     <footer>
