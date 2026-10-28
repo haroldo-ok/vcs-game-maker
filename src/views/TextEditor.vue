@@ -90,7 +90,7 @@
           outlined
           dense
           class="text-pronunciations-field"
-          hint="A line for each word that the AtariVox should say your way: WORD = SpeakJet words, for example OLYMPUS = AX LE IH MM PO AX SO. They apply to every message."
+          hint="A line for each word that the AtariVox should say your way: WORD = sounds, for example OLYMPUS = AX LE IH MM PO AX SO. They apply to every message."
           persistent-hint
           @change="handleChildChange"
         />
@@ -196,13 +196,13 @@
                     @change="handleChildChange"
                   />
                   <v-text-field
-                    label="Spoken as (AtariVox, SpeakJet words)"
+                    label="Spoken as (AtariVox, sounds)"
                     :value="entry.speech"
                     :placeholder="generatedSpeech(entry)"
                     clearable
                     dense
                     class="text-speech-field"
-                    hint="Empty: the AtariVox says what the rules make of the text (shown above, and used by the play button). Write SpeakJet words here to say it your way."
+                    hint="Empty: the AtariVox says what the rules make of the text (shown above, and used by the play button). Write the sounds here to say it your way."
                     persistent-hint
                     @change="(value) => handleSpeechChange(entry, value)"
                     @click:clear="() => handleSpeechChange(entry, '')"

@@ -28,7 +28,7 @@
           dense
           :input-value="settings.atariVox"
           label="AtariVox (speech) in the Player 2 port"
-          hint="For ROMs that speak through an AtariVox, in either emulator (a SpeakJet speech chip is emulated); the Player 2 joystick is replaced. Switched on for you when the project has Speech blocks."
+          hint="For ROMs that speak through an AtariVox, in either emulator; the Player 2 joystick is replaced. Switched on for you when the project has Speech blocks."
           persistent-hint
           @change="(value) => update({atariVox: !!value})"
         />
