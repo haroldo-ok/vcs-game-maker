@@ -134,6 +134,12 @@ Attaching a cartridge puts the default controllers back in both ports, so `attac
 (without that it was gone as soon as a ROM loaded). The page asks for it with `setAtariVoxRequired` while the loaded ROM has the
 Speech blocks (see `public/index.html`).
 
+The 6502.ts emulator has no AtariVox, so its worker (`tools/stellerator/atarivox.js`) decodes the serial line from the program's
+writes to SWCHA and SWACNT (with the CPU cycle of each) and reads READY back on bit 1 of SWCHA; the chip itself is
+`speakjet-wasm/`, the same vendored synthesizer as a small module (`public/js/speakjet.wasm`, 2 MB, loaded the first time an
+AtariVox is plugged in). Build it with
+`GOOS=js GOARCH=wasm go build -mod=vendor -ldflags="-s -w" -o ../../public/js/speakjet.wasm ./speakjet-wasm`.
+
 `atarivox-test/` runs a ROM natively with an AtariVox plugged in and prints the bytes the SpeakJet chip was sent and how much
 audio it made, to check the code the Speech blocks generate on either kernel (`go run -mod=vendor ./atarivox-test speech.bin 700`).
 

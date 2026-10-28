@@ -19,9 +19,8 @@ Blockly.Blocks['speech_say_text'] = {
     this.setTooltip('Speaks a message of the Text tab through an AtariVox (a speech chip in the Player 2 controller port). The text is turned into ' +
       'speech sounds when the project is built, by rules for English: most plain words are understood, but not all (numbers are spoken as ' +
       'words). For a phrase that has to be exactly right use "AtariVox say phonemes". The phrase goes out a byte a frame while the game runs, ' +
-      'and the game goes on at once. To hear it in the preview, turn on AtariVox in the Emulator Settings (it is switched on for you when the ' +
-      'project has a Speech block, and the preview then runs gopher2600). All the speech of a project together takes at most 254 bytes. The ' +
-      'Player 2 joystick can not be used with the AtariVox.');
+      'and the game goes on at once. The preview speaks in either emulator (the AtariVox is plugged in for you while the project has a Speech ' +
+      'block). All the speech of a project together takes at most 254 bytes. The Player 2 joystick can not be used with the AtariVox.');
   },
 };
 
@@ -37,9 +36,9 @@ Blockly.Blocks['speech_say'] = {
       'separated by spaces: allophones (the sounds of speech, like HE EH LE OWWW for "hello"), sound effects (R0 to R9 robot, A0 to A9 alarm, ' +
       'B0 to B9 beeps, C0 to C9 biological, D0 to D11 tones, M0 to M2 miscellaneous), PAUSE30 / PAUSE60 / PAUSE90 / PAUSE200 / PAUSE700 / ' +
       'PAUSE1000, FAST, SLOW, STRESS, RELAX, VOLUME n, SPEED n, PITCH n and BEND n (n from 0 to 254), or #n for any byte. The phrase goes out ' +
-      'a byte a frame while the game runs, and the game goes on at once. To hear it in the preview, turn on AtariVox in the Emulator ' +
-      'Settings (the preview then runs gopher2600; it is switched on for you when the project has a Speech block). All the phrases of a project ' +
-      'together take at most 254 bytes. The Player 2 joystick can not be used with the AtariVox.');
+      'a byte a frame while the game runs, and the game goes on at once. The preview speaks in either emulator (the AtariVox is plugged in ' +
+      'for you while the project has a Speech block). All the phrases of a project together take at most 254 bytes. The Player 2 joystick ' +
+      'can not be used with the AtariVox.');
   },
 };
 
