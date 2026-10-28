@@ -1,10 +1,7 @@
 <template>
   <div>
     <v-card flat class="editor-container" :ripple="false" @click="deselectCard">
-      <v-card-title>Title (alpha 0.75)</v-card-title>
-      <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
-        This feature is in alpha. Things may change or break. You've been warned!
-      </v-alert>
+      <v-card-title>Title (alpha 0.8)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message titlescreen-intro-paragraph">
           Compose a title screen from stacked image strips (top to bottom). 48x1 images are
@@ -233,6 +230,14 @@
                   </div>
 
                   <div class="titlescreen-corner-toolbar">
+                    <confirm-delete-menu
+                      v-if="state.screens.length > 1"
+                      :title="screenSelection.deleteQuestion(screen.id, 'title screen', 1)"
+                      :selected="screenSelection.isDeleteTarget(screen.id, selectedScreenId)"
+                      :activator-title="screenSelection.deleteQuestion(screen.id, 'title screen', 1).replace('?', '')"
+                      icon-btn-class="titlescreen-icon-btn-size"
+                      @confirm="handleDeleteScreen(screen)"
+                    />
                     <v-btn
                       :title="canDuplicateScreen(screen) ? 'Duplicate this title screen, with all its cards' :
                         'Duplicate this title screen (not enough copies of its card kinds are left)'"
@@ -244,14 +249,6 @@
                     >
                       <v-icon>mdi-content-duplicate</v-icon>
                     </v-btn>
-                    <confirm-delete-menu
-                      v-if="state.screens.length > 1"
-                      :title="screenSelection.deleteQuestion(screen.id, 'title screen', 1)"
-                      :selected="screenSelection.isDeleteTarget(screen.id, selectedScreenId)"
-                      :activator-title="screenSelection.deleteQuestion(screen.id, 'title screen', 1).replace('?', '')"
-                      icon-btn-class="titlescreen-icon-btn-size"
-                      @confirm="handleDeleteScreen(screen)"
-                    />
                     <v-btn
                       :title="testingScreenId === screen.id ? 'Building...' :
                         buildInProgress ? 'Another build is already running - try again once it finishes' :
@@ -306,6 +303,14 @@
                             <div class="titlescreen-id-badge">ID:{{ card.id }} &middot; {{ cardTypeLabel(card) }}</div>
 
                             <div class="titlescreen-corner-toolbar">
+                              <confirm-delete-menu
+                                :title="cardDeleteQuestion(screen, card)"
+                                :selected="card.id === selectedCardId && isCardSelected(screen, card)"
+                                :select-priority="1"
+                                :activator-title="cardDeleteQuestion(screen, card).replace('?', '')"
+                                icon-btn-class="titlescreen-icon-btn-size"
+                                @confirm="handleDeleteCard(screen, card)"
+                              />
                               <v-menu
                                   v-if="card.frames"
                                   top
@@ -362,14 +367,6 @@
                                 <v-icon>mdi-content-duplicate</v-icon>
                               </v-btn>
 
-                              <confirm-delete-menu
-                                :title="cardDeleteQuestion(screen, card)"
-                                :selected="card.id === selectedCardId && isCardSelected(screen, card)"
-                                :select-priority="1"
-                                :activator-title="cardDeleteQuestion(screen, card).replace('?', '')"
-                                icon-btn-class="titlescreen-icon-btn-size"
-                                @confirm="handleDeleteCard(screen, card)"
-                              />
                             </div>
                           </v-list-item-title>
 
@@ -601,7 +598,7 @@
                                       :columnBackdrop="cardBackdrop(screen, card, frame)"
                                       :showClearButton="true"
                                       :showGrid="showPixelGrid"
-                                      :name="`titlescreen-${screen.id}-${card.id}`"
+                                      :name="`${screen.name || 'titlescreen'}-${card.id}`"
                                       :hideToolbar="true"
                                       @input="() => handleFramePixelsInput(card, frame)"
                                       @resize="() => handleFramePixelsInput(card, frame)"
@@ -673,6 +670,15 @@
                                       <template v-slot:badge>
                                         <div class="frame-number-badge">ID:{{ frameIndex + 1 }}</div>
                                         <div class="frame-corner-toolbar">
+                                          <confirm-delete-menu
+                                            v-if="card.frames.length > 1"
+                                            title="Delete this frame?"
+                                            :selected="frameHighlightState(screen, card, frame) === 'blue'"
+                                            :select-priority="2"
+                                            activator-title="Delete this frame"
+                                            icon-btn-class="titlescreen-icon-btn-size"
+                                            @confirm="handleDeleteFrame(card, frame)"
+                                          />
                                           <v-btn
                                             v-if="cardHasRowColors(card)"
                                             icon
@@ -696,15 +702,6 @@
                                             <v-icon>mdi-content-paste</v-icon>
                                             <span class="copy-paste-color-badge">C</span>
                                           </v-btn>
-                                          <confirm-delete-menu
-                                            v-if="card.frames.length > 1"
-                                            title="Delete this frame?"
-                                            :selected="frameHighlightState(screen, card, frame) === 'blue'"
-                                            :select-priority="2"
-                                            activator-title="Delete this frame"
-                                            icon-btn-class="titlescreen-icon-btn-size"
-                                            @confirm="handleDeleteFrame(card, frame)"
-                                          />
                                         </div>
                                       </template>
                                     </pixel-editor>

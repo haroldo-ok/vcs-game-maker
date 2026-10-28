@@ -293,12 +293,6 @@ func (ps *PlayerSprite) tickHMOVE() bool {
 
 // returns true if pixel has changed.
 func (ps *PlayerSprite) tick() bool {
-	// VCS GAME MAKER: report a change only when the sprite's pixel can differ from the one
-	// Video.Pixel() last worked out. An idle sprite (nothing drawing, latching or scheduled)
-	// always outputs "off", so returning true for it made every color clock look changed and
-	// Video.Pixel() never took its early return. Register writes set tiaHasChanged themselves.
-	busy := ps.ScanCounter.IsActive() || ps.ScanCounter.IsLatching()
-
 	// tick graphics scan counter during visible screen and during HMOVE.
 	// from TIA_HW_Notes.txt:
 	//
@@ -387,8 +381,7 @@ func (ps *PlayerSprite) tick() bool {
 	ps.futureReset.Tick(ps._futureResetPosition)
 	ps.futureStart.Tick(ps._futureStartDrawingEvent)
 
-	return busy || ps.ScanCounter.IsActive() || ps.ScanCounter.IsLatching() ||
-		ps.futureStart.IsActive() || ps.futureReset.IsActive() || ps.futureSetNUSIZ.IsActive()
+	return true
 }
 
 func (ps *PlayerSprite) _futureStartDrawingEvent(v uint8) {

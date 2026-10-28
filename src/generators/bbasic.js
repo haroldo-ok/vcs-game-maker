@@ -28,6 +28,7 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks,
   backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName,
+  backgroundTransitionVarName, backgroundTransitionCountVarName,
   backgroundScrollPacking, backgroundScrollActiveVarName, backgroundScrollSubRowVarName,
   backgroundsWithOverflowRows, backgroundDataRows, effectiveBackgroundRows, backgroundPfresOf, dpcPlusPfresOf, backgroundGroupPfres, backgroundHasGroups,
   backgroundColorRows, backgroundHasColorRows, colorsAtRows, colorsAtPixelRows,
@@ -99,7 +100,8 @@ import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
 import {reserveTextScrollDevVars, generateTextScrollAdvance, generateTextOffsetTables, resolveTextScrollConstants,
   setTextScrollConstants} from './bbasic/text-scroll';
 import {generateTextStaticOffsetTables, generateTextRow2OffsetsTable, textLinesBaseVarName, textLinesMaxVarName,
-  textRow2ColorVarName, textClearTimerVarName, textScrollCursorColorVarName, textEndIconColorVarName} from './bbasic/text-minikernel';
+  textRow2ColorVarName, textClearTimerVarName, textBlinkVarName, textBlinkColorVarName, textScrollCursorColorVarName,
+  textEndIconColorVarName} from './bbasic/text-minikernel';
 
 const handlebarsTemplate = Handlebars.compile(templateText);
 
@@ -517,6 +519,7 @@ Blockly.BBasic.init = function(workspace) {
     this.textMinikernelUsed = true;
   }
   this.textClearAfterUsed = workspace.getAllBlocks(false).some((block) => block.type === 'text_minikernel_clear_after');
+  this.textBlinkUsed = workspace.getAllBlocks(false).some((block) => block.type === 'text_minikernel_blink');
   // A score bar block turns pfscore on, which the Text Minikernel then needs separate TextDataPtr bytes for (see generateTextMinikernelDims).
   this.scoreBarBlocksUsed = workspace.getAllBlocks(false).some((block) => block.type.startsWith('score_bar_'));
 
@@ -891,6 +894,8 @@ Blockly.BBasic.init = function(workspace) {
   this.platformerJumpPlayers = new Set();
   // The players a "moving" check asks about.
   this.platformerMovingPlayers = new Set();
+  // The players a "landed" check asks about.
+  this.platformerLandedPlayers = new Set();
   // The players whose Jump block also stops them at the walls to the left and right (not those with an Undo last move block, which does).
   this.platformerWallsPlayers = new Set();
   this.platformerStarts = {};
@@ -910,6 +915,7 @@ Blockly.BBasic.init = function(workspace) {
     } else if (block.type === 'sprite_platformer_state') {
       this.platformerPlayers.add(`${block.getFieldValue('PLAYER')}`);
       if (block.getFieldValue('STATE') === 'moving') this.platformerMovingPlayers.add(`${block.getFieldValue('PLAYER')}`);
+      if (block.getFieldValue('STATE') === 'landed') this.platformerLandedPlayers.add(`${block.getFieldValue('PLAYER')}`);
     } else if (block.type === 'collision_check_position') {
       const player = `player${block.getFieldValue('PLAYER')}`;
       this.pfBoxPlayers.add(player);
@@ -949,6 +955,14 @@ Blockly.BBasic.init = function(workspace) {
       const named = block.type === 'sprite_player_set' ? /^(player[01])visibility$/.exec(block.getFieldValue('VAR') || '') :
         block.type === 'sprite_player_get' ? /^__(player[01])visible_$/.exec(block.getFieldValue('VAR') || '') : null;
       if (named) this.spriteHiddenUsedFor.add(named[1]);
+    });
+  }
+  // The DPC+ players a visibility block can hide (a hidden one is on frame 255): the box tests of the pairs they are in look for that.
+  this.hideablePlayers = new Set();
+  if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
+    workspace.getAllBlocks(false).forEach((block) => {
+      const named = block.type === 'sprite_player_set' ? /^(player\d)visibility$/.exec(block.getFieldValue('VAR') || '') : null;
+      if (named) this.hideablePlayers.add(named[1]);
     });
   }
   this.spriteScrollUsedFor = new Set();
@@ -2246,7 +2260,10 @@ Blockly.BBasic.init = function(workspace) {
   // this byte says the call came from there.
   if (this.isTitleTextUsed()) {
     reserveDevVar('titleTextFlag', undefined, 'the text kernel was called by the Title Screen kernel: it returns to that bank');
-    reserveDevVar('titleTextColor', undefined, 'the color of the text under a Title Screen page (the stack of the call to the text kernel runs over the usual byte)');
+    // (On DPC+ the text color is a byte the stack never reaches.)
+    if (((useConfigurationStorage().value || {}).kernel) !== 'dpcplus') {
+      reserveDevVar('titleTextColor', undefined, 'the color of the text under a Title Screen page (the stack of the call to the text kernel runs over the usual byte)');
+    }
   }
 
   // Same bucket again, for "Scroll text lines up/down"'s  valid-range
@@ -2269,6 +2286,10 @@ Blockly.BBasic.init = function(workspace) {
   // text-minikernel.js for why these need real dev vars, unlike TextColor.
   if (this.textClearAfterUsed) {
     reserveDevVar(textClearTimerVarName(), undefined, 'frames left before a "Clear text after" block clears the text (0: none waiting)');
+  }
+  if (this.textBlinkUsed) {
+    reserveDevVar(textBlinkVarName(), undefined, 'a "Blink text" block: blinks left (bits 0-4), forever (5), clear when done (6), text hidden now (7)');
+    reserveDevVar(textBlinkColorVarName(), undefined, 'the text color a "Blink text" block puts back when the text shows again');
   }
   if (this.isTextRow2Used() || this.textRow2ColorBlockUsed) {
     reserveDevVar(textRow2ColorVarName(), undefined,
@@ -2479,7 +2500,7 @@ Blockly.BBasic.init = function(workspace) {
   // (An Undo last move block for the same player already stops it at the walls.)
   this.collisionMovePlayers.forEach((playerNum) => this.platformerWallsPlayers.delete(playerNum));
   this.platformerPlans = Object.fromEntries(Object.entries(platformerBlocks).map(([player, blocks]) => [player, platformerPlanOf(blocks)]));
-  reservePlatformerDevVars(reserveDevVar, this.platformerPlayers, this.platformerMovingPlayers, this.platformerWallsPlayers, this.platformerPlans);
+  reservePlatformerDevVars(reserveDevVar, this.platformerPlayers, this.platformerMovingPlayers, this.platformerWallsPlayers, this.platformerPlans, this.platformerLandedPlayers);
   // A player whose width and number of copies no block can change (and that is not two sprites wide) has a box of 8 pixels wide, always: its
   // comparisons are made with that number, and it needs none of the bytes that keep the width and the copies.
   const sizeChangedPlayers = new Set();
@@ -2512,18 +2533,9 @@ Blockly.BBasic.init = function(workspace) {
     const animated = ['player0', 'player1', ...(this.dpcPlusExtraPlayers || []).map((n) => `player${n}`)]
         .filter((name) => !partnerNames.has(name) && !ownerNames.has(name));
     this.animSkipPlayers = (useConfigurationStorage().value || {}).kernel === 'dpcplus' ? new Set(animated) : new Set();
-    // A player whose animations (the ones the project uses) all have one picture and last the same number of frames has the same limit
-    // whichever it is on: the number itself is compared with, and there is no byte for it.
+    // (Every player has a byte for its limit. A player whose animations all had one picture of the same length used to compare with the
+    // number itself, but an animation held on its last frame needs the byte to tell the main bank it is held, see quickPast.)
     this.animSkipConst = new Map();
-    if (this.animSkipPlayers.size) {
-      const animations = processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage()).animations || [];
-      this.animSkipPlayers.forEach((name) => {
-        const used = (this.usedPlayerAnimations || {})[name];
-        const mine = animations.filter((animation, index) => animation && (!used || used.has(index)));
-        const totals = new Set(mine.map((animation) => (animation.frames || []).length === 1 ? clampFrameDuration(animation.frames[0].duration) : 0));
-        if (mine.length && totals.size === 1 && !totals.has(0)) this.animSkipConst.set(name, [...totals][0]);
-      });
-    }
   }
   reserveAnimNextDevVars(reserveDevVar, new Set([...this.animSkipPlayers].filter((name) => !this.animSkipConst.has(name))));
 
@@ -2845,8 +2857,13 @@ Blockly.BBasic.init = function(workspace) {
   // need the position tracked in reserved variables.
   this.backgroundScrollUsed = workspace.getAllBlocks(false)
       .some((block) => block.type === 'background_scroll' || block.type === 'background_scroll_position' ||
-        block.type === 'background_scroll_set_row') ||
+        block.type === 'background_scroll_set_row' || block.type === 'background_transition') ||
       this.spriteScrollUsedFor.size > 0;
+  // A "Playfield transition" block scrolls another background in a row at a time: the standard kernel's scroll patch (which puts a
+  // background's rows into the window one by one) does it, so every background goes through the patch.
+  this.backgroundTransitionUsed = config.kernel !== 'dpcplus' && workspace.getAllBlocks(false)
+      .some((block) => block.type === 'background_transition' && block.isEnabled());
+  Blockly.BBasic.backgroundTransitionUsed = this.backgroundTransitionUsed;
   // Which edges (top/bottom) a "When background scroll reaches" block watches -
   // background_scroll only sets the edge flags that something watches.
   this.backgroundScrollEdgeWatches = new Set(workspace.getAllBlocks(false)
@@ -3023,10 +3040,20 @@ Blockly.BBasic.init = function(workspace) {
     }
     reserveDevVar('_dpcScrollOffset', undefined,
         'DPC+ playfield scroll: how far the view has moved, starting one background height in');
+    // A Background scroll block that takes a step every few runs counts its runs in a byte kept for it.
+    Blockly.BBasic.dpcPlusScrollCounters = {};
+    workspace.getAllBlocks(false).forEach((block) => {
+      if (!block.isEnabled() || (block.type !== 'background_scroll' && block.type !== 'background_scroll_colors')) return;
+      if (!this.dpcPlusScroll || dpcPlusScrollDivider(block.getFieldValue('DIRECTION'), this.dpcPlusScroll.fine) <= 1) return;
+      const name = `_dpcScrollCount${Object.keys(Blockly.BBasic.dpcPlusScrollCounters).length}`;
+      Blockly.BBasic.dpcPlusScrollCounters[block.id] = name;
+      reserveDevVar(name, undefined, 'DPC+ scroll: how many times this Background scroll block has run, so that it moves every few runs');
+    });
   }
   this.backgroundScrollStepUsed = false;
   this.backgroundScrollOverflowBackgrounds = (this.backgroundScrollUsed && !dpcPlusScroll) ?
-    backgroundsWithOverflowRows(includedBackgrounds, backgroundDataRows(config)) :
+    (this.backgroundTransitionUsed ? includedBackgrounds :
+      backgroundsWithOverflowRows(includedBackgrounds, backgroundDataRows(config))) :
     [];
   this.backgroundScrollPacking = this.backgroundScrollOverflowBackgrounds.length ?
     backgroundScrollPacking(includedBackgrounds) : null;
@@ -3048,6 +3075,12 @@ Blockly.BBasic.init = function(workspace) {
       reserveDevVar(backgroundScrollSubRowVarName(), undefined,
           'scanlines accumulated toward the next full row - see its comment in blocks/background.js');
     }
+  }
+  if (this.backgroundTransitionUsed && this.backgroundScrollOverflowBackgrounds.length) {
+    reserveDevVar(backgroundTransitionVarName(), undefined,
+        'the background a Playfield transition is scrolling in (its index + 1, + 128 when it comes in from the top; 0 = none)');
+    reserveDevVar(backgroundTransitionCountVarName(), undefined,
+        'how many rows of the background coming in have entered the window');
   }
   if (this.backgroundScrollEdgeWatches.size) {
     reserveDevVar(backgroundScrollEdgeFlagsVarName(), undefined,
@@ -4290,7 +4323,7 @@ Blockly.BBasic.finish = function(code) {
   // The boxes of the sprites and the pairs that overlap are in a subroutine, that can be moved to another bank (it is long, with several pairs).
   const boxChecks = generateBoxChecks(Blockly) + generateOverlapChecks(Blockly);
   if (boxChecks) this.subroutines[SPRITE_BOX_CHECKS_NAME] = asSubroutineBody(boxChecks + ' return\n');
-  const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
+  const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + Blockly.BBasic.generateTextBlinkChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(SPRITE_BOX_CHECKS_NAME))}
 ` : '');
   const generatedInertiaChecks = generateInertiaChecks(Blockly);
@@ -4428,15 +4461,17 @@ Blockly.BBasic.finish = function(code) {
   // missile widths byte, never the animation flags that share playerNsize's upper bits.
   const missileWidthsVar = this.missileWidthUsed ?
     this.nameDB_.getName(missileWidthsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
-  const nusiz0Expression = missileWidthsVar ?
-    `(player0size & $07) | (${missileWidthsVar} & $30)` : 'player0size & $07';
-  const nusiz1Expression = missileWidthsVar ?
-    `(player1size & $07) | ((${missileWidthsVar} & $C0) / 4)` : 'player1size & $07';
+  // With the missile widths these are assembly: the compiler keeps the first half of such a sum on the stack, which takes about 7 cycles
+  // more than a scratch byte does.
+  const nusizAsm = (target, source, widthMask, shifts) => [' asm', ` lda ${source}`, ' and #$07', ' sta temp1', ` lda ${missileWidthsVar}`,
+    ` and #${widthMask}`, ...Array(shifts).fill(' lsr'), ' ora temp1', ` sta ${target}`, 'end'].join('\n');
   // DPC+'s player1 is the first of its virtual sprites, whose size and flip live in the _NUSIZ1 variable (NUSIZ1 is
   // the real register, which the virtual sprites ignore): flipping is bit 3 of it (bits 6 and 7 are the left/right
   // masking, which this app does not use - it does not work with the double-width sprites).
   const dpcPlusSprites = (useConfigurationStorage().value || {}).kernel === 'dpcplus';
-  const player1NusizLine = dpcPlusSprites ? ` _NUSIZ1 = ${nusiz1Expression}` : ` NUSIZ1 = ${nusiz1Expression}`;
+  const nusiz0Line = missileWidthsVar ? nusizAsm('NUSIZ0', 'player0size', '$30', 0) : ' NUSIZ0 = player0size & $07';
+  const player1NusizLine = missileWidthsVar ? nusizAsm(dpcPlusSprites ? '_NUSIZ1' : 'NUSIZ1', 'player1size', '$C0', 2) :
+    ` ${dpcPlusSprites ? '_NUSIZ1' : 'NUSIZ1'} = player1size & $07`;
   const player1FlipLines = dpcPlusSprites ?
     ' if player1size{3} then _NUSIZ1{3} = 1' : ' REFP1 = player1size & 8';
   // Players 2 to 9 keep their copies (bits 0-2) and flip (bit 3) in NUSIZn itself.
@@ -4480,7 +4515,7 @@ Blockly.BBasic.finish = function(code) {
     generatedJoystickDirection8Checks, generatedJoystickButtonChecks, generatedJoystickDoubleTapChecks,
     generatedTextScrollAdvance, generatedTitleKernelSkip, generatedScoreBkColorAsm, generatedRunOnceEdgeReset,
     generatedKeypadPollCall, generatedKeypadSetup, generatedCtrlpfShadowSetup, generatedBackgroundFadeSetup,
-    nusiz0Expression, nusiz1Expression, player1NusizLine, player1FlipLines, extraPlayerNusizLines});
+    nusiz0Line, player1NusizLine, player1FlipLines, extraPlayerNusizLines});
   return dpcAudioNames ? redirectSoundRegisters(generated, dpcAudioNames) : generated;
 };
 
@@ -5439,10 +5474,12 @@ Blockly.BBasic.rowDivisorText = function(config, lines) {
 // finds the row of a line as line * increment / 256 (DFxFRACINC, see rowof in custom/main.c). The code that turns a y into a row (the pixel
 // collision blocks, the conversion blocks, the fire and bounce steps) divides by a whole number of lines, which is exact only when that is what a row
 // is; for the others it does the same sum as the coprocessor. unitLines: how many lines the y counts in (1 for the lines of a sprite, 2 for the
-// steps of two lines of the conversion blocks). Returns the increment, or null when the whole number divisor is exact (or the rows are not one
-// number for the project: a background with a different pfres, a scroll).
+// steps of two lines of the conversion blocks). Returns the increment, the name of the variable that holds it when the backgrounds of the project
+// have different numbers of rows (it is set as a background loads), or null when the whole number divisor is exact (or the rows are not one
+// number for the project: a scroll).
 Blockly.BBasic.exactRowIncrement = function(config, unitLines) {
-  if (config.kernel !== 'dpcplus' || this.dpcPlusRowFracVar || this.dpcPlusScroll) return null;
+  if (config.kernel !== 'dpcplus' || this.dpcPlusScroll) return null;
+  if (this.dpcPlusRowFracVar) return this.dpcPlusRowFracVar;
   const lines = dpcPlusRowLinesFor(config);
   const step = lines / unitLines;
   if (step >= 1 && Number.isInteger(step)) return null;
@@ -5457,7 +5494,7 @@ Blockly.BBasic.rowOfLineCode = function(config, dest, source, divisor, unitLines
   const lab = (name) => `_rowsconv_${id}_${name}`;
   return [`temp2 = ${source}`, 'asm', ...(unitLines === 2 ? ['lda temp2', 'sec', 'sbc #1', `bcs ${lab('a')}`, 'lda #0', `@${lab('a')}`,
     'asl', `bcc ${lab('b')}`, 'lda #255', `@${lab('b')}`, 'sta temp2'] : []),
-  ...(Array.isArray(incrementVar) ? incrementVar : [incrementVar ? `lda ${incrementVar}` : `lda #${increment}`]), 'sta temp1', 'lda #0', 'ldx #8', 'lsr temp1',
+  ...(Array.isArray(incrementVar) ? incrementVar : [incrementVar ? `lda ${incrementVar}` : typeof increment === 'string' ? `lda ${increment}` : `lda #${increment}`]), 'sta temp1', 'lda #0', 'ldx #8', 'lsr temp1',
   `@${lab('m')}`, `bcc ${lab('s')}`, 'clc', 'adc temp2', `@${lab('s')}`, 'ror', 'ror temp1', 'dex', `bne ${lab('m')}`,
   `sta ${dest}`, '@end'];
 };
@@ -5607,11 +5644,15 @@ Blockly.BBasic.generateDpcPlusBankPreamble = function() {
     '__dpcplus_mainbody_entry\n' +
     // The variables and the coprocessor's display memory power up with random contents (the standard
     // kernel's startup clears them, DPC+ does not), so every batari Basic DPC+ program clears them first.
-    ' a = 0 : b = 0 : c = 0 : d = 0 : e = 0 : f = 0 : g = 0 : h = 0 : i = 0\n' +
-    ' j = 0 : k = 0 : l = 0 : m = 0 : n = 0 : o = 0 : p = 0 : q = 0 : r = 0\n' +
-    ' s = 0 : t = 0 : u = 0 : v = 0 : w = 0 : x = 0 : y = 0 : z = 0\n' +
-    ' var0 = 0 : var1 = 0 : var2 = 0 : var3 = 0 : var4 = 0\n' +
-    ' var5 = 0 : var6 = 0 : var7 = 0 : var8 = 0\n' +
+    // They are the 36 bytes from A to Z, scorecolor and var0 to var8 (consecutive in DPCplusbB.h): a loop, not a store for each.
+    ' asm\n' +
+    ' ldx #36\n' +
+    ' lda #0\n' +
+    '_dpcplusvarclear\n' +
+    ' sta A-1,x\n' +
+    ' dex\n' +
+    ' bne _dpcplusvarclear\n' +
+    'end\n' +
     // The variables that went in the display memory start at 0 too (see displayRamVars in init()).
     this.generateDisplayRamVarClears() +
     // The Score tab's 5 digits option: the leftmost digit reads these 8 bytes of display memory, which have to hold zeros (see
@@ -6557,6 +6598,18 @@ Blockly.BBasic.generateBackgrounds = function() {
       payloadLines.push(standardPfcolors ? loadPfcolors(id, pfcolorsBlock) : pfcolorsBlock.replace(/\n$/, ''));
     }
     if (bkcolorsBlock) payloadLines.push(bkcolorsBlock.replace(/\n$/, ''));
+    // The solid colors a background can have (the Playfield tab) when it has no row colors of that kind: set when the background is shown.
+    [[!pfcolorsBlock, 'playfieldColor', 'playfieldrealcolor'], [!bkcolorsBlock, 'backgroundColor', 'backgroundrealcolor']]
+        .filter(([noRows, key]) => noRows && background[key] !== undefined && background[key] !== null)
+        .forEach(([, key, variable]) => {
+          payloadLines.push(` ${variable} = ${colorByteToBuildBBasic(background[key])}`);
+          // DPC+ draws its colors from the tables of colors, not from the color registers: a table of the one color.
+          if (config.kernel === 'dpcplus') {
+            payloadLines.push(` ${key === 'playfieldColor' ? 'pfcolors' : 'bkcolors'}:
+  ${colorByteToBuildBBasic(background[key])}
+end`);
+          }
+        });
     // What the code that works with this background's rows is told about them (see init).
     const rowLines = backgroundRowLinesFor(background, config);
     if (this.dpcPlusColorFracVars) {
@@ -6624,6 +6677,7 @@ Blockly.BBasic.generateBackgrounds = function() {
       (overflowUsed ?
         ` ${backgroundScrollRowVarName()} = ${index * this.backgroundScrollPacking.indexStep}\n` +
         (this.backgroundScrollPacking.packed ? '' : ` ${backgroundScrollActiveVarName()} = ${index}\n`) +
+        (this.backgroundTransitionUsed ? ` ${backgroundTransitionVarName()} = 0\n ${backgroundTransitionCountVarName()} = 0\n` : '') +
         ` playfieldpos = ${Math.max(1, Math.round(pfRowDivisorFor(config)))}\n` +
         ' temp5 = 255\n' +
         ` gosub ${BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(
@@ -7151,7 +7205,8 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
   // it (the same routine as bgcolorscroll) and the row that has come into view is copied into the window (bgscrollrow). Y is the background.
   const stepUsed = !!this.backgroundScrollStepUsed;
   const colorCore = this.backgroundColorScrollCoreLines;
-  const hasModes = stepUsed || !!colorCore;
+  const transitionUsed = !!this.backgroundTransitionUsed;
+  const hasModes = stepUsed || !!colorCore || transitionUsed;
   const rowMask = packing.rowMask;
   const indexMask = packing.indexMask;
   const stepRoutine = !hasModes ? [] : [
@@ -7249,6 +7304,82 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
       'jmp bgscrollrow',
     ]),
   ];
+  // Modes 252 and 253 (a Playfield transition scrolling Up / Down, see the background_transition block): the next row of the background coming in
+  // (index in the transition variable) goes into the slot the scroll has just left stale (the bottom one going Up, the top one going Down),
+  // and when the rows have filled the window that background is the one showing, at its first row (Up) or its last window (Down).
+  // Leaves temp6 = 1 when it has finished, else 0.
+  const trVar = backgroundTransitionVarName();
+  const trCount = backgroundTransitionCountVarName();
+  const playfieldWrite = `playfield${superchip ? '-128' : ''}`;
+  const transitionRoutine = !transitionUsed ? [] : [
+    '@bgscrolltrans',
+    'lda #0',
+    'sta temp6',
+    `lda ${trVar}`,
+    'and #127',
+    'tax',
+    'dex',
+    'stx temp4',
+    'lda bgscroll_lo,x',
+    'sta temp1',
+    'lda bgscroll_hi,x',
+    'sta temp2',
+    'lda temp5',
+    'lsr',
+    'bcs bgscrolltransback',
+    `lda ${trCount}`,
+    'asl',
+    'asl',
+    'tay',
+    `ldx #${(visibleRows - 1) * 4}`,
+    'jmp bgscrolltranscopy',
+    '@bgscrolltransback',
+    'lda bgscroll_max,x',
+    'clc',
+    `adc #${visibleRows - 1}`,
+    'sec',
+    `sbc ${trCount}`,
+    'asl',
+    'asl',
+    'tay',
+    'ldx #0',
+    '@bgscrolltranscopy',
+    ...[0, 1, 2, 3].flatMap((n) => [
+      'lda (temp1),y',
+      `sta ${playfieldWrite},x`,
+      ...(n < 3 ? ['iny', 'inx'] : []),
+    ]),
+    `lda ${trCount}`,
+    'clc',
+    'adc #1',
+    `sta ${trCount}`,
+    `cmp #${visibleRows}`,
+    'bcc bgscrolltransdone',
+    'ldx temp4',
+    'lda temp5',
+    'lsr',
+    'lda #0',
+    'bcc bgscrolltransset',
+    'lda bgscroll_max,x',
+    '@bgscrolltransset',
+    ...(packing.packed ? [
+      'sta temp3',
+      'txa',
+      ...new Array(packing.rowBits).fill('asl'),
+      'ora temp3',
+      `sta ${rowVar}`,
+    ] : [
+      `sta ${rowVar}`,
+      `stx ${backgroundScrollActiveVarName()}`,
+    ]),
+    'lda #0',
+    `sta ${trVar}`,
+    `sta ${trCount}`,
+    'lda #1',
+    'sta temp6',
+    '@bgscrolltransdone',
+    'jmp bgscrolldone',
+  ];
   const copyRoutine = [
     'asm',
     ...(packing.packed ?
@@ -7265,6 +7396,12 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
       'bcs bgscrollnotstep',
       'jmp bgscrollstepmode',
       '@bgscrollnotstep',
+      ...(transitionUsed ? [
+        'cmp #254',
+        'bcs bgscrollnottrans',
+        'jmp bgscrolltrans',
+        '@bgscrollnottrans',
+      ] : []),
       'cmp #254',
     ] : [
       'cmp #254',
@@ -7318,6 +7455,7 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
     'bne bgscrollcopy',
     'jmp bgscrolldone',
     ...stepRoutine,
+    ...transitionRoutine,
     // One row: dest slot temp5 * 4 into X (A still holds temp5), the
     // background's table pointer into temp1/temp2 (Y = background index),
     // then table row temp3 * 4 into Y.
@@ -8055,6 +8193,8 @@ Blockly.BBasic.generateAnimations = function() {
     const at = (suffix) => `.${animationLabel}${suffix}`;
     const finishedRef = isFinishedWatched ? /^(.+)\{(\d)\}$/.exec(animFinishedDoneRef(Blockly, name)) : null;
     const lastFrame = Math.min(totalDuration, 255);
+    const heldRef = this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name) ?
+      this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
     const counterLines = [
       ' asm',
       ...(sizeSet ? [`  lda ${sizeSet}`, `  bne ${at('sizeSet')}`] : []),
@@ -8076,6 +8216,10 @@ Blockly.BBasic.generateAnimations = function() {
       `  beq ${at('store')}`,
       at('noLoop'),
       `  ldx #${lastFrame - 1}`,
+      // (On the DPC+ kernel a picture that is loaded and held on the last frame needs nothing else, so the search below is left out.)
+      // (A 1 in the limit of the animation tells the code in the main bank that this one is held, so it is not entered again: see quickPast.)
+      ...(isDpcPlus && !finishedRef ? [`  bit ${name}size`, `  bpl ${at('heldLoad')}`,
+        ...(heldRef ? ['  lda #1', `  sta ${heldRef}`] : []), `  jmp .${animationLabel}animationEnd`, at('heldLoad')] : []),
       // (Once for the animation: the frame stays on the last one, and this runs on every frame it stays.)
       ...(finishedRef ? [
         `  lda ${finishedRef[1]}`,
@@ -8150,19 +8294,27 @@ Blockly.BBasic.generateAnimations = function() {
       this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const enterLabel = `${name}animationsEnter`;
     // (Bit 7 of the size byte, the loaded flag, is the sign and bit 6, paused, the overflow flag of a BIT.)
+    const heldCheck = this.animSkipConst.has(name) ? `.${name}animationsEnter` : `${name}animationsHeldCheck`;
     const quickPast = limitOperand ? [
       ' asm',
       `  bit ${name}size`,
       `  bpl .${enterLabel}`,
-      `  bvc ${name}animationsGo`,
-      `  jmp .${animationsEndLabel}`,
-      `${name}animationsGo`,
+      // (A paused player is the rare case: the branch is not taken for the others.)
+      `  bvs ${name}animationsPaused`,
       `  ldx ${name}frame`,
       '  inx',
       `  cpx ${limitOperand}`,
-      `  bcs .${enterLabel}`,
+      `  bcs ${heldCheck}`,
       `  stx ${name}frame`,
+      `${name}animationsPaused`,
       `  jmp .${animationsEndLabel}`,
+      ...(this.animSkipConst.has(name) ? [] : [
+        // (A limit of 1 is an animation that stays on its last frame; a write of the frame puts 0 there, and the code runs. Any
+        // other limit falls out of the block into the animation code.)
+        heldCheck,
+        `  lda ${limitOperand}`,
+        '  cmp #1',
+        `  beq ${name}animationsPaused`]),
       'end',
       enterLabel,
     ].join('\n') + '\n' : '';
@@ -8302,7 +8454,7 @@ Blockly.BBasic.generateAnimations = function() {
   return [...(partnerResets.length ? [partnerResets.join('\n')] : []), ...hardwareCode, ...extraCode, ...partnerCode].join('\n\n\n');
 };
 import background, {backgroundGetPixelDevVarsNeeded, registerBackgroundLineSubroutine,
-  reserveShakeScreenDevVar, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, reserveBackgroundColorOverrideDevVars, generateShakeScreenChecks} from './bbasic/background';
+  reserveShakeScreenDevVar, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, reserveBackgroundColorOverrideDevVars, generateShakeScreenChecks, dpcPlusScrollDivider} from './bbasic/background';
 import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';

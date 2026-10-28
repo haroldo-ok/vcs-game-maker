@@ -35,11 +35,12 @@ import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2Color
 import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
   textScrollCursorColorVarName, textEndIconColorVarName} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
+import {expandSceneBlocks, sceneBlocksXml} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
-  usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
+  useDataTablesStorage, usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
   useWorkspaceStorage} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
   recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
@@ -96,6 +97,11 @@ const withHeadlessWorkspace = (callback, xmlOverride) => {
     // package's real signature, confirmed directly against core/xml.d.ts.
     const dom = Blockly.utils.xml.textToDom(
         xmlText && xmlText !== 'null' ? xmlText : EMPTY_WORKSPACE);
+    // The "Set scene" blocks become the blocks of the scenes, so the build only meets ordinary ones.
+    if (xmlOverride === undefined) {
+      const tables = useDataTablesStorage().value;
+      expandSceneBlocks(dom, tables && tables.dataTables, Blockly, (useConfigurationStorage() || {}).value || {});
+    }
     Blockly.Xml.domToWorkspace(dom, workspace);
     return callback(workspace);
   } finally {
@@ -209,6 +215,22 @@ const shareDpcPlusPlayerData = (compiled, config) => {
   if (saved || aliases.aliased) {
     appendCompileLog(`Shared the sprite graphics and colors that repeat (${aliases.aliased} frames pointed at an earlier copy).`);
   }
+};
+
+// The multiply and divide routine (div_mul.asm) is included whenever a multiply or divide block exists, though the compiler turns a
+// multiply or divide by a power of 2 into shifts and may never call it. The routine takes room in the first bank (on DPC+ the
+// kernel's bank, which has under 100 bytes free), so when nothing in the compiled code or the files next to it calls it, the
+// include is left out.
+const dropUnusedDivMul = (compiled, siblingFiles) => {
+  const includeLine = /^[ \t]*include[ \t]+"?div_mul\.asm"?[ \t\r]*$/m;
+  if (!includeLine.test(compiled.mainAsm)) return;
+  const calls = /\b(mul8|div8|mul16|div16)\b/;
+  const rest = compiled.mainAsm.replace(includeLine, '');
+  const others = Object.entries(siblingFiles || {}).filter(([name]) => !/^div_mul/.test(name)).map(([, text]) => String(text));
+  const code = (text) => text.replace(/;.*$/gm, '');
+  if (calls.test(code(rest)) || others.some((text) => calls.test(code(text)))) return;
+  compiled.mainAsm = rest;
+  appendCompileLog('Left out the multiply and divide routine: nothing calls it (the compiler turned the multiplies and divides into shifts).');
 };
 
 // The animations load their pictures from tables of addresses: the statements that make the rows' addresses are cut out of the
@@ -955,6 +977,21 @@ const familyHasExternalBareCaller = (members) => {
 // and subroutine/function names are only known after that call too, since
 // they're generated from the project's  content rather than fixed like
 // the event names.
+// (A unit that runs on every frame is not moved to free room in the main bank, only when the main bank has no other way to fit.)
+const EVERY_FRAME = 3;
+// How often a unit runs, from 0 (a screen or a load that comes seldom) to EVERY_FRAME.
+const unitRunFrequency = (kind, name) => {
+  if (kind === 'eventBanks') return 0;
+  if (kind === 'graphicsBanks') {
+    if (/^soundfx/.test(name)) return EVERY_FRAME;
+    return /animation\d+$/.test(name) ? 1 : 0;
+  }
+  if (kind === 'subroutineBanks') {
+    if (/^_(pfbox|sprite_box|run_once_edge_reset)/.test(name)) return EVERY_FRAME;
+    return /^_background_load/.test(name) ? 0 : 2;
+  }
+  return 2;
+};
 const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
   const primary = primaryBank || 1;
   const eventBanks = banks.eventBanks || {};
@@ -1021,7 +1058,12 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
           members,
         })),
   ];
-  return candidates.sort((a, b) => b.size - a.size);
+  // What leaves first is what runs least: a call into another bank costs 35-50 cycles through the bank trampolines. The events of the
+  // title and game over screens, the loads of a background, and the pictures that are only loaded when an animation changes go first;
+  // an animation's code, which the main bank steps past on most frames, and the other subroutines next; the subroutines that run on
+  // every frame (the box checks, the edge reset) last. Within a group the largest goes first, to need the fewest rebuilds.
+  candidates.forEach((unit) => (unit.frequency = unitRunFrequency(unit.kind, unit.name)));
+  return candidates.sort((a, b) => a.frequency - b.frequency || b.size - a.size);
 };
 
 const pickRelocationCandidate = (banks, hasReservedMusicBank, primaryBank) =>
@@ -1046,7 +1088,7 @@ const pickSqueezeMove = (capacity, config, banks, tried) => {
     unit.kind === 'graphicsBanks' ? COMPILED_BYTES_PER_GRAPHICS_CHAR :
     unit.kind === 'musicBanks' ? 1 : COMPILED_BYTES_PER_SUBROUTINE_CHAR);
   const candidates = relocationCandidates(banks, !!reservedMusicBank, primary).filter((unit) =>
-    unit.kind !== 'musicBanks' && !tried.has(`${unit.kind}:${unit.name}`));
+    unit.kind !== 'musicBanks' && unit.frequency < EVERY_FRAME && !tried.has(`${unit.kind}:${unit.name}`));
   for (const unit of candidates) {
     const need = scaled(unit) * SQUEEZE_MARGIN;
     const fits = Object.keys(free).map(Number).filter((bank) => free[bank] >= need)
@@ -1054,6 +1096,32 @@ const pickSqueezeMove = (capacity, config, banks, tried) => {
     if (fits.length) return {unit, bank: fits[0]};
   }
   return null;
+};
+
+// A unit that runs on every frame and is in another bank, and fits in the free bytes the main bank measured in the last good build: the
+// largest one that does. Each call into another bank takes 35 to 50 cycles, which the relocation of the first attempts (it moves what is
+// biggest, by estimates) can cost for no reason once the main bank turns out to have room. Null when none fits.
+const pickPullBackMove = (capacity, config, banks, tried) => {
+  const primary = primaryBankFor(config);
+  const mainBank = capacity && capacity.perBank && capacity.perBank[primary - 1];
+  if (!mainBank) return null;
+  const scale = {
+    eventBanks: COMPILED_BYTES_PER_EVENT_CHAR, graphicsBanks: COMPILED_BYTES_PER_GRAPHICS_CHAR, subroutineBanks: COMPILED_BYTES_PER_SUBROUTINE_CHAR,
+  };
+  const sizeOf = {
+    eventBanks: (name) => BlocklyBB.estimateEventSize(name), graphicsBanks: (name) => BlocklyBB.estimateGraphicsUnitSize(name),
+    subroutineBanks: (name) => BlocklyBB.estimateSubroutineSize(name),
+  };
+  const found = [];
+  Object.keys(scale).forEach((kind) => {
+    Object.entries(banks[kind] || {}).forEach(([name, bank]) => {
+      if (bank === primary || tried.has(`pull:${kind}:${name}`) || unitRunFrequency(kind, name) < EVERY_FRAME) return;
+      const need = sizeOf[kind](name) * scale[kind] * SQUEEZE_MARGIN;
+      if (need <= mainBank.freeBytes) found.push({kind, name, bank, need});
+    });
+  });
+  found.sort((a, b) => b.need - a.need);
+  return found[0] || null;
 };
 
 // The single highest-numbered available bank (excluding the Text
@@ -1238,6 +1306,8 @@ const buildRomInner = async () => {
   const errorStorage = useErrorStorage();
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
+  // How many bytes over a bank the Titlescreen Kernel was when it was moved by itself (0 when it never overflowed one).
+  let titleOverBytes = 0;
   BlocklyBB.displayRamExcludedSeed = null;
 
   // Tracks every bank each unit has already been tried in during THIS
@@ -1297,6 +1367,19 @@ const buildRomInner = async () => {
     squeeze = {members, key: `${move.unit.kind}:${move.unit.name}`, from: primaryBankFor(configurationStorage.value || {})};
     squeezeCount++;
     appendCompileLog(`Trying ${move.unit.kind.replace('Banks', '')} "${move.unit.name}" in bank ${move.bank} to free the main bank.`);
+    return true;
+  };
+
+  // The other way: a unit that runs on every frame, moved into the main bank when the last good build left room there.
+  const tryPullBack = (capacity) => {
+    if (squeezeCount >= MAX_SQUEEZE_ATTEMPTS) return false;
+    const config = configurationStorage.value || {};
+    const move = pickPullBackMove(capacity, config, getRelocationBanks(), squeezeTried);
+    if (!move) return false;
+    setRelocationBank(move.kind, move.name, primaryBankFor(config));
+    squeeze = {members: [{kind: move.kind, name: move.name}], key: `pull:${move.kind}:${move.name}`, from: move.bank};
+    squeezeCount++;
+    appendCompileLog(`Trying ${move.kind.replace('Banks', '')} "${move.name}" in the main bank, as it runs on every frame.`);
     return true;
   };
 
@@ -1421,7 +1504,7 @@ const buildRomInner = async () => {
       if (textMinikernelActive) {
         // The text on a Title Screen page: the stack of the Title Screen kernel's call to the text kernel runs over statusbarlength ($f5),
         // where the text color is by default, so there it is a variable of its own (see titleTextColor in generators/bbasic.js).
-        if (BlocklyBB.isTitleTextUsed() && siblingFiles['text12a.asm']) {
+        if (BlocklyBB.isTitleTextUsed() && config.kernel !== 'dpcplus' && siblingFiles['text12a.asm']) {
           siblingFiles['text12a.asm'] = siblingFiles['text12a.asm'].replace(/^TextColor = statusbarlength/m, 'TextColor = titleTextColor');
         }
         // DPC+ keeps its whole text kernel in one file, the standard kernel's drawing code is text12b.asm
@@ -1492,6 +1575,7 @@ const buildRomInner = async () => {
         offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      dropUnusedDivMul(compiled, siblingFiles);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');
@@ -1579,7 +1663,7 @@ const buildRomInner = async () => {
       squeeze = null;
       goodCapacity = capacity;
       // (A layout that came from the last good build, and worked again, was squeezed then.)
-      if (!(attempt === 0 && seededFromLastSuccess) && trySqueeze(capacity)) continue;
+      if (!(attempt === 0 && seededFromLastSuccess) && (trySqueeze(capacity) || tryPullBack(capacity))) continue;
       recordSuccessfulRelocationBanks(bankSizeKey);
       appendCompileLog('Build succeeded.', 'stage');
       appendCompileLog(`Total build time: ${Math.round(performance.now() - buildStartedAt)}ms.`, 'stage');
@@ -1591,7 +1675,7 @@ const buildRomInner = async () => {
         squeezeTried.add(squeeze.key);
         squeeze = null;
         appendCompileLog('That did not fit: keeping the previous layout.');
-        if (trySqueeze(goodCapacity)) continue;
+        if (trySqueeze(goodCapacity) || tryPullBack(goodCapacity)) continue;
         regenerateCode();
         recordSuccessfulRelocationBanks(bankSizeKeyFor(configurationStorage.value || {}));
         appendCompileLog('Build succeeded.', 'stage');
@@ -1673,6 +1757,16 @@ const buildRomInner = async () => {
         // unlike the standard kernel).
         if (!candidate) {
           const freeBytes = parseBank1FreeBytesEcho(e.dasmStdout);
+          if (freeBytes != null && freeBytes < 0 && titleOverBytes > 0) {
+            // The Titlescreen Kernel was too big for every bank it was tried in, and ended in bank 1 with the others.
+            appendCompileLog('Build failed.', 'error');
+            const titleHint = titleScreenOverflowHint(e);
+            showError(errorStorage, 'Error while compiling bBasic code', code, new Error(
+                `The Title screen is ${titleOverBytes} bytes too big for a bank: its kernels and graphics take more room than one bank ` +
+                'has, and they can only go in one bank. Make the title screen smaller (fewer or shorter cards, fewer different pictures ' +
+                'or row color lists).'), titleHint.highlight);
+            return false;
+          }
           if (freeBytes != null && freeBytes < 0) {
             appendCompileLog('Build failed.', 'error');
             const bank1Error = new Error(
@@ -1873,6 +1967,9 @@ const buildRomInner = async () => {
           (candidate.members || [{kind: candidate.kind, name: candidate.name}])
               .forEach(({kind, name}) => setRelocationBank(kind, name, bank));
           relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank, members: candidate.members});
+          if (candidate.kind === 'subroutineBanks' && candidate.name === TITLE_SCREEN_SUBROUTINE_NAME) {
+            titleOverBytes = Math.max(titleOverBytes, parseBankOverflowBytes(e.dasmStdout, parseOverflowingBank(e.dasmStdout)));
+          }
           // Not an 'error'-level entry - an overflow here is an expected,
           // automatically-handled part of the relocation retry loop, not a
           // real problem the user needs to act on (see isOverflowError's
@@ -2038,6 +2135,7 @@ export const buildTitleScreenPreviewRom = (screenId) => buildPreviewRom({
   name: `Title Screen ${screenId}`,
   xml: buildTitleScreenPreviewXml(screenId),
   titleScreen: true,
+  onlyTitleScreenId: screenId,
 });
 
 // Same throwaway-ROM preview for one Background tab card: "System start:
@@ -2089,6 +2187,26 @@ export const buildBackgroundPreviewRom = (backgroundId, name) => {
   return buildPreviewRom({
     name: name ? `Background ${backgroundId} (${name})` : `Background ${backgroundId}`,
     // The score area is left out whether score fade is on or off, so the text row sits in the same place.
+    configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
+    xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
+      `<block type="event_block"><field name="EVENT">system_start</field>` +
+      `<statement name="DO">${chain}</statement></block></xml>`,
+  });
+};
+
+// Same for one scene of the Scene tab: the project as it is, with the blocks of the scene run once at the start (the ones a "Set scene" block
+// stands for, see utils/scene.js), so the playfield and the sprites show as placed. A sprite that is not in the scene is hidden.
+export const buildScenePreviewRom = (table) => {
+  const config = useConfigurationStorage().value || {};
+  const hide = (player) => `<block type="sprite_player_set"><field name="PLAYER">${player}</field>` +
+    `<field name="VAR">player${player}visibility</field><value name="VALUE"><shadow type="math_number">` +
+    `<field name="NUM">0</field></shadow></value>`;
+  // The name of the scene shows on the Text Minikernel's first line, as the previews of a playfield and of a sprite show theirs.
+  const steps = [previewNameBlockXml(table.name), hide(0), hide(1)];
+  const chain = steps.map((step) => step + '<next>').join('') + sceneBlocksXml(table, config) + steps.map(() => '</next></block>').join('');
+  return buildPreviewRom({
+    name: `Scene ${table.id}${table.name ? ` (${table.name})` : ''}`,
+    // The score area is left out, so the text row sits in the same place as in the other previews.
     configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +
@@ -2155,7 +2273,7 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
   });
 };
 
-const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride = null}) => {
+const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride = null, onlyTitleScreenId = null}) => {
   // See buildInProgress's comment near the top of this file - running
   // this concurrently with a real buildRom() (or another preview) corrupted
   // BOTH builds' output before this guard existed, since they share
@@ -2207,6 +2325,22 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       setRelocationBank('eventBanks', 'gameover_start', 3);
     }
     let code;
+    // A title screen preview compiles the page it shows only: every page of the project goes into the one bank the preview gives the
+    // title screens, and a project with big pages did not fit it. (Put back straight after the code is generated; nothing is saved.)
+    const generateCode = () => {
+      if (onlyTitleScreenId === null) return regenerateCode(xml);
+      const storage = useTitleScreenStorage();
+      const original = storage.value;
+      const romOutdated = useRomOutdated();
+      const wasOutdated = romOutdated.value;
+      try {
+        storage.value = {...original, screens: ((original && original.screens) || []).filter(({id}) => String(id) === String(onlyTitleScreenId))};
+        return regenerateCode(xml);
+      } finally {
+        storage.value = original;
+        romOutdated.value = wasOutdated;
+      }
+    };
     // The TV standard this code was generated for, read now - the compile
     // below is async, and the standard can be changed meanwhile, which would
     // pair a ROM built for one standard with the emulator spec of the other.
@@ -2230,14 +2364,14 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         const wasOutdated = romOutdated.value;
         textStrings.value = {textStrings: []};
         try {
-          code = regenerateCode(xml);
+          code = generateCode();
         } finally {
           configurationStorage.value = original;
           textStrings.value = originalTextStrings;
           romOutdated.value = wasOutdated;
         }
       } else {
-        code = regenerateCode(xml);
+        code = generateCode();
       }
       // The score digits stay (the text sits beneath them) but are drawn in
       // black on the black score strip (scoreBkColor below), so they can't be seen. Plain string search,
@@ -2336,6 +2470,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         rows: !!BlocklyBB.pfBoxArmRows,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      dropUnusedDivMul(compiled, siblingFiles);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       appendCompileLog('Assembling ROM...', 'stage');

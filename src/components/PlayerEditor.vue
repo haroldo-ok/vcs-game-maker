@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>{{ title }}</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message player-intro-paragraph">
@@ -10,7 +10,23 @@
           player size) setting, which will be set automatically when that sprite is activated.
         </p>
 
-        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="animations" @height-hotkey="handleSetHeightHotkey">
+        <!-- The folders are pinned above the toolbar of the graphics (which sticks just under them), as on the Text tab. -->
+        <div ref="folderToolbar" class="sprite-folder-toolbar tight-under-intro" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Sprites"
+            noun="sprite"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
+
+        <graphic-editor-toolbar :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="animations" @height-hotkey="handleSetHeightHotkey">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" :levels="playerZoomLevels" />
             <pixel-grid-toggle v-model="showPixelGrid" />
@@ -152,10 +168,10 @@
             <quick-color-palette v-model="selectedQuickColor" :active-editor="effectiveFrameEditor" />
           </template>
         </graphic-editor-toolbar>
-        <v-list class="animation-list" :class="{'animation-list-columns': cardColumns}">
+        <v-list class="animation-list" :class="{'animation-list-columns': cardColumns}" :style="cardColumns ? {'--sprite-card-min': cardColumnMin()} : null">
           <v-list-item
             class="entry-list-item"
-            v-for="(animation, index) in state.animations"
+            v-for="{card: animation, index} in visibleEntries()"
             v-bind:key="animation.id"
           >
             <v-list-item-content>
@@ -171,7 +187,7 @@
                   class="animation-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(index)"
-                  v-on="dragHandleListeners(index)"
+                  v-on="cardHandleListeners(index)"
                 />
                 <v-list-item-title>
                   <v-btn
@@ -240,6 +256,14 @@
                   </v-btn-toggle>
 
                   <div class="animation-corner-toolbar">
+                    <confirm-delete-menu
+                      v-if="state.animations.length > 1"
+                      :title="deleteQuestion(animation.id, 'animation')"
+                      :selected="animation.id === selectedCardId && selectedCardIds.includes(animation.id)"
+                      :activator-title="deleteQuestion(animation.id, 'animation').replace('?', '')"
+                      icon-btn-class="player-icon-btn-size"
+                      @confirm="handleDeleteAnimation(animation)"
+                    />
                     <v-btn
                       icon
                       small
@@ -313,14 +337,6 @@
                     >
                       <v-icon>mdi-play</v-icon>
                     </v-btn>
-                    <confirm-delete-menu
-                      v-if="state.animations.length > 1"
-                      :title="deleteQuestion(animation.id, 'animation', 1)"
-                      :selected="animation.id === selectedCardId && selectedCardIds.includes(animation.id)"
-                      :activator-title="deleteQuestion(animation.id, 'animation', 1).replace('?', '')"
-                      icon-btn-class="player-icon-btn-size"
-                      @confirm="handleDeleteAnimation(animation)"
-                    />
                   </div>
 
                 </v-list-item-title>
@@ -363,7 +379,7 @@
                         v-model="frame.pixels"
                         :fgColor="fgColor"
                         :rowColors="editorRowColors(frame)"
-                        :name="name"
+                        :name="animation.name || name"
                         :showClearButton="true"
                         :showGrid="showPixelGrid"
                         :showCellIds="showPixelGrid && showPixelGridLabels"
@@ -407,6 +423,15 @@
                         <template v-slot:badge>
                           <div class="frame-number-badge">ID:{{ frameIndex + 1 }}</div>
                           <div class="frame-corner-toolbar">
+                            <confirm-delete-menu
+                              v-if="animation.frames.length > 1"
+                              title="Delete this frame?"
+                              :selected="frameHighlightState(animation, frame) === 'blue'"
+                              :select-priority="2"
+                              activator-title="Delete this frame"
+                              icon-btn-class="player-icon-btn-size"
+                              @confirm="handleDeleteFrame(animation, frame)"
+                            />
                             <v-btn
                               v-if="spriteColorsEnabled"
                               icon
@@ -430,15 +455,6 @@
                               <v-icon>mdi-content-paste</v-icon>
                               <span class="copy-paste-color-badge">C</span>
                             </v-btn>
-                            <confirm-delete-menu
-                              v-if="animation.frames.length > 1"
-                              title="Delete this frame?"
-                              :selected="frameHighlightState(animation, frame) === 'blue'"
-                              :select-priority="2"
-                              activator-title="Delete this frame"
-                              icon-btn-class="player-icon-btn-size"
-                              @confirm="handleDeleteFrame(animation, frame)"
-                            />
                           </div>
                         </template>
                       </pixel-editor>
@@ -481,9 +497,10 @@
 <script>
 import {recordReorder} from '../hooks/reorder-history';
 import Vue from 'vue';
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
 import {chunk, max} from 'lodash';
 
+import CardFolderBar from '../components/CardFolderBar.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EditorZoom from '../components/EditorZoom.vue';
 import GraphicEditorToolbar from '../components/GraphicEditorToolbar.vue';
@@ -493,6 +510,7 @@ import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
 import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
+import {useCardFolders} from '../hooks/card-folders';
 import {useCardSelection} from '../hooks/card-selection';
 import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-history';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
@@ -537,10 +555,47 @@ const copiedFrameRowColors = ref(null);
 const copiedFrameData = ref(null);
 
 export default defineComponent({
-  components: {ConfirmDeleteMenu, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
+  components: {CardFolderBar, ConfirmDeleteMenu, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
   props: ['storageFactory', 'title', 'fgColor', 'name'],
   setup(props) {
     const instance = getCurrentInstance();
+
+    // How tall the pinned folders are: the toolbar of the graphics sticks under them, not behind them.
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      // (Pinned, it has more room above, so it is taller: the toolbar under it sticks after that.)
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = pinnedHeight(element);
+        });
+        folderToolbarObserver.observe(element, {box: 'border-box'});
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
+    });
     // 0.75, not the shared 100% default - same "this tab reads better at a
     // different starting zoom" reasoning useEditorZoom's comment already
     // documents for Text (200%) and Score (150%).
@@ -565,6 +620,12 @@ export default defineComponent({
     // so only the width actually changes as the toggle goes from 1x to 4x.
     const frameEditorWidth = (animation) =>
       `${Math.round(EDITOR_BASE_WIDTH * zoom.value * (animation.previewWidthScale || 1) * (widthOfAnimation(animation) / 8))}px`;
+    // With the cards in columns, a column is as wide as the widest frame editor shown needs (zoomed in, or a wide animation), and at least
+    // 520px; a card never gets wider than the list.
+    const cardColumnMin = () => {
+      const widest = Math.max(0, ...visibleEntries().map(({card}) => parseInt(frameEditorWidth(card), 10)));
+      return `${Math.max(520, widest + 40)}px`;
+    };
     const getMaxId = (elements) => {
       return max(elements.map((o) => o.id))||0;
     };
@@ -630,9 +691,12 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
       useCardSelection(
-          () => state.value.animations.map(({id}) => id), selectedCardId);
+          () => visibleEntries().map(({card}) => card.id), selectedCardId);
+    // The indices, in the whole list, of the selected cards (dragging one of them moves them all).
+    const getSelectedFullIndices = () => state.value.animations
+        .map((animation, index) => (selectedCardIds.value.includes(animation.id) ? index : -1)).filter((index) => index >= 0);
 
     // Tracks whichever frame's PixelEditor instance was last clicked
     // into (see its "activate" event, emitted from PixelEditor.vue's
@@ -867,9 +931,34 @@ export default defineComponent({
           state.value.animations = items;
           handleChildChange();
         },
-        getSelectedIndices,
+        getSelectedFullIndices,
         {sideBySide: () => cardColumns.value, renumber: {kind: 'animation', onRenumbered: renumbered}},
     );
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the animations keep their numbers and their place in
+    // the one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder an animation is in its `folder`.
+    const foldersOf = () => {
+      const player = state.value;
+      if (!Array.isArray(player.folders)) player.folders = [];
+      return player.folders;
+    };
+    const refresh = () => {
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const {openFolderId, visibleEntries, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners, handleDropCards} =
+      useCardFolders({
+        getCards: () => state.value.animations,
+        getFolders: foldersOf,
+        setFolders: (folders) => {
+          state.value.folders = folders;
+        },
+        refresh,
+        getSelectedIndices: getSelectedFullIndices,
+        deselectCard,
+        tab: 'sprites',
+      });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
 
     // Frame reordering: one drag-reorder instance per animation, made on
     // first use (the hook is per list), dropping a frame onto another moves
@@ -1174,6 +1263,7 @@ export default defineComponent({
         // still read as "id 1 is next". Every animation after that keeps
         // incrementing off the real max exactly as before.
         id: state.value.animations.length ? getMaxId(state.value.animations) + 1 : 0,
+        ...newCardFolder(),
         name: `Animation ${state.value.animations.length + 1}`,
         frames: [
           {
@@ -1254,7 +1344,9 @@ export default defineComponent({
     };
 
     const handleDeleteAnimation = (animation) => {
-      const doomed = idsToDelete(animation.id, 1);
+      // (At least one animation is kept: the ids are of the cards listed, so the whole list is counted here.)
+      let doomed = idsToDelete(animation.id);
+      if (doomed.length >= state.value.animations.length) doomed = doomed.slice(1);
       const {remaining, idMap} = removeCards('animation', state.value.animations, doomed);
       state.value.animations = remaining;
       if (idMap) renumbered(idMap);
@@ -1395,8 +1487,10 @@ export default defineComponent({
       spriteColorPalette, selectedQuickColor,
       isCollapsed, toggleCollapsed,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, frameDrag, frameHandleListeners,
+      visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
+      folderToolbar, folderToolbarHeight, folderToolbarPinned,
       armedFrameKey, frameKey, armFrameDrag,
-      zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, frameEditorWidth,
+      zoom, playerZoomLevels: PLAYER_ZOOM_LEVELS, showPixelGrid, showPixelGridLabels, cardColumns, cardColumnMin, editorWidth, frameEditorWidth,
       activeFrameEditor, setActiveFrame, isFrameActive, frameHighlightState, selectedAnimation,
       effectiveFrameEditor, pixelEditorRefKey,
       heightMenuVisible, heightMenuValue, heightMenuScaleContents,
@@ -1435,6 +1529,45 @@ export default defineComponent({
    does (this tab stays single-column, so grid itself isn't needed) -
    margin-top puts back the space above the FIRST card that zeroing
    v-list-item__content's padding would otherwise have also removed. */
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar of the graphics sticks just under them. */
+.sprite-folder-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fff;
+  margin-left: -16px;
+  margin-right: -16px;
+  /* 2px above the folders (in padding: a margin of the bar would run into the negative margin above), so they are as far under the label of the tab as
+     the toolbar of the Playfield tab is. */
+  padding: 2px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+.sprite-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+/* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are. Not before, so they are as far under the label
+   of the tab as the toolbar of the Playfield tab is. */
+.sprite-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
+}
+
+/* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
+   under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
+.sprite-folder-toolbar + .graphic-editor-toolbar {
+  padding-top: 8px;
+}
+/* Pinned: the toolbar overlaps the folders by a pixel, so it has that pixel more above the icons: as far above them as below. */
+.sprite-folder-toolbar + .graphic-editor-toolbar.graphic-editor-toolbar-scrolled {
+  padding-top: 11px;
+}
+
+.desaturate-app-colors .sprite-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
 .animation-list {
   display: flex;
   flex-direction: column;
@@ -1450,8 +1583,14 @@ export default defineComponent({
 /* Several columns of cards when the window is wide enough: each card at least as wide as its frames need to be useful. */
 .animation-list-columns {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--sprite-card-min, 520px)), 1fr));
   align-items: start;
+}
+
+/* A frame editor wider than its card (a very wide animation, or the list narrower than one column) shrinks to the card. */
+.animation-list-columns .pixel-editor-parent-container,
+.animation-list-columns .pixel-editor-container {
+  max-width: 100%;
 }
 
 /* A real <v-list> (unlike Title screen's equivalent .titlescreen-frame-list,

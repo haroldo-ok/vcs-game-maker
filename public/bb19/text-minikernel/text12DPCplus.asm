@@ -55,6 +55,85 @@ KERNELBANK = (bs_mask + 1)
     endif
 
 
+    ifconst titletext
+; vcs-game-maker: the text on a Title Screen page, called by the Title Screen kernel when its layout is done, standing in the
+; middle of a line (see buildDriverAsm in generators/bbasic/titlescreen.js). No score digits are drawn: the two sprites are put where
+; the kernel's score setup puts them (the same cycles after a wait, with the same fine motion and the same strobes), with the stores
+; to the fetchers kept as stores to a zero (they take the same cycles), and the text is drawn by textkernel, which returns to the
+; caller in the Title Screen kernel's bank (see the end of textkernel). The fast fetch is off during a page, as in the overscan.
+titletextkernel
+    lda #1
+    sta titleTextFlag
+    ldx #0
+    stx GRP0
+    stx GRP1
+    stx GRP0
+    stx PF0
+    stx PF1
+    stx PF2
+    stx REFP0
+    stx REFP1
+    stx ENAM0
+    stx ENAM1
+    stx ENABL
+    stx HMCLR
+    ifconst score5digits
+    ldx #$d0
+    else
+    ldx #$f0
+    endif
+    stx HMP0
+    ifconst score5digits
+    ldx #$e0
+    stx HMP1
+    endif
+    ldx #0
+    stx DF6LOW
+    ldx #0
+    stx DF6HI
+    ldx #0
+    stx DF0LOW
+    ldx #0
+    stx DF0HI
+    ldx #0
+    stx DF1LOW
+    ldx #0
+    stx DF1HI
+    ldx #0
+    stx DF2LOW
+    ldx #0
+    stx DF2HI
+    sta WSYNC
+    ldx #0
+    STx GRP0
+    STx GRP1 ; seems to be needed because of vdel
+    ldx #0
+    stx DF3LOW
+    ldx #0
+    stx DF3HI
+    ldx #0
+    stx DF4LOW
+    ldx #0
+    stx DF4HI
+    LDY #7
+    LDx #$03
+    STY VDELP0
+    STA RESP0
+    STA RESP1
+    sty temp1
+    STx NUSIZ0
+    STx NUSIZ1
+    STx VDELP1
+    ldx #0
+    stx DF5LOW
+    ldx #0
+    stx DF5HI
+    STA.w HMOVE
+    ; (the kernel hides the score the same way: the line is waited out before the text)
+    sta WSYNC
+    jmp textkernel
+    endif
+
 textkernel
 
 	; the kernel's score loop used to clear these before calling in; done here to keep that bank smaller
@@ -280,7 +359,13 @@ firstbreak
     ldx textoffset11    ; 3     (32)
     ora right_text,x        ; 4     (36)
     
+    ; vcs-game-maker: with 5 score digits the sprites stand 2 clocks further right, so the last pixel of the first glyph was cut: the writes below
+    ; come 1 cycle later (the same on each of the 5 lines).
+    ifconst score5digits
+    ldx.w TextDataPtr              ; 4     (39) 4 in X
+    else
     ldx TextDataPtr              ; 3     (39) 4 in X
+    endif
     sleep 2                 ; 7     (46)
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
@@ -339,7 +424,11 @@ endl1
     ldx textoffset11    ; 3     (32)
     ora right_text+1,x        ; 4     (36)
     
+    ifconst score5digits
+    ldx.w TextDataPtr              ; 4     (39) 4 in X
+    else
     ldx TextDataPtr              ; 3     (39) 4 in X
+    endif
     sleep 2                 ; 7     (46)
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
@@ -398,7 +487,11 @@ endl2
     ldx textoffset11    ; 3     (32)
     ora right_text+2,x        ; 4     (36)
     
+    ifconst score5digits
+    ldx.w TextDataPtr              ; 4     (39) 4 in X
+    else
     ldx TextDataPtr              ; 3     (39) 4 in X
+    endif
     sleep 2                 ; 3     (42)
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
@@ -457,7 +550,11 @@ endl2
     ldx textoffset11    ; 3     (32)
     ora right_text+3,x        ; 4     (36)
     
+    ifconst score5digits
+    ldx.w TextDataPtr              ; 4     (39) 4 in X
+    else
     ldx TextDataPtr              ; 3     (39) 4 in X
+    endif
     sleep 2                 ; 3     (42)
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
@@ -516,7 +613,11 @@ endl2
     ldx textoffset11    ; 3     (32)
     ora right_text+4,x        ; 4     (36)
     
+    ifconst score5digits
+    ldx.w TextDataPtr              ; 4     (39) 4 in X
+    else
     ldx TextDataPtr              ; 3     (39) 4 in X
+    endif
     sleep 2                 ; 3     (42)
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
@@ -545,6 +646,19 @@ clear_dpc   ; clear out temp variables
     ; this line when that feature is on. GRP0/GRP1 are free here, nothing after this point needs them.
 
     ifconst textbank
+        ; vcs-game-maker: a call from the Title Screen kernel goes back to its bank (see titletextkernel above); the bank is named, as the
+        ; bank switch routine can not tell it from the return address for every bank.
+        ifconst titletextbank
+        lda titleTextFlag
+        beq dpctextreturn
+        lda #0
+        sta titleTextFlag
+        pha
+        pha
+        ldx #titletextbank
+        jmp BS_jsr
+dpctextreturn
+        endif
         sta temp7
         lda #>(posttextkernel-1)
         pha

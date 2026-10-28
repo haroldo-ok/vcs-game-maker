@@ -241,6 +241,25 @@ Blockly.defineBlocksWithJsonArray([
       'frames is about a second). Whatever text is shown then is cleared, so run this block again after showing another message ' +
       'so that it gets the full time.',
   },
+  // Used after a block that shows text: the text blinks (off and on again) at the Text tab's Blink speed, forever or a number of times, and
+  // then stays shown or is cleared.
+  {
+    'type': 'text_minikernel_blink',
+    'message0': `${TEXT_ICON} Blink text %1 forever, or %2 times, then clear text %3`,
+    'args0': [
+      {'type': 'field_checkbox', 'name': 'FOREVER', 'checked': true},
+      {'type': 'input_value', 'name': 'TIMES', 'check': 'Number'},
+      {'type': 'field_checkbox', 'name': 'CLEAR', 'checked': false},
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Put it after a block that shows text: the text blinks off and on, at the Blink speed of the Text tab (16 frames when that is ' +
+      'Never). Ticked "forever", it keeps blinking. Unticked, it blinks the number of times (1 to 16) and then stops with the text shown, ' +
+      'or cleared when "then clear text" is ticked. It hides the text by giving it the color of the text background, so a text row ' +
+      'whose color was set separately ("Text set row 2 color") stays visible.',
+  },
   {
     'type': 'text_minikernel_set_color',
     'message0': `${COLOR_ICON} Text set %1 color to %2`,

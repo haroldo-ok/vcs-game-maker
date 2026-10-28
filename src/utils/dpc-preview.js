@@ -7,13 +7,13 @@
 // the kernel reading the chip once per scanline while the picture is drawn (15720 reads a second), holding the last
 // value for the score lines and silent for the rest of each 262 line frame. Nothing is smoothed.
 
+import {configurationValue} from '../hooks/configuration-value';
 import {buildEnvelopeCurve} from './envelope';
 import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, frequencyForTia, isDpcPlusSound} from './dpc-sound';
 import {rawFrequencyOf} from './music-notes';
 import {buildDpcPitchOffsets} from './pitch-table';
 import {buildVolumeStaircase} from './staircase';
 import {getAudioContext, registerSoundEffectPreview, isSoundEffectPreviewActive} from './sound-preview';
-import {useConfigurationStorage} from '../hooks/project';
 
 const CHIP_CLOCK = 20000;
 const SCANLINE_RATE = 15720;
@@ -70,7 +70,7 @@ export const renderDpcPlusSamples = ({wave, frequencyForFrame, volumeForFrame, s
 
 // The project's settings when its sounds are played by the DPC+ sound chip, otherwise null.
 export const dpcPlusPreviewActive = () => {
-  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+  const config = configurationValue() || {};
   return config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false ? config : null;
 };
 

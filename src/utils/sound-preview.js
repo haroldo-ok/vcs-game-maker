@@ -1,6 +1,6 @@
 'use strict';
 
-import {useConfigurationStorage} from '../hooks/project';
+import {configurationValue} from '../hooks/configuration-value';
 import {tvAudioClockScale} from './tv-standard';
 
 import {buildEnvelopeCurve} from './envelope';
@@ -47,7 +47,7 @@ export const getAudioContext = () => {
 // tone) run off CPUclock/114 (10480Hz, exactly a third of 31440) instead.
 const NTSC_SHIFT_CLOCK = 31440;
 // Scaled for the project's TV standard (PAL60's audio clock is slightly lower).
-const shiftClock = () => NTSC_SHIFT_CLOCK * tvAudioClockScale(useConfigurationStorage().value);
+const shiftClock = () => NTSC_SHIFT_CLOCK * tvAudioClockScale(configurationValue());
 export const shiftClockFor = (audf, {slowClock = false} = {}) =>
   (slowClock ? shiftClock() / 3 : shiftClock()) / (Number(audf) + 1);
 

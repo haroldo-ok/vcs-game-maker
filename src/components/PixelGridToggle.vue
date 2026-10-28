@@ -34,7 +34,7 @@ export default {
     value: {type: Boolean, default: false},
     icon: {type: String, default: 'mdi-grid'},
     label: {type: String, default: null},
-    // The icon stretched up (a glyph that is wider than it is tall, like the columns one, otherwise looks small beside the XY badge).
+    // The icon stretched up (a glyph that is wider than it is tall, like the columns one, otherwise looks small beside the XY badge; stretched to the height of the rectangle tool's icon).
     tall: {type: Boolean, default: false},
     titleOn: {type: String, default: 'Hide pixel grid (\')'},
     titleOff: {type: String, default: 'Show pixel grid (\')'},
@@ -95,14 +95,14 @@ export default {
   opacity: 0.35;
 }
 
-/* (The columns glyph's bars sit half a pixel above the middle of its 24px box, which the stretch makes 0.8px: moved back down so the bars are centered
+/* (The columns glyph's bars sit half a pixel above the middle of its 24px box, which the stretch makes 0.65px: moved back down so the bars are centered
    on the same line as the other icons'.) */
 .pixel-grid-toggle-btn-tall >>> .v-icon {
-  transform: translateY(0.8px) scaleY(1.6);
+  transform: translateY(0.65px) scaleY(1.3);
 }
 
 .pixel-grid-toggle-btn-tall:not(.v-btn--disabled):active >>> .v-icon {
-  transform: translateY(0.8px) scale(0.82, 1.3);
+  transform: translateY(0.65px) scale(0.82, 1.07);
 }
 
 .pixel-grid-toggle-btn-active >>> .v-icon,

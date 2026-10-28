@@ -660,6 +660,8 @@ export default defineComponent({
    that this tab used to set directly by itself (now-removed) wrapper. */
 .score-editor-toolbar-row {
   margin-top: 12px;
+  /* The line under the toolbar, like the one the Sprites tab's toolbar has above its Quick colors. */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .score-editor-zoom {

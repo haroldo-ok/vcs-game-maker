@@ -296,25 +296,24 @@ export const generateJoystickDirection8Table = (Blockly) => {
 export const generateJoystickDirection8Checks = (Blockly) => {
   const used = Blockly.BBasic.joyDirection8UsedFor;
   if (!used || !used.size) return '';
-  const resolveSystemVar = (canonicalName) =>
-    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.VARIABLE_CATEGORY_NAME);
   const resolveDevVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const lines = [];
   ['joy0', 'joy1'].forEach((name) => {
     if (!used.has(name)) return;
-    const up = resolveSystemVar(`${name}up`);
-    const down = resolveSystemVar(`${name}down`);
-    const left = resolveSystemVar(`${name}left`);
-    const right = resolveSystemVar(`${name}right`);
     const resultVar = resolveDevVar(joyDir8ResultVarName(name));
+    // The four directions are the bits of one nibble of SWCHA (joy0: the high one, right, left, down, up from the top; joy1: the low
+    // one), 0 for pressed. Inverted and shifted down, that nibble is the index (up 1, down 2, left 4, right 8) the table wants, read in
+    // one go instead of by four tests.
     lines.push(
-        ` temp1 = 0`,
-        ` if ${up} then temp1 = temp1 + 1`,
-        ` if ${down} then temp1 = temp1 + 2`,
-        ` if ${left} then temp1 = temp1 + 4`,
-        ` if ${right} then temp1 = temp1 + 8`,
-        ` ${resultVar} = ${JOY_DIR8_TABLE_NAME}[temp1]`,
+        ' asm',
+        ' lda SWCHA',
+        ...(name === 'joy0' ? [' lsr', ' lsr', ' lsr', ' lsr'] : [' and #$0F']),
+        ' eor #$0F',
+        ' tax',
+        ` lda ${JOY_DIR8_TABLE_NAME},x`,
+        ` sta ${resultVar}`,
+        'end',
     );
   });
   return lines.join('\n');

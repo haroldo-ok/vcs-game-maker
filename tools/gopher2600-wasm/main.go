@@ -20,6 +20,7 @@ import (
 	"github.com/jetsetilly/gopher2600/cartridgeloader"
 	"github.com/jetsetilly/gopher2600/environment"
 	"github.com/jetsetilly/gopher2600/hardware"
+	"github.com/jetsetilly/gopher2600/hardware/peripherals/atarivox"
 	"github.com/jetsetilly/gopher2600/hardware/peripherals/controllers"
 	"github.com/jetsetilly/gopher2600/hardware/preferences"
 	"github.com/jetsetilly/gopher2600/hardware/riot/ports"
@@ -142,6 +143,11 @@ func (c *canvasRenderer) render() bool {
 type webAudioMixer struct {
 	freq int
 	buf  []int16
+
+	// aux is the sound of an auxiliary source (the AtariVox's SpeakJet chip), at the sample
+	// rate of that chip: it is played beside the console's sound, not mixed into it.
+	aux     []float32
+	auxRate int
 }
 
 func (m *webAudioMixer) SetSpec(spec specification.Spec) {
@@ -156,7 +162,33 @@ func (m *webAudioMixer) SetAudio(sig []signal.AudioSignalAttributes) error {
 }
 
 func (m *webAudioMixer) EndMixing() error { return nil }
-func (m *webAudioMixer) Reset()           { m.buf = m.buf[:0] }
+func (m *webAudioMixer) Reset() {
+	m.buf = m.buf[:0]
+	m.aux = m.aux[:0]
+}
+
+// OpenAuxAudio, CloseAuxAudio and SetAuxAudio implement television.AuxAudioSetup.
+func (m *webAudioMixer) OpenAuxAudio(sampleRate int, bufferLen int) error {
+	m.auxRate = sampleRate
+	return nil
+}
+
+func (m *webAudioMixer) CloseAuxAudio() error {
+	m.aux = m.aux[:0]
+	return nil
+}
+
+func (m *webAudioMixer) SetAuxAudio(samples []float32, rate int) error {
+	m.auxRate = rate
+	m.aux = append(m.aux, samples...)
+	return nil
+}
+
+func (m *webAudioMixer) drainAux() ([]float32, int) {
+	out := m.aux
+	m.aux = nil
+	return out, m.auxRate
+}
 
 func (m *webAudioMixer) drain() []int16 {
 	out := m.buf
@@ -204,6 +236,10 @@ type console struct {
 	// tell which of a key's possibly-multiple bindings (see keyMapping
 	// above) is actually the live one for that port right now.
 	keypadModeByPort map[plugging.PortID]bool
+
+	// atariVox is whether an AtariVox (a speech synthesizer) is plugged into the right port
+	// instead of a joystick or a keypad.
+	atariVox bool
 }
 
 // keyBinding is one entry of console.keyMapping: JS KeyboardEvent.code ->
@@ -342,6 +378,13 @@ func (c *console) stepFrame(emit bool) (result any) {
 		js.CopyBytesToJS(bytes, raw)
 		js.Global().Call("g2kPostAudio", c.mixer.freq, bytes)
 	}
+
+	if aux, rate := c.mixer.drainAux(); len(aux) > 0 && rate > 0 {
+		raw := unsafe.Slice((*byte)(unsafe.Pointer(&aux[0])), len(aux)*4)
+		bytes := js.Global().Get("Uint8Array").New(len(raw))
+		js.CopyBytesToJS(bytes, raw)
+		js.Global().Call("g2kPostAuxAudio", rate, bytes)
+	}
 	return nil
 }
 
@@ -403,6 +446,12 @@ func (c *console) powerOn() error {
 	c.mixer = mixer
 	c.poweredOn = true
 
+	if c.atariVox {
+		if err := vcs.RIOT.Ports.Plug(plugging.PortRight, atarivox.NewAtariVox); err != nil {
+			return err
+		}
+	}
+
 	if c.lastRom != nil {
 		if err := c.attachRom(c.lastRom); err != nil {
 			return err
@@ -455,9 +504,31 @@ func portFromString(s string) plugging.PortID {
 	return plugging.PortLeft
 }
 
+// setAtariVox plugs an AtariVox into the right port, or puts back the joystick or keypad.
+func (c *console) setAtariVox(enabled bool) error {
+	if c.atariVox == enabled {
+		return nil
+	}
+	c.atariVox = enabled
+	if c.vcs == nil {
+		return nil
+	}
+	if enabled {
+		return c.vcs.RIOT.Ports.Plug(plugging.PortRight, atarivox.NewAtariVox)
+	}
+	if c.keypadModeByPort[plugging.PortRight] {
+		return c.vcs.RIOT.Ports.Plug(plugging.PortRight, controllers.NewKeypad)
+	}
+	return c.vcs.RIOT.Ports.Plug(plugging.PortRight, controllers.NewStick)
+}
+
 func (c *console) setKeypadMode(port plugging.PortID, enabled bool) error {
 	c.keypadModeByPort[port] = enabled
 	if c.vcs == nil {
+		return nil
+	}
+	// The AtariVox keeps the right port while it is on.
+	if c.atariVox && port == plugging.PortRight {
 		return nil
 	}
 	if enabled {
@@ -670,6 +741,13 @@ func main() {
 			c.input(plugging.PortPanel, ports.PanelSetPlayer1Pro, pro)
 		} else {
 			c.input(plugging.PortPanel, ports.PanelSetPlayer0Pro, pro)
+		}
+		return nil
+	}))
+
+	api.Set("setAtariVox", safeFunc("setAtariVox", func(this js.Value, args []js.Value) any {
+		if err := c.setAtariVox(args[0].Bool()); err != nil {
+			js.Global().Get("console").Call("error", "gopher2600-wasm: setAtariVox failed: "+err.Error())
 		}
 		return nil
 	}))

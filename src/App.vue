@@ -19,14 +19,14 @@
           <span class="top-toolbar-label">Actions</span>
         </v-btn>
 
-        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title" elevation="0">
+        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title α" elevation="0">
           <v-icon>mdi-image-frame</v-icon>
-          <span class="top-toolbar-label">Title</span>
+          <span class="top-toolbar-label">Title α</span>
         </v-btn>
 
-        <v-btn to="/player" link text class="player-item" title="Sprites" elevation="0">
+        <v-btn to="/player" link text class="player-item" title="Sprite" elevation="0">
           <v-icon>mdi-human-handsup</v-icon>
-          <span class="top-toolbar-label">Sprites</span>
+          <span class="top-toolbar-label">Sprite</span>
         </v-btn>
 
         <v-btn to="/background" link text class="background-item" title="Playfield" elevation="0">
@@ -34,19 +34,19 @@
           <span class="top-toolbar-label">Playfield</span>
         </v-btn>
 
+        <v-btn to="/scene" link text class="scene-item" title="Scene α" elevation="0">
+          <v-icon>mdi-image-filter-center-focus-strong</v-icon>
+          <span class="top-toolbar-label">Scene α</span>
+        </v-btn>
+
         <v-btn to="/soundfx" link text class="sound-item" title="Sound" elevation="0">
           <v-icon>mdi-waveform</v-icon>
           <span class="top-toolbar-label">Sound</span>
         </v-btn>
 
-        <v-btn to="/music" link text class="music-item" title="Music" elevation="0">
+        <v-btn to="/music" link text class="music-item" title="Music α" elevation="0">
           <v-icon>mdi-music-note</v-icon>
-          <span class="top-toolbar-label">Music</span>
-        </v-btn>
-
-        <v-btn to="/scorefont" link text class="scorefont-item" title="Score" elevation="0">
-          <v-icon>mdi-numeric</v-icon>
-          <span class="top-toolbar-label">Score</span>
+          <span class="top-toolbar-label">Music α</span>
         </v-btn>
 
         <v-btn to="/text" link text class="text-tab-item" title="Text" elevation="0">
@@ -57,6 +57,11 @@
         <v-btn to="/data" link text class="data-item" title="Data" elevation="0">
           <v-icon>mdi-table</v-icon>
           <span class="top-toolbar-label">Data</span>
+        </v-btn>
+
+        <v-btn to="/scorefont" link text class="scorefont-item" title="Score" elevation="0">
+          <v-icon>mdi-numeric</v-icon>
+          <span class="top-toolbar-label">Score</span>
         </v-btn>
 
         <v-btn to="/generated" link text class="generated-item" title="Generated" elevation="0">
@@ -134,13 +139,13 @@
           to="/player"
           link
           class="player-item"
-          :title="hideToolbarLabels ? 'Sprites' : null"
+          :title="hideToolbarLabels ? 'Sprite' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-human-handsup</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Sprites</v-list-item-title>
+            <v-list-item-title>Sprite</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -155,6 +160,20 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Playfield</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/scene"
+          link
+          class="scene-item"
+          :title="hideToolbarLabels ? 'Scene α' : null"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-image-filter-center-focus-strong</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Scene α</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -187,20 +206,6 @@
         </v-list-item>
 
         <v-list-item
-          to="/scorefont"
-          link
-          class="scorefont-item"
-          :title="hideToolbarLabels ? 'Score' : null"
-        >
-          <v-list-item-icon>
-            <v-icon>mdi-numeric</v-icon>
-          </v-list-item-icon>
-          <v-list-item-content>
-            <v-list-item-title>Score</v-list-item-title>
-          </v-list-item-content>
-        </v-list-item>
-
-        <v-list-item
           to="/text"
           link
           class="text-tab-item"
@@ -225,6 +230,20 @@
           </v-list-item-icon>
           <v-list-item-content>
             <v-list-item-title>Data</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          to="/scorefont"
+          link
+          class="scorefont-item"
+          :title="hideToolbarLabels ? 'Score' : null"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-numeric</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Score</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -564,7 +583,7 @@
 
     <v-main class="app-main">
       <div class="app-main-inner" :style="{height: `calc(100% - ${errorHeight}px)`}">
-        <router-view/>
+        <router-view :key="viewRemountKey"/>
       </div>
     </v-main>
 
@@ -701,6 +720,7 @@ import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDar
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
 import {safeWithGopher2600} from './hooks/emulator';
+import {useRemountKey} from './hooks/delete-history';
 import {useEmulatorSettings, saveEmulatorSettings} from './hooks/emulator-settings';
 import {escapeHtml} from './utils/build-error';
 import {captureEmulatorScreenshot} from './utils/emulator-screenshot';
@@ -834,6 +854,7 @@ export default {
     const syncSounds = () => syncSoundsToKernel(soundEffectsRef, configurationRef.value || {});
     console.info('Text', version);
     return {
+      viewRemountKey: useRemountKey(),
       emulatorSettings: useEmulatorSettings(), debugSymbols: useDebugVariables(),
       errorStorage, errorBannerHighlight: useErrorBannerHighlight(),
       compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
@@ -2051,6 +2072,7 @@ export default {
 .desaturate-app-colors .background-list,
 .desaturate-app-colors .song-list,
 .desaturate-app-colors .data-list,
+.desaturate-app-colors .scene-list,
 .desaturate-app-colors .animation-list,
 .desaturate-app-colors .animation-frame-list,
 .desaturate-app-colors .about-list {
@@ -2108,6 +2130,7 @@ export default {
 .animation-card,
 .background-card,
 .data-card,
+.scene-card,
 .soundfx-card,
 .text-card,
 .song-card,
@@ -2373,6 +2396,7 @@ export default {
 .song-card.v-card--link,
 .text-card.v-card--link,
 .data-card.v-card--link,
+.scene-card.v-card--link,
 .animation-card.v-card--link,
 .background-card.v-card--link,
 .titlescreen-card.v-card--link,
@@ -2384,6 +2408,7 @@ export default {
 .song-card.v-card--link::before,
 .text-card.v-card--link::before,
 .data-card.v-card--link::before,
+.scene-card.v-card--link::before,
 .animation-card.v-card--link::before,
 .background-card.v-card--link::before,
 .titlescreen-card.v-card--link::before,
@@ -2395,6 +2420,7 @@ export default {
 .song-card.v-card--link:hover,
 .text-card.v-card--link:hover,
 .data-card.v-card--link:hover,
+.scene-card.v-card--link:hover,
 .animation-card.v-card--link:hover,
 .background-card.v-card--link:hover,
 .titlescreen-card.v-card--link:hover,
@@ -2417,6 +2443,7 @@ export default {
 .song-card-selected,
 .text-card-selected,
 .data-card-selected,
+.scene-card-selected,
 .animation-card-selected,
 .background-card-selected,
 .titlescreen-card-selected,
@@ -3224,6 +3251,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .data-icon-btn-size,
+.scene-icon-btn-size,
 .soundfx-icon-btn-size,
 .music-icon-btn-size {
   min-width: 0;
@@ -3247,6 +3275,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .player-icon-btn-size .v-icon,
 .titlescreen-icon-btn-size .v-icon,
 .data-icon-btn-size .v-icon,
+.scene-icon-btn-size .v-icon,
 .soundfx-icon-btn-size .v-icon,
 .music-icon-btn-size .v-icon {
   font-size: 19px !important;
@@ -3355,12 +3384,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* Icon buttons: dim at rest, bright on hover, dimmer still when disabled. */
 .dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn .v-icon,
 .dark-mode.v-application .get-tools .v-btn .v-icon,
+.dark-mode.v-application .scene-tools .v-btn .v-icon,
 .dark-mode.v-application .pixel-editor-tools .v-btn .v-icon,
 .dark-mode.v-application .pixel-grid-toggle-btn .v-icon,
 .dark-mode.v-application .pixel-grid-toggle-label,
 .dark-mode.v-application .unified-toolbar-height-btn,
 .dark-mode.v-application .reset-to-defaults-btn.v-btn,
-.dark-mode.v-application .data-toolbar-row .v-btn .v-icon,
+.dark-mode.v-application .data-toolbar-row .v-btn:not(.pixel-grid-toggle-btn) .v-icon,
 .dark-mode.v-application .data-flat-icon-btn .v-icon,
 .dark-mode.v-application .generated-code-toolbar-row .v-btn .v-icon,
 .dark-mode.v-application .generated-code-flat-icon-btn .v-icon,
@@ -3370,18 +3400,20 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .soundfx-stop-btn .v-icon,
 .dark-mode.v-application .soundfx-play-btn .v-icon,
 .dark-mode.v-application .music-flat-icon-btn .v-icon,
+.dark-mode.v-application .card-folder-new-btn .v-icon,
 .dark-mode.v-application .titlescreen-play-btn .v-icon {
   color: rgba(255, 255, 255, 0.5) !important;
 }
 
 .dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn:hover .v-icon,
 .dark-mode.v-application .get-tools .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .scene-tools .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .pixel-editor-tools .v-btn:hover .v-icon,
 .dark-mode.v-application .pixel-grid-toggle-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .pixel-grid-toggle-btn:not(.v-btn--disabled):hover .pixel-grid-toggle-label,
 .dark-mode.v-application .unified-toolbar-height-btn:not(.v-btn--disabled):hover,
 .dark-mode.v-application .reset-to-defaults-btn.v-btn:hover,
-.dark-mode.v-application .data-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .data-toolbar-row .v-btn:not(.v-btn--disabled):not(.pixel-grid-toggle-btn):hover .v-icon,
 .dark-mode.v-application .data-flat-icon-btn:hover .v-icon,
 .dark-mode.v-application .generated-code-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .generated-code-flat-icon-btn:hover .v-icon,
@@ -3391,13 +3423,15 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .soundfx-stop-btn:hover .v-icon,
 .dark-mode.v-application .soundfx-play-btn:hover .v-icon,
 .dark-mode.v-application .music-flat-icon-btn:hover .v-icon,
+.dark-mode.v-application .card-folder-new-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .titlescreen-play-btn:hover .v-icon,
 .dark-mode.v-application .import-icon-btn:hover {
   color: #fff !important;
 }
 
 .dark-mode.v-application .get-tools .v-btn--disabled .v-icon,
-.dark-mode.v-application .data-toolbar-row .v-btn--disabled .v-icon,
+.dark-mode.v-application .scene-tools .v-btn--disabled .v-icon,
+.dark-mode.v-application .data-toolbar-row .v-btn--disabled:not(.pixel-grid-toggle-btn) .v-icon,
 .dark-mode.v-application .project-toolbar-row .v-btn--disabled .v-icon,
 .dark-mode.v-application .music-flat-icon-btn.v-btn--disabled .v-icon {
   color: rgba(255, 255, 255, 0.2) !important;
@@ -3486,6 +3520,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    sidebar (cards inside the tab stay #1e1e1e so they stand out). */
 .dark-mode.v-application .graphic-editor-toolbar,
 .dark-mode.v-application .data-toolbar,
+.dark-mode.v-application .scene-toolbar,
 .dark-mode.v-application .generated-code-toolbar,
 .dark-mode.v-application .generated-code-search-dock,
 .dark-mode.v-application .music-toolbar,
@@ -3494,6 +3529,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .piano-roll-label-spacer,
 .dark-mode.v-application .project-toolbar,
 .dark-mode.v-application .soundfx-toolbar,
+.dark-mode.v-application .text-folder-toolbar,
+.dark-mode.v-application .sprite-folder-toolbar,
+.dark-mode.v-application .sound-folder-toolbar,
+.dark-mode.v-application .data-folder-toolbar,
 .dark-mode.v-application .editor-container.theme--dark.v-card {
   background-color: #000 !important;
 }
@@ -3505,6 +3544,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* With Subdued Palette the tab area is the same softer #1e1e1e as the rest. */
 .dark-mode.desaturate-app-colors.v-application .graphic-editor-toolbar,
 .dark-mode.desaturate-app-colors.v-application .data-toolbar,
+.dark-mode.desaturate-app-colors.v-application .scene-toolbar,
 .dark-mode.desaturate-app-colors.v-application .generated-code-toolbar,
 .dark-mode.desaturate-app-colors.v-application .generated-code-search-dock,
 .dark-mode.desaturate-app-colors.v-application .music-toolbar,
@@ -3513,6 +3553,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.desaturate-app-colors.v-application .piano-roll-label-spacer,
 .dark-mode.desaturate-app-colors.v-application .project-toolbar,
 .dark-mode.desaturate-app-colors.v-application .soundfx-toolbar,
+.dark-mode.desaturate-app-colors.v-application .text-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .sprite-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .sound-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .data-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .editor-container.theme--dark.v-card {
   background-color: #1e1e1e !important;
 }
@@ -3520,6 +3564,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* Dividers and outlines that were a dark line on white. */
 .dark-mode.v-application .graphic-editor-toolbar-scrolled,
 .dark-mode.v-application .data-toolbar-scrolled,
+.dark-mode.v-application .scene-toolbar-scrolled,
 .dark-mode.v-application .generated-code-toolbar-scrolled,
 .dark-mode.v-application .music-toolbar-scrolled,
 .dark-mode.v-application .project-toolbar-scrolled,
@@ -3535,6 +3580,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .animation-card,
 .dark-mode.v-application .background-card,
 .dark-mode.v-application .data-card,
+.dark-mode.v-application .scene-card,
 .dark-mode.v-application .soundfx-card,
 .dark-mode.v-application .text-card,
 .dark-mode.v-application .song-card,
@@ -3771,6 +3817,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .titlescreen-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .player-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .background-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .scene-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .sound-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .music-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .text-tab-item,
@@ -3811,6 +3858,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .background-list,
 .dark-mode.v-application .song-list,
 .dark-mode.v-application .data-list,
+.dark-mode.v-application .scene-list,
 .dark-mode.v-application .animation-list,
 .dark-mode.v-application .animation-frame-list,
 .dark-mode.v-application .about-list {
@@ -3984,8 +4032,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .hide-toolbar-labels .nav-drawer .v-list-item {
   justify-content: flex-start;
   padding: 0 0 0 16px;
-  /* The same row height as the other sidebar sizes. */
-  min-height: 56px;
+  /* Icons only: close together, 44px apart like the icons of the top toolbar with its labels hidden. */
+  min-height: 44px;
 }
 .hide-toolbar-labels .nav-drawer .v-list-item.v-list-item--active {
   padding-left: 16px;
@@ -4611,6 +4659,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .desaturate-app-colors .titlescreen-item,
 .desaturate-app-colors .player-item,
 .desaturate-app-colors .background-item,
+.desaturate-app-colors .scene-item,
 .desaturate-app-colors .sound-item,
 .desaturate-app-colors .music-item,
 .desaturate-app-colors .text-tab-item,
@@ -4659,6 +4708,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .desaturate-app-colors .top-toolbar .titlescreen-item,
 .desaturate-app-colors .top-toolbar .player-item,
 .desaturate-app-colors .top-toolbar .background-item,
+.desaturate-app-colors .top-toolbar .scene-item,
 .desaturate-app-colors .top-toolbar .sound-item,
 .desaturate-app-colors .top-toolbar .music-item,
 .desaturate-app-colors .top-toolbar .text-tab-item,
@@ -4774,6 +4824,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .background-item > .v-list-item__content {
   color: rgb(255, 152, 0) !important;
   border-left-color: rgb(255, 152, 0) !important;
+}
+
+.scene-item,
+.scene-item > .v-list-item__icon > .theme--light.v-icon,
+.scene-item > .v-list-item__content {
+  color: rgb(0, 137, 123) !important;
+  border-left-color: rgb(0, 137, 123) !important;
 }
 
 .sound-item,

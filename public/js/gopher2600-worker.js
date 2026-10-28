@@ -61,6 +61,11 @@ self.g2kPostAudio = (frequency, bytes) => {
   self.postMessage({type: 'audio', frequency, samples: bytes.buffer}, [bytes.buffer]);
 };
 
+// The AtariVox's speech, at the sample rate of the chip.
+self.g2kPostAuxAudio = (frequency, bytes) => {
+  self.postMessage({type: 'auxaudio', frequency, samples: bytes.buffer}, [bytes.buffer]);
+};
+
 const runTick = (timestamp) => {
   if (!self.gopher2600) return;
   let elapsed = lastTimestamp === null ? framePeriod : timestamp - lastTimestamp;

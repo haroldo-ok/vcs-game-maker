@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>Sound</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message soundfx-intro-paragraph">
@@ -25,12 +25,35 @@
              card is selected (selectedSoundEffect) the same way
              DataEditor.vue's toolbar acts on selectedTable. @click.stop for
              the same reason GraphicEditorToolbar.vue's root div has it. -->
+        <!-- The folders are pinned above the toolbar (which sticks just under them), as on the Sprite and Text tabs. -->
+        <div ref="folderToolbar" class="sound-folder-toolbar" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Sounds"
+            noun="sound"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
         <div
           class="soundfx-toolbar"
           :class="{'soundfx-toolbar-scrolled': isSoundFxToolbarScrolled}"
           @click.stop
         >
           <div class="soundfx-toolbar-row">
+            <pixel-grid-toggle
+              v-model="soundFxColumns"
+              icon="mdi-view-column"
+              tall
+              title-on="Show the sounds in one column"
+              title-off="Show the sounds in several columns"
+            />
+            <v-divider class="soundfx-toolbar-divider" vertical />
             <v-btn
               icon
               small
@@ -161,14 +184,6 @@
               <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
             </div>
             <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
-            <v-switch
-              v-model="soundFxColumns"
-              label="Columns"
-              title="Lay sound effect cards out in multiple columns when there's room, instead of one full-width column."
-              hide-details
-              class="soundfx-columns-switch"
-            />
-            <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
             <v-select
               v-model="soundFilter"
               prefix="Show"
@@ -179,6 +194,7 @@
               class="soundfx-filter"
             />
           </div>
+          <v-divider class="soundfx-divider" />
         </div>
 
         <SoundBankImportDialog
@@ -188,7 +204,7 @@
         />
         <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
           <v-list-item
-            v-for="(soundEffect, index) in state.soundEffects"
+            v-for="{card: soundEffect, index} in visibleEntries()"
             v-show="matchesSoundFilter(soundEffect)"
             class="entry-list-item"
             v-bind:key="soundEffect.id"
@@ -207,7 +223,7 @@
                   class="soundfx-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(index)"
-                  v-on="dragHandleListeners(index)"
+                  v-on="cardHandleListeners(index)"
                 />
                 <v-btn
                   :title="isCollapsed(soundEffect) ? 'Expand this sound effect' : 'Collapse this sound effect'"
@@ -228,6 +244,14 @@
                      the delete button to the top right of each card, like
                      it is on data table cards. use the same positioning"). -->
                 <div class="soundfx-toolbar-top-right">
+                  <confirm-delete-menu
+                    v-if="state.soundEffects.length > 1"
+                    :title="deleteTitleFor(soundEffect)"
+                    :selected="selectedCardId === soundEffect.id && selectedCardIds.includes(soundEffect.id)"
+                    :activator-title="deleteTitleFor(soundEffect).replace('?', '')"
+                    icon-btn-class="soundfx-delete-btn soundfx-icon-btn-size"
+                    @confirm="handleDeleteSoundEffect(soundEffect)"
+                  />
                   <v-btn
                     icon
                     small
@@ -237,14 +261,6 @@
                   >
                     <v-icon>mdi-content-duplicate</v-icon>
                   </v-btn>
-                  <confirm-delete-menu
-                    v-if="state.soundEffects.length > 1"
-                    :title="deleteTitleFor(soundEffect)"
-                    :selected="selectedCardId === soundEffect.id && selectedCardIds.includes(soundEffect.id)"
-                    :activator-title="deleteTitleFor(soundEffect).replace('?', '')"
-                    icon-btn-class="soundfx-delete-btn soundfx-icon-btn-size"
-                    @confirm="handleDeleteSoundEffect(soundEffect)"
-                  />
                 </div>
 
                 <v-card-text class="soundfx-name-section">
@@ -835,11 +851,13 @@
 <script>
 import Vue from 'vue';
 import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
+import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
 import {useDragReorder} from '../hooks/drag-reorder';
+import {useCardFolders} from '../hooks/card-folders';
 import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
@@ -870,14 +888,16 @@ import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
 import {buildSoundBankImportEntries, importSoundBankEntries} from '../utils/sound-bank';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import WaveformEditor from '../components/WaveformEditor.vue';
+import PixelGridToggle from '../components/PixelGridToggle.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
+import CardFolderBar from '../components/CardFolderBar.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EnvelopeGraph from '../components/EnvelopeGraph.vue';
 import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
-  components: {WaveformEditor, ColorSwatchPicker, ConfirmDeleteMenu, EnvelopeGraph, SoundBankImportDialog},
+  components: {WaveformEditor, ColorSwatchPicker, CardFolderBar, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     // App-wide preference, not part of this project's  saved
@@ -910,9 +930,12 @@ export default defineComponent({
     const selectedCardId = ref(null);
     // Every selected card (Shift+click selects a range, Ctrl/Cmd+click adds or removes one); see hooks/card-selection.js.
     // selectedCardId stays the one the shared toolbar's per-sound buttons act on: the card clicked last.
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
       useCardSelection(
-          () => state.value.soundEffects.map(({id}) => id), selectedCardId);
+          () => visibleEntries().map(({card}) => card.id), selectedCardId);
+    // The indices, in the whole list, of the selected cards (dragging one of them moves them all).
+    const getSelectedFullIndices = () => state.value.soundEffects
+        .map((soundEffect, index) => (selectedCardIds.value.includes(soundEffect.id) ? index : -1)).filter((index) => index >= 0);
     // The sound effect the shared toolbar below acts on - whichever card is
     // currently selected, same pattern as DataEditor.vue's selectedTable
     // and MusicEditor.vue's activeSong().
@@ -1009,7 +1032,7 @@ export default defineComponent({
       envelopeLastSnapshot[soundEffect.id] = snapshotEnvelope(soundEffect);
     });
     let envelopeHistoryDebounce = null;
-    watch(() => state.value.soundEffects, () => {
+    watchDeep(() => state.value.soundEffects, () => {
       clearTimeout(envelopeHistoryDebounce);
       envelopeHistoryDebounce = setTimeout(() => {
         state.value.soundEffects.forEach((soundEffect) => {
@@ -1026,7 +1049,7 @@ export default defineComponent({
           envelopeLastSnapshot[soundEffect.id] = snapshot;
         });
       }, 500);
-    }, {deep: true});
+    });
 
     const applyEnvelopeSnapshot = (soundEffect, snapshotJson) => {
       const data = JSON.parse(snapshotJson);
@@ -1147,11 +1170,73 @@ export default defineComponent({
           handleChildChange();
         },
         // Dragging one of several selected cards moves all of them.
-        getSelectedIndices,
+        getSelectedFullIndices,
         {renumber: {kind: 'sound', onRenumbered: renumbered}},
     );
 
     const instance = getCurrentInstance();
+
+    // How tall the pinned folders are: the toolbar of the sounds sticks under them, not behind them.
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      // (Pinned, it has more room above, so it is taller: the toolbar under it sticks after that.)
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = pinnedHeight(element);
+        });
+        folderToolbarObserver.observe(element, {box: 'border-box'});
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
+    });
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the sounds keep their numbers and their place in the
+    // one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a sound is in its `folder`.
+    const foldersOf = () => {
+      const data = state.value;
+      if (!Array.isArray(data.folders)) data.folders = [];
+      return data.folders;
+    };
+    const refresh = () => {
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const {openFolderId, visibleEntries, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners,
+      handleDropCards} = useCardFolders({
+      getCards: () => state.value.soundEffects,
+      getFolders: foldersOf,
+      setFolders: (folders) => {
+        state.value.folders = folders;
+      },
+      refresh,
+      getSelectedIndices: getSelectedFullIndices,
+      deselectCard,
+      tab: 'sounds',
+    });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
 
     // Same "growing padding + a bottom border once actually scrolled"
     // treatment as GraphicEditorToolbar.vue's .graphic-editor-toolbar/
@@ -1229,6 +1314,7 @@ export default defineComponent({
       const maxId = max(soundEffects.map((o) => o.id)) || 0;
       const newSoundEffect = {
         id: maxId + 1,
+        ...newCardFolder(),
         name: `Sound effect ${maxId + 1}`,
         audc: '4',
         audf: 16,
@@ -1583,6 +1669,8 @@ export default defineComponent({
       handleEnvelopeGraphChange,
       MIN_ARPEGGIO_INTERVAL, MAX_ARPEGGIO_INTERVAL,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
+      cardHandleListeners, folderToolbar, folderToolbarHeight, folderToolbarPinned,
     };
   },
 });
@@ -1722,14 +1810,6 @@ export default defineComponent({
   align-self: center;
 }
 
-/* Room between the divider before it and the switch itself, on top of the
-   row's 4px gap (the same 8px as the Data tab's Columns switch). */
-.soundfx-columns-switch {
-  flex: 0 0 auto;
-  margin: 0 !important;
-  margin-left: 8px !important;
-  padding: 0 !important;
-}
 
 /* Same sticky/full-bleed toolbar treatment as DataEditor.vue's
    .data-toolbar (see that file's comments for the full reasoning behind
@@ -1740,9 +1820,50 @@ export default defineComponent({
    Undo/Redo/Export/Import/Stop/Play controls moved off each card - a real
    reported request ("add a toolbar to the sound tab... with the import,
    export, stop and play controls currently on each sound card"). */
-.soundfx-toolbar {
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar of the sounds sticks just under them. */
+.sound-folder-toolbar {
   position: sticky;
   top: 0;
+  z-index: 3;
+  background-color: #fff;
+  /* Close under the intro text while it is not pinned (the toolbar under it no longer has this margin). */
+  margin-top: -10px;
+  margin-left: -16px;
+  margin-right: -16px;
+  /* 2px above the folders (in padding: a margin of the bar would run into the negative margin above), so they are as far under the label of the tab as
+     the toolbar of the Playfield tab is. */
+  padding: 2px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+.sound-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+/* Room above the folders when they are pinned: as far from the top of the tab as the Text tab's are. Not before, so they are as far under the label
+   of the tab as the toolbar of the Playfield tab is. */
+.sound-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
+}
+
+/* As far from the line of the folders to the icons under it as from the icons to the line under them: the room is in the padding of the toolbar
+   under the folders, not a margin between the two (a margin let what scrolls behind show between them while they are pinned). */
+.sound-folder-toolbar + .soundfx-toolbar {
+  padding-top: 8px;
+}
+/* Pinned: the toolbar overlaps the folders by a pixel, so it has that pixel more above the icons: as far above them as below. */
+.sound-folder-toolbar + .soundfx-toolbar.soundfx-toolbar-scrolled {
+  padding-top: 11px;
+}
+
+.desaturate-app-colors .sound-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
+.soundfx-toolbar {
+  position: sticky;
+  top: var(--sticky-toolbar-offset, 0px);
   z-index: 2;
   background-color: #fff;
   padding-top: 4px;
@@ -1752,12 +1873,23 @@ export default defineComponent({
      here changes nothing - this negative one pulls the toolbar up to a 6px
      gap (16px matched the graphic editor toolbar, but with the DIM controls
      inside the toolbar it read as too large). */
-  margin-top: -10px;
   margin-left: -16px;
   margin-right: -16px;
   padding-left: 16px;
   padding-right: 16px;
   transition: padding 0.15s ease;
+  /* For the lines inside it (see the Sprites tab's toolbar). */
+  --toolbar-bleed: 16px;
+}
+
+.soundfx-divider {
+  margin: 8px -16px;
+  max-width: none;
+}
+
+/* The columns button (the 4px the toggle has on its left is for a toggle after another button) starts at the left edge, where the first icon of the other tabs does. */
+.soundfx-toolbar-row >>> .pixel-grid-toggle-btn:first-child {
+  margin-left: 0;
 }
 
 .soundfx-toolbar-row {
@@ -1792,6 +1924,11 @@ export default defineComponent({
 
 /* Same "grows + gains a bottom border once actually scrolled" treatment as
    GraphicEditorToolbar.vue's .graphic-editor-toolbar-scrolled. */
+/* The line at the bottom of the pinned toolbar takes the place of its last divider (no double line). */
+.soundfx-toolbar-scrolled .soundfx-divider {
+  display: none;
+}
+
 .soundfx-toolbar-scrolled {
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;

@@ -1,6 +1,7 @@
+import {configurationValue} from '../hooks/configuration-value';
 import {SCORE_FONTS} from '../generators/score-fonts';
 import {getExtendedScoreGraphics} from '../generators/bbasic/text-minikernel-files';
-import {useConfigurationStorage, useScoreFontEditsStorage, useScoreFontStorage,
+import {useScoreFontEditsStorage, useScoreFontStorage,
   useSquishCustomScoreFontStorage} from '../hooks/project';
 
 export const CUSTOM_SCORE_FONT = 'custom';
@@ -183,7 +184,7 @@ export const processScoreFontDefaults = (storage, fallbackFont = DEFAULT_SCORE_F
 // -working project into a real overflow/relocator-thrashing build failure.
 export const customScoreFontExtraGlyphsEnabled = () => {
   try {
-    return !!(useConfigurationStorage().value || {}).scoreFontExtraGlyphsEnabled;
+    return !!(configurationValue() || {}).scoreFontExtraGlyphsEnabled;
   } catch (e) {
     console.error('Error loading configuration from local storage', e);
     return false;

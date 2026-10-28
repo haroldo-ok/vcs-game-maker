@@ -246,6 +246,10 @@ export const resolveUsedBackgroundIds = (workspace) => {
       const id = Number(block.getFieldValue('VAR'));
       if (Number.isInteger(id)) used.add(id);
       else unsafe = true;
+    } else if (block.type === 'background_transition') {
+      const id = Number(block.getFieldValue('VAR'));
+      if (Number.isInteger(id)) used.add(id);
+      else unsafe = true;
     } else if (block.type === 'background_set') {
       const value = block.getInputTargetBlock('VALUE');
       let id = NaN;
@@ -501,6 +505,12 @@ export const backgroundScrollPacking = (backgrounds) => {
 export const backgroundScrollEdgeFlagsVarName = () => 'backgroundScrollEdgeFlags';
 export const BACKGROUND_SCROLL_EDGE_BITS = {top: 0, bottom: 1};
 
+// The background that a "Playfield transition" block is scrolling in: 0 = none, else the background's index + 1 (+ 128 when its rows
+// come in from the top, scrolling Down). backgroundTransitionCount is how many of its rows have come into the window so far; when it
+// has filled the window the target becomes the background showing (see the transition mode of bgscrollpatch).
+export const backgroundTransitionVarName = () => 'backgroundTransition';
+export const backgroundTransitionCountVarName = () => 'backgroundTransitionCount';
+
 // A requested starting row (+1, so 0 means "none") from background_scroll_set_row,
 // waiting for the next background load to apply it - see that block's
 // generator and the full-load mode of the bgscrollpatch routine. Only reserved
@@ -713,6 +723,8 @@ export const BACKGROUND_OFFSET_OPTIONS = [
   ['alternate rows right and left', 'alternate_rl'],
   ['all left', 'left'],
   ['all right', 'right'],
+  ['alternate columns up and down', 'alternate_ud'],
+  ['alternate columns down and up', 'alternate_du'],
   ['all up', 'up'],
   ['all down', 'down'],
 ];
@@ -739,7 +751,9 @@ Blockly.Blocks['background_offset'] = {
         `and one that leaves the last row comes back on the first, and "all up" and "all down" wrap the top and ` +
         `the bottom. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
         `pixels run along the rows like a belt ("alternate rows right and left" starts the other way round: the first row ` +
-        `of the playfield goes right, the next left). Untick "whole playfield" to move just an area: its left and right edges ` +
+        `of the playfield goes right, the next left). "alternate columns up and down" moves one column up, the next down, and so on, ` +
+        `each column wrapping from the top to the bottom ("alternate columns down and up" starts the other way round: the first ` +
+        `column goes down, the next up). Untick "whole playfield" to move just an area: its left and right edges ` +
         `are any of the playfield's columns 0 to 31 and its top and bottom are rows counted from 0 like "Playfield get ` +
         `pixel". Run it every few frames ` +
         `for a slower drift. Pixels only move; per-row colors stay where they are.`);
@@ -859,6 +873,28 @@ Blockly.Blocks['background_select'] = {
     this.setOutput(true, 'Number');
     this.setColour(BACKGROUND_COLOR);
     this.setTooltip('Selects a background');
+  },
+};
+
+// Scrolls another background in over the one showing, row by row, using the Playfield scroll blocks.
+Blockly.Blocks['background_transition'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BACKGROUND_ICON} Playfield transition to`)
+        .appendField(new Blockly.FieldDropdown(buildBackgroundOptions), 'VAR')
+        .appendField('scrolling')
+        .appendField(new Blockly.FieldDropdown([
+          ['Up', 'up'],
+          ['Down', 'down'],
+        ]), 'DIRECTION');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(BACKGROUND_COLOR);
+    this.setTooltip('Starts scrolling another background in, one row at a time, instead of swapping to it. ' +
+      'Each "Playfield scroll" block that moves the same way (Up or Down, 1x or 2x) then brings in one more row of ' +
+      'the new background, and once its rows fill the screen it is the background showing. Scrolling the ' +
+      'other way waits until the transition is over. Row colors change over to the new background when it ' +
+      'is complete. Standard kernel only. The backgrounds should have the same size.');
   },
 };
 

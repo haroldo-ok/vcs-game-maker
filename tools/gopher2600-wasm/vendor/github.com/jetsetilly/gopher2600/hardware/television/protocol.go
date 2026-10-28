@@ -115,7 +115,7 @@ type PixelRendererFPSLimiter interface {
 	SetFPSLimit(limit bool)
 }
 
-// FrameTrigger implementations listen for Pause events
+// PauseTrigger implementations listen for Pause events
 type PauseTrigger interface {
 	Pause(pause bool) error
 }
@@ -172,6 +172,22 @@ type RealtimeAudioMixer interface {
 	// refresh rate is significantly outside the nominal rate for the
 	// specification then the audio queue will be suboptimal
 	SetSpec(specification.Spec)
+}
+
+// AuxAudio is implemented by audio mixers that can process audio from an auxiliary audio source,
+// such as the AtariVox (see speakjet.go)
+type AuxAudio interface {
+	// samples are mono, in the range -1 to 1, at the given sample rate. they
+	// are produced in emulation time and arrive in the order they were produced
+	SetAuxAudio(samples []float32, rate int) error
+}
+
+// AuxAudioSetup is implemented by AuxAudio mixers that require setting up and/or shutting down in a
+// controlled way
+type AuxAudioSetup interface {
+	AuxAudio
+	OpenAuxAudio(sampleRate int, bufferLen int) error
+	CloseAuxAudio() error
 }
 
 // VCS is used to send information from the TV back to the parent console

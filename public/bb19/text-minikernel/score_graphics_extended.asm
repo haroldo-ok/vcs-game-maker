@@ -1,30 +1,35 @@
  ; feel free to modify the score graphics - just keep each digit 8 highj
  ; and keep the conditional compilation stuff intact
 
+ ifconst score5digits
+scoreextra = 8
+ else
+scoreextra = 0
+ endif
 scorelength = (LENDEC+LENHEX+LENSPACE+LENDOLLAR+LENPOUND+LENMRHAPPY+LENMRSAD+LENCOPYRIGHT+LENFUJI+LENHEART+LENDIAMOND+LENSPADE+LENCLUB+LENCOLON+LENBLOCK+LENUNDERLINE+LENARISIDE+LENARIFACE) 
 
  ifconst ROM2k
-   ORG $F7FC-scorelength
+   ORG $F7FC-scorelength-scoreextra
  else
    ifconst bankswitch
      if bankswitch == 8
-       ORG $2FE4-scorelength-bscode_length
-       RORG $FFE4-scorelength-bscode_length
+       ORG $2FE4-scorelength-scoreextra-bscode_length
+       RORG $FFE4-scorelength-scoreextra-bscode_length
      endif
      if bankswitch == 16
-       ORG $4FE4-scorelength-bscode_length
-       RORG $FFE4-scorelength-bscode_length
+       ORG $4FE4-scorelength-scoreextra-bscode_length
+       RORG $FFE4-scorelength-scoreextra-bscode_length
      endif
      if bankswitch == 32
-       ORG $8FE4-scorelength-bscode_length
-       RORG $FFE4-scorelength-bscode_length
+       ORG $8FE4-scorelength-scoreextra-bscode_length
+       RORG $FFE4-scorelength-scoreextra-bscode_length
      endif
      if bankswitch == 64
-       ORG  $10FD0-scorelength-bscode_length
-       RORG $1FFD0-scorelength-bscode_length
+       ORG  $10FD0-scorelength-scoreextra-bscode_length
+       RORG $1FFD0-scorelength-scoreextra-bscode_length
      endif
    else
-     ORG $FFEC-scorelength
+     ORG $FFEC-scorelength-scoreextra
    endif
  endif
 
@@ -49,6 +54,12 @@ SYMBOLS = 0 	;_FONTNAME
 ; ### setup some defaults
  ifnconst fontstyle
 fontstyle = STOCK
+ endif
+
+; vcs-game-maker: the Score tab's "5 score digits" switch draws the sixth place from these 8 zeros, just before the digits (the same page).
+ ifconst score5digits
+scoreblank
+       .byte 0, 0, 0, 0, 0, 0, 0, 0
  endif
 
 scoretable

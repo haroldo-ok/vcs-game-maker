@@ -233,6 +233,7 @@
         <slot name="after-tools" />
       </template>
     </div>
+    <v-divider class="get-divider" :class="{'get-divider-last': !$slots['below-tools']}" />
     <slot name="below-tools" />
   </div>
 </template>
@@ -616,12 +617,25 @@ export default {
    flex row below so this outer element can stack children vertically. */
 .graphic-editor-toolbar {
   position: sticky;
-  top: 0;
+  /* (A tab with something else pinned above this toolbar, the Text tab's folders, says how far down this one sticks.) */
+  top: var(--sticky-toolbar-offset, 0px);
   z-index: 2;
   background-color: #fff;
   padding-top: 4px;
   padding-bottom: 4px;
   transition: padding 0.15s ease;
+}
+
+/* The line under the row of tools, always there (and the same on the Sound and Music tabs): the full width of the pinned toolbar around it. */
+.get-divider {
+  margin: 8px calc(-1 * var(--toolbar-bleed, 0px));
+  /* Vuetify caps a divider at its parent's width, which would leave the negative margin only moving it left. */
+  max-width: none;
+}
+
+/* Nothing under it (no Quick colors): the cards are as far under it as from the sides of the tab. */
+.get-divider-last {
+  margin-bottom: 0;
 }
 
 .graphic-editor-toolbar-row {
@@ -649,12 +663,17 @@ export default {
   padding-bottom: 10px;
 }
 
+  /* The line at the bottom of the pinned toolbar takes the place of the toolbar's last divider (no double line). */
+.graphic-editor-toolbar-scrolled .get-divider-last {
+  display: none;
+}
+
 /* Separates the caller's "before-tools" controls (zoom, pixel grid
    toggles) from the standard tool icons - a wider gap than the inner
    dividers below since it's splitting two unrelated groups, not sub-groups
    within one. */
 .get-outer-divider {
-  margin: 0 6px;
+  margin: 0 4px;
 }
 
 /* gap (not per-button margins) is what actually guarantees every icon-to-

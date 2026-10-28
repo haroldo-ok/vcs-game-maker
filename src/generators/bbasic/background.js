@@ -10,6 +10,7 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
   backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName,
+  backgroundTransitionVarName, backgroundTransitionCountVarName, backgroundScrollActiveVarName, backgroundColorBgVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
 import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset} from '../../utils/playfield-coords';
 
@@ -40,6 +41,12 @@ const FADE_INCREMENT = 2;
 // exact same sprite<->playfield-pixel X offset rather than each guessing
 // their.
 export const spriteXOffset = (width) => (width === 'SINGLE' ? 17 : 16);
+
+// DPC+: how many times a Background scroll block has to run for one step of the picture: the playfield rows are cut `fine` lines thick (see
+// generateBackgrounds) and a block moves two lines a time (four for the "2x" directions), rounded to a power of two.
+const DPC_PLUS_SCROLL_LINES = {up: 1, down: 1, upup: 2, downdown: 2};
+export const dpcPlusScrollDivider = (direction, fine) =>
+  Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, fine / ((DPC_PLUS_SCROLL_LINES[direction] || 1) * 2)))));
 
 const isInsideFunctionDefine = (block) => {
   let ancestor = block.getParent();
@@ -403,7 +410,7 @@ export default (Blockly) => {
     const lab = (name) => `_rowsconv_${id}_${name}`;
     // (With groups of columns that have separate rows the increment is in temp1 already, put there by the lines of the group.)
     return [`temp2 = ${source}`, ...selectLines, 'asm',
-      'lda temp2', 'sta temp3', increment === null ? 'lda temp1' : `lda #${increment}`, 'sta temp2', 'sec', 'sbc #1', 'sta temp1', 'lda #0', 'ldx #16',
+      'lda temp2', 'sta temp3', increment === null ? 'lda temp1' : typeof increment === 'string' ? `lda ${increment}` : `lda #${increment}`, 'sta temp2', 'sec', 'sbc #1', 'sta temp1', 'lda #0', 'ldx #16',
       `@${lab('l')}`, 'asl temp1', 'rol temp3', 'rol', `bcs ${lab('t')}`, 'cmp temp2', `bcc ${lab('n')}`,
       `@${lab('t')}`, 'sbc temp2', 'inc temp1', `@${lab('n')}`, 'dex', `bne ${lab('l')}`,
       'lda temp3', `beq ${lab('k')}`, 'lda #255', 'sta temp1', `@${lab('k')}`, 'lda temp1',
@@ -1555,6 +1562,12 @@ export default (Blockly) => {
   // keeps each of the four columns in display RAM at dffraclow/dffrachi, one byte a row, read and written through a
   // data fetcher. The rows to move go in temp3 (first) and temp4 (last).
   const leftIsHigh = (byte) => byte % 2 === 0;
+  // "Alternate columns up and down" moves every other column up and the ones between down. The first column of the playfield is a
+  // bit 7 in the first byte of a row and the columns of the second byte run the other way round, so the even columns are $AA in the
+  // first and third bytes and $55 in the second and fourth; "alternate columns down and up" is the other columns. This is the mask of
+  // the columns of a byte that go up.
+  const isAlternateColumns = (direction) => direction === 'alternate_ud' || direction === 'alternate_du';
+  const upColumnsMask = (direction, byte) => ((byte % 2 === 0) === (direction === 'alternate_ud') ? 0xAA : 0x55);
   const offsetSubroutineName = (direction, byte1, byte2, dpcPlus, superchip) =>
     `_background_offset_${direction}_${byte1}${byte2}${dpcPlus ? 'd' : superchip ? 's' : ''}`;
 
@@ -1609,7 +1622,23 @@ export default (Blockly) => {
     const writerOf = (byte) => (byte - byte1 < 3 ? `DF${4 + byte - byte1}` : null);
     const lines = ['asm'];
     const horizontal = direction === 'alternate' || direction === 'left' || direction === 'right';
-    if (horizontal && !dpcPlus) {
+    if (isAlternateColumns(direction)) {
+      // Alternate columns up and down, a byte at a time: the columns that go up take the byte of the row below and the others the row above
+      // (the first and last row take each other's). temp5 and temp6 are the last and first row times four, temp1 the first row's byte (the
+      // one the last row takes) and temp2 the row above, as it was.
+      lines.push('lda temp4', 'asl', 'asl', 'sta temp5', 'lda temp3', 'asl', 'asl', 'sta temp6');
+      bytes.forEach((byte) => {
+        const up = upColumnsMask(direction, byte);
+        const write = superchip ? `playfield-128+${byte},x` : `playfield+${byte},x`;
+        const name = (part) => lab(`${part}${byte}`);
+        lines.push('ldx temp5', `lda playfield+${byte},x`, 'sta temp2', 'ldx temp6', `lda playfield+${byte},x`, 'sta temp1',
+            at(`loop${byte}`), 'cpx temp5', `beq ${name('last')}`, `lda playfield+${byte + 4},x`, `jmp ${name('got')}`,
+            at(`last${byte}`), 'lda temp1',
+            at(`got${byte}`), `and #$${up.toString(16).toUpperCase()}`, 'sta temp3', 'lda temp2', `and #$${(255 - up).toString(16).toUpperCase()}`,
+            'ora temp3', 'sta temp4', `lda playfield+${byte},x`, 'sta temp2', 'lda temp4', `sta ${write}`,
+            'cpx temp5', `beq ${name('done')}`, 'inx', 'inx', 'inx', 'inx', `jmp ${name('loop')}`, at(`done${byte}`));
+      });
+    } else if (horizontal && !dpcPlus) {
       // X is the row times four. Right and alternate go down the rows, left goes up; Y starts as the pixel the first
       // row to be moved takes in, which is the one the last row to be moved loses.
       const down = direction !== 'left';
@@ -1799,7 +1828,23 @@ export default (Blockly) => {
       };
       const row = (toLeft) => [...exitPixel(toLeft ? 1 : 2), 'sta temp6', ...chain(toLeft), ...entry(toLeft ? 2 : 1),
         'lda temp6', `sta ${v.pixel}`];
-      if (horizontal) {
+      if (isAlternateColumns(direction)) {
+        // Alternate columns up and down, a byte at a time (see buildOffsetBody): the new byte is only used in the columns of the area, which
+        // are in the byte's mask. temp5 and temp6 are the last and first row times four.
+        lines.push('lda temp4', 'asl', 'asl', 'sta temp5', 'lda temp3', 'asl', 'asl', 'sta temp6');
+        allBytes.forEach((byte) => {
+          const up = upColumnsMask(direction, byte);
+          const name = (part) => lab(`${part}${byte}`);
+          lines.push(`lda ${v.mask[byte]}`, `bne ${name('go')}`, `jmp ${name('done')}`, at(`go${byte}`),
+              'ldx temp5', `lda ${read(byte)}`, 'sta temp2', 'ldx temp6', `lda ${read(byte)}`, 'sta temp1',
+              at(`loop${byte}`), 'cpx temp5', `beq ${name('last')}`, `lda playfield+${byte + 4},x`, `jmp ${name('got')}`,
+              at(`last${byte}`), 'lda temp1',
+              at(`got${byte}`), `and #$${up.toString(16).toUpperCase()}`, 'sta temp3', 'lda temp2', `and #$${(255 - up).toString(16).toUpperCase()}`,
+              'ora temp3', `eor ${read(byte)}`, `and ${v.mask[byte]}`, `eor ${read(byte)}`, 'sta temp4', `lda ${read(byte)}`, 'sta temp2',
+              'lda temp4', `sta ${write(byte)}`, 'cpx temp5', `bne ${name('more')}`, `jmp ${name('done')}`,
+              at(`more${byte}`), 'inx', 'inx', 'inx', 'inx', `jmp ${name('loop')}`, at(`done${byte}`));
+        });
+      } else if (horizontal) {
         const down = direction !== 'left';
         if (direction === 'left') {
           lines.push('lda temp3', 'asl', 'asl', 'sta temp5', 'tax', ...exitPixel(1), `sta ${v.pixel}`, 'lda temp4', 'asl', 'asl', 'tax');
@@ -2201,7 +2246,7 @@ export default (Blockly) => {
   Blockly.BBasic['background_scroll_colors'] = function(block) {
     const fields = {DIRECTION: block.getFieldValue('DIRECTION'), STOPATEDGE: block.getFieldValue('STOPATEDGE'),
       COLORS: 'FALSE', COLORS_ONLY: 'TRUE', PFCOLORS: block.getFieldValue('PFCOLORS'), BKCOLORS: block.getFieldValue('BKCOLORS')};
-    return Blockly.BBasic['background_scroll']({getFieldValue: (name) => fields[name]});
+    return Blockly.BBasic['background_scroll']({id: block.id, getFieldValue: (name) => fields[name]});
   };
 
   Blockly.BBasic[`background_scroll`] = function(block) {
@@ -2260,14 +2305,19 @@ export default (Blockly) => {
       const rows = scroll.rows;
       const rowsText = rowsVar || rows;
       const stepRows = Math.max(1, Math.round(lineCount / scroll.fine));
-      const divider = Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, scroll.fine / lineCount))));
+      const divider = dpcPlusScrollDivider(direction, scroll.fine);
       const value = delta > 0 ? 256 - stepRows : stepRows;
       // The playfield holds the background repeated over and over (see tileForDpcPlusScroll in
       // generators/bbasic.js), the view starts one background-height in, and the offset variable follows how far
       // it has moved, between 1 and one background-height. Moving past either end shows the same picture as
       // a whole background-height further along, so the view jumps by that much and never runs out of picture.
       const uid = Blockly.BBasic.blockNumbers.next('dpcscroll');
-      const lines = divider > 1 ? [` temp1 = framecounter & ${divider - 1}`, ` if temp1 <> 0 then goto _dpcscroll_${uid}_done`] : [];
+      // A step is taken every `divider` times the block runs, counted by a byte kept for it (the frame counter would never match when the
+      // block only runs on some frames, like inside "Every 2 frames").
+      const counterName = (Blockly.BBasic.dpcPlusScrollCounters || {})[block.id];
+      const counter = counterName ? Blockly.BBasic.nameDB_.getName(counterName, Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+      const lines = divider > 1 && counter ? [` ${counter} = ${counter} + 1`, ` temp1 = ${counter} & ${divider - 1}`,
+        ` if temp1 <> 0 then goto _dpcscroll_${uid}_done`] : [];
       sequences.forEach(({queueSets, offsetName, main}, sequenceIndex) => {
         const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         const scrollLines = (amount) => queueSets.map((queues) => ` pfscroll ${amount}${queues}`);
@@ -2473,6 +2523,28 @@ export default (Blockly) => {
       // call leaves the maximum in temp6 for the bottom-row math below
       // (nothing in between touches temp6, pfscroll included).
       const edgeCheckedLabel = `_bgscroll_${uid}_edgeok`;
+      // A Playfield transition under way: only the scroll that moves the way it comes in does anything, and each row-step brings in a row of
+      // the new background (modes 252 and 253 of the scroll patch); when it has filled the window the new background is the one showing.
+      if (Blockly.BBasic.backgroundTransitionUsed) {
+        const trVar = resolveVar(backgroundTransitionVarName());
+        const normalLabel = `_bgscroll_${uid}_normal`;
+        lines.push(` if ${trVar} = 0 then goto ${normalLabel}`);
+        lines.push(forward ? ` if ${trVar} >= 128 then goto ${doneLabel}` : ` if ${trVar} < 128 then goto ${doneLabel}`);
+        lines.push(` pfscroll ${mechDirection}`);
+        lines.push(forward ? ` if playfieldpos <> ${rowHeight} then goto ${doneLabel}` : ` if playfieldpos <> 1 then goto ${doneLabel}`);
+        Blockly.BBasic.backgroundScrollStepUsed = true;
+        nudgeSprites();
+        lines.push(` temp5 = ${forward ? 252 : 253}`, gosubPatch, ` if temp6 = 0 then goto ${doneLabel}`);
+        // The new background is showing: its row colors take over.
+        if (colorsOn) {
+          const colorBg = resolveVar(backgroundColorBgVarName());
+          const colorOffset = resolveVar(backgroundColorOffsetVarName());
+          const packing = Blockly.BBasic.backgroundScrollPacking;
+          lines.push(` ${colorBg} = ${packing.packed ? `${rowVar} / ${packing.indexStep}` : resolveVar(backgroundScrollActiveVarName())}`,
+              ` ${colorOffset} = ${rowVar} & ${rowMask}`, Blockly.BBasic.backgroundColorScrollApplyLines());
+        }
+        lines.push(` goto ${doneLabel}`, `@ ${normalLabel}`);
+      }
       if (stopAtEdge) {
         if (forward) {
           lines.push(` if playfieldpos > ${step} then goto ${edgeCheckedLabel}`);
@@ -2572,6 +2644,21 @@ export default (Blockly) => {
       ] : []),
       `@ ${doneLabel}`,
     ].join('\n') + '\n';
+  };
+
+  // Starts a Playfield transition: the Playfield scroll blocks then bring the chosen background in a row at a time (see background_scroll).
+  Blockly.BBasic[`background_transition`] = function(block) {
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    if (config.kernel === 'dpcplus') return ' rem Playfield transitions are not available with the DPC+ kernel\n';
+    if (!Blockly.BBasic.backgroundTransitionUsed || !(Blockly.BBasic.backgroundScrollOverflowBackgrounds || []).length) return '';
+    const resolveVar = (canonicalName) =>
+      Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const id = Number(block.getFieldValue('VAR'));
+    const index = Blockly.BBasic.getIncludedBackgrounds().findIndex((background) => Number(background.id) === id);
+    if (index < 0) return '';
+    const fromTop = block.getFieldValue('DIRECTION') === 'down';
+    return ` ${resolveVar(backgroundTransitionVarName())} = ${index + 1 + (fromTop ? 128 : 0)}\n` +
+      ` ${resolveVar(backgroundTransitionCountVarName())} = 0\n`;
   };
 
   Blockly.BBasic[`background_scroll_position`] = function(block) {

@@ -334,7 +334,7 @@ int main()
   unsigned char C_function3=C_function[3];
 
 #ifdef DPC_OFFSET
-  if (C_function[0]>=68) // the program that is in the ROM as data (Playfield offset: 68 to 72, the playfield box test: 128 and up), (it finds the first column of the playfield itself)
+  if (C_function[0]>=68) // the program that is in the ROM as data (Playfield offset: 68 to 75, the playfield box test: 128 and up), (it finds the first column of the playfield itself)
   {
     ((void(*)(void))progaddr)();
     return;

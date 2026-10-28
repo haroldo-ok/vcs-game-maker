@@ -3,6 +3,7 @@ import * as Blockly from 'blockly/core';
 import {useDataTablesStorage, useSongsStorage, useWorkspaceStorage} from '../hooks/project';
 import {remapAnimationReferences} from './animation-refs';
 import {remapBackgroundReferences} from './background-refs';
+import {beginCardDelete, recordCardDelete} from '../hooks/delete-history';
 
 // Cards (data tables, title screens and the cards in them, backgrounds, sounds, songs, text messages and sprite animations) are
 // numbered by their place in the list on their tab: 1, 2, 3... (What refers to a sprite animation holds its place counted from 0,
@@ -252,8 +253,10 @@ export const renumberCards = (kind, items, {removed = [], screenId, previous = n
 // The cards of a list without the ones in doomed (their ids), numbered by their new places, with what referred to the ones taken out
 // pointing at nothing. Returns {remaining, idMap} (idMap is null when no number changed).
 export const removeCards = (kind, items, doomed, {screenId} = {}) => {
+  const before = beginCardDelete();
   const remaining = items.filter(({id}) => !doomed.includes(id));
   const idMap = renumberCards(kind, remaining, {removed: doomed, screenId, previous: items.slice()});
+  recordCardDelete(before);
   return {remaining, idMap};
 };
 

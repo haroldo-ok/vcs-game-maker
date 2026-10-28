@@ -675,14 +675,14 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     ...(objectWidth ? [
       `lda ${xVar}`, 'sta DF0WRITE',
       `lda ${yVar}`, 'sta DF0WRITE',
-      extVar ? `lda ${extVar}` : 'lda #0', 'and #$9F', 'ora #$60', 'sta DF0WRITE',
+      ...(extVar ? [`lda ${extVar}`, 'and #$9F', 'ora #$60'] : ['lda #$60']), 'sta DF0WRITE',
       // The width code 0 to 3 as the width less one (0, 1, 3, 7), in the fifth byte.
       'lda #0', 'ldx temp1', `beq ${lab('armo')}`, 'lda #1', 'cpx #2', `bcc ${lab('armo')}`, 'lda #3', 'cpx #3', `bcc ${lab('armo')}`, 'lda #7',
       `@${lab('armo')}`, 'sta DF0WRITE',
     ] : [
       // Normal width 0, double 1, quad 2 (bits 5 and 6 of the last byte), in temp1; the x in temp2.
       `lda ${sizeVar}`, 'and #7', 'ldx #0', 'cmp #5', `bne ${lab('armw5')}`, 'ldx #$20', `@${lab('armw5')}`, 'cmp #7', `bne ${lab('armw7')}`, 'ldx #$40', `@${lab('armw7')}`,
-      'stx temp1', `lda ${xVar}`, 'sta temp2',
+      'stx temp1', ...(partnerFrameVar ? [`lda ${xVar}`, 'sta temp2'] : []),
       ...(partnerFrameVar ? [
         `lda ${partnerFrameVar}`, 'cmp #255', `beq ${lab('armnp')}`,
         ...(partnerHiddenOperand ? [`lda ${partnerHiddenOperand[1]}`, `and #${1 << Number(partnerHiddenOperand[2])}`, `bne ${lab('armnp')}`] : []),
@@ -690,9 +690,10 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
         `@${lab('armpn')}`, 'cmp #$20', `bne ${lab('armnp')}`, 'lda #$40', 'sta temp1',
         `@${lab('armnp')}`,
       ] : []),
-      'lda temp2', 'sta DF0WRITE',
+      partnerFrameVar ? 'lda temp2' : `lda ${xVar}`, 'sta DF0WRITE',
       `lda ${yVar}`, 'sta DF0WRITE',
-      extVar ? `lda ${extVar}` : 'lda #0', 'and #$9F', 'ora temp1', 'sta DF0WRITE',
+      // (temp1 is 0, $20 or $40: the mask only matters for a byte of flags.)
+      ...(extVar ? [`lda ${extVar}`, 'and #$9F', 'ora temp1'] : ['lda temp1']), 'sta DF0WRITE',
     ]),
     'lda #255', 'sta CALLFUNCTION',
     'lda #<(C_function+1)', 'sta DF0LOW', 'lda DF0DATA', 'sta temp4',

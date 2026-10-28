@@ -20,6 +20,7 @@ import './loops';
 import './math';
 import './music';
 import './random';
+import './scene';
 import './score';
 import './sound';
 import './soundfx';

@@ -37,6 +37,11 @@ type Television interface {
 	GetFrameInfo() frameinfo.Current
 	SetRotation(specification.Rotation)
 	GetCoords() coords.TelevisionCoords
+
+	// auxiliary audio for devices that provide their own audio. eg. the speakjet engine for atarivox
+	OpenAuxAudio(sampleRate int, bufferLen int) error
+	CloseAuxAudio() error
+	SetAuxAudio(samples []float32, rate int)
 }
 
 // Environment is used to provide context for an emulation. Particularly useful

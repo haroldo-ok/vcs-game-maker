@@ -1,10 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container">
-      <v-card-title>Music (alpha 0.8)</v-card-title>
-      <v-alert type="warning" dense outlined :icon="false" class="alpha-notice">
-        This feature is in alpha. Things may change or break. You've been warned!
-      </v-alert>
+      <v-card-title>Music (alpha 0.85)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message music-intro-paragraph">
           Compose songs here, then play one at runtime with a "Play song" block (Actions tab).
@@ -32,6 +29,27 @@
             @click="handleImportSongBank"
           >
             <v-icon>mdi-database-import</v-icon>
+          </v-btn>
+          <v-divider class="music-toolbar-divider" vertical />
+          <v-btn
+            icon
+            small
+            :title="UNDO_TITLE"
+            class="music-flat-icon-btn music-icon-btn-size"
+            :disabled="!canToolbarHistory('undo')"
+            @click="() => handleToolbarHistory('undo')"
+          >
+            <v-icon>mdi-undo</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            small
+            :title="REDO_TITLE"
+            class="music-flat-icon-btn music-icon-btn-size"
+            :disabled="!canToolbarHistory('redo')"
+            @click="() => handleToolbarHistory('redo')"
+          >
+            <v-icon>mdi-redo</v-icon>
           </v-btn>
           <v-divider class="music-toolbar-divider" vertical />
           <v-btn
@@ -118,6 +136,7 @@
             <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
           </div>
         </div>
+        <v-divider class="music-divider" />
       </div>
       <v-card-text class="song-list-section">
         <template v-for="song in activeSongArray">
@@ -255,6 +274,16 @@
                         :value="patternName(song, activePatternId(song))"
                         @change="(value) => handlePatternFieldChange(song, value)"
                       />
+                      <v-text-field
+                        class="steps-field"
+                        label="Length (steps)"
+                        type="number"
+                        :min="minPatternSteps"
+                        :max="maxPatternSteps"
+                        v-model.number="activePattern(song).stepCount"
+                        @input="() => handleStepCountTyping(song, activePattern(song))"
+                        @change="() => handleStepCountChange(song, activePattern(song))"
+                      />
                       <div class="pattern-actions-row">
                         <v-btn icon small class="music-icon-btn-size" title="Add pattern" @click="() => handleAddPattern(song)">
                           <v-icon small>mdi-plus</v-icon>
@@ -270,15 +299,6 @@
                           @confirm="handleDeletePattern(song, activePattern(song))"
                         />
                       </div>
-                      <v-text-field
-                        class="steps-field"
-                        label="Length (steps)"
-                        type="number"
-                        :min="minPatternSteps"
-                        :max="maxPatternSteps"
-                        v-model.number="activePattern(song).stepCount"
-                        @change="() => handleStepCountChange(song, activePattern(song))"
-                      />
                       <div class="pattern-length-tempo-group">
                         <v-checkbox
                           class="use-song-tempo-checkbox"
@@ -639,7 +659,7 @@
                         </div>
                       </div>
 
-                      <div class="piano-roll-wrapper" v-if="activePattern(song).tracks.length">
+                      <div class="piano-roll-wrapper" v-if="pianoRollReady && activePattern(song).tracks.length">
                       <div
                         class="piano-roll-height-resize-handle"
                         title="Drag to resize the pitch grid"
@@ -647,6 +667,7 @@
                       />
                       <div
                         class="piano-roll-scroll"
+                        :data-slices="refreshSliceGrid()"
                         :style="{maxHeight: `${pianoRollHeight}px`}"
                         @scroll="(event) => handlePianoRollScroll(song, event)"
                       >
@@ -793,6 +814,7 @@
 import {
   computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onBeforeUpdate, onMounted, ref, watch,
 } from '@vue/composition-api';
+import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
@@ -1082,7 +1104,9 @@ export default defineComponent({
         return;
       }
       const stepCount = stepsFor(pattern) || 1;
-      const availableWidth = el.clientWidth - PIANO_ROLL_LABEL_WIDTH;
+      // (Never wider than the box that holds it: while the page is still being laid out the scrolling element can be as wide as its content.)
+      const holder = el.parentElement;
+      const availableWidth = Math.min(el.clientWidth, holder ? holder.clientWidth : el.clientWidth) - PIANO_ROLL_LABEL_WIDTH;
       pianoRollBaseWidth.value = Math.max(1, availableWidth / stepCount);
     };
 
@@ -1105,6 +1129,28 @@ export default defineComponent({
     const handleFitZoom = (song, pattern) => {
       recalculateFitBaseWidth(song, pattern);
       pianoRollZoom.value = 1;
+    };
+    // Fits the zoom to the pattern's length as soon as its piano roll is in the page with a width. Right after the tab opens, or a song is
+    // switched, the roll is not drawn yet (or has no width yet), so a measurement taken at that moment would be of nothing and the zoom would
+    // stay at whatever it was left at; this waits for the roll and then fits. A newer request (another song, or the tab closing) cancels it.
+    let fitZoomRequest = 0;
+    const fitZoomWhenShown = (songId) => {
+      const request = ++fitZoomRequest;
+      let frames = 0;
+      const attempt = () => {
+        if (request !== fitZoomRequest) return;
+        const song = state.value.songs.find(({id}) => id === songId);
+        const pattern = song && activePattern(song);
+        if (!pattern) return;
+        const el = document.querySelector(`[data-song-id="${songId}"] .piano-roll-scroll`);
+        // (Once the scrolling element is no wider than the box that holds it, it has been laid out.)
+        if (el && el.clientWidth > PIANO_ROLL_LABEL_WIDTH && (!el.parentElement || el.clientWidth <= el.parentElement.clientWidth)) {
+          handleFitZoom(song, pattern);
+          return;
+        }
+        if (++frames < 180) requestAnimationFrame(attempt);
+      };
+      nextTick(() => requestAnimationFrame(attempt));
     };
 
 
@@ -1204,7 +1250,7 @@ export default defineComponent({
     // typical undo history actually reads to a user - see stopResize's
     // single "release" point for the equivalent idea applied to just resize.
     let patternHistoryDebounce = null;
-    watch(() => state.value.songs, () => {
+    watchDeep(() => state.value.songs, () => {
       clearTimeout(patternHistoryDebounce);
       patternHistoryDebounce = setTimeout(() => {
         state.value.songs.forEach((song) => song.patterns.forEach((pattern) => {
@@ -1223,7 +1269,7 @@ export default defineComponent({
           patternLastSnapshot[pattern.id] = snapshot;
         }));
       }, 500);
-    }, {deep: true});
+    });
 
     const applyPatternSnapshot = (pattern, snapshotJson) => {
       const data = JSON.parse(snapshotJson);
@@ -1238,6 +1284,26 @@ export default defineComponent({
     const canRedoPattern = (pattern) => (patternRedoStacks.value[pattern.id] || []).length > 0;
     const reorderCanUndo = computed(() => canUndoReorder());
     const reorderCanRedo = computed(() => canRedoReorder());
+    // The Undo and Redo of the toolbar: what was changed in the pattern being edited, or a move or a delete of a song (these need no
+    // pattern, so they work with no song open).
+    const canToolbarHistory = (kind) => {
+      const song = activeSong();
+      const pattern = song && activePattern(song);
+      if (kind === 'undo') return reorderCanUndo.value || !!(pattern && canUndoPattern(pattern));
+      return reorderCanRedo.value || !!(pattern && canRedoPattern(pattern));
+    };
+    const handleToolbarHistory = (kind) => {
+      const song = activeSong();
+      const pattern = song && activePattern(song);
+      if (pattern) {
+        (kind === 'undo' ? handleUndoPattern : handleRedoPattern)(song, pattern);
+      } else if (kind === 'undo') {
+        tryUndoReorder();
+      } else {
+        tryRedoReorder();
+      }
+    };
+
     const handleUndoPattern = (song, pattern) => {
       if (tryUndoReorder()) return;
       if (!pattern) return;
@@ -1465,7 +1531,14 @@ export default defineComponent({
     // it's off. Every place that used to read state.value.subdivision
     // directly reads this instead, so flipping the toggle takes effect
     // everywhere at once without touching the stored dropdown value.
-    const effectiveSubdivision = () => (snapEnabled.value ? Math.max(1, Math.round(state.value.subdivision || 1)) : 1);
+    // (A computed: every cell of the piano roll asks for it while drawing, thousands of times when the tab opens.)
+    const effectiveSubdivisionValue = computed(() => (snapEnabled.value ? Math.max(1, Math.round(state.value.subdivision || 1)) : 1));
+    const effectiveSubdivision = () => effectiveSubdivisionValue.value;
+    // The piano roll (thousands of cells) is drawn a moment after the rest of the tab, so the tab shows at once.
+    const pianoRollReady = ref(false);
+    onMounted(() => window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      pianoRollReady.value = true;
+    })));
 
     // Which pattern is shown in each song's single pattern editor - a view
     // preference, not project data, so it isn't stored alongside the song
@@ -1567,6 +1640,8 @@ export default defineComponent({
       const song = state.value.songs.find(({id}) => id === songId);
       const pattern = song && activePattern(song);
       if (pattern) handleFitZoom(song, pattern);
+      // (The new song's piano roll is not in the page yet, so it is fitted again once it is.)
+      if (song) fitZoomWhenShown(song.id);
       forceUpdate();
     };
 
@@ -2024,6 +2099,14 @@ export default defineComponent({
       forceUpdate();
     };
 
+    // While the length is being typed or stepped, the roll follows it (a number in range is fitted to at once). The notes past the end are only
+    // cut, and the number kept in range, when the change is done (handleStepCountChange).
+    const handleStepCountTyping = (song, pattern) => {
+      const steps = Number(pattern.stepCount);
+      if (!Number.isFinite(steps) || steps < MIN_PATTERN_STEPS || steps > MAX_PATTERN_STEPS) return;
+      handleFitZoom(song, pattern);
+      forceUpdate();
+    };
     const handleStepCountChange = (song, pattern) => {
       pattern.stepCount = clampPatternSteps(pattern.stepCount);
       const maxUnits = pattern.stepCount * LENGTH_UNITS_PER_STEP;
@@ -3090,26 +3173,27 @@ export default defineComponent({
     // itself already draws those via its  border-left) so a step's
     // edge always reads as more prominent than a slice within it. null (no
     // extra lines) when the dropdown is 1 - one slice IS the whole step.
-    const sliceGridImage = () => {
+    // (Worked out once for every drawing of the piano roll, by refreshSliceGrid, which the template calls on the element that holds
+    // it all: reading the snap for each of thousands of cells took a good part of a second when the tab opened.)
+    let sliceGridCache = null;
+    let headerSliceGridCache = null;
+    const refreshSliceGrid = () => {
       const subdivision = effectiveSubdivision();
-      if (subdivision <= 1) return null;
       const slicePercent = 100 / subdivision;
-      return `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.08) 0, rgba(0, 0, 0, 0.08) 1px, ` +
+      sliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.08) 0, rgba(0, 0, 0, 0.08) 1px, ` +
         `transparent 1px, transparent ${slicePercent}%)`;
+      headerSliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.05) 0, rgba(0, 0, 0, 0.05) 1px, ` +
+        `transparent 1px, transparent ${slicePercent}%)`;
+      return subdivision;
     };
+    const sliceGridImage = () => sliceGridCache;
 
     // Same slice divisions as sliceGridImage, echoed onto the step ruler
     // (.piano-roll-step-number) above the piano roll itself - fainter than
     // both that function's  slice lines (0.08) and .piano-roll-cell's
     // step-edge border (0.22), so the ruler stays a quiet reference rather
     // than competing with the piano roll's, more prominent grid.
-    const headerSliceGridImage = () => {
-      const subdivision = effectiveSubdivision();
-      if (subdivision <= 1) return null;
-      const slicePercent = 100 / subdivision;
-      return `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.05) 0, rgba(0, 0, 0, 0.05) 1px, ` +
-        `transparent 1px, transparent ${slicePercent}%)`;
-    };
+    const headerSliceGridImage = () => headerSliceGridCache;
 
     // A note shorter than a full step (or a multi-step note's  tail) only
     // fills part of the cell; a step can also hold several short, sequential
@@ -3936,6 +4020,8 @@ export default defineComponent({
       window.removeEventListener('mousemove', handleMarqueeSelectMove);
       window.removeEventListener('mouseup', stopMarqueeSelect);
       window.removeEventListener('keydown', handlePianoRollToolHotkey);
+      // (A fit that is still waiting for the piano roll to be shown is cancelled.)
+      fitZoomRequest++;
     });
 
     // So 100% already reads as "fit" on first load/navigation too, not only
@@ -3945,6 +4031,11 @@ export default defineComponent({
     const handleWindowResize = () => {
       const song = activeSong();
       if (song) recalculateFitBaseWidth(song, activePattern(song));
+    };
+    // Every time the tab opens: the zoom is kept from the last time (one value for every song), so it is fitted to the pattern shown.
+    const fitZoomOnOpen = () => {
+      const song = activeSong();
+      if (song) fitZoomWhenShown(song.id);
     };
 
     // Same letters as GraphicEditorToolbar.vue's Move/Pencil/Eraser/
@@ -4027,6 +4118,7 @@ export default defineComponent({
 
     onMounted(() => {
       handleWindowResize();
+      fitZoomOnOpen();
       window.addEventListener('resize', handleWindowResize);
       window.addEventListener('keydown', handlePianoRollToolHotkey);
     });
@@ -4039,9 +4131,10 @@ export default defineComponent({
       handleTempoChange, minTempo: MIN_TEMPO, maxTempo: MAX_TEMPO,
       handleAddSong, handleDeleteSong, handleDuplicateSong, handleExportSong, handleImportSong, handleExportSongBank, handleImportSongBank,
       activeSongId, activeSong, activeSongArray, setActiveSong, songName, songOptions, handleSongFieldChange,
-      handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange,
+      handleAddPattern, handleDuplicatePattern, handleDeletePattern, handleStepCountChange, handleStepCountTyping,
       handlePatternFieldChange,
       canUndoPattern, canRedoPattern, handleUndoPattern, handleRedoPattern, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE,
+      canToolbarHistory, handleToolbarHistory,
       handleExportPattern, handleImportPattern,
       handleAddTrack, handleDeleteTrack, copiedTrackNotes, handleCopyTrack, handlePasteTrack,
       handleAddSequenceStep, handleRemoveSequenceGroup,
@@ -4081,7 +4174,7 @@ export default defineComponent({
       subdivisionOptionItems: DURATION_SUBDIVISION_OPTIONS.map((n) => ({text: `${n}`, value: n})),
       minPatternSteps: MIN_PATTERN_STEPS,
       maxPatternSteps: MAX_PATTERN_STEPS,
-      pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
+      pianoRollReady, refreshSliceGrid, pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
       volumeRowHeight, startVolumeRowResize,
       pianoRollHeight, startPianoRollResize, startPianoRollResizeTop,
       isMusicToolbarScrolled, musicToolbarHeight,
@@ -4349,8 +4442,16 @@ export default defineComponent({
      border-bottom (.music-toolbar-scrolled, already matched to it) to
      show a line only once actually scrolled, the same way this toolbar
      already does now that the redundant static one is gone. */
-  margin-bottom: 4px;
+  /* Negative: the first thing in the song (its ID) is as far under the line as the sides of the tab are from the edge. */
+  margin-bottom: -8px;
   transition: padding 0.15s ease;
+  /* For the line inside it (see the Sprites tab's toolbar). */
+  --toolbar-bleed: 16px;
+}
+
+.music-divider {
+  margin: 8px -16px 0;
+  max-width: none;
 }
 
 /* Same "grows + gains a bottom border once actually scrolled" treatment as
@@ -4360,6 +4461,11 @@ export default defineComponent({
   border-bottom: 1px solid rgba(0, 0, 0, 0.24);
   padding-top: 10px;
   padding-bottom: 10px;
+}
+
+  /* The line at the bottom of the pinned toolbar takes the place of the toolbar's last divider (no double line). */
+.music-toolbar-scrolled .music-divider {
+  display: none;
 }
 
 /* Same "Soft Colors" override as GraphicEditorToolbar.vue's
@@ -4375,6 +4481,8 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 4px;
+  /* As tall as the Sound tab's row (its columns button is 28px), and the first icon in the same place as that tab's. */
+  min-height: 28px;
 }
 
 /* Zeroes .music-icon-btn-size's margin: 0 1px (needed elsewhere on

@@ -237,11 +237,22 @@ export default (Blockly) => {
     return [code, Blockly.BBasic.ORDER_ATOMIC];
   };
 
+  // DPC+ draws the digits of the score in the colors of a table of 8 bytes in the display memory (one for each line of the digits: the
+  // "scorecolors:" statement the project starts with), not in scorecolor (which is only the color of what follows the score row), so
+  // a new score color has to be written to the table too: the 8 bytes at scoredata.
+  const dpcPlusScoreColorTableLines = () => {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    if (config.kernel !== 'dpcplus') return '';
+    return ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI', 'lda scorecolor',
+      ...Array(8).fill('sta DF0WRITE'), '@end'].join('\n') + '\n';
+  };
+
   Blockly.BBasic[`score_color_set`] = function(block) {
     // Score's color setter.
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return 'scorecolor = ' + argument0 + '\n';
+    return 'scorecolor = ' + argument0 + '\n' + dpcPlusScoreColorTableLines();
   };
 
   Blockly.BBasic[`score_fade_to`] = function(block) {
@@ -283,7 +294,7 @@ export default (Blockly) => {
         Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
     const isNegativeConstant = /^\s*-\s*\d+\s*$/.test(argument0);
     const operator = isNegativeConstant ? '' : '+';
-    return `scorecolor = scorecolor ${operator} ${argument0}\n`;
+    return `scorecolor = scorecolor ${operator} ${argument0}\n` + dpcPlusScoreColorTableLines();
   };
 
   // The standard kernel's  generic score-row background hook - a

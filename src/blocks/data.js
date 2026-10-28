@@ -6,6 +6,7 @@ import {BIT_OPTIONS} from './bit';
 import {useDataTablesStorage} from '../hooks/project';
 import {cardOptions} from '../utils/card-refs';
 import {BIT_ICON, DATA_ICON} from './icon';
+import {decodeScene, sceneValueNotes} from '../utils/scene';
 
 const DATA_COLOR = 'rgb(121, 85, 72)';
 
@@ -36,6 +37,12 @@ export const processDataTablesStorageDefaults = (dataTablesStorage) => {
   if (!dataTables || !dataTables.dataTables || !dataTables.dataTables.length) {
     return structuredClone(DEFAULT_DATA_TABLES);
   }
+  // A scene made before its cells had notes gets them here, so the Data tab shows what every value is.
+  dataTables.dataTables.forEach((table) => {
+    if (table.scene && (!table.valueNotes || !table.valueNotes.some(Boolean))) {
+      table.valueNotes = sceneValueNotes(decodeScene(table.values).objects);
+    }
+  });
   return dataTables;
 };
 

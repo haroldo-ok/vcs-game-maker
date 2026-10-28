@@ -25,6 +25,7 @@ const ArrayBufferSurface = require('6502.ts/lib/video/surface/ArrayBufferSurface
 const AudioOutputBuffer = require('6502.ts/lib/tools/AudioOutputBuffer').default;
 const CpuFactory = require('6502.ts/lib/machine/cpu/Factory').default;
 const palettes = require('6502.ts/lib/machine/stella/tia/palette');
+const {matchDriverFractionalFetchers} = require('./dpcplus-driver');
 
 const FRAME_WIDTH = 160;
 const MAX_FRAME_HEIGHT = 320;
@@ -114,6 +115,8 @@ const createBoard = async () => {
     cpuType: state.cpuAccuracy === 'instruction' ? CpuFactory.Type.batchedAccess : CpuFactory.Type.stateMachine,
   });
   const cartridge = await new CartridgeFactory().createCartridge(state.rom);
+  // (The fractional fetchers of a DPC+ cartridge count the rows of the playfield; see dpcplus-driver.js.)
+  matchDriverFractionalFetchers(cartridge, state.rom);
   const board = new Board(config, cartridge);
   // The field is private to 6502.ts (like the palette below); the frame is this many lines plus 20.
   if (!pal && board._tia && board._tia._frameManager) board._tia._frameManager._kernelLines = NTSC_PICTURE_LINES;

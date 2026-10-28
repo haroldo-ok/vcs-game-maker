@@ -7,7 +7,7 @@
 // maps back to a palette entry with (byte >> 1). Keeping the byte (rather than
 // the index) is convenient because that is exactly what batari Basic expects in
 // a `pfcolors:` table and what the color picker block already emits.
-import {useConfigurationStorage} from '../hooks/project';
+import {configurationValue} from '../hooks/configuration-value';
 import {tvStandardFor} from './tv-standard';
 
 // The PAL palette the 6502.ts emulator displays (what a PAL60 ROM shows for the same
@@ -101,7 +101,7 @@ const nearestPalIndexes = () => {
 // computes while running (a fade, rainbow colors) steps through the PAL
 // palette's hues and brightness.
 export const tvColorByte = (byte) =>
-  (tvStandardFor(useConfigurationStorage().value) === 'pal60' ?
+  (tvStandardFor(configurationValue()) === 'pal60' ?
     nearestPalIndexes()[(byte >> 1) & 0x7f] << 1 :
     byte & 0xfe);
 
