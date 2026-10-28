@@ -13,6 +13,7 @@ export const SCORE_ICON = String.fromCodePoint(0x1F4AF);
 export const BACKGROUND_ICON = String.fromCodePoint(0x1F304);
 export const DICE_ICON = String.fromCodePoint(0x1F3B2);
 export const SOUND_ICON = String.fromCodePoint(0x1F509);
+export const SPEECH_ICON = String.fromCodePoint(0x1F5E3);
 export const ANIMATION_ICON = String.fromCodePoint(0x1F3AC);
 export const VISIBILITY_ICON = String.fromCodePoint(0x1F440);
 export const MIRROR_ICON = String.fromCodePoint(0x1FA9E);

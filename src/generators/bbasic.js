@@ -3095,6 +3095,10 @@ Blockly.BBasic.init = function(workspace) {
   }
   reserveSpriteScrollDevVars(reserveDevVar, this.spriteScrollUsedFor);
   reserveSpriteHiddenDevVars(reserveDevVar, this.spriteHiddenUsedFor);
+  // The AtariVox's speech: a position in the table of phrases (see bbasic/speech.js).
+  if (prepareSpeech(Blockly, workspace)) {
+    reserveDevVar(SPEECH_POSITION_VAR, undefined, 'AtariVox speech: where in the table of phrases the next byte to send is (0 = nothing to send)');
+  }
   reserveAnimFinishedDoneDevVars(reserveDevVar, this.playerAnimationFinishedWatches);
   // "Background scroll" with "scroll playfield colors" checked (needs the row
   // color table, see needsPlayfieldColorTable) - see
@@ -4329,6 +4333,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedInertiaChecks = generateInertiaChecks(Blockly);
   const generatedPlatformerChecks = Blockly.BBasic.generateCollisionMoveChecks() + Blockly.BBasic.generatePlatformerChecks();
   const generatedShakeScreenChecks = generateShakeScreenChecks(Blockly);
+  const generatedSpeechChecks = generateSpeechChecks(Blockly);
   const generatedDpcPlusColorPriming = Blockly.BBasic.generateDpcPlusColorPriming();
   const generatedDpcPlusColorTables = Blockly.BBasic.generateDpcPlusColorTables();
   const generatedDpcPlusSpriteDefaults = Blockly.BBasic.generateDpcPlusSpriteDefaults();
@@ -4498,7 +4503,7 @@ Blockly.BBasic.finish = function(code) {
   const generated = handlebarsTemplate({generatedDpcPlusAudio, generatedBody, generatedBackgrounds, generatedBackgroundColorOverride,
     generatedAnimations, generatedDataTables, generatedRomNoiseChecks, generatedPlayerHeightLimitChecks, generatedTitleScreenAnimationChecks,
     generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
-    generatedSeekChecks, generatedLockChecks, generatedWidePartnerSync, generatedPfHitChecks, generatedInertiaChecks, generatedPlatformerChecks, generatedShakeScreenChecks, generatedDpcPlusColorPriming, generatedDpcPlusColorTables, generatedDpcPlusInitialDrawscreen,
+    generatedSeekChecks, generatedLockChecks, generatedWidePartnerSync, generatedPfHitChecks, generatedInertiaChecks, generatedPlatformerChecks, generatedShakeScreenChecks, generatedSpeechChecks, generatedDpcPlusColorPriming, generatedDpcPlusColorTables, generatedDpcPlusInitialDrawscreen,
     generatedDpcPlusSpriteDefaults,
     generatedDpcPlusBankPreamble,
     generatedTextOffsetTables, generatedTextStaticOffsetTables, generatedTextRow2OffsetsTable, generatedJoyDir8Table,
@@ -8472,6 +8477,7 @@ import music from './bbasic/music';
 import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
+import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR} from './bbasic/speech';
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
@@ -8487,7 +8493,7 @@ import {runOnceResetLines, runOnceClearLines, runOnceStartupLines} from '../util
 import {collectChipChannels, createDpcPlusAudioPlan, DPC_AUDIO_SUBROUTINE_NAME, dpcAudioVars, redirectSoundRegisters} from './bbasic/dpcplus-audio';
 
 [background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
-  random, score, sound, soundfx, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
+  random, score, sound, soundfx, speech, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
     .forEach((init) => init(Blockly));
 
 // Which of OMITTABLE_SYSTEM_VARIABLES the finished code never touches apart from the template's starting

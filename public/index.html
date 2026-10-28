@@ -185,9 +185,13 @@
       // 6502.ts has no keypad controller, so a ROM that uses one runs on gopher2600 (see
       // setKeypadMode below) whatever the setting says.
       let gopher2600KeypadFallback = false;
+      // The same for a ROM that speaks through an AtariVox (a project with Speech blocks): the AtariVox is plugged in for as long as that ROM
+      // is loaded, whatever the Emulator Settings switch says.
+      let gopher2600AtariVoxRequired = false;
+      const atariVoxWanted = () => !!emulatorSettings.atariVox || gopher2600AtariVoxRequired;
       const activeEmulatorBackend = () => {
         // (6502.ts has no AtariVox either.)
-        if (gopher2600KeypadFallback || emulatorSettings.atariVox) return 'gopher2600';
+        if (gopher2600KeypadFallback || atariVoxWanted()) return 'gopher2600';
         return EMULATOR_WORKERS[emulatorSettings.backend] ? emulatorSettings.backend : 'stellerator';
       };
       // What a fresh worker is told (after a crash or a switch of emulator), so it matches the one
@@ -374,7 +378,7 @@
         ['left', 'right'].forEach((port) => {
           if (gopher2600KeypadMode[port]) call('setKeypadMode', [port, true]);
         });
-        if (emulatorSettings.atariVox && gopher2600RunningBackend === 'gopher2600') call('setAtariVox', [true]);
+        if (atariVoxWanted() && gopher2600RunningBackend === 'gopher2600') call('setAtariVox', [true]);
         if (gopher2600Replay.colorMode !== undefined) call('setColorMode', [gopher2600Replay.colorMode]);
         Object.keys(gopher2600Replay.difficulty).forEach((port) =>
           call('setDifficulty', [port, gopher2600Replay.difficulty[port]]));
@@ -432,6 +436,17 @@
         };
       });
 
+      // Whether the ROM about to be loaded needs an AtariVox (see gopher2600AtariVoxRequired). Called before the ROM is loaded: it can
+      // change the emulator, and the new one loads the last ROM when it is ready.
+      window.gopher2600.setAtariVoxRequired = (required) => {
+        if (!!required === gopher2600AtariVoxRequired) return;
+        gopher2600AtariVoxRequired = !!required;
+        switchGopher2600Worker();
+        if (gopher2600RunningBackend === 'gopher2600') {
+          gopher2600Worker.postMessage({type: 'call', name: 'setAtariVox', args: [atariVoxWanted()]});
+        }
+      };
+
       // The Emulator settings dialog's side: which emulator, and 6502.ts's CPU accuracy and
       // screen effects. See EMULATOR_SETTINGS_DEFAULTS for the fields.
       window.gopher2600.setEmulatorSettings = (settings) => {
@@ -447,7 +462,7 @@
           switchGopher2600Worker();
           // (Already on gopher2600: the plug changes in the running worker.)
           if (gopher2600RunningBackend === 'gopher2600') {
-            gopher2600Worker.postMessage({type: 'call', name: 'setAtariVox', args: [!!emulatorSettings.atariVox]});
+            gopher2600Worker.postMessage({type: 'call', name: 'setAtariVox', args: [atariVoxWanted()]});
           }
         }
         // The next frame redraws with the new effects; a paused or idle emulator has none coming.

@@ -24,6 +24,7 @@ import './scene';
 import './score';
 import './sound';
 import './soundfx';
+import './speech';
 import './stack';
 import './sprites';
 import './subroutine';
