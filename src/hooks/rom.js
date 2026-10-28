@@ -1591,6 +1591,7 @@ const buildRomInner = async () => {
       // nothing about the project or the compiler is actually broken.
       try {
         withGopher2600((gopher2600) => {
+          gopher2600.setAtariVoxRequired(!!BlocklyBB.speechUsed);
           gopher2600.loadRom(compiledResult.output, buildTvSpec);
           gopher2600.setKeypadMode('left', !!BlocklyBB.keypad0Used);
           gopher2600.setKeypadMode('right', !!BlocklyBB.keypad1Used);
@@ -2478,6 +2479,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
       try {
         withGopher2600((gopher2600) => {
+          gopher2600.setAtariVoxRequired(false);
           gopher2600.loadRom(compiledResult.output, buildTvSpec);
           gopher2600.setKeypadMode('left', false);
           gopher2600.setKeypadMode('right', false);

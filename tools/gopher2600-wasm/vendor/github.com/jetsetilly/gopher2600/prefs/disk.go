@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode"
@@ -137,6 +138,11 @@ func (dsk *Disk) Reset() error {
 
 // Save current preference values to disk.
 func (dsk *Disk) Save() (rerr error) {
+	// nothing is kept in a browser (see load)
+	if runtime.GOOS == "js" {
+		return nil
+	}
+
 	// load entirity of currently saved prefs file to a temporary entryMap
 	entries := make(entryMap)
 
@@ -213,6 +219,12 @@ func (dsk *Disk) Load() error {
 // the total number of entries in the file.
 func load(path string, entries *entryMap, limit bool) (int, error) {
 	var numLoaded int
+
+	// there are no preference files in a browser: opening one succeeds but reading it returns no data
+	// and no error, which the scanner reports as an error (the emulator panicked while starting)
+	if runtime.GOOS == "js" {
+		return 0, nil
+	}
 
 	// open existing prefs file
 	f, err := fs.Open(path)

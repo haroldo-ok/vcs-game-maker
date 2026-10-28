@@ -21,7 +21,7 @@ consistency.
 ## Local changes to the vendored gopher2600
 
 `vendor/` is gopher2600 from its main branch (commit 295b9e1, 2026-10-25; the last release, v0.57.2, has no
-AtariVox speech engine) with three local patches, kept in `patches/` so they can be reapplied after a re-vendor
+AtariVox speech engine) with four local patches, kept in `patches/` so they can be reapplied after a re-vendor
 (`git apply -p3 patches/*.patch` from this directory; `go mod vendor` brings back the unpatched files):
 
 - `0001-vcs-step-no-closure-allocation.patch`: `VCS.Step()` built a new closure for
@@ -40,6 +40,11 @@ AtariVox speech engine) with three local patches, kept in `patches/` so they can
   ROM by file name, and a ROM loaded from memory in the browser has no file, so it failed to
   attach. It now reads the data the loader already holds and only opens the file when there is
   none.
+
+- `0004-prefs-not-read-in-a-browser.patch`: the television's colour generator reads a preferences file when the
+  package starts (new since v0.57.2). In the browser opening that file works but reading it returns no data and no
+  error, which the scanner reports as an error, so the emulator panicked at start-up and no ROM could run (0.53.1
+  to 0.53.3 shipped a build with this). `prefs` now reads and writes nothing when `GOOS` is `js`.
 
 The television's frame limiter is switched off in `main.go` (`tv.SetFPSLimit(false)`):
 left on, it padded every frame to a full 16.7 ms wait, and the page paces the
@@ -124,6 +129,13 @@ Player 2 joystick or keypad: `setAtariVox(true)`, set from the Emulator settings
 SpeakJet chip emulation (the `speakjet` module, vendored) makes the speech as an auxiliary audio source
 at a sample rate of 8192 Hz; `webAudioMixer` collects it and `g2kPostAuxAudio` hands it to the page,
 which plays it beside the console's sound. Only a ROM that sends the AtariVox serial data makes speech.
+
+Attaching a cartridge puts the default controllers back in both ports, so `attachRom` plugs the AtariVox in again afterwards
+(without that it was gone as soon as a ROM loaded). The page asks for it with `setAtariVoxRequired` while the loaded ROM has the
+Speech blocks (see `public/index.html`).
+
+`atarivox-test/` runs a ROM natively with an AtariVox plugged in and prints the bytes the SpeakJet chip was sent and how much
+audio it made, to check the code the Speech blocks generate on either kernel (`go run -mod=vendor ./atarivox-test speech.bin 700`).
 
 ## Updating on Windows
 

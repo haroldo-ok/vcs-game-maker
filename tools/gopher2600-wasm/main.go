@@ -492,6 +492,12 @@ func (c *console) attachRom(romData []byte) error {
 	if err := c.vcs.AttachCartridge(loader, nil); err != nil {
 		return err
 	}
+	// Attaching a cartridge puts the default controllers back in both ports (the AtariVox plugged in before it was gone)
+	if c.atariVox {
+		if err := c.vcs.RIOT.Ports.Plug(plugging.PortRight, atarivox.NewAtariVox); err != nil {
+			return err
+		}
+	}
 	c.romAttached = true
 	c.jamReported = false
 	return nil
