@@ -1228,6 +1228,12 @@ export const titleDeriveSubroutineName = (pageId) => `_title_derive_${pageId}`;
 
 // One bit that says "End title screen" has run: from then on Title screen update draws the regular
 // game screen instead of the kernel's. Set by the block, cleared by Title screen start.
+// One bit that is set while the Title Screen loop runs (see generatedTitleKernelSkip in bbasic.js): the shared part of the game loop returns before
+// the half that prepares the regular screen while it is set. (It used to be bit 7 of player0size, which the DPC+ animation code uses as its own
+// "picture loaded" flag: with a title screen in the project the animation of player 0 stopped on its first picture, and hiding it did nothing.)
+export const TITLE_KERNEL_LOOP_FAMILY = 'titleKernelLoop';
+export const titleKernelLoopVar = () => flagPoolVar(TITLE_KERNEL_LOOP_FAMILY);
+export const titleKernelLoopBit = () => flagPoolBit(TITLE_KERNEL_LOOP_FAMILY, 0);
 export const TITLE_KERNEL_ENDED_FAMILY = 'titleKernelEnded';
 export const titleKernelEndedVar = () => flagPoolVar(TITLE_KERNEL_ENDED_FAMILY);
 export const titleKernelEndedBit = () => flagPoolBit(TITLE_KERNEL_ENDED_FAMILY, 0);

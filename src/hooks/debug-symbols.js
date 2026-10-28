@@ -16,6 +16,16 @@ export const setDebugVariables = (value) => {
   debugVariables.value = value;
 };
 
+// The variable and the bit that say the Title Screen loop is running ({name, bit}, null when the project has no title screen), for the
+// emulator's debug info.
+const debugTitleLoop = ref(null);
+
+export const useDebugTitleLoop = () => debugTitleLoop;
+
+export const setDebugTitleLoop = (value) => {
+  debugTitleLoop.value = value;
+};
+
 // The variables a build names (see computeVariableUsage in hooks/rom.js), with the address DASM gave each
 // one. A variable that shares a slot with another (see titleSharedSlots in generators/bbasic.js) is listed
 // too, under the name it has.
