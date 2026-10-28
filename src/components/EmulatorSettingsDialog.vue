@@ -186,7 +186,7 @@ export default {
     },
     // The effects and accuracy belong to 6502.ts.
     stellerator() {
-      return this.settings.backend === 'stellerator' && !this.settings.atariVox;
+      return this.settings.backend === 'stellerator';
     },
     backendNote() {
       return this.stellerator ?
