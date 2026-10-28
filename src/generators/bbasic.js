@@ -1059,7 +1059,8 @@ Blockly.BBasic.init = function(workspace) {
   // anywhere in the project, regardless of which SPRITE it targets (unlike
   // ctrlpfShadowUsed just above, which only cares about the Ball case).
   this.collisionPixelUsed = workspace.getAllBlocks(false).some((block) =>
-    (block.type === 'background_collision_pixel' || block.type === 'background_collision_pixel_direction') &&
+    (block.type === 'background_collision_pixel' || block.type === 'background_collision_pixel_direction' ||
+      block.type === 'background_collision_pixel_column' || block.type === 'background_collision_pixel_row') &&
     block.isEnabled());
 
   // Same early block-type pre-scan reasoning as the ones above - see
@@ -1987,6 +1988,9 @@ Blockly.BBasic.init = function(workspace) {
   // to draw. Captured on "this" for the same reason keypadLeftVarName/
   // keypadRightVarName are: registerTitleScreenSubroutine needs it, but has
   // to run AFTER "this.subroutines = {}" resets below.
+  // (Cleared first: a project with one page does not reserve it, and the name from an earlier build must not be used then - a title screen
+  // preview, which compiles one page, came after a build of a project with several.)
+  this.titleScreenSelectedIdVarName = undefined;
   if (this.titleScreenDrawUsed) {
     // The page number only matters with more than one page: the shared routine
     // draws the only page there is without reading it (see buildDriverAsm in

@@ -221,6 +221,24 @@ const shareDpcPlusPlayerData = (compiled, config) => {
 // multiply or divide by a power of 2 into shifts and may never call it. The routine takes room in the first bank (on DPC+ the
 // kernel's bank, which has under 100 bytes free), so when nothing in the compiled code or the files next to it calls it, the
 // include is left out.
+// On DPC+ the routine would sit in bank 1 with the kernel, which has under 100 bytes free, and a project that divides by 12 was 28 bytes
+// too big for that bank by the routine alone. The compiler sends every multiply and divide to the bank in X (always 1, where the
+// routine is included), so the routine is moved to the end of bank 2 (the bank the program starts in) and the calls are given the new
+// bank. A bank 2 that is then too full shrinks like any other bank, by relocating events and graphics out of it.
+const moveDivMulOutOfKernelBank = (compiled) => {
+  const asm = compiled.mainAsm;
+  if (!/__dpcplus_mainbody_entry/.test(asm)) return;
+  const includeLine = /^[ \t]*include[ \t]+"?div_mul\.asm"?[ \t]*\r?\n/m;
+  const bank3 = /^\.L\d+ ;;line \d+;;  bank 3[ \t]*$/m;
+  const calls = /( lda #<\((?:mul8|div8)-1\)\r?\n pha\r?\n lda temp7\r?\n pha\r?\n txa\r?\n pha\r?\n ldx #)1(\r?\n jmp BS_jsr)/g;
+  if (!includeLine.test(asm) || !bank3.test(asm)) return;
+  compiled.mainAsm = asm
+      .replace(includeLine, '')
+      .replace(bank3, (line) => ` include div_mul.asm\n${line}`)
+      .replace(calls, (all, before, after) => `${before}2${after}`);
+  appendCompileLog('Moved the multiply and divide routine from bank 1 (the kernel, which has little room) to bank 2.');
+};
+
 const dropUnusedDivMul = (compiled, siblingFiles) => {
   const includeLine = /^[ \t]*include[ \t]+"?div_mul\.asm"?[ \t\r]*$/m;
   if (!includeLine.test(compiled.mainAsm)) return;
@@ -228,7 +246,10 @@ const dropUnusedDivMul = (compiled, siblingFiles) => {
   const rest = compiled.mainAsm.replace(includeLine, '');
   const others = Object.entries(siblingFiles || {}).filter(([name]) => !/^div_mul/.test(name)).map(([, text]) => String(text));
   const code = (text) => text.replace(/;.*$/gm, '');
-  if (calls.test(code(rest)) || others.some((text) => calls.test(code(text)))) return;
+  if (calls.test(code(rest)) || others.some((text) => calls.test(code(text)))) {
+    moveDivMulOutOfKernelBank(compiled);
+    return;
+  }
   compiled.mainAsm = rest;
   appendCompileLog('Left out the multiply and divide routine: nothing calls it (the compiler turned the multiplies and divides into shifts).');
 };
@@ -466,6 +487,14 @@ const parseOverflowingBank = (stdout) => {
   const over = [...((stdout || '').matchAll(/(-?\d+) bytes of ROM space left in bank (\d+)/g))]
       .filter((match) => parseInt(match[1], 10) < 0);
   return over.length ? parseInt(over[over.length - 1][2], 10) : null;
+};
+
+// The bank the Title Screen Kernel is in, as a list to spread into a set of banks other units must not be moved to (empty for the kernel
+// itself, and before it has a bank): the kernel takes about 3,300 bytes of its bank, and the units that were moved there with it made it overflow.
+const titleKernelBankFor = (unit) => {
+  if (unit && unit.kind === 'subroutineBanks' && unit.name === TITLE_SCREEN_SUBROUTINE_NAME) return [];
+  const bank = (getRelocationBanks().subroutineBanks || {})[TITLE_SCREEN_SUBROUTINE_NAME];
+  return bank ? [bank] : [];
 };
 
 // How many bytes a bank is over by, from the same lines (0 when it is not over or is not reported).
@@ -1887,7 +1916,10 @@ const buildRomInner = async () => {
                 }
               });
             });
-            coResidents.sort((a, b) => b.size - a.size);
+            // The Title Screen Kernel is the biggest unit by far, and moving it first just made the next bank too full for it (it went round
+            // the banks): it is left where it is, and the other units go.
+            const isTitleKernel = (unit) => unit.kind === 'subroutineBanks' && unit.name === TITLE_SCREEN_SUBROUTINE_NAME;
+            coResidents.sort((a, b) => (isTitleKernel(a) - isTitleKernel(b)) || (b.size - a.size));
             const next = coResidents[0];
             if (!next) {
               // Every occupant of this bank has already been tried
@@ -1934,7 +1966,7 @@ const buildRomInner = async () => {
               // previously-tried bank stay pickable, just deprioritized)
               // caused a different real bug, a unit oscillating forever
               // between the same two equally-penalized banks.
-              const excludeBanks = new Set([reservedMusicBank, ...triedBanks].filter(Boolean));
+              const excludeBanks = new Set([reservedMusicBank, ...triedBanks, ...titleKernelBankFor(next)].filter(Boolean));
               let nextBank = pickNextBank(banks, maxBanks, textMinikernelActive, excludeBanks,
                   minRelocationBankFor(config), [next.kind], primaryBankFor(config));
               // Every available bank has now been tried for this ONE unit
@@ -1969,7 +2001,12 @@ const buildRomInner = async () => {
               .forEach(({kind, name}) => setRelocationBank(kind, name, bank));
           relocatedThisBuild.push({kind: candidate.kind, name: candidate.name, bank, members: candidate.members});
           if (candidate.kind === 'subroutineBanks' && candidate.name === TITLE_SCREEN_SUBROUTINE_NAME) {
-            titleOverBytes = Math.max(titleOverBytes, parseBankOverflowBytes(e.dasmStdout, parseOverflowingBank(e.dasmStdout)));
+            // Only an overflow of a bank other than bank 1 says the title screen is too big: bank 1 over by some bytes with the kernel
+            // moved out is bank 1 itself being full, whatever the title screen is (the message would then blame the wrong thing).
+            const overflowedBank = parseOverflowingBank(e.dasmStdout);
+            if (overflowedBank !== null && overflowedBank !== 1) {
+              titleOverBytes = Math.max(titleOverBytes, parseBankOverflowBytes(e.dasmStdout, overflowedBank));
+            }
           }
           // Not an 'error'-level entry - an overflow here is an expected,
           // automatically-handled part of the relocation retry loop, not a
@@ -1988,7 +2025,7 @@ const buildRomInner = async () => {
             const more = pickRelocationCandidate(getRelocationBanks(), !!reservedMusicBank, primaryBankFor(config));
             if (!more || more.kind === 'musicBanks') break;
             const moreBank = pickNextBank(getRelocationBanks(), maxBanks, textMinikernelActive,
-                reservedMusicBank ? new Set([reservedMusicBank]) : null, minRelocationBankFor(config),
+                new Set([reservedMusicBank, ...titleKernelBankFor(more)].filter(Boolean)), minRelocationBankFor(config),
                 (more.members || [more]).map(({kind}) => kind));
             if (!moreBank) break;
             (more.members || [{kind: more.kind, name: more.name}]).forEach(({kind, name}) => setRelocationBank(kind, name, moreBank));
@@ -2024,8 +2061,8 @@ const buildRomInner = async () => {
               const triedBanks = retriedBanksByUnit.get(unitKey);
               triedBanks.add(emptyThisBank);
               const toBank = pickNextBank(getRelocationBanks(), maxBanks, textMinikernelActive,
-                  new Set([reservedMusicBank, ...triedBanks].filter(Boolean)), minRelocationBankFor(config), [unit.kind],
-                  primaryBankFor(config));
+                  new Set([reservedMusicBank, ...triedBanks, ...titleKernelBankFor(unit)].filter(Boolean)), minRelocationBankFor(config),
+                  [unit.kind], primaryBankFor(config));
               if (!toBank) continue;
               setRelocationBank(unit.kind, unit.name, toBank);
               stuckBankTriedUnits.add(unitKey);

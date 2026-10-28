@@ -837,12 +837,12 @@ export default (Blockly) => {
 
   Blockly.BBasic['background_collision_pixel_column'] = function(block) {
     const pair = Blockly.BBasic.superchipRwPairs[collisionPixelColumnVarName()];
-    return [pair.read, Blockly.BBasic.ORDER_ATOMIC];
+    return [pair ? pair.read : '0', Blockly.BBasic.ORDER_ATOMIC];
   };
 
   Blockly.BBasic['background_collision_pixel_row'] = function(block) {
     const pair = Blockly.BBasic.superchipRwPairs[collisionPixelRowVarName()];
-    return [pair.read, Blockly.BBasic.ORDER_ATOMIC];
+    return [pair ? pair.read : '0', Blockly.BBasic.ORDER_ATOMIC];
   };
 
   Blockly.BBasic[`background_select`] = function(block) {
