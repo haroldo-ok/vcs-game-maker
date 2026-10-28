@@ -53,7 +53,7 @@ Blockly.Blocks['speech_say'] = {
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(SPEECH_COLOR);
-    this.setTooltip('Speaks a phrase of SpeakJet words through an AtariVox (a speech chip in the Player 2 controller port). The words are ' +
+    this.setTooltip('Speaks a phrase of speech sound words through an AtariVox (a speech chip in the Player 2 controller port). The words are ' +
       'separated by spaces: allophones (the sounds of speech, like HE EH LE OWWW for "hello"), sound effects (R0 to R9 robot, A0 to A9 alarm, ' +
       'B0 to B9 beeps, C0 to C9 biological, D0 to D11 tones, M0 to M2 miscellaneous), PAUSE30 / PAUSE60 / PAUSE90 / PAUSE200 / PAUSE700 / ' +
       'PAUSE1000, FAST, SLOW, STRESS, RELAX, VOLUME n, SPEED n, PITCH n and BEND n (n from 0 to 254), or #n for any byte. The phrase goes out ' +
@@ -132,7 +132,7 @@ Blockly.Blocks['avox_memory_save'] = {
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(SPEECH_COLOR);
-    this.setTooltip('Saves a byte (0 to 255) in the memory of the AtariVox (the SaveKey chip on its controller port), kept when the console is off: a ' +
+    this.setTooltip('Saves a byte (0 to 255) in the memory of the AtariVox (a memory chip on its controller port), kept when the console is off: a ' +
       'high score or a setting, one byte in each of its slots 0 to 255. Saving waits for the memory to finish, a few milliseconds, so the ' +
       'picture can jump once: do it between games, not during one. With no AtariVox plugged in nothing happens. In the preview the memory lasts ' +
       'while the preview runs.');
