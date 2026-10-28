@@ -735,7 +735,7 @@ import {optionToReveal} from './hooks/option-reveal';
 import KeyMappingDialog from './components/KeyMappingDialog.vue';
 import EmulatorSettingsDialog from './components/EmulatorSettingsDialog.vue';
 import DebugSettingsDialog from './components/DebugSettingsDialog.vue';
-import {useDebugVariables} from './hooks/debug-symbols';
+import {useDebugVariables, useDebugTitleLoop} from './hooks/debug-symbols';
 import pkg from '../package.json';
 import {checkForUpdate, renderReleaseNotes} from './utils/update-check';
 const {productName, version} = pkg;
@@ -817,7 +817,7 @@ const readStoredErrorHeight = () => {
 // never having been set, means "visible" (the default).
 const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KEY) !== 'false';
 
-// The name the debug info gives to the player0size byte it reads to tell when the Title Screen Kernel runs.
+// The name the debug info gives to the byte it reads to tell when the Title Screen Kernel runs (the one with the title loop's flag).
 const TITLE_KERNEL_WATCH_NAME = '__titleKernelRunning';
 // The lines in a frame of both TV standards the project can use (NTSC and PAL60).
 const NTSC_FRAME_SCANLINES = 262;
@@ -855,7 +855,7 @@ export default {
     console.info('Text', version);
     return {
       viewRemountKey: useRemountKey(),
-      emulatorSettings: useEmulatorSettings(), debugSymbols: useDebugVariables(),
+      emulatorSettings: useEmulatorSettings(), debugSymbols: useDebugVariables(), debugTitleLoop: useDebugTitleLoop(),
       errorStorage, errorBannerHighlight: useErrorBannerHighlight(),
       compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
       hasCompiledRom: useHasCompiledRom(), compiledRomBytes: useCompiledRomBytes(),
@@ -993,8 +993,9 @@ export default {
     // with hex beside it.
     debugVariableRows() {
       const reported = (this.debugInfo && this.debugInfo.variables) || [];
-      // The Title Screen Kernel is running while the top bit of player0size is set (see TITLE_KERNEL_LOOP_BIT).
-      const titleRunning = reported.some(([name, value]) => name === TITLE_KERNEL_WATCH_NAME && (value & 128));
+      // The Title Screen Kernel is running while the title loop's flag bit is set (see titleKernelLoopFlag in generators/bbasic.js).
+      const loopBit = this.debugTitleLoop ? this.debugTitleLoop.bit : 7;
+      const titleRunning = reported.some(([name, value]) => name === TITLE_KERNEL_WATCH_NAME && ((value >> loopBit) & 1));
       // A variable the title screen shares a slot with goes by the title screen's name while the kernel runs and
       // by the game's name the rest of the time.
       const shown = new Map();
@@ -1019,8 +1020,8 @@ export default {
     debugWatch() {
       const chosen = this.emulatorSettings.debugVariables || [];
       const watch = this.debugSymbols.filter(({name}) => chosen.includes(name)).map(({name, address}) => ({name, address}));
-      // player0size also goes along, to tell when the Title Screen Kernel is running.
-      const titleFlag = this.debugSymbols.find(({name}) => name === 'player0size');
+      // The byte with the title loop's flag also goes along, to tell when the Title Screen Kernel is running.
+      const titleFlag = this.debugTitleLoop && this.debugSymbols.find(({name}) => name === this.debugTitleLoop.name);
       return watch.length && titleFlag ? [...watch, {name: TITLE_KERNEL_WATCH_NAME, address: titleFlag.address}] : watch;
     },
     emulatorScaleStyle() {

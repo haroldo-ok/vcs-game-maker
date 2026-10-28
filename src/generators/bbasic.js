@@ -52,7 +52,7 @@ import {bbTvSetting} from '../utils/tv-standard';
 import {keypadKeyVarName} from '../utils/keypad';
 import {clampFrameDuration} from '../utils/duration';
 import {isWideAnimation, splitWideRow} from '../utils/wide-sprite';
-import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStartLines, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar,
+import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStartLines, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar, TITLE_KERNEL_LOOP_FAMILY, titleKernelLoopVar, titleKernelLoopBit,
   titleKernelEndedBit, TITLE_CARD_HOLD_FAMILY, titleCardHoldVar, TITLE_BG_OVERRIDE_FAMILY,
   titleBgOverrideVar, titleBgOverrideBit, titleCardHoldBit, TITLE_CARD_ONCE_FAMILY, titleCardOnceVar,
   TITLE_CARD_REVERSE_FAMILY, titleCardReverseVar, titleCardReverseBit,
@@ -1614,6 +1614,15 @@ Blockly.BBasic.init = function(workspace) {
   // failing on "Unknown Mnemonic 'inc titleCardFrame_1_1'" for a project
   // whose current build has no Draw title screen block active at all.
   this.titleScreenAnimationChecks = '';
+  // The same for the lines that start the title screen cards (their variables are not declared either when no title screen is drawn): a
+  // preview built after a build of a project with title screens got the first project's lines ("Unknown Mnemonic 'sta titleCardIndex_2_1'").
+  this.titleScreenStartLines = [];
+  // (And the ones only set while a title screen is drawn: a build without one used the sharing of the slots from the build before.)
+  this.titleAliasPairs = [];
+  this.titleDerivedVars = new Set();
+  this.titleScreenScrollTargetRefs = new Set();
+  this.titleScrollEdgeWatches = new Set();
+  this.titleScrollEdgeSlots = undefined;
 
   // Whether channnel0duration/channnel1duration (see SYSTEM_VARIABLES'
   // comment) are needed at all - two block types ever WRITE them:
@@ -2362,6 +2371,7 @@ Blockly.BBasic.init = function(workspace) {
     {family: INERTIA_ACCEL_FLAGS_FAMILY, bits: ownBits(this.inertiaAccelUsedFor, spriteOwnBit)},
     {family: INERTIA_DECEL_FLAGS_FAMILY, bits: ownBits(this.inertiaDecelUsedFor, spriteOwnBit)},
     {family: TITLE_KERNEL_ENDED_FAMILY, bits: this.titleEndUsed ? [0] : []},
+    {family: TITLE_KERNEL_LOOP_FAMILY, bits: this.titleScreenDrawUsed ? [0] : []},
     {family: TITLE_CARD_HOLD_FAMILY, bits: this.titleCardHoldRefs.map((_, index) => index)},
     {family: TITLE_CARD_ONCE_FAMILY, bits: this.titleCardOnceRefs.map((_, index) => index)},
     {family: TITLE_ANIMATE_FAMILY, bits: this.titleAnimateBlockIds.flatMap((_, index) => [index * 2, index * 2 + 1])},
@@ -2397,6 +2407,9 @@ Blockly.BBasic.init = function(workspace) {
   }
   if (this.titleBgUsed) {
     reserveDevVar(titleBgOverrideVar(), undefined, 'title screen: "Set title screen background color" is in effect');
+  }
+  if (this.titleScreenDrawUsed) {
+    reserveDevVar(titleKernelLoopVar(), undefined, 'Title screen: the Title Screen loop is running');
   }
   if (this.titleEndUsed) {
     reserveDevVar(titleKernelEndedVar(), undefined, 'Title screen update: "End title screen" has stopped the kernel');
@@ -4321,10 +4334,10 @@ Blockly.BBasic.finish = function(code) {
   // The Title Screen loop (see generateGameLoopEvent) runs the first half of commongamelogic, which
   // tracks the project's state: the frame counter, joystick presses and taps, sounds, music,
   // fades and text scrolling. The second half only prepares the regular screen for drawscreen,
-  // which the Titlescreen Kernel replaces, so the loop marks itself with the unused top bit of
-  // player0size and the subroutine returns before that half while the bit is set.
+  // which the Titlescreen Kernel replaces, so the loop marks itself with a flag bit of its own (see titleKernelLoopFlag) and the subroutine
+  // returns before that half while the bit is set.
   const generatedTitleKernelSkip = this.titleScreenDrawUsed ?
-    ` if !${TITLE_KERNEL_LOOP_BIT} then goto commongamelogicdraw\n return\ncommongamelogicdraw\n` : '';
+    ` if !${titleKernelLoopFlag()} then goto commongamelogicdraw\n return\ncommongamelogicdraw\n` : '';
   const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
   const generatedMissileFireChecks = generateMissileFireChecks(Blockly) + generateBounceStageChecks(Blockly);
@@ -4951,9 +4964,12 @@ Blockly.BBasic.getGameEvent = function(eventName, code) {
 // Nothing is shared at all when a title screen block sits outside those events (it would then
 // write the shared slots during gameplay).
 const TITLE_PHASE_EVENTS = ['system_start', 'title_start', 'title_update'];
-// Set while the Title Screen loop runs (see generatedTitleKernelSkip). Bit 7 of player0size is
-// not used by NUSIZ0 or anything else.
-const TITLE_KERNEL_LOOP_BIT = 'player0size{7}';
+// Set while the Title Screen loop runs (see generatedTitleKernelSkip).
+const titleKernelLoopFlag = () => {
+  // (Also noted for the emulator's debug info, which tells from it when the Title Screen Kernel runs.)
+  Blockly.BBasic.titleKernelLoopWatch = {name: titleKernelLoopVar(), bit: Number(titleKernelLoopBit())};
+  return `${titleKernelLoopVar()}{${titleKernelLoopBit()}}`;
+};
 // The blocks that can run while the title screen does (see above), or null when sharing is off altogether.
 const CALL_BLOCK_TYPES = ['subroutine_call', 'function_call', 'function_call_statement'];
 // The blocks that only run once "End title screen" has: the body of an "if variable = number" in Title screen update, where
@@ -5101,7 +5117,7 @@ Blockly.BBasic.generateGameEvent = function(eventName,
   }
   // Leaving the Title Screen loop: commongamelogic goes back to preparing the regular screen.
   if (this.titleScreenDrawUsed && ['title_start', 'gameplay_start', 'gameover_start'].includes(eventName)) {
-    eventCode = `${TITLE_KERNEL_LOOP_BIT} = 0\n` + eventCode;
+    eventCode = `${titleKernelLoopFlag()} = 0\n` + eventCode;
     // The Titlescreen Kernel leaves CTRLPF at the value it needs, so the ball width and playfield priority a
     // block set earlier are put back from the CTRLPF shadow.
     if (eventName !== 'title_start' && this.ctrlpfShadowUsed) {
@@ -5232,14 +5248,14 @@ Blockly.BBasic.generateGameLoopEvent = function(eventName) {
     // With "End title screen" in the project the loop has two ways to draw: the kernel's, and once
     // that block has run, the regular game screen's, so the rest of the event goes on as gameplay.
     const hasEnd = usesTitleScreenKernel && this.titleEndUsed;
-    const kernelLoopTop = [`${TITLE_KERNEL_LOOP_BIT} = 1`, `gosub commongamelogic${suffix}`, titleScreenAnimationChecks];
+    const kernelLoopTop = [`${titleKernelLoopFlag()} = 1`, `gosub commongamelogic${suffix}`, titleScreenAnimationChecks];
     return [
       ...(hasEnd ? [
         `if ${titleKernelEndedVar()}{${titleKernelEndedBit()}} then goto _titleupdate_ended`,
         ...kernelLoopTop,
         'goto _titleupdate_body',
         '@_titleupdate_ended',
-        `${TITLE_KERNEL_LOOP_BIT} = 0`,
+        `${titleKernelLoopFlag()} = 0`,
         `gosub commongamelogic${suffix}`,
         'drawscreen',
         '@_titleupdate_body',

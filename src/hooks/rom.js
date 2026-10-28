@@ -50,7 +50,7 @@ import {captureEmulatorScreenshot} from '../utils/emulator-screenshot';
 import {CHAR_TO_GLYPH, TEXT_MESSAGE_LENGTH} from '../blocks/text-strings';
 import {withGopher2600, setEmulatorPaused} from './emulator';
 import {setRomCapacity, useRomCapacity} from './rom-capacity';
-import {setDebugVariables, collectDebugVariables} from './debug-symbols';
+import {setDebugVariables, collectDebugVariables, setDebugTitleLoop} from './debug-symbols';
 
 Vue.use(VueCompositionApi);
 
@@ -1684,6 +1684,7 @@ const buildRomInner = async () => {
         capacity);
       // Where each variable lives, for the emulator's debug info.
       setDebugVariables(collectDebugVariables(variableUsage, compiledResult.symbolmap));
+      setDebugTitleLoop(BlocklyBB.titleScreenDrawUsed ? BlocklyBB.titleKernelLoopWatch || null : null);
       // Remembers THIS build's  final layout as the next build's
       // first-attempt hint (see seedRelocationBanksFromLastSuccess's
       // comment in relocation-banks.js) - recorded on every success, not

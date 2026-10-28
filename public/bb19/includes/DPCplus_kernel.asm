@@ -343,7 +343,11 @@ exit
         lda #2
      endif ; qtcontroller
      STA VBLANK
+     ifconst scorepaddinglines
+     lda #OVERSCAN_LINES-(scorepaddinglines*76/64)
+     else
      lda #OVERSCAN_LINES
+     endif
      sta TIM64T
      sec
      lda #KERNEL_LINES
@@ -1039,6 +1043,16 @@ scoreloop
      STx NUSIZ0
      STx NUSIZ1
 
+     ; vcs-game-maker: the Score tab's "Add score padding" (scorepaddinglines, 0 to 2): blank lines after the score, in the score row's
+     ; background color. The WSYNC lines are taken from the overscan timer at exit, so the frame keeps its length.
+     ifconst scorepaddinglines
+         if scorepaddinglines >= 1
+             sta WSYNC
+         endif
+         if scorepaddinglines >= 2
+             sta WSYNC
+         endif
+     endif
      rts
 
      

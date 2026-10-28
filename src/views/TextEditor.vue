@@ -793,7 +793,7 @@ export default defineComponent({
 }
 
 .text-speech-field {
-  margin-top: 12px;
+  margin-top: 28px;
 }
 
 .text-pronunciations-field {

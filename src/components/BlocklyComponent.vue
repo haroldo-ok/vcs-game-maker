@@ -555,8 +555,21 @@ export default {
     // before teardown - confirmed as a real reported bug ("changing the
     // set field to Y isn't remembered when navigating away from the
     // Actions tab - it keeps going back to X").
-    this.debouncedHandleChange = debounce(() => this.handleChange());
-    this.workspace.addChangeListener(this.debouncedHandleChange);
+    // (A short wait, not none: the events of one action - a block taken out of a stack and dropped, a field edited - come together, and the
+    // project was saved and its code built again for each of them.)
+    this.debouncedHandleChange = debounce(() => this.handleChange(), 150);
+    // Scrolling, zooming, clicking and selecting fire a stream of events that change nothing the project saves, and each one used to
+    // serialize the whole workspace (and the page then rebuilt the code from it): the canvas lagged on a big project.
+    // While a block is being dragged nothing is saved either (taking a block out of a big stack made the page serialize the project and build
+    // its code before the block had even moved); the end of the drag saves.
+    this.workspace.addChangeListener((event) => {
+      if (event.isUiEvent) {
+        if (event.type === Blockly.Events.BLOCK_DRAG && !event.isStart) this.debouncedHandleChange();
+        return;
+      }
+      if (this.workspace.isDragging()) return;
+      this.debouncedHandleChange();
+    });
     this.loadWorkspace(this.value);
 
     // Finds/highlights blocks already placed on the canvas - Ctrl+F (Cmd+F
@@ -1085,6 +1098,8 @@ export default {
     handleChange() {
       const xml = Blockly.Xml.workspaceToDom(this.workspace);
       const text = Blockly.Xml.domToPrettyText(xml);
+      // Nothing changed since the last time: nothing to send on (the page would build the code again for the same blocks).
+      if (text === this.lastSavedWorkspace) return;
       this.lastSavedWorkspace = text;
       this.$emit('input', text, {
         workspace: this.workspace,
