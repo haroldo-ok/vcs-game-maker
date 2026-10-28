@@ -13,6 +13,21 @@ module.exports = {
     icon: 'build/icons/icon',
   },
   rebuildConfig: {},
+  hooks: {
+    // The fuses plugin below changes the program after Electron's own signature was made, and on Apple Silicon a program with a broken
+    // signature is refused as damaged ("the package is corrupted"). Every macOS app is signed again here, ad hoc (no developer
+    // account): macOS then opens it as an app from an unidentified developer (right click, Open) instead of calling it damaged.
+    postPackage: async (forgeConfig, {platform, outputPaths}) => {
+      if (platform !== 'darwin') return;
+      const {execFileSync} = require('child_process');
+      const fs = require('fs');
+      outputPaths.forEach((outputPath) => {
+        fs.readdirSync(outputPath).filter((name) => name.endsWith('.app')).forEach((name) => {
+          execFileSync('codesign', ['--force', '--deep', '--sign', '-', path.join(outputPath, name)], {stdio: 'inherit'});
+        });
+      });
+    },
+  },
   makers: [
     {
       // A Windows Installer (.msi) package: it installs for all users into Program Files and adds a Start Menu shortcut.
