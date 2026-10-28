@@ -15,6 +15,13 @@ const SAMPLE_RATE = 8192;
 const DOUBLE_CODES = new Set([20, 21, 22, 23, 24, 25, 26, 28, 29, 30]);
 const LOAD_ERROR = 'the AtariVox speech chip did not load';
 
+// The AtariVox's memory (the same 24LC256 EEPROM as a SaveKey, 32 KB): its I2C bus is bit 2 (SDA) and bit 3 (SCL) of SWCHA. It is kept for
+// as long as the worker lives, so it survives loading another ROM, as the memory of a real AtariVox survives a reset.
+const EEPROM_SIZE = 32768;
+const eeprom = new Uint8Array(EEPROM_SIZE).fill(255);
+const SDA = 0x04;
+const SCL = 0x08;
+
 let chipPromise = null;
 
 // Loads the chip once: the Go runtime's glue and the wasm next to the worker.
@@ -40,6 +47,7 @@ const createAtariVox = () => {
     chip: null,
     // The line: SWACNT bit 0 (output), the last SWCHA written, and the edges of the level with the cycle they came at.
     output: false,
+    cnt: 0,
     swcha: 0xff,
     level: 1,
     edges: [],
@@ -54,6 +62,20 @@ const createAtariVox = () => {
     // Bytes received before the chip had loaded.
     waiting: [],
     sent: [],
+    // The I2C bus: the levels the program drives (a pin that is not an output is released and reads high) and what the memory drives.
+    sda: 1,
+    scl: 1,
+    slaveSda: 1,
+    // The memory as a slave: idle, recv (a byte from the program), ack (driving the acknowledge), send (a byte to the program), mack (the
+    // program's acknowledge).
+    i2c: 'idle',
+    kind: 'dev',
+    after: 'recv',
+    bits: 0,
+    shift: 0,
+    reading: false,
+    address: 0,
+    current: 0,
   };
 
   const levelAt = (cycle) => {
@@ -113,7 +135,97 @@ const createAtariVox = () => {
     else if (keep === -1 && vox.edges.length > 1) vox.edges.splice(0, vox.edges.length - 1);
   };
 
+  const i2cByte = () => {
+    const byte = vox.shift;
+    vox.shift = 0;
+    vox.bits = 0;
+    if (vox.kind === 'dev') {
+      if ((byte & 0xfe) !== 0xa0) {
+        vox.i2c = 'idle'; return;
+      }
+      vox.reading = (byte & 1) === 1;
+      vox.after = vox.reading ? 'send' : 'recv';
+      vox.kind = 'ahi';
+    } else if (vox.kind === 'ahi') {
+      vox.address = (byte << 8) & 0x7f00;
+      vox.kind = 'alo';
+      vox.after = 'recv';
+    } else if (vox.kind === 'alo') {
+      vox.address |= byte;
+      vox.kind = 'data';
+      vox.after = 'recv';
+    } else {
+      eeprom[vox.address] = byte;
+      vox.address = (vox.address + 1) % EEPROM_SIZE;
+    }
+    vox.i2c = 'ack';
+    vox.slaveSda = 0;
+  };
+
+  const i2cLoad = () => {
+    vox.current = eeprom[vox.address];
+    vox.address = (vox.address + 1) % EEPROM_SIZE;
+    vox.bits = 1;
+    vox.slaveSda = (vox.current >> 7) & 1;
+    vox.i2c = 'send';
+  };
+
+  // The levels of the two lines have changed to sda and scl.
+  const i2cLines = (sda, scl) => {
+    const oldSda = vox.sda;
+    const oldScl = vox.scl;
+    vox.sda = sda;
+    vox.scl = scl;
+    if (oldScl && scl && oldSda !== sda) {
+      if (!sda) {
+        // start (or a start again): an address is next
+        vox.i2c = 'recv';
+        vox.kind = 'dev';
+        vox.bits = 0;
+        vox.shift = 0;
+        vox.slaveSda = 1;
+      } else {
+        vox.i2c = 'idle';
+        vox.slaveSda = 1;
+      }
+      return;
+    }
+    if (!oldScl && scl) {
+      // the clock rises: a bit of the program's is read now
+      if (vox.i2c === 'recv') {
+        vox.shift = ((vox.shift << 1) | sda) & 0xff;
+        vox.bits++;
+      } else if (vox.i2c === 'mack') {
+        vox.acked = sda === 0;
+      }
+    } else if (oldScl && !scl) {
+      // the clock falls: what the memory drives changes now
+      if (vox.i2c === 'recv' && vox.bits === 8) {
+        i2cByte();
+      } else if (vox.i2c === 'ack') {
+        vox.slaveSda = 1;
+        vox.i2c = vox.after;
+        if (vox.after === 'send') i2cLoad();
+      } else if (vox.i2c === 'send') {
+        if (vox.bits < 8) {
+          vox.slaveSda = (vox.current >> (7 - vox.bits)) & 1;
+          vox.bits++;
+        } else {
+          vox.slaveSda = 1;
+          vox.i2c = 'mack';
+          vox.acked = false;
+        }
+      } else if (vox.i2c === 'mack') {
+        if (vox.acked) i2cLoad();
+        else vox.i2c = 'idle';
+      }
+    }
+  };
+
   const setLevel = (cycle) => {
+    // The memory: the program's lines.
+    const driven = (mask) => (vox.cnt & mask ? (vox.swcha & mask ? 1 : 0) : 1);
+    i2cLines(driven(SDA), driven(SCL));
     // A pin that is not an output reads high (the console's pull-up).
     const level = vox.output ? vox.swcha & 1 : 1;
     if (level === vox.level) return;
@@ -127,11 +239,18 @@ const createAtariVox = () => {
     // The program wrote SWCHA or SWACNT (register 0 or 1), at CPU cycle `cycle`.
     write: (register, value, cycle) => {
       if (register === 0) vox.swcha = value;
-      else vox.output = (value & 1) === 1;
+      else {
+        vox.output = (value & 1) === 1;
+        vox.cnt = value;
+      }
       setLevel(cycle);
     },
     // What reading SWCHA shows: READY on bit 1.
-    read: (value) => (vox.ready ? value | 0x02 : value & ~0x02),
+    read: (value) => {
+      const ready = vox.ready ? value | 0x02 : value & ~0x02;
+      // the data line is the program's and the memory's together (either can pull it low)
+      return vox.sda && vox.slaveSda ? ready | SDA : ready & ~SDA;
+    },
     // End of a frame: bytes that finished since the last write are decoded now.
     flush: (cycle) => decode(cycle),
     attach: async () => {

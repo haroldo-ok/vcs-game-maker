@@ -1,0 +1,122 @@
+diff --git a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/peripherals/savekey/savekey.go b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/peripherals/savekey/savekey.go
+index 9458df5..a367352 100644
+--- a/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/peripherals/savekey/savekey.go
++++ b/tools/gopher2600-wasm/vendor/github.com/jetsetilly/gopher2600/hardware/peripherals/savekey/savekey.go
+@@ -63,6 +63,10 @@ type SaveKey struct {
+ 	// Update() function, so we can reuse it in the Step() function
+ 	swcha uint8
+ 
++	// the direction register for the two lines (a set bit is an output), in the same normalised form as swcha. a line that is not an
++	// output is released and the console's pull-up holds it high
++	swacnt uint8
++
+ 	// only two bits of the SWCHA value is of interest to the i2c protocol.
+ 	// from the perspective of the second player (in which port the SaveKey is
+ 	// usually inserted) pin 2 is the data signal (SDA) and pin 3 is the
+@@ -191,17 +195,25 @@ const (
+ // Update implements the ports.Peripheral interface.
+ func (sk *SaveKey) Update(data chipbus.ChangedRegister) bool {
+ 	switch data.Register {
++	case cpubus.SWACNT:
++		switch sk.port {
++		case plugging.PortLeft:
++			sk.swacnt = data.Value & 0xf0
++		case plugging.PortRight:
++			sk.swacnt = (data.Value & 0x0f) << 4
++		}
++
+ 	case cpubus.SWCHA:
+-		// mask and shift SWCHA value to the normlised value
++		// mask and shift SWCHA value to the normlised value. the value arrives masked by SWACNT, so a line that is
++		// released reads low; it is high on the console
+ 		switch sk.port {
+ 		case plugging.PortLeft:
+ 			sk.swcha = data.Value & 0xf0
+ 		case plugging.PortRight:
+ 			sk.swcha = (data.Value & 0x0f) << 4
+ 		}
++		sk.swcha |= ^sk.swacnt & (maskSaveKeySDA | maskSaveKeySCL)
+ 
+-		// push the savekey's current swcha value to the console
+-		sk.bus.WriteSWCHx(sk.port, sk.swcha)
+ 
+ 	default:
+ 		return true
+@@ -259,6 +271,11 @@ func (sk *SaveKey) Step() {
+ 	sk.SDA.Tick(sk.swcha&maskSaveKeySDA == maskSaveKeySDA)
+ 	sk.SCL.Tick(sk.swcha&maskSaveKeySCL == maskSaveKeySCL)
+ 
++	// whatever the savekey was driving on the data line (an acknowledge, a bit) is let go when the clock falls
++	if sk.SCL.Falling() {
++		sk.bus.WriteSWCHx(sk.port, maskSaveKeySDA)
++	}
++
+ 	// check for stop signal before anything else
+ 	if sk.State != SaveKeyStopped && sk.SCL.Hi() && sk.SDA.Rising() {
+ 		logger.Log(sk.env, "savekey", "stopped message")
+@@ -267,6 +284,14 @@ func (sk *SaveKey) Step() {
+ 		return
+ 	}
+ 
++	// a start (or repeated start) is the data line falling while the clock is high
++	if sk.SCL.Hi() && sk.SDA.Falling() {
++		sk.resetBits()
++		sk.State = SaveKeyStarting
++		sk.Ack = false
++		return
++	}
++
+ 	// if SCL is not changing to a hi state then we don't need to do anything
+ 	if !sk.SCL.Rising() {
+ 		return
+@@ -274,7 +299,7 @@ func (sk *SaveKey) Step() {
+ 
+ 	// if the console is waiting for an ACK then handle that now
+ 	if sk.Ack {
+-		if sk.Dir == Reading && sk.SDA.Falling() {
++		if sk.Dir == Reading && sk.SDA.Lo() {
+ 			sk.bus.WriteSWCHx(sk.port, maskSaveKeySDA)
+ 			sk.Ack = false
+ 			return
+@@ -287,14 +312,9 @@ func (sk *SaveKey) Step() {
+ 	// interpret i2c state depending on which state we are currently in
+ 	switch sk.State {
+ 	case SaveKeyStopped:
+-		if sk.SDA.Lo() {
+-			logger.Log(sk.env, "savekey", "starting message")
+-			sk.resetBits()
+-			sk.State = SaveKeyStarting
+-		}
+ 
+ 	case SaveKeyStarting:
+-		if sk.recvBit(sk.SDA.Falling()) {
++		if sk.recvBit(sk.SDA.Hi()) {
+ 			switch sk.Bits {
+ 			case readSig:
+ 				logger.Log(sk.env, "savekey", "reading message")
+@@ -315,14 +335,14 @@ func (sk *SaveKey) Step() {
+ 		}
+ 
+ 	case SaveKeyAddressHi:
+-		if sk.recvBit(sk.SDA.Falling()) {
++		if sk.recvBit(sk.SDA.Hi()) {
+ 			sk.EEPROM.Address = uint16(sk.Bits) << 8
+ 			sk.State = SaveKeyAddressLo
+ 			sk.Ack = true
+ 		}
+ 
+ 	case SaveKeyAddressLo:
+-		if sk.recvBit(sk.SDA.Falling()) {
++		if sk.recvBit(sk.SDA.Hi()) {
+ 			sk.EEPROM.Address |= uint16(sk.Bits)
+ 			sk.State = SaveKeyData
+ 			sk.Ack = true
+@@ -356,7 +376,7 @@ func (sk *SaveKey) Step() {
+ 			}
+ 
+ 		case Writing:
+-			if sk.recvBit(sk.SDA.Falling()) {
++			if sk.recvBit(sk.SDA.Hi()) {
+ 				if unicode.IsPrint(rune(sk.Bits)) {
+ 					logger.Logf(sk.env, "savekey", "written byte %#02x [%c]", sk.Bits, sk.Bits)
+ 				} else {

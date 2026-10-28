@@ -207,9 +207,20 @@ export const soundsToSpeakJet = (sounds) => {
   return out;
 };
 
+// A project's pronunciations (the Text tab): a line for each word, "WORD = SpeakJet words", that are said instead of what the rules make.
+// Returns a Map from the upper case word to its SpeakJet words.
+export const parsePronunciations = (text) => {
+  const map = new Map();
+  String(text || '').split(/\r?\n/).forEach((line) => {
+    const found = /^\s*([A-Za-z']+)\s*[=:]\s*(.+?)\s*$/.exec(line);
+    if (found) map.set(found[1].toUpperCase().replace(/'/g, ''), found[2].toUpperCase());
+  });
+  return map;
+};
+
 // SpeakJet words for some English text: the words of the text, numbers spelled out, a short pause for a comma and a longer one for the end of a
-// sentence.
-export const textToSpeakJetWords = (text) => {
+// sentence. `pronunciations` (a Map, see parsePronunciations) says words the way the project wants them.
+export const textToSpeakJetWords = (text, pronunciations = null) => {
   const tokens = String(text || '').toUpperCase().match(/[A-Z']+|\d+|[,;:.!?\n]/g) || [];
   const words = [];
   tokens.forEach((token) => {
@@ -220,11 +231,21 @@ export const textToSpeakJetWords = (text) => {
     } else if (/^[.!?\n]$/.test(token)) {
       words.push('PAUSE200');
     } else {
-      words.push(...soundsToSpeakJet(wordSounds(token.replace(/'/g, ''))), 'PAUSE30');
+      const word = token.replace(/'/g, '');
+      if (pronunciations && pronunciations.has(word)) words.push(pronunciations.get(word), 'PAUSE30');
+      else words.push(...soundsToSpeakJet(wordSounds(word)), 'PAUSE30');
     }
   });
   return words.join(' ');
 };
 
 // The bytes for some English text (see textToSpeakJetWords).
-export const encodeText = (text) => encodeSpeech(textToSpeakJetWords(text));
+export const encodeText = (text, pronunciations = null) => encodeSpeech(textToSpeakJetWords(text, pronunciations));
+
+// What a message of the Text tab is spoken as: the SpeakJet words written for it on its card, or else the rules' (with the project's
+// pronunciations). `strings` is the text strings storage (its `pronunciations` is the project's list).
+export const speechWordsFor = (entry, strings) => {
+  if (!entry) return '';
+  if (entry.speech && entry.speech.trim()) return entry.speech.trim().toUpperCase();
+  return textToSpeakJetWords(entry.text, parsePronunciations(strings && strings.pronunciations));
+};

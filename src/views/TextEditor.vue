@@ -82,6 +82,19 @@
           all 12 character slots.
         </p>
 
+        <v-textarea
+          v-model="pronunciations"
+          label="Pronunciations (AtariVox)"
+          rows="2"
+          auto-grow
+          outlined
+          dense
+          class="text-pronunciations-field"
+          hint="A line for each word that the AtariVox should say your way: WORD = SpeakJet words, for example OLYMPUS = AX LE IH MM PO AX SO. They apply to every message."
+          persistent-hint
+          @change="handleChildChange"
+        />
+
         <v-list class="text-list" :class="{'text-list--single-column': !textColumns}">
           <v-list-item class="entry-list-item" v-for="{card: entry, index} in visibleEntries()" v-bind:key="entry.id">
             <v-list-item-content>
@@ -114,17 +127,26 @@
                 <div class="text-id-badge" title="The number to use with &quot;Show text ID&quot; - stays the same no matter how cards are rearranged below.">
                   ID:{{ entry.id }}
                 </div>
-                <confirm-delete-menu
-                  v-if="state.textStrings.length > 1"
-                  :title="deleteQuestion(entry.id, 'message')"
-                  :selected="entry.id === selectedCardId && selectedCardIds.includes(entry.id)"
-                  :activator-title="deleteQuestion(entry.id, 'message').replace('?', '')"
-                  icon-btn-class="text-delete-btn text-icon-btn-size"
-                  absolute
-                  top
-                  right
-                  @confirm="handleDeleteEntry(entry)"
-                />
+                <div class="text-toolbar-top-right">
+                  <confirm-delete-menu
+                    v-if="state.textStrings.length > 1"
+                    :title="deleteQuestion(entry.id, 'message')"
+                    :selected="entry.id === selectedCardId && selectedCardIds.includes(entry.id)"
+                    :activator-title="deleteQuestion(entry.id, 'message').replace('?', '')"
+                    icon-btn-class="text-delete-btn text-icon-btn-size"
+                    @confirm="handleDeleteEntry(entry)"
+                  />
+                  <v-btn
+                    icon
+                    small
+                    :title="speakingId === entry.id ? 'Speaking...' : 'Hear this message spoken, as the AtariVox says it'"
+                    :loading="speakingId === entry.id"
+                    class="text-play-btn text-icon-btn-size"
+                    @click.stop="() => handleSpeak(entry)"
+                  >
+                    <v-icon>mdi-play</v-icon>
+                  </v-btn>
+                </div>
 
                 <v-card-text class="text-name-section">
                   <v-text-field
@@ -173,6 +195,21 @@
                     class="text-wrap-switch"
                     @change="handleChildChange"
                   />
+                  <v-text-field
+                    label="Spoken as (AtariVox, SpeakJet words)"
+                    :value="entry.speech"
+                    :placeholder="generatedSpeech(entry)"
+                    clearable
+                    dense
+                    class="text-speech-field"
+                    hint="Empty: the AtariVox says what the rules make of the text (shown above, and used by the play button). Write SpeakJet words here to say it your way."
+                    persistent-hint
+                    @change="(value) => handleSpeechChange(entry, value)"
+                    @click:clear="() => handleSpeechChange(entry, '')"
+                  />
+                  <v-btn text small class="text-speech-edit-btn" :disabled="!generatedSpeech(entry)" @click.stop="() => handleSpeechChange(entry, generatedSpeech(entry))">
+                    Edit the generated words
+                  </v-btn>
                 </v-card-text>
               </v-card>
             </v-list-item-content>
@@ -215,6 +252,9 @@ import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WID
   TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH,
   processTextStringsStorageDefaults} from '../blocks/text-strings';
 import {BLINK_SPEED_OPTIONS, DEFAULT_BLINK_SPEED} from '../utils/text-font';
+import {encodeSpeech} from '../utils/speakjet';
+import {parsePronunciations, speechWordsFor, textToSpeakJetWords} from '../utils/speakjet-text';
+import {speakBytes, stopSpeech} from '../utils/speech-preview';
 
 export default defineComponent({
   components: {CardFolderBar, ColorSwatchPicker, ConfirmDeleteMenu, TextFontEditor},
@@ -354,6 +394,33 @@ export default defineComponent({
       state.value = state.value;
     };
 
+    // The AtariVox: the words the rules make of a message's text, the words written on its card, and the play button.
+    const pronunciations = computed({
+      get: () => state.value.pronunciations || '',
+      set: (value) => {
+        state.value.pronunciations = value;
+      },
+    });
+    const generatedSpeech = (entry) => textToSpeakJetWords(entry.text, parsePronunciations(state.value.pronunciations));
+    const handleSpeechChange = (entry, value) => {
+      entry.speech = String(value || '').toUpperCase();
+      handleChildChange();
+    };
+    const speakingId = ref(null);
+    const handleSpeak = async (entry) => {
+      if (speakingId.value === entry.id) {
+        stopSpeech();
+        return;
+      }
+      speakingId.value = entry.id;
+      try {
+        await speakBytes(encodeSpeech(speechWordsFor(entry, state.value)).bytes);
+      } finally {
+        if (speakingId.value === entry.id) speakingId.value = null;
+      }
+    };
+    onBeforeUnmount(stopSpeech);
+
     // Every card starts collapsed on every visit to this tab (see
     // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
@@ -487,6 +554,7 @@ export default defineComponent({
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
       cardHandleListeners, folderToolbar, folderToolbarHeight,
+      pronunciations, generatedSpeech, handleSpeechChange, speakingId, handleSpeak,
     };
   },
 });
@@ -711,9 +779,25 @@ export default defineComponent({
    scoping gap already hit elsewhere in this app (e.g. BlocklyComponent.vue's
    deep-selector rules for Blockly's runtime-injected markup). */
 .text-card >>> .text-delete-btn {
-  top: 8px !important;
-  right: 8px !important;
   box-shadow: none !important;
+}
+
+/* The delete icon and the play button, in the top right corner of the card (play to the right). */
+.text-toolbar-top-right {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.text-speech-field {
+  margin-top: 12px;
+}
+
+.text-pronunciations-field {
+  margin-top: 12px;
 }
 
 /* Same top-edge fix as .text-delete-btn, positioned at the opposite corner -
