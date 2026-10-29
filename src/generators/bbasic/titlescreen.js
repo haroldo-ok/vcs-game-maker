@@ -890,7 +890,11 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
       '@.playerheightfixloop',
       '\tsta player1height,y',
       '\tifconst _NUSIZ1',
+      // NUSIZ9 is not one of the bytes the kernel borrows (its score pointers end at NUSIZ8): it is left as it is.
+      '\tcpy #8',
+      '\tbeq .skipnusiz9',
       '\tsta _NUSIZ1,y',
+      '@.skipnusiz9',
       '\tendif',
       '\tdey',
       '\tbpl .playerheightfixloop',
@@ -1386,7 +1390,14 @@ export default (Blockly) => {
     const deriveName = titleDeriveSubroutineName(screenId);
     const derive = Blockly.BBasic.subroutines[deriveName] ? ` gosub ${deriveName}${Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(deriveName))}\n` : '';
-    let draw = `${selectPage}${derive} gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
+    // On DPC+ the kernel keeps its pointers in the bytes the score bars are drawn from (aux5 and aux6 are pfscore1 and pfscore2 there), so
+    // a project with score bars keeps their values on the stack while the kernel draws, and the bars show what the blocks set.
+    const barsUsed = ((useConfigurationStorage() && useConfigurationStorage().value) || {}).kernel === 'dpcplus' &&
+      block.workspace.getAllBlocks(false).some((other) => other.isEnabled() && /^score_bar_/.test(other.type));
+    const callKernel = ` gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
+    let draw = `${selectPage}${derive}` + (barsUsed ?
+      ' asm\n lda pfscore1\n pha\n lda pfscore2\n pha\n@end\n' + callKernel + ' asm\n pla\n sta pfscore2\n pla\n sta pfscore1\n@end\n' :
+      callKernel);
     if (Blockly.BBasic.titleBgUsed) {
       // The driver draws the background color in this variable: the page's color, unless "Set
       // title screen background color" has taken over.
@@ -1568,14 +1579,9 @@ export default (Blockly) => {
     // are put back from the CTRLPF shadow.
     const shadowVar = Blockly.BBasic.ctrlpfShadowUsed ? Blockly.BBasic.nameDB_.getName(
         ctrlpfShadowVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
-    const clearBars = ((useConfigurationStorage() && useConfigurationStorage().value) || {}).kernel === 'dpcplus' &&
-      block.workspace.getAllBlocks(false).some((other) => other.isEnabled() && /^score_bar_/.test(other.type));
     return `${titleKernelEndedVar()}{${titleKernelEndedBit()}} = 1\n` +
       'missile0height = 0\n' +
       'missile1height = 0\n' +
-      // On DPC+ the kernel keeps its pointers in the bytes the score bars are drawn from (aux5 and aux6 are pfscore1 and pfscore2), so
-      // the bars would show what is left of them.
-      (clearBars ? 'pfscore1 = 0\npfscore2 = 0\n' : '') +
       (shadowVar ? `CTRLPF = ${shadowVar}\n` : '') +
       (Blockly.BBasic.titleEndResets || []).map((line) => `${line}\n`).join('');
   };

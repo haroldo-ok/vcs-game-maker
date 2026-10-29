@@ -237,11 +237,9 @@ export const DPCPLUS_VAR_COUNT = 9;
 // The Titlescreen Kernel works in the same memory (titlescreen/dpcfix.asm points its pointers and scratch bytes there): aux2,
 // aux4, aux5 and aux6 are the x bytes of players 2, 4, 5 and 6, the pointers are players 2 and 3's y bytes and players 2 to 5's
 // heights, and the score pointers are twelve bytes from player 6's height (through players 7 to 9's heights, _NUSIZ1 and NUSIZ2 to NUSIZ8).
-// NUSIZ9 is left alone too: a variable there (the CTRLPF shadow) lost its value in a game with a title screen, which cleared the playfield's
-// reflect bit and drew the right half of the playfield as a copy of the left one (seen with per-row background colors on).
 // A project with a title screen leaves those bytes alone (titleKernel).
 const DPCPLUS_TITLE_KERNEL_BYTES = ['player2x', 'player4x', 'player5x', 'player6x', 'player2y', 'player3y',
-  ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `player${n}height`), ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `NUSIZ${n}`)];
+  ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `player${n}height`), ...[2, 3, 4, 5, 6, 7, 8].map((n) => `NUSIZ${n}`)];
 export const dpcPlusFreedSpriteRam = (spriteMax, reserveFixed = true, titleKernel = false) => [2, 3, 4, 5, 6, 7, 8, 9]
     .filter((n) => n > spriteMax)
     .flatMap((n) => [`player${n}x`, `player${n}y`, `player${n}height`, `NUSIZ${n}`])
