@@ -217,6 +217,7 @@
           v-model="sampleImportOpen"
           :files="sampleImportFiles"
           :replace-name="sampleImportReplaceName"
+          :default-chip="sampleImportDefaultChip"
           @confirm="handleConfirmSampleImport"
         />
         <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
@@ -1477,6 +1478,8 @@ export default defineComponent({
     const sampleImportOpen = ref(false);
     const sampleImportFiles = ref([]);
     const sampleImportReplaceName = ref(null);
+    // A DPC+ project's sounds are made for both chips; a Standard project has only the TIA.
+    const sampleImportDefaultChip = computed(() => ((configurationStorage.value || {}).kernel === 'dpcplus' ? 'both' : 'tia'));
     const handleImportSamples = () => {
       openFileDialogMultiple('audio/*,.wav,.ogg,.mp3,.flac,.m4a,.aac')
           .then((files) => {
@@ -1488,8 +1491,10 @@ export default defineComponent({
           .catch((e) => console.error('Failed to open audio files', e));
     };
     // What an imported sound sets on a card: its fitted fields, its name and what kind of sound it is.
-    const importedSoundFields = ({name, kind, fields}) => ({
+    // A sound made for the TIA is a Standard sound: under DPC+ its card shows the TIA settings.
+    const importedSoundFields = ({name, kind, fields, chip}) => ({
       ...fields, name, isInstrument: kind === 'instrument', isPercussion: kind === 'percussion',
+      ...(chip === 'tia' && dpcPlusSoundCards.value ? {dpcView: 'standard'} : {}),
     });
     const handleConfirmSampleImport = (imports) => {
       if (!imports.length) return;
@@ -1714,7 +1719,7 @@ export default defineComponent({
       handleExportSoundEffect, handleImportSoundEffect,
       handleExportSoundBank, handleImportSoundBank,
       soundBankImportOpen, soundBankImportEntries, handleConfirmSoundBankImport,
-      sampleImportOpen, sampleImportFiles, sampleImportReplaceName, handleImportSamples, handleConfirmSampleImport,
+      sampleImportOpen, sampleImportFiles, sampleImportReplaceName, sampleImportDefaultChip, handleImportSamples, handleConfirmSampleImport,
       canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, handleResetEnvelope,
       handleResetPitchEnvelope,
       handleStopPreview, loopPreview, handleSetSoundEffectColor, autoInstrumentColor,

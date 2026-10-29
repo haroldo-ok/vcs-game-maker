@@ -2577,9 +2577,16 @@ export default {
    regardless of how far that drifts, without touching .v-overlay at all -
    the fix stays scoped to dialogs/menus, the only things that were ever
    actually broken. */
-.v-menu__content,
+/* Raised far higher than 300 later on: the number Vuetify gives the scrim comes from the highest z-index of the menus and dialogs
+   open at that moment, so with the menus of a dialog's selects open (these were all 300) the scrim climbed past it and covered the
+   Import audio samples popup. The scrim stays in the low hundreds this way, below every dialog and menu; a menu is above a dialog. */
 .v-dialog__content {
-  z-index: 300 !important;
+  z-index: 100000 !important;
+}
+
+.v-menu__content,
+.v-tooltip__content {
+  z-index: 100001 !important;
 }
 
 * {

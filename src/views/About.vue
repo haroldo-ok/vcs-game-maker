@@ -35,7 +35,7 @@
         <v-list-item @click="openInNewTab('https://abstractpolygon.com')">
           <v-list-item-content>
             <v-list-item-title>Nick R. / AbstractPolygon</v-list-item-title>
-            <v-list-item-subtitle>Contributor</v-list-item-subtitle>
+            <v-list-item-subtitle>Designer/Developer</v-list-item-subtitle>
             <v-list-item-subtitle>abstractpolygon.com</v-list-item-subtitle>
           </v-list-item-content>
         </v-list-item>
@@ -77,7 +77,7 @@
       </v-list>
 
       <span class="text-subtitle-1 about-label">Licenses</span>
-      <p class="about-description">
+      <p class="about-description about-legal">
         VCS Game Maker was created by Haroldo de Oliveira Pinheiro under the <a href="https://github.com/haroldo-ok/vcs-game-maker/blob/master/LICENSE-MIT-haroldo" target="_blank" rel="noopener">MIT License</a>.
         <br />
         AbstractPolygon updates are released under the <a href="https://polyformproject.org/licenses/shield/1.0.0" target="_blank" rel="noopener">PolyForm Shield License 1.0.0</a>.
@@ -188,6 +188,11 @@ export default {
 .about-description {
   max-width: 640px;
   margin-bottom: 24px;
+}
+
+.about-legal {
+  font-size: 0.75rem;
+  line-height: 1.2;
 }
 
 .about-label {

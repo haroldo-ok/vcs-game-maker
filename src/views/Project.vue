@@ -150,6 +150,7 @@
           @change="handleImportFileInputChange"
         >
       </div>
+      <v-divider class="project-divider" />
     </div>
 
     <v-card-text v-if="!showExamples && !showSoundBanks" class="project-settings-text">
@@ -1617,6 +1618,15 @@ export default defineComponent({
   background-color: #fff;
   padding: 4px 16px;
   transition: padding 0.15s ease;
+}
+
+.project-divider {
+  margin: 8px -16px;
+  max-width: none;
+}
+
+.project-toolbar-scrolled .project-divider {
+  display: none;
 }
 
 .project-toolbar-scrolled {

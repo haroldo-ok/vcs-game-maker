@@ -78,6 +78,21 @@ const AUDC_CHIPS = {
   15: () => ({chips: polyChips(5, 31), slow: true}),
 };
 
+// The TIA's output for an AUDC, one entry (0 or 1) per step of its shift register, and whether it runs on the slower clock (a third of
+// the speed); null for the types that make no sound. One step takes AUDF + 1 ticks of the 31440 Hz clock (see frequencyForTia).
+export const TIA_AUDCS = Object.keys(AUDC_CHIPS).map(Number);
+export const TIA_CLOCK_HZ = NTSC_SHIFT_CLOCK;
+const tiaChipCache = {};
+export const tiaChipPattern = (audc) => {
+  const key = Number(audc);
+  if (!AUDC_CHIPS[key]) return null;
+  if (!tiaChipCache[key]) {
+    const {chips, slow} = AUDC_CHIPS[key]();
+    tiaChipCache[key] = {chips: Uint8Array.from(chips), slow};
+  }
+  return tiaChipCache[key];
+};
+
 const clockFor = (config, slow) => NTSC_SHIFT_CLOCK * tvAudioClockScale(config) / (slow ? 3 : 1);
 
 const SHAPE_PATTERN = /^tia(\d+)$/;

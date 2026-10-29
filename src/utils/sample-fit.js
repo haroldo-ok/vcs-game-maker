@@ -13,7 +13,7 @@
 // envelope that follows the loudness) and keeps every random change that matches better, until the time is up or the match stops
 // improving. It runs in short slices so that the page stays responsive.
 
-import {DPC_WAVE_LENGTH, DPC_WAVE_MAX} from './dpc-sound';
+import {DPC_WAVE_LENGTH, DPC_WAVE_MAX, TIA_AUDCS, TIA_CLOCK_HZ, tiaChipPattern} from './dpc-sound';
 
 // The chip is read once a scanline: 262 scanlines a frame, 60 frames a second.
 export const CHIP_RATE = 15734;
@@ -35,14 +35,22 @@ const SWEEP_FRAME_COUNTS = [1, 2, 3, 4, 6, 8];
 const MAX_NOISE_HZ = 500;
 const MAX_TONE_HZ = 2000;
 const MIN_HZ = 30;
+// The notes of the piano the chip plays (key 1 to key 88), which a frequency envelope stays between.
+const MIN_PITCH_HZ = 27.5;
+const MAX_PITCH_HZ = 4186;
+const MAX_PITCH_AMOUNT = 31;
+// The types of the TIA that are noise (see presetForAudc in utils/dpc-sound.js).
+const TIA_NOISE_AUDCS = [3, 7, 8, 9, 15];
 
-const BAND_COS = [];
-const BAND_SIN = [];
-for (let band = 0; band < BAND_COUNT; band++) {
+const randomInt = (n) => Math.floor(Math.random() * n);
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+
+// Goertzel's coefficient of each band's frequency (see bandEnergies).
+const BAND_COEFFICIENT = Float64Array.from({length: BAND_COUNT}, (_, band) => {
   const hz = FIRST_BAND_HZ * Math.pow(LAST_BAND_HZ / FIRST_BAND_HZ, band / (BAND_COUNT - 1));
-  BAND_COS.push(Float64Array.from({length: FRAME}, (_, i) => Math.cos(2 * Math.PI * hz / CHIP_RATE * i)));
-  BAND_SIN.push(Float64Array.from({length: FRAME}, (_, i) => Math.sin(2 * Math.PI * hz / CHIP_RATE * i)));
-}
+  return 2 * Math.cos(2 * Math.PI * hz / CHIP_RATE);
+});
+const centered = new Float64Array(FRAME);
 
 // The recording as the chip's rate, a mono signal. samples is one channel (or the average of them) at sampleRate.
 export const resampleToChipRate = (samples, sampleRate) => {
@@ -61,20 +69,25 @@ export const resampleToChipRate = (samples, sampleRate) => {
 // How much energy a stretch of a frame holds in each of the bands (the mean taken off first).
 const bandEnergies = (signal, offset) => {
   let mean = 0;
-  for (let i = 0; i < FRAME; i++) mean += signal[offset + i] || 0;
+  for (let i = 0; i < FRAME; i++) {
+    const value = signal[offset + i] || 0;
+    centered[i] = value;
+    mean += value;
+  }
   mean /= FRAME;
+  for (let i = 0; i < FRAME; i++) centered[i] -= mean;
   const energies = new Float64Array(BAND_COUNT);
   for (let band = 0; band < BAND_COUNT; band++) {
-    let cosine = 0;
-    let sine = 0;
-    const cosTable = BAND_COS[band];
-    const sinTable = BAND_SIN[band];
+    // Goertzel's recurrence: the energy at the band's frequency with one multiply a sample.
+    const coefficient = BAND_COEFFICIENT[band];
+    let s1 = 0;
+    let s2 = 0;
     for (let i = 0; i < FRAME; i++) {
-      const value = (signal[offset + i] || 0) - mean;
-      cosine += value * cosTable[i];
-      sine += value * sinTable[i];
+      const s0 = centered[i] + coefficient * s1 - s2;
+      s2 = s1;
+      s1 = s0;
     }
-    energies[band] = cosine * cosine + sine * sine;
+    energies[band] = s1 * s1 + s2 * s2 - coefficient * s1 * s2;
   }
   return energies;
 };
@@ -100,21 +113,33 @@ export const envelopeVolumes = ({attack, decay, sustainLength, release, decayEnd
   return out;
 };
 
+// The frequency envelope: semitones above the pitch for each frame (null when the card has none). Its stages are shaped like the volume
+// envelope's (see buildDpcPitchOffsets in utils/pitch-table.js, which rounds the amount times the level in the same way).
+const pitchEnvelopeOffsets = (card, frames) => {
+  if (!card.pitchAmount) return null;
+  const levels = envelopeVolumes({attack: card.pitchAttack, decay: card.pitchDecay, sustainLength: card.pitchSustainLength,
+    release: card.pitchRelease, decayEnd: card.pitchDecayEnd, releaseStart: card.pitchReleaseStart}, 15, frames);
+  return levels.map((level) => Math.round(card.pitchAmount * level / 15));
+};
+
 // The pitch of each frame of a sound with a sweep (see buildDpcPitchOffsets in utils/pitch-table.js): from hz to the piano key
 // endKey (a MIDI number), step semitones every `every` frames.
 const pitchTrack = (card, frames) => {
   const out = [];
+  const bends = pitchEnvelopeOffsets(card, frames);
   const startKey = Math.round(12 * Math.log2(card.hz / 440) + 69) - 20;
   const endKey = card.sweepEnd - 20;
   const span = Math.abs(endKey - startKey);
   const positions = Math.floor(span / card.sweepStep) + 1;
   for (let frame = 0; frame < frames; frame++) {
+    let hz;
     if (!card.sweep || !card.sweepEnd || !span) {
-      out.push(card.hz);
+      hz = card.hz;
     } else {
       const position = Math.min(Math.floor(frame / card.sweepFrames), positions - 1);
-      out.push(card.hz * Math.pow(2, Math.sign(endKey - startKey) * Math.min(span, position * card.sweepStep) / 12));
+      hz = card.hz * Math.pow(2, Math.sign(endKey - startKey) * Math.min(span, position * card.sweepStep) / 12);
     }
+    out.push(bends ? clamp(hz * Math.pow(2, bends[frame] / 12), MIN_PITCH_HZ, MAX_PITCH_HZ) : hz);
   }
   return out;
 };
@@ -135,6 +160,52 @@ const renderCard = (card, frames) => {
       out[frame * FRAME + i] = Math.round(wave[Math.floor(phase * DPC_WAVE_LENGTH) % DPC_WAVE_LENGTH] * volume / DPC_WAVE_MAX);
       phase += step;
       if (phase >= 1) phase -= Math.floor(phase);
+    }
+  }
+  return out;
+};
+
+// The divider (AUDF, 0 to 31) of each frame of a TIA sound: the sweep goes from audf to sweepEnd, sweepStep dividers every sweepFrames
+// frames, and the frequency envelope adds its amount (a positive amount is a higher divider, so a lower pitch). See buildPitchTable in
+// utils/pitch-table.js.
+const tiaAudfTrack = (card, frames) => {
+  const bends = pitchEnvelopeOffsets(card, frames);
+  const span = Math.abs(card.sweepEnd - card.audf);
+  const direction = card.sweepEnd >= card.audf ? 1 : -1;
+  const positions = Math.floor(span / card.sweepStep) + 1;
+  const out = [];
+  for (let frame = 0; frame < frames; frame++) {
+    let audf = card.audf;
+    if (card.sweep && span) {
+      const position = Math.min(Math.floor(frame / card.sweepFrames), positions - 1);
+      audf += direction * Math.min(span, position * card.sweepStep);
+    }
+    if (bends) audf += bends[frame];
+    out.push(clamp(Math.round(audf), 0, 31));
+  }
+  return out;
+};
+
+// What the TIA would play: its shift register stepped every AUDF + 1 ticks of its clock, at the volume of each frame. The register runs
+// faster than the one sample a scanline that is compared, so each sample is the mean of a few of its steps (what the ear would hear).
+const TIA_SUBSAMPLES = 4;
+const renderTia = (card, frames) => {
+  const {chips, slow} = tiaChipPattern(card.audc);
+  const length = chips.length;
+  const volumes = envelopeVolumes(card, card.volume, frames);
+  const dividers = tiaAudfTrack(card, frames);
+  const out = new Float64Array(frames * FRAME);
+  const clock = TIA_CLOCK_HZ / (slow ? 3 : 1);
+  let phase = 0;
+  for (let frame = 0; frame < frames; frame++) {
+    const volume = volumes[frame];
+    const step = clock / (dividers[frame] + 1) / CHIP_RATE;
+    for (let i = 0; i < FRAME; i++) {
+      let sum = 0;
+      for (let k = 0; k < TIA_SUBSAMPLES; k++) sum += chips[Math.floor(phase + step * k / TIA_SUBSAMPLES) % length];
+      out[frame * FRAME + i] = sum / TIA_SUBSAMPLES * volume;
+      phase += step;
+      if (phase >= length) phase %= length;
     }
   }
   return out;
@@ -179,7 +250,7 @@ const mismatch = (prepared, card) => {
   const length = card.attack + card.decay + card.sustainLength + card.release;
   if (Math.abs(length - prepared.frames) > prepared.lengthSlack) return null;
   const frames = Math.max(prepared.frames, length);
-  const played = renderCard(card, frames);
+  const played = card.tia ? renderTia(card, frames) : renderCard(card, frames);
   const energies = [];
   let total = 0;
   for (let frame = 0; frame < frames; frame++) {
@@ -315,12 +386,173 @@ const envelopeCandidates = (prepared, count) => {
   return {candidates: all.slice(0, count), slack};
 };
 
-const randomInt = (n) => Math.floor(Math.random() * n);
-const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+// Changes the frequency envelope of a card a little: its amount, or one of its stages or levels (the stages stay within the sound).
+const bendFrequency = (card) => {
+  const pick = (values) => values[randomInt(values.length)];
+  const roll = Math.random();
+  if (roll < 0.4) {
+    card.pitchAmount = clamp(card.pitchAmount + (randomInt(2) ? 1 : -1) * (1 + randomInt(3)), -MAX_PITCH_AMOUNT, MAX_PITCH_AMOUNT);
+  } else if (roll < 0.5) {
+    card.pitchAmount = 0;
+  } else if (roll < 0.62) {
+    card.pitchAttack = pick(ENVELOPE_ATTACK_RELEASE_FRAMES);
+  } else if (roll < 0.74) {
+    card.pitchDecay = pick(ENVELOPE_DECAY_SUSTAIN_FRAMES);
+  } else if (roll < 0.82) {
+    card.pitchSustainLength = pick(ENVELOPE_DECAY_SUSTAIN_FRAMES);
+  } else if (roll < 0.9) {
+    card.pitchRelease = pick(ENVELOPE_ATTACK_RELEASE_FRAMES);
+  } else if (roll < 0.95) {
+    card.pitchDecayEnd = pick(ENVELOPE_LEVELS);
+  } else {
+    card.pitchReleaseStart = pick(ENVELOPE_LEVELS);
+  }
+  const total = card.pitchAttack + card.pitchDecay + card.pitchSustainLength + card.pitchRelease;
+  if (total > card.attack + card.decay + card.sustainLength + card.release) card.pitchAmount = 0;
+};
+
 const nextSlice = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // The words for how close a fit is, from its mismatch.
 export const describeMismatch = (value) => (value <= 0.6 ? 'very close' : value <= 1.5 ? 'close' : value <= 3 ? 'rough' : 'loose');
+
+// Fits a TIA sound (a type AUDC, a divider AUDF, a volume, an envelope, a sweep and a frequency envelope of the divider) to the prepared
+// recording, by trying every type at every divider and then improving the best few. Takes the same options as fitSample (mode and bars
+// do not apply). options.fixed holds card settings that stay as they are (the volume, the envelope, the shape of the sweep and the
+// frequency envelope: a card for both chips shares them), as the card fields of this file (volume, attack, decay, sustainLength, release,
+// decayEnd, releaseStart, sweep, sweepStep, sweepFrames, pitchAmount...). Resolves to {fields, mismatch, mode: 'tia', audc}.
+export const fitTiaSample = async (prepared, options = {}) => {
+  const {onProgress = () => {}, isCancelled = () => false} = options;
+  const budgetMs = (options.seconds || clamp(3 + prepared.frames * 0.1, 4, 15)) * 1000 * (options.timeScale || 1);
+  const started = performance.now();
+  prepared.lengthSlack = 1;
+  const {candidates, slack} = envelopeCandidates(prepared, 24);
+  prepared.lengthSlack = slack;
+  const first = candidates[0];
+  const fixed = options.fixed || null;
+  // A sound with no clear pitch (a snare, a cymbal, a hat) is made with a noise type of the TIA: the others are tones, and they sound
+  // like one however the band energies line up.
+  const wantedMode = options.mode || 'auto';
+  const analysis = wantedMode === 'noise' ? null : analysePitch(prepared);
+  const noisy = options.noisy !== undefined ? options.noisy :
+    wantedMode === 'noise' || (wantedMode !== 'tone' && !(analysis && analysis.startHz <= 600));
+  const audcs = noisy ? TIA_AUDCS.filter((audc) => TIA_NOISE_AUDCS.includes(audc)) : TIA_AUDCS;
+  const base = {
+    tia: true, audc: 4, audf: 10, volume: 15,
+    attack: first.attack, decay: first.decay, sustainLength: first.sustainLength, release: first.release,
+    decayEnd: first.decayEnd, releaseStart: first.releaseStart,
+    sweep: false, sweepEnd: 0, sweepStep: 1, sweepFrames: 1,
+    pitchAmount: 0, pitchAttack: 0, pitchDecay: 8, pitchSustainLength: 0, pitchRelease: 0, pitchDecayEnd: 0, pitchReleaseStart: 0,
+    ...(fixed || {}),
+    ...(fixed && fixed.sweep ? {sweepEnd: 31} : {}),
+  };
+  let overall = null;
+  let sliceStart = performance.now();
+  const maybeYield = async () => {
+    if (performance.now() - sliceStart > 25) {
+      onProgress({fraction: Math.min(1, (performance.now() - started) / budgetMs), mismatch: overall ? overall.value : Infinity});
+      await nextSlice();
+      sliceStart = performance.now();
+    }
+  };
+
+  // Every type at every divider, with the recording's envelope.
+  const grid = [];
+  for (const audc of audcs) {
+    for (let audf = 0; audf < 32; audf++) {
+      const card = {...base, audc, audf};
+      const value = mismatch(prepared, card);
+      if (value !== null) {
+        grid.push({value, card});
+        if (!overall || value < overall.value) overall = {value, card};
+      }
+      await maybeYield();
+      if (isCancelled()) return null;
+    }
+  }
+  if (!overall) overall = {value: Infinity, card: base};
+  grid.sort((a, b) => a.value - b.value);
+  // The best few, each improved by small random changes for an equal share of the time left.
+  const starts = grid.slice(0, 4);
+  const share = Math.max(300, (budgetMs - (performance.now() - started)) / Math.max(1, starts.length));
+  for (const start of starts) {
+    let current = {...start.card};
+    let currentValue = start.value;
+    const until = performance.now() + share;
+    while (performance.now() < until) {
+      if (isCancelled()) return null;
+      const candidate = {...current};
+      const kind = Math.random();
+      if (kind < 0.3) {
+        candidate.audf = clamp(candidate.audf + (randomInt(2) ? 1 : -1) * (1 + randomInt(3)), 0, 31);
+      } else if (kind < 0.4) {
+        candidate.audc = audcs[randomInt(audcs.length)];
+      } else if (fixed) {
+        // Only the sweep's end is the card's to choose here.
+        if (candidate.sweep) candidate.sweepEnd = randomInt(32);
+        else candidate.audf = clamp(candidate.audf + randomInt(3) - 1, 0, 31);
+      } else if (kind < 0.5) {
+        candidate.volume = clamp(candidate.volume + randomInt(3) - 1, 4, 15);
+      } else if (kind < 0.6) {
+        const e = candidates[randomInt(candidates.length)];
+        Object.assign(candidate, {attack: e.attack, decay: e.decay, sustainLength: e.sustainLength, release: e.release,
+          decayEnd: e.decayEnd, releaseStart: e.releaseStart});
+      } else if (kind < 0.8) {
+        candidate.sweep = true;
+        if (Math.random() < 0.4) candidate.sweepEnd = randomInt(32);
+        else if (Math.random() < 0.5) candidate.sweepStep = SWEEP_STEPS[randomInt(SWEEP_STEPS.length)];
+        else candidate.sweepFrames = SWEEP_FRAME_COUNTS[randomInt(SWEEP_FRAME_COUNTS.length)];
+        if (Math.random() < 0.1) candidate.sweep = false;
+      } else {
+        bendFrequency(candidate);
+      }
+      const value = mismatch(prepared, candidate);
+      if (value !== null && value < currentValue - 1e-9) {
+        current = candidate;
+        currentValue = value;
+        if (value < overall.value) overall = {value, card: candidate};
+      }
+      await maybeYield();
+    }
+  }
+
+  onProgress({fraction: 1, mismatch: overall.value});
+  const card = overall.card;
+  const length = card.attack + card.decay + card.sustainLength + card.release;
+  return {
+    mismatch: overall.value,
+    mode: 'tia',
+    audc: card.audc,
+    fields: {
+      audc: String(card.audc),
+      audf: card.audf,
+      audv: card.volume,
+      duration: length,
+      envelope: true,
+      envelopeAttack: card.attack,
+      envelopeDecay: card.decay,
+      envelopeDecayEnd: card.decayEnd,
+      envelopeSustain: card.decayEnd,
+      envelopeSustainLength: card.sustainLength,
+      envelopeReleaseStart: card.releaseStart,
+      envelopeRelease: card.release,
+      sweep: card.sweep,
+      sweepEnd: card.sweep ? card.sweepEnd : 31,
+      sweepStep: card.sweepStep,
+      sweepFrames: card.sweepFrames,
+      sweepRepeat: false,
+      sweepWrap: false,
+      pitchEnvelope: card.pitchAmount !== 0,
+      pitchEnvelopeAmount: card.pitchAmount,
+      pitchEnvelopeAttack: card.pitchAttack,
+      pitchEnvelopeDecay: card.pitchDecay,
+      pitchEnvelopeDecayEnd: card.pitchDecayEnd,
+      pitchEnvelopeSustainLength: card.pitchSustainLength,
+      pitchEnvelopeReleaseStart: card.pitchReleaseStart,
+      pitchEnvelopeRelease: card.pitchRelease,
+    },
+  };
+};
 
 // Fits a card to the prepared recording.
 //   options.mode: 'auto' (decided from the recording), 'tone' or 'noise'
@@ -347,6 +579,7 @@ export const fitSample = async (prepared, options = {}) => {
     attack: first.attack, decay: first.decay, sustainLength: first.sustainLength, release: first.release,
     decayEnd: first.decayEnd, releaseStart: first.releaseStart,
     sweep: false, sweepEnd: 0, sweepStep: 1, sweepFrames: 1,
+    pitchAmount: 0, pitchAttack: 0, pitchDecay: 8, pitchSustainLength: 0, pitchRelease: 0, pitchDecayEnd: 0, pitchReleaseStart: 0,
   };
   let limits = {minHz: MIN_HZ, maxHz: MAX_NOISE_HZ, minEnd: 0, maxEnd: 0};
   if (tone) {
@@ -378,7 +611,9 @@ export const fitSample = async (prepared, options = {}) => {
       limits.maxEnd = 0;
     }
   }
-  const allowed = (c) => c.hz >= limits.minHz && c.hz <= (tone ? MAX_TONE_HZ : limits.maxHz) &&
+  const bendFits = (c) => !c.pitchAmount ||
+    c.pitchAttack + c.pitchDecay + c.pitchSustainLength + c.pitchRelease <= c.attack + c.decay + c.sustainLength + c.release;
+  const allowed = (c) => bendFits(c) && c.hz >= limits.minHz && c.hz <= (tone ? MAX_TONE_HZ : limits.maxHz) &&
     (!tone || !c.sweep || (c.sweepEnd >= limits.minEnd && c.sweepEnd <= limits.maxEnd && c.sweepEnd >= 21 && c.sweepEnd <= 108));
   const evaluate = (c) => (allowed(c) ? mismatch(prepared, c) : null);
 
@@ -435,6 +670,19 @@ export const fitSample = async (prepared, options = {}) => {
     best = top.value;
   }
 
+
+  // A frequency envelope bends the pitch over the sound: a few shapes are tried, and the search below changes the best of them.
+  const length0 = card.attack + card.decay + card.sustainLength + card.release;
+  for (const amount of [-24, -12, -7, -4, 4, 7, 12, 24]) {
+    for (const stages of [[0, 8, 0, 0], [0, 16, 0, 0], [0, 32, 0, 0], [0, 0, 0, 16], [0, 0, 0, 32]]) {
+      const [pitchAttack, pitchDecay, pitchSustainLength, pitchRelease] = stages;
+      if (pitchAttack + pitchDecay + pitchSustainLength + pitchRelease > length0) continue;
+      tryCard({...card, bars: card.bars, pitchAmount: amount, pitchAttack, pitchDecay, pitchSustainLength, pitchRelease,
+        pitchDecayEnd: 0, pitchReleaseStart: 0});
+      await maybeYield();
+    }
+  }
+
   // The random search: a few bars at a time, the pitch, the volume, a sweep setting or the envelope.
   let lastGain = performance.now();
   let lastBest = best;
@@ -453,11 +701,13 @@ export const fitSample = async (prepared, options = {}) => {
       candidate.hz = clamp(Math.round(candidate.hz * (0.97 + Math.random() * 0.06) * 100) / 100, MIN_HZ, tone ? MAX_TONE_HZ : MAX_NOISE_HZ);
     } else if (kind < 0.93) {
       candidate.volume = clamp(candidate.volume + randomInt(3) - 1, 4, 15);
-    } else if (kind < 0.97) {
+    } else if (kind < 0.93) {
       const e = candidates[randomInt(candidates.length)];
       Object.assign(candidate, {attack: e.attack, decay: e.decay, sustainLength: e.sustainLength, release: e.release,
         decayEnd: e.decayEnd, releaseStart: e.releaseStart});
-    } else if (candidate.sweep) {
+    } else if (kind < 0.97 || !candidate.sweep) {
+      bendFrequency(candidate);
+    } else {
       if (Math.random() < 0.5) candidate.sweepEnd += randomInt(3) - 1;
       else {
         candidate.sweepStep = SWEEP_STEPS[randomInt(SWEEP_STEPS.length)];
@@ -498,10 +748,43 @@ export const fitSample = async (prepared, options = {}) => {
       envelopeSustainLength: card.sustainLength,
       envelopeReleaseStart: card.releaseStart,
       envelopeRelease: card.release,
+      pitchEnvelope: card.pitchAmount !== 0,
+      pitchEnvelopeAmount: card.pitchAmount,
+      pitchEnvelopeAttack: card.pitchAttack,
+      pitchEnvelopeDecay: card.pitchDecay,
+      pitchEnvelopeDecayEnd: card.pitchDecayEnd,
+      pitchEnvelopeSustainLength: card.pitchSustainLength,
+      pitchEnvelopeReleaseStart: card.pitchReleaseStart,
+      pitchEnvelopeRelease: card.pitchRelease,
       sweep: card.sweep,
       dpcSweepEnd: card.sweep ? card.sweepEnd : 0,
       sweepStep: card.sweepStep,
       sweepFrames: card.sweepFrames,
     },
+  };
+};
+
+// The card settings the TIA sound of a card for both chips shares with its DPC+ sound (see fitTiaSample's options.fixed).
+const sharedSettings = (fields) => ({
+  volume: fields.audv, attack: fields.envelopeAttack, decay: fields.envelopeDecay, sustainLength: fields.envelopeSustainLength,
+  release: fields.envelopeRelease, decayEnd: fields.envelopeDecayEnd, releaseStart: fields.envelopeReleaseStart,
+  sweep: !!fields.sweep, sweepStep: fields.sweepStep, sweepFrames: fields.sweepFrames,
+  pitchAmount: fields.pitchEnvelope ? fields.pitchEnvelopeAmount : 0, pitchAttack: fields.pitchEnvelopeAttack, pitchDecay: fields.pitchEnvelopeDecay,
+  pitchSustainLength: fields.pitchEnvelopeSustainLength, pitchRelease: fields.pitchEnvelopeRelease,
+  pitchDecayEnd: fields.pitchEnvelopeDecayEnd, pitchReleaseStart: fields.pitchEnvelopeReleaseStart,
+});
+
+// Fits a card for both chips: the DPC+ sound first, then the TIA sound, which shares its volume, envelope and the steps of its sweep.
+// Resolves to {fields, mismatch (the worse of the two), dpcMismatch, tiaMismatch, mode: 'both', audc}, or null when cancelled.
+export const fitBoth = async (prepared, options = {}) => {
+  const {onProgress = () => {}} = options;
+  const half = (from) => ({...options, onProgress: ({fraction}) => onProgress({fraction: from + fraction / 2})});
+  const dpc = await fitSample(prepared, half(0));
+  if (!dpc) return null;
+  const tia = await fitTiaSample(prepared, {...half(0.5), fixed: sharedSettings(dpc.fields), noisy: dpc.mode === 'noise'});
+  if (!tia) return null;
+  return {
+    mode: 'both', mismatch: Math.max(dpc.mismatch, tia.mismatch), dpcMismatch: dpc.mismatch, tiaMismatch: tia.mismatch, audc: tia.audc,
+    fields: {...dpc.fields, audc: tia.fields.audc, audf: tia.fields.audf, ...(dpc.fields.sweep ? {sweepEnd: tia.fields.sweepEnd} : {})},
   };
 };
