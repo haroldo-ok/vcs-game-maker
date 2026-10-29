@@ -189,6 +189,11 @@ const postDebug = () => {
     busyCycles: state.cpuAccuracy === 'instruction' ? null : state.busyCycles - state.debugLastBusyCycles,
     frame: state.frames,
     variables: state.debugWatch.map(({name, address}) => {
+      // A DPC+ display memory byte (see DISPLAY_RAM_BASE in src/hooks/debug-symbols.js) is read from the cartridge's memory.
+      if (address >= 0x10000) {
+        const ram = board._cartridge && board._cartridge._imageRam;
+        return [name, ram ? ram[address - 0x10000] : 0];
+      }
       // Superchip RAM is written at $1000-$107F and read back from $1080-$10FF.
       const readAddress = (address & 0x1F80) === 0x1000 ? address + 0x80 : address;
       return [name, board.getBus().peek(readAddress)];

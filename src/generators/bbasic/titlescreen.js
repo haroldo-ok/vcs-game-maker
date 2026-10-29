@@ -1568,9 +1568,14 @@ export default (Blockly) => {
     // are put back from the CTRLPF shadow.
     const shadowVar = Blockly.BBasic.ctrlpfShadowUsed ? Blockly.BBasic.nameDB_.getName(
         ctrlpfShadowVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+    const clearBars = ((useConfigurationStorage() && useConfigurationStorage().value) || {}).kernel === 'dpcplus' &&
+      block.workspace.getAllBlocks(false).some((other) => other.isEnabled() && /^score_bar_/.test(other.type));
     return `${titleKernelEndedVar()}{${titleKernelEndedBit()}} = 1\n` +
       'missile0height = 0\n' +
       'missile1height = 0\n' +
+      // On DPC+ the kernel keeps its pointers in the bytes the score bars are drawn from (aux5 and aux6 are pfscore1 and pfscore2), so
+      // the bars would show what is left of them.
+      (clearBars ? 'pfscore1 = 0\npfscore2 = 0\n' : '') +
       (shadowVar ? `CTRLPF = ${shadowVar}\n` : '') +
       (Blockly.BBasic.titleEndResets || []).map((line) => `${line}\n`).join('');
   };

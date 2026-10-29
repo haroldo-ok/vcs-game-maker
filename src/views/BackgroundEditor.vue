@@ -190,11 +190,11 @@
                       type="number"
                       min="1"
                       max="192"
-                      :value="background.pfres || ''"
+                      :value="background.pfres || defaultPfres"
                       :placeholder="String(defaultPfres)"
                       persistent-placeholder
                       :title="`How many rows this background has on screen, 1 to 192. Left empty it uses the project's pfres (${defaultPfres}, set in Options).`"
-                      @input="(value) => handleChangeBackgroundPfres(background, value)"
+                      @input="(value) => value !== '' && handleChangeBackgroundPfres(background, value)"
                       @change="(value) => handleChangeBackgroundPfres(background, value)"
                     />
                     <v-text-field
@@ -204,11 +204,11 @@
                       type="number"
                       min="1"
                       max="192"
-                      :value="background.pfColorRows || ''"
+                      :value="background.pfColorRows || background.pixels.length"
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
                       title="How many rows of colors the playfield colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
-                      @input="(value) => handleTypeColorRows(background, 'pf', value)"
+                      @input="(value) => value !== '' && handleTypeColorRows(background, 'pf', value)"
                       @change="(value) => handleLeaveColorRows(background, 'pf', value)"
                     />
                     <v-text-field
@@ -218,11 +218,11 @@
                       type="number"
                       min="1"
                       max="192"
-                      :value="background.bkColorRows || ''"
+                      :value="background.bkColorRows || background.pixels.length"
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
                       title="How many rows of colors the background colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
-                      @input="(value) => handleTypeColorRows(background, 'bk', value)"
+                      @input="(value) => value !== '' && handleTypeColorRows(background, 'bk', value)"
                       @change="(value) => handleLeaveColorRows(background, 'bk', value)"
                     />
                   </div>

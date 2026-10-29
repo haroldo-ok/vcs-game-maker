@@ -1,6 +1,7 @@
 'use strict';
 
 import {useConfigurationStorage} from '../../hooks/project';
+import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, ensureArmProgram} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
 import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
@@ -19,8 +20,8 @@ import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOf
 const pfRowDivisorFor = (config) => Math.max(1, Math.round(exactRowDivisorFor(config)));
 import {ctrlpfShadowVarName, spriteScrollFlagsVarName, spriteScrollActiveBit,
   missileBounceStageVarName,
-  DIRECTION16_STEPS, backgroundRainbowActiveBit, backgroundRainbowOffsetVarName,
-  backgroundColorTableLoVarName, backgroundColorTableHiVarName,
+  DIRECTION16_STEPS, backgroundRainbowActiveBit, backgroundRainbowLoadedBit, backgroundRainbowOffsetVarName,
+  backgroundColorTableLoVarName, backgroundColorTableHiVarName, BACKGROUND_RAINBOW_RESTORE_NAME,
   romNoiseFlagsVarName} from './sprites';
 
 // FADE_STEPS (4) is fixed rather than user-choosable - see its  comment
@@ -245,11 +246,24 @@ export const SHAKE_SCREEN_MAX_FRAMES = 127;
 // instead of a RAM variable, breaking the runtime "bit shakescreen" read).
 // DPC+ with a color for each row: a color given by a Playfield set background (or playfield) color block replaces the row colors of the
 // background, and has to stay when another background is loaded: a byte says that a color was set (see generateBackgroundColorOverride).
-export const BG_COLOR_OVERRIDE_VARS = {COLUBK: 'bgoverridebk', COLUPF: 'bgoverridepf'};
-export const reserveBackgroundColorOverrideDevVars = (reserveDevVar, background, playfield) => {
-  if (background) reserveDevVar(BG_COLOR_OVERRIDE_VARS.COLUBK, undefined, 'a background color was set by a block, over the row colors');
-  if (playfield) reserveDevVar(BG_COLOR_OVERRIDE_VARS.COLUPF, undefined, 'a playfield color was set by a block, over the row colors');
+// The bits are kept in pooled flag bytes (see flag-pool.js): bit 0 of one family says a background color was set, bit 1 a playfield color; the
+// other holds the number of the background loaded last (its place in the list of backgrounds, counted from 1), for "Stop playfield rainbow
+// colors" on DPC+. Two families, so that each can fill a gap in a byte of other flags.
+export const BG_COLOR_FLAGS_FAMILY = 'bgColorFlags';
+export const BG_RAINBOW_ID_FAMILY = 'bgRainbowId';
+export const BG_COLOR_OVERRIDE_BITS = {COLUBK: 0, COLUPF: 1};
+// How many bits the number of the loaded background takes (0 when it is not kept), at most four.
+export const rainbowBackgroundBits = (backgroundCount) => Math.min(4, Math.ceil(Math.log2(backgroundCount + 1)));
+export const bgColorFlagBits = (background, playfield) => [
+  ...(background ? [BG_COLOR_OVERRIDE_BITS.COLUBK] : []), ...(playfield ? [BG_COLOR_OVERRIDE_BITS.COLUPF] : [])];
+export const rainbowIdBits = (rainbowBits) => Array.from({length: rainbowBits}, (_, index) => index);
+export const reserveBackgroundColorFlagsDevVar = (reserveDevVar, colorBits, rainbowBits) => {
+  if (colorBits.length) reserveDevVar(flagPoolVar(BG_COLOR_FLAGS_FAMILY), undefined, 'a background or playfield color was set by a block, over the row colors');
+  if (rainbowBits.length) reserveDevVar(flagPoolVar(BG_RAINBOW_ID_FAMILY), undefined, 'the background loaded last, for stopping the playfield rainbow (DPC+)');
 };
+// The bit of a flag byte as bB writes it.
+export const bgColorFlagRef = (Blockly, bit, family = BG_COLOR_FLAGS_FAMILY) =>
+  `${Blockly.BBasic.nameDB_.getName(flagPoolVar(family), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${flagPoolBit(family, bit)}}`;
 
 // The area of a "Playfield offset" block as the bytes of eight columns it covers, when its left and right edges are plain numbers that start and end
 // a byte (0, 8, 16 or 24 and 7, 15, 23 or 31); otherwise null (the edges are worked out when the game runs).
@@ -827,6 +841,16 @@ export default (Blockly) => {
     const resolve = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const pairs = Blockly.BBasic.superchipRwPairs;
     const flagsVar = resolve(romNoiseFlagsVarName());
+    // DPC+ scrolls the color rows themselves into a rainbow, so the loaded background's color rows are put back (by a routine
+    // generateBackgrounds makes), and the rainbow loads its rows again if it is started again.
+    if (((useConfigurationStorage() && useConfigurationStorage().value) || {}).kernel === 'dpcplus') {
+      const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(BACKGROUND_RAINBOW_RESTORE_NAME));
+      // Only when the rainbow was on, so a Stop block that runs every frame does not put the rows back every frame.
+      const skip = `_rainbowstop_${Blockly.BBasic.blockNumbers.next('rainbowStop')}`;
+      return `if !${flagsVar}{${backgroundRainbowActiveBit()}} then goto ${skip}\n` +
+        `${flagsVar}{${backgroundRainbowActiveBit()}} = 0\n${flagsVar}{${backgroundRainbowLoadedBit()}} = 0\n` +
+        `gosub ${BACKGROUND_RAINBOW_RESTORE_NAME}${suffix}\n@ ${skip}\n`;
+    }
     // Points the kernel back at the loaded background's row color table. The top
     // row's color comes back by itself on the next frame.
     return `${flagsVar}{${backgroundRainbowActiveBit()}} = 0\n` +
@@ -896,7 +920,7 @@ export default (Blockly) => {
         (rawVar === 'COLUPF' && Blockly.BBasic.dpcPlusPfColorsOn(dpcPlusConfig));
       if (perRow && (rawVar === 'COLUBK' || rawVar === 'COLUPF')) {
         Blockly.BBasic.bgColorOverrides[rawVar].add(argument0.trim());
-        const flag = Blockly.BBasic.nameDB_.getName(BG_COLOR_OVERRIDE_VARS[rawVar], Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        const flag = bgColorFlagRef(Blockly, BG_COLOR_OVERRIDE_BITS[rawVar]);
         return `${varName} = ${argument0}\n${flag} = 1\n ${rawVar === 'COLUBK' ? 'bkcolors' : 'pfcolors'}:\n${rows}\n@end\n`;
       }
     }
@@ -913,9 +937,14 @@ export default (Blockly) => {
     [['COLUBK', 'bkcolors', 'backgroundrealcolor'], ['COLUPF', 'pfcolors', 'playfieldrealcolor']].forEach(([key, table, realVar]) => {
       const colors = [...(sets[key] || [])];
       if (!colors.length) return;
-      const flag = Blockly.BBasic.nameDB_.getName(BG_COLOR_OVERRIDE_VARS[key], Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const flag = bgColorFlagRef(Blockly, BG_COLOR_OVERRIDE_BITS[key]);
       const real = Blockly.BBasic.nameDB_.getName(realVar, Blockly.VARIABLE_CATEGORY_NAME);
-      parts.push(` if ${flag} = 0 then goto _bgov_${key}_done`);
+      parts.push(` if !${flag} then goto _bgov_${key}_done`);
+      // A background with row colors set in its editor keeps them: a color a block set before it was loaded does not cover them.
+      if (key === 'COLUBK') {
+        const colored = (Blockly.BBasic.getIncludedBackgrounds() || []).filter((b) => (b.bkRowColors || []).some((color) => color));
+        colored.forEach((b) => parts.push(` if newbackground = ${b.id} then goto _bgov_${key}_done`));
+      }
       colors.forEach((color, i) => parts.push(` if ${real} = ${color} then goto _bgov_${key}_${i}`));
       parts.push(` goto _bgov_${key}_done`);
       colors.forEach((color, i) => parts.push(`_bgov_${key}_${i}`, ` ${table}:`, ...Array(rows).fill(`  ${color}`), 'end', ` goto _bgov_${key}_done`));
