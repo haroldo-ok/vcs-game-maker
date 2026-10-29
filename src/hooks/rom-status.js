@@ -2,6 +2,7 @@
 
 import Vue from 'vue';
 import VueCompositionApi, {ref} from '@vue/composition-api';
+import {markGeneratedStale} from './generated';
 
 Vue.use(VueCompositionApi);
 
@@ -14,6 +15,8 @@ export const useRomOutdated = () => romOutdated;
 
 export const markRomOutdated = () => {
   romOutdated.value = true;
+  // (The code shown on the Generated tab is behind the project then too; it is built when that tab opens.)
+  markGeneratedStale();
 };
 
 // Whether a ROM has EVER been successfully compiled this page load - unlike

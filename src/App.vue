@@ -984,7 +984,11 @@ export default {
           .map(([bit, letter]) => (info.flags & bit ? letter : '.')).join('');
       return `PC $${hex(info.pc, 4)}  A $${hex(info.a, 2)}  X $${hex(info.x, 2)}  Y $${hex(info.y, 2)}` +
         `  S $${hex(info.s, 2)}  ${flagLetters}\n` +
-        `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}  Frame ${info.frame}\n` +
+        // The scanlines the kernel draws (VBLANK off) out of the most a kernel can draw: the picture of the TV standard (192 lines on NTSC,
+        // 228 on PAL), when the emulator counts them.
+        (info.kernelLines === undefined ? `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}` :
+          `Scanlines ${info.kernelLines} of ${(this.configurationStorage || {}).tvStandard === 'pal' ? 228 : 192} max`) +
+        `  Frame ${info.frame}\n` +
         (info.busyCycles === null ?
           `CPU cycles/frame ${info.cpuCycles}` :
           `CPU busy ${info.busyCycles} of ${info.cpuCycles} cycles/frame`);
@@ -2182,7 +2186,8 @@ export default {
 
 /* Menus that hold a bare list instead of a card (e.g. the Data tab's cell
    mode menu) get the same border. */
-.data-format-menu {
+.data-format-menu,
+.card-folder-menu:has(> .v-list) {
   border: 1px solid rgba(0, 0, 0, 0.24);
 }
 

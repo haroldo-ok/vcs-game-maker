@@ -38,7 +38,7 @@ import {showError} from '../utils/build-error';
 import {expandSceneBlocks, sceneBlocksXml} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
-import {useGeneratedBasic} from './generated';
+import {useGeneratedBasic, markGeneratedFresh, setGeneratedCodeBuilder} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   useDataTablesStorage, usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
   useWorkspaceStorage} from './project';
@@ -114,6 +114,9 @@ const withHeadlessWorkspace = (callback, xmlOverride) => {
 // time; a graphics edit alone would otherwise leave the cached code stale.
 const regenerateCode = (xmlOverride) =>
   withHeadlessWorkspace((workspace) => BlocklyBB.workspaceToCode(workspace), xmlOverride);
+
+// The Generated tab builds the code of the stored project when it opens, if the project changed (see hooks/generated.js).
+setGeneratedCodeBuilder(() => regenerateCode());
 
 // How many letter-pool slots the current project would actually need if
 // Superchip RAM were off - used by Configuration.vue to check whether
@@ -1439,6 +1442,7 @@ const buildRomInner = async () => {
       code = regenerateCode();
       buildTvSpec = emulatorTvSpec(useConfigurationStorage().value || {});
       useGeneratedBasic().value = code;
+      markGeneratedFresh();
       // What the first pass found cannot go in Display RAM holds for the later ones too (only where the units are changes).
       BlocklyBB.displayRamExcludedSeed = new Set(BlocklyBB.displayRamExcluded || []);
     } catch (e) {

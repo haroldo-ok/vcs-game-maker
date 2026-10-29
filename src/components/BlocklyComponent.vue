@@ -520,6 +520,7 @@ export default {
       multiselect: null,
       stopClipboardSync: null,
       lastSavedWorkspace: null,
+      codeMayHaveChanged: true,
     };
   },
   computed: {
@@ -591,6 +592,9 @@ export default {
         if (event.type === Blockly.Events.BLOCK_DRAG && !event.isStart) this.debouncedHandleChange();
         return;
       }
+      // A block moved to another place on the canvas (not into or out of a stack) changes where it is saved but nothing the code is made of.
+      // (Noted before the check for a drag: a block taken out of a stack, or dropped into one, reports it while the drag is still on.)
+      if (!(event.type === Blockly.Events.BLOCK_MOVE && !event.oldParentId && !event.newParentId)) this.codeMayHaveChanged = true;
       if (this.workspace.isDragging()) return;
       this.debouncedHandleChange();
     });
@@ -1125,8 +1129,12 @@ export default {
       // Nothing changed since the last time: nothing to send on (the page would build the code again for the same blocks).
       if (text === this.lastSavedWorkspace) return;
       this.lastSavedWorkspace = text;
+      // positionOnly: only blocks were moved about the canvas since the last time, so the code of the project is the same.
+      const positionOnly = !this.codeMayHaveChanged;
+      this.codeMayHaveChanged = false;
       this.$emit('input', text, {
         workspace: this.workspace,
+        positionOnly,
       });
     },
   },

@@ -13,7 +13,6 @@
 
 <script>
 import Handlebars from 'handlebars';
-import {debounce} from 'lodash';
 import Blockly from 'blockly';
 
 import BlocklyComponent from './BlocklyComponent.vue';
@@ -46,7 +45,6 @@ import blocklyToolboxBallMovement from 'raw-loader!./blockly-toolbox-ball-moveme
 import blocklyToolboxBackground from 'raw-loader!./blockly-toolbox-background.xml';
 import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-event.xml';
 
-import BlocklyBB from '../generators/bbasic';
 import {showError} from '../utils/build-error';
 import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage, useMuteBlocklySoundsStorage,
   useGridSnapStorage, useDesaturateBlocklyColorsStorage, useDarkModeStorage} from '../hooks/project';
@@ -371,33 +369,14 @@ export default {
       const grid = workspace && workspace.getGrid && workspace.getGrid();
       if (grid) grid.setSnapToGrid(this.gridSnapEnabled);
     },
-    // Only the bBasic source is refreshed as blocks change; compiling it into a
-    // ROM is left to the "Update ROM" button, since a build is slow and a
-    // faulty program can lock up the emulator along with the rest of the app.
-    // The code of a big project takes a while to generate, and it was generated right when a block was dropped, so the drop felt slow: it is
-    // generated a moment later, once the edits have stopped (and at once when the tab is left, see beforeDestroy).
-    showCode() {
-      if (!this.debouncedShowCode) this.debouncedShowCode = debounce(() => this.generateCode(), 300);
-      this.debouncedShowCode();
-    },
-    generateCode() {
-      // (The editor can be gone by now: the tab was left.)
-      const editor = this.$refs['foo'];
-      if (!editor || !editor.workspace) return;
-      let code;
-      try {
-        code = BlocklyBB.workspaceToCode(this.$refs['foo'].workspace);
-      } catch (e) {
-        showError(this.errorStorage, 'Error while generating bBasic code', code, e);
-        return;
-      }
-
-      // Blockly reports UI-only changes too (opening the toolbox, scrolling),
-      // so compare the code rather than trusting the event.
-      if (code !== this.generatedBasic.value) {
-        this.generatedBasic.value = code;
-        markRomOutdated();
-      }
+    // A change of blocks: compiling the project into a ROM is left to the "Update ROM" button (a build is slow and a faulty program can lock up the
+    // emulator along with the rest of the app), and the bBasic source is built when the Generated tab opens or a build needs it.
+    showCode(text, meta) {
+      // Blocks moved about the canvas change nothing the code is made of.
+      if (meta && meta.positionOnly) return;
+      // The code is not built now (over a second for a big project, which made the next drag start late): the Generated tab and a ROM build
+      // build it when they need it. All that is noted is that it is behind the blocks (marking the ROM outdated does that too).
+      markRomOutdated();
     },
   },
   computed: {
@@ -464,9 +443,6 @@ export default {
     // group's rendered screen position, so it isn't affected by layout
     // settling the way a getBoundingClientRect()-based measurement was.
     this.setupGridSnapZoomButton();
-    // The code of the project as it is when the tab opens (it used to come from the first scroll or click on the canvas, which no longer
-    // builds it, see showCode); a project imported while another tab was open has none until then.
-    this.showCode();
     // Redraws the grid snap icon in the colors for the new theme (see render in
     // setupGridSnapZoomButton). darkModeStorage is a ref held as is in data(), so
     // it is read through .value.
@@ -475,7 +451,6 @@ export default {
     });
   },
   beforeDestroy() {
-    if (this.debouncedShowCode) this.debouncedShowCode.flush();
     if (this.gridSnapSvgGroup_ && this.gridSnapSvgGroup_.parentNode) {
       this.gridSnapSvgGroup_.parentNode.removeChild(this.gridSnapSvgGroup_);
     }

@@ -56,6 +56,9 @@ const state = {
   atariVoxPlugged: false,
   atariVox: null,
   debugWatch: [],
+  // The row of the frame where the picture begins (the first line drawn with VBLANK off), of the last whole frame.
+  pictureTop: 0,
+  pictureTopNow: -1,
   debugLastCpuCycles: 0,
   debugLastBusyCycles: 0,
   busyCycles: 0,
@@ -124,6 +127,25 @@ const createBoard = async () => {
   const board = new Board(config, cartridge);
   // The field is private to 6502.ts (like the palette below); the frame is this many lines plus 20.
   if (!pal && board._tia && board._tia._frameManager) board._tia._frameManager._kernelLines = NTSC_PICTURE_LINES;
+  // Notes the row where VBLANK goes off (the frame manager is private to 6502.ts, like the field above); a frame ends at its VSYNC.
+  const frameManager = board._tia && board._tia._frameManager;
+  if (frameManager) {
+    const nextLine = frameManager.nextLine.bind(frameManager);
+    const setVsync = frameManager.setVsync.bind(frameManager);
+    let blankAtLineStart = true;
+    frameManager.nextLine = () => {
+      if (!blankAtLineStart && state.pictureTopNow < 0 && frameManager.isRendering()) state.pictureTopNow = frameManager.getCurrentLine();
+      blankAtLineStart = frameManager.vblank;
+      nextLine();
+    };
+    frameManager.setVsync = (vsync) => {
+      if (vsync && !frameManager._vsync) {
+        state.pictureTop = Math.max(0, state.pictureTopNow);
+        state.pictureTopNow = -1;
+      }
+      setVsync(vsync);
+    };
+  }
   board.getVideoOutput().setSurfaceFactory(() =>
     ArrayBufferSurface.createFromArrayBuffer(FRAME_WIDTH, MAX_FRAME_HEIGHT,
         new ArrayBuffer(FRAME_WIDTH * MAX_FRAME_HEIGHT * 4)));
@@ -172,6 +194,27 @@ const installCycleCounter = () => {
   cpu.__cycleCounter = true;
 };
 
+// How many scanlines of the picture the kernel drew: down to the last line that is not a single color (the picture of a project with a
+// color for every row is made of such lines where nothing is drawn). The line before the picture is the first row of the frame.
+const drawnLines = () => {
+  const surface = state.lastSurface;
+  if (!surface) return 0;
+  const pixels = surface.getBuffer();
+  const rows = Math.min(Math.floor(pixels.length / FRAME_WIDTH), MAX_FRAME_HEIGHT, 240);
+  let last = -1;
+  for (let row = rows - 1; row >= 0 && last < 0; row--) {
+    const start = row * FRAME_WIDTH;
+    const first = pixels[start];
+    for (let x = 1; x < FRAME_WIDTH; x++) {
+      if (pixels[start + x] !== first) {
+        last = row;
+        break;
+      }
+    }
+  }
+  return Math.max(0, last + 1 - state.pictureTop);
+};
+
 // The debug overlay's numbers (App.vue shows them): registers, the program counter, and how long the
 // frame was, in scanlines and CPU cycles. Only sent while the overlay is on.
 const postDebug = () => {
@@ -185,6 +228,7 @@ const postDebug = () => {
     pc: cpu.getLastInstructionPointer(),
     a, x, y, s, flags,
     scanlines: board.getVideoOutput().getHeight(),
+    kernelLines: drawnLines(),
     cpuCycles: cpuCycles - state.debugLastCpuCycles,
     busyCycles: state.cpuAccuracy === 'instruction' ? null : state.busyCycles - state.debugLastBusyCycles,
     frame: state.frames,
