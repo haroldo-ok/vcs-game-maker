@@ -57,7 +57,7 @@ import {computed, defineComponent, ref} from '@vue/composition-api';
 
 import {DPC_WAVE_LENGTH, DPC_WAVE_MAX, dpcWaveOf, NOISE_WAVE, waveFor} from '../utils/dpc-sound';
 
-const BAR_COUNTS = [4, 8, 12, 16, 32];
+const BAR_COUNTS = [4, 8, 12, 16, 24, 32];
 
 const buildPresets = () => {
   const max = DPC_WAVE_MAX;
@@ -72,6 +72,8 @@ const buildPresets = () => {
     // The shapes the Standard kernel's sound chip makes (what a converted sound starts as).
     {name: 'Buzzy (Standard type 1)', shape: 'buzzy', icon: 'mdi-chart-line', wave: waveFor('tia1').samples.map((value) => value * max)},
     {name: 'Rough (Standard type 6)', shape: 'rough', icon: 'mdi-waves', wave: waveFor('tia6').samples.map((value) => value * max)},
+    // A shape drawn by hand, or fitted to a recording: keeps the bars as they are, only marks the shape as hand-made.
+    {name: 'Custom (drawn by hand or fitted to a recording)', shape: 'custom', icon: 'mdi-gesture', wave: null},
   ];
 };
 
@@ -152,14 +154,14 @@ export default defineComponent({
       const shape = stretch(samples.value);
       let best = null;
       presets.forEach((preset) => {
-        if (preset.shape === 'noise') return;
+        if (preset.shape === 'noise' || !preset.wave) return;
         const target = stretch(preset.wave);
         const difference = shape.reduce((sum, value, i) => sum + Math.abs(value - target[i]), 0) / DPC_WAVE_LENGTH;
         if (!best || difference < best.difference) best = {name: preset.name, difference};
       });
       return best && best.difference <= 2 ? best.name : undefined;
     });
-    const handlePreset = (preset) => setBars(toBars(preset.wave, barCount.value), preset.shape);
+    const handlePreset = (preset) => setBars(preset.wave ? toBars(preset.wave, barCount.value) : bars.value.slice(), preset.shape);
     const handleBarCount = (count) => setBars(toBars(samples.value, count), props.sound.dpcShape || 'custom');
     return {grid, presets, activePreset, samples, maxValue, handlePointerDown, handlePointerMove, handlePointerUp, handlePreset, handleBarCount, barCounts, barCount, bars, axisTicks};
   },
@@ -266,7 +268,7 @@ export default defineComponent({
   /* Right under the Priority dropdown in the card's name row: the same 80px wide, and ending where it ends (past the
      kind button's 26px and the row's 4px gap). */
   flex: 0 0 80px;
-  margin: 0 32px 0 auto;
+  margin: 12px 32px 0 auto;
   padding-top: 0;
 }
 

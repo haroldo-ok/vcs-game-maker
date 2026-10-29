@@ -5,11 +5,31 @@
 // a few hundred bytes of a bank that is nearly full. This puts the tables in another order: each time, the biggest one that still fits in
 // the rest of the page goes next, and a page is only left unfinished when none fits. The data starts on a page boundary, so the order
 // worked out here is the one the assembler gets.
+//
+// The data really starts where the code before it ends, and the first table that does not fit in what is left of that page starts the
+// next page: the rest of that page (up to 255 bytes) is padding. The last tables of the order, the small ones, are therefore offered to
+// that gap first: each is written there when the assembler finds it fits (the assembler works out where it is), and in its place at
+// the end of the data otherwise.
 
 const BYTE_LINE = /^\s*(?:BYTE|\.byte)\s+(.*)$/i;
 const CONDITIONAL = /^\s*if >\. != >\[\.\+\(?(\w+)\)?\]\s*$/i;
 const PAGE_ALIGN = /^\s*align 256\s*$/i;
 const SYMBOL = /^\s*(\w+)\s*=\s*(\d+)\s*$/;
+
+// The most tables (and bytes of them, and bytes in one) that are offered to the gap before the first page of the data.
+const MAX_GAP_TABLES = 24;
+const MAX_GAP_BYTES = 256;
+const MAX_GAP_TABLE_BYTES = 200;
+const LABEL_LINE = /^(\w+)\s*(?:;.*)?$/;
+
+// The first label a table defines (a line that is only a name).
+const labelOf = (chunk) => {
+  for (const line of chunk.lines.slice(3)) {
+    const match = LABEL_LINE.exec(line.trim());
+    if (match && !/^(?:BYTE|endif|align)$/i.test(match[1])) return match[1];
+  }
+  return null;
+};
 
 const bytesOf = (line) => {
   const match = BYTE_LINE.exec(line.replace(/;.*/, ''));
@@ -24,6 +44,9 @@ export const packTitleData = (text) => {
   const head = [];
   const tables = [];
   const pages = [];
+  // Data that is not a table of a card (the sprites of the Player card come after the last table) has no page to stay in, and goes after
+  // the tables, so that it does not weigh on the table it followed.
+  const footer = [];
   let current = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -48,6 +71,11 @@ export const packTitleData = (text) => {
       head.push(line);
       continue;
     }
+    const ownerMatch = /^(\w+)\s*(?:;.*)?$/.exec(line.trim());
+    if (current.need !== undefined && ownerMatch && /^bmp_player\d/.test(ownerMatch[1])) {
+      current = {lines: [], bytes: 0};
+      footer.push(current);
+    }
     // (A zero byte before the label of a table of row colors comes after the test, so the table starts one byte later.)
     current.lines.push(line);
     current.bytes += bytesOf(line);
@@ -63,7 +91,7 @@ export const packTitleData = (text) => {
       return false;
     });
   };
-  [...tables, ...pages].forEach(keep);
+  [...tables, ...pages, ...footer].forEach(keep);
   const headKept = head.filter((line) => {
     if (!SYMBOL.test(line)) return true;
     definitions.push(line);
@@ -88,9 +116,31 @@ export const packTitleData = (text) => {
     ordered.push(next);
     position += next.bytes;
   }
+  // The tail of the order (the tables that fill what the others leave) is what goes to the gap: the plan for the rest is not disturbed.
+  const gapCandidates = [];
+  let gapBytes = 0;
+  for (let i = ordered.length - 1; i >= 0 && gapCandidates.length < MAX_GAP_TABLES; i--) {
+    const chunk = ordered[i];
+    const label = labelOf(chunk);
+    if (!label || chunk.need > MAX_GAP_TABLE_BYTES || gapBytes + chunk.bytes > MAX_GAP_BYTES) break;
+    gapBytes += chunk.bytes;
+    gapCandidates.unshift(chunk);
+  }
+  const inGap = new Set(gapCandidates);
+  // (The biggest first: the gap is filled by the first that fits, then what is left of it by the next.)
+  const gapOrder = gapCandidates.slice().sort((a, b) => b.need - a.need);
   const out = [...definitions];
+  // (The flags are SET again at the start of every pass of the assembler: a plain symbol stays defined from the pass before, and
+  // the table would then be written in neither place.)
+  gapCandidates.forEach((chunk) => out.push(`${labelOf(chunk)}_ingap SET 0`));
+  gapOrder.forEach((chunk) => {
+    const flag = `${labelOf(chunk)}_ingap`;
+    out.push(` if ((. & $FF) + ${chunk.need}) < $100`, ...chunk.lines.slice(3), `${flag} SET 1`, ' endif');
+  });
   pages.forEach((chunk) => out.push(...chunk.lines));
   out.push(...headKept);
-  ordered.forEach((chunk) => out.push(...chunk.lines));
+  ordered.filter((chunk) => !inGap.has(chunk)).forEach((chunk) => out.push(...chunk.lines));
+  gapCandidates.forEach((chunk) => out.push(` if ${labelOf(chunk)}_ingap == 0`, ...chunk.lines, ' endif'));
+  footer.forEach((chunk) => out.push(...chunk.lines));
   return out.join(String.fromCharCode(10));
 };

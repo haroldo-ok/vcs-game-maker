@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container">
-      <v-card-title>Music (alpha 0.85)</v-card-title>
+      <v-card-title>Music (alpha 0.88)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message music-intro-paragraph">
           Compose songs here, then play one at runtime with a "Play song" block (Actions tab).
@@ -702,7 +702,7 @@
                                 'piano-roll-label-row-unavailable': labelRowUnavailable(activePattern(song), row)}"
                             >{{ row.label }}</div>
                             <div
-                              v-for="stepIndex in maxPatternSteps"
+                              v-for="stepIndex in stepsFor(activePattern(song))"
                               v-bind:key="stepIndex"
                               class="piano-roll-cell"
                               :style="[patternCellStyle(song, activePattern(song), row, stepIndex - 1), {flex: `0 0 ${cellWidthPx()}px`}]"
@@ -726,7 +726,15 @@
                                     note, stepsFor(activePattern(song)), event)"
                               />
                             </div>
+                            <!-- The steps past the pattern's length are one box (a cell each for thousands of them made a change of the length wait for all of them to draw again). -->
+                            <div
+                              v-if="stepsFor(activePattern(song)) < maxPatternSteps"
+                              class="piano-roll-cell piano-roll-cell-length-disabled piano-roll-cell-filler"
+                              :style="fillerStyle(activePattern(song))"
+                            />
                           </div>
+                          <!-- After the rows, so they keep their odd and even places (their shading follows it). -->
+                          <div class="piano-roll-hover-preview" />
                         </div>
                       </div>
 
@@ -827,7 +835,7 @@ import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, t
 import {useMusicEditorActiveState, usePlaybackStatusState} from '../hooks/music-editor-state';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSongsStorage,
   useSoundEffectsStorage, loadMutedMusicTrackIds, loadSoloedMusicTrackIds, MUTED_MUSIC_TRACKS_KEY,
-  SOLOED_MUSIC_TRACKS_KEY, isMusicTrackMuted} from '../hooks/project';
+  SOLOED_MUSIC_TRACKS_KEY, isMusicTrackMuted, useDarkModeStorage} from '../hooks/project';
 import {
   clampPatternSteps, clampTempo, DEFAULT_PATTERN_STEPS, DEFAULT_SONGS, DEFAULT_TEMPO, DURATION_SUBDIVISION_OPTIONS,
   LENGTH_UNITS_PER_STEP, MAX_PATTERN_STEPS, MAX_TEMPO, MIN_PATTERN_STEPS, MIN_TEMPO, normalizeSequenceGroups,
@@ -951,6 +959,7 @@ export default defineComponent({
   components: {ConfirmDeleteMenu},
   setup() {
     const songsStorage = useSongsStorage();
+    const darkModeStorage = useDarkModeStorage();
     const soundEffectsStorage = useSoundEffectsStorage();
     const configurationStorage = useConfigurationStorage();
     // Same shared app-wide storage keys as SoundFXEditor.vue's  identical
@@ -3180,9 +3189,12 @@ export default defineComponent({
     const refreshSliceGrid = () => {
       const subdivision = effectiveSubdivision();
       const slicePercent = 100 / subdivision;
-      sliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.08) 0, rgba(0, 0, 0, 0.08) 1px, ` +
+      // Light lines on the dark cells of Dark Mode (dark ones on its light cells vanish).
+      const sliceLine = darkModeStorage.value ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.08)';
+      const headerLine = darkModeStorage.value ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.05)';
+      sliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, ${sliceLine} 0, ${sliceLine} 1px, ` +
         `transparent 1px, transparent ${slicePercent}%)`;
-      headerSliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, rgba(0, 0, 0, 0.05) 0, rgba(0, 0, 0, 0.05) 1px, ` +
+      headerSliceGridCache = subdivision <= 1 ? null : `repeating-linear-gradient(to right, ${headerLine} 0, ${headerLine} 1px, ` +
         `transparent 1px, transparent ${slicePercent}%)`;
       return subdivision;
     };
@@ -3316,13 +3328,15 @@ export default defineComponent({
       return layers.length ? {backgroundImage: layers.join(', ')} : {};
     };
 
+    const fillerStyle = (pattern) => {
+      const width = cellWidthPx();
+      return {'flex': `0 0 ${(MAX_PATTERN_STEPS - stepsFor(pattern)) * width}px`, '--step-width': `${width}px`};
+    };
+
     const patternCellStyle = (song, pattern, row, step) => {
       const grid = sliceGridImage();
       const notes = notesInCell(pattern, row, step);
       const activeTrack = activeTrackFor(pattern);
-      const preview = hoverPreview.value;
-      const showsPreview = !!preview && preview.step === step && preview.midi === row.midi &&
-        activeTrack && preview.trackId === activeTrack.id;
       const stepStartUnits = step * LENGTH_UNITS_PER_STEP;
 
       const layers = [];
@@ -3331,10 +3345,6 @@ export default defineComponent({
         const layer = playheadSliceLayer(
             head.elapsedUnits, stepStartUnits, head.live ? PLAYHEAD_COLOR : ARMED_PLAYHEAD_COLOR);
         if (layer) layers.push(layer);
-      }
-      if (showsPreview) {
-        layers.push(segmentGradient(
-            stepStartUnits, preview.startUnits, preview.endUnits, HOVER_PREVIEW_COLORS[preview.mode]));
       }
       if (notes.length) {
         notes
@@ -3453,11 +3463,35 @@ export default defineComponent({
     // highlighted (CSS :hover can't know the mouse's X position within it),
     // which reads as "this will fill the whole step" even when the current
     // slice snap would only fill a fraction of it.
-    const hoverPreview = ref(null);
+    // It is drawn straight on one box over the piano roll (not through Vue): the page draws the thousands of cells again for any state
+    // it reads, so a preview in the state made each move of the mouse wait for that, and the highlight came late.
+    let hoverOverlay = null;
+    const hideHoverPreview = () => {
+      if (hoverOverlay) hoverOverlay.style.display = 'none';
+    };
+    const showHoverPreview = (cell, row, preview) => {
+      const roll = cell.closest('.piano-roll');
+      const overlay = roll && roll.querySelector('.piano-roll-hover-preview');
+      if (!overlay) return;
+      if (hoverOverlay && hoverOverlay !== overlay) hoverOverlay.style.display = 'none';
+      hoverOverlay = overlay;
+      const rowIndex = preview ? currentSharedNoteRows().findIndex((candidate) => candidate.midi === row.midi) : -1;
+      if (!preview || rowIndex < 0) {
+        overlay.style.display = 'none';
+        return;
+      }
+      const unitWidth = cellWidthPx() / LENGTH_UNITS_PER_STEP;
+      overlay.style.left = `${PIANO_ROLL_LABEL_WIDTH + preview.startUnits * unitWidth}px`;
+      overlay.style.top = `${rowIndex * PIANO_ROLL_ROW_HEIGHT_PX}px`;
+      overlay.style.width = `${Math.max(1, (preview.endUnits - preview.startUnits) * unitWidth)}px`;
+      overlay.style.height = `${PIANO_ROLL_ROW_HEIGHT_PX - 1}px`;
+      overlay.style.backgroundColor = HOVER_PREVIEW_COLORS[preview.mode];
+      overlay.style.display = 'block';
+    };
     const handleCellHover = (pattern, row, step, stepCount, event) => {
       const activeTrack = activeTrackFor(pattern);
       if (!activeTrack || step >= stepCount) {
-        hoverPreview.value = null;
+        showHoverPreview(event.currentTarget, row, null);
         return;
       }
       const startUnits = step * LENGTH_UNITS_PER_STEP + clickedSliceOffsetUnits(event);
@@ -3468,13 +3502,13 @@ export default defineComponent({
       // handleMarqueeSelectStart below) - no placement/removal preview,
       // since a plain click does nothing in either.
       if (pianoRollTool.value === 'move' || pianoRollTool.value === 'select') {
-        hoverPreview.value = null;
+        showHoverPreview(event.currentTarget, row, null);
         return;
       }
       if (pianoRollTool.value === 'erase') {
-        hoverPreview.value = (ownNoteHere && ownNoteHere.midi === row.midi) ?
+        showHoverPreview(event.currentTarget, row, (ownNoteHere && ownNoteHere.midi === row.midi) ?
           {mode: 'remove', trackId: activeTrack.id, midi: row.midi, step,
-            startUnits: ownNoteHere.step, endUnits: ownNoteHere.step + ownNoteHere.length} : null;
+            startUnits: ownNoteHere.step, endUnits: ownNoteHere.step + ownNoteHere.length} : null);
         return;
       }
       // A different pitch where this instrument already has a note falls
@@ -3487,13 +3521,13 @@ export default defineComponent({
       // not indistinguishable from a genuinely empty slot.
       const placeable = canPlaceNoteAt(pattern, activeTrack, row, startUnits, endUnits);
       const mode = !placeable ? 'blocked' : (ownNoteHere ? 'overwrite' : 'add');
-      hoverPreview.value = {
+      showHoverPreview(event.currentTarget, row, {
         mode,
         trackId: activeTrack.id, midi: row.midi, step, startUnits, endUnits,
-      };
+      });
     };
     const handleCellLeave = () => {
-      hoverPreview.value = null;
+      hideHoverPreview();
     };
 
     const handlePatternCellClick = (song, pattern, row, step, stepCount, event) => {
@@ -3583,7 +3617,7 @@ export default defineComponent({
       activeTrack.notes.push(newNote);
       lastNoteLength.value = newNote.length;
       lastNoteAudv.value = newNote.audv === undefined ? null : newNote.audv;
-      hoverPreview.value = null;
+      hideHoverPreview();
       handleChildChange();
       if (!isTrackMuted(song, pattern, activeTrack)) {
         previewPatternNote({
@@ -4174,7 +4208,7 @@ export default defineComponent({
       subdivisionOptionItems: DURATION_SUBDIVISION_OPTIONS.map((n) => ({text: `${n}`, value: n})),
       minPatternSteps: MIN_PATTERN_STEPS,
       maxPatternSteps: MAX_PATTERN_STEPS,
-      pianoRollReady, refreshSliceGrid, pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
+      pianoRollReady, refreshSliceGrid, fillerStyle, pianoRollZoom, stepPianoRollZoom, cellWidthPx, handleFitZoom,
       volumeRowHeight, startVolumeRowResize,
       pianoRollHeight, startPianoRollResize, startPianoRollResizeTop,
       isMusicToolbarScrolled, musicToolbarHeight,
@@ -5451,6 +5485,15 @@ export default defineComponent({
 
 .piano-roll {
   width: fit-content;
+  position: relative;
+}
+
+/* Where a click would put (or take away) a note: one box over the rows, not painted in the cells. */
+.piano-roll-hover-preview {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  pointer-events: none;
 }
 
 .piano-roll-row {
@@ -5464,6 +5507,10 @@ export default defineComponent({
 
 .piano-roll-label {
   flex: 0 0 58px;
+  z-index: 2;
+  /* A row is as tall as its cells (20px, PIANO_ROLL_ROW_HEIGHT_PX): the page's 22px line height made the label, and so the row, 2px taller, and
+     that gap under the cells showed as a thick line between the rows. */
+  line-height: 20px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -5558,7 +5605,7 @@ export default defineComponent({
 }
 
 /* Precise hover feedback (matching exactly where/how long a click would
-   place a note) is drawn via patternCellStyle's hoverPreview segment
+   place a note) is drawn as the one hover box over the rows (showHoverPreview)
    instead - a plain whole-cell highlight here would misleadingly suggest a
    click always fills the entire step, even when the current slice snap
    would only fill a fraction of it. */
@@ -5610,6 +5657,12 @@ export default defineComponent({
    .piano-roll-cell-disabled now (both read as "not usable"); it used to be
    darker still, but that extra distinction wasn't obvious enough to be
    worth two different shades. */
+.piano-roll-cell-filler {
+  /* The step lines of the steps it stands for. */
+  background-image: repeating-linear-gradient(to right, var(--filler-line, rgba(0, 0, 0, 0.22)) 0, var(--filler-line, rgba(0, 0, 0, 0.22)) 1px,
+    transparent 1px, transparent var(--step-width));
+}
+
 .piano-roll-cell-length-disabled {
   background-color: rgba(0, 0, 0, 0.18) !important;
   cursor: not-allowed;

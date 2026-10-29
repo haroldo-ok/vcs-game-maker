@@ -190,11 +190,11 @@
                       type="number"
                       min="1"
                       max="192"
-                      :value="background.pfres || ''"
+                      :value="background.pfres || defaultPfres"
                       :placeholder="String(defaultPfres)"
                       persistent-placeholder
                       :title="`How many rows this background has on screen, 1 to 192. Left empty it uses the project's pfres (${defaultPfres}, set in Options).`"
-                      @input="(value) => handleChangeBackgroundPfres(background, value)"
+                      @input="(value) => value !== '' && handleChangeBackgroundPfres(background, value)"
                       @change="(value) => handleChangeBackgroundPfres(background, value)"
                     />
                     <v-text-field
@@ -204,11 +204,11 @@
                       type="number"
                       min="1"
                       max="192"
-                      :value="background.pfColorRows || ''"
+                      :value="background.pfColorRows || background.pixels.length"
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
                       title="How many rows of colors the playfield colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
-                      @input="(value) => handleTypeColorRows(background, 'pf', value)"
+                      @input="(value) => value !== '' && handleTypeColorRows(background, 'pf', value)"
                       @change="(value) => handleLeaveColorRows(background, 'pf', value)"
                     />
                     <v-text-field
@@ -218,11 +218,11 @@
                       type="number"
                       min="1"
                       max="192"
-                      :value="background.bkColorRows || ''"
+                      :value="background.bkColorRows || background.pixels.length"
                       :placeholder="String(background.pixels.length)"
                       persistent-placeholder
                       title="How many rows of colors the background colors have, spread over the height of the picture. Left empty it is the number of rows of the picture."
-                      @input="(value) => handleTypeColorRows(background, 'bk', value)"
+                      @input="(value) => value !== '' && handleTypeColorRows(background, 'bk', value)"
                       @change="(value) => handleLeaveColorRows(background, 'bk', value)"
                     />
                   </div>
@@ -259,24 +259,47 @@
                       v-if="pfColorsEnabled"
                       icon
                       small
-                      title="Copy this background's row colors only"
+                      title="Copy this background's playfield row colors only"
                       class="player-icon-btn-size copy-paste-color-btn"
                       @click="() => handleCopyBackgroundRowColors(background)"
                     >
                       <v-icon>mdi-content-copy</v-icon>
-                      <span class="copy-paste-color-badge">C</span>
+                      <span class="copy-paste-color-badge">P</span>
                     </v-btn>
                     <v-btn
                       v-if="pfColorsEnabled"
                       icon
                       small
                       :disabled="!copiedBackgroundRowColors"
-                      title="Paste copied row colors only onto this background"
+                      title="Paste copied playfield row colors only onto this background"
                       class="player-icon-btn-size copy-paste-color-btn"
                       @click="() => handlePasteBackgroundRowColors(background)"
                     >
                       <v-icon>mdi-content-paste</v-icon>
-                      <span class="copy-paste-color-badge">C</span>
+                      <span class="copy-paste-color-badge">P</span>
+                    </v-btn>
+                    <v-btn
+                      v-if="bkColorsEnabled"
+                      icon
+                      small
+                      title="Copy this background's background row colors only"
+                      class="player-icon-btn-size copy-paste-color-btn"
+                      @click="() => handleCopyBackgroundBkRowColors(background)"
+                    >
+                      <v-icon>mdi-content-copy</v-icon>
+                      <span class="copy-paste-color-badge">B</span>
+                    </v-btn>
+                    <v-btn
+                      v-if="bkColorsEnabled"
+                      icon
+                      small
+                      :disabled="!copiedBackgroundBkRowColors"
+                      title="Paste copied background row colors only onto this background"
+                      class="player-icon-btn-size copy-paste-color-btn"
+                      @click="() => handlePasteBackgroundBkRowColors(background)"
+                    >
+                      <v-icon>mdi-content-paste</v-icon>
+                      <span class="copy-paste-color-badge">B</span>
                     </v-btn>
                     <v-btn
                       :title="testingId === background.id ? 'Building...' :
@@ -545,6 +568,7 @@ const buildDefaultBackgroundPixels = (rows, cols = 32) =>
 // clipboard alive across navigating away from and back to this tab (Vue
 // Router destroys and recreates this component each time).
 const copiedBackgroundRowColors = ref(null);
+const copiedBackgroundBkRowColors = ref(null);
 const copiedBackgroundData = ref(null);
 
 export default defineComponent({
@@ -1069,6 +1093,15 @@ export default defineComponent({
       handleRowColorsInput(background, structuredClone(copiedBackgroundRowColors.value));
     };
 
+    // The same pair for the background row colors (the colors behind the cells that are off).
+    const handleCopyBackgroundBkRowColors = (background) => {
+      copiedBackgroundBkRowColors.value = structuredClone(background.bkRowColors || []);
+    };
+    const handlePasteBackgroundBkRowColors = (background) => {
+      if (!copiedBackgroundBkRowColors.value) return;
+      handleBkRowColorsInput(background, structuredClone(copiedBackgroundBkRowColors.value));
+    };
+
     // Same "whole image, pixels + row colors together" pair as
     // PlayerEditor.vue's  handleCopyFrame/handlePasteFrame.
     const handleCopyBackground = (background) => {
@@ -1165,6 +1198,7 @@ export default defineComponent({
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
+      copiedBackgroundBkRowColors, handleCopyBackgroundBkRowColors, handlePasteBackgroundBkRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
       activeEditor, setActiveEditor, selectedBackground,
       effectiveEditor, pixelEditorRefKey,

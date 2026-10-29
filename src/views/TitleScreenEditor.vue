@@ -523,7 +523,8 @@
                               <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
                                 "Fallback color" is only used when the chosen animation doesn't have its
                                 per-row sprite colors (Options tab). "Start X" and "Start Y" set where each
-                                player begins when the title screen starts, after the blocks of Title screen
+                                player begins when the title screen starts ("Start Y" counts down from the top of the window, inside its
+                                "Window height": a Y that is not smaller than the height puts the player below the window, where nothing is drawn), after the blocks of Title screen
                                 start have run (leave them empty to leave that to the blocks); move a player
                                 later with the normal "Player 0/1 set X/Y" blocks in Title screen update, and pick a starting frame with "Set title screen player sprite
                                 frame to" (Actions tab).

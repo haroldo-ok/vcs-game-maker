@@ -98,7 +98,7 @@ import {saveAs} from 'file-saver';
 import {component as VueCodeHighlight} from 'vue-code-highlight';
 import 'vue-code-highlight/themes/duotone-sea.css';
 
-import {useGeneratedBasic} from '../hooks/generated';
+import {useGeneratedBasic, ensureGeneratedCode} from '../hooks/generated';
 import {getDateInfix} from '../utils/date';
 
 export default defineComponent({
@@ -123,6 +123,8 @@ export default defineComponent({
       isToolbarScrolled.value = event.target.scrollTop > 0;
     };
     onMounted(() => {
+      // The code is built when this tab opens, if the project changed since it was last built (a moment later, so the tab is drawn first).
+      setTimeout(ensureGeneratedCode, 0);
       toolbarScrollContainer = instance.proxy.$el.querySelector('.code-scroll-wrapper');
       if (toolbarScrollContainer) toolbarScrollContainer.addEventListener('scroll', handleToolbarScroll);
     });

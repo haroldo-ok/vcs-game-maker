@@ -206,7 +206,11 @@ OVERSCAN
 .playerheightfixloop
 	sta player1height,y
  ifconst _NUSIZ1
+	; NUSIZ9 is not one of the bytes the kernel borrows (its score pointers end at NUSIZ8): it is left as it is.
+	cpy #8
+	beq .skipnusiz9
 	sta _NUSIZ1,y
+.skipnusiz9
  endif
 	dey
 	bpl .playerheightfixloop

@@ -117,21 +117,21 @@
       <div class="dl-groups">
         <div class="dl-group">
           <p class="dl-title">Windows</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Windows-Setup.msi" data-asset="Windows-Setup.msi">Intel / AMD (installer)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Windows-arm64-Setup.msi" data-asset="Windows-arm64-Setup.msi">ARM (installer)</a>
         </div>
         <div class="dl-group">
           <p class="dl-title">macOS</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-macOS-x64.dmg" data-asset="macOS-x64.dmg">Intel (dmg)</a>
         </div>
         <div class="dl-group">
           <p class="dl-title">Linux</p>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
-          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.7/VCS-Game-Maker-0.53.7-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS (portable)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Linux-x64.AppImage.tar.gz" data-asset="Linux-x64.AppImage.tar.gz">Intel / AMD (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Linux-amd64.deb" data-asset="Linux-amd64.deb">Intel / AMD (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Linux-x86_64.rpm" data-asset="Linux-x86_64.rpm">Intel / AMD (rpm)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Linux-arm64.AppImage.tar.gz" data-asset="Linux-arm64.AppImage.tar.gz">ARM (AppImage)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Linux-arm64.deb" data-asset="Linux-arm64.deb">ARM (deb)</a>
+          <a class="button" href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/download/0.53.9/VCS-Game-Maker-0.53.9-Linux-x64-VCS-portable.tar.gz" data-asset="Linux-x64-VCS-portable.tar.gz">2021 VCS (portable)</a>
         </div>
       </div>
     </section>
@@ -376,7 +376,12 @@
 
     <section class="feature wide" id="updates">
       <h2>Latest updates</h2>
-      <p><strong>Version 0.53.7</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
+      <p><strong>Version 0.53.9</strong> (<a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases/latest">release page</a>)</p>
+      <p>The Sound tab turns recordings into DPC+ sounds: Import audio files (WAV, OGG, MP3...) fits each file to a waveform of 24 or 32 bars with its pitch, length and volume changes, a sound card has a play button, and a waveform can be drawn by hand as a custom shape.</p>
+      <p>Big DPC+ title screens fit in their bank more often: graphics share one setup routine and rows of a single color take one byte, and a title screen no enabled Draw title screen block uses is left out of the ROM. DPC+ also got Check playfield and Bounce that read the ball from its top line, working Stop playfield rainbow and Stop player colors, separate copy and paste buttons for playfield and background row colors, RAM variables in the debug overlay, and graphic editor hotkeys that switch their tool off when pressed again.</p>
+      <p><strong>Version 0.53.8</strong></p>
+      <p>DPC+ player 0 animation and Set invisible work with a title screen, score padding on DPC+, less canvas lag, and the playfield preview shows after a build.</p>
+      <p><strong>Version 0.53.7</strong></p>
       <p>DPC+ projects that were a few bytes too big for the kernel bank compile again, the title screen preview works after a build of a project with several title pages, and the macOS apps are signed so Apple Silicon does not say the package is corrupted.</p>
       <p><strong>Version 0.53.6</strong></p>
       <p>The AtariVox can speak: new blocks in the Sound category say a message from the Text tab. Speech can be started immediately, or queued for after the current speech ends.</p>

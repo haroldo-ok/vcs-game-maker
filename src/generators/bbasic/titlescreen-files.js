@@ -49,9 +49,10 @@ const getKernelFile = (name) => {
  * mirrored here so an unused copy's kernel file is never even fetched).
  * @param {Set<string>} usedKernelKeys e.g. new Set(['48x1_1', '96x2_3']).
  * @param {boolean} hasScoreCard Whether a Score card is used: it draws with the shared 48x1 core, even with no 48x1 graphic.
+ * @param {boolean} shareSetup Whether the 48x2 graphics share one setup routine (see 48x2_S_kernel.asm).
  * @return {Promise<Object<string, string>>} filename -> file content.
  */
-export const getTitleScreenSiblingFiles = async (usedKernelKeys, hasScoreCard = false) => {
+export const getTitleScreenSiblingFiles = async (usedKernelKeys, hasScoreCard = false, shareSetup = false) => {
   const staticEntries = await getStaticFiles();
   const files = Object.fromEntries(staticEntries);
 
@@ -61,6 +62,7 @@ export const getTitleScreenSiblingFiles = async (usedKernelKeys, hasScoreCard = 
     perCopyNames.add(`${key}_kernel.asm`);
     if (key.startsWith('48x1_')) perCopyNames.add('48x1_X_kernel.asm');
     if (key.startsWith('48x2_')) perCopyNames.add('48x2_X_kernel.asm');
+    if (shareSetup && key.startsWith('48x2_')) perCopyNames.add('48x2_S_kernel.asm');
   });
 
   const perCopyEntries = await Promise.all(

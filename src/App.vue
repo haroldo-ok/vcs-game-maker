@@ -984,7 +984,11 @@ export default {
           .map(([bit, letter]) => (info.flags & bit ? letter : '.')).join('');
       return `PC $${hex(info.pc, 4)}  A $${hex(info.a, 2)}  X $${hex(info.x, 2)}  Y $${hex(info.y, 2)}` +
         `  S $${hex(info.s, 2)}  ${flagLetters}\n` +
-        `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}  Frame ${info.frame}\n` +
+        // The scanlines the kernel draws (VBLANK off) out of the most a kernel can draw: the picture of the TV standard (192 lines on NTSC,
+        // 228 on PAL), when the emulator counts them.
+        (info.kernelLines === undefined ? `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}` :
+          `Scanlines ${info.kernelLines} of ${(this.configurationStorage || {}).tvStandard === 'pal' ? 228 : 192} max`) +
+        `  Frame ${info.frame}\n` +
         (info.busyCycles === null ?
           `CPU cycles/frame ${info.cpuCycles}` :
           `CPU busy ${info.busyCycles} of ${info.cpuCycles} cycles/frame`);
@@ -2182,7 +2186,8 @@ export default {
 
 /* Menus that hold a bare list instead of a card (e.g. the Data tab's cell
    mode menu) get the same border. */
-.data-format-menu {
+.data-format-menu,
+.card-folder-menu:has(> .v-list) {
   border: 1px solid rgba(0, 0, 0, 0.24);
 }
 
@@ -3718,12 +3723,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    cells holding a note keep the instrument color they are painted with. */
 .dark-mode.v-application .piano-roll-cell:not(.piano-roll-cell-active),
 .dark-mode.v-application .piano-roll-volume-cell {
-  background-color: rgba(255, 255, 255, 0.16);
+  background-color: rgba(255, 255, 255, 0.14);
 }
 
+/* The alternate steps differ more, so the steps can be told apart at a glance. */
 .dark-mode.v-application .piano-roll-cell:not(.piano-roll-cell-active):nth-child(even),
 .dark-mode.v-application .piano-roll-volume-cell:nth-child(even) {
-  background-color: rgba(255, 255, 255, 0.21);
+  background-color: rgba(255, 255, 255, 0.25);
 }
 
 .dark-mode.v-application .piano-roll-row:nth-child(odd) {
@@ -3756,8 +3762,14 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .dark-mode.v-application .piano-roll-cell,
 .dark-mode.v-application .piano-roll-volume-cell {
-  border-left-color: rgba(255, 255, 255, 0.22) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  border-left-color: rgba(255, 255, 255, 0.4) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* The first step of every four (the beats) has a stronger line (the label is the first child of a row, so the steps are children 2, 6, 10...). */
+.dark-mode.v-application .piano-roll-cell:nth-child(4n + 2),
+.dark-mode.v-application .piano-roll-volume-cell:nth-child(4n + 2) {
+  border-left-color: rgba(255, 255, 255, 0.7) !important;
 }
 
 .dark-mode.v-application .piano-roll-volume-row {
@@ -3783,6 +3795,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .piano-roll-cell-row-unavailable,
 .dark-mode.v-application .piano-roll-cell-disabled,
 .dark-mode.v-application .piano-roll-cell-disabled:hover,
+.dark-mode.v-application .piano-roll-cell-filler {
+  --filler-line: rgba(255, 255, 255, 0.4);
+}
+
 .dark-mode.v-application .piano-roll-cell-length-disabled,
 .dark-mode.v-application .piano-roll-cell-length-disabled:hover {
   background-color: #000 !important;

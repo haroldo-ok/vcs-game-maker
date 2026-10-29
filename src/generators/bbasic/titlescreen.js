@@ -5,6 +5,7 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
   processTitleScreenStorageDefaults, isCardAnimated, cardFrameHeight,
   titleCardFrameCounterVarName, titleCardScrollOffsetVarName,
   titleCardIndexVarName, titleCardColorIndexVarName, titleCardColorPageVarName, padTitleCardFrames, titleCardColorSplit,
+  titleCardUniformAllowed, isUniformColorList,
   titleCardColorVarName, TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, titleFrameBox, titleCardFadeTargetVarName, titleCardFadeTimerVarName,
   titleCardFadePaceVarName} from '../../blocks/titlescreen';
@@ -96,8 +97,18 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     paddedFrames.map((frame) => slotFor(uniqueColors, JSON.stringify(frame.colorRows), frame) / frameHeight) : null;
   // The lists of the fade's steps come after the lists of the graphic: step n is found n lists down.
   if (fadePlan) fadePlan.lists.forEach((rowsOfStep, index) => uniqueColors.push({colorRows: rowsOfStep, contentKey: `fade${index}`}));
+  // A list of one color for every row is one byte (the color with bit 0 set) when the title screen is compact (see titleCardUniformAllowed): the
+  // lists then differ in size, and a frame's offset is the bytes of the lists before it.
+  const uniformLists = titleCardUniformAllowed(card, ref) && colorSplit === 'offset';
+  const colorListSize = (list) => (uniformLists && isUniformColorList(list.colorRows) ? 1 : frameHeight);
+  const colorStarts = [];
+  uniqueColors.reduce((start, list, index) => {
+    colorStarts[index] = start;
+    return start + colorListSize(list);
+  }, 0);
+  if (uniformLists && uniqueColors.some((list) => isUniformColorList(list.colorRows))) Blockly.BBasic.titleUniformUsed = true;
   const colorOffsets = colorSlots ?
-    colorSlots.map((slot) => (colorSplit === 'page' ? slot % colorsPerPage : slot) * frameHeight) : null;
+    colorSlots.map((slot) => (uniformLists ? colorStarts[slot] : (colorSplit === 'page' ? slot % colorsPerPage : slot) * frameHeight)) : null;
   const colorPages = colorSplit === 'page' ? colorSlots.map((slot) => Math.floor(slot / colorsPerPage)) : null;
   const pictureFrames = colorSplit ? uniquePictures : uniqueFrames;
   // The frame offsets are stored in one byte, so a frame can't start past row 255.
@@ -110,6 +121,10 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
   const height = rows.length;
   const scrollWindow = Number(card.scrollWindow) || 0;
   const windowHeight = (scrollWindow > 0 && scrollWindow < frameHeight) ? scrollWindow : frameHeight;
+  // A graphic with one frame and no scroll whose row colors are one color is also stored as one byte (see titleCardUniformAllowed).
+  const singleUniform = titleCardUniformAllowed(card, ref) && !colorSplit && uniqueFrames.length === 1 &&
+    isUniformColorList(uniqueFrames[0].colorRows) && !(windowHeight < frameHeight || frames.length > 1);
+  if (singleUniform) Blockly.BBasic.titleUniformUsed = true;
   // The kernel reads each column-block's  bytes bottom-to-top (same
   // reasoning as the row-colors list just below) - without reversing here
   // too, the image drew upside down: pixel rows and row colors both come
@@ -164,8 +179,9 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     // The row colors have a frame offset and table length separate from the picture's (see titleCardColorSplit).
     const colorIndexVar = Blockly.BBasic.nameDB_.getName(
         titleCardColorIndexVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    lines.push(`bmp_${key}_colorheight = ${(colorSplit === 'page' ? colorsPerPage : uniqueColors.length) * frameHeight}`,
-        `bmp_${key}_colorindex = ${colorIndexVar}`);
+    lines.push(`bmp_${key}_colorheight = ${colorSplit === 'page' ? colorsPerPage * frameHeight :
+      uniqueColors.reduce((total, list) => total + colorListSize(list), 0)}`,
+    `bmp_${key}_colorindex = ${colorIndexVar}`);
     if (colorSplit === 'page') {
       lines.push(`bmp_${key}_colorpage = ${Blockly.BBasic.nameDB_.getName(
           titleCardColorPageVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}`);
@@ -182,8 +198,9 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     // Already padded/truncated and deduplicated - see uniqueFrames above.
     // A graphic whose color lists are exactly those stored for an earlier graphic (the same bytes in the same
     // layout) uses that table: its "colors" is another name for the earlier one.
+    if (singleUniform) lines.push(`bmp_${key}_colorheight = 1`);
     const colorTables = Blockly.BBasic.titleColorTables || (Blockly.BBasic.titleColorTables = new Map());
-    const colorSignature = JSON.stringify([colorSplit, colorsPerPage, frameHeight,
+    const colorSignature = JSON.stringify([colorSplit, colorsPerPage, frameHeight, uniformLists, singleUniform,
       (colorSplit ? uniqueColors : uniqueFrames).map((frame) => frame.colorRows)]);
     const colorOwner = colorTables.get(colorSignature);
     if (colorOwner) {
@@ -206,15 +223,21 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
           );
         }
       } else {
-        const rowColors = (colorSplit ? uniqueColors : uniqueFrames).flatMap((frame) => frame.colorRows);
+        // A list of one color is a single byte, the color with bit 0 set (the kernel takes that as "one color for every row"); the
+        // other lists have even bytes only, as a color byte always is.
+        const asEntries = (colorRows) => (isUniformColorList(colorRows) ? [{color: colorRows[0], one: true}] :
+          colorRows.map((color) => ({color, one: false})));
+        const rowColors = (colorSplit ? uniqueColors : uniqueFrames).flatMap((frame) =>
+          ((uniformLists || singleUniform) && isUniformColorList(frame.colorRows) ? asEntries(frame.colorRows) :
+            frame.colorRows.map((color) => ({color, one: false}))));
         lines.push(
-            `   if >. != >[.+(bmp_${key}_${colorSplit ? 'colorheight' : 'height'})]`,
+            `   if >. != >[.+(bmp_${key}_${colorSplit || singleUniform ? 'colorheight' : 'height'})]`,
             '      align 256',
             '   endif',
             ' BYTE 0 ; leave this here!',
             '',
             `bmp_${key}_colors`,
-            ...[...rowColors].reverse().map((color) => `\tBYTE ${toColorHexByte(color)}`),
+            ...[...rowColors].reverse().map(({color, one}) => `\tBYTE ${one ? toHexByte(tvColorByte(color & 0xff) | 1) : toColorHexByte(color)}`),
         );
       }
     }
@@ -251,15 +274,25 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
         `bmp_${key}_background = ${varName(titleCardBoxColorVarName(ref))}`,
     );
   } else if (typeInfo.width === 48) {
+    // Unless the card has a box color, the row stays in the page's background color.
+    const shared = (Blockly.BBasic.titleShareKeys || new Set()).has(key);
+    // The numbers the shared setup of the 48x2 graphics puts in the table of the card (see 48x2_S_kernel.asm), as plain numbers
+    // for the assembler: the bytes themselves are only stored when the card has a full setup.
     lines.push(
-        `bmp_${key}_PF1`,
-        `\tBYTE ${toBinaryByte(firstBox.pf1)}`,
-        `bmp_${key}_PF2`,
-        `\tBYTE ${toBinaryByte(firstBox.pf2)}`,
-        `bmp_${key}_background`,
-        // Unless the card has a box color, the row stays in the page's background color.
-        `\tBYTE ${toColorHexByte(firstBox.background)}`,
+        `bmp_${key}_pf1c = ${firstBox.pf1 & 0xff}`,
+        `bmp_${key}_pf2c = ${firstBox.pf2 & 0xff}`,
+        `bmp_${key}_bgc = ${tvColorByte(firstBox.background & 0xff)}`,
     );
+    if (!shared) {
+      lines.push(
+          `bmp_${key}_PF1`,
+          `\tBYTE ${toBinaryByte(firstBox.pf1)}`,
+          `bmp_${key}_PF2`,
+          `\tBYTE ${toBinaryByte(firstBox.pf2)}`,
+          `bmp_${key}_background`,
+          `\tBYTE ${toColorHexByte(firstBox.background)}`,
+      );
+    }
   }
 
   // A graphic whose picture is exactly one stored for an earlier graphic (the same rows, the same height) reuses
@@ -413,8 +446,12 @@ const buildPlayerDataAsm = (card, Blockly) => {
     frames.forEach((rows) => {
       [...rows].reverse().forEach((row) => lines.push(`\tBYTE ${toBinaryByte(packRowToBytes(row.pixels, 1)[0])}`));
     });
+    // The colors are stored once when every frame has the same ones (the kernel then does not move them by the frame).
+    const colorsOf = (rows) => rows.map((row) => toColorHexByte(hasRowColors ? row.color : fallbackColor)).join(',');
+    const sameColors = frames.length > 1 && frames.every((rows) => colorsOf(rows) === colorsOf(frames[0]));
+    if (sameColors) lines.push(`bmp_player${playerIndex}_colorsame = 1`);
     lines.push('', `bmp_color_player${playerIndex}`);
-    frames.forEach((rows) => {
+    (sameColors ? [frames[0]] : frames).forEach((rows) => {
       [...rows].reverse().forEach((row) =>
         lines.push(`\tBYTE ${toColorHexByte(hasRowColors ? row.color : fallbackColor)}`));
     });
@@ -512,8 +549,11 @@ export const estimateTitleScreenGraphicsBytes = (storage) => {
         countedPlayerCard = true;
         [0, 1].forEach((playerIndex) => {
           const animationIndex = playerIndex === 0 ? card.player0Animation : card.player1Animation;
-          const {height, frames} = resolvePlayerSlotFrames(animationIndex);
-          bytes += frames.length * height * 2;
+          const {height, frames, hasRowColors} = resolvePlayerSlotFrames(animationIndex);
+          // (The colors are stored once when they are the same in every frame: see buildPlayerDataAsm.)
+          const colorsOf = (rows) => rows.map((row) => (hasRowColors ? row.color : 0)).join(',');
+          const sameColors = frames.length > 1 && frames.every((rows) => colorsOf(rows) === colorsOf(frames[0]));
+          bytes += frames.length * height + (sameColors ? height : frames.length * height);
         });
         return;
       }
@@ -543,6 +583,9 @@ const assignKernelSlots = (screens, Blockly) => {
   const usedKernelKeys = new Set();
   const dataBlocks = [];
   // Which graphic stores each distinct picture (see buildCardDataAsm).
+  // The 48x2 graphics that use the shared setup: the ones with a plain box (see 48x2_S_kernel.asm).
+  Blockly.BBasic.titleShareKeys = new Set();
+  Blockly.BBasic.titleUniformUsed = false;
   Blockly.BBasic.titlePictureTables = new Map();
   Blockly.BBasic.titleColorTables = new Map();
   // One entry per screen: {id, backgroundColor, layoutMacroName, layoutLines}.
@@ -628,6 +671,9 @@ const assignKernelSlots = (screens, Blockly) => {
       if (slot > MAX_KERNEL_COPIES_PER_TYPE) return;
       const key = `${card.type}_${slot}`;
       usedKernelKeys.add(key);
+      if (Blockly.BBasic.titleShareSetup && card.type === '48x2' && !(Blockly.BBasic.titleBoxRefs || new Set()).has(`${screen.id}:${card.id}`)) {
+        Blockly.BBasic.titleShareKeys.add(key);
+      }
       layoutLines.push(` draw_${key}`);
       const ref = `${screen.id}:${card.id}`;
       const {code, frameHeight, frameCount, frameDurations, frameOffsets, colorOffsets, colorPages, colorSplit} =
@@ -739,7 +785,7 @@ const buildTitleTextCall = (Blockly) => {
 // the SAME per-copy kernel files - 48x1_X_kernel.asm's  position48 calls
 // via plain same-bank "jsr" - being reachable from multiple different
 // banks, which they can't be without their  bank-switch trampolines).
-const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName, textCall) => {
+const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName, textCall, shareSetup = false, shareKeys = null, uniformUsed = false) => {
   const lines = ['asm'];
 
   lines.push(
@@ -836,6 +882,15 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
       '',
       '\tinclude "position48.asm"',
   );
+  // A title screen too big for its bank has its 48x2 graphics share one setup routine (see 48x2_S_kernel.asm): the cards ask for it
+  // with this number.
+  const sharedKeys = shareSetup ? [...usedKernelKeys].filter((key) => (shareKeys || new Set()).has(key)) : [];
+  // A graphic with row colors of one color has them as one byte: the kernel then has a loop that does not read them (see 48x2_X_kernel.asm).
+  if (uniformUsed && [...usedKernelKeys].some((key) => key.startsWith('48x2_'))) lines.push('@title_uniform_48x2 = 1');
+  if (sharedKeys.length) {
+    sharedKeys.forEach((key) => lines.push(`@bmp_${key}_shared = 1`));
+    lines.push('\tinclude "48x2_S_kernel.asm"', '');
+  }
 
   usedKernelKeys.forEach((key) => {
     lines.push(
@@ -890,7 +945,11 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
       '@.playerheightfixloop',
       '\tsta player1height,y',
       '\tifconst _NUSIZ1',
+      // NUSIZ9 is not one of the bytes the kernel borrows (its score pointers end at NUSIZ8): it is left as it is.
+      '\tcpy #8',
+      '\tbeq .skipnusiz9',
       '\tsta _NUSIZ1,y',
+      '@.skipnusiz9',
       '\tendif',
       '\tdey',
       '\tbpl .playerheightfixloop',
@@ -1363,7 +1422,7 @@ export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
     buildDriverAsm(selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard,
         Blockly.BBasic.titleBgUsed ?
           Blockly.BBasic.nameDB_.getName(TITLE_BG_COLOR_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null,
-        buildTitleTextCall(Blockly));
+        buildTitleTextCall(Blockly), !!Blockly.BBasic.titleShareSetup, Blockly.BBasic.titleShareKeys, !!Blockly.BBasic.titleUniformUsed);
 };
 
 export default (Blockly) => {
@@ -1386,7 +1445,14 @@ export default (Blockly) => {
     const deriveName = titleDeriveSubroutineName(screenId);
     const derive = Blockly.BBasic.subroutines[deriveName] ? ` gosub ${deriveName}${Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(deriveName))}\n` : '';
-    let draw = `${selectPage}${derive} gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
+    // On DPC+ the kernel keeps its pointers in the bytes the score bars are drawn from (aux5 and aux6 are pfscore1 and pfscore2 there), so
+    // a project with score bars keeps their values on the stack while the kernel draws, and the bars show what the blocks set.
+    const barsUsed = ((useConfigurationStorage() && useConfigurationStorage().value) || {}).kernel === 'dpcplus' &&
+      block.workspace.getAllBlocks(false).some((other) => other.isEnabled() && /^score_bar_/.test(other.type));
+    const callKernel = ` gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
+    let draw = `${selectPage}${derive}` + (barsUsed ?
+      ' asm\n lda pfscore1\n pha\n lda pfscore2\n pha\n@end\n' + callKernel + ' asm\n pla\n sta pfscore2\n pla\n sta pfscore1\n@end\n' :
+      callKernel);
     if (Blockly.BBasic.titleBgUsed) {
       // The driver draws the background color in this variable: the page's color, unless "Set
       // title screen background color" has taken over.

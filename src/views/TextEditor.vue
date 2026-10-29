@@ -82,7 +82,9 @@
           all 12 character slots.
         </p>
 
+        <!-- Hidden for now (the list still works for a project that has one): remove the v-if to show it again. -->
         <v-textarea
+          v-if="false"
           v-model="pronunciations"
           label="Pronunciations (AtariVox)"
           rows="2"

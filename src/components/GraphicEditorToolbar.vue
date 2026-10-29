@@ -526,7 +526,8 @@ export default {
       const tool = TOOL_HOTKEYS[key.toLowerCase()];
       if (!tool) return;
       event.preventDefault();
-      this.setTool(tool);
+      // The key of the tool that is on turns it off, like clicking its button again.
+      this.toggleTool(tool);
     },
     setTool(tool) {
       if (this.activeEditor) this.activeEditor.setTool(tool);

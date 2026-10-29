@@ -60,14 +60,50 @@
           @blur="finishRename"
           @keyup.enter="finishRename"
         />
-        <span v-else class="card-folder-tile-name" title="Click to rename this folder" @click.stop="startRename(folder)">{{ folder.name }}</span>
-        <confirm-delete-menu
-          :title="`Delete this folder? Its ${noun}s and folders move out of it.`"
-          :selected="false"
-          :activator-title="`Delete this folder (its ${noun}s and folders move out of it)`"
-          icon-btn-class="player-icon-btn-size card-folder-delete"
-          @confirm="handleDeleteFolder(folder)"
-        />
+        <span v-else class="card-folder-tile-name">{{ folder.name }}</span>
+        <v-menu
+          :value="menuFolderId === folder.id"
+          offset-y
+          content-class="card-folder-menu"
+          :close-on-content-click="false"
+          @input="(open) => handleMenuInput(folder, open)"
+        >
+          <template v-slot:activator="{ on, attrs }">
+            <v-btn
+              icon
+              small
+              title="Rename or delete this folder"
+              class="card-folder-menu-btn"
+              v-bind="attrs"
+              v-on="{...on, click: (event) => { event.stopPropagation(); on.click(event); }}"
+            >
+              <v-icon>mdi-chevron-down</v-icon>
+            </v-btn>
+          </template>
+          <v-card v-if="confirmingDeleteId === folder.id">
+            <v-card-title>{{ `Delete this folder? Its ${noun}s and folders move out of it.` }}</v-card-title>
+            <v-list>
+              <v-list-item @click="handleDeleteFolder(folder)">
+                <v-list-item-icon><v-icon>mdi-check</v-icon></v-list-item-icon>
+                <v-list-item-title>Yes, delete</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="closeMenu">
+                <v-list-item-icon><v-icon>mdi-cancel</v-icon></v-list-item-icon>
+                <v-list-item-title>No, don't delete</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-card>
+          <v-list v-else dense>
+            <v-list-item @click="handleRenameFromMenu(folder)">
+              <v-list-item-icon><v-icon>mdi-pencil</v-icon></v-list-item-icon>
+              <v-list-item-title>Rename</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="confirmingDeleteId = folder.id">
+              <v-list-item-icon><v-icon>mdi-delete</v-icon></v-list-item-icon>
+              <v-list-item-title>Delete</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
       </div>
     </div>
     <v-btn icon small title="New folder here" class="card-folder-new-btn" @click="handleAddFolder">
@@ -79,8 +115,6 @@
 </template>
 
 <script>
-import ConfirmDeleteMenu from './ConfirmDeleteMenu.vue';
-
 // The folders as a bar: the path of the open folder, and the folders inside it. `folders` is the tab's list of {id, name, parent} (changed
 // here: folders are renamed and, through the tab, added and deleted), `current` the open folder (null for the top level, sync it), `accept`
 // whether a card is being dragged (only then are the folders drop targets), `noun` what the folders hold ("sprite", "sound").
@@ -88,7 +122,6 @@ import ConfirmDeleteMenu from './ConfirmDeleteMenu.vue';
 // them), delete-folder (the tab moves what is in the
 // folder out of it and takes it from the list), drop-cards (a card was dropped on a folder; null is the top level).
 export default {
-  components: {ConfirmDeleteMenu},
   props: {
     folders: {type: Array, required: true},
     current: {type: Number, default: null},
@@ -97,7 +130,7 @@ export default {
     accept: {type: Boolean, default: false},
   },
   data() {
-    return {renamingId: null, renameOriginalName: '', dropTarget: undefined};
+    return {renamingId: null, renameOriginalName: '', dropTarget: undefined, menuFolderId: null, confirmingDeleteId: null};
   },
   methods: {
     parentOf(folder) {
@@ -146,8 +179,22 @@ export default {
       this.$forceUpdate();
     },
     handleDeleteFolder(folder) {
+      this.closeMenu();
       this.$emit('delete-folder', folder);
       this.$forceUpdate();
+    },
+    // The menu of a folder (the chevron): rename it, or delete it after a question.
+    handleMenuInput(folder, open) {
+      this.menuFolderId = open ? folder.id : null;
+      if (!open) this.confirmingDeleteId = null;
+    },
+    closeMenu() {
+      this.menuFolderId = null;
+      this.confirmingDeleteId = null;
+    },
+    handleRenameFromMenu(folder) {
+      this.closeMenu();
+      this.startRename(folder);
     },
     dropListeners(target) {
       return {
@@ -214,6 +261,8 @@ export default {
 
 .card-folder-new-btn >>> .v-icon {
   font-size: 19px;
+  /* The glyph's drawing sits in the upper part of its square (its plus sign hangs at the bottom), so it read as high in the row. */
+  margin-top: 2px;
   color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
   transition: color 0.15s ease, transform 0.08s ease;
 }
@@ -285,15 +334,25 @@ export default {
 
 .card-folder-tile-name {
   flex: 0 1 auto;
-  cursor: text;
 }
 
 .card-folder-tile-name:hover {
   text-decoration: underline;
 }
 
-.card-folder-tile >>> .card-folder-delete .v-icon {
-  font-size: 16px !important;
+.card-folder-menu-btn {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+
+.card-folder-tile >>> .card-folder-menu-btn .v-icon {
+  font-size: 18px !important;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38));
+}
+
+.card-folder-tile >>> .card-folder-menu-btn:hover .v-icon {
+  color: rgba(0, 0, 0, 0.87);
 }
 
 .card-folder-name-field {

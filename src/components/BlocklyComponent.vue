@@ -456,6 +456,30 @@ if (!Blockly.Variables.flyoutCategory.isExtraBlocksPatch) {
 // entirely was the safer fix over trying to also patch BlockDragger.
 // prototype.drag itself to keep the two in sync.
 
+// Block snap while dragging: with the grid snap on, the dragged blocks move in whole grid steps all the time, not only when they are
+// dropped. Every dragger (one for each selected block) is given the same snapped distance, so a group keeps its shape and the
+// connection highlight (which Blockly works out from that distance too) agrees with where the blocks are drawn: rounding only the
+// drawn position, as an older patch did, left the two apart until the drop.
+/** The block dragger of the editor: the multiple selection one, moving in grid steps when the snap is on. */
+class SnappingBlockDragger extends MultiselectBlockDragger {
+  /** @override */
+  drag(e, currentDragDeltaXY) {
+    const grid = this.workspace_.getGrid && this.workspace_.getGrid();
+    const lead = [...this.blockDraggers_].find((dragger) => dragger.draggingBlock_ === this.block_) || [...this.blockDraggers_][0];
+    if (grid && grid.shouldSnap() && lead && lead.startXY_ && !this.block_.isShadow()) {
+      const spacing = grid.getSpacing();
+      const scale = this.workspace_.scale || 1;
+      const start = lead.startXY_;
+      // The marks of the grid are in the middle of its squares, which is where Blockly puts a dropped block's corner too.
+      const half = spacing / 2;
+      const x = Math.round((start.x + currentDragDeltaXY.x / scale - half) / spacing) * spacing + half;
+      const y = Math.round((start.y + currentDragDeltaXY.y / scale - half) / spacing) * spacing + half;
+      currentDragDeltaXY = new Blockly.utils.Coordinate((x - start.x) * scale, (y - start.y) * scale);
+    }
+    super.drag(e, currentDragDeltaXY);
+  }
+}
+
 // No wheel-behavior patch needed here (an earlier version of this had one,
 // for a since-reverted shift-to-zoom scheme) - Ctrl+wheel to zoom, plain
 // wheel to scroll vertically, is already stock Blockly's  default
@@ -496,6 +520,7 @@ export default {
       multiselect: null,
       stopClipboardSync: null,
       lastSavedWorkspace: null,
+      codeMayHaveChanged: true,
     };
   },
   computed: {
@@ -520,7 +545,7 @@ export default {
     // (which runs after inject()) only wires up selection/keyboard/context-
     // menu behavior, it doesn't swap the block dragger itself.
     if (!options.plugins) options.plugins = {};
-    options.plugins.blockDragger = MultiselectBlockDragger;
+    options.plugins.blockDragger = SnappingBlockDragger;
 
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
     // Blockly keeps this many steps back (the app's setting, see hooks/undo-limit.js), also when the setting changes while it is open.
@@ -567,6 +592,9 @@ export default {
         if (event.type === Blockly.Events.BLOCK_DRAG && !event.isStart) this.debouncedHandleChange();
         return;
       }
+      // A block moved to another place on the canvas (not into or out of a stack) changes where it is saved but nothing the code is made of.
+      // (Noted before the check for a drag: a block taken out of a stack, or dropped into one, reports it while the drag is still on.)
+      if (!(event.type === Blockly.Events.BLOCK_MOVE && !event.oldParentId && !event.newParentId)) this.codeMayHaveChanged = true;
       if (this.workspace.isDragging()) return;
       this.debouncedHandleChange();
     });
@@ -1101,8 +1129,12 @@ export default {
       // Nothing changed since the last time: nothing to send on (the page would build the code again for the same blocks).
       if (text === this.lastSavedWorkspace) return;
       this.lastSavedWorkspace = text;
+      // positionOnly: only blocks were moved about the canvas since the last time, so the code of the project is the same.
+      const positionOnly = !this.codeMayHaveChanged;
+      this.codeMayHaveChanged = false;
       this.$emit('input', text, {
         workspace: this.workspace,
+        positionOnly,
       });
     },
   },

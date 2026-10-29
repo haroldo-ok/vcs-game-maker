@@ -307,6 +307,8 @@ export const backgroundRainbowLoadedBit = () => flagPoolBit(ROM_NOISE_FLAGS_FAMI
 export const backgroundRainbowOffsetVarName = () => 'backgroundRainbowColorOffset';
 // DPC+ moves the rainbow by scrolling its color rows, so it keeps the offset it last scrolled to.
 export const backgroundRainbowLastVarName = () => 'backgroundRainbowColorLast';
+// DPC+: which background was loaded last, so "Stop playfield rainbow colors" can put that background's color rows back.
+export const BACKGROUND_RAINBOW_RESTORE_NAME = '_background_rainbow_restore';
 // Where the loaded background's color table is (address low and high byte),
 // saved when it loads so "Stop background rainbow colors" can point the kernel
 // back at it.
@@ -1272,6 +1274,11 @@ export const DIRECTION16_STEPS = [
 // wrong axis (the 16-way angles came out in the wrong order).
 const isHalfStep = (step, otherStep) => Math.abs(step) === 1 && Math.abs(otherStep) === 2;
 
+// The y that counts the playfield rows for the top edge of an object: one past its top row, except that under DPC+ a missile's or the ball's y is
+// its top scanline itself (see topYText in generators/bbasic/background.js). Reading the row one line up put a ball that only touches a ceiling
+// inside it: it could never take a step upwards, slid along the ceiling and, touching only, never set a collision for the Bounce.
+const pfTopY = (config, name) => (config.kernel === 'dpcplus' && /^(missile|ball)/.test(name) ? `${name}y` : `${name}y - 1`);
+
 // "Check playfield while moving": the object moves one pixel at a time and, after each pixel,
 // looks at the playfield cell it is in; the first lit cell ends the frame's movement there. The
 // object then overlaps that playfield pixel when the frame is drawn, so the hardware collision
@@ -1301,7 +1308,7 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
     Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
   const cellCheck = (tag) => [
     ...(stagePair ? [` if ${stagePair.read}{4} then goto ${label(`skip${tag}`)}`, ` if ${stagePair.read}{5} then goto ${label(`skip${tag}`)}`] : []),
-    ...Blockly.BBasic.rowOfLineCode(config, 'temp2', `${name}y - 1`, rowDivisor),
+    ...Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor),
     ` temp1 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
     ` if temp1 > 31 then goto ${label(`skip${tag}`)}`,
     ` if temp2 > ${maxRow} then goto ${label(`skip${tag}`)}`,
@@ -2449,7 +2456,12 @@ export default (Blockly) => {
       const resolveVar = (canonicalName) =>
         Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const flagsVar = resolveVar(romNoiseFlagsVarName());
-      return `${flagsVar}{${rainbowColorActiveBit(name)}} = 0\n`;
+      // On DPC+ the colors are only loaded when the animation frame changes (until bit 7 of the size variable is clear), so they
+      // have to be told to load again.
+      const dpcPlus = (useConfigurationStorage().value || {}).kernel === 'dpcplus';
+      // Only when the rainbow was on: a Stop block that runs every frame would otherwise load the colors again every frame.
+      return (dpcPlus ? `if ${flagsVar}{${rainbowColorActiveBit(name)}} then ${name}size{7} = 0\n` : '') +
+        `${flagsVar}{${rainbowColorActiveBit(name)}} = 0\n`;
     };
   };
 
@@ -3010,12 +3022,14 @@ export default (Blockly) => {
       // the object's cell (clamped), stepping back out of it when it is
       // already inside the wall
       ` temp3 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
-      ...Blockly.BBasic.rowOfLineCode(config, 'temp4', `${name}y - 1`, rowDivisor),
+      ...Blockly.BBasic.rowOfLineCode(config, 'temp4', pfTopY(config, name), rowDivisor),
       ` if temp3 > 31 then temp3 = 31`,
       ` if temp4 > ${maxRow} then temp4 = ${maxRow}`,
       ` if pfread(temp3, temp4) then goto ${label('inside')}`,
       ` goto ${label('base')}`,
       lab('inside'),
+      // A halfway direction that mostly goes along y (bit 4 of the heading) came in along y: that is looked at first.
+      ` if temp5{4} then goto ${label('inside_yfirst')}`,
       // Inside a wall: the base is the cell just outside it, found by stepping back along the axis the object came in on (a Check
       // playfield movement ends the moment a cell is lit, so the object came in on one axis, and stepping back along both would
       // land on the wrong cell beside a wall, which made the bounce turn the wrong way and the object hug the wall).
@@ -3050,6 +3064,37 @@ export default (Blockly) => {
       ` if temp3 < 31 then temp3 = temp3 + 1`,
       lab('bxdone2'),
       ` temp4 = temp6`,
+      ` goto ${label('base')}`,
+      // Mostly along y: the cell behind it along y first, then along x, and a corner is behind along both.
+      lab('inside_yfirst'),
+      ` temp6 = temp4`,
+      ` if temp5{3} then goto ${label('yfplus')}`,
+      ` if temp6 > 0 then temp6 = temp6 - 1`,
+      ` goto ${label('yftest')}`,
+      lab('yfplus'),
+      ` if temp6 < ${maxRow} then temp6 = temp6 + 1`,
+      lab('yftest'),
+      ` if pfread(temp3, temp6) then goto ${label('yf_x')}`,
+      ` temp4 = temp6`,
+      ` goto ${label('base')}`,
+      lab('yf_x'),
+      ` temp6 = temp3`,
+      ` if temp5{1} then goto ${label('yfxplus')}`,
+      ` if temp6 > 0 then temp6 = temp6 - 1`,
+      ` goto ${label('yfxtest')}`,
+      lab('yfxplus'),
+      ` if temp6 < 31 then temp6 = temp6 + 1`,
+      lab('yfxtest'),
+      ` if pfread(temp6, temp4) then goto ${label('yf_both')}`,
+      ` temp3 = temp6`,
+      ` goto ${label('base')}`,
+      lab('yf_both'),
+      ` temp3 = temp6`,
+      ` if temp5{3} then goto ${label('yfbplus')}`,
+      ` if temp4 > 0 then temp4 = temp4 - 1`,
+      ` goto ${label('base')}`,
+      lab('yfbplus'),
+      ` if temp4 < ${maxRow} then temp4 = temp4 + 1`,
       lab('base'),
       // A: the pixel next to the base cell along x
       ` temp6 = temp3`,
@@ -3091,7 +3136,7 @@ export default (Blockly) => {
       // A heading outside 0..steps-1 (no heading) flips both axes, as before.
       const table = is16 ? DIRECTION16_STEPS : [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
       const entries = table.map(([xStep, yStep]) => (xStep && yStep) ?
-        (xStep > 0 ? 1 : 3) | (yStep > 0 ? 4 : 12) : (xStep ? 255 : 0));
+        (xStep > 0 ? 1 : 3) | (yStep > 0 ? 4 : 12) | (Math.abs(yStep) === 2 ? 16 : 0) : (xStep ? 255 : 0));
       lines.push(
           ` if ${fireDirVar} >= ${steps} then goto ${label('flipboth')}`,
           ' asm',

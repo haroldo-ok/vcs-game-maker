@@ -80,7 +80,7 @@ import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generate
   ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, FIRE_OFFSCREEN_FLAGS_FAMILY, fireOffscreenFlagsVarName, SEEK_FLAGS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
   SPRITE_SCROLL_FLAGS_FAMILY, SPRITE_HIDDEN_FLAGS_FAMILY, hasHiddenFlag, hiddenFlagRef, INERTIA_ACCEL_FLAGS_FAMILY, INERTIA_DECEL_FLAGS_FAMILY,
   romNoiseOwnBit, rainbowColorOwnBit, BACKGROUND_RAINBOW_OWN_BIT, BACKGROUND_RAINBOW_LOADED_BIT, backgroundRainbowLoadedBit, romNoiseFlagsVarName, missileFireOwnBit, spriteOwnBit,
-  backgroundColorTableLoVarName, backgroundColorTableHiVarName,
+  backgroundColorTableLoVarName, backgroundColorTableHiVarName, BACKGROUND_RAINBOW_RESTORE_NAME,
   missileFireDirVarName, generateMissileFireChecks, generateBounceStageChecks, reserveMissileFireDevVars, reserveMissileBounceDevVars,
   generateSeekChecks, reserveSeekDevVars, reserveSeekArrivedDevVars,
   reserveCtrlpfShadowDevVar, generateCtrlpfShadowSetup, missileWidthsVarName, reserveMissileWidthsDevVar, reserveDpcPlusShownDevVars, ctrlpfShadowVarName, resolveUsedPlayerAnimations,
@@ -91,7 +91,7 @@ import {resolveSeekArrivedWatches} from '../blocks/sprites';
 import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprite-lock';
 import {reservePfBoxDevVars, generatePfHitChecks} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
-import {planFlagPool} from './bbasic/flag-pool';
+import {planFlagPool, flagPoolVar, flagPoolBit} from './bbasic/flag-pool';
 import {overlapTargetsOf, overlapPairsOf, overlapFamilies, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
@@ -1180,7 +1180,7 @@ Blockly.BBasic.init = function(workspace) {
   // before reserveDevVar hands out user variable letters below (see
   // titleScreenSelectedIdVarName's  reservation further down), same
   // pattern as keypad0Used/keypad1Used just above.
-  this.titleScreenDrawUsed = workspace.getAllBlocks(false).some((block) => block.type === 'titlescreen_draw');
+  this.titleScreenDrawUsed = workspace.getAllBlocks(false).some((block) => block.type === 'titlescreen_draw' && block.isEnabled() && !block.getInheritedDisabled());
   // Whether any block sets or changes where a sprite is (or fires a missile or ball from a spot).
   this.spritePositionBlocksUsed = workspace.getAllBlocks(false).some((block) => block.isEnabled() &&
     ((/^sprite_(player|missile|ball)_(set|change)$/.test(block.type) &&
@@ -2352,7 +2352,23 @@ Blockly.BBasic.init = function(workspace) {
     block.isEnabled() && block.type === 'sprite_overlap_event' && overlapTargetsOf(block).length > 0);
   overlapPairsOf(this.overlapBlocks).pairs.forEach((key) => boxPairKeys.add(key));
   this.boxPairOrder = [...boxPairKeys].sort();
+  {
+    const config = (useConfigurationStorage().value || {});
+    const dpcPlusConfig = config.kernel === 'dpcplus';
+    const colorBlocks = dpcPlusConfig ? workspace.getAllBlocks(false).filter((block) => block.isEnabled() &&
+      block.type === 'background_set_color') : [];
+    this.bgColorFlagBits = bgColorFlagBits(
+        colorBlocks.some((block) => block.getFieldValue('VAR') === 'COLUBK') && !!config.enableDpcPlusBkColors,
+        colorBlocks.some((block) => block.getFieldValue('VAR') === 'COLUPF') && Blockly.BBasic.dpcPlusPfColorsOn(config));
+    this.bgRainbowIdBits = rainbowIdBits(dpcPlusConfig && this.backgroundRainbowUsed ?
+      rainbowBackgroundBits((this.getIncludedBackgrounds() || []).length) : 0);
+    this.bgColorStepPlan = planColorSteps(this, workspace, config);
+    this.bgColorStepBits = this.bgColorStepPlan.bits;
+  }
   planFlagPool([
+    {family: BG_COLOR_FLAGS_FAMILY, bits: this.bgColorFlagBits},
+    {family: BG_RAINBOW_ID_FAMILY, bits: this.bgRainbowIdBits},
+    {family: BG_COLOR_STEP_FAMILY, bits: this.bgColorStepBits},
     {family: ROM_NOISE_FLAGS_FAMILY, bits: [
       ...ownBits([...this.romNoiseUsedFor].filter((name) => !isRomNoiseExtra(name)), romNoiseOwnBit),
       ...ownBits(this.rainbowColorUsedFor, rainbowColorOwnBit),
@@ -2462,17 +2478,6 @@ Blockly.BBasic.init = function(workspace) {
     block.isEnabled() && block.type === 'background_offset' && block.getFieldValue('WHOLE') === 'FALSE' && !offsetByteRange(block));
   this.offsetArmShared = offsetArmSharedVars({boxTest: this.pfBoxPlayers.size > 0});
   reserveOffsetAreaDevVars(reserveDevVar, this.offsetAreaUsed, this.offsetArmUsed, this.offsetArmShared);
-  // DPC+ with a color for each row: a background or playfield color set by a block outlasts the next background load (see
-  // generateBackgroundColorOverride in generators/bbasic/background.js), which needs a byte to say a color was set.
-  {
-    const config = (useConfigurationStorage().value || {});
-    const colorBlocks = config.kernel === 'dpcplus' ? workspace.getAllBlocks(false).filter((block) => block.isEnabled() &&
-      block.type === 'background_set_color') : [];
-    reserveBackgroundColorOverrideDevVars(reserveDevVar,
-        colorBlocks.some((block) => block.getFieldValue('VAR') === 'COLUBK') && !!config.enableDpcPlusBkColors,
-        colorBlocks.some((block) => block.getFieldValue('VAR') === 'COLUPF') && Blockly.BBasic.dpcPlusPfColorsOn(config));
-  }
-
   // Same bucket again, for "Seek to"'s  per-sprite target/speed state
   // (see reserveSeekDevVars'  comment in generators/bbasic/sprites.js) -
   // a no-op unless seekUsedFor's  early pre-scan (above) found it used.
@@ -2513,6 +2518,7 @@ Blockly.BBasic.init = function(workspace) {
   this.pfBoxArm = false;
   // The fixed colors a Playfield set background / playfield color block gave under DPC+ with a color for each row (see background_set_color).
   this.bgColorOverrides = {COLUBK: new Set(), COLUPF: new Set()};
+  reserveBackgroundColorFlagsDevVar(reserveDevVar, this.bgColorFlagBits, this.bgRainbowIdBits);
   reservePfBoxDevVars(reserveDevVar, this.pfBoxPlayers, this.pfHitExtras, this.pfBoxSweep);
   // (An Undo last move block for the same player already stops it at the walls.)
   this.collisionMovePlayers.forEach((playerNum) => this.platformerWallsPlayers.delete(playerNum));
@@ -3024,7 +3030,14 @@ Blockly.BBasic.init = function(workspace) {
   // DPC+: backgrounds with separate color rows (pfColorRows, bkColorRows): the row step of the playfield colors and of the background colors
   // is a variable too, set as each background loads (see generateDpcPlusColorPriming). A scroll lays the colors out by the rows of the pixels instead.
   this.dpcPlusColorFracVars = null;
-  if (config.kernel === 'dpcplus' && !this.dpcPlusScroll && includedBackgrounds.some((background) =>
+  Blockly.BBasic.dpcPlusColorStepPlan = null;
+  if (config.kernel === 'dpcplus' && !this.dpcPlusScroll && this.bgColorStepPlan && this.bgColorStepPlan.mode !== 'vars') {
+    // The same steps for every background, or a few pairs of them (a number in flag bits): no variables.
+    Blockly.BBasic.dpcPlusColorStepPlan = this.bgColorStepPlan;
+    if (this.bgColorStepPlan.bits.length) {
+      reserveDevVar(flagPoolVar(BG_COLOR_STEP_FAMILY), undefined, 'DPC+ color lists: which pair of row steps (DF4FRACINC, DF6FRACINC) the background showing has');
+    }
+  } else if (config.kernel === 'dpcplus' && !this.dpcPlusScroll && includedBackgrounds.some((background) =>
     backgroundHasColorRows(background, 'pf') || backgroundHasColorRows(background, 'bk'))) {
     this.dpcPlusColorFracVars = {
       pf: reserveDevVar('_dpcPfColorFrac', undefined, 'DPC+ playfield colors: row step (DF4FRACINC)'),
@@ -3369,7 +3382,7 @@ Blockly.BBasic.init = function(workspace) {
       sharedWith: sharedWithOf(name)}));
   // Where each variable that went in the display memory is, for the ROM capacity display (the same area and byte numbers the Display RAM blocks use).
   this.displayRamVarAssignments = [...this.displayRamVars].map(([name, {area, byte}]) =>
-    ({name, slot: `Display RAM area ${area + 1}, byte ${byte}`, description: this.devVarDescriptions[name],
+    ({name, area, byte, slot: `Display RAM area ${area + 1}, byte ${byte}`, description: this.devVarDescriptions[name],
       isUserVariable: this.userVarNames.has(name), sharedWith: []}));
   this.dpcPlusVarsUsed = this.dpcPlusVars.length + this.dpcPlusSpriteVars.length;
   const dpcPlusVarsAvailableTotal = dpcPlusVarBudget + freedSpriteRam.length;
@@ -5517,7 +5530,8 @@ Blockly.BBasic.exactRowIncrement = function(config, unitLines) {
 // must not be one of them. `divisor` is the whole number divisor of the other way, for when that is exact.
 Blockly.BBasic.rowOfLineCode = function(config, dest, source, divisor, unitLines = 1, incrementVar = null) {
   const increment = incrementVar ? 0 : this.exactRowIncrement(config, unitLines);
-  if (increment === null) return [`${dest} = (${source}) / ${divisor}`];
+  // (Indented: a statement that starts in the first column is read as a label.)
+  if (increment === null) return [` ${dest} = (${source}) / ${divisor}`];
   const id = this.blockNumbers.next('rowsconv');
   const lab = (name) => `_rowsconv_${id}_${name}`;
   return [`temp2 = ${source}`, 'asm', ...(unitLines === 2 ? ['lda temp2', 'sec', 'sbc #1', `bcs ${lab('a')}`, 'lda #0', `@${lab('a')}`,
@@ -5540,9 +5554,63 @@ Blockly.BBasic.maxRowText = function(config) {
 // DFxFRACINC for rows this many lines tall.
 const dpcPlusRowFracOf = (lines) => Math.min(255, Math.round(256 / lines));
 
+// DPC+: the row step of a background's color lists (DF4FRACINC for the playfield colors, DF6FRACINC for the background colors). The colors of a list
+// are spread over the height of the picture (its pixel rows, each rowLines scanlines tall), so a color row is pictureLines / rows scanlines; the
+// colors are read once every two scanlines (a byte of fraction), and with no separate rows it is the pixel rows' step.
+const dpcPlusColorStepOf = (background, kind, config) => {
+  const rowLines = backgroundRowLinesFor(background, config);
+  const pictureLines = Math.max(1, (background.pixels || []).length * rowLines);
+  return backgroundHasColorRows(background, kind) ?
+    Math.min(255, Math.round(backgroundColorRows(background, kind) * 512 / pictureLines)) :
+    Math.min(255, dpcPlusRowFracOf(rowLines) * 2);
+};
+
+// The pair of steps each background has, kept in bits of a flag byte (the number of the pair) when the backgrounds have two to sixteen different
+// pairs, and as plain constants when they all have the same one; more than that, or a scroll (which lays the colors out by the rows of the
+// pixels), keeps the two variables that each background's load sets. mode: 'const', 'bits' or 'vars'.
+const planColorSteps = (generator, workspace, config) => {
+  const none = {mode: 'vars', pairs: [], bits: []};
+  if (config.kernel !== 'dpcplus') return none;
+  const backgrounds = generator.getIncludedBackgrounds() || [];
+  if (!backgrounds.some((background) => backgroundHasColorRows(background, 'pf') || backgroundHasColorRows(background, 'bk'))) return none;
+  const scrollTypes = ['background_scroll', 'background_scroll_position', 'background_scroll_set_row', 'background_transition', 'background_scroll_colors'];
+  if (generator.spriteScrollUsedFor.size > 0 || workspace.getAllBlocks(false).some((block) => scrollTypes.includes(block.type))) return none;
+  const pairs = [];
+  backgrounds.forEach((background) => {
+    const pair = [dpcPlusColorStepOf(background, 'pf', config), dpcPlusColorStepOf(background, 'bk', config)];
+    if (!pairs.some((known) => known[0] === pair[0] && known[1] === pair[1])) pairs.push(pair);
+  });
+  if (pairs.length > 16) return none;
+  return {mode: pairs.length === 1 ? 'const' : 'bits', pairs,
+    bits: Array.from({length: Math.ceil(Math.log2(pairs.length))}, (_, index) => index)};
+};
+
 Blockly.BBasic.generateDpcPlusColorPriming = function() {
   const priming = this.generateDpcPlusColorPrimingLines();
   const colorVars = Blockly.BBasic.dpcPlusColorFracVars;
+  const stepPlan = Blockly.BBasic.dpcPlusColorStepPlan;
+  if (stepPlan) {
+    // The steps are constants, or picked from the pairs by the number kept in the flag bits.
+    const bitsVar = stepPlan.bits.length ? Blockly.BBasic.nameDB_.getName(flagPoolVar(BG_COLOR_STEP_FAMILY), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+    const pick = (kind) => {
+      if (stepPlan.mode === 'const') return [String(stepPlan.pairs[0][kind])];
+      // Two pairs: the one flag bit says which.
+      if (stepPlan.bits.length === 1) {
+        return [` temp6 = ${stepPlan.pairs[0][kind]}`, ` if ${bitsVar}{${flagPoolBit(BG_COLOR_STEP_FAMILY, 0)}} then temp6 = ${stepPlan.pairs[1][kind]}`];
+      }
+      const lines = [' temp5 = 0', ...stepPlan.bits.map((bit) => ` if ${bitsVar}{${flagPoolBit(BG_COLOR_STEP_FAMILY, bit)}} then temp5 = temp5 + ${1 << bit}`),
+        ` temp6 = ${stepPlan.pairs[0][kind]}`];
+      stepPlan.pairs.slice(1).forEach((pair, index) => lines.push(` if temp5 = ${index + 1} then temp6 = ${pair[kind]}`));
+      return lines;
+    };
+    return priming.split('\n').map((line) => {
+      const kind = /^ DF4FRACINC = (?!0$)/.test(line) ? 0 : /^ DF6FRACINC = (?!0$)/.test(line) ? 1 : -1;
+      if (kind < 0) return line;
+      const register = kind === 0 ? 'DF4FRACINC' : 'DF6FRACINC';
+      const lines = pick(kind);
+      return stepPlan.mode === 'const' ? ` ${register} = ${lines[0]}` : [...lines, ` ${register} = temp6`].join('\n');
+    }).join('\n');
+  }
   if (!colorVars) return priming;
   // The colors of a background with separate color rows are stepped by variables.
   return priming.split('\n').map((line) => (/^ DF4FRACINC = (?!0$)/.test(line) ? ` DF4FRACINC = ${colorVars.pf}` :
@@ -6569,6 +6637,7 @@ Blockly.BBasic.generateBackgrounds = function() {
   // of a piece in the main bank for every background. (Where a background has scroll tracking or color scrolling the pieces call
   // other subroutines with a bank tag that depends on where the code is, so those keep the separate pieces.)
   const loadAsSubroutine = dpcPlusDrawsAllRows && !scrollTrackingUsed && !colorScroll && backgrounds.length > 0;
+  const rainbowRestore = [];
   const loadCode = backgrounds.map((background, index) => {
     const {id, pixels: rawPixels} = background;
     // The row colors as lists of the rows of the pixels, for everything but the DPC+ color tables of a background with separate color rows.
@@ -6641,13 +6710,13 @@ end`);
     // What the code that works with this background's rows is told about them (see init).
     const rowLines = backgroundRowLinesFor(background, config);
     if (this.dpcPlusColorFracVars) {
-      // The step of a color list: its rows are spread over the height of the picture (its pixel rows, each rowLines scanlines tall), so a color row is
-      // pictureLines / rows scanlines; the colors are read once every two scanlines (a byte of fraction), and with no separate rows it is the pixel rows' step.
-      const pictureLines = Math.max(1, (background.pixels || []).length * rowLines);
-      const colorStep = (kind) => (backgroundHasColorRows(background, kind) ?
-        Math.min(255, Math.round(backgroundColorRows(background, kind) * 512 / pictureLines)) :
-        Math.min(255, dpcPlusRowFracOf(rowLines) * 2));
-      payloadLines.push(` ${this.dpcPlusColorFracVars.pf} = ${colorStep('pf')}`, ` ${this.dpcPlusColorFracVars.bk} = ${colorStep('bk')}`);
+      payloadLines.push(` ${this.dpcPlusColorFracVars.pf} = ${dpcPlusColorStepOf(background, 'pf', config)}`,
+          ` ${this.dpcPlusColorFracVars.bk} = ${dpcPlusColorStepOf(background, 'bk', config)}`);
+    } else if (Blockly.BBasic.dpcPlusColorStepPlan && Blockly.BBasic.dpcPlusColorStepPlan.bits.length) {
+      // The number of this background's pair of steps, in the flag bits.
+      const plan = Blockly.BBasic.dpcPlusColorStepPlan;
+      const number = plan.pairs.findIndex((pair) => pair[0] === dpcPlusColorStepOf(background, 'pf', config) && pair[1] === dpcPlusColorStepOf(background, 'bk', config));
+      plan.bits.forEach((bit) => payloadLines.push(` ${bgColorFlagRef(Blockly, bit, BG_COLOR_STEP_FAMILY)} = ${(number >> bit) & 1}`));
     }
     if (this.dpcPlusGroupFracVars) {
       const groupFracs = backgroundGroupPfres(background, config).map((rows) => dpcPlusRowFracOf(dpcPlusRowLinesFor(config, rows)));
@@ -6669,6 +6738,13 @@ end`);
     if (dpcPlusDrawsAllRows && this.backgroundRainbowUsed) {
       const flagsVar = Blockly.BBasic.nameDB_.getName(romNoiseFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       payloadLines.push(` ${flagsVar}{${backgroundRainbowLoadedBit()}} = 0`);
+      // Which background this is, in the bits of the flag byte (its place in the list, from 1; the ones past what the bits hold keep 0).
+      const rainbowBits = rainbowBackgroundBits(backgrounds.length);
+      const code = index + 1 < (1 << rainbowBits) ? index + 1 : 0;
+      for (let bit = 0; bit < rainbowBits; bit++) payloadLines.push(` ${bgColorFlagRef(Blockly, bit, BG_RAINBOW_ID_FAMILY)} = ${(code >> bit) & 1}`);
+      // What "Stop playfield rainbow colors" puts back: this background's color rows (a scrolling one is tiled over the strip, which a
+      // routine that only writes the rows would not do, so it keeps whatever the scroll left).
+      if (pfcolorsBlock && !scrollOf) rainbowRestore.push({code: index + 1, block: pfcolorsBlock});
     }
     if (scrollOf) {
       const offsetVar = Blockly.BBasic.nameDB_.getName('_dpcScrollOffset', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
@@ -6747,6 +6823,12 @@ end`);
       colorTableSaveLines +
       endLabel;
   }).join('\n\n');
+  if (dpcPlusDrawsAllRows && this.backgroundRainbowUsed) {
+    const rainbowBits = rainbowBackgroundBits(backgrounds.length);
+    const bitLines = Array.from({length: rainbowBits}, (_, bit) => ` if ${bgColorFlagRef(Blockly, bit, BG_RAINBOW_ID_FAMILY)} then temp6 = temp6 + ${1 << bit}`);
+    this.subroutines[BACKGROUND_RAINBOW_RESTORE_NAME] = asSubroutineBody([' temp6 = 0', ...bitLines, ...rainbowRestore.map(({code, block}) =>
+      [` if temp6 <> ${code} then goto _rainbowrestore_${code}`, block.replace(/\n$/, ''), `_rainbowrestore_${code}`].join('\n'))].join('\n') + '\n');
+  }
   if (!loadAsSubroutine) return loadCode;
   this.subroutines[BACKGROUND_LOAD_NAME] = asSubroutineBody(loadCode);
   return ` gosub ${BACKGROUND_LOAD_NAME}${Blockly.BBasic.bankJumpSuffix(
@@ -8482,7 +8564,7 @@ Blockly.BBasic.generateAnimations = function() {
   return [...(partnerResets.length ? [partnerResets.join('\n')] : []), ...hardwareCode, ...extraCode, ...partnerCode].join('\n\n\n');
 };
 import background, {backgroundGetPixelDevVarsNeeded, registerBackgroundLineSubroutine,
-  reserveShakeScreenDevVar, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, reserveBackgroundColorOverrideDevVars, generateShakeScreenChecks, dpcPlusScrollDivider} from './bbasic/background';
+  reserveShakeScreenDevVar, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, bgColorFlagBits, rainbowBackgroundBits, rainbowIdBits, BG_COLOR_FLAGS_FAMILY, BG_RAINBOW_ID_FAMILY, BG_COLOR_STEP_FAMILY, reserveBackgroundColorFlagsDevVar, bgColorFlagRef, generateShakeScreenChecks, dpcPlusScrollDivider} from './bbasic/background';
 import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';

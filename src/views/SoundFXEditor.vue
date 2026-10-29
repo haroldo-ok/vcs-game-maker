@@ -130,6 +130,17 @@
             >
               <v-icon>mdi-import</v-icon>
             </v-btn>
+            <v-btn
+              icon
+              small
+              :title="selectedSoundEffect ?
+                `Import audio files (WAV, OGG, MP3...) as sounds: the first replaces the selected card, any others become new cards` :
+                'Import audio files (WAV, OGG, MP3...) as sounds, each on a new card'"
+              class="soundfx-bank-btn soundfx-icon-btn-size"
+              @click="handleImportSamples"
+            >
+              <v-icon>mdi-file-music-outline</v-icon>
+            </v-btn>
             <v-divider class="soundfx-toolbar-divider" vertical />
             <v-btn
               icon
@@ -202,6 +213,12 @@
           :entries="soundBankImportEntries"
           @confirm="handleConfirmSoundBankImport"
         />
+        <SampleImportDialog
+          v-model="sampleImportOpen"
+          :files="sampleImportFiles"
+          :replace-name="sampleImportReplaceName"
+          @confirm="handleConfirmSampleImport"
+        />
         <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
           <v-list-item
             v-for="{card: soundEffect, index} in visibleEntries()"
@@ -260,6 +277,15 @@
                     @click.stop="() => handleDuplicateSoundEffect(soundEffect)"
                   >
                     <v-icon>mdi-content-duplicate</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    small
+                    title="Preview this sound effect"
+                    class="soundfx-play-btn soundfx-icon-btn-size"
+                    @click.stop="() => handlePlaySoundEffect(soundEffect, cardTia(soundEffect))"
+                  >
+                    <v-icon>mdi-play</v-icon>
                   </v-btn>
                 </div>
 
@@ -880,7 +906,7 @@ import {dpcFollowsStandardPitch, dpcKeyForHz, MAX_DPC_SWEEP_STEP, SWEEP_FRAME_OP
   DEFAULT_PITCH_ENVELOPE_DECAY_END, DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH, DEFAULT_PITCH_ENVELOPE_RELEASE_START,
   DEFAULT_PITCH_ENVELOPE_RELEASE} from '../utils/pitch-table';
 import {getDateInfix} from '../utils/date';
-import {openFileDialog} from '../utils/file';
+import {openFileDialog, openFileDialogMultiple} from '../utils/file';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
 import {autoInstrumentColor} from '../utils/instrument-colors';
@@ -890,6 +916,7 @@ import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import WaveformEditor from '../components/WaveformEditor.vue';
 import PixelGridToggle from '../components/PixelGridToggle.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
+import SampleImportDialog from '../components/SampleImportDialog.vue';
 import CardFolderBar from '../components/CardFolderBar.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EnvelopeGraph from '../components/EnvelopeGraph.vue';
@@ -897,7 +924,7 @@ import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
-  components: {WaveformEditor, ColorSwatchPicker, CardFolderBar, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog},
+  components: {WaveformEditor, ColorSwatchPicker, CardFolderBar, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog, SampleImportDialog},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     // App-wide preference, not part of this project's  saved
@@ -1309,13 +1336,12 @@ export default defineComponent({
       window.removeEventListener('keydown', handleSoundFxPlaybackHotkey);
     });
 
-    const handleAddSoundEffect = () => {
-      const soundEffects = state.value.soundEffects;
-      const maxId = max(soundEffects.map((o) => o.id)) || 0;
-      const newSoundEffect = {
-        id: maxId + 1,
+    // A new sound card with the numbered name and the default settings of every field.
+    const buildNewSoundEffect = (id) => {
+      return {
+        id,
         ...newCardFolder(),
-        name: `Sound effect ${maxId + 1}`,
+        name: `Sound effect ${id}`,
         audc: '4',
         audf: 16,
         audv: 15,
@@ -1353,8 +1379,12 @@ export default defineComponent({
         pitchEnvelopeReleaseStart: DEFAULT_PITCH_ENVELOPE_RELEASE_START,
         pitchEnvelopeRelease: DEFAULT_PITCH_ENVELOPE_RELEASE,
       };
+    };
 
-      state.value.soundEffects.push(newSoundEffect);
+    const handleAddSoundEffect = () => {
+      const soundEffects = state.value.soundEffects;
+      const maxId = max(soundEffects.map((o) => o.id)) || 0;
+      state.value.soundEffects.push(buildNewSoundEffect(maxId + 1));
 
       handleChildChange();
       instance.proxy.$forceUpdate();
@@ -1439,6 +1469,50 @@ export default defineComponent({
             instance.proxy.$forceUpdate();
           })
           .catch((e) => console.error('Failed to import sound effect', e));
+    };
+
+    // Audio files turned into sound cards (see SampleImportDialog.vue and utils/sample-fit.js). With a card selected, the first sound
+    // replaces it (the card keeps its number, its folder and its color, so the blocks and Music tracks that use it go on using it)
+    // and every other sound is a new card; with none selected, every sound is a new card.
+    const sampleImportOpen = ref(false);
+    const sampleImportFiles = ref([]);
+    const sampleImportReplaceName = ref(null);
+    const handleImportSamples = () => {
+      openFileDialogMultiple('audio/*,.wav,.ogg,.mp3,.flac,.m4a,.aac')
+          .then((files) => {
+            if (!files.length) return;
+            sampleImportFiles.value = files;
+            sampleImportReplaceName.value = selectedSoundEffect.value ? (selectedSoundEffect.value.name || `Sound ${selectedSoundEffect.value.id}`) : null;
+            sampleImportOpen.value = true;
+          })
+          .catch((e) => console.error('Failed to open audio files', e));
+    };
+    // What an imported sound sets on a card: its fitted fields, its name and what kind of sound it is.
+    const importedSoundFields = ({name, kind, fields}) => ({
+      ...fields, name, isInstrument: kind === 'instrument', isPercussion: kind === 'percussion',
+    });
+    const handleConfirmSampleImport = (imports) => {
+      if (!imports.length) return;
+      const soundEffects = state.value.soundEffects;
+      const remaining = imports.slice();
+      const target = selectedSoundEffect.value;
+      if (target) {
+        const first = importedSoundFields(remaining.shift());
+        const keep = {id: target.id, folder: target.folder, color: target.color};
+        // The card is made again from the defaults, so nothing of the sound it had stays.
+        const fresh = buildNewSoundEffect(target.id);
+        Object.keys(target).forEach((key) => {
+          if (!(key in keep)) delete target[key];
+        });
+        Object.assign(target, fresh, first, keep);
+        if (keep.folder === undefined) delete target.folder;
+      }
+      remaining.forEach((imported) => {
+        const maxId = max(soundEffects.map((o) => o.id)) || 0;
+        soundEffects.push({...buildNewSoundEffect(maxId + 1), ...importedSoundFields(imported)});
+      });
+      handleChildChange();
+      instance.proxy.$forceUpdate();
     };
 
     // Every sound effect/instrument in this project as one standalone .vcsbnk
@@ -1640,6 +1714,7 @@ export default defineComponent({
       handleExportSoundEffect, handleImportSoundEffect,
       handleExportSoundBank, handleImportSoundBank,
       soundBankImportOpen, soundBankImportEntries, handleConfirmSoundBankImport,
+      sampleImportOpen, sampleImportFiles, sampleImportReplaceName, handleImportSamples, handleConfirmSampleImport,
       canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, handleResetEnvelope,
       handleResetPitchEnvelope,
       handleStopPreview, loopPreview, handleSetSoundEffectColor, autoInstrumentColor,
