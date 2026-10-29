@@ -259,24 +259,47 @@
                       v-if="pfColorsEnabled"
                       icon
                       small
-                      title="Copy this background's row colors only"
+                      title="Copy this background's playfield row colors only"
                       class="player-icon-btn-size copy-paste-color-btn"
                       @click="() => handleCopyBackgroundRowColors(background)"
                     >
                       <v-icon>mdi-content-copy</v-icon>
-                      <span class="copy-paste-color-badge">C</span>
+                      <span class="copy-paste-color-badge">P</span>
                     </v-btn>
                     <v-btn
                       v-if="pfColorsEnabled"
                       icon
                       small
                       :disabled="!copiedBackgroundRowColors"
-                      title="Paste copied row colors only onto this background"
+                      title="Paste copied playfield row colors only onto this background"
                       class="player-icon-btn-size copy-paste-color-btn"
                       @click="() => handlePasteBackgroundRowColors(background)"
                     >
                       <v-icon>mdi-content-paste</v-icon>
-                      <span class="copy-paste-color-badge">C</span>
+                      <span class="copy-paste-color-badge">P</span>
+                    </v-btn>
+                    <v-btn
+                      v-if="bkColorsEnabled"
+                      icon
+                      small
+                      title="Copy this background's background row colors only"
+                      class="player-icon-btn-size copy-paste-color-btn"
+                      @click="() => handleCopyBackgroundBkRowColors(background)"
+                    >
+                      <v-icon>mdi-content-copy</v-icon>
+                      <span class="copy-paste-color-badge">B</span>
+                    </v-btn>
+                    <v-btn
+                      v-if="bkColorsEnabled"
+                      icon
+                      small
+                      :disabled="!copiedBackgroundBkRowColors"
+                      title="Paste copied background row colors only onto this background"
+                      class="player-icon-btn-size copy-paste-color-btn"
+                      @click="() => handlePasteBackgroundBkRowColors(background)"
+                    >
+                      <v-icon>mdi-content-paste</v-icon>
+                      <span class="copy-paste-color-badge">B</span>
                     </v-btn>
                     <v-btn
                       :title="testingId === background.id ? 'Building...' :
@@ -545,6 +568,7 @@ const buildDefaultBackgroundPixels = (rows, cols = 32) =>
 // clipboard alive across navigating away from and back to this tab (Vue
 // Router destroys and recreates this component each time).
 const copiedBackgroundRowColors = ref(null);
+const copiedBackgroundBkRowColors = ref(null);
 const copiedBackgroundData = ref(null);
 
 export default defineComponent({
@@ -1069,6 +1093,15 @@ export default defineComponent({
       handleRowColorsInput(background, structuredClone(copiedBackgroundRowColors.value));
     };
 
+    // The same pair for the background row colors (the colors behind the cells that are off).
+    const handleCopyBackgroundBkRowColors = (background) => {
+      copiedBackgroundBkRowColors.value = structuredClone(background.bkRowColors || []);
+    };
+    const handlePasteBackgroundBkRowColors = (background) => {
+      if (!copiedBackgroundBkRowColors.value) return;
+      handleBkRowColorsInput(background, structuredClone(copiedBackgroundBkRowColors.value));
+    };
+
     // Same "whole image, pixels + row colors together" pair as
     // PlayerEditor.vue's  handleCopyFrame/handlePasteFrame.
     const handleCopyBackground = (background) => {
@@ -1165,6 +1198,7 @@ export default defineComponent({
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
+      copiedBackgroundBkRowColors, handleCopyBackgroundBkRowColors, handlePasteBackgroundBkRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
       activeEditor, setActiveEditor, selectedBackground,
       effectiveEditor, pixelEditorRefKey,
