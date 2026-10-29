@@ -214,14 +214,16 @@
       // once, here, before anything else asks the canvas for a context.
       const gopher2600Context = () => gopher2600Canvas().getContext('2d', {alpha: false});
       gopher2600Context();
+      // The pixel aspect ratio of NTSC (width over height of a pixel) is 0.91, and a TIA color clock is two such pixels wide.
+      const NTSC_PIXEL_ASPECT = 0.91;
+      const NTSC_CLOCK_ASPECT = 2 * NTSC_PIXEL_ASPECT;
       const gopher2600SizeCanvas = (canvas, width, height) => {
         if (canvas.width === width && canvas.height === height) return;
         canvas.width = width;
         canvas.height = height;
-        // TIA color clocks are not square pixels: the picture is shown as an NTSC TV shows it, 4:3 (so a
-        // pixel is 4/3 of the picture's height over its width, 1.83 times as wide as tall for the 220 lines
-        // of a typical picture). App.vue scales the canvas by this CSS box.
-        canvas.style.width = Math.round(height * 4 / 3) + 'px';
+        // TIA color clocks are not square pixels: a color clock is two pixels of an NTSC picture, each 0.91 as wide as tall (the pixel aspect
+        // ratio of NTSC), so a clock is 1.82 times as wide as a line is tall. App.vue scales the canvas by this CSS box.
+        canvas.style.width = Math.round(width * NTSC_CLOCK_ASPECT) + 'px';
         canvas.style.height = height + 'px';
       };
 
@@ -248,9 +250,9 @@
         stelleratorDriverKey = '';
         stelleratorTargetSize = '';
       };
-      // The same box as gopher2600's (see gopher2600SizeCanvas): 4:3, like an NTSC TV.
+      // The same box as gopher2600's (see gopher2600SizeCanvas): the pixels of an NTSC picture.
       const stelleratorSizeCanvas = (canvas, width, height) => {
-        canvas.style.width = Math.round(height * 4 / 3) + 'px';
+        canvas.style.width = Math.round(width * NTSC_CLOCK_ASPECT) + 'px';
         canvas.style.height = height + 'px';
       };
       const stelleratorDriverConfig = () => ({

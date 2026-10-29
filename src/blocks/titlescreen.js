@@ -169,6 +169,19 @@ export const planTitleRowFade = (rowColors, targetColor) => {
 // kernels can (96x2 reads colors with the same row counter as the picture), and only when the
 // animation repeats a picture under different colors, so the picture takes less ROM stored once.
 // Everything else stores each frame whole, as before.
+// A title screen too big for its bank (see 48x2_S_kernel.asm) stores the list of row colors of a 48-wide two-line graphic that is one
+// color on every row as a single byte (the color with bit 0 set, which the kernel takes as "one color"), instead of a byte for each row.
+let compactColors = false;
+export const setTitleCompactColors = (on) => {
+  compactColors = !!on;
+};
+export const isUniformColorList = (rows) => !!rows && rows.length > 0 && rows.every((color) => color === rows[0]);
+// Whether a graphic may store its row color lists that way: not one that is faded (its steps are offsets of whole lists).
+export const titleCardUniformAllowed = (card, ref) => {
+  const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+  return compactColors && !!typeInfo && typeInfo.width === 48 && typeInfo.hasRowColors && !(ref && rowFadePlans[ref]);
+};
+
 export const titleCardColorSplit = (card, ref) => {
   const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
   // A multicolor graphic that is faded has its color lists apart as well: the original one, and one for each step of the fade.
@@ -182,7 +195,10 @@ export const titleCardColorSplit = (card, ref) => {
   // The color list's frame offset is one byte, so with the lists stacked, the last one has to start within
   // the first 256 rows. Past that, the lists are stacked a page at a time and a second byte picks the page
   // (which can't also scroll: the scroll offset needs the offset byte).
-  if ((colorLists.size - 1) * frameHeight <= 255) return 'offset';
+  // (A list of one color is one byte when the title screen is compact: the last list then starts after fewer rows.)
+  const uniform = titleCardUniformAllowed(card, ref);
+  const sizes = [...colorLists].map((list) => (uniform && isUniformColorList(JSON.parse(list)) ? 1 : frameHeight));
+  if (sizes.slice(0, -1).reduce((sum, size) => sum + size, 0) <= 255) return 'offset';
   const scrollWindow = Number(card.scrollWindow) || 0;
   return scrollWindow > 0 && scrollWindow < frameHeight ? '' : 'page';
 };

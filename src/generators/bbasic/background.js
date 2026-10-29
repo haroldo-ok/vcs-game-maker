@@ -251,6 +251,8 @@ export const SHAKE_SCREEN_MAX_FRAMES = 127;
 // colors" on DPC+. Two families, so that each can fill a gap in a byte of other flags.
 export const BG_COLOR_FLAGS_FAMILY = 'bgColorFlags';
 export const BG_RAINBOW_ID_FAMILY = 'bgRainbowId';
+// DPC+ color lists: the number of the background's pair of row steps (see planColorSteps in bbasic.js).
+export const BG_COLOR_STEP_FAMILY = 'bgColorStep';
 export const BG_COLOR_OVERRIDE_BITS = {COLUBK: 0, COLUPF: 1};
 // How many bits the number of the loaded background takes (0 when it is not kept), at most four.
 export const rainbowBackgroundBits = (backgroundCount) => Math.min(4, Math.ceil(Math.log2(backgroundCount + 1)));

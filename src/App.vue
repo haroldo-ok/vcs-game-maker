@@ -3723,12 +3723,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
    cells holding a note keep the instrument color they are painted with. */
 .dark-mode.v-application .piano-roll-cell:not(.piano-roll-cell-active),
 .dark-mode.v-application .piano-roll-volume-cell {
-  background-color: rgba(255, 255, 255, 0.16);
+  background-color: rgba(255, 255, 255, 0.14);
 }
 
+/* The alternate steps differ more, so the steps can be told apart at a glance. */
 .dark-mode.v-application .piano-roll-cell:not(.piano-roll-cell-active):nth-child(even),
 .dark-mode.v-application .piano-roll-volume-cell:nth-child(even) {
-  background-color: rgba(255, 255, 255, 0.21);
+  background-color: rgba(255, 255, 255, 0.25);
 }
 
 .dark-mode.v-application .piano-roll-row:nth-child(odd) {
@@ -3761,8 +3762,14 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .dark-mode.v-application .piano-roll-cell,
 .dark-mode.v-application .piano-roll-volume-cell {
-  border-left-color: rgba(255, 255, 255, 0.22) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  border-left-color: rgba(255, 255, 255, 0.4) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* The first step of every four (the beats) has a stronger line (the label is the first child of a row, so the steps are children 2, 6, 10...). */
+.dark-mode.v-application .piano-roll-cell:nth-child(4n + 2),
+.dark-mode.v-application .piano-roll-volume-cell:nth-child(4n + 2) {
+  border-left-color: rgba(255, 255, 255, 0.7) !important;
 }
 
 .dark-mode.v-application .piano-roll-volume-row {
@@ -3788,6 +3795,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .piano-roll-cell-row-unavailable,
 .dark-mode.v-application .piano-roll-cell-disabled,
 .dark-mode.v-application .piano-roll-cell-disabled:hover,
+.dark-mode.v-application .piano-roll-cell-filler {
+  --filler-line: rgba(255, 255, 255, 0.4);
+}
+
 .dark-mode.v-application .piano-roll-cell-length-disabled,
 .dark-mode.v-application .piano-roll-cell-length-disabled:hover {
   background-color: #000 !important;

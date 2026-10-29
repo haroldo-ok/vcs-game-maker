@@ -56,15 +56,20 @@ init_variables
  endif
 	sta player0pointer+1
 
+	; (A player whose colors are the same in every frame has them once: they are not moved by the frame.)
 	lda #<bmp_color_player0
  ifconst bmp_player0_index
+  ifnconst bmp_player0_colorsame
 	clc
 	adc bmp_player0_index
+  endif
  endif
 	sta player0color
 	lda #>bmp_color_player0
  ifconst bmp_player0_index
+  ifnconst bmp_player0_colorsame
 	adc #0
+  endif
  endif
 	sta player0color+1
 
@@ -81,15 +86,20 @@ init_variables
  endif
 	sta player1pointer+1
 
+	; (A player whose colors are the same in every frame has them once: they are not moved by the frame.)
 	lda #<bmp_color_player1
  ifconst bmp_player1_index
+  ifnconst bmp_player1_colorsame
 	clc
 	adc bmp_player1_index
+  endif
  endif
 	sta player1color
 	lda #>bmp_color_player1
  ifconst bmp_player1_index
+  ifnconst bmp_player1_colorsame
 	adc #0
+  endif
  endif
 	sta player1color+1
 

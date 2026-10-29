@@ -1,6 +1,63 @@
 
 draw_bmp_48x2_8
 
+ ifconst bmp_48x2_8_shared
+  ; The shared setup (see 48x2_S_kernel.asm): the variables the card has go to temp3 to temp5 and its numbers follow the "jsr".
+bmp_48x2_8_dyn SET 0
+  ifconst bmp_48x2_8_index
+bmp_48x2_8_dyn SET 1
+  endif
+  ifconst bmp_48x2_8_colorindex
+bmp_48x2_8_dyn SET 1
+  endif
+  ifconst bmp_48x2_8_colorpage
+bmp_48x2_8_dyn SET 1
+  endif
+  if bmp_48x2_8_dyn
+   ifconst bmp_48x2_8_index
+	lda bmp_48x2_8_index
+	sta temp3
+   else
+	lda #0
+	sta temp3
+   endif
+   ifconst bmp_48x2_8_colorindex
+	lda bmp_48x2_8_colorindex
+	sta temp4
+   else
+    ifconst bmp_48x2_8_index
+	lda bmp_48x2_8_index
+	sta temp4
+    else
+	lda #0
+	sta temp4
+    endif
+   endif
+   ifconst bmp_48x2_8_colorpage
+	lda bmp_48x2_8_colorpage
+	sta temp5
+   else
+	lda #0
+	sta temp5
+   endif
+	jsr title48x2_setup
+  else
+	jsr title48x2_setup_static
+  endif
+	.word (bmp_48x2_8_00+#bmp_48x2_8_height-#bmp_48x2_8_window)
+	.word (bmp_48x2_8_01+#bmp_48x2_8_height-#bmp_48x2_8_window)
+	.word (bmp_48x2_8_02+#bmp_48x2_8_height-#bmp_48x2_8_window)
+	.word (bmp_48x2_8_03+#bmp_48x2_8_height-#bmp_48x2_8_window)
+	.word (bmp_48x2_8_04+#bmp_48x2_8_height-#bmp_48x2_8_window)
+	.word (bmp_48x2_8_05+#bmp_48x2_8_height-#bmp_48x2_8_window)
+  ifconst bmp_48x2_8_colorheight
+	.byte <(bmp_48x2_8_colors-1+bmp_48x2_8_colorheight-bmp_48x2_8_window), >(bmp_48x2_8_colors-1+bmp_48x2_8_colorheight-bmp_48x2_8_window)
+  else
+	.byte <(bmp_48x2_8_colors-1+bmp_48x2_8_height-bmp_48x2_8_window), >(bmp_48x2_8_colors-1+bmp_48x2_8_height-bmp_48x2_8_window)
+  endif
+	.byte (bmp_48x2_8_window-1), bmp_48x2_8_pf1c, bmp_48x2_8_pf2c, bmp_48x2_8_bgc
+ else
+
  ifconst bmp_48x2_8_colorheight
 	lda #<(bmp_48x2_8_colors-1+bmp_48x2_8_colorheight-bmp_48x2_8_window)
  else
@@ -20,6 +77,11 @@ draw_bmp_48x2_8
 	lda #>(bmp_48x2_8_colors-1+bmp_48x2_8_colorheight-bmp_48x2_8_window)
  else
 	lda #>(bmp_48x2_8_colors-1+bmp_48x2_8_height-bmp_48x2_8_window)
+ endif
+ ifconst title_uniform_48x2
+  ifconst bmp_48x2_8_colorindex
+	sbc #0			; (the list of one color is found past its table's start: the row of the pointer can be on the page before)
+  endif
  endif
  ifconst bmp_48x2_8_colorpage
 	clc
@@ -52,6 +114,10 @@ bmp_48x2_8_pointersetup
         sta COLUP0              ;3
         sta COLUP1              ;3
         sta HMCLR               ;3
+ ifconst title_uniform_48x2
+	and #1			; bit 0 of the color: set for a list of one color (see 48x2_X_kernel.asm)
+	sta temp6
+ endif
 
         lda titlescreencolor
         sta COLUPF
@@ -80,6 +146,9 @@ bmp_48x2_8_pointersetup
 
  	jmp draw_bmp_48x2_X
 	
+ endif
+
+ ifnconst bmp_48x2_8_shared
 bmp_48x2_8_values
         .word (bmp_48x2_8_00+#bmp_48x2_8_height-#bmp_48x2_8_window)
         .word (bmp_48x2_8_01+#bmp_48x2_8_height-#bmp_48x2_8_window)
@@ -87,4 +156,4 @@ bmp_48x2_8_values
         .word (bmp_48x2_8_03+#bmp_48x2_8_height-#bmp_48x2_8_window)
         .word (bmp_48x2_8_04+#bmp_48x2_8_height-#bmp_48x2_8_window)
         .word (bmp_48x2_8_05+#bmp_48x2_8_height-#bmp_48x2_8_window)
-
+ endif

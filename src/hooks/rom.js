@@ -25,7 +25,7 @@ import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles, getDpcPlusTextM
   dpcPlusTextScreenLines} from '../generators/bbasic/text-minikernel-files';
 import {getTitleScreenSiblingFiles} from '../generators/bbasic/titlescreen-files';
 import {TITLE_SCREEN_SUBROUTINE_NAME, estimateTitleScreenGraphicsBytes} from '../generators/bbasic/titlescreen';
-import {titleScreenAnyPageOverRowBudget} from '../blocks/titlescreen';
+import {titleScreenAnyPageOverRowBudget, setTitleCompactColors} from '../blocks/titlescreen';
 import {effectiveBackgroundRows, processBackgroundStorageDefaults} from '../blocks/background';
 import {pfRowDivisorFor} from '../utils/playfield-coords';
 import {findSongById} from '../blocks/music';
@@ -1305,6 +1305,29 @@ const MAX_RELOCATION_ATTEMPTS = 64;
  */
 const SCREENSHOT_DELAY_MS = 1500;
 
+// The most that fits in the bank of the Titlescreen Kernel (see titleScreenOverflowHint).
+const TITLE_BANK_USABLE_BYTES = 3956;
+// The compact title screen: the 48x2 graphics share one setup routine and a list of row colors of one color is one byte.
+const setTitleCompact = (on) => {
+  BlocklyBB.titleShareSetup = on;
+  setTitleCompactColors(on);
+};
+const titleScreenHas48x2Graphic = () => {
+  try {
+    return (useTitleScreenStorage().value.screens || []).some((screen) => (screen.cards || []).some((card) => card.type === '48x2'));
+  } catch (e) {
+    return false;
+  }
+};
+const titleScreenNeedsSharedSetup = () => {
+  if (!titleScreenHas48x2Graphic()) return false;
+  try {
+    return estimateTitleScreenGraphicsBytes(useTitleScreenStorage()) + estimateTitleScreenKernelCodeBytes() > TITLE_BANK_USABLE_BYTES;
+  } catch (e) {
+    return false;
+  }
+};
+
 export const buildRom = async () => {
   // See buildInProgress's comment above - a title screen preview build
   // running concurrently with this one corrupted a real build's output
@@ -1318,7 +1341,15 @@ export const buildRom = async () => {
   const screenshotRef = useLastBuildScreenshot();
   screenshotRef.value = null;
   try {
-    const built = await buildRomInner();
+    // A title screen too big for its bank has its 48x2 graphics share one setup routine (about 50 bytes less for each, but each
+    // graphic starts up to a line lower: see 48x2_S_kernel.asm). It is used when the title screen cannot fit without it: when the
+    // estimate of its size is already over, or when the build fails and there are graphics to share.
+    setTitleCompact(titleScreenNeedsSharedSetup());
+    let built = await buildRomInner();
+    if (!built && !BlocklyBB.titleShareSetup && titleScreenHas48x2Graphic()) {
+      setTitleCompact(true);
+      built = await buildRomInner();
+    }
     // Grabbed once the game has been running a moment, so the picture shows
     // the game rather than a blank first frame.
     if (built) {
@@ -1329,6 +1360,7 @@ export const buildRom = async () => {
     }
     return built;
   } finally {
+    setTitleCompact(false);
     buildInProgress.value = false;
     setEmulatorPaused(false);
   }
@@ -1379,6 +1411,10 @@ const buildRomInner = async () => {
   const seededFromLastSuccess = seedRelocationBanksFromLastSuccess(
       bankSizeKeyFor(configurationStorage.value || {}));
   clearCompileLog();
+  if (BlocklyBB.titleShareSetup) {
+    appendCompileLog('The title screen is too big for its bank: its 48x2 graphics share one setup routine, which saves ROM but ' +
+        'starts each graphic up to a line lower.', 'stage');
+  }
   if (seededFromLastSuccess) {
     appendCompileLog('Trying the last successful bank layout first...', 'stage');
   }
@@ -1494,7 +1530,7 @@ const buildRomInner = async () => {
       // stays undefined otherwise), and only fetches the specific per-copy
       // kernel files the project's  cards (across every page) actually use.
       if (BlocklyBB.titleScreenUsedKernelKeys) {
-        Object.assign(siblingFiles, await getTitleScreenSiblingFiles(BlocklyBB.titleScreenUsedKernelKeys, !!BlocklyBB.titleScreenHasScoreCard));
+        Object.assign(siblingFiles, await getTitleScreenSiblingFiles(BlocklyBB.titleScreenUsedKernelKeys, !!BlocklyBB.titleScreenHasScoreCard, !!BlocklyBB.titleShareSetup));
         Object.assign(siblingFiles, BlocklyBB.titleScreenAsmFiles || {});
       }
       // The compiler has no font support, so point its score
@@ -2492,7 +2528,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         if (textFontOverride) siblingFiles[textKernelFile] = textFontOverride;
       }
       if (BlocklyBB.titleScreenUsedKernelKeys) {
-        Object.assign(siblingFiles, await getTitleScreenSiblingFiles(BlocklyBB.titleScreenUsedKernelKeys, !!BlocklyBB.titleScreenHasScoreCard));
+        Object.assign(siblingFiles, await getTitleScreenSiblingFiles(BlocklyBB.titleScreenUsedKernelKeys, !!BlocklyBB.titleScreenHasScoreCard, !!BlocklyBB.titleShareSetup));
         Object.assign(siblingFiles, BlocklyBB.titleScreenAsmFiles || {});
       }
       const log = (text) => appendCompileLog(text);
