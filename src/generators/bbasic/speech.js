@@ -7,6 +7,8 @@ import {speechWordsFor, textToSpeakJetWords} from '../../utils/speakjet-text';
 import {processTextStringsStorageDefaults} from '../../blocks/text-strings';
 import {processSoundEffectsStorageDefaults} from '../../blocks/soundfx';
 import {registerMemorySubroutine} from './avox-memory';
+import {isVoiceInstrument, noteSpeechBytes} from '../../utils/note-speech';
+import {musicSongIndexVarName} from './music';
 
 // The AtariVox's SpeakJet speech chip is fed serially through the right controller port: the program writes the bits of each byte to bit 0 of
 // SWCHA (bit 0 of SWACNT makes it an output), at 19200 baud (62 cycles a bit), and bit 1 of SWCHA reads high while the chip can take more.
@@ -24,6 +26,12 @@ export const HIGH_SCORE_VARS = ['_avoxHsA', '_avoxHsB', '_avoxHsC'];
 export const SPEECH_POSITION_HIGH_VAR = '_avoxPosHi';
 export const SPEECH_QUEUE_VARS = ['_avoxQ1', '_avoxQ2'];
 export const SPEECH_SUBROUTINE_NAME = '_avox_step';
+// The subroutine that gives the phrase of the next note of a voice instrument (see the notes of voices below), and the variable of each such instrument
+// that counts its notes.
+export const VOICE_NOTE_SUBROUTINE_NAME = '_avox_note';
+export const voiceNoteCounterVar = (np) => `_avoxVN${np}`;
+// The frames left of the note whose words are being said, for each voice instrument: the voice stops when they run out (see the stop phrase below).
+export const voiceNoteTimerVar = (np) => `_avoxVT${np}`;
 // A phrase is called by one byte (its number + 1; 0 is none).
 export const SPEECH_PHRASE_MAX = 254;
 
@@ -88,7 +96,8 @@ export const prepareSpeech = (Blockly, workspace) => {
   // changes from the start values or that an AtariVox instrument changes (an effect leaves its volume and bend as they are). A control that a "set voice"
   // block of the project sets is left to the blocks.
   const strings = processTextStringsStorageDefaults(useTextStringsStorage());
-  const effectVoiceControls = touchedVoiceControls(avoxCards);
+  const effectCards = avoxCards.filter((card) => !isVoiceInstrument(card));
+  const effectVoiceControls = touchedVoiceControls(effectCards);
   const voiceBlockKinds = new Set(blocks.filter((block) => block.type === 'speech_voice').map((block) => block.getFieldValue('KIND')));
   const speechVoiceControls = VOICE_CONTROLS.filter((control) => !voiceBlockKinds.has(control) &&
     (effectVoiceControls.includes(control) ||
@@ -125,9 +134,38 @@ export const prepareSpeech = (Blockly, workspace) => {
   // (The phrase of an instrument is its voice and its effect: the controls of the voice that any instrument changes are sent by all of them, as the
   // chip keeps a setting until it is changed.)
   const voiceControls = effectVoiceControls;
-  avoxCards.forEach((soundEffect) => {
+  effectCards.forEach((soundEffect) => {
     add(`avox:${soundEffect.id}`, avoxEffectBytes(soundEffect, voiceControls));
   });
+  // The notes of the voice instruments (the Music tab): each firing of the watch of an instrument says the next note's words at its pitch. For every
+  // voice instrument and song there is a list of what the firings say (the phrase number + 1, 0 for a note without words), in the order they fire; the
+  // program counts the firings of an instrument (see voiceNoteCounterVar) and reads that place of the list of the song that is playing.
+  const music = Blockly.BBasic.projectMusic;
+  const songCount = music && music.songs ? music.songs.length : 0;
+  const voiceNotes = [];
+  avoxInstruments.filter(({soundEffect}) => isVoiceInstrument(soundEffect)).forEach(({id, index, soundEffect}, ordinal) => {
+    const voice = strings.voices.find((candidate) => Number(candidate.id) === Number(soundEffect.avoxVoice)) || strings.voices[0];
+    const lists = (music ? music.songs : []).map((song) => (song.voiceNotes && song.voiceNotes[index] || []).map(({key, frames}) => {
+      if (!key) return {phrase: 0, frames: 0};
+      const [, midi, text] = JSON.parse(key);
+      const bytes = noteSpeechBytes({midi, text}, voice, strings, speechVoiceControls);
+      if (!bytes.length) return {phrase: 0, frames: 0};
+      add(`vnote:${key}`, bytes);
+      // (A note longer than a byte of frames is not stopped.)
+      return {phrase: numbers[`vnote:${key}`] + 1, frames: frames > 255 ? 0 : frames};
+    }));
+    lists.forEach((list) => {
+      if (list.length > 255) throw new Error(`The voice instrument ${soundEffect.name || id} has ${list.length} notes in a song: the most is 255.`);
+    });
+    voiceNotes.push({id, np: index, ordinal, lists});
+  });
+  // The phrase that stops the voice when its note ends: the RESET of the chip (31), which clears what it has to say (the next phrase starts with its voice).
+  if (voiceNotes.length) add('avox:stop', [31]);
+  Blockly.BBasic.avoxStopPhrase = voiceNotes.length ? numbers['avox:stop'] + 1 : 0;
+  Blockly.BBasic.avoxVoiceNotes = voiceNotes;
+  Blockly.BBasic.avoxVoiceNoteSongs = Math.max(1, songCount);
+  // The counters go back to the start when a song starts (see music.js).
+  Blockly.BBasic.avoxVoiceResetLines = () => voiceNotes.map(({np}) => `${resolve(Blockly, voiceNoteCounterVar(np))} = 0\n`).join('');
   // Using a voice by its ID: a phrase for every voice, from the first ID to the largest (an ID no voice has is an empty phrase).
   let voiceBase = 0;
   let voiceMax = 0;
@@ -163,12 +201,25 @@ export const prepareSpeech = (Blockly, workspace) => {
   if (phrases.length > SPEECH_PHRASE_MAX) {
     throw new Error(`The AtariVox speech has ${phrases.length} phrases; the most is ${SPEECH_PHRASE_MAX}.`);
   }
-  // The table: a filler byte first so that no phrase is at offset 0, then every phrase and its end.
+  // The table: a filler byte first so that no phrase is at offset 0, then the phrases, each ending with its end byte. A phrase that is the tail of one
+  // stored already (the end byte is in no phrase, so a run that ends with it is the end of one) is not stored again, only pointed at: the same phrase twice, "one"
+  // inside "twenty one", a word at the end of a message. The longest are stored first, so that the shorter ones can be found in them.
   const table = [SPEAKJET_END];
-  const offsets = phrases.map((bytes) => {
-    const at = table.length;
-    table.push(...bytes, SPEAKJET_END);
-    return at;
+  const offsets = new Array(phrases.length);
+  const found = (run) => {
+    for (let at = 1; at + run.length <= table.length; at++) {
+      if (run.every((value, i) => table[at + i] === value)) return at;
+    }
+    return -1;
+  };
+  phrases.map((bytes, index) => ({index, run: [...bytes, SPEAKJET_END]})).sort((a, b) => b.run.length - a.run.length).forEach(({index, run}) => {
+    const at = found(run);
+    if (at !== -1) {
+      offsets[index] = at;
+    } else {
+      offsets[index] = table.length;
+      table.push(...run);
+    }
   });
   Blockly.BBasic.speechUsed = used;
   Blockly.BBasic.speechTable = table;
@@ -180,6 +231,82 @@ export const prepareSpeech = (Blockly, workspace) => {
   Blockly.BBasic.speechCardBase = cardBase;
   Blockly.BBasic.speechCardMax = cardMax;
   return used;
+};
+
+// The subroutine that gives the phrase of the next note of a voice instrument. Hand written 6502 like the one that sends the bytes. In: temp1 the number
+// of notes of the instrument that have fired in this song, temp2 the place of the list (the instrument's number times the number of songs, plus the
+// song); out: temp2 the phrase number + 1 (0 for none), temp6 the frames of the length of the note (0 for none), temp1 the count moved on (back to 0 after
+// the last note of the list, for a song that loops).
+export const registerVoiceNoteSubroutine = (Blockly) => {
+  const voiceNotes = Blockly.BBasic.avoxVoiceNotes || [];
+  if (!voiceNotes.length) return;
+  const songs = Blockly.BBasic.avoxVoiceNoteSongs;
+  const lists = [];
+  voiceNotes.forEach(({lists: perSong}) => {
+    for (let song = 0; song < songs; song++) lists.push(perSong[song] || []);
+  });
+  // Two tables with the same places: the phrase of each note, and the frames of its length.
+  const table = [];
+  const frames = [];
+  const offsets = lists.map((list) => {
+    const at = table.length;
+    list.forEach((entry) => {
+      table.push(entry.phrase);
+      frames.push(entry.frames);
+    });
+    return at;
+  });
+  const rows = (values) => Array.from({length: Math.ceil(values.length / 8)}, (_, row) => `.byte ${values.slice(row * 8, row * 8 + 8).join(', ')}`);
+  Blockly.BBasic.subroutines[VOICE_NOTE_SUBROUTINE_NAME] = [
+    'asm',
+    'jmp _avoxn_code',
+    '@_avoxn_tab',
+    ...rows(table.length ? table : [0]),
+    '@_avoxn_ftab',
+    ...rows(frames.length ? frames : [0]),
+    '@_avoxn_lo',
+    ...rows(offsets.map((offset) => `<(_avoxn_tab+${offset})`)),
+    '@_avoxn_hi',
+    ...rows(offsets.map((offset) => `>(_avoxn_tab+${offset})`)),
+    '@_avoxn_flo',
+    ...rows(offsets.map((offset) => `<(_avoxn_ftab+${offset})`)),
+    '@_avoxn_fhi',
+    ...rows(offsets.map((offset) => `>(_avoxn_ftab+${offset})`)),
+    '@_avoxn_len',
+    ...rows(lists.map((list) => list.length)),
+    '@_avoxn_code',
+    'ldx temp2',
+    'lda _avoxn_len,x',
+    'beq _avoxn_none',
+    'sta temp5',
+    'lda temp1',
+    'cmp temp5',
+    'bcc _avoxn_ok',
+    'lda #0',
+    'sta temp1',
+    '@_avoxn_ok',
+    'lda _avoxn_lo,x',
+    'sta temp3',
+    'lda _avoxn_hi,x',
+    'sta temp4',
+    'ldy temp1',
+    'lda (temp3),y',
+    'sta temp2',
+    'lda _avoxn_flo,x',
+    'sta temp3',
+    'lda _avoxn_fhi,x',
+    'sta temp4',
+    'lda (temp3),y',
+    'sta temp6',
+    'inc temp1',
+    'jmp _avoxn_out',
+    '@_avoxn_none',
+    'lda #0',
+    'sta temp2',
+    'sta temp6',
+    '@_avoxn_out',
+    '@end',
+  ].join('\n');
 };
 
 // The subroutine that sends the next byte of the phrase being spoken. Hand written 6502 ("@" marks a label that is defined here, see
@@ -272,6 +399,7 @@ export const generateSpeechChecks = (Blockly) => {
   }
   if (!Blockly.BBasic.speechUsed) return '';
   registerSpeechSubroutine(Blockly);
+  registerVoiceNoteSubroutine(Blockly);
   const low = resolve(Blockly, SPEECH_POSITION_VAR);
   const high = resolve(Blockly, SPEECH_POSITION_HIGH_VAR);
   const [q1, q2] = SPEECH_QUEUE_VARS.map((name) => resolve(Blockly, name));
@@ -282,8 +410,33 @@ export const generateSpeechChecks = (Blockly) => {
   // A note of an AtariVox instrument has set its watch: its sound effect is said at once.
   const flags = Blockly.BBasic.musicEventFlags;
   const instrumentLines = [];
+  const voiceNoteById = new Map((Blockly.BBasic.avoxVoiceNotes || []).map((entry) => [`${entry.id}`, entry]));
   (Blockly.BBasic.avoxInstruments || []).forEach(({id, index}) => {
     const target = flags && flags.notePlayed.get(id);
+    // A note of a voice instrument: the next entry of the list of its song says what to say (see registerVoiceNoteSubroutine).
+    const voiceNote = voiceNoteById.get(`${id}`);
+    if (voiceNote) {
+      if (!target) return;
+      const flagBit = `${resolve(Blockly, target.varName)}{${target.bit}}`;
+      const end = `_avox_inst_${Blockly.BBasic.blockNumbers.next('avox')}`;
+      const counter = resolve(Blockly, voiceNoteCounterVar(voiceNote.np));
+      const songs = Blockly.BBasic.avoxVoiceNoteSongs;
+      const noteSuffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(VOICE_NOTE_SUBROUTINE_NAME));
+      const songIndexVar = songs > 1 ? resolve(Blockly, musicSongIndexVarName()) : null;
+      const timer = resolve(Blockly, voiceNoteTimerVar(voiceNote.np));
+      const stopped = Blockly.BBasic.avoxStopPhrase;
+      const direct = `_avox_direct_${Blockly.BBasic.blockNumbers.next('avox')}`;
+      const timerEnd = `_avox_timer_${Blockly.BBasic.blockNumbers.next('avox')}`;
+      // When the note ends the voice is stopped (the stop phrase is first in the queue, and a phrase is said after it).
+      instrumentLines.push(` if ${timer} = 0 then goto ${timerEnd}`, ` ${timer} = ${timer} - 1`, ` if ${timer} <> 0 then goto ${timerEnd}`, ` ${q1} = ${stopped}`,
+          ` ${q2} = 0`, ` ${low} = 0`, ` ${high} = 0`, `${timerEnd}`);
+      instrumentLines.push(` if !${flagBit} then goto ${end}`, ` ${flagBit} = 0`, ` temp1 = ${counter}`,
+          songIndexVar ? ` temp2 = ${songIndexVar}` : ` temp2 = 0`, ...(voiceNote.ordinal * songs ? [` temp2 = temp2 + ${voiceNote.ordinal * songs}`] : []),
+          ` gosub ${VOICE_NOTE_SUBROUTINE_NAME}${noteSuffix}`, ` ${counter} = temp1`, ` if temp2 = 0 then goto ${end}`, ` ${timer} = temp6`,
+          ` if ${q1} <> ${stopped} then goto ${direct}`, ` ${q2} = temp2`, ` goto ${end}`, `${direct}`, ` ${q1} = temp2`, ` ${q2} = 0`,
+          ` ${low} = 0`, ` ${high} = 0`, `${end}`);
+      return;
+    }
     const phraseNumber = Blockly.BBasic.speechNumbers[`avox:${id}`];
     if (!target || phraseNumber === undefined) return;
     const flagBit = `${resolve(Blockly, target.varName)}{${target.bit}}`;
@@ -300,7 +453,9 @@ export const generateSpeechChecks = (Blockly) => {
     ` temp4 = ${high}`,
     ` temp5 = ${q1}`,
     ` temp6 = ${q2}`,
-    ` gosub ${SPEECH_SUBROUTINE_NAME}${suffix}`,
+    // Each call sends a byte: with voice instruments in the music a note is short, so a phrase is sent three bytes a frame (a call that has nothing to send
+    // or a chip that is not ready costs little).
+    ...Array.from({length: (Blockly.BBasic.avoxVoiceNotes || []).length ? 3 : 1}, () => ` gosub ${SPEECH_SUBROUTINE_NAME}${suffix}`),
     ` ${low} = temp3`,
     ` ${high} = temp4`,
     ` ${q1} = temp5`,

@@ -3136,6 +3136,11 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(SPEECH_POSITION_HIGH_VAR, undefined, 'AtariVox speech: the high byte of that address (0 = no phrase is being sent)');
     reserveDevVar(SPEECH_QUEUE_VARS[0], undefined, 'AtariVox speech: the phrase to say next (its number + 1, 0 = none)');
     reserveDevVar(SPEECH_QUEUE_VARS[1], undefined, 'AtariVox speech: the phrase to say after that');
+    // A voice instrument of the music counts its notes (which of them the program says next).
+    (Blockly.BBasic.avoxVoiceNotes || []).forEach(({np}) => reserveDevVar(voiceNoteCounterVar(np), undefined,
+        'AtariVox speech: how many notes of a voice instrument of the music have fired in this song'));
+    (Blockly.BBasic.avoxVoiceNotes || []).forEach(({np}) => reserveDevVar(voiceNoteTimerVar(np), undefined,
+        'AtariVox speech: the frames left of the note being said by a voice instrument (the voice stops when they run out)'));
   }
   // The table of high scores in the AtariVox's memory needs three bytes (the place, the place being moved, the byte of a place).
   if (Blockly.BBasic.avoxHighScoresUsed) {
@@ -8602,7 +8607,7 @@ import score from './bbasic/score';
 import sound from './bbasic/sound';
 import avoxMemory from './bbasic/avox-memory';
 import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR, SPEECH_POSITION_HIGH_VAR, SPEECH_QUEUE_VARS,
-  HIGH_SCORE_VARS} from './bbasic/speech';
+  HIGH_SCORE_VARS, voiceNoteCounterVar, voiceNoteTimerVar} from './bbasic/speech';
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';

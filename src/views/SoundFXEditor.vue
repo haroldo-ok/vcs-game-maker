@@ -336,6 +336,16 @@
                       <v-btn value="vox" small title="A sound effect of the AtariVox's SpeakJet chip, played by the chip instead of the console (needs the AtariVox on the Options tab)">VOX</v-btn>
                     </v-btn-toggle>
                     <v-select
+                      label="Plays"
+                      title="What the notes of this instrument do on the Music tab: play a sound effect of the AtariVox's SpeakJet chip, or say words in a voice of the Vox tab. A note of a voice can have text (double-click it in the piano roll), which it says at its pitch."
+                      :value="soundEffect.avoxVoice || 0"
+                      :items="avoxPlaysItems"
+                      hide-details
+                      class="soundfx-audc soundfx-avox-effect"
+                      @change="(value) => handleSetAvoxVoice(soundEffect, value)"
+                    />
+                    <v-select
+                      v-if="!soundEffect.avoxVoice"
                       label="AtariVox sound effect"
                       title="The sound effect of the AtariVox's SpeakJet chip that plays when a note of this instrument starts on the Music tab (the pitch of the note does not matter; a new note stops the one being played). Made by the chip, so it takes almost no ROM. Needs the AtariVox on the Options tab."
                       v-model="soundEffect.avoxEffect"
@@ -346,6 +356,7 @@
                     />
                     <!-- The voice fields share the row of the effect when the card is wide (the columns are off), else they wrap under it. -->
                     <v-text-field
+                      v-if="!soundEffect.avoxVoice"
                       label="Volume"
                       title="How loud the effect is, 0 to 15 as for the sounds of the console (15 is the volume the chip has at start). It stays until another effect or speech block changes it, so the speech after the effect is at this volume too."
                       v-model.number="soundEffect.audv"
@@ -357,7 +368,7 @@
                       @change="handleChildChange"
                     />
                     <v-text-field
-                      v-for="voice in avoxVoiceFields"
+                      v-for="voice in (soundEffect.avoxVoice ? [] : avoxVoiceFields)"
                       :key="voice.field"
                       :label="voice.label"
                       :title="voice.hint + ' It stays until another effect or speech block changes it, so the speech after the effect is in this voice too. The effect cannot change while it plays: there is no envelope.'"
@@ -959,8 +970,9 @@ import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {newestSteps} from '../hooks/undo-limit';
-import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage,
-  useSoundFxColumnsStorage} from '../hooks/project';
+import {ensureAtariVoxOn, useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage,
+  useSoundFxColumnsStorage, useTextStringsStorage} from '../hooks/project';
+import {processTextStringsStorageDefaults} from '../blocks/text-strings';
 import {frequencyForMidi, midiForPianoIndex, normalizeTiaShape, PIANO_KEY_COUNT} from '../utils/dpc-sound';
 import {tvAudioClockScale} from '../utils/tv-standard';
 import {armSettingsFrom, hasSeparateArm, settingsOfView} from '../utils/chip-settings';
@@ -983,7 +995,9 @@ import {openFileDialog, openFileDialogMultiple} from '../utils/file';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
 import {speakJetEffectOptions, DEFAULT_SPEAKJET_EFFECT} from '../utils/speakjet-codes';
-import {avoxEffectBytes, SPEAKJET_VOICE} from '../utils/speakjet';
+import {avoxEffectBytes, encodeSpeech, SPEAKJET_VOICE, voiceBytes, voiceById} from '../utils/speakjet';
+import {textToSpeakJetWords} from '../utils/speakjet-text';
+import {pronunciationsFor} from '../utils/speakjet-dictionary';
 import {speakBytes} from '../utils/speech-preview';
 import {autoInstrumentColor} from '../utils/instrument-colors';
 import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
@@ -1239,10 +1253,11 @@ export default defineComponent({
       {text: 'Instruments', value: 'instrument'},
       {text: 'Percussion', value: 'percussion'},
       {text: 'Sound effects', value: 'sound'},
-      ...(avoxOn.value ? [{text: 'AtariVox effects', value: 'avox'}] : []),
+      ...(avoxOn.value ? [{text: 'AtariVox', value: 'avox'}] : []),
     ]);
     // The kinds of sound a card can be (the button in its name row).
-    const AVOX_KIND = {value: 'avox', text: 'AtariVox effect', icon: 'mdi-microphone-variant'};
+    // One entry for the AtariVox: what the card plays, a sound effect of the chip or a voice of the Vox tab, is picked in its "Plays" menu.
+    const AVOX_KIND = {value: 'avox', text: 'AtariVox', icon: 'mdi-microphone-variant'};
     const soundKindList = [
       {value: 'sound', text: 'Sound effect', icon: 'mdi-waveform'},
       {value: 'instrument', text: 'Instrument', icon: 'mdi-piano'},
@@ -1253,7 +1268,27 @@ export default defineComponent({
       soundKindList.find(({value}) => (soundEffect.isPercussion ? value === 'percussion' :
         soundEffect.isInstrument ? value === 'instrument' : value === 'sound')));
     const avoxEffectItems = speakJetEffectOptions().map(([text, value]) => ({text, value}));
-    const handlePlayAvoxEffect = (soundEffect) => speakBytes(avoxEffectBytes(soundEffect));
+    // What a card of the AtariVox kind plays: a sound effect of the chip, or one of the voices (a pitched instrument whose notes say their text).
+    const textStringsStorage = useTextStringsStorage();
+    const avoxPlaysItems = computed(() => [{text: 'A sound effect', value: 0},
+      ...processTextStringsStorageDefaults(textStringsStorage).voices.map((voice) => ({text: `Voice: ${voice.name || voice.id}`, value: Number(voice.id)}))]);
+    const handleSetAvoxVoice = (soundEffect, voiceId) => {
+      Vue.set(soundEffect, 'avoxVoice', Number(voiceId) || 0);
+      // (A voice is an instrument with pitches, a sound effect of the chip a percussion card.)
+      soundEffect.isInstrument = soundEffect.avoxVoice > 0;
+      soundEffect.isPercussion = soundEffect.avoxVoice === 0;
+      handleChildChange();
+    };
+    // A card with a voice says the preview message of the Vox tab in it.
+    const handlePlayAvoxEffect = (soundEffect) => {
+      if (!soundEffect.avoxVoice) {
+        speakBytes(avoxEffectBytes(soundEffect));
+        return;
+      }
+      const strings = processTextStringsStorageDefaults(useTextStringsStorage());
+      const words = textToSpeakJetWords(strings.voicePreview, pronunciationsFor(strings));
+      speakBytes([...voiceBytes(voiceById(strings.voices, soundEffect.avoxVoice)), ...encodeSpeech(words).bytes]);
+    };
     // The controls of the voice of an AtariVox card: the field of the card, its label and the range the chip takes.
     const avoxVoiceFields = [
       {field: 'avoxBend', label: 'Pitch', control: 'bend', hint: 'The pitch of the effect, about a semitone a step (0 to 15, 5 at start): lower is deeper, higher is brighter. It is the Bend control of the chip, the one that moves the pitch of an effect.'},
@@ -1549,6 +1584,7 @@ export default defineComponent({
             delete soundEffect.dpcWave;
             delete soundEffect.dpcWaveBars;
             Object.assign(soundEffect, importedFields, {id: soundEffect.id});
+            if (soundEffect.isAtariVox) ensureAtariVoxOn('the imported sound');
             // Not just handleChildChange() - an imported file's  audf
             // (especially one hand-edited, or exported from a build before
             // the curated "in tune" Frequency list existed) can be a raw
@@ -1679,6 +1715,7 @@ export default defineComponent({
     // importSoundBankEntries in utils/sound-bank.js).
     const handleConfirmSoundBankImport = () => {
       importSoundBankEntries(state.value.soundEffects, soundBankImportEntries.value);
+      if (soundBankImportEntries.value.some((entry) => entry.selected && entry.data && entry.data.isAtariVox)) ensureAtariVoxOn('the imported sounds');
       handleChildChange();
       instance.proxy.$forceUpdate();
       soundBankImportOpen.value = false;
@@ -1794,7 +1831,9 @@ export default defineComponent({
       }
       soundEffect.isInstrument = kind === 'instrument';
       soundEffect.isAtariVox = kind === 'avox';
-      soundEffect.isPercussion = kind === 'percussion' || kind === 'avox';
+      // (An AtariVox card with a voice is an instrument with pitches, one with a sound effect of the chip is a percussion card.)
+      soundEffect.isPercussion = kind === 'percussion' || (kind === 'avox' && !(soundEffect.avoxVoice > 0));
+      if (kind === 'avox' && soundEffect.avoxVoice > 0) soundEffect.isInstrument = true;
       if (kind === 'avox' && !soundEffect.avoxEffect) soundEffect.avoxEffect = DEFAULT_SPEAKJET_EFFECT;
       handleChildChange();
     };
@@ -1853,7 +1892,7 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, endFrequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent,
-      soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, avoxOn, avoxEffectItems, handlePlayAvoxEffect,
+      soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, avoxOn, avoxEffectItems, avoxPlaysItems, handleSetAvoxVoice, handlePlayAvoxEffect,
       avoxVoiceFields, dpcPlusSoundCards, dpcPlusNoteValue, dpcPlusNoteItems,
       handleSweepSwitch, dpcFollows, setDpcFollows, pianoKeyItems, MAX_DPC_SWEEP_STEP, MAX_STAIRCASE_STEP,
       staircaseFrameOptionItems: STAIRCASE_FRAME_OPTIONS.map((value) => ({text: `${value} ${value === 1 ? 'frame' : 'frames'}`, value})),

@@ -142,6 +142,17 @@ export const appendCompileLog = (text, level = 'info', html = false) => {
   compileLogRef.value = [...compileLogRef.value, {text, level, html}];
 };
 
+// Something imported needs the AtariVox (a song with an AtariVox instrument, a sound card of the AtariVox, a voice preset): it is turned on in the
+// project's options (Options tab, ROM Options) when it is off, and the log says so. Returns whether it had to be turned on.
+export const ensureAtariVoxOn = (what) => {
+  const configurationStorage = useConfigurationStorage();
+  const config = configurationStorage.value || {};
+  if (config.enableAtariVox) return false;
+  configurationStorage.value = {...config, enableAtariVox: true};
+  appendCompileLog(`The AtariVox was turned on (Options tab, ROM Options), which ${what} needs.`, 'info');
+  return true;
+};
+
 // Whether to restore the last saved project on startup, or always start from
 // the empty/default one instead - a standing app preference, not part of the
 // project itself (see PROJECT_STORAGE_TYPES above), so it has to survive

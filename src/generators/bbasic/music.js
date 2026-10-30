@@ -15,6 +15,7 @@ import {frequencyForMidi} from '../../utils/dpc-sound';
 import {settingsForChannel} from '../../utils/chip-settings';
 import {buildVolumeStaircase} from '../../utils/staircase';
 import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from '../../utils/music-notes';
+import {isVoiceInstrument} from '../../utils/note-speech';
 import {envelopeFlatOn, envelopeStartPosition, registerEnvelopeConfig, NO_ENVELOPE_SENTINEL, volumeLimitAsm, soundPitchValues,
   getEnvelopeConfigs} from './soundfx';
 
@@ -728,7 +729,7 @@ const buildMusicPlayResetBody = (Blockly, song, music) => {
     return `${resolveRW(musicIndexVarName(channel)).write} = 0\n${pageReset}${seqReset}${seqRepeatReset}${arpReset}` +
       `${resolveVar(musicTimerVarName(channel))} = 1\n` +
       `${flagsVar}{${musicChannelActiveBit(channel)}} = 1\n`;
-  }).join('');
+  }).join('') + (Blockly.BBasic.avoxVoiceResetLines ? Blockly.BBasic.avoxVoiceResetLines() : '');
 };
 
 // Multi-song version of buildMusicPlayResetBody above - see its  comment
@@ -774,7 +775,7 @@ const buildMusicPlaySongResetBody = (Blockly, song, music) => {
   }).join('');
   return `${resolveVar(musicSongIndexVarName())} = ${song.songIndex}\n` +
     `${resolveVar(musicSeqLenVarName())} = ${Math.max(1, song.sequenceLength)}\n` +
-    lines;
+    lines + (Blockly.BBasic.avoxVoiceResetLines ? Blockly.BBasic.avoxVoiceResetLines() : '');
 };
 
 // Builds MUSIC_PLAY_BY_ID_NAME's  if-chain body (see its  comment).
@@ -911,7 +912,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   const pushEvent = (channel, audv, audc, audf, frames, envelope = false, arpeggioSpeed = 0, arpeggioInterval = 0,
       arpeggioRange = 0, notePlayedIndex = 0, envelopeAttack = 0, envelopeDecay = 0, envelopeDecayEnd = 0,
       envelopeRelease = 0, envelopeSustainLength = 0, envelopeReleaseStart = 0, instrumentNp = 0, instrumentAudv = 0, hitPitch = 255,
-      envelopeAttackEnd = 100) => {
+      envelopeAttackEnd = 100, speech = null, speechFrames = 0) => {
     if (frames <= 0) return;
     const events = perChannel[channel];
     const prev = events[events.length - 1];
@@ -923,12 +924,12 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       prev.envelopeDecayEnd === envelopeDecayEnd && prev.envelopeRelease === envelopeRelease &&
       prev.envelopeSustainLength === envelopeSustainLength && prev.envelopeReleaseStart === envelopeReleaseStart &&
       prev.instrumentNp === instrumentNp && prev.instrumentAudv === instrumentAudv &&
-      prev.hitPitch === hitPitch && prev.envelopeAttackEnd === envelopeAttackEnd) {
+      prev.hitPitch === hitPitch && prev.envelopeAttackEnd === envelopeAttackEnd && speech === null && prev.speech === null) {
       prev.frames += frames;
     } else {
       events.push({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
         notePlayedIndex, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
-        envelopeReleaseStart, instrumentNp, instrumentAudv, hitPitch, envelopeAttackEnd});
+        envelopeReleaseStart, instrumentNp, instrumentAudv, hitPitch, envelopeAttackEnd, speech, speechFrames});
     }
   };
 
@@ -963,7 +964,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       pushEvent(channel, note.audv, note.audc, note.audf, frames, note.envelope, note.arpeggioSpeed,
           note.arpeggioInterval, note.arpeggioRange, note.notePlayedIndex, note.envelopeAttack, note.envelopeDecay,
           note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength, note.envelopeReleaseStart,
-          note.instrumentNp, note.instrumentAudv, note.hitPitch, note.envelopeAttackEnd);
+          note.instrumentNp, note.instrumentAudv, note.hitPitch, note.envelopeAttackEnd, note.speech, frames);
       return;
     }
     const perFrame = bakedFrames(note, totalFrames).slice(offset, offset + frames);
@@ -1012,6 +1013,8 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     // frame count. Clamped to what the duration byte's nibble can hold.
     // (A note of an AtariVox instrument is silent for the console: it only sets the watch of its instrument, if the AtariVox is on.)
     const isAvox = !!soundEffect.isAtariVox;
+    // (A note of a voice instrument sets the watch too, and the program says its words: see speech.js. Its key is the voice, the pitch and the text.)
+    const isVoice = isVoiceInstrument(soundEffect);
     const arpeggioSpeed = soundEffect.arpeggio && !isAvox ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES,
         Math.round((framesPerUnit * LENGTH_UNITS_PER_STEP) /
           (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)))) : 0;
@@ -1091,6 +1094,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         // top of another track's note sharing the same channel, so this is
         // harmless dead weight only on a note that never overlaps anything.
         priority: Number(soundEffect.priority) || DEFAULT_NOISE_PRIORITY,
+        speech: isVoice ? (String(note.text || '').trim() ? JSON.stringify([Number(soundEffect.avoxVoice), note.midi, String(note.text).trim()]) : '') : null,
       });
     });
   });
@@ -1230,9 +1234,11 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       events.flatMap((event) => (event.arpeggioSpeed > 0 && event.audv > 0 ? arpeggioToEvents(event) : [event])) : events;
     playedEvents.forEach(({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
       notePlayedIndex, instrumentNp, instrumentAudv, hitPitch, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
-      envelopeReleaseStart, envelopeAttackEnd}) => {
+      envelopeReleaseStart, envelopeAttackEnd, speech}) => {
       const maxFrames = MAX_EVENT_FRAMES;
       let remaining = frames;
+      // (The words of a note of a voice are said once, at the first chunk of a long note that is several events; the watch fires for each of them.)
+      let firstChunk = true;
       while (remaining > 0) {
         const chunkFrames = Math.min(remaining, maxFrames);
         remaining -= chunkFrames;
@@ -1245,9 +1251,14 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         // of "this is a continuation" - an accepted rare-case quirk rather
         // than spending another bit tracking it.
         const isFinalChunk = remaining === 0;
+        const thisFirstChunk = firstChunk;
+        firstChunk = false;
         chunked[channel].push({
           audv, audc, audf, frames: chunkFrames, envelope: envelope && isFinalChunk,
           arpeggioSpeed, arpeggioInterval, arpeggioRange, notePlayedIndex, instrumentNp, instrumentAudv, hitPitch,
+          speech: speech === null || speech === undefined ? null : (thisFirstChunk ? speech : ''),
+          // (the length of the whole note, on the first chunk: the program stops the voice when it ends)
+          speechFrames: thisFirstChunk ? frames : 0,
           envelopeAttack: isFinalChunk ? envelopeAttack : 0,
           envelopeDecay: isFinalChunk ? envelopeDecay : 0,
           envelopeDecayEnd: isFinalChunk ? envelopeDecayEnd : 0,
@@ -1699,12 +1710,26 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
     channels.forEach((channel) => {
       patternStartPage[channel] = {};
     });
+    // The notes of the voice instruments of each pattern, by the watch index of the instrument: the key of the phrase of each (see speech.js), in the
+    // order the watch fires. The channel they are on is kept too: the program counts the firings of an instrument, so they must all be on one channel.
+    const patternVoice = {};
+    const voiceChannels = {};
 
     distinctPatternIds.forEach((patternId) => {
       const pattern = (song.patterns || []).find(({id: pid}) => `${pid}` === patternId);
       if (!pattern) return;
       const perChannel = flattenPatternEvents(song, pattern, channels, soundEffects, config, notePlayedIndexById,
           channelHasEnvelopeGlobal);
+      patternVoice[patternId] = {};
+      Object.entries(perChannel).forEach(([channel, events]) => {
+        events.filter((event) => event.speech !== null && event.speech !== undefined && Number(event.notePlayedIndex) > 0).forEach((event) => {
+          const np = Number(event.instrumentNp);
+          if (!patternVoice[patternId][np]) patternVoice[patternId][np] = [];
+          patternVoice[patternId][np].push({key: event.speech, frames: event.speechFrames || 0});
+          if (!voiceChannels[np]) voiceChannels[np] = new Set();
+          voiceChannels[np].add(channel);
+        });
+      });
       Object.entries(perChannel).forEach(([channel, events]) => {
         const pages = eventsToPages(events, getInstrumentIndex, isChipChannel(channel));
         // A pattern whose bytes are the same as those of one already stored (a pattern repeated with another name, or a copy that was
@@ -1777,9 +1802,20 @@ export const resolveProjectMusic = (workspace, notePlayedIndexById = new Map()) 
       return repeatsLeft + repeatsLeft * 16;
     });
 
+    // The notes of each voice instrument over the whole sequence (a group that repeats gives its notes again): what the program says, one at each
+    // firing of the watch of the instrument. The program counts them, so a voice instrument has all its notes of a song on one channel.
+    const voiceNotes = {};
+    Object.entries(voiceChannels).forEach(([np, usedChannels]) => {
+      if (usedChannels.size > 1) {
+        throw new Error('A voice instrument has notes on both channels in one song: the program says its words in the order of its notes, so its notes have to stay on one channel.');
+      }
+      voiceNotes[np] = groups.flatMap(({patternId, count}) => Array.from({length: count}, () => (patternVoice[patternId] && patternVoice[patternId][np]) || []).flat());
+    });
+
     return {
       songId: id,
       songIndex,
+      voiceNotes,
       channelsUsed: musicChannelsUsedBySong(song),
       channelStartPage,
       sequenceStartPage,

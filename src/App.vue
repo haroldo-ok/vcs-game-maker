@@ -3730,6 +3730,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 /* The buttons that put a speech command in a dictionary word (Vox tab): a lighter fill than the page in the dark and Soft Colors themes, so that they
    can be seen before the pointer is over them. */
+.dark-mode.v-application .note-text-commands-label,
 .dark-mode.v-application .voice-dictionary-commands-label {
   color: rgba(255, 255, 255, 0.7) !important;
 }

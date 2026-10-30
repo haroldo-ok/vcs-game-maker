@@ -257,6 +257,15 @@ export const getCanonicalNoteRows = () => {
   return rows;
 };
 
+// The notes of a voice instrument (an AtariVox card with a voice, see utils/note-speech.js) go from C0 to B3, whatever the console can play in tune: the
+// pitch of a note is the PITCH of the speech chip. Their rows are added to the piano roll while a project has a voice instrument.
+export const VOICE_NOTE_MIN_MIDI = 12;
+export const VOICE_NOTE_MAX_MIDI = 59;
+export const voiceNoteRows = () => Array.from({length: VOICE_NOTE_MAX_MIDI - VOICE_NOTE_MIN_MIDI + 1}, (_, i) => {
+  const midi = VOICE_NOTE_MIN_MIDI + i;
+  return {midi, label: noteLabel(midi % 12, Math.floor(midi / 12) - 1)};
+}).reverse();
+
 // The rows of the piano roll under the Hit row, for any sound that is not a percussion sound: one for each frequency
 // (AUDF 0 to 31, the highest pitch first), a note on one plays that frequency. Their keys are 'f' and the frequency, a note's midi.
 export const RAW_FREQUENCY_ROWS = Array.from({length: 32}, (_, audf) => ({midi: `f${audf}`, label: `Freq ${audf}`}));

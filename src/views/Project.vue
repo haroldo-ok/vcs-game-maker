@@ -569,7 +569,7 @@ import {defineComponent, reactive, computed, onMounted, onBeforeUnmount, ref, ge
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {appendCompileLog, useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useProjectIncludeDateInFilenameStorage, useProjectShowExamplesStorage, useProjectShowSoundBanksStorage, useProjectShowVoicePresetsStorage, useScoreFontEditsStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage, useWorkspaceStorage} from '../hooks/project';
+import {appendCompileLog, ensureAtariVoxOn, useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useProjectIncludeDateInFilenameStorage, useProjectShowExamplesStorage, useProjectShowSoundBanksStorage, useProjectShowVoicePresetsStorage, useScoreFontEditsStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage, useWorkspaceStorage} from '../hooks/project';
 import {combineLegacyPlayerAnimations, remapPlayer1AnimationIndexesInWorkspaceXml} from '../hooks/migrate-player-animations';
 import {migrateLegacyPlayerBlocksInWorkspaceXml} from '../hooks/migrate-player-blocks';
 import {migrateLegacyBounceBlocksInWorkspaceXml} from '../hooks/migrate-bounce-blocks';
@@ -1687,6 +1687,7 @@ export default defineComponent({
       const storage = useTextStringsStorage();
       const strings = processTextStringsStorageDefaults(storage);
       importVoiceEntries(strings.voices, this.data.voicePresetEntries);
+      ensureAtariVoxOn('the voices');
       storage.value = strings;
       this.data.voicePresetDialog = false;
       const count = this.data.voicePresetEntries.filter((entry) => entry.selected).length;
@@ -1697,6 +1698,7 @@ export default defineComponent({
       const storage = useSoundEffectsStorage();
       const state = processSoundEffectsStorageDefaults(storage);
       importSoundBankEntries(state.soundEffects, this.data.soundBankEntries);
+      if (this.data.soundBankEntries.some((entry) => entry.selected && entry.data && entry.data.isAtariVox)) ensureAtariVoxOn('the imported sounds');
       storage.value = state;
       this.data.soundBankDialog = false;
       const count = this.data.soundBankEntries.filter((entry) => entry.selected).length;

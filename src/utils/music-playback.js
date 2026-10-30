@@ -15,7 +15,9 @@ import {
 import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
-import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
+import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useTextStringsStorage} from '../hooks/project';
+import {processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {isVoiceInstrument, noteSpeechBytes} from './note-speech';
 import {avoxEffectBytes} from './speakjet';
 import {playSpeechAt} from './speech-preview';
 import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from './music-notes';
@@ -728,7 +730,16 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       if (soundEffect.isAtariVox) {
         if (avoxOn && note.step + note.length > startUnits && note.step >= startUnits) {
           maxEndUnits = Math.max(maxEndUnits, note.step + note.length);
-          avoxNotes.push({startUnits: note.step, bytes: avoxEffectBytes(soundEffect), trackGain});
+          // A note of a voice says its words at its pitch (none, when it has no words); any other says the sound effect of its card.
+          let bytes = [];
+          if (isVoiceInstrument(soundEffect)) {
+            const strings = processTextStringsStorageDefaults(useTextStringsStorage());
+            bytes = noteSpeechBytes(note, strings.voices.find((voice) => Number(voice.id) === Number(soundEffect.avoxVoice)) || strings.voices[0], strings);
+          } else {
+            bytes = avoxEffectBytes(soundEffect);
+          }
+          // (A voice stops when its note ends, as it does in the ROM.)
+          if (bytes.length) avoxNotes.push({startUnits: note.step, endUnits: isVoiceInstrument(soundEffect) ? note.step + note.length : null, bytes, trackGain});
         }
         return;
       }
@@ -831,6 +842,13 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     }
     lastAvoxSource = source;
     activeSources.push(source);
+    if (note.endUnits !== null && note.endUnits !== undefined) {
+      try {
+        source.stop(startTime + (note.endUnits - startUnits) * unitSeconds);
+      } catch (e) {
+        // (not started or already ended)
+      }
+    }
   });
 
   Object.values(notesByChannel).forEach((notes) => {

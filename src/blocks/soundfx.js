@@ -215,6 +215,9 @@ export const DEFAULT_SOUND_EFFECTS = {
       avoxEffect: DEFAULT_SPEAKJET_EFFECT,
       // The bend of the voice the chip plays the effect in (0 to 15, 5 at start; see SPEAKJET_VOICE in utils/speakjet.js): it moves the pitch of an effect.
       avoxBend: 5,
+      // The voice of the Vox tab (its ID, 0 for none) that a card of the AtariVox kind makes an instrument of: a note of it says its text (see utils/note-speech.js)
+      // at its pitch, and the card is a pitched instrument, not a percussion card.
+      avoxVoice: 0,
     },
   ],
 };
@@ -318,8 +321,10 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     soundEffect.isAtariVox = !!soundEffect.isAtariVox;
     soundEffect.avoxEffect = SPEAKJET_SOUND_EFFECTS.some(([, word]) => word === soundEffect.avoxEffect) ? soundEffect.avoxEffect : DEFAULT_SPEAKJET_EFFECT;
     soundEffect.avoxBend = clampWhole(soundEffect.avoxBend, 5, 15);
-    soundEffect.isPercussion = !!soundEffect.isPercussion || soundEffect.isAtariVox;
-    soundEffect.isInstrument = !!soundEffect.isInstrument && !soundEffect.isPercussion;
+    soundEffect.avoxVoice = soundEffect.isAtariVox ? clampWhole(soundEffect.avoxVoice, 0, 100000) : 0;
+    // (A card with a voice is an instrument that has pitches, the others of the AtariVox kind are percussion cards.)
+    soundEffect.isPercussion = soundEffect.isAtariVox ? soundEffect.avoxVoice === 0 : !!soundEffect.isPercussion;
+    soundEffect.isInstrument = soundEffect.isAtariVox ? soundEffect.avoxVoice > 0 : (!!soundEffect.isInstrument && !soundEffect.isPercussion);
     // Same Number() coercion as arpeggioRange above, for the same v-select
     // quirk. A preset saved before Priority existed at all falls back to
     // the default.

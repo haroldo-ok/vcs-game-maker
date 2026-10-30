@@ -78,12 +78,12 @@
 
       <span class="text-subtitle-1 about-label">Licenses</span>
       <p class="about-description about-legal">
-        VCS Game Maker was created by Haroldo de Oliveira Pinheiro under the <a href="https://github.com/haroldo-ok/vcs-game-maker/blob/master/LICENSE-MIT-haroldo" target="_blank" rel="noopener">MIT License</a>.
+        VCS Game Maker was created by Haroldo de Oliveira Pinheiro under the <a href="https://github.com/haroldo-ok/vcs-game-maker/blob/master/LICENSE-MIT-haroldo" @click.prevent="openInNewTab('https://github.com/haroldo-ok/vcs-game-maker/blob/master/LICENSE-MIT-haroldo')">MIT License</a>.
         <br />
-        AbstractPolygon updates are released under the <a href="https://polyformproject.org/licenses/shield/1.0.0" target="_blank" rel="noopener">PolyForm Shield License 1.0.0</a>.
+        AbstractPolygon updates are released under the <a href="https://polyformproject.org/licenses/shield/1.0.0" @click.prevent="openInNewTab('https://polyformproject.org/licenses/shield/1.0.0')">PolyForm Shield License 1.0.0</a>.
       </p>
       <p class="about-description about-legal">
-        Portions of this program are provided by and copyrighted by Magnevation LLC. The SpeakJet dictionary comes from the <a href="https://github.com/andrew-davie/SpeakJet/blob/main/docs/reference/phrasealator/README.md#licence" target="_blank" rel="noopener">PhraseALator</a> dictionary. The optional large dictionary is converted from the <a href="https://github.com/cmusphinx/cmudict" target="_blank" rel="noopener">CMU Pronouncing Dictionary</a>, copyright Carnegie Mellon University.
+        Portions of this program are provided by and copyrighted by Magnevation LLC. The SpeakJet dictionary comes from the <a href="https://github.com/andrew-davie/SpeakJet/blob/main/docs/reference/phrasealator/README.md#licence" @click.prevent="openInNewTab('https://github.com/andrew-davie/SpeakJet/blob/main/docs/reference/phrasealator/README.md#licence')">PhraseALator</a> dictionary. The optional large dictionary is converted from the <a href="https://github.com/cmusphinx/cmudict" @click.prevent="openInNewTab('https://github.com/cmusphinx/cmudict')">CMU Pronouncing Dictionary</a>, copyright Carnegie Mellon University.
       </p>
     </v-card-text>
   </v-card>

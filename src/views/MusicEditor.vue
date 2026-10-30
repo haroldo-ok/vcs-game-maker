@@ -349,14 +349,16 @@
                             class="track-instrument-select"
                             :items="soundEffectOptions()"
                             v-model="track.soundEffectId"
-                            @change="handleChildChange"
+                            @change="() => handleInstrumentChange(song, activePattern(song), track)"
                           />
                           <v-select
                             dense
                             hide-details
                             label="Channel"
                             class="track-channel-select"
-                            :items="channelOptionItems"
+                            :items="channelItemsFor(track)"
+                            :disabled="isVoiceTrack(track)"
+                            :title="isVoiceTrack(track) ? 'A voice is spoken by the AtariVox, which says one phrase at a time: the music channel that keeps the time of its notes is chosen for you' : undefined"
                             v-model="track.channel"
                             @change="handleChildChange"
                           />
@@ -675,6 +677,7 @@
                             v-for="row in sharedNoteRows"
                             v-bind:key="row.midi"
                             class="piano-roll-row"
+                            :class="{'piano-roll-row-hidden': rowHiddenForVoice(activePattern(song), row)}"
                           >
                             <div
                               class="piano-roll-label"
@@ -691,10 +694,17 @@
                                   'piano-roll-cell-select-cursor': pianoRollTool === 'select'}]"
                               :title="patternCellTitle(activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)))"
                               @click="(event) => handlePatternCellClick(song, activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
+                              @dblclick="(event) => handleCellDoubleClick(song, activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
                               @mousedown="(event) => handleCellMouseDown(song, activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
                               @mousemove="(event) => handleCellHover(activePattern(song), row, stepIndex - 1, stepsFor(activePattern(song)), event)"
                               @mouseleave="handleCellLeave"
                             >
+                              <div
+                                v-for="note in activeTrackTextNotes(activePattern(song), row, stepIndex - 1)"
+                                v-bind:key="`text${note.step}`"
+                                class="piano-roll-note-text"
+                                :style="{left: `${((note.step % LENGTH_UNITS_PER_STEP) / LENGTH_UNITS_PER_STEP) * 100}%`}"
+                              >{{ plainNoteText(note.text) }}</div>
                               <div
                                 v-for="note in activeTrackNoteTips(activePattern(song), row, stepIndex - 1)"
                                 v-bind:key="note.step"
@@ -796,12 +806,55 @@
         </template>
       </v-card-text>
     </v-card>
+
+    <!-- The text of a note of a voice instrument (double-click the note): it says it at its pitch. -->
+    <v-dialog v-model="noteTextOpen" width="480">
+      <v-card>
+        <v-card-title>Words of the note</v-card-title>
+        <v-card-text>
+          <v-textarea
+            ref="noteTextField"
+            v-model="noteTextDraft"
+            label="Text"
+            rows="2"
+            auto-grow
+            autofocus
+            hide-details
+            @keydown.ctrl.enter="handleSaveNoteText"
+          />
+          <div class="note-text-commands">
+            <span class="note-text-commands-label">Insert</span>
+            <v-btn
+              v-for="command in speechCommands"
+              :key="command.text"
+              x-small
+              depressed
+              class="voice-dictionary-command note-text-command"
+              :title="command.title"
+              @mousedown.prevent
+              @click="() => handleInsertNoteCommand(command.text)"
+            >
+              {{ command.text }}
+            </v-btn>
+          </div>
+          <div v-if="noteTextInfo.words" class="note-text-info">{{ noteTextInfo.words }}</div>
+          <div class="note-text-info">{{ noteTextInfo.pitch }}<template v-if="noteTextInfo.time"> {{ noteTextInfo.time }}</template></div>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn small :disabled="!noteTextDraft.trim()" @click="handleSayNoteText">Say it</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn small @click="noteTextOpen = false">Cancel</v-btn>
+          <v-btn color="primary" text @click="handleSaveNoteText">Save</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 <script>
 import {
   computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onBeforeUpdate, onMounted, ref, watch,
 } from '@vue/composition-api';
+import Vue from 'vue';
 import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
@@ -809,14 +862,16 @@ import {max} from 'lodash';
 import DimControls from '../components/DimControls.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import {avoxEffectBytes} from '../utils/speakjet';
-import {warmSpeech} from '../utils/speech-preview';
+import {speakBytes, speechSeconds, stopSpeech, warmSpeech} from '../utils/speech-preview';
+import {isVoiceInstrument, notePitchControl, noteSpeechBytes, noteSpeechWords, SPEECH_COMMANDS} from '../utils/note-speech';
+import {processTextStringsStorageDefaults} from '../blocks/text-strings';
 import {useCollapsedIds} from '../hooks/collapse';
 import {removeCards} from '../utils/card-refs';
 import {recordReorder, sameItems} from '../hooks/reorder-history';
 import {newestSteps} from '../hooks/undo-limit';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useMusicEditorActiveState, usePlaybackStatusState} from '../hooks/music-editor-state';
-import {useConfigurationStorage, useSongsStorage,
+import {ensureAtariVoxOn, useConfigurationStorage, useSongsStorage, useTextStringsStorage,
   useSoundEffectsStorage, loadMutedMusicTrackIds, loadSoloedMusicTrackIds, MUTED_MUSIC_TRACKS_KEY,
   SOLOED_MUSIC_TRACKS_KEY, isMusicTrackMuted, useDarkModeStorage} from '../hooks/project';
 import {
@@ -829,7 +884,7 @@ import {channelOptions} from '../blocks/sound';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
 import {audfByMidiForAudc, getCanonicalNoteRows, noteAudv, soundHasTunableNotes, RAW_FREQUENCY_ROWS,
-  rawFrequencyOf} from '../utils/music-notes';
+  rawFrequencyOf, voiceNoteRows, VOICE_NOTE_MIN_MIDI, VOICE_NOTE_MAX_MIDI} from '../utils/music-notes';
 import {effectiveTempo, getPlaybackHead, playPattern, playSequence, previewPatternNote, setTrackMuted,
   stopPatternPlayback} from '../utils/music-playback';
 import {autoInstrumentColor, instrumentColorFor, isLightColor,
@@ -896,9 +951,19 @@ const FREQUENCY_ROWS = RAW_FREQUENCY_ROWS;
 // drag logic can look up a row by index/offset too, not just render them.
 // The pitched rows depend on the kernel (see getCanonicalNoteRows), so this is read when needed, not kept.
 let sharedNoteRowsCache = {source: null, rows: [...HIT_ROW, ...FREQUENCY_ROWS]};
+// The rows of a voice instrument (see voiceNoteRows) are among them while the project has one (set by the editor, see sharedNoteRows below).
+let voiceRowsWanted = false;
 const currentSharedNoteRows = () => {
-  const source = getCanonicalNoteRows();
-  if (sharedNoteRowsCache.source !== source) sharedNoteRowsCache = {source, rows: [...source, ...HIT_ROW, ...FREQUENCY_ROWS]};
+  const canonical = getCanonicalNoteRows();
+  const key = voiceRowsWanted ? 'voice' : '';
+  if (sharedNoteRowsCache.source !== canonical || sharedNoteRowsCache.key !== key) {
+    let source = canonical;
+    if (voiceRowsWanted) {
+      const have = new Set(canonical.map((row) => row.midi));
+      source = [...canonical, ...voiceNoteRows().filter((row) => !have.has(row.midi))].sort((a, b) => b.midi - a.midi);
+    }
+    sharedNoteRowsCache = {source: canonical, key, rows: [...source, ...HIT_ROW, ...FREQUENCY_ROWS]};
+  }
   return sharedNoteRowsCache.rows;
 };
 // .piano-roll-cell's fixed CSS height (see its rule further down) -
@@ -1169,11 +1234,17 @@ export default defineComponent({
     // (The AtariVox instruments, sound effects of the SpeakJet chip, are offered while the AtariVox is on: Options tab.)
     const soundEffectOptions = () => {
       const avoxOn = !!(configurationStorage.value || {}).enableAtariVox;
-      return soundEffects().filter((soundEffect) => (soundEffect.isInstrument || soundEffect.isPercussion) && (avoxOn || !soundEffect.isAtariVox)).map(
+      // The AtariVox instruments that a track already uses stay in the list while the AtariVox is off (a song imported from a project that had it on): they
+      // are said as silent notes, and say so, instead of leaving the track with nothing selected.
+      const used = new Set();
+      state.value.songs.forEach((song) => (song.patterns || []).forEach((pattern) => (pattern.tracks || []).forEach((track) => used.add(`${track.soundEffectId}`))));
+      return soundEffects().filter((soundEffect) => (soundEffect.isInstrument || soundEffect.isPercussion) &&
+        (avoxOn || !soundEffect.isAtariVox || used.has(`${soundEffect.id}`))).map(
           (soundEffect) => {
             // the sound of an effect is made ahead, so that the preview plays it in time
             if (soundEffect.isAtariVox) warmSpeech(avoxEffectBytes(soundEffect));
-            return {text: soundEffect.name || `Unnamed ${soundEffect.id}`, value: soundEffect.id};
+            const off = soundEffect.isAtariVox && !avoxOn ? ' (AtariVox is off)' : '';
+            return {text: `${soundEffect.name || `Unnamed ${soundEffect.id}`}${off}`, value: soundEffect.id};
           });
     };
 
@@ -1839,6 +1910,8 @@ export default defineComponent({
         if (oldId != null) idMap[oldId] = maxId;
       });
       soundEffectsStorage.value = current;
+      // (A song with an AtariVox instrument is silent for it without the AtariVox.)
+      if (importedSoundEffects.some((effect) => effect && effect.isAtariVox)) ensureAtariVoxOn('the instruments of the imported song');
       return idMap;
     };
 
@@ -2792,6 +2865,8 @@ export default defineComponent({
     const rowIsAvailable = (track, row) => {
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect) return false;
+      // The notes of a voice are all the semitones of its range, whatever the console can play in tune.
+      if (isVoiceInstrument(soundEffect)) return typeof row.midi === 'number' && row.midi >= VOICE_NOTE_MIN_MIDI && row.midi <= VOICE_NOTE_MAX_MIDI;
       // Hit is only meaningful for an instrument with no real tunable pitch
       // (noise/untuned types) - a tunable instrument already has
       // its  proper pitched rows, so Hit is greyed out for it instead of
@@ -2809,6 +2884,13 @@ export default defineComponent({
     // label (see .piano-roll-label-row-unavailable) reads as unavailable
     // too, instead of looking like any other normal, playable row while
     // every cell beside it is greyed out.
+    // On a voice track only the rows the chip can say are shown (the others, above its PITCH range, the Hit row and the frequency rows, are hidden): the
+    // rows are hidden, not taken out of the list, so that the move tool counts rows as before (the rows left are one block of it).
+    const rowHiddenForVoice = (pattern, row) => {
+      const activeTrack = activeTrackFor(pattern);
+      const soundEffect = activeTrack && trackSoundEffect(activeTrack);
+      return !!soundEffect && isVoiceInstrument(soundEffect) && !rowIsAvailable(activeTrack, row);
+    };
     const labelRowUnavailable = (pattern, row) => {
       const activeTrack = activeTrackFor(pattern);
       return !!activeTrack && !rowIsAvailable(activeTrack, row);
@@ -2817,6 +2899,8 @@ export default defineComponent({
       if (row.midi === 'hit') return null;
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect) return null;
+      // (A voice has no frequency of the console: the note is silent there, the chip says it.)
+      if (isVoiceInstrument(soundEffect)) return 0;
       if (rawFrequencyOf(row.midi) !== null) return rawFrequencyOf(row.midi);
       const tia = trackUsesTia(track);
       return soundHasTunableNotes(soundEffect, tia) ? audfByMidiForAudc(soundEffect.audc, tia).get(row.midi) : null;
@@ -3378,6 +3462,135 @@ export default defineComponent({
     // the cell - so only whichever note happened to be first (in practice,
     // the earliest slice) ever got a handle at all; any other note sharing
     // the same step was impossible to resize.
+    // The notes of the selected instrument that start in this cell and have words: the words are drawn there.
+    const activeTrackTextNotes = (pattern, row, step) => {
+      const activeTrack = activeTrackFor(pattern);
+      if (!activeTrack || isTrackHidden(pattern, activeTrack)) return [];
+      return (activeTrack.notes || []).filter((note) => plainNoteText(note.text) && note.midi === row.midi && Math.floor(note.step / LENGTH_UNITS_PER_STEP) === step);
+    };
+    // The text of a note as it is drawn on it: without the commands of the chip (written between < and >).
+    const plainNoteText = (text) => String(text || '').replace(/<[^<>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // The words of a note of a voice (see utils/note-speech.js): the voice of the instrument of the track and the text strings of the project.
+    const textStringsStorage = useTextStringsStorage();
+    const noteVoice = (soundEffect) => {
+      const strings = processTextStringsStorageDefaults(textStringsStorage);
+      return {strings, voice: strings.voices.find((candidate) => Number(candidate.id) === Number(soundEffect.avoxVoice)) || strings.voices[0]};
+    };
+    const noteBytesOf = (note, soundEffect) => {
+      const {strings, voice} = noteVoice(soundEffect);
+      return noteSpeechBytes(note, voice, strings);
+    };
+    // Says a note at once (its words, at its pitch). A note with no words says "la", so that a click on it lets the voice at that pitch be heard.
+    // With the tempo (the pattern's) it stops when the note ends, as it does in the ROM.
+    let sayNoteTimer = null;
+    const sayNote = (note, soundEffect, tempo = 0) => {
+      const bytes = noteBytesOf(note.text && String(note.text).trim() ? note : {...note, text: 'la'}, soundEffect);
+      window.clearTimeout(sayNoteTimer);
+      if (!bytes.length) return;
+      speakBytes(bytes);
+      if (tempo > 0 && note.length > 0) sayNoteTimer = window.setTimeout(stopSpeech, (30 / tempo) / LENGTH_UNITS_PER_STEP * note.length * 1000);
+    };
+    // The sound of every note with words is made ahead, so that the preview plays it in time.
+    const warmVoiceNotes = () => {
+      const voices = new Map(soundEffects().filter(isVoiceInstrument).map((soundEffect) => [`${soundEffect.id}`, soundEffect]));
+      if (!voices.size) return;
+      state.value.songs.forEach((song) => (song.patterns || []).forEach((pattern) => (pattern.tracks || []).forEach((track) => {
+        const soundEffect = voices.get(`${track.soundEffectId}`);
+        if (soundEffect) (track.notes || []).forEach((note) => note.text && warmSpeech(noteBytesOf(note, soundEffect)));
+      })));
+    };
+
+    // Double-click on a note of a voice instrument: the editor of its words.
+    const noteTextOpen = ref(false);
+    const noteTextDraft = ref('');
+    const noteTextTarget = ref(null);
+    const noteTextInfo = ref({words: '', pitch: '', time: ''});
+    const refreshNoteTextInfo = async () => {
+      const target = noteTextTarget.value;
+      if (!target) return;
+      const {strings} = noteVoice(target.soundEffect);
+      const words = noteSpeechWords({text: noteTextDraft.value}, strings);
+      const pitch = `Pitch ${target.label}, PITCH ${notePitchControl(target.note.midi)} of the chip.`;
+      noteTextInfo.value = {words, pitch, time: ''};
+      const bytes = noteBytesOf({text: noteTextDraft.value, midi: target.note.midi}, target.soundEffect);
+      if (!bytes.length) return;
+      const seconds = await speechSeconds(bytes);
+      if (noteTextTarget.value === target && seconds) noteTextInfo.value = {words, pitch, time: `It takes about ${seconds.toFixed(1)} seconds to say.`};
+    };
+    watch(noteTextDraft, refreshNoteTextInfo);
+    const handleCellDoubleClick = (song, pattern, row, step, stepCount, event) => {
+      if (step >= stepCount) return;
+      const activeTrack = activeTrackFor(pattern);
+      if (!activeTrack) return;
+      const soundEffect = trackSoundEffect(activeTrack);
+      if (!isVoiceInstrument(soundEffect)) return;
+      const startUnits = step * LENGTH_UNITS_PER_STEP + clickedSliceOffsetUnits(event);
+      const note = (activeTrack.notes || []).find((candidate) => startUnits >= candidate.step && startUnits < candidate.step + candidate.length);
+      if (!note) return;
+      const label = (currentSharedNoteRows().find((candidate) => candidate.midi === note.midi) || {}).label || `${note.midi}`;
+      noteTextTarget.value = {note, soundEffect, label};
+      noteTextDraft.value = note.text || '';
+      noteTextOpen.value = true;
+      refreshNoteTextInfo();
+    };
+    // The buttons that put a command of the chip in the text at the cursor, written between < and >.
+    const noteTextField = ref(null);
+    const speechCommands = SPEECH_COMMANDS;
+    const handleInsertNoteCommand = (command) => {
+      const input = noteTextField.value && noteTextField.value.$refs ? noteTextField.value.$refs.input : null;
+      const text = noteTextDraft.value;
+      const start = input && input.selectionStart !== null && input.selectionStart !== undefined ? input.selectionStart : text.length;
+      const end = input && input.selectionEnd !== null && input.selectionEnd !== undefined ? input.selectionEnd : text.length;
+      const before = text.slice(0, start);
+      const after = text.slice(end);
+      const insert = `<${command}>`;
+      noteTextDraft.value = `${before}${before && !/\s$/.test(before) ? ' ' : ''}${insert}${after && !/^\s/.test(after) ? ' ' : ''}${after}`;
+      const position = before.length + (before && !/\s$/.test(before) ? 1 : 0) + insert.length;
+      nextTick(() => {
+        if (!input) return;
+        input.focus();
+        input.setSelectionRange(position, position);
+      });
+    };
+    // The channels a track can be on. A voice is spoken by the AtariVox, one phrase at a time, so it has one entry, "AtariVox"; the channel of the music that
+    // keeps the time of its notes (they are silent for the console) is chosen for it (see handleInstrumentChange).
+    const isVoiceTrack = (track) => isVoiceInstrument(trackSoundEffect(track));
+    const channelItemsFor = (track) => (isVoiceTrack(track) ? [{text: 'AtariVox', value: Number(track.channel)}] :
+      channelOptions().map(([text, value]) => ({text, value: Number(value)})));
+    // The channel for a voice: the one the voice already has in the song (all its notes are on one), else the one with the fewest notes of other instruments
+    // in the pattern.
+    const pickVoiceChannel = (song, pattern, track) => {
+      const id = `${track.soundEffectId}`;
+      for (const other of (song.patterns || [])) {
+        const used = (other.tracks || []).find((candidate) => candidate !== track && `${candidate.soundEffectId}` === id && (candidate.notes || []).length);
+        if (used) return Number(used.channel);
+      }
+      const channels = channelOptions().map(([, value]) => Number(value));
+      const count = (channel) => (pattern.tracks || []).filter((candidate) => candidate !== track && Number(candidate.channel) === channel)
+          .reduce((total, candidate) => total + (candidate.notes || []).length, 0);
+      return channels.reduce((best, channel) => (count(channel) < count(best) ? channel : best), channels[0]);
+    };
+    const handleInstrumentChange = (song, pattern, track) => {
+      if (isVoiceTrack(track)) track.channel = pickVoiceChannel(song, pattern, track);
+      handleChildChange();
+    };
+    const handleSaveNoteText = () => {
+      const target = noteTextTarget.value;
+      if (target) {
+        const text = noteTextDraft.value.trim();
+        Vue.set(target.note, 'text', text);
+        if (!text) Vue.delete(target.note, 'text');
+        warmVoiceNotes();
+        handleChildChange();
+      }
+      noteTextOpen.value = false;
+    };
+    const handleSayNoteText = () => {
+      const target = noteTextTarget.value;
+      if (target) sayNote({text: noteTextDraft.value, midi: target.note.midi}, target.soundEffect);
+    };
+
     const activeTrackNoteTips = (pattern, row, step) => {
       const activeTrack = activeTrackFor(pattern);
       if (!activeTrack || isTrackHidden(pattern, activeTrack)) return [];
@@ -3546,6 +3759,8 @@ export default defineComponent({
       if (!canPlaceNoteAt(pattern, activeTrack, row, noteStartUnits, noteEndUnits)) return;
       const soundEffect = trackSoundEffect(activeTrack);
       if (!soundEffect) return;
+      // A click on a note of a voice at the pitch it already has leaves it as it is (its length and its words), so that a double-click can open its words.
+      if (isVoiceInstrument(soundEffect) && ownNoteHere && ownNoteHere.midi === row.midi) return;
       const audf = rowAudf(activeTrack, row);
       const ownOverlapping = (activeTrack.notes || []).filter((note) =>
         note.step < noteEndUnits && note.step + note.length > noteStartUnits);
@@ -3557,6 +3772,8 @@ export default defineComponent({
       // tweak. The first overlapping note with an override wins; in
       // practice there's only ever one note under a clicked slice anyway.
       const preservedAudv = ownOverlapping.find((note) => Number.isInteger(note.audv));
+      // (and the words of the note, so placing a note again at its place, as a double-click does, does not lose them)
+      const preservedText = ownOverlapping.find((note) => note.text);
       if (ownOverlapping.length) {
         activeTrack.notes = activeTrack.notes.filter((note) => !ownOverlapping.includes(note));
       }
@@ -3578,12 +3795,15 @@ export default defineComponent({
       if (ownOverlapping.length && preservedAudv) {
         newNote.audv = preservedAudv.audv;
       }
+      if (preservedText && isVoiceInstrument(soundEffect)) newNote.text = preservedText.text;
       activeTrack.notes.push(newNote);
       lastNoteLength.value = newNote.length;
       lastNoteAudv.value = newNote.audv === undefined ? null : newNote.audv;
       hideHoverPreview();
       handleChildChange();
-      if (!isTrackMuted(song, pattern, activeTrack)) {
+      if (isVoiceInstrument(soundEffect)) {
+        if (!isTrackMuted(song, pattern, activeTrack)) sayNote(newNote, soundEffect, effectiveTempo(song, pattern));
+      } else if (!isTrackMuted(song, pattern, activeTrack)) {
         const played = playedSound(activeTrack, soundEffect);
         previewPatternNote({
           audc: played.audc,
@@ -3617,6 +3837,11 @@ export default defineComponent({
       const {note, track, pattern, song} = moving;
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect || isTrackMuted(song, pattern, track)) return;
+      // A note of a voice is heard as its voice, not as a sound of the console.
+      if (isVoiceInstrument(soundEffect)) {
+        sayNote(note, soundEffect, effectiveTempo(song, pattern));
+        return;
+      }
       const audf = rowAudf(track, {midi: note.midi});
       const played = playedSound(track, soundEffect);
       previewPatternNote({
@@ -4117,6 +4342,7 @@ export default defineComponent({
     };
 
     onMounted(() => {
+      warmVoiceNotes();
       handleWindowResize();
       fitZoomOnOpen();
       window.addEventListener('resize', handleWindowResize);
@@ -4177,7 +4403,12 @@ export default defineComponent({
       volumeRowHeight, startVolumeRowResize,
       pianoRollHeight, startPianoRollResize, startPianoRollResizeTop,
       isMusicToolbarScrolled, musicToolbarHeight,
-      sharedNoteRows: computed(() => currentSharedNoteRows()),
+      // (The rows of a voice instrument are among them while the project has one.)
+      sharedNoteRows: computed(() => {
+        voiceRowsWanted = soundEffects().some(isVoiceInstrument);
+        return currentSharedNoteRows();
+      }),
+      LENGTH_UNITS_PER_STEP, rowHiddenForVoice, activeTrackTextNotes, plainNoteText, noteTextOpen, noteTextDraft, noteTextInfo, handleCellDoubleClick, handleSaveNoteText, handleSayNoteText, channelItemsFor, isVoiceTrack, handleInstrumentChange, noteTextField, speechCommands, handleInsertNoteCommand,
       isBlackKeyRow, labelRowUnavailable,
       isPatternCollapsed, togglePatternCollapsed, isInstrumentsCollapsed, toggleInstrumentsCollapsed,
       isSequenceCollapsed, toggleSequenceCollapsed,
@@ -5289,6 +5520,7 @@ export default defineComponent({
   flex: 0 0 110px;
 }
 
+
 /* Piano-roll: a fixed-width note-name column on the left plus one column per
    step, styled after onlinesequencer.net's grid editor - click a cell to
    place/remove a note, drag a held note's right edge to change its length.
@@ -5422,6 +5654,10 @@ export default defineComponent({
   align-items: stretch;
 }
 
+.piano-roll-row-hidden {
+  display: none;
+}
+
 .piano-roll-row:nth-child(odd) {
   background-color: rgba(0, 0, 0, 0.035);
 }
@@ -5471,6 +5707,44 @@ export default defineComponent({
 
 /* flex-basis is set inline (see cellWidthPx) - it scales with the piano
    roll's horizontal zoom control, so it can't be a fixed value here. */
+/* The words of a note of a voice: drawn from the start of the note, over the cells after it. */
+.piano-roll-note-text {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  max-width: 400px;
+  padding: 0 3px;
+  font-size: 11px;
+  line-height: 19px;
+  white-space: nowrap;
+  color: #fff;
+  pointer-events: none;
+}
+
+.note-text-commands {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.note-text-commands-label {
+  flex: 0 0 100%;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.note-text-command {
+  padding: 0 8px !important;
+}
+
+.note-text-info {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
 .piano-roll-cell {
   position: relative;
   height: 20px;
