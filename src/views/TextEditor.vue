@@ -104,7 +104,7 @@
                 outlined
                 :ripple="false"
                 class="text-card"
-                :class="[dragCardClass(index), {'text-card-selected': selectedCardIds.includes(entry.id)}]"
+                :class="[dragCardClass(index), {'text-card-selected': selectedCardIds.includes(entry.id), 'text-card-collapsed': isCollapsed(entry)}]"
                 v-on="dragTargetListeners(index)"
                 @click.stop="selectCard(entry.id, $event)"
               >
@@ -255,8 +255,9 @@ import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WID
   TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH,
   processTextStringsStorageDefaults} from '../blocks/text-strings';
 import {BLINK_SPEED_OPTIONS, DEFAULT_BLINK_SPEED} from '../utils/text-font';
-import {encodeSpeech} from '../utils/speakjet';
-import {parsePronunciations, speechWordsFor, textToSpeakJetWords} from '../utils/speakjet-text';
+import {encodeSpeech, voiceBytes, voiceById} from '../utils/speakjet';
+import {speechWordsFor, textToSpeakJetWords} from '../utils/speakjet-text';
+import {pronunciationsFor} from '../utils/speakjet-dictionary';
 import {speakBytes, stopSpeech, speechTimeHint, setSpeechDurationListener} from '../utils/speech-preview';
 
 export default defineComponent({
@@ -404,11 +405,13 @@ export default defineComponent({
         state.value.pronunciations = value;
       },
     });
-    const generatedSpeech = (entry) => textToSpeakJetWords(entry.text, parsePronunciations(state.value.pronunciations));
+    const generatedSpeech = (entry) => textToSpeakJetWords(entry.text, pronunciationsFor(state.value));
     const handleSpeechChange = (entry, value) => {
       entry.speech = String(value || '').toUpperCase();
       handleChildChange();
     };
+    // The bytes of a message as the first voice of the Vox tab says it (the speech blocks pick the voice): the voice's controls, then the words.
+    const speechBytesFor = (entry) => [...voiceBytes(voiceById(state.value.voices, null)), ...encodeSpeech(speechWordsFor(entry, state.value)).bytes];
     const speakingId = ref(null);
     const handleSpeak = async (entry) => {
       if (speakingId.value === entry.id) {
@@ -417,7 +420,7 @@ export default defineComponent({
       }
       speakingId.value = entry.id;
       try {
-        await speakBytes(encodeSpeech(speechWordsFor(entry, state.value)).bytes);
+        await speakBytes(speechBytesFor(entry));
       } finally {
         if (speakingId.value === entry.id) speakingId.value = null;
       }
@@ -430,7 +433,7 @@ export default defineComponent({
     const speechHint = (entry) => {
       // eslint-disable-next-line no-unused-expressions
       durationTick.value;
-      return speechTimeHint(encodeSpeech(speechWordsFor(entry, state.value)).bytes) || '';
+      return speechTimeHint(speechBytesFor(entry)) || '';
     };
     onBeforeUnmount(() => {
       stopSpeech();
@@ -815,7 +818,7 @@ export default defineComponent({
 }
 
 .text-speech-field {
-  margin-top: 28px;
+  margin-top: 16px;
 }
 
 .text-pronunciations-field {
@@ -874,7 +877,12 @@ export default defineComponent({
    directly (confirmed against the real rendered card) rather than
    guessing. */
 .text-name-section {
-  padding-bottom: 22px;
+  padding-bottom: 8px;
+}
+
+/* A collapsed card ends with the name row: 20px under its underline, as under the last field of an expanded card. */
+.text-card-collapsed .text-name-section {
+  padding-bottom: 19px;
 }
 
 .text-message-section {
@@ -893,7 +901,7 @@ export default defineComponent({
 
 .text-justify-toggle {
   margin-top: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 26px;
 }
 
 .text-wrap-switch {

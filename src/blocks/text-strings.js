@@ -4,6 +4,7 @@ import Vue from 'vue';
 
 import {useConfigurationStorage, useTextStringsStorage} from '../hooks/project';
 import {cardOptions} from '../utils/card-refs';
+import {DEFAULT_VOICE_ID, newVoice, voiceControlValue, VOICE_CONTROLS} from '../utils/speakjet';
 
 // Matches text12b.asm's TextPointersLoop, which always reads exactly 12
 // bytes starting at TextIndex, unconditionally - a hard hardware ceiling
@@ -89,6 +90,10 @@ export const CHAR_TO_GLYPH = {
   '=': '_eq', '"': '_qt', '#': '_po',
 };
 
+export const DEFAULT_VOICE_PREVIEW = 'Have you played with VCS Game Maker today?';
+// (The message the Vox tab started with, replaced by the new one where it was never changed.)
+const FIRST_VOICE_PREVIEW = 'HELLO. I AM THE VOICE OF THE ATARIVOX.';
+
 export const DEFAULT_TEXT_STRINGS = {
   textStrings: [
     {
@@ -99,6 +104,9 @@ export const DEFAULT_TEXT_STRINGS = {
       wrapToLine2: false,
     },
   ],
+  // The voices of the AtariVox (see utils/speakjet.js): the speech blocks say with one.
+  voices: [newVoice(DEFAULT_VOICE_ID, 'Default')],
+  voicePreview: DEFAULT_VOICE_PREVIEW,
 };
 
 export const processTextStringsStorageDefaults = (textStringsStorage) => {
@@ -133,6 +141,20 @@ export const processTextStringsStorageDefaults = (textStringsStorage) => {
   });
   // The project's pronunciations (see utils/speakjet-text.js).
   if (typeof textStrings.pronunciations !== 'string') Vue.set(textStrings, 'pronunciations', '');
+  // The words of the dictionary files imported on the Vox tab: a line for each, WORD = SpeakJet words (see utils/speakjet-dictionary.js).
+  if (typeof textStrings.dictionary !== 'string') Vue.set(textStrings, 'dictionary', '');
+  // The message the play button of a voice speaks (Vox tab).
+  if (typeof textStrings.voicePreview !== 'string' || textStrings.voicePreview === FIRST_VOICE_PREVIEW) Vue.set(textStrings, 'voicePreview', DEFAULT_VOICE_PREVIEW);
+  // The voices (they are picked by the speech blocks, not by the messages): there is always at least one.
+  if (!Array.isArray(textStrings.voices) || !textStrings.voices.length) Vue.set(textStrings, 'voices', [newVoice(DEFAULT_VOICE_ID, 'Default')]);
+  textStrings.voices.forEach((voice, index) => {
+    if (!Number.isFinite(Number(voice.id))) Vue.set(voice, 'id', index + 1);
+    if (typeof voice.name !== 'string') Vue.set(voice, 'name', `Voice ${voice.id}`);
+    VOICE_CONTROLS.forEach((control) => {
+      if (voice[control] !== voiceControlValue(voice, control)) Vue.set(voice, control, voiceControlValue(voice, control));
+    });
+  });
+
   return textStrings;
 };
 

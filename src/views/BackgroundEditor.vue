@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
       <v-card-title>Playfield</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message background-intro-paragraph">
@@ -10,7 +10,23 @@
           its color instead of one fixed color for the whole background.
         </p>
 
-        <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveEditor" :card-columns.sync="cardColumns" card-columns-what="backgrounds" @height-hotkey="handleSetHeightHotkey">
+        <!-- The folders are pinned above the toolbar of the graphics (which sticks just under them), as on the Sprite tab. -->
+        <div ref="folderToolbar" class="playfield-folder-toolbar tight-under-intro" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Playfields"
+            noun="playfield"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
+
+        <graphic-editor-toolbar :active-editor="effectiveEditor" :card-columns.sync="cardColumns" card-columns-what="backgrounds" @height-hotkey="handleSetHeightHotkey">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" />
             <pixel-grid-toggle v-model="showPixelGrid" />
@@ -122,7 +138,7 @@
         >
           <v-list-item
             class="entry-list-item"
-            v-for="(background, index) in state.backgrounds"
+            v-for="{card: background, index} in visibleEntries()"
             v-bind:key="background.id"
           >
             <v-list-item-content>
@@ -130,7 +146,7 @@
                 outlined
                 :ripple="false"
                 class="background-card"
-                :class="[dragCardClass(index), {'background-card-selected': selectedCardIds.includes(background.id)}]"
+                :class="[dragCardClass(index), {'background-card-selected': selectedCardIds.includes(background.id), 'background-card-open': !isCollapsed(background)}]"
                 v-on="dragTargetListeners(index)"
                 @click.stop="selectCard(background.id, $event)"
               >
@@ -138,7 +154,7 @@
                   class="background-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(index)"
-                  v-on="dragHandleListeners(index)"
+                  v-on="cardHandleListeners(index)"
                 />
                 <v-list-item-title>
                   <v-btn
@@ -521,7 +537,7 @@
 </template>
 <script>
 import Vue from 'vue';
-import {computed, defineComponent, getCurrentInstance, ref} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
 import {max} from 'lodash';
 
 import {useCollapsedIds} from '../hooks/collapse';
@@ -530,6 +546,8 @@ import {recordFieldsChange, recordRowColorsChange} from '../utils/row-color-hist
 import {useDragReorder} from '../hooks/drag-reorder';
 import {insertCardAfter, removeCards} from '../utils/card-refs';
 import {useCardSelection} from '../hooks/card-selection';
+import {useCardFolders} from '../hooks/card-folders';
+import CardFolderBar from '../components/CardFolderBar.vue';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EditorZoom from '../components/EditorZoom.vue';
@@ -573,7 +591,7 @@ const copiedBackgroundBkRowColors = ref(null);
 const copiedBackgroundData = ref(null);
 
 export default defineComponent({
-  components: {ColorSwatchPicker, ConfirmDeleteMenu, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
+  components: {CardFolderBar, ColorSwatchPicker, ConfirmDeleteMenu, EditorZoom, GraphicEditorToolbar, PixelEditor, PixelGridToggle, PlayfieldColorStrip, QuickColorPalette},
   setup() {
     const instance = getCurrentInstance();
     const backgroundsStorage = useBackgroundsStorage();
@@ -668,9 +686,12 @@ export default defineComponent({
     // Shift+click selects a range, Ctrl/Cmd+click adds or removes a card (see hooks/card-selection.js): deleting or
     // dragging one of several selected cards does it to all of them.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
       useCardSelection(
-          () => state.value.backgrounds.map(({id}) => id), selectedCardId);
+          () => visibleEntries().map(({card}) => card.id), selectedCardId);
+    // The indices, in the whole list, of the selected cards (dragging one of them moves them all).
+    const getSelectedFullIndices = () => state.value.backgrounds
+        .map((background, index) => (selectedCardIds.value.includes(background.id) ? index : -1)).filter((index) => index >= 0);
 
     // Tracks whichever background's PixelEditor instance was last
     // clicked into (see its "activate" event, emitted from PixelEditor.vue's
@@ -981,9 +1002,70 @@ export default defineComponent({
           state.value.backgrounds = items;
           handleChildChange();
         },
-        getSelectedIndices,
+        getSelectedFullIndices,
         {sideBySide: () => cardColumns.value, renumber: {kind: 'background', onRenumbered: renumbered}},
     );
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the backgrounds keep their numbers and their place in
+    // the one list, a folder is only for looking after them. The folders are `folders` of the storage, the folder a background is in its `folder`.
+    const foldersOf = () => {
+      const data = state.value;
+      if (!Array.isArray(data.folders)) data.folders = [];
+      return data.folders;
+    };
+    const refresh = () => {
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const {openFolderId, visibleEntries, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners, handleDropCards} =
+      useCardFolders({
+        getCards: () => state.value.backgrounds,
+        getFolders: foldersOf,
+        setFolders: (folders) => {
+          state.value.folders = folders;
+        },
+        refresh,
+        getSelectedIndices: getSelectedFullIndices,
+        deselectCard,
+        tab: 'playfield',
+      });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
+
+    // How tall the pinned folders are: the toolbar of the graphics sticks under them, not behind them (as on the Sprite tab).
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = pinnedHeight(element);
+        });
+        folderToolbarObserver.observe(element, {box: 'border-box'});
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
+    });
 
     const setRowColors = (background, colors) => {
       background.rowColors = colors;
@@ -1146,6 +1228,7 @@ export default defineComponent({
       const maxId = max(backgrounds.map((o) => o.id)) || 0;
       const newBackground = {
         id: maxId + 1,
+        ...newCardFolder(),
         name: 'Background',
         pixels: buildDefaultBackgroundPixels(backgroundRows.value),
       };
@@ -1198,6 +1281,8 @@ export default defineComponent({
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
+      visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
+      folderToolbar, folderToolbarHeight, folderToolbarPinned,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
       copiedBackgroundBkRowColors, handleCopyBackgroundBkRowColors, handlePasteBackgroundBkRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
@@ -1314,10 +1399,47 @@ export default defineComponent({
    fixed column, so it rendered visibly narrower than an expanded card
    (whose pixel editor forces the full editorWidth) instead of both being
    the same width the grid already allocated for them. */
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar of the graphics sticks just under them. The same as the Sprite tab's. */
+.playfield-folder-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fff;
+  margin-left: -16px;
+  margin-right: -16px;
+  padding: 2px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+.playfield-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+.playfield-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
+}
+
+.playfield-folder-toolbar + .graphic-editor-toolbar {
+  padding-top: 8px;
+}
+.playfield-folder-toolbar + .graphic-editor-toolbar.graphic-editor-toolbar-scrolled {
+  padding-top: 11px;
+}
+
+.desaturate-app-colors .playfield-folder-toolbar {
+  background-color: #e1e1e1;
+}
+
 .background-card {
   position: relative;
   width: 100%;
-  padding: 12px;
+  padding: 12px 16px;
+}
+
+/* 20px from the picture to the bottom of an open card, as under the last field of the other tabs' cards (a closed card ends with the name field, 20px as is). */
+.background-card-open {
+  padding-bottom: 19px;
 }
 
 /* PixelEditor.vue always wraps itself in its  outlined v-card with
@@ -1509,7 +1631,7 @@ export default defineComponent({
    same amount. */
 .background-name-field {
   margin-top: 20px;
-  margin-bottom: -12px;
+  margin-bottom: -13px;
 }
 
 /* The DPC+ pfres field sits beside the name, which takes the rest of the row. */

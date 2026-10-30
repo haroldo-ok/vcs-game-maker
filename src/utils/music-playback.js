@@ -15,7 +15,9 @@ import {
 import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
-import {useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
+import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
+import {avoxEffectBytes} from './speakjet';
+import {playSpeechAt} from './speech-preview';
 import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from './music-notes';
 import {channelUsesTia, dpcPlusFor, dpcPlusPreviewActive, playDpcPlusSound} from './dpc-preview';
 import {dpcSettings} from './chip-settings';
@@ -664,6 +666,9 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
   // of another track's note sharing the same channel, so any note here can
   // reach the overlap branch below.
   const notesByChannel = {};
+  // The notes of AtariVox instruments (see below), and whether the AtariVox is on (Options tab): off, they are silent, as in the ROM.
+  const avoxNotes = [];
+  const avoxOn = !!((useConfigurationStorage() && useConfigurationStorage().value) || {}).enableAtariVox;
   pattern.tracks.forEach((track) => {
     const baseSound = soundEffects.find(({id}) => id == track.soundEffectId);
     if (!baseSound) return;
@@ -719,6 +724,14 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     if (!notesByChannel[channel]) notesByChannel[channel] = [];
 
     (track.notes || []).forEach((note) => {
+      // A note of an AtariVox instrument plays the sound effect of the SpeakJet chip (when the AtariVox is on), and nothing on the console's channel.
+      if (soundEffect.isAtariVox) {
+        if (avoxOn && note.step + note.length > startUnits && note.step >= startUnits) {
+          maxEndUnits = Math.max(maxEndUnits, note.step + note.length);
+          avoxNotes.push({startUnits: note.step, bytes: avoxEffectBytes(soundEffect), trackGain});
+        }
+        return;
+      }
       // Notes that have already fully finished by startUnits (see
       // handleSeekToStep in MusicEditor.vue - clicking the piano roll's
       // step ruler seeks playback there) are skipped entirely - a still-
@@ -802,6 +815,23 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       destination: note.trackGain, dpcPlus: note.dpcPlus,
     }));
   };
+
+  // The sound effects of the AtariVox instruments: the chip plays one at a time, so a new one stops the one before.
+  let lastAvoxSource = null;
+  avoxNotes.sort((a, b) => a.startUnits - b.startUnits).forEach((note) => {
+    const when = startTime + (note.startUnits - startUnits) * unitSeconds;
+    const source = playSpeechAt(context, note.bytes, when, note.trackGain);
+    if (!source) return;
+    if (lastAvoxSource) {
+      try {
+        lastAvoxSource.stop(when);
+      } catch (e) {
+        // (not started or already ended)
+      }
+    }
+    lastAvoxSource = source;
+    activeSources.push(source);
+  });
 
   Object.values(notesByChannel).forEach((notes) => {
     notes.sort((a, b) => a.startUnits - b.startUnits);

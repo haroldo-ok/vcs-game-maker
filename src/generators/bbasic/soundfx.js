@@ -351,6 +351,9 @@ export default (Blockly) => {
     // first. Never generating it at all has no such gap, and costs nothing
     // in the compiled ROM.
     if (config.muteAllAudio) return 'rem Sound muted\n';
+    // A sound card of the AtariVox kind (the VOX button of the card) is said by the AtariVox's chip, not played by the console: its effect goes in the
+    // queue of the speech (see avoxPlayLines in speech.js), nothing when the AtariVox is off.
+    if (foundSoundEffect.isAtariVox) return Blockly.BBasic.avoxPlayLines ? Blockly.BBasic.avoxPlayLines(foundSoundEffect.id) : '';
 
     const {audc, audf, audv, envelopeAttack, envelopeDecay, envelopeDecayEnd,
       envelopeReleaseStart, envelopeSustainLength, envelopeRelease, envelopeAttackEnd} = soundEffect;

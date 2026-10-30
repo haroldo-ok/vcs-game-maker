@@ -179,7 +179,7 @@
                 outlined
                 :ripple="false"
                 class="animation-card"
-                :class="[dragCardClass(index), {'animation-card-selected': selectedCardIds.includes(animation.id)}]"
+                :class="[dragCardClass(index), {'animation-card-selected': selectedCardIds.includes(animation.id), 'animation-card-open': !isCollapsed(animation)}]"
                 v-on="dragTargetListeners(index)"
                 @click.stop="selectCard(animation.id, $event)"
               >
@@ -1655,7 +1655,12 @@ export default defineComponent({
 .animation-card {
   position: relative;
   width: 100%;
-  padding: 12px;
+  padding: 12px 16px;
+}
+
+/* 20px from the frames to the bottom of an open card, as under the last field of the other tabs' cards (a closed card ends with the name field, 20px as is). */
+.animation-card-open {
+  padding-bottom: 19px;
 }
 
 /* Only this top strip is draggable (see hooks/drag-reorder.js's
@@ -1757,7 +1762,7 @@ export default defineComponent({
 .animation-name-field {
   /* 8px under the buttons in the corner and 8px above what follows. */
   margin-top: 30px;
-  margin-bottom: -13px;
+  margin-bottom: -15px;
 }
 
 /* Sits right after the name field, in the same normal-flow row as the rest
@@ -1775,7 +1780,8 @@ export default defineComponent({
    ; pulling up into that reserved strip (rather than adding to it)
    closes the gap down to what's actually visible. */
 .animation-preview-scale-toggle {
-  margin: -14px 40px 0 0;
+  /* 20px under the name and 20px above the next row, as in the other cards (see the Vox tab) */
+  margin: 13px 40px 0 0;
 }
 
 .animation-preview-scale-toggle >>> .v-btn {

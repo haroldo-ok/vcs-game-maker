@@ -1,4 +1,5 @@
 import {encodeSpeech} from './speakjet';
+import {pronunciationsFor} from './speakjet-dictionary';
 
 // English text to SpeakJet words, for the AtariVox "say text" block: letter-to-sound rules in the style of the Naval Research Laboratory's
 // 1976 rules (a letter or letters, the letters before and after it, and the sounds they make), a short list of words the rules get wrong, and a
@@ -144,9 +145,21 @@ const numberWords = (n) => {
   return String(n).split('').map((digit) => ONES[Number(digit)]);
 };
 
+// The names of the letters, for initials (VCS is said Vee Cee Ess).
+const LETTER_SOUNDS = {
+  A: 'EY', B: 'B IY', C: 'S IY', D: 'D IY', E: 'IY', F: 'EH F', G: 'JH IY', H: 'EY CH', I: 'AY', J: 'JH EY', K: 'K EY', L: 'EH L', M: 'EH M',
+  N: 'EH N', O: 'OW', P: 'P IY', Q: 'K Y UW', R: 'AA R', S: 'EH S', T: 'T IY', U: 'Y UW', V: 'V IY', W: 'D AH B AX L Y UW', X: 'EH K S', Y: 'W AY',
+  Z: 'Z IY',
+};
+const spellOut = (word) => word.split('').filter((letter) => LETTER_SOUNDS[letter]).flatMap((letter) => LETTER_SOUNDS[letter].split(' '));
+// A word of 2 to 5 letters with no vowel (VCS, CPU has one: the list) is initials, except the sounds some words are made of.
+const NOT_INITIALS = new Set(['HMM', 'MMM', 'SHH', 'BRR', 'PST', 'PSST', 'TSK', 'NTH', 'GRR', 'HM', 'MM', 'SH', 'ST', 'ND', 'RD', 'TH']);
+const INITIALS = new Set(['CPU', 'USB', 'TIA', 'PCB', 'LCD', 'RGB', 'NTSC', 'PAL', 'LED', 'DPC', 'ARM']);
+
 // The sounds of one word (letters only, upper case).
 export const wordSounds = (word) => {
   if (word in WORDS) return WORDS[word].split(' ');
+  if (INITIALS.has(word) || (/^[B-DF-HJ-NP-TV-XZ]{2,5}$/.test(word) && !NOT_INITIALS.has(word))) return spellOut(word);
   const padded = ` ${word} `;
   const out = [];
   let at = 1;
@@ -243,9 +256,9 @@ export const textToSpeakJetWords = (text, pronunciations = null) => {
 export const encodeText = (text, pronunciations = null) => encodeSpeech(textToSpeakJetWords(text, pronunciations));
 
 // What a message of the Text tab is spoken as: the SpeakJet words written for it on its card, or else the rules' (with the project's
-// pronunciations). `strings` is the text strings storage (its `pronunciations` is the project's list).
+// pronunciations, the dictionaries). `strings` is the text strings storage (its `pronunciations` is the project's list).
 export const speechWordsFor = (entry, strings) => {
   if (!entry) return '';
   if (entry.speech && entry.speech.trim()) return entry.speech.trim().toUpperCase();
-  return textToSpeakJetWords(entry.text, parsePronunciations(strings && strings.pronunciations));
+  return textToSpeakJetWords(entry.text, pronunciationsFor(strings));
 };

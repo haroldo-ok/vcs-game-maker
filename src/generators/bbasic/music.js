@@ -497,6 +497,18 @@ export const resolveNotePlayedInstruments = (workspace) => {
     if (block.type === 'music_note_played') seenIds.push(`${block.getFieldValue('INSTRUMENT')}`);
     if (block.type === 'music_note_played_by_id') seenIds.push(`${block.getFieldValue('INSTRUMENT_ID')}`);
   });
+  // The AtariVox instruments (sound effects of the SpeakJet chip) that a note of any song uses are watched too: the music is silent for the
+  // console at their notes and the program says the effect (see generateAvoxInstrumentChecks in speech.js), when the AtariVox is on.
+  if (((configurationStorage && configurationStorage.value) || {}).enableAtariVox) {
+    const avoxIds = new Set(processSoundEffectsStorageDefaults(useSoundEffectsStorage()).soundEffects
+        .filter((soundEffect) => soundEffect.isAtariVox).map((soundEffect) => `${soundEffect.id}`));
+    if (avoxIds.size) {
+      processSongsStorageDefaults(useSongsStorage()).songs.forEach((song) => (song.patterns || []).forEach((pattern) =>
+        (pattern.tracks || []).forEach((track) => {
+          if (avoxIds.has(`${track.soundEffectId}`) && (track.notes || []).length) seenIds.push(`${track.soundEffectId}`);
+        })));
+    }
+  }
   const distinctIds = [...new Set(seenIds)];
   if (distinctIds.length > MAX_WATCHED_NOTE_PLAYED_INSTRUMENTS) {
     throw new Error(`This project watches ${distinctIds.length} distinct "note played by instrument" ` +
@@ -998,11 +1010,13 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     // pattern - so the flip rate follows whichever tempo (song or pattern)
     // is actually in effect where this note plays, instead of a fixed
     // frame count. Clamped to what the duration byte's nibble can hold.
-    const arpeggioSpeed = soundEffect.arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES,
+    // (A note of an AtariVox instrument is silent for the console: it only sets the watch of its instrument, if the AtariVox is on.)
+    const isAvox = !!soundEffect.isAtariVox;
+    const arpeggioSpeed = soundEffect.arpeggio && !isAvox ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES,
         Math.round((framesPerUnit * LENGTH_UNITS_PER_STEP) /
           (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)))) : 0;
-    const arpeggioInterval = soundEffect.arpeggio ? Number(soundEffect.arpeggioInterval) || 0 : 0;
-    const arpeggioRange = soundEffect.arpeggio ? Number(soundEffect.arpeggioRange) || 0 : 0;
+    const arpeggioInterval = soundEffect.arpeggio && !isAvox ? Number(soundEffect.arpeggioInterval) || 0 : 0;
+    const arpeggioRange = soundEffect.arpeggio && !isAvox ? Number(soundEffect.arpeggioRange) || 0 : 0;
     // Whether a note plays as a real chosen pitch or the instrument's
     // fixed hit-audf is decided from the instrument's CURRENT Sound type
     // (audc), not from whatever was true when the note was placed
@@ -1022,11 +1036,11 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       // A note on a raw frequency row (a sound type with no in-tune notes) plays that frequency; not on the DPC+ chip.
       // On the DPC+ chip it is the pitch the TIA has for that frequency number with the instrument's sound type.
       const rawFrequency = rawFrequencyOf(note.midi);
-      const audf = rawFrequency !== null ? (chipPlan ? chipPlan.pitchIdForTia(soundEffect.audc, rawFrequency) : rawFrequency) :
+      const audf = isAvox ? 0 : rawFrequency !== null ? (chipPlan ? chipPlan.pitchIdForTia(soundEffect.audc, rawFrequency) : rawFrequency) :
         !isTunable || note.midi === 'hit' ?
           (chipPlan ? chipPlan.pitchIdForSound(soundEffect) : soundEffect.audf) : noteAudf(note, soundEffect, !chipPlan);
       // (A note of the chip on a piano key is that key's place in the frequency table.)
-      if (chipPlan && rawFrequency === null && isTunable && note.midi !== 'hit') chipPlan.useKey(audf);
+      if (chipPlan && !isAvox && rawFrequency === null && isTunable && note.midi !== 'hit') chipPlan.useKey(audf);
       // Per-note override (see the Music tab's  piano-roll volume row),
       // falling back to the instrument's  preset - same DIM-scaling as
       // before, just applied to whichever value is actually in effect for
@@ -1035,14 +1049,14 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       // App-wide preference (see useDimSoundFxStorage's  comment in
       // hooks/project.js), not part of this project's  saved
       // configuration.
-      const audv = noteAudv(note, soundEffect);
+      const audv = isAvox ? 0 : noteAudv(note, soundEffect);
       notesByChannel[channel].push({
         startUnits: note.step,
         lengthUnits: note.length,
         audv,
-        audc: chipPlan ? chipPlan.waveIdForSound(soundEffect) : soundEffect.audc,
+        audc: isAvox ? 0 : chipPlan ? chipPlan.waveIdForSound(soundEffect) : soundEffect.audc,
         audf,
-        envelope: !!soundEffect.envelope && !soundEffect.staircase,
+        envelope: !!soundEffect.envelope && !soundEffect.staircase && !isAvox,
         envelopeAttack: soundEffect.envelopeAttack,
         envelopeDecay: soundEffect.envelopeDecay,
         envelopeAttackEnd: soundEffect.envelopeAttackEnd,
@@ -1061,10 +1075,10 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         instrumentAudv: Number(soundEffect.audv) || 0,
         // The pitch of a hit (a note that plays at the pitch of its instrument, which is stored once in the instrument tables); 255 for a
         // note with its pitch stored. The pitch of the TIA is up to 31, the pitch number of the chip up to 254.
-        hitPitch: rawFrequency === null && (!isTunable || note.midi === 'hit') && Number(audf) >= 0 &&
+        hitPitch: !isAvox && rawFrequency === null && (!isTunable || note.midi === 'hit') && Number(audf) >= 0 &&
           Number(audf) <= (chipPlan ? 254 : 31) ? Number(audf) : 255,
         // The instrument, for a note whose pitch changes while it plays (see bakedFrames).
-        bakeSound: soundEffect.sweep || soundEffect.pitchEnvelope || (soundEffect.envelope && soundEffect.staircase) ? soundEffect : null,
+        bakeSound: !isAvox && (soundEffect.sweep || soundEffect.pitchEnvelope || (soundEffect.envelope && soundEffect.staircase)) ? soundEffect : null,
         // For a note of the DPC+ chip: its plan, and the frequency of the piano key the note is on (a hit plays at the sound's frequency).
         bakePlan: chipPlan,
         bakeStartHz: chipPlan && rawFrequency !== null ? chipPlan.tiaFrequency(soundEffect.audc, rawFrequency) :

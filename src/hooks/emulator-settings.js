@@ -35,7 +35,6 @@ export const EMULATOR_SETTINGS_DEFAULTS = {
   fullscreenScaling: 'qis',
   // Whether an AtariVox (speech) is plugged into the Player 2 port. Only gopher2600 has one, so
   // turning it on runs gopher2600.
-  atariVox: false,
 };
 
 export const useEmulatorSettings = () => {

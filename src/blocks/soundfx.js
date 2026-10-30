@@ -1,5 +1,6 @@
 'use strict';
 
+import {SPEAKJET_SOUND_EFFECTS, DEFAULT_SPEAKJET_EFFECT} from '../utils/speakjet-codes';
 import Vue from 'vue';
 import * as Blockly from 'blockly/core';
 
@@ -106,6 +107,12 @@ export const DEFAULT_ENVELOPE_RELEASE = 4;
 // it did under the old flat-Sustain model (Decay End === Release Start ===
 // 100% by default, same as Sustain defaulting to 100% used to be).
 export const ENVELOPE_VOLUME_PERCENT_OPTIONS = [0, 25, 50, 75, 100];
+// A whole number from 0 to max, or the fallback for what is not a number (the voice of an AtariVox card).
+const clampWhole = (value, fallback, max) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(max, Math.round(number))) : fallback;
+};
+
 export const DEFAULT_ENVELOPE_VOLUME_PERCENT = 100;
 // How many frames the Sustain ramp itself lasts - same small-fixed-dropdown
 // reasoning as every other stage above, same range as Attack/Release (see
@@ -202,6 +209,12 @@ export const DEFAULT_SOUND_EFFECTS = {
       // A percussion sound (a drum hit): on the Music tab it plays from the Hit row at the pitch set here, never from
       // the piano keys. A sound is a sound effect, an instrument or percussion, never two of them.
       isPercussion: false,
+      // A card of the AtariVox kind: an instrument that plays one of the SpeakJet's sound effects (avoxEffect, see utils/speakjet-codes.js) when a note of
+      // it starts on the Music tab, when the AtariVox is on (Options tab). It is also a percussion card, so the Music tab treats it as one.
+      isAtariVox: false,
+      avoxEffect: DEFAULT_SPEAKJET_EFFECT,
+      // The bend of the voice the chip plays the effect in (0 to 15, 5 at start; see SPEAKJET_VOICE in utils/speakjet.js): it moves the pitch of an effect.
+      avoxBend: 5,
     },
   ],
 };
@@ -302,7 +315,10 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     // Presets saved before this existed won't have it yet - defaults false
     // (a plain "sound effect"), matching every preset's  behavior before
     // this tag existed.
-    soundEffect.isPercussion = !!soundEffect.isPercussion;
+    soundEffect.isAtariVox = !!soundEffect.isAtariVox;
+    soundEffect.avoxEffect = SPEAKJET_SOUND_EFFECTS.some(([, word]) => word === soundEffect.avoxEffect) ? soundEffect.avoxEffect : DEFAULT_SPEAKJET_EFFECT;
+    soundEffect.avoxBend = clampWhole(soundEffect.avoxBend, 5, 15);
+    soundEffect.isPercussion = !!soundEffect.isPercussion || soundEffect.isAtariVox;
     soundEffect.isInstrument = !!soundEffect.isInstrument && !soundEffect.isPercussion;
     // Same Number() coercion as arpeggioRange above, for the same v-select
     // quirk. A preset saved before Priority existed at all falls back to

@@ -143,6 +143,14 @@
           class="option-switch score-switch"
         />
         <v-checkbox
+          v-model="configurationState.enableAtariVox"
+          @change="handleChangeConfiguration"
+          label="AtariVox in the Player 2 port"
+          hint="The project uses an AtariVox (speech, sound effects and a memory chip on the Player 2 controller port): the AtariVox blocks (speech, sound effects, memory, high scores) and the AtariVox instruments of the Music tab are built into the ROM, and the AtariVox is plugged into the emulator. Off: they are left out. The Player 2 joystick can not be used with it."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-checkbox
           v-model="configurationState.muteAllAudio"
           @change="handleChangeConfiguration"
           label="Mute in-game audio"
@@ -498,6 +506,7 @@ const DEFAULT_CONFIGURATION = {
   scoreFont: '',
   secondaryScoreFont: '',
   muteAllAudio: false,
+  enableAtariVox: false,
   showVariableComments: false,
 };
 
@@ -891,6 +900,7 @@ export default defineComponent({
       state.enableCycleScore = DEFAULT_CONFIGURATION.enableCycleScore;
       state.enableScanlinesDebug = DEFAULT_CONFIGURATION.enableScanlinesDebug;
       state.muteAllAudio = DEFAULT_CONFIGURATION.muteAllAudio;
+      state.enableAtariVox = DEFAULT_CONFIGURATION.enableAtariVox;
       state.showVariableComments = DEFAULT_CONFIGURATION.showVariableComments;
       configurationState.value = state;
 
@@ -1049,7 +1059,8 @@ export default defineComponent({
    underneath it still should, same as every other field's hint on this
    tab, rather than wrapping narrowly beneath a tiny box. */
 .pfres-field {
-  margin-left: 46px;
+  /* The text of the field lines up with the text of the checkbox above (the box and the 2px after it). */
+  margin-left: 26px;
   margin-top: 12px;
 }
 
@@ -1141,7 +1152,7 @@ export default defineComponent({
    cap), one level further down - it reads as a sub-option of the "Override
    playfield row height" switch right above it. */
 .pfrowheight-field {
-  margin-left: 46px;
+  margin-left: 26px;
   margin-top: 12px;
 }
 

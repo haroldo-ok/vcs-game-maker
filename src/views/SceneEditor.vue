@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" @click="handleDeselect">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="handleDeselect">
       <v-card-title>Scene (alpha 0.3)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message scene-intro-paragraph">
@@ -11,7 +11,24 @@
         </p>
 
         <!-- Acts on whichever card is selected, the same shared toolbar as the Data tab's. -->
-        <div class="scene-toolbar tight-under-intro" :class="{'scene-toolbar-scrolled': isToolbarScrolled}" @click.stop>
+        <!-- The folders are pinned above the toolbar (which sticks just under them), as on the Sprite and Playfield tabs. The scenes are cards of the
+             Data tab, so the folders are the Data tab's. -->
+        <div ref="folderToolbar" class="scene-folder-toolbar tight-under-intro" :class="{'folder-toolbar-pinned': folderToolbarPinned}">
+          <card-folder-bar
+            :folders="foldersOf()"
+            :current="openFolderId()"
+            root-label="Scenes"
+            noun="scene"
+            :accept="draggingCardIndex !== null"
+            @update:current="openFolder"
+            @change="refresh"
+            @add-folder="handleAddFolder"
+            @delete-folder="handleDeleteFolder"
+            @drop-cards="handleDropCards"
+          />
+        </div>
+
+        <div class="scene-toolbar" :class="{'scene-toolbar-scrolled': isToolbarScrolled}" @click.stop>
           <div class="scene-toolbar-row">
             <editor-zoom v-model="zoom" />
             <pixel-grid-toggle v-model="showGrid" />
@@ -49,13 +66,13 @@
           :class="{'scene-list--columns': cardColumns}"
           :style="cardColumns ? {gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${480 * zoom + 34}px), ${480 * zoom + 34}px))`} : {}"
         >
-          <v-list-item class="entry-list-item" v-for="scene in scenes" v-bind:key="scene.table.id">
+          <v-list-item class="entry-list-item" v-for="scene in visibleScenes()" v-bind:key="scene.table.id">
             <v-list-item-content>
               <v-card
                 outlined
                 :ripple="false"
                 class="scene-card"
-                :class="[dragCardClass(tableIndex(scene)), {'scene-card-selected': selectedCardIds.includes(scene.table.id)}]"
+                :class="[dragCardClass(tableIndex(scene)), {'scene-card-selected': selectedCardIds.includes(scene.table.id), 'scene-card-collapsed': isCollapsed(scene.table)}]"
                 v-on="dragTargetListeners(tableIndex(scene))"
                 @click.stop="(event) => selectCard(scene.table.id, event)"
               >
@@ -63,7 +80,7 @@
                   class="scene-drag-handle"
                   title="Drag to reorder"
                   v-bind="dragAttrs(tableIndex(scene))"
-                  v-on="dragHandleListeners(tableIndex(scene))"
+                  v-on="cardHandleListeners(tableIndex(scene))"
                 />
                 <v-btn
                   :title="isCollapsed(scene.table) ? 'Expand this scene' : 'Collapse this scene'"
@@ -284,6 +301,7 @@
 import {computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
 import {max} from 'lodash';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
+import CardFolderBar from '../components/CardFolderBar.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelGridToggle from '../components/PixelGridToggle.vue';
@@ -299,6 +317,7 @@ import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {buildScenePreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useCollapsedIds} from '../hooks/collapse';
 import {useCardSelection} from '../hooks/card-selection';
+import {useCardFolders} from '../hooks/card-folders';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {canRedoReorder, canUndoReorder, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
@@ -357,7 +376,7 @@ const PLAYER_WIDTH_LABELS = ['1 copy', '2 copies, close', '2 copies, medium', '3
   '3 copies, medium', 'Quad-sized'];
 
 export default defineComponent({
-  components: {ColorSwatchPicker, ConfirmDeleteMenu, EditorZoom, PixelGridToggle},
+  components: {CardFolderBar, ColorSwatchPicker, ConfirmDeleteMenu, EditorZoom, PixelGridToggle},
   setup() {
     const dataStorage = useDataTablesStorage();
     const configurationStorage = useConfigurationStorage();
@@ -379,8 +398,11 @@ export default defineComponent({
     // The cards are selected, collapsed and reordered the way the other tabs' are. The scenes are cards among the Data tab's
     // tables, so the ones that move are the tables and a scene's place is its place in the whole list.
     const selectedCardId = ref(null);
-    const {selectedCardIds, selectCard, deselectCard, getSelectedIndices, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
-      useCardSelection(() => tables.value.filter(isSceneTable).map(({id}) => id), selectedCardId);
+    const {selectedCardIds, selectCard, deselectCard, idsToDelete, deleteQuestion, remapIds: remapSelectedIds} =
+      useCardSelection(() => visibleScenes().map(({table}) => table.id), selectedCardId);
+    // The indices, in the whole list of the Data tab's tables, of the selected scenes (dragging one of them moves them all).
+    const getSelectedFullIndices = () => tables.value
+        .map((table, index) => (selectedCardIds.value.includes(table.id) ? index : -1)).filter((index) => index >= 0);
     const {isCollapsed, toggleCollapsed, collapseAll, ensureExpanded, remapIds: remapCollapsedIds} = useCollapsedIds('scene', true);
     collapseAll();
     const selectedScene = computed(() => scenes.value.find(({table}) => table.id === selectedCardId.value) || null);
@@ -490,12 +512,69 @@ export default defineComponent({
         (items) => save((data) => {
           data.dataTables = items;
         }),
-        () => {
-          const sceneTables = tables.value.filter(isSceneTable);
-          return getSelectedIndices().map((index) => tables.value.indexOf(sceneTables[index]));
-        },
+        getSelectedFullIndices,
         {sideBySide: () => cardColumns.value, renumber: {kind: 'datatable', onRenumbered: renumbered}},
     );
+
+    // Folders for the cards (see hooks/card-folders.js and components/CardFolderBar.vue): the scenes are tables of the Data tab, so the folders are
+    // the Data tab's (`folders` of its storage, the folder of a table its `folder`) and a scene is in the same folder on both tabs.
+    const foldersOf = () => {
+      const data = processDataTablesStorageDefaults(dataStorage);
+      if (!Array.isArray(data.folders)) data.folders = [];
+      return data.folders;
+    };
+    const refresh = () => save(() => {});
+    const {openFolderId, folderOf, openFolder, newCardFolder, handleAddFolder, handleDeleteFolder, draggingCardIndex, wrapHandleListeners, handleDropCards} =
+      useCardFolders({
+        getCards: () => tables.value,
+        getFolders: foldersOf,
+        setFolders: (folders) => save((data) => {
+          data.folders = folders;
+        }),
+        refresh,
+        getSelectedIndices: getSelectedFullIndices,
+        deselectCard,
+        tab: 'scene',
+      });
+    const cardHandleListeners = wrapHandleListeners(dragHandleListeners);
+    // The scenes in the open folder.
+    const visibleScenes = () => scenes.value.filter(({table}) => folderOf(table) === openFolderId());
+
+    // How tall the pinned folders are: the toolbar under them sticks after them, not behind them (as on the Sprite tab).
+    const folderToolbar = ref(null);
+    const folderToolbarHeight = ref(0);
+    // Whether the folders are pinned at the top of the tab (scrolled): they get room above them then.
+    const folderToolbarPinned = ref(false);
+    let pinnedContainer = null;
+    // (One pixel less than it is, rounded down: the toolbar under it overlaps its edge instead of leaving a gap that shows what is behind.)
+    const pinnedHeight = (element) => Math.max(0, Math.floor(element.getBoundingClientRect().height) - 1);
+    const updatePinned = () => {
+      const element = folderToolbar.value;
+      if (!element || !pinnedContainer) return;
+      folderToolbarPinned.value = element.getBoundingClientRect().top <= pinnedContainer.getBoundingClientRect().top + 1;
+      folderToolbarHeight.value = pinnedHeight(element);
+    };
+    let folderToolbarObserver = null;
+    onMounted(() => {
+      const element = folderToolbar.value;
+      if (!element) return;
+      folderToolbarHeight.value = pinnedHeight(element);
+      pinnedContainer = element.closest('.editor-container');
+      if (pinnedContainer) {
+        pinnedContainer.addEventListener('scroll', updatePinned);
+        updatePinned();
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        folderToolbarObserver = new ResizeObserver(() => {
+          folderToolbarHeight.value = pinnedHeight(element);
+        });
+        folderToolbarObserver.observe(element, {box: 'border-box'});
+      }
+    });
+    onBeforeUnmount(() => {
+      if (folderToolbarObserver) folderToolbarObserver.disconnect();
+      if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
+    });
 
     const writeScene = (id, scene) => {
       recordChange(id);
@@ -541,6 +620,7 @@ export default defineComponent({
         const first = backgrounds()[0];
         data.dataTables.push({
           id,
+          ...newCardFolder(),
           name: `Scene ${number}`,
           values: encodeScene({background: first ? first.id : 0, objects: []}),
           valueFormats: sceneValueFormats(0),
@@ -946,6 +1026,8 @@ export default defineComponent({
 
     return {
       scenes, selected, zoom, showGrid, showGridLabels, cardColumns, backgroundItems, animationItems, selectedCardId, selectedCardIds, selectCard, deleteQuestion, isCollapsed, handleToggle,
+      visibleScenes, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
+      folderToolbar, folderToolbarHeight, folderToolbarPinned,
       tableIndex, dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, selectedScene, canUndoScene, canRedoScene,
       handleUndo, handleRedo, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, isToolbarScrolled, handleDuplicateScene,
       handleDeselect, testingId, buildInProgress, handleTestScene,
@@ -1027,7 +1109,7 @@ export default defineComponent({
 
 .scene-id-badge {
   position: absolute;
-  top: 10px;
+  top: 8px;
   left: 32px;
   font-size: 0.75rem;
   font-family: monospace;
@@ -1055,6 +1137,7 @@ export default defineComponent({
 
 .scene-name-field {
   margin-top: 20px;
+  margin-bottom: -13px;
   flex: 1 1 auto;
 }
 
@@ -1063,15 +1146,26 @@ export default defineComponent({
   display: flex;
   align-items: flex-start;
   gap: 16px;
+  /* The same place as the name row of the Playfield cards. */
+  margin-top: 6px;
+  margin-bottom: -2px;
+}
+
+/* A closed card ends with the name row: 20px under its underline, as on the Playfield cards. */
+.scene-card-collapsed .scene-name-section {
+  padding-bottom: 12px;
 }
 
 .scene-background-field {
   flex: 0 1 260px;
   margin-top: 20px;
+  margin-bottom: -13px;
 }
 
 .scene-body-section {
   padding-top: 0;
+  /* 20px from the picture to the bottom of the card, as on the other tabs */
+  padding-bottom: 19px;
 }
 
 .scene-caption-row {
@@ -1200,7 +1294,7 @@ export default defineComponent({
 /* The shared toolbar: the same sticky bar, line and spacing as the Data tab's. */
 .scene-toolbar {
   position: sticky;
-  top: 0;
+  top: var(--sticky-toolbar-offset, 0px);
   z-index: 2;
   background-color: #fff;
   padding-top: 4px;
@@ -1212,6 +1306,38 @@ export default defineComponent({
   padding-right: 16px;
   /* For the line inside it (see the Sprite tab's toolbar). */
   --toolbar-bleed: 16px;
+}
+
+/* The folders stay at the top of the tab when it scrolls, across its full width like the toolbars of the other tabs (the tab's 16px of padding is
+   cancelled and put back); the toolbar under them sticks just under them. The same as the Sprite tab's. */
+.scene-folder-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fff;
+  margin-left: -16px;
+  margin-right: -16px;
+  padding: 2px 16px 0;
+  --toolbar-bleed: 16px;
+}
+
+.scene-folder-toolbar >>> .card-folder-bar {
+  margin-top: 0;
+}
+
+.scene-folder-toolbar.folder-toolbar-pinned {
+  padding-top: 10px;
+}
+
+.scene-folder-toolbar + .scene-toolbar {
+  padding-top: 8px;
+}
+.scene-folder-toolbar + .scene-toolbar.scene-toolbar-scrolled {
+  padding-top: 11px;
+}
+
+.desaturate-app-colors .scene-folder-toolbar {
+  background-color: #e1e1e1;
 }
 
 .scene-divider {

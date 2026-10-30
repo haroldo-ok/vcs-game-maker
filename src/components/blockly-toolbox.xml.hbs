@@ -875,33 +875,6 @@
                 </shadow>
             </value>
         </block>
-        <block type="speech_say_text"></block>
-        <block type="speech_say_card">
-            <value name="VALUE"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
-        </block>
-        <block type="speech_say"></block>
-        <block type="speech_say_number">
-            <value name="VALUE"><shadow type="math_number"><field name="NUM">10</field></shadow></value>
-        </block>
-        <block type="speech_effect"></block>
-        <block type="speech_voice"></block>
-        <block type="speech_stop"></block>
-        <block type="speech_busy"></block>
-        <block type="avox_memory_save">
-            <value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
-            <value name="SLOT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
-            <value name="FILE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
-        </block>
-        <block type="avox_memory_load">
-            <value name="SLOT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
-            <value name="FILE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
-        </block>
-        <block type="avox_memory_check"></block>
-        <block type="avox_highscore_add"></block>
-        <block type="avox_highscore_get">
-            <value name="PLACE"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
-        </block>
-        <block type="avox_highscore_clear"></block>
     </category>
     <category name="Music" colour="rgb(0, 188, 212)">
         <block type="music_play_song"></block>
@@ -1055,6 +1028,40 @@
             </value>
         </block>
     </category>
+    {{#if atariVoxOn}}
+    <category name="Vox" colour="rgb(158, 157, 36)">
+        <block type="speech_say_text"></block>
+        <block type="speech_say_card">
+            <value name="VALUE"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+        </block>
+        <block type="speech_say"></block>
+        <block type="speech_say_number">
+            <value name="VALUE"><shadow type="math_number"><field name="NUM">10</field></shadow></value>
+        </block>
+        <block type="speech_use_voice"></block>
+        <block type="speech_use_voice_id">
+            <value name="VALUE"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+        </block>
+        <block type="speech_voice"></block>
+        <block type="speech_stop"></block>
+        <block type="speech_busy"></block>
+        <block type="avox_memory_save">
+            <value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="SLOT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="FILE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
+        <block type="avox_memory_load">
+            <value name="SLOT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="FILE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
+        <block type="avox_memory_check"></block>
+        <block type="avox_highscore_add"></block>
+        <block type="avox_highscore_get">
+            <value name="PLACE"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+        </block>
+        <block type="avox_highscore_clear"></block>
+    </category>
+    {{/if}}
     <category name="Text" colour="rgb(233, 30, 99)">
         <block type="text_minikernel_show"></block>
         <block type="text_minikernel_show_row"></block>

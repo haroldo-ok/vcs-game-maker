@@ -8621,6 +8621,15 @@ import {collectChipChannels, createDpcPlusAudioPlan, DPC_AUDIO_SUBROUTINE_NAME, 
   random, score, sound, soundfx, speech, avoxMemory, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
     .forEach((init) => init(Blockly));
 
+// With the AtariVox off (Options tab, ROM Options) its blocks build to nothing (a value block says 0): see prepareSpeech.
+Object.keys(Blockly.BBasic).filter((name) => /^(speech_|avox_)/.test(name)).forEach((name) => {
+  const generate = Blockly.BBasic[name];
+  Blockly.BBasic[name] = function(block, ...rest) {
+    if (!Blockly.BBasic.avoxEnabled) return block.outputConnection ? ['0', Blockly.BBasic.ORDER_ATOMIC] : '';
+    return generate.call(this, block, ...rest);
+  };
+});
+
 // Which of OMITTABLE_SYSTEM_VARIABLES the finished code never touches apart from the template's starting
 // value and its once-a-frame restore of the colour registers.
 const findUnusedSystemVars = (code) => {

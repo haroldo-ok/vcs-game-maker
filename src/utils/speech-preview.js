@@ -1,4 +1,6 @@
 import {getAudioContext} from './sound-preview';
+import {useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
+import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 
 // Plays a phrase of the AtariVox's speech chip for the editor's play buttons: the SpeakJet bytes go to a worker that runs the chip
 // (public/js/speakjet-worker.js) and the sound it makes is played here.
@@ -71,6 +73,41 @@ export const speechTimeHint = (bytes) => {
   return `Takes about ${seconds.toFixed(1)} seconds (${Math.round(seconds * 60)} frames) to speak; its ${bytes.length} bytes take ${bytes.length} frames to send.`;
 };
 
+// The sound of a phrase kept to be played at once at a time of the page's choosing (the Music tab's preview of an AtariVox instrument): worked
+// out the first time it is asked for, so the first play may miss it.
+const sampleCache = new Map();
+const warming = new Set();
+export const warmSpeech = (bytes) => {
+  const key = durationKey(bytes);
+  if (!bytes.length || sampleCache.has(key) || warming.has(key)) return;
+  warming.add(key);
+  renderSpeech(bytes).then((samples) => {
+    sampleCache.set(key, samples);
+    warming.delete(key);
+  });
+};
+// Starts a phrase at the time (the audio context's clock) into the destination, DIM making it quieter; the source, or null when its sound is
+// not ready yet (this starts working it out).
+export const playSpeechAt = (context, bytes, when, destination, extraGain = 1) => {
+  const samples = sampleCache.get(durationKey(bytes));
+  if (!samples) {
+    warmSpeech(bytes);
+    return null;
+  }
+  if (!samples.length) return null;
+  const buffer = context.createBuffer(1, samples.length, SAMPLE_RATE);
+  buffer.getChannelData(0).set(samples);
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  const gain = context.createGain();
+  gain.gain.value = extraGain * (useDimSoundFxStorage().value ?
+    Math.max(0, Math.min(100, Number(useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) || 0)) / 100 : 1);
+  source.connect(gain);
+  gain.connect(destination || context.destination);
+  source.start(when);
+  return source;
+};
+
 // Plays a phrase from its bytes; resolves when it has ended (or at once, if there is nothing to hear).
 export const speakBytes = async (bytes) => {
   stopSpeech();
@@ -82,7 +119,11 @@ export const speakBytes = async (bytes) => {
   buffer.getChannelData(0).set(samples);
   const source = context.createBufferSource();
   source.buffer = buffer;
-  source.connect(context.destination);
+  // DIM (the Sound tab's) makes the AtariVox quieter too.
+  const gain = context.createGain();
+  gain.gain.value = useDimSoundFxStorage().value ? Math.max(0, Math.min(100, Number(useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value) || 0)) / 100 : 1;
+  source.connect(gain);
+  gain.connect(context.destination);
   playing = source;
   await new Promise((resolve) => {
     source.onended = () => {

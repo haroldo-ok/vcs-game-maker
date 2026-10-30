@@ -23,16 +23,6 @@
           persistent-hint
           @change="(value) => update({backend: value})"
         />
-        <v-checkbox
-          class="emulator-vox-switch"
-          dense
-          :input-value="settings.atariVox"
-          label="AtariVox (speech) in the Player 2 port"
-          hint="For ROMs that speak through an AtariVox, in either emulator; the Player 2 joystick is replaced. Switched on for you when the project has Speech blocks."
-          persistent-hint
-          @change="(value) => update({atariVox: !!value})"
-        />
-
         <v-select
           :value="settings.tvEmulation"
           :items="tvItems"
@@ -222,12 +212,6 @@ export default {
 
 .emulator-settings-slider {
   margin-top: 16px;
-}
-
-/* Right under the Emulator select: the select's hint line already leaves the space, so no extra gap above. */
-.emulator-vox-switch {
-  margin-top: -2px;
-  margin-bottom: 12px;
 }
 
 /* The select above the first slider already leaves room for its (empty) hint line, which is

@@ -1,6 +1,6 @@
 <template>
   <v-card flat class="editor-container">
-    <v-card-title>{{ showExamples || showSoundBanks ? 'Project' : 'Project Settings' }}</v-card-title>
+    <v-card-title>{{ showExamples || showSoundBanks || showVoicePresets ? 'Project' : 'Project Settings' }}</v-card-title>
     <v-card-text class="tab-intro-section">
       <p class="v-messages theme--light v-messages__message project-intro-paragraph">
         Save your project to a .vcsgm file, or open one you saved earlier - everything on every
@@ -15,9 +15,9 @@
           icon
           small
           class="project-flat-icon-btn data-icon-btn-size"
-          :class="{'project-flat-icon-btn-active': !showExamples && !showSoundBanks}"
+          :class="{'project-flat-icon-btn-active': !showExamples && !showSoundBanks && !showVoicePresets}"
           title="Project Settings"
-          @click="showSoundBanks = false; showExamples = false"
+          @click="showSoundBanks = false; showVoicePresets = false; showExamples = false"
         >
           <v-icon>mdi-cog-outline</v-icon>
         </v-btn>
@@ -106,9 +106,9 @@
           icon
           small
           class="project-flat-icon-btn data-icon-btn-size"
-          :class="{'project-flat-icon-btn-active': showExamples && !showSoundBanks}"
+          :class="{'project-flat-icon-btn-active': showExamples && !showSoundBanks && !showVoicePresets}"
           :title="examples.status === 'loading' ? `Example Projects (checking ${examples.source} for updates...)` : 'Example Projects'"
-          @click="showSoundBanks = false; showExamples = true"
+          @click="showSoundBanks = false; showVoicePresets = false; showExamples = true"
         >
           <v-progress-circular
             v-if="examples.status === 'loading'"
@@ -130,9 +130,9 @@
           icon
           small
           class="project-flat-icon-btn data-icon-btn-size"
-          :class="{'project-flat-icon-btn-active': showSoundBanks}"
+          :class="{'project-flat-icon-btn-active': showSoundBanks && !showVoicePresets}"
           :title="soundBanks.status === 'loading' ? `Sound Banks (checking ${soundBanks.source} for updates...)` : 'Sound Banks'"
-          @click="showSoundBanks = true"
+          @click="showVoicePresets = false; showSoundBanks = true"
         >
           <v-progress-circular
             v-if="soundBanks.status === 'loading'"
@@ -141,6 +141,22 @@
             :width="2"
           />
           <v-icon v-else>mdi-waveform</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          small
+          class="project-flat-icon-btn data-icon-btn-size"
+          :class="{'project-flat-icon-btn-active': showVoicePresets}"
+          :title="voicePresets.status === 'loading' ? `Voice Presets (checking ${voicePresets.source} for updates...)` : 'Voice Presets'"
+          @click="showVoicePresets = true"
+        >
+          <v-progress-circular
+            v-if="voicePresets.status === 'loading'"
+            indeterminate
+            :size="18"
+            :width="2"
+          />
+          <v-icon v-else>mdi-chat-processing-outline</v-icon>
         </v-btn>
         <input
           ref="importFileInput"
@@ -153,7 +169,7 @@
       <v-divider class="project-divider" />
     </div>
 
-    <v-card-text v-if="!showExamples && !showSoundBanks" class="project-settings-text">
+    <v-card-text v-if="!showExamples && !showSoundBanks && !showVoicePresets" class="project-settings-text project-library-text">
       <span class="text-subtitle-1 project-settings-label">Project Settings</span>
       <div class="project-title-row">
         <v-text-field
@@ -219,7 +235,88 @@
       />
     </v-card-text>
 
-    <v-card-text v-else-if="showSoundBanks" class="project-settings-text">
+    <v-card-text v-else-if="showVoicePresets" class="project-settings-text project-library-text">
+      <span class="text-subtitle-1 project-settings-label">Voice Presets</span>
+      <div class="project-search-row">
+        <v-text-field
+          v-model="data.voicePresetSearch"
+          label="Search"
+          prepend-inner-icon="mdi-magnify"
+          clearable
+          class="project-search-field"
+        />
+      </div>
+      <p class="v-messages theme--light v-messages__message example-status">
+        Voices and voice banks for the AtariVox from GitHub. Click one to choose which voices to import into the open project (the Vox tab).
+      </p>
+      <div v-if="voicePresets.status === 'loading'" class="example-progress">
+        <v-progress-circular indeterminate :size="16" :width="2" />
+        <span v-if="voicePresets.total">
+          Downloading voice presets ({{ voicePresets.done }} of {{ voicePresets.total }}) from {{ voicePresets.source }}...
+        </span>
+        <span v-else>Checking {{ voicePresets.source }} for voice presets...</span>
+      </div>
+      <p v-if="!voicePresets.entries.length && voicePresets.status !== 'loading'" class="v-messages theme--light v-messages__message example-status">
+        <template v-if="voicePresets.status === 'error'">
+          Could not get the voice presets ({{ voicePresets.message }}). They will be available once the
+          app can reach GitHub.
+        </template>
+        <template v-else>There are no voice presets yet.</template>
+      </p>
+      <p
+        v-else-if="!filteredVoicePresets.length && voicePresets.status !== 'loading'"
+        class="v-messages theme--light v-messages__message example-status"
+      >
+        Nothing matches the search.
+      </p>
+      <p v-if="data.voicePresetError" class="example-error">{{ data.voicePresetError }}</p>
+      <div class="example-list">
+        <v-card
+          v-for="preset in filteredVoicePresets"
+          :key="preset.name"
+          outlined
+          :ripple="false"
+          class="example-card sound-bank-card"
+          @click="handleSelectVoicePreset(preset)"
+        >
+          <div class="sound-bank-preview-btn">
+            <v-btn
+              icon
+              small
+              class="data-icon-btn-size sound-bank-play-btn"
+              :title="data.previewingVoicePreset === preset.name ? 'Stop the preview' : (preset.isBank ? 'Hear every voice of this bank say the preview message, one after another' : 'Hear this voice say the preview message')"
+              @click.stop="handlePreviewVoicePreset(preset)"
+            >
+              <v-icon>{{ data.previewingVoicePreset === preset.name ? 'mdi-stop' : 'mdi-play-circle-outline' }}</v-icon>
+            </v-btn>
+          </div>
+          <div class="example-card-text">
+            <div class="example-card-title">
+              <v-icon small class="sound-bank-kind-icon">{{ preset.isBank ? 'mdi-database' : 'mdi-chat-processing-outline' }}</v-icon>
+              {{ voicePresetTitle(preset) }}
+            </div>
+            <div class="example-card-line">
+              {{ preset.isBank ? 'Voice bank' : 'Voice' }}<template v-if="preset.isBank">
+                - {{ preset.voices.length === 1 ? '1 voice' : `${preset.voices.length} voices` }}</template>
+            </div>
+            <div v-if="preset.voices.length" class="example-card-line sound-bank-names">
+              {{ preset.voices.join(', ') }}
+            </div>
+            <div v-if="preset.developer" class="example-card-line">by {{ preset.developer }}</div>
+            <div v-if="soundBankWebsiteLink(preset)" class="example-card-line">
+              <a :href="soundBankWebsiteLink(preset)" target="_blank" rel="noopener noreferrer" @click.stop>{{ preset.website }}</a>
+            </div>
+          </div>
+        </v-card>
+      </div>
+      <VoiceBankImportDialog
+        v-model="data.voicePresetDialog"
+        :entries="data.voicePresetEntries"
+        @confirm="handleConfirmVoicePresetImport"
+      />
+    </v-card-text>
+
+    <v-card-text v-else-if="showSoundBanks" class="project-settings-text project-library-text">
       <span class="text-subtitle-1 project-settings-label">Sound Banks</span>
       <div class="project-search-row">
         <v-text-field
@@ -322,7 +419,7 @@
       />
     </v-card-text>
 
-    <v-card-text v-else class="project-settings-text">
+    <v-card-text v-else class="project-settings-text project-library-text">
       <span class="text-subtitle-1 project-settings-label">Example Projects</span>
       <div class="project-search-row">
         <v-text-field
@@ -472,7 +569,7 @@ import {defineComponent, reactive, computed, onMounted, onBeforeUnmount, ref, ge
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {appendCompileLog, useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useProjectIncludeDateInFilenameStorage, useProjectShowExamplesStorage, useProjectShowSoundBanksStorage, useScoreFontEditsStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage, useWorkspaceStorage} from '../hooks/project';
+import {appendCompileLog, useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useProjectIncludeDateInFilenameStorage, useProjectShowExamplesStorage, useProjectShowSoundBanksStorage, useProjectShowVoicePresetsStorage, useScoreFontEditsStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage, useWorkspaceStorage} from '../hooks/project';
 import {combineLegacyPlayerAnimations, remapPlayer1AnimationIndexesInWorkspaceXml} from '../hooks/migrate-player-animations';
 import {migrateLegacyPlayerBlocksInWorkspaceXml} from '../hooks/migrate-player-blocks';
 import {migrateLegacyBounceBlocksInWorkspaceXml} from '../hooks/migrate-bounce-blocks';
@@ -493,10 +590,18 @@ import {examplesState} from '../hooks/examples';
 import {useDebugVariables, setDebugVariables} from '../hooks/debug-symbols';
 import {useEmulatorSettings, saveEmulatorSettings} from '../hooks/emulator-settings';
 import {soundBanksState} from '../hooks/soundbanks';
+import {voicePresetsState} from '../hooks/voicepresets';
+import {processTextStringsStorageDefaults} from '../blocks/text-strings';
+import {buildVoiceImportEntries, importVoiceEntries, voicesInFile} from '../utils/voice-bank';
+import {SPEAKJET_VOICE, VOICE_CONTROLS, voiceBytes, encodeSpeech} from '../utils/speakjet';
+import {textToSpeakJetWords} from '../utils/speakjet-text';
+import {pronunciationsFor} from '../utils/speakjet-dictionary';
+import {speakBytes, stopSpeech} from '../utils/speech-preview';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {buildSoundBankImportEntries, importSoundBankEntries, soundEffectsInBankFile, kernelSettingsLabel} from '../utils/sound-bank';
 import {KERNEL_NAMES} from '../utils/dpc-sound';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
+import VoiceBankImportDialog from '../components/VoiceBankImportDialog.vue';
 import {playSoundBankSounds, stopSoundBankPreview} from '../utils/sound-bank-preview';
 import pkg from '../../package.json';
 const appVersion = pkg.version;
@@ -541,7 +646,7 @@ const FILE_PICKER_TYPES = [{
 }];
 
 export default defineComponent({
-  components: {SoundBankImportDialog},
+  components: {SoundBankImportDialog, VoiceBankImportDialog},
   setup(props, context) {
     const data = reactive({
       newProjectDialog: false,
@@ -551,6 +656,11 @@ export default defineComponent({
       exampleError: '',
       // The sound bank being imported (see hooks/soundbanks.js): its popup rows
       // and open state, and a message if its file can't be read.
+      voicePresetDialog: false,
+      voicePresetEntries: [],
+      voicePresetError: '',
+      voicePresetSearch: '',
+      previewingVoicePreset: '',
       soundBankDialog: false,
       soundBankEntries: [],
       soundBankError: '',
@@ -589,6 +699,8 @@ export default defineComponent({
     const showExamples = useProjectShowExamplesStorage();
     // The Sound Banks screen, kept across a refresh like showExamples.
     const showSoundBanks = useProjectShowSoundBanksStorage();
+    // The Voice Presets screen, the same.
+    const showVoicePresets = useProjectShowVoicePresetsStorage();
 
     // Same "growing padding + a bottom border once actually scrolled"
     // treatment as the graphic editor toolbar. This component's root is the
@@ -722,11 +834,13 @@ export default defineComponent({
         (bank) => (data.soundBankFilter === 'all' || bank.kind === data.soundBankFilter ||
           (bank.kind === 'bank' && (bank.soundKinds || []).includes(data.soundBankFilter))) &&
           matchesSearch(data.soundBankSearch, [bank.name, bank.developer, bank.kernel, bank.kind, ...(bank.sounds || [])])));
+    const filteredVoicePresets = computed(() => voicePresetsState.entries.filter(
+        (preset) => matchesSearch(data.voicePresetSearch, [preset.name, preset.developer, ...(preset.voices || [])])));
     const filteredExamples = computed(() => examplesState.entries.filter(
         (example) => matchesSearch(data.exampleSearch,
             [example.name, example.title, example.developer, example.version, example.kernel, example.description])));
 
-    return {data, router, showExamples, showSoundBanks, isToolbarScrolled, examples: examplesState, soundBanks: soundBanksState,
+    return {data, router, showExamples, showSoundBanks, showVoicePresets, voicePresets: voicePresetsState, filteredVoicePresets, isToolbarScrolled, examples: examplesState, soundBanks: soundBanksState,
       soundBankFilterItems, filteredSoundBanks, filteredExamples, backgroundsStorage, playerAnimationsStorage,
       workspaceStorage, configurationStorage, scoreFontStorage, squishCustomScoreFontStorage, scoreFontEditsStorage, dataTablesStorage,
       textStringsStorage, textFontStorage, soundEffectsStorage, songsStorage, titleScreenStorage, colorPaletteStorage,
@@ -1521,6 +1635,64 @@ export default defineComponent({
       }
     },
 
+    // A voice preset is titled with the name saved inside its file, a bank with its file name.
+    voicePresetTitle(preset) {
+      if (!preset.isBank && preset.voices.length === 1 && preset.voices[0] !== 'Unnamed voice') return preset.voices[0];
+      return preset.name.split('/').pop().replace(/\.(vcsvox|vcsvbnk|json)$/i, '');
+    },
+
+    // Says the preview message of the Vox tab in each voice of the file, one after another. Clicking again stops it.
+    async handlePreviewVoicePreset(preset) {
+      const wasPlaying = this.data.previewingVoicePreset === preset.name;
+      stopSpeech();
+      this.data.previewingVoicePreset = '';
+      if (wasPlaying) return;
+      let voices;
+      try {
+        voices = voicesInFile(JSON.parse(preset.text));
+      } catch (e) {
+        this.data.voicePresetError = `Could not read ${preset.name}: ${e.message}`;
+        return;
+      }
+      this.data.voicePresetError = '';
+      this.data.previewingVoicePreset = preset.name;
+      const strings = processTextStringsStorageDefaults(useTextStringsStorage());
+      const words = textToSpeakJetWords(strings.voicePreview, pronunciationsFor(strings));
+      const message = encodeSpeech(words).bytes;
+      try {
+        for (const voice of voices) {
+          if (this.data.previewingVoicePreset !== preset.name) return;
+          const controls = Object.fromEntries(VOICE_CONTROLS.map((control) => [control, Number(voice[control]) >= 0 ? Number(voice[control]) : SPEAKJET_VOICE[control].default]));
+          await speakBytes([...voiceBytes(controls), ...message]);
+        }
+      } finally {
+        if (this.data.previewingVoicePreset === preset.name) this.data.previewingVoicePreset = '';
+      }
+    },
+
+    // Opens the import popup for the voices of a file against the open project's voices (the popup the Vox tab uses).
+    handleSelectVoicePreset(preset) {
+      this.data.voicePresetError = '';
+      try {
+        const strings = processTextStringsStorageDefaults(useTextStringsStorage());
+        this.data.voicePresetEntries = buildVoiceImportEntries(JSON.parse(preset.text), strings.voices);
+        this.data.voicePresetDialog = true;
+      } catch (e) {
+        console.error('Could not read the voice preset', e);
+        this.data.voicePresetError = `Could not read ${preset.name}: ${e.message}`;
+      }
+    },
+
+    handleConfirmVoicePresetImport() {
+      const storage = useTextStringsStorage();
+      const strings = processTextStringsStorageDefaults(storage);
+      importVoiceEntries(strings.voices, this.data.voicePresetEntries);
+      storage.value = strings;
+      this.data.voicePresetDialog = false;
+      const count = this.data.voicePresetEntries.filter((entry) => entry.selected).length;
+      appendCompileLog(`Imported ${count} voice${count === 1 ? '' : 's'} into the project`, 'stage');
+    },
+
     handleConfirmSoundBankImport() {
       const storage = useSoundEffectsStorage();
       const state = processSoundEffectsStorageDefaults(storage);
@@ -1727,6 +1899,15 @@ export default defineComponent({
 .project-settings-label {
   display: block;
   margin-bottom: 12px;
+}
+
+/* The label of a screen of this tab (Project Settings, Sound Banks, Voice Presets, Example Projects) is closer to the toolbar above it. */
+.project-library-text {
+  padding-top: 2px;
+}
+
+.project-library-text .project-settings-label {
+  margin-top: -5px;
 }
 
 /* Matches the tight gap between the Project Title field and the Developer/

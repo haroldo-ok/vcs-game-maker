@@ -117,7 +117,7 @@ const APP_BLOCKLY_THEME = Blockly.Theme.defineTheme('app', {
 // keeps working exactly as it did (see generators/bbasic.js's
 // isEnabled()-based pre-scan, unaffected by this), same as any other
 // toolbox-only restriction in this app.
-const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors, kernelIsDpcPlus) =>
+const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors, kernelIsDpcPlus, atariVoxOn) =>
   Handlebars.compile(blocklyToolboxTemplate)({
     blocklyToolboxPlayer0Movement,
     blocklyToolboxPlayer1Movement,
@@ -127,6 +127,7 @@ const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors, k
     enablePlayer0SpriteColors,
     enablePlayer1SpriteColors,
     kernelIsDpcPlus,
+    atariVoxOn,
   });
 
 export default {
@@ -210,7 +211,7 @@ export default {
         },
         toolbox: buildToolboxXml((configurationStorage.value || {}).enablePlayer0SpriteColors,
             (configurationStorage.value || {}).enablePlayer1SpriteColors,
-            (configurationStorage.value || {}).kernel === 'dpcplus'),
+            (configurationStorage.value || {}).kernel === 'dpcplus', !!(configurationStorage.value || {}).enableAtariVox),
       },
       workspaceStorage: useWorkspaceStorage(),
       errorStorage: useErrorStorage(),
@@ -392,6 +393,10 @@ export default {
     kernelIsDpcPlus() {
       return (this.configurationStorage.value || {}).kernel === 'dpcplus';
     },
+    // The Voice category of the toolbox (the AtariVox blocks) is there while the AtariVox is on (Options tab).
+    atariVoxEnabled() {
+      return !!(this.configurationStorage.value || {}).enableAtariVox;
+    },
     workspaceData: {
       get() {
         try {
@@ -419,19 +424,25 @@ export default {
       const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
       if (!workspace) return;
       workspace.updateToolbox(buildToolboxXml(this.player0SpriteColorsEnabled, this.player1SpriteColorsEnabled,
-          this.kernelIsDpcPlus));
+          this.kernelIsDpcPlus, this.atariVoxEnabled));
     },
     player1SpriteColorsEnabled() {
       const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
       if (!workspace) return;
       workspace.updateToolbox(buildToolboxXml(this.player0SpriteColorsEnabled, this.player1SpriteColorsEnabled,
-          this.kernelIsDpcPlus));
+          this.kernelIsDpcPlus, this.atariVoxEnabled));
     },
     kernelIsDpcPlus() {
       const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
       if (!workspace) return;
       workspace.updateToolbox(buildToolboxXml(this.player0SpriteColorsEnabled, this.player1SpriteColorsEnabled,
-          this.kernelIsDpcPlus));
+          this.kernelIsDpcPlus, this.atariVoxEnabled));
+    },
+    atariVoxEnabled() {
+      const workspace = this.$refs['foo'] && this.$refs['foo'].workspace;
+      if (!workspace) return;
+      workspace.updateToolbox(buildToolboxXml(this.player0SpriteColorsEnabled, this.player1SpriteColorsEnabled,
+          this.kernelIsDpcPlus, this.atariVoxEnabled));
     },
   },
   mounted() {

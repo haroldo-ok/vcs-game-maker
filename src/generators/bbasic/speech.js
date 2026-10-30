@@ -1,9 +1,11 @@
 'use strict';
 
-import {appendCompileLog, useTextStringsStorage} from '../../hooks/project';
-import {encodeSpeech, SPEAKJET_END} from '../../utils/speakjet';
+import {appendCompileLog, useConfigurationStorage, useSoundEffectsStorage, useTextStringsStorage} from '../../hooks/project';
+import {encodeSpeech, SPEAKJET_END, avoxEffectBytes, touchedVoiceControls, voiceBytes, voiceById, voiceControlValue, VOICE_CONTROLS,
+  SPEAKJET_VOICE} from '../../utils/speakjet';
 import {speechWordsFor, textToSpeakJetWords} from '../../utils/speakjet-text';
 import {processTextStringsStorageDefaults} from '../../blocks/text-strings';
+import {processSoundEffectsStorageDefaults} from '../../blocks/soundfx';
 import {registerMemorySubroutine} from './avox-memory';
 
 // The AtariVox's SpeakJet speech chip is fed serially through the right controller port: the program writes the bits of each byte to bit 0 of
@@ -33,33 +35,71 @@ const ONES = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EI
 const TENS = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
 const numberUnder100 = (n) => (n < 20 ? ONES[n] : `${TENS[Math.floor(n / 10)]} ${n % 10 ? ONES[n % 10] : ''}`.trim());
 
-// The key of the phrase a block says in the table: the same message, words or voice are kept once.
+// The voice a block says with: the voice picked in the block (the first voice when none, or one that is gone), the first voice for the numbers and
+// the messages said by their ID.
+const voiceOfBlock = (block, strings) => (Number(block.getFieldValue('VOICE')) > 0 ? voiceById(strings.voices, block.getFieldValue('VOICE')) : null);
+
+// The key of the phrase a block says in the table: the same message, words or voice are kept once (with the voice it is said in).
 const speechKey = (block) => {
+  const voiceId = () => {
+    const voice = voiceOfBlock(block, processTextStringsStorageDefaults(useTextStringsStorage()));
+    return voice ? voice.id : 0;
+  };
+  const useVoiceId = () => voiceById(processTextStringsStorageDefaults(useTextStringsStorage()).voices, block.getFieldValue('VOICE')).id;
   switch (block.type) {
-    case 'speech_say_text': return `text:${block.getFieldValue('TEXT_ID')}`;
+    case 'speech_say_text': return `text:${block.getFieldValue('TEXT_ID')}@${voiceId()}`;
     case 'speech_voice': return `voice:${block.getFieldValue('KIND')}:${Number(block.getFieldValue('VALUE')) || 0}`;
+    case 'speech_use_voice': return `voice:use:${useVoiceId()}`;
+    // (an effect has no voice: the chip says it as it is set)
     case 'speech_effect': return `words:${block.getFieldValue('EFFECT')}`;
-    default: return `words:${String(block.getFieldValue('TEXT') || '')}`;
+    default: return `words:${String(block.getFieldValue('TEXT') || '')}@${voiceId()}`;
   }
 };
 
 // The speech blocks of the project (enabled ones), the table of all their phrases, and the number of each phrase. Called from init.
 export const prepareSpeech = (Blockly, workspace) => {
-  const speechTypes = ['speech_say', 'speech_effect', 'speech_say_text', 'speech_say_card', 'speech_say_number', 'speech_voice', 'speech_stop', 'speech_busy'];
-  const blocks = workspace.getAllBlocks(false).filter((block) => block.isEnabled());
-  const used = blocks.some((block) => speechTypes.includes(block.type));
+  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+  // The AtariVox is a project option (Options tab, ROM Options): off, its blocks build to nothing.
+  Blockly.BBasic.avoxEnabled = !!config.enableAtariVox;
+  const speechTypes = ['speech_say', 'speech_use_voice', 'speech_use_voice_id', 'speech_effect', 'speech_say_text', 'speech_say_card', 'speech_say_number', 'speech_voice', 'speech_stop', 'speech_busy'];
+  const avoxBlockTypes = (block) => speechTypes.includes(block.type) || block.type.startsWith('avox_');
+  const allBlocks = workspace.getAllBlocks(false).filter((block) => block.isEnabled());
+  if (!Blockly.BBasic.avoxEnabled && allBlocks.some(avoxBlockTypes)) {
+    appendCompileLog('The AtariVox blocks are left out: the AtariVox is off (Options tab, ROM Options).', 'info');
+  }
+  const blocks = Blockly.BBasic.avoxEnabled ? allBlocks : [];
+  // The AtariVox instruments of the music (see resolveNotePlayedInstruments in music.js: a note of one sets the watch of its instrument): each
+  // has a phrase, the sound effect of its card, that the program says when the watch is set.
+  const soundEffects = Blockly.BBasic.avoxEnabled ? processSoundEffectsStorageDefaults(useSoundEffectsStorage()).soundEffects : [];
+  const avoxInstruments = [...(Blockly.BBasic.notePlayedInstruments || new Map()).entries()]
+      .map(([id, index]) => ({id, index, soundEffect: soundEffects.find((candidate) => `${candidate.id}` === id)}))
+      .filter(({soundEffect}) => soundEffect && soundEffect.isAtariVox);
+  Blockly.BBasic.avoxInstruments = avoxInstruments;
+  // The AtariVox cards that a "Play sound effect" block plays: the effect is a phrase of the speech like the one of an instrument.
+  const playedAvoxCards = soundEffects.filter((soundEffect) => soundEffect.isAtariVox &&
+    blocks.some((block) => block.type === 'soundfx_play' && `${block.getFieldValue('SOUNDFX')}` === `${soundEffect.id}`));
+  const avoxCards = [...new Map([...avoxInstruments.map(({soundEffect}) => soundEffect), ...playedAvoxCards].map((card) => [card.id, card])).values()];
+  const used = blocks.some((block) => speechTypes.includes(block.type)) || avoxCards.length > 0;
   // The AtariVox's memory (a 32 KB EEPROM on the same port): blocks that save and load a byte (see avox-memory.js).
   Blockly.BBasic.avoxHighScoresUsed = blocks.some((block) => block.type.startsWith('avox_highscore_'));
   Blockly.BBasic.avoxMemoryUsed = Blockly.BBasic.avoxHighScoresUsed ||
     blocks.some((block) => block.type === 'avox_memory_save' || block.type === 'avox_memory_load' || block.type === 'avox_memory_check');
+  // The voices (the Voice tab): each phrase of speech starts by putting the chip in the controls of its voice, for the controls that any voice
+  // changes from the start values or that an AtariVox instrument changes (an effect leaves its volume and bend as they are). A control that a "set voice"
+  // block of the project sets is left to the blocks.
+  const strings = processTextStringsStorageDefaults(useTextStringsStorage());
+  const effectVoiceControls = touchedVoiceControls(avoxCards);
+  const voiceBlockKinds = new Set(blocks.filter((block) => block.type === 'speech_voice').map((block) => block.getFieldValue('KIND')));
+  const speechVoiceControls = VOICE_CONTROLS.filter((control) => !voiceBlockKinds.has(control) &&
+    (effectVoiceControls.includes(control) ||
+      strings.voices.some((voice) => voiceControlValue(voice, control) !== SPEAKJET_VOICE[control].default)));
   const phrases = [];
   const numbers = {};
-  const add = (key, bytes) => {
+  const add = (key, bytes, voice = null) => {
     if (key in numbers) return;
     numbers[key] = phrases.length;
-    phrases.push(bytes);
+    phrases.push(bytes.length && voice ? [...voiceBytes(voice, speechVoiceControls), ...bytes] : bytes);
   };
-  const strings = processTextStringsStorageDefaults(useTextStringsStorage());
   blocks.forEach((block) => {
     const key = speechKey(block);
     if (block.type === 'speech_say_text') {
@@ -67,19 +107,38 @@ export const prepareSpeech = (Blockly, workspace) => {
       const entry = strings.textStrings.find((candidate) => `${candidate.id}` === `${id}`);
       const found = encodeSpeech(speechWordsFor(entry, strings));
       if (found.unknown.length) appendCompileLog(`AtariVox message ${id}: not understood: ${found.unknown.join(', ')}.`, 'info');
-      add(key, found.bytes);
+      add(key, found.bytes, voiceOfBlock(block, strings));
     } else if (block.type === 'speech_say') {
       const text = String(block.getFieldValue('TEXT') || '');
       const found = encodeSpeech(text);
       if (found.unknown.length) appendCompileLog(`AtariVox phrase "${text}": not understood: ${found.unknown.join(', ')}.`, 'info');
-      add(key, found.bytes);
+      add(key, found.bytes, voiceOfBlock(block, strings));
     } else if (block.type === 'speech_effect') {
       add(key, encodeSpeech(String(block.getFieldValue('EFFECT') || '')).bytes);
+    } else if (block.type === 'speech_use_voice') {
+      add(key, voiceBytes(voiceById(strings.voices, block.getFieldValue('VOICE')), VOICE_CONTROLS));
     } else if (block.type === 'speech_voice') {
       const [code, largest] = SPEECH_VOICE_CODES[block.getFieldValue('KIND')] || SPEECH_VOICE_CODES.volume;
       add(key, [code, Math.max(0, Math.min(largest, Number(block.getFieldValue('VALUE')) || 0))]);
     }
   });
+  // (The phrase of an instrument is its voice and its effect: the controls of the voice that any instrument changes are sent by all of them, as the
+  // chip keeps a setting until it is changed.)
+  const voiceControls = effectVoiceControls;
+  avoxCards.forEach((soundEffect) => {
+    add(`avox:${soundEffect.id}`, avoxEffectBytes(soundEffect, voiceControls));
+  });
+  // Using a voice by its ID: a phrase for every voice, from the first ID to the largest (an ID no voice has is an empty phrase).
+  let voiceBase = 0;
+  let voiceMax = 0;
+  if (blocks.some((block) => block.type === 'speech_use_voice_id')) {
+    voiceBase = phrases.length;
+    voiceMax = strings.voices.reduce((most, voice) => Math.max(most, Number(voice.id) || 0), 0);
+    for (let id = 1; id <= voiceMax; id++) {
+      const voice = strings.voices.find((candidate) => Number(candidate.id) === id);
+      add(`voiceid:${id}`, voice ? voiceBytes(voice, VOICE_CONTROLS) : [], null);
+    }
+  }
   // Saying a card by its ID: a phrase for every ID from 1 to the largest (an ID no card has is an empty phrase).
   let cardBase = 0;
   let cardMax = 0;
@@ -116,6 +175,8 @@ export const prepareSpeech = (Blockly, workspace) => {
   Blockly.BBasic.speechOffsets = offsets;
   Blockly.BBasic.speechNumbers = numbers;
   Blockly.BBasic.speechNumberBase = numberBase;
+  Blockly.BBasic.speechVoiceBase = voiceBase;
+  Blockly.BBasic.speechVoiceMax = voiceMax;
   Blockly.BBasic.speechCardBase = cardBase;
   Blockly.BBasic.speechCardMax = cardMax;
   return used;
@@ -218,7 +279,20 @@ export const generateSpeechChecks = (Blockly) => {
   const number = Blockly.BBasic.blockNumbers.next('avox');
   const active = `_avox_active_${number}`;
   const skip = `_avox_skip_${number}`;
+  // A note of an AtariVox instrument has set its watch: its sound effect is said at once.
+  const flags = Blockly.BBasic.musicEventFlags;
+  const instrumentLines = [];
+  (Blockly.BBasic.avoxInstruments || []).forEach(({id, index}) => {
+    const target = flags && flags.notePlayed.get(id);
+    const phraseNumber = Blockly.BBasic.speechNumbers[`avox:${id}`];
+    if (!target || phraseNumber === undefined) return;
+    const flagBit = `${resolve(Blockly, target.varName)}{${target.bit}}`;
+    const end = `_avox_inst_${Blockly.BBasic.blockNumbers.next('avox')}`;
+    instrumentLines.push(` if !${flagBit} then goto ${end}`, ` ${flagBit} = 0`, ` ${q1} = ${phraseNumber + 1}`, ` ${q2} = 0`, ` ${low} = 0`,
+        ` ${high} = 0`, `${end}`);
+  });
   return [
+    ...instrumentLines,
     ` if ${high} <> 0 then goto ${active}`,
     ` if ${q1} = 0 then goto ${skip}`,
     `${active}`,
@@ -262,12 +336,36 @@ export default (Blockly) => {
   };
   Blockly.BBasic['speech_say'] = say;
   Blockly.BBasic['speech_effect'] = say;
+  // A "Play sound effect" block of a card of the AtariVox kind: its effect at once (see soundfx_play in soundfx.js).
+  Blockly.BBasic.avoxPlayLines = (id) => {
+    const index = (Blockly.BBasic.speechNumbers || {})[`avox:${id}`];
+    return index === undefined ? '' : `${sayLines(index + 1, 'now').join('\n')}\n`;
+  };
   Blockly.BBasic['speech_say_text'] = say;
   // A change of voice goes in the queue like a phrase, so it comes in its place between the phrases.
   Blockly.BBasic['speech_voice'] = function(block) {
     const index = (Blockly.BBasic.speechNumbers || {})[speechKey(block)];
     if (index === undefined) return '';
     return sayLines(index + 1, 'after').join('\n') + '\n';
+  };
+
+  // Puts the chip in a voice: by the list the phrase is known when building, by the ID the voice is picked by the program (the phrase of the voice is at
+  // the first voice phrase + ID, the number + 1 that the queue holds). In the queue like a change of one control.
+  Blockly.BBasic['speech_use_voice'] = function(block) {
+    const index = (Blockly.BBasic.speechNumbers || {})[speechKey(block)];
+    if (index === undefined) return '';
+    return sayLines(index + 1, 'after').join('\n') + '\n';
+  };
+  Blockly.BBasic['speech_use_voice_id'] = function(block) {
+    const value = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const skip = label('novoice');
+    const lines = [` temp1 = ${value}`, ` if temp1 = 0 then goto ${skip}`, ` if temp1 > ${Blockly.BBasic.speechVoiceMax || 0} then goto ${skip}`,
+      ` temp1 = temp1 + ${Blockly.BBasic.speechVoiceBase || 0}`];
+    const {q1, q2} = vars();
+    const second = label('second');
+    lines.push(` if ${q1} <> 0 then goto ${second}`, ` ${q1} = temp1`, ` goto ${skip}`, `@ ${second}`, ` if ${q2} <> 0 then goto ${skip}`, ` ${q2} = temp1`,
+        `@ ${skip}`);
+    return lines.join('\n') + '\n';
   };
 
   // Says the Text card whose ID is the value: the phrase of the card is at (the first card phrase + ID), the number + 1 that the queue holds.

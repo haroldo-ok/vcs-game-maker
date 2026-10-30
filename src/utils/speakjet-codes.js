@@ -134,3 +134,13 @@ export const SPEAKJET_SOUND_EFFECTS = [
   [253, 'M1', 'Pistol Shot', 'Miscellaneous'],
   [254, 'M2', 'WOW', 'Miscellaneous'],
 ];
+
+// The sound effects as the lists of the AtariVox blocks and instruments show them: "Robot 3", "Alarm 0", "Beep 5", "Tone 5 (key 5)", "Sonar ping";
+// the value is the word (R3, A0, B5, D5, M0) that a phrase says it by (see utils/speakjet.js).
+const EFFECT_KINDS = {Robot: 'Robot', Alarm: 'Alarm', Beeps: 'Beep', Biological: 'Biological', DTMF: 'Tone', Miscellaneous: ''};
+export const speakJetEffectOptions = () => SPEAKJET_SOUND_EFFECTS.map(([, word, meaning, group]) => {
+  const number = word.replace(/^[A-Z]+/, '');
+  const label = group === 'Miscellaneous' ? meaning : group === 'DTMF' ? `Tone ${number} (key ${meaning})` : `${EFFECT_KINDS[group]} ${number}`;
+  return [label, word];
+});
+export const DEFAULT_SPEAKJET_EFFECT = 'M1';

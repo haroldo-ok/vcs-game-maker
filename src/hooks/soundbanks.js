@@ -11,7 +11,7 @@ import {isFromNewerApp, APP_VERSION_KEY} from '../utils/app-version';
 // local copies, so it works offline after the first successful run.
 //
 // To change which repo the sound banks come from, edit SOUND_BANKS_SOURCE.
-const SOUND_BANKS_SOURCE = {
+export const SOUND_BANKS_SOURCE = {
   owner: 'AbstractPolygon',
   repo: 'vcs-game-maker-content',
   branch: 'main',

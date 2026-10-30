@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container">
-      <v-card-title>Music (alpha 0.9)</v-card-title>
+      <v-card-title>Music (beta 1.0)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message music-intro-paragraph">
           Compose songs here, then play one at runtime with a "Play song" block (Actions tab).
@@ -12,25 +12,6 @@
       </v-card-text>
       <div class="music-toolbar" :class="{'music-toolbar-scrolled': isMusicToolbarScrolled}" v-if="activeSong()">
         <div class="music-toolbar-row">
-          <v-btn
-            icon
-            small
-            title="Save every song in this project (with the instruments they use) to a single .JSON song bank file"
-            class="music-flat-icon-btn music-icon-btn-size"
-            @click="handleExportSongBank"
-          >
-            <v-icon>mdi-database-export</v-icon>
-          </v-btn>
-          <v-btn
-            icon
-            small
-            title="Load a .JSON song bank file - a song whose name matches one already here has its contents replaced; every other song in the file is added"
-            class="music-flat-icon-btn music-icon-btn-size"
-            @click="handleImportSongBank"
-          >
-            <v-icon>mdi-database-import</v-icon>
-          </v-btn>
-          <v-divider class="music-toolbar-divider" vertical />
           <v-btn
             icon
             small
@@ -50,6 +31,25 @@
             @click="() => handleToolbarHistory('redo')"
           >
             <v-icon>mdi-redo</v-icon>
+          </v-btn>
+          <v-divider class="music-toolbar-divider" vertical />
+          <v-btn
+            icon
+            small
+            title="Save every song in this project (with the instruments they use) to a single .JSON song bank file"
+            class="music-flat-icon-btn music-icon-btn-size"
+            @click="handleExportSongBank"
+          >
+            <v-icon>mdi-database-export</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            small
+            title="Load a .JSON song bank file - a song whose name matches one already here has its contents replaced; every other song in the file is added"
+            class="music-flat-icon-btn music-icon-btn-size"
+            @click="handleImportSongBank"
+          >
+            <v-icon>mdi-database-import</v-icon>
           </v-btn>
           <v-divider class="music-toolbar-divider" vertical />
           <v-btn
@@ -808,6 +808,8 @@ import {max} from 'lodash';
 
 import DimControls from '../components/DimControls.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
+import {avoxEffectBytes} from '../utils/speakjet';
+import {warmSpeech} from '../utils/speech-preview';
 import {useCollapsedIds} from '../hooks/collapse';
 import {removeCards} from '../utils/card-refs';
 import {recordReorder, sameItems} from '../hooks/reorder-history';
@@ -1164,8 +1166,16 @@ export default defineComponent({
     // ALREADY assigned to a track from before it was untagged (see
     // trackSoundEffect, unaffected by this filter, still resolves it by id
     // regardless), but shouldn't be newly choosable from this dropdown.
-    const soundEffectOptions = () => soundEffects().filter((soundEffect) => soundEffect.isInstrument || soundEffect.isPercussion).map(
-        (soundEffect) => ({text: soundEffect.name || `Unnamed ${soundEffect.id}`, value: soundEffect.id}));
+    // (The AtariVox instruments, sound effects of the SpeakJet chip, are offered while the AtariVox is on: Options tab.)
+    const soundEffectOptions = () => {
+      const avoxOn = !!(configurationStorage.value || {}).enableAtariVox;
+      return soundEffects().filter((soundEffect) => (soundEffect.isInstrument || soundEffect.isPercussion) && (avoxOn || !soundEffect.isAtariVox)).map(
+          (soundEffect) => {
+            // the sound of an effect is made ahead, so that the preview plays it in time
+            if (soundEffect.isAtariVox) warmSpeech(avoxEffectBytes(soundEffect));
+            return {text: soundEffect.name || `Unnamed ${soundEffect.id}`, value: soundEffect.id};
+          });
+    };
 
     const handleChildChange = () => {
       state.value = state.value;

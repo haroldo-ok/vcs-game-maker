@@ -248,6 +248,9 @@ export const useProjectShowExamplesStorage = () =>
 // Same, for the Sound Banks screen, which takes the place of either of those two.
 export const useProjectShowSoundBanksStorage = () =>
   useBooleanAppSetting('vcs-game-maker.projectShowSoundBanks');
+// Same, for the Voice Presets screen.
+export const useProjectShowVoicePresetsStorage = () =>
+  useBooleanAppSetting('vcs-game-maker.projectShowVoicePresets');
 export const useHideDescriptionTextStorage = () =>
   useBooleanAppSetting('vcs-game-maker.hideDescriptionText');
 // Expert mode only (see App.vue): the left and top toolbars show just their icons, without the names. On unless turned off, so Expert

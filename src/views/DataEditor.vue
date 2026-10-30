@@ -1539,6 +1539,8 @@ export default defineComponent({
    single v-card-text never had. */
 .data-name-section {
   padding-bottom: 0;
+  /* 20px under the name when the card is collapsed (and the notes below are pulled up by the same amount) */
+  margin-bottom: -3px;
 }
 
 /* Same top/bottom padding removal as .data-name-section/.data-values-section
@@ -1548,6 +1550,8 @@ export default defineComponent({
 .data-notes-section {
   padding-top: 0;
   padding-bottom: 8px;
+  /* 20px under the name, as in the other cards */
+  margin-top: -17px;
 }
 
 /* No margin above/below the field itself (Vuetify's  default input

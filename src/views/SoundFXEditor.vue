@@ -57,6 +57,27 @@
             <v-btn
               icon
               small
+              :title="UNDO_TITLE"
+              class="soundfx-bank-btn soundfx-icon-btn-size"
+              :disabled="!(selectedSoundEffect && canUndoEnvelope(selectedSoundEffect)) && !reorderCanUndo"
+              @click="() => handleUndoEnvelope(selectedSoundEffect)"
+            >
+              <v-icon>mdi-undo</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              small
+              :title="REDO_TITLE"
+              class="soundfx-bank-btn soundfx-icon-btn-size"
+              :disabled="!(selectedSoundEffect && canRedoEnvelope(selectedSoundEffect)) && !reorderCanRedo"
+              @click="() => handleRedoEnvelope(selectedSoundEffect)"
+            >
+              <v-icon>mdi-redo</v-icon>
+            </v-btn>
+            <v-divider class="soundfx-toolbar-divider" vertical />
+            <v-btn
+              icon
+              small
               class="soundfx-bank-btn soundfx-icon-btn-size"
               :title="selectedSoundEffects.length > 1 ?
                 `Save the ${selectedSoundEffects.length} selected sounds to a single .vcsbnk sound bank file` :
@@ -85,27 +106,6 @@
               @click="handleImportSoundBank"
             >
               <v-icon>mdi-database-import</v-icon>
-            </v-btn>
-            <v-divider class="soundfx-toolbar-divider" vertical />
-            <v-btn
-              icon
-              small
-              :title="UNDO_TITLE"
-              class="soundfx-bank-btn soundfx-icon-btn-size"
-              :disabled="!(selectedSoundEffect && canUndoEnvelope(selectedSoundEffect)) && !reorderCanUndo"
-              @click="() => handleUndoEnvelope(selectedSoundEffect)"
-            >
-              <v-icon>mdi-undo</v-icon>
-            </v-btn>
-            <v-btn
-              icon
-              small
-              :title="REDO_TITLE"
-              class="soundfx-bank-btn soundfx-icon-btn-size"
-              :disabled="!(selectedSoundEffect && canRedoEnvelope(selectedSoundEffect)) && !reorderCanRedo"
-              @click="() => handleRedoEnvelope(selectedSoundEffect)"
-            >
-              <v-icon>mdi-redo</v-icon>
             </v-btn>
             <v-divider class="soundfx-toolbar-divider" vertical />
             <v-btn
@@ -215,7 +215,7 @@
                 outlined
                 :ripple="false"
                 class="soundfx-card"
-                :class="[dragCardClass(index), {'soundfx-card-selected': selectedCardIds.includes(soundEffect.id)}]"
+                :class="[dragCardClass(index), {'soundfx-card-selected': selectedCardIds.includes(soundEffect.id), 'soundfx-card-collapsed': isCollapsed(soundEffect)}]"
                 v-on="dragTargetListeners(index)"
                 @mousedown.shift.prevent
                 @click.stop="(event) => selectCard(soundEffect.id, event)"
@@ -322,7 +322,57 @@
                   </div>
                 </v-card-text>
 
-                <v-card-text v-if="!isCollapsed(soundEffect)" class="soundfx-fields-section">
+                <v-card-text v-if="!isCollapsed(soundEffect) && soundEffect.isAtariVox" class="soundfx-fields-section">
+                  <div class="soundfx-fields">
+                    <v-btn-toggle
+                      value="vox"
+                      mandatory
+                      dense
+                      class="soundfx-kernel-toggle"
+                      @change="(view) => setCardView(soundEffect, view)"
+                    >
+                      <v-btn value="standard" small title="The sound the TIA plays, which is channel 1 and any sound that uses the Standard sound types">TIA</v-btn>
+                      <v-btn v-if="dpcPlusSoundCards" value="dpcplus" small title="The sound the DPC+ chip plays, which the ARM mixes (channels 0, 2 and 3)">ARM</v-btn>
+                      <v-btn value="vox" small title="A sound effect of the AtariVox's SpeakJet chip, played by the chip instead of the console (needs the AtariVox on the Options tab)">VOX</v-btn>
+                    </v-btn-toggle>
+                    <v-select
+                      label="AtariVox sound effect"
+                      title="The sound effect of the AtariVox's SpeakJet chip that plays when a note of this instrument starts on the Music tab (the pitch of the note does not matter; a new note stops the one being played). Made by the chip, so it takes almost no ROM. Needs the AtariVox on the Options tab."
+                      v-model="soundEffect.avoxEffect"
+                      :items="avoxEffectItems"
+                      hide-details
+                      class="soundfx-audc soundfx-avox-effect"
+                      @change="handleChildChange"
+                    />
+                    <!-- The voice fields share the row of the effect when the card is wide (the columns are off), else they wrap under it. -->
+                    <v-text-field
+                      label="Volume"
+                      title="How loud the effect is, 0 to 15 as for the sounds of the console (15 is the volume the chip has at start). It stays until another effect or speech block changes it, so the speech after the effect is at this volume too."
+                      v-model.number="soundEffect.audv"
+                      type="number"
+                      min="0"
+                      max="15"
+                      hide-details
+                      class="soundfx-number"
+                      @change="handleChildChange"
+                    />
+                    <v-text-field
+                      v-for="voice in avoxVoiceFields"
+                      :key="voice.field"
+                      :label="voice.label"
+                      :title="voice.hint + ' It stays until another effect or speech block changes it, so the speech after the effect is in this voice too. The effect cannot change while it plays: there is no envelope.'"
+                      v-model.number="soundEffect[voice.field]"
+                      type="number"
+                      min="0"
+                      :max="voice.max"
+                      hide-details
+                      class="soundfx-number"
+                      @change="handleChildChange"
+                    />
+                  </div>
+                </v-card-text>
+
+                <v-card-text v-if="!isCollapsed(soundEffect) && !soundEffect.isAtariVox" class="soundfx-fields-section">
                   <div class="soundfx-fields">
                     <!-- With the chip's settings showing, the switch is at the left of the waveform's tools (see the slot below); otherwise it has the row to itself. -->
                     <v-btn-toggle
@@ -335,6 +385,18 @@
                     >
                       <v-btn value="standard" small title="The sound the TIA plays, which is channel 1 and any sound that uses the Standard sound types">TIA</v-btn>
                       <v-btn value="dpcplus" small title="The sound the DPC+ chip plays, which the ARM mixes (channels 0, 2 and 3)">ARM</v-btn>
+                      <v-btn v-if="avoxOn" value="vox" small title="A sound effect of the AtariVox's SpeakJet chip, played by the chip instead of the console (needs the AtariVox on the Options tab)">VOX</v-btn>
+                    </v-btn-toggle>
+                    <v-btn-toggle
+                      v-if="!dpcPlusSoundCards && avoxOn"
+                      value="standard"
+                      mandatory
+                      dense
+                      class="soundfx-kernel-toggle"
+                      @change="(view) => setCardView(soundEffect, view)"
+                    >
+                      <v-btn value="standard" small title="The sound the TIA plays">TIA</v-btn>
+                      <v-btn value="vox" small title="A sound effect of the AtariVox's SpeakJet chip, played by the chip instead of the console (needs the AtariVox on the Options tab)">VOX</v-btn>
                     </v-btn-toggle>
                     <v-select
                       v-if="!cardDpc(soundEffect)"
@@ -362,6 +424,7 @@
                           >
                             <v-btn value="standard" small title="The sound the TIA plays, which is channel 1 and any sound that uses the Standard sound types">TIA</v-btn>
                             <v-btn value="dpcplus" small title="The sound the DPC+ chip plays, which the ARM mixes (channels 0, 2 and 3)">ARM</v-btn>
+                            <v-btn v-if="avoxOn" value="vox" small title="A sound effect of the AtariVox's SpeakJet chip, played by the chip instead of the console (needs the AtariVox on the Options tab)">VOX</v-btn>
                           </v-btn-toggle>
                       </template>
                     </WaveformEditor>
@@ -919,6 +982,9 @@ import {getDateInfix} from '../utils/date';
 import {openFileDialog, openFileDialogMultiple} from '../utils/file';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
+import {speakJetEffectOptions, DEFAULT_SPEAKJET_EFFECT} from '../utils/speakjet-codes';
+import {avoxEffectBytes, SPEAKJET_VOICE} from '../utils/speakjet';
+import {speakBytes} from '../utils/speech-preview';
 import {autoInstrumentColor} from '../utils/instrument-colors';
 import {audcHasTunableNotes, notesForAudc} from '../utils/music-notes';
 import {buildSoundBankImportEntries, importSoundBankEntries} from '../utils/sound-bank';
@@ -1166,24 +1232,36 @@ export default defineComponent({
     // the real array at all.
     const soundFxColumns = useSoundFxColumnsStorage();
     const soundFilter = ref('all');
-    const soundFilterItems = [
+    // The AtariVox is a project option (Options tab): the AtariVox kind of card is offered while it is on.
+    const avoxOn = computed(() => !!(configurationStorage.value || {}).enableAtariVox);
+    const soundFilterItems = computed(() => [
       {text: 'All', value: 'all'},
       {text: 'Instruments', value: 'instrument'},
       {text: 'Percussion', value: 'percussion'},
       {text: 'Sound effects', value: 'sound'},
-    ];
-    // The three kinds of sound a card can be (the button in its name row).
-    const soundKinds = [
+      ...(avoxOn.value ? [{text: 'AtariVox effects', value: 'avox'}] : []),
+    ]);
+    // The kinds of sound a card can be (the button in its name row).
+    const AVOX_KIND = {value: 'avox', text: 'AtariVox effect', icon: 'mdi-microphone-variant'};
+    const soundKindList = [
       {value: 'sound', text: 'Sound effect', icon: 'mdi-waveform'},
       {value: 'instrument', text: 'Instrument', icon: 'mdi-piano'},
       {value: 'percussion', text: 'Percussion', icon: '$drum'},
     ];
-    const soundKindFor = (soundEffect) =>
-      soundKinds.find(({value}) => (soundEffect.isPercussion ? value === 'percussion' :
-        soundEffect.isInstrument ? value === 'instrument' : value === 'sound'));
+    const soundKinds = computed(() => (avoxOn.value ? [...soundKindList, AVOX_KIND] : soundKindList));
+    const soundKindFor = (soundEffect) => (soundEffect.isAtariVox ? AVOX_KIND :
+      soundKindList.find(({value}) => (soundEffect.isPercussion ? value === 'percussion' :
+        soundEffect.isInstrument ? value === 'instrument' : value === 'sound')));
+    const avoxEffectItems = speakJetEffectOptions().map(([text, value]) => ({text, value}));
+    const handlePlayAvoxEffect = (soundEffect) => speakBytes(avoxEffectBytes(soundEffect));
+    // The controls of the voice of an AtariVox card: the field of the card, its label and the range the chip takes.
+    const avoxVoiceFields = [
+      {field: 'avoxBend', label: 'Pitch', control: 'bend', hint: 'The pitch of the effect, about a semitone a step (0 to 15, 5 at start): lower is deeper, higher is brighter. It is the Bend control of the chip, the one that moves the pitch of an effect.'},
+    ].map((entry) => ({...entry, max: SPEAKJET_VOICE[entry.control].max, start: SPEAKJET_VOICE[entry.control].default}));
     const matchesSoundFilter = (soundEffect) => {
+      if (soundFilter.value === 'avox') return !!soundEffect.isAtariVox;
       if (soundFilter.value === 'instrument') return !!soundEffect.isInstrument && !soundEffect.isPercussion;
-      if (soundFilter.value === 'percussion') return !!soundEffect.isPercussion;
+      if (soundFilter.value === 'percussion') return !!soundEffect.isPercussion && !soundEffect.isAtariVox;
       if (soundFilter.value === 'sound') return !soundEffect.isInstrument && !soundEffect.isPercussion;
       return true;
     };
@@ -1608,6 +1686,10 @@ export default defineComponent({
 
     // tia: play it the way the TIA does (channel 1 under DPC+) rather than the way the DPC+ chip does.
     const handlePlaySoundEffect = (soundEffect, tia = false) => {
+      if (soundEffect.isAtariVox) {
+        handlePlayAvoxEffect(soundEffect);
+        return;
+      }
       // Matches how loud the emulator plays it with DIM on (it scales its output by the same
       // percentage) - previewing at the un-dimmed volume would make the preview lie about what
       // the game sounds like in the emulator.
@@ -1680,8 +1762,14 @@ export default defineComponent({
     // Which settings a card shows under DPC+: the chip's or the TIA's (Standard).
     // (Kept in the sound itself, so it is the same after leaving the tab or loading the project again.)
     const cardView = (soundEffect) => (soundEffect.dpcView || 'dpcplus');
+    // The TIA, ARM and VOX buttons of a card: VOX makes it an AtariVox card (see handleSetSoundKind), TIA and ARM give back the kind it had.
     const setCardView = (soundEffect, view) => {
-      Vue.set(soundEffect, 'dpcView', view);
+      if (view === 'vox') {
+        if (!soundEffect.isAtariVox) handleSetSoundKind(soundEffect, 'avox');
+        return;
+      }
+      if (soundEffect.isAtariVox) handleSetSoundKind(soundEffect, soundEffect.avoxPrevKind || 'sound');
+      if (dpcPlusSoundCards.value) Vue.set(soundEffect, 'dpcView', view);
       handleChildChange();
     };
     const cardTia = (soundEffect) => !!soundEffect && dpcPlusSoundCards.value && cardView(soundEffect) === 'standard';
@@ -1700,8 +1788,14 @@ export default defineComponent({
     };
 
     const handleSetSoundKind = (soundEffect, kind) => {
+      // (The kind a card had before it became an AtariVox card is kept, for the TIA button to give it back.)
+      if (kind === 'avox' && !soundEffect.isAtariVox) {
+        Vue.set(soundEffect, 'avoxPrevKind', soundEffect.isInstrument ? 'instrument' : soundEffect.isPercussion ? 'percussion' : 'sound');
+      }
       soundEffect.isInstrument = kind === 'instrument';
-      soundEffect.isPercussion = kind === 'percussion';
+      soundEffect.isAtariVox = kind === 'avox';
+      soundEffect.isPercussion = kind === 'percussion' || kind === 'avox';
+      if (kind === 'avox' && !soundEffect.avoxEffect) soundEffect.avoxEffect = DEFAULT_SPEAKJET_EFFECT;
       handleChildChange();
     };
 
@@ -1759,7 +1853,8 @@ export default defineComponent({
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, endFrequencyItems, handleAudcChange,
       dimSoundFx, dimSoundFxPercent,
-      soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, dpcPlusSoundCards, dpcPlusNoteValue, dpcPlusNoteItems,
+      soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, avoxOn, avoxEffectItems, handlePlayAvoxEffect,
+      avoxVoiceFields, dpcPlusSoundCards, dpcPlusNoteValue, dpcPlusNoteItems,
       handleSweepSwitch, dpcFollows, setDpcFollows, pianoKeyItems, MAX_DPC_SWEEP_STEP, MAX_STAIRCASE_STEP,
       staircaseFrameOptionItems: STAIRCASE_FRAME_OPTIONS.map((value) => ({text: `${value} ${value === 1 ? 'frame' : 'frames'}`, value})),
       handleDpcPlusNoteChange, handleWaveformChange, handleTiaChange,
@@ -2045,6 +2140,11 @@ export default defineComponent({
   transition: color 0.15s ease;
 }
 
+/* Disabled: dimmed like the icons of the other tabs' toolbars (see GraphicEditorToolbar.vue). */
+.soundfx-bank-btn.v-btn--disabled >>> .v-icon {
+  color: rgba(0, 0, 0, 0.18) !important;
+}
+
 .soundfx-bank-btn:hover >>> .v-icon {
   color: rgba(0, 0, 0, 0.87) !important;
 }
@@ -2252,7 +2352,12 @@ export default defineComponent({
    .data-name-section, matching that same ~22px gap exactly instead. */
 .soundfx-name-section {
   padding-bottom: 0;
-  margin-bottom: -8px;
+  margin-bottom: -6px;
+}
+
+/* A collapsed card ends with the name row: the same 20px under its underline as under the last field of an expanded card. */
+.soundfx-card-collapsed .soundfx-name-section {
+  margin-bottom: -3px;
 }
 
 .soundfx-fields-section {
@@ -2267,7 +2372,7 @@ export default defineComponent({
      the Envelope switch, not the taller EnvelopeGraph, is this section's
      last row in that state). The 8px the deleted section used to
      provide, plus 8px more. */
-  padding-bottom: 16px;
+  padding-bottom: 19px;
 }
 
 /* Same top-right corner/offset as DataEditor.vue's .data-toolbar-top-
@@ -2316,7 +2421,7 @@ export default defineComponent({
 
 .soundfx-kernel-toggle {
   flex: 1 1 100%;
-  margin: 4px 0 8px;
+  margin: 4px 0 16px;
   /* The toggle takes the whole row, and Vuetify gives it a separate background (grey in dark mode), which showed as a strip of another
      color to the right of its two buttons: the card's color shows through instead. */
   background-color: transparent !important;
@@ -2350,11 +2455,16 @@ export default defineComponent({
   margin: 4px 0 20px;
 }
 
+/* In the row of an AtariVox card the effect and the voice fields are on one line: no room added under the effect. */
+.soundfx-avox-effect {
+  margin-bottom: 0 !important;
+}
+
 .soundfx-audc {
   flex: 1 1 260px;
   min-width: 220px;
-  /* The Frequency row is as far under it as it is under the Sound name row (18px from underline to label). */
-  margin-bottom: 14px;
+  /* The Frequency row is as far under it as it is under the Sound name row (20px from underline to label). */
+  margin-bottom: 16px;
 }
 
 /* row, nested flex container (rather than Frequency/Volume/Duration

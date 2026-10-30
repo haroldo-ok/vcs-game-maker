@@ -19,9 +19,9 @@
           <span class="top-toolbar-label">Actions</span>
         </v-btn>
 
-        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title α" elevation="0">
+        <v-btn to="/titlescreen" link text class="titlescreen-item" title="Title β" elevation="0">
           <v-icon>mdi-image-frame</v-icon>
-          <span class="top-toolbar-label">Title α</span>
+          <span class="top-toolbar-label">Title β</span>
         </v-btn>
 
         <v-btn to="/player" link text class="player-item" title="Sprite" elevation="0">
@@ -44,9 +44,14 @@
           <span class="top-toolbar-label">Sound</span>
         </v-btn>
 
-        <v-btn to="/music" link text class="music-item" title="Music α" elevation="0">
+        <v-btn to="/music" link text class="music-item" title="Music β" elevation="0">
           <v-icon>mdi-music-note</v-icon>
-          <span class="top-toolbar-label">Music α</span>
+          <span class="top-toolbar-label">Music β</span>
+        </v-btn>
+
+        <v-btn v-if="configurationStorage && configurationStorage.enableAtariVox" to="/vox" link text class="voice-item" title="Vox α" elevation="0">
+          <v-icon>mdi-chat-processing-outline</v-icon>
+          <span class="top-toolbar-label">Vox α</span>
         </v-btn>
 
         <v-btn to="/text" link text class="text-tab-item" title="Text" elevation="0">
@@ -125,13 +130,13 @@
           to="/titlescreen"
           link
           class="titlescreen-item"
-          :title="hideToolbarLabels ? 'Title α' : null"
+          :title="hideToolbarLabels ? 'Title β' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-image-frame</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Title α</v-list-item-title>
+            <v-list-item-title>Title β</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -195,13 +200,28 @@
           to="/music"
           link
           class="music-item"
-          :title="hideToolbarLabels ? 'Music α' : null"
+          :title="hideToolbarLabels ? 'Music β' : null"
         >
           <v-list-item-icon>
             <v-icon>mdi-music-note</v-icon>
           </v-list-item-icon>
           <v-list-item-content>
-            <v-list-item-title>Music α</v-list-item-title>
+            <v-list-item-title>Music β</v-list-item-title>
+          </v-list-item-content>
+        </v-list-item>
+
+        <v-list-item
+          v-if="configurationStorage && configurationStorage.enableAtariVox"
+          to="/vox"
+          link
+          class="voice-item"
+          :title="hideToolbarLabels ? 'Vox α' : null"
+        >
+          <v-list-item-icon>
+            <v-icon>mdi-chat-processing-outline</v-icon>
+          </v-list-item-icon>
+          <v-list-item-content>
+            <v-list-item-title>Vox α</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
 
@@ -729,6 +749,8 @@ import {syncExamples} from './hooks/examples';
 import {startGamepadInput} from './hooks/gamepad';
 import {startTapHold} from './hooks/tap-hold';
 import {syncSoundBanks} from './hooks/soundbanks';
+import {syncVoicePresets} from './hooks/voicepresets';
+import {loadLargeDictionary} from './hooks/largedictionary';
 import {soundKernelNotice, syncSoundsToKernel} from './hooks/sound-kernel';
 
 // The z-index of the dialogs (see the .v-dialog__content rule in the style): a scrim is kept under it.
@@ -892,6 +914,8 @@ export default {
     // Once per page load: fetch new/changed example projects (see hooks/examples.js).
     syncExamples();
     syncSoundBanks();
+    syncVoicePresets();
+    loadLargeDictionary();
     this.attachEmulator();
     this.applyAdaptiveFrameSkip();
     this.stopGamepadInput = startGamepadInput();
@@ -3473,7 +3497,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .sound-bank-preview-btn .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .sound-bank-import-play .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .project-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
-.dark-mode.v-application .soundfx-bank-btn:hover .v-icon,
+.dark-mode.v-application .soundfx-bank-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .soundfx-instrument-btn:hover .v-icon,
 .dark-mode.v-application .soundfx-stop-btn:hover .v-icon,
 .dark-mode.v-application .soundfx-play-btn:hover .v-icon,
@@ -3490,7 +3514,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .sound-bank-preview-btn .v-btn--disabled .v-icon,
 .dark-mode.v-application .sound-bank-import-play .v-btn--disabled .v-icon,
 .dark-mode.v-application .project-toolbar-row .v-btn--disabled .v-icon,
-.dark-mode.v-application .music-flat-icon-btn.v-btn--disabled .v-icon {
+.dark-mode.v-application .music-flat-icon-btn.v-btn--disabled .v-icon,
+.dark-mode.v-application .soundfx-bank-btn.v-btn--disabled .v-icon {
   color: rgba(255, 255, 255, 0.2) !important;
 }
 
@@ -3588,6 +3613,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .soundfx-toolbar,
 .dark-mode.v-application .text-folder-toolbar,
 .dark-mode.v-application .sprite-folder-toolbar,
+.dark-mode.v-application .scene-folder-toolbar,
+.dark-mode.v-application .playfield-folder-toolbar,
 .dark-mode.v-application .sound-folder-toolbar,
 .dark-mode.v-application .data-folder-toolbar,
 .dark-mode.v-application .editor-container.theme--dark.v-card {
@@ -3612,6 +3639,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.desaturate-app-colors.v-application .soundfx-toolbar,
 .dark-mode.desaturate-app-colors.v-application .text-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .sprite-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .scene-folder-toolbar,
+.dark-mode.desaturate-app-colors.v-application .playfield-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .sound-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .data-folder-toolbar,
 .dark-mode.desaturate-app-colors.v-application .editor-container.theme--dark.v-card {
@@ -3693,9 +3722,29 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 /* Help text: several templates put .theme--light on a .v-messages paragraph. */
+.dark-mode.v-application .voice-dictionary-count,
 .dark-mode.v-application .v-messages.theme--light,
 .dark-mode.v-application .theme--light.v-messages {
   color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* The buttons that put a speech command in a dictionary word (Vox tab): a lighter fill than the page in the dark and Soft Colors themes, so that they
+   can be seen before the pointer is over them. */
+.dark-mode.v-application .voice-dictionary-commands-label {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+.dark-mode.v-application .voice-dictionary-command.v-btn {
+  background-color: #3d3d3d !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+.dark-mode.v-application .voice-dictionary-command.v-btn:hover {
+  background-color: #5a5a5a !important;
+}
+.desaturate-app-colors:not(.dark-mode) .voice-dictionary-command.v-btn {
+  background-color: #c9c9c9 !important;
+}
+.desaturate-app-colors:not(.dark-mode) .voice-dictionary-command.v-btn:hover {
+  background-color: #b3b3b3 !important;
 }
 
 /* The expand/collapse arrow of the Examples category in the Blockly toolbox: a thin chevron (instead of Blockly's sprite
@@ -3906,6 +3955,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .scene-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .sound-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .music-item,
+.dark-mode.desaturate-app-colors.v-application .top-toolbar .voice-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .text-tab-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .data-item,
 .dark-mode.desaturate-app-colors.v-application .top-toolbar .scorefont-item,
@@ -4748,6 +4798,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .desaturate-app-colors .scene-item,
 .desaturate-app-colors .sound-item,
 .desaturate-app-colors .music-item,
+.desaturate-app-colors .voice-item,
 .desaturate-app-colors .text-tab-item,
 .desaturate-app-colors .data-item,
 .desaturate-app-colors .scorefont-item,
@@ -4797,6 +4848,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .desaturate-app-colors .top-toolbar .scene-item,
 .desaturate-app-colors .top-toolbar .sound-item,
 .desaturate-app-colors .top-toolbar .music-item,
+.desaturate-app-colors .top-toolbar .voice-item,
 .desaturate-app-colors .top-toolbar .text-tab-item,
 .desaturate-app-colors .top-toolbar .data-item,
 .desaturate-app-colors .top-toolbar .scorefont-item,
@@ -4935,6 +4987,13 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .music-item > .v-list-item__content {
   color: rgb(0, 188, 212) !important;
   border-left-color: rgb(0, 188, 212) !important;
+}
+
+.voice-item,
+.voice-item > .v-list-item__icon > .theme--light.v-icon,
+.voice-item > .v-list-item__content {
+  color: rgb(158, 157, 36) !important;
+  border-left-color: rgb(158, 157, 36) !important;
 }
 
 .text-tab-item,

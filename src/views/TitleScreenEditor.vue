@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat class="editor-container" :ripple="false" @click="deselectCard">
-      <v-card-title>Title (alpha 0.84)</v-card-title>
+      <v-card-title>Title (beta 1.0)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message titlescreen-intro-paragraph">
           Compose a title screen from stacked image strips (top to bottom). 48x1 images are
@@ -2225,7 +2225,7 @@ export default defineComponent({
   align-items: center;
   gap: 8px;
   margin-top: 20px;
-  margin-bottom: -12px;
+  margin-bottom: -15px;
 }
 
 .titlescreen-screen-name-field {

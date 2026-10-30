@@ -55,6 +55,11 @@ const routes = [
     component: () => import('../views/ScoreFontEditor.vue'),
   },
   {
+    path: '/vox',
+    name: 'Vox',
+    component: () => import('../views/VoiceEditor.vue'),
+  },
+  {
     path: '/text',
     name: 'Text',
     component: () => import('../views/TextEditor.vue'),
