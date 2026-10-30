@@ -307,7 +307,7 @@ export const stopSoundEffectPreview = () => {
  */
 export const previewSoundEffect = (params) => {
   const {
-    audc, audf, audv, duration, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart,
+    audc, audf, audv, duration, envelope, envelopeAttack, envelopeAttackEnd, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart,
     envelopeSustainLength, envelopeRelease, loop,
   } = params;
   const approximation = AUDC_APPROXIMATIONS[`${audc}`];
@@ -335,7 +335,7 @@ export const previewSoundEffect = (params) => {
   const staircase = buildVolumeStaircase({...params, audv});
   if (envelope || staircase) {
     const curve = staircase || buildEnvelopeCurve({
-      attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd,
+      attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd, attackEndPercent: envelopeAttackEnd,
       releaseStartPercent: envelopeReleaseStart, sustainLength: envelopeSustainLength, release: envelopeRelease,
       peakVolume: audv, totalFrames: duration,
     });

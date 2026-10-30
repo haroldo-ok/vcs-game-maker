@@ -11,11 +11,11 @@
 // are not shared in the first place. Nor the priority, the kind of sound or the color, which are the card's.)
 export const CHIP_SETTING_KEYS = [
   'audv', 'duration',
-  'envelope', 'envelopeAttack', 'envelopeDecay', 'envelopeDecayEnd', 'envelopeSustain', 'envelopeSustainLength', 'envelopeReleaseStart',
+  'envelope', 'envelopeAttack', 'envelopeAttackEnd', 'envelopeDecay', 'envelopeDecayEnd', 'envelopeSustain', 'envelopeSustainLength', 'envelopeReleaseStart',
   'envelopeRelease',
   'staircase', 'staircaseStep', 'staircaseFrames',
   'sweep', 'sweepStep', 'sweepFrames', 'sweepRepeat', 'sweepWrap',
-  'pitchEnvelope', 'pitchEnvelopeAmount', 'pitchEnvelopeAttack', 'pitchEnvelopeDecay', 'pitchEnvelopeDecayEnd',
+  'pitchEnvelope', 'pitchEnvelopeAmount', 'pitchEnvelopeAttack', 'pitchEnvelopeAttackEnd', 'pitchEnvelopeDecay', 'pitchEnvelopeDecayEnd',
   'pitchEnvelopeSustainLength', 'pitchEnvelopeReleaseStart', 'pitchEnvelopeRelease',
   'arpeggio', 'arpeggioDivision', 'arpeggioInterval', 'arpeggioRange',
 ];

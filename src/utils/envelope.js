@@ -79,10 +79,13 @@ export const clampEnvelopeStages = ({attack, decay, sustainLength, release, tota
   return {attack: a, decay: d, sustainLength: s, release: r};
 };
 
+// attackEndPercent: the level the attack reaches (a percent of the peak volume, 100 by default), where the decay starts from.
 export const buildEnvelopeCurve = ({attack, decay, decayEndPercent, sustainLength, releaseStartPercent, release,
-  peakVolume, totalFrames, loopSustain = false}) => {
+  peakVolume, totalFrames, loopSustain = false, attackEndPercent = 100}) => {
   const frames = Math.max(1, Math.round(Number(totalFrames) || 0));
   const peak = Math.max(0, Math.min(15, Math.round(Number(peakVolume) || 0)));
+  const attackEndVolume = Math.max(0, Math.min(peak, Math.round(peak * (attackEndPercent === undefined || attackEndPercent === null ?
+    100 : (Number(attackEndPercent) || 0)) / 100)));
   const decayEndVolume = Math.max(0, Math.min(peak, Math.round(peak * (Number(decayEndPercent) || 0) / 100)));
   const releaseStartVolume =
     Math.max(0, Math.min(peak, Math.round(peak * (Number(releaseStartPercent) || 0) / 100)));
@@ -94,10 +97,10 @@ export const buildEnvelopeCurve = ({attack, decay, decayEndPercent, sustainLengt
   const curve = [];
   for (let i = 0; i < frames; i++) {
     if (i < a) {
-      curve.push(a === 0 ? peak : Math.round(peak * (i + 1) / a));
+      curve.push(a === 0 ? attackEndVolume : Math.round(attackEndVolume * (i + 1) / a));
     } else if (i < a + d) {
       const into = i - a;
-      curve.push(d === 0 ? decayEndVolume : Math.round(peak - (peak - decayEndVolume) * (into + 1) / d));
+      curve.push(d === 0 ? decayEndVolume : Math.round(attackEndVolume - (attackEndVolume - decayEndVolume) * (into + 1) / d));
     } else if (i < releaseStart) {
       const into = i - a - d;
       if (s === 0) {

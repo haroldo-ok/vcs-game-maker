@@ -63,8 +63,8 @@
       <div class="envelope-graph-dot envelope-graph-dot-static" :style="dotStyle(0, 0)" />
       <div
         class="envelope-graph-dot envelope-graph-dot-handle"
-        :style="dotStyle(attackX, 100)"
-        title="Attack - drag to change how many frames it takes to reach full volume"
+        :style="dotStyle(attackX, attackEndPercent)"
+        title="Attack - drag horizontally to change how many frames it takes, vertically to change the Attack End level it reaches"
         @mousedown="startDrag('attack', $event)"
       />
       <!-- decayX equals attackX whenever decay is 0 (see its
@@ -130,6 +130,8 @@ import {ENVELOPE_STAGE_FRAME_OPTIONS, ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS,
 export default defineComponent({
   props: {
     attack: {type: Number, required: true},
+    // The level the attack reaches, a percent of the peak volume (where the decay starts from).
+    attackEndPercent: {type: Number, default: 100},
     decay: {type: Number, required: true},
     decayEndPercent: {type: Number, required: true},
     sustainLength: {type: Number, required: true},
@@ -204,7 +206,7 @@ export default defineComponent({
       // between its two endpoints.
       const pts = [
         [0, 100],
-        [this.attackX, 0],
+        [this.attackX, 100 - this.attackEndPercent],
         [this.decayX, 100 - this.decayEndPercent],
         [this.sustainEndX, 100 - this.releaseStartPercent],
         [this.releaseX, 100],
@@ -271,7 +273,7 @@ export default defineComponent({
       event.preventDefault();
       event.stopPropagation();
       this.dragHandle = handle;
-      this.dragStartValues = {attack: this.attack, decay: this.decay,
+      this.dragStartValues = {attack: this.attack, attackEndPercent: this.attackEndPercent, decay: this.decay,
         decayEndPercent: this.decayEndPercent, releaseStartPercent: this.releaseStartPercent, release: this.release};
       // Only 'sustainShift' (below) actually reads this - it drags by
       // RELATIVE amount (both Decay End and Release Start shift together by
@@ -298,6 +300,7 @@ export default defineComponent({
       if (this.dragHandle === 'attack') {
         const attack = this.snapTo(ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, xUnits);
         this.$emit('update:attack', attack);
+        this.$emit('update:attackEndPercent', this.snapTo(ENVELOPE_VOLUME_PERCENT_OPTIONS, yPercent));
       } else if (this.dragHandle === 'decaySustain') {
         const decay = this.snapTo(ENVELOPE_STAGE_FRAME_OPTIONS, Math.max(0, xUnits - this.attack));
         const decayEndPercent = this.snapTo(ENVELOPE_VOLUME_PERCENT_OPTIONS, yPercent);

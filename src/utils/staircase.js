@@ -32,6 +32,7 @@ export const buildVolumeStaircase = (soundEffect, {loopSustain = false} = {}) =>
   if (frames <= 0) return null;
   const curve = buildEnvelopeCurve({
     attack: soundEffect.envelopeAttack, decay: soundEffect.envelopeDecay, decayEndPercent: soundEffect.envelopeDecayEnd,
+    attackEndPercent: soundEffect.envelopeAttackEnd,
     releaseStartPercent: soundEffect.envelopeReleaseStart, sustainLength: soundEffect.envelopeSustainLength,
     release: soundEffect.envelopeRelease, peakVolume: Number(soundEffect.audv) || 0, totalFrames: frames, loopSustain,
   });

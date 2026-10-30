@@ -100,6 +100,7 @@ export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, st
   const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
   const curve = volumeCurve || (sound.envelope ? buildEnvelopeCurve({
     attack: sound.envelopeAttack, decay: sound.envelopeDecay, decayEndPercent: sound.envelopeDecayEnd,
+    attackEndPercent: sound.envelopeAttackEnd,
     releaseStartPercent: sound.envelopeReleaseStart, sustainLength: sound.envelopeSustainLength,
     release: sound.envelopeRelease, peakVolume: volume, totalFrames, loopSustain,
   }) : null);

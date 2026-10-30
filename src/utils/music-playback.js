@@ -132,7 +132,7 @@ const arpeggioPitchVariants = (audf, arpeggioInterval) => {
 // couple milliseconds, not tens) while still rounding off the single
 // hardest edge of the waveform enough to not pop.
 const CLICK_GUARD_SECONDS = 0.002;
-const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope, envelopeAttack,
+const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope, envelopeAttack, envelopeAttackEnd,
   envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength, envelopeRelease, dimMultiplier = 1,
   destination = getMasterDestination(context), volumeCurve = null}) => {
   const gainNode = context.createGain();
@@ -147,7 +147,7 @@ const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope,
     // in utils/sound-preview.js).
     // volumeCurve: the volume of each frame, for a staircase volume (see utils/staircase.js).
     const curve = volumeCurve || buildEnvelopeCurve({
-      attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd,
+      attack: envelopeAttack, decay: envelopeDecay, decayEndPercent: envelopeDecayEnd, attackEndPercent: envelopeAttackEnd,
       releaseStartPercent: envelopeReleaseStart, sustainLength: envelopeSustainLength, release: envelopeRelease,
       peakVolume, totalFrames, loopSustain: true,
     });
@@ -319,7 +319,7 @@ const buildBufferCached = (context, approximation, chipClockHz, seconds) => {
 // pitchTable: the pitch (AUDF) of each frame of the hit, for an instrument with a frequency sweep or frequency envelope (see
 // utils/pitch-table.js); it takes the place of audf and of the arpeggio, which is part of it.
 const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioInterval, arpeggioRange, startTime,
-  seconds, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength,
+  seconds, envelope, envelopeAttack, envelopeAttackEnd, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength,
   envelopeRelease, dimMultiplier = 1, destination, dpcPlus = null, pitchTable = null, volumeCurve = null}) => {
   // The DPC+ sound chip plays it, so it is rebuilt the way the chip does (see utils/dpc-preview.js).
   if (dpcPlus) {
@@ -334,7 +334,7 @@ const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioIn
 
   const peakGain = Math.min(1, Math.max(0, Number(audv) || 0) / 15) * 0.3;
   const gainNode = buildGain(context, {peakGain, peakVolume: audv, startTime, seconds, envelope,
-    envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength, envelopeRelease,
+    envelopeAttack, envelopeAttackEnd, envelopeDecay, envelopeDecayEnd, envelopeReleaseStart, envelopeSustainLength, envelopeRelease,
     dimMultiplier, destination, volumeCurve});
 
   const buildBuffer = (chipClockHz, segmentSeconds) =>
@@ -750,6 +750,7 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
         staircaseSound: soundEffect.envelope && soundEffect.staircase ? soundEffect : null,
         envelopeAttack: soundEffect.envelopeAttack,
         envelopeDecay: soundEffect.envelopeDecay,
+        envelopeAttackEnd: soundEffect.envelopeAttackEnd,
         envelopeDecayEnd: soundEffect.envelopeDecayEnd,
         envelopeReleaseStart: soundEffect.envelopeReleaseStart,
         envelopeSustainLength: soundEffect.envelopeSustainLength,
@@ -796,7 +797,7 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
       startTime: startTime + (audibleStartUnits - startUnits) * unitSeconds,
       seconds: (segEndUnits - audibleStartUnits) * unitSeconds,
       envelope: note.envelope, envelopeAttack: note.envelopeAttack, envelopeDecay: note.envelopeDecay,
-      envelopeDecayEnd: note.envelopeDecayEnd, envelopeReleaseStart: note.envelopeReleaseStart,
+      envelopeAttackEnd: note.envelopeAttackEnd, envelopeDecayEnd: note.envelopeDecayEnd, envelopeReleaseStart: note.envelopeReleaseStart,
       envelopeSustainLength: note.envelopeSustainLength, envelopeRelease: note.envelopeRelease,
       destination: note.trackGain, dpcPlus: note.dpcPlus,
     }));

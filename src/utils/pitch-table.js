@@ -83,6 +83,7 @@ export const buildPitchTable = (soundEffect, {arpeggioFrames: songArpeggioFrames
     const curve = buildEnvelopeCurve({
       attack: soundEffect.pitchEnvelopeAttack, decay: soundEffect.pitchEnvelopeDecay,
       decayEndPercent: soundEffect.pitchEnvelopeDecayEnd, releaseStartPercent: soundEffect.pitchEnvelopeReleaseStart,
+      attackEndPercent: soundEffect.pitchEnvelopeAttackEnd,
       sustainLength: soundEffect.pitchEnvelopeSustainLength, release: soundEffect.pitchEnvelopeRelease,
       peakVolume: 15, totalFrames: frames,
     });
@@ -184,6 +185,7 @@ export const buildDpcPitchOffsets = (soundEffect, startHz, {arpeggioFrames: song
     const curve = buildEnvelopeCurve({
       attack: soundEffect.pitchEnvelopeAttack, decay: soundEffect.pitchEnvelopeDecay,
       decayEndPercent: soundEffect.pitchEnvelopeDecayEnd, releaseStartPercent: soundEffect.pitchEnvelopeReleaseStart,
+      attackEndPercent: soundEffect.pitchEnvelopeAttackEnd,
       sustainLength: soundEffect.pitchEnvelopeSustainLength, release: soundEffect.pitchEnvelopeRelease,
       peakVolume: 15, totalFrames: frames,
     });

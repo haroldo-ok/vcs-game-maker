@@ -1022,6 +1022,12 @@ export default defineComponent({
   margin-top: 2px;
 }
 
+/* A checkbox right under a field (Kernel, ROM size, Undo steps...) sits closer to it than the 16px Vuetify leaves above every checkbox, which is
+   meant for one stacked under another checkbox's hint. */
+.v-input:not(.v-input--checkbox) + .option-switch {
+  margin-top: 4px;
+}
+
 /* Room between the TV standard's hint text above and this field's label. With the small
    description text hidden there is no hint to make room from. */
 .rom-size-field {

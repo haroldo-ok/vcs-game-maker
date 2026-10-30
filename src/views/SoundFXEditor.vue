@@ -341,6 +341,7 @@
                       label="Sound type"
                       v-model="soundEffect.audc"
                       :items="audcOptionItems"
+                      hide-details
                       @change="() => handleStandardChange(soundEffect, true)"
                       class="soundfx-audc"
                     />
@@ -471,7 +472,7 @@
                       <template v-if="chipFx(soundEffect).envelope">
                         <v-select
                           label="Attack"
-                          title="Frames to ramp up from silence to full volume."
+                          title="Frames to ramp up from silence to the Attack End level."
                           v-model="chipFx(soundEffect).envelopeAttack"
                           :items="envelopeAttackReleaseFrameOptionItems"
                           hide-details
@@ -479,8 +480,17 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
+                          label="Attack End Volume"
+                          title="The volume level (percent of full volume) Attack ramps up to, and Decay ramps down from."
+                          v-model="chipFx(soundEffect).envelopeAttackEnd"
+                          :items="envelopeVolumePercentOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
                           label="Decay"
-                          title="Frames to ramp down from full volume to the Decay End level."
+                          title="Frames to ramp down from the Attack End level to the Decay End level."
                           v-model="chipFx(soundEffect).envelopeDecay"
                           :items="envelopeStageFrameOptionItems"
                           hide-details
@@ -567,6 +577,7 @@
                           >
                             <v-icon small>mdi-restore</v-icon>
                           </v-btn>
+                          <v-divider class="soundfx-toolbar-divider" vertical />
                           <v-btn
                             icon
                             small
@@ -594,11 +605,13 @@
                           :peak-volume="chipFx(soundEffect).audv"
                           :attack="chipFx(soundEffect).envelopeAttack"
                           :decay="chipFx(soundEffect).envelopeDecay"
+                          :attack-end-percent="chipFx(soundEffect).envelopeAttackEnd"
                           :decay-end-percent="chipFx(soundEffect).envelopeDecayEnd"
                           :sustain-length="chipFx(soundEffect).envelopeSustainLength"
                           :release-start-percent="chipFx(soundEffect).envelopeReleaseStart"
                           :release="chipFx(soundEffect).envelopeRelease"
                           @update:attack="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeAttack', value)"
+                          @update:attackEndPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeAttackEnd', value)"
                           @update:decay="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeDecay', value)"
                           @update:decayEndPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeDecayEnd', value)"
                           @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeReleaseStart', value)"
@@ -692,7 +705,7 @@
                             v-if="!cardDpc(soundEffect) || dpcFollows(soundEffect)"
                             v-model="chipFx(soundEffect).sweepWrap"
                             label="Wrap"
-                            title="The frequencies run from 0 to 31 and then start over. Off: the sweep takes the short way to the end frequency (30 to 20 plays 30, 29 ... 20). On: it takes the long way, past the end of the range (30 to 20 plays 30, 31, 0, 1 ... 20)."
+                            title="Off: the sweep goes straight to the end frequency (30 to 20 plays 30, 29 ... 20). On: it goes the other way round, from 31 over to 0 (30 to 20 plays 30, 31, 0, 1 ... 20)."
                             hide-details
                             dense
                             class="soundfx-sweep-switch"
@@ -736,7 +749,7 @@
                         />
                         <v-select
                           label="Attack"
-                          title="Frames to move from the Frequency to the full amount."
+                          title="Frames to move from the Frequency to the Attack End level of the amount."
                           v-model="chipFx(soundEffect).pitchEnvelopeAttack"
                           :items="envelopeAttackReleaseFrameOptionItems"
                           hide-details
@@ -744,8 +757,17 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
+                          label="Attack End"
+                          title="The part of the amount (percent) Attack ends at, and Decay starts from."
+                          v-model="chipFx(soundEffect).pitchEnvelopeAttackEnd"
+                          :items="envelopeVolumePercentOptionItems"
+                          hide-details
+                          @change="handleChildChange"
+                          class="soundfx-envelope-field"
+                        />
+                        <v-select
                           label="Decay"
-                          title="Frames to move from the full amount to the Decay End level."
+                          title="Frames to move from the Attack End level to the Decay End level."
                           v-model="chipFx(soundEffect).pitchEnvelopeDecay"
                           :items="envelopeStageFrameOptionItems"
                           hide-details
@@ -798,6 +820,7 @@
                           >
                             <v-icon small>mdi-restore</v-icon>
                           </v-btn>
+                          <v-divider class="soundfx-toolbar-divider" vertical />
                           <v-btn
                             icon
                             small
@@ -823,11 +846,13 @@
                         <EnvelopeGraph
                           :attack="chipFx(soundEffect).pitchEnvelopeAttack"
                           :decay="chipFx(soundEffect).pitchEnvelopeDecay"
+                          :attack-end-percent="chipFx(soundEffect).pitchEnvelopeAttackEnd"
                           :decay-end-percent="chipFx(soundEffect).pitchEnvelopeDecayEnd"
                           :sustain-length="chipFx(soundEffect).pitchEnvelopeSustainLength"
                           :release-start-percent="chipFx(soundEffect).pitchEnvelopeReleaseStart"
                           :release="chipFx(soundEffect).pitchEnvelopeRelease"
                           @update:attack="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeAttack', value)"
+                          @update:attackEndPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeAttackEnd', value)"
                           @update:decay="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeDecay', value)"
                           @update:decayEndPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeDecayEnd', value)"
                           @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeReleaseStart', value)"
@@ -1021,7 +1046,7 @@ export default defineComponent({
     // is the one interaction here fiddly enough to want stepping back
     // through.
     // The frequency envelope's shape is in the same history: Undo and Redo step back and forward through the edits of either graph.
-    const ENVELOPE_HISTORY_KEYS = ['envelopeAttack', 'envelopeDecay', 'envelopeDecayEnd', 'envelopeSustainLength',
+    const ENVELOPE_HISTORY_KEYS = ['envelopeAttack', 'envelopeAttackEnd', 'pitchEnvelopeAttackEnd', 'envelopeDecay', 'envelopeDecayEnd', 'envelopeSustainLength',
       'envelopeReleaseStart', 'envelopeRelease', 'pitchEnvelopeAttack', 'pitchEnvelopeDecay', 'pitchEnvelopeDecayEnd',
       'pitchEnvelopeSustainLength', 'pitchEnvelopeReleaseStart', 'pitchEnvelopeRelease'];
     const snapshotEnvelope = (soundEffect) => JSON.stringify({
@@ -1104,6 +1129,7 @@ export default defineComponent({
     const handleResetPitchEnvelope = (soundEffect) => {
       soundEffect.pitchEnvelopeAttack = DEFAULT_PITCH_ENVELOPE_ATTACK;
       soundEffect.pitchEnvelopeDecay = DEFAULT_PITCH_ENVELOPE_DECAY;
+      soundEffect.pitchEnvelopeAttackEnd = 100;
       soundEffect.pitchEnvelopeDecayEnd = DEFAULT_PITCH_ENVELOPE_DECAY_END;
       soundEffect.pitchEnvelopeSustainLength = DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH;
       soundEffect.pitchEnvelopeReleaseStart = DEFAULT_PITCH_ENVELOPE_RELEASE_START;
@@ -1113,6 +1139,7 @@ export default defineComponent({
     const handleResetEnvelope = (soundEffect) => {
       soundEffect.envelopeAttack = DEFAULT_ENVELOPE_ATTACK;
       soundEffect.envelopeDecay = DEFAULT_ENVELOPE_DECAY;
+      soundEffect.envelopeAttackEnd = DEFAULT_ENVELOPE_VOLUME_PERCENT;
       soundEffect.envelopeDecayEnd = DEFAULT_ENVELOPE_VOLUME_PERCENT;
       soundEffect.envelopeSustainLength = DEFAULT_ENVELOPE_SUSTAIN_FRAMES;
       soundEffect.envelopeReleaseStart = DEFAULT_ENVELOPE_VOLUME_PERCENT;
@@ -1335,6 +1362,7 @@ export default defineComponent({
         envelope: false,
         envelopeAttack: DEFAULT_ENVELOPE_ATTACK,
         envelopeDecay: DEFAULT_ENVELOPE_DECAY,
+        envelopeAttackEnd: DEFAULT_ENVELOPE_VOLUME_PERCENT,
         envelopeDecayEnd: DEFAULT_ENVELOPE_VOLUME_PERCENT,
         envelopeSustainLength: DEFAULT_ENVELOPE_SUSTAIN_FRAMES,
         envelopeReleaseStart: DEFAULT_ENVELOPE_VOLUME_PERCENT,
@@ -1360,6 +1388,7 @@ export default defineComponent({
         pitchEnvelopeAmount: DEFAULT_PITCH_ENVELOPE_AMOUNT,
         pitchEnvelopeAttack: DEFAULT_PITCH_ENVELOPE_ATTACK,
         pitchEnvelopeDecay: DEFAULT_PITCH_ENVELOPE_DECAY,
+        pitchEnvelopeAttackEnd: 100,
         pitchEnvelopeDecayEnd: DEFAULT_PITCH_ENVELOPE_DECAY_END,
         pitchEnvelopeSustainLength: DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH,
         pitchEnvelopeReleaseStart: DEFAULT_PITCH_ENVELOPE_RELEASE_START,
@@ -1798,7 +1827,9 @@ export default defineComponent({
      ("spacing below music toolbar and music cards looks too close,
      matching spacing from graphic editor toolbar and sprite card"...
      "yes use same padding everywhere for consistency"). */
-  margin-top: 4px;
+  /* The first card is as far under the toolbar's line as the cards are from the left edge of the tab (16px): 3px here, no padding of the list. */
+  margin-top: 3px;
+  padding-top: 0;
   /* Grid items stretch to fill their row's height by default - a collapsed
      card next to an expanded one in the same row would otherwise stretch
      tall to match it, instead of sitting flush at the top like its card
@@ -2323,6 +2354,8 @@ export default defineComponent({
 .soundfx-audc {
   flex: 1 1 260px;
   min-width: 220px;
+  /* The Frequency row is as far under it as it is under the Sound name row (18px from underline to label). */
+  margin-bottom: 14px;
 }
 
 /* row, nested flex container (rather than Frequency/Volume/Duration
@@ -2474,15 +2507,17 @@ export default defineComponent({
      (.soundfx-envelope-block's row-gap is 0, so without this the
      fields' bottom edge and this row's divider line sit flush). */
   margin-top: 8px;
-  /* Right-aligned, under the graph's  right edge (where Release ends),
-     rather than the left edge (where Attack starts). */
-  justify-content: flex-end;
+  /* Left-aligned, over the graph's left edge (where Attack starts). */
+  justify-content: flex-start;
   /* Separates the graph's  reset/undo/redo controls from the Attack/
      Decay/Sustain/Release dropdowns above them - same border colour
      EnvelopeGraph.vue's .envelope-graph frame uses, so this reads as
      the same "framed panel" visual language rather than an unrelated line. */
   padding-top: 6px;
   border-top: 1px solid rgba(0, 0, 0, 0.24);
+  /* And a line between the buttons and the graph under them. */
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.24);
 }
 
 /* Same margin-top override as SoundFXEditor's .dim-switch - Vuetify's
@@ -2492,7 +2527,8 @@ export default defineComponent({
    text fields/selects elsewhere in this card) so this row sits a few
    pixels closer to the row above it, matching their spacing more closely. */
 .soundfx-arpeggio-switch, .soundfx-envelope-switch {
-  flex: 0 0 auto;
+  /* A full row: the fields of its block wrap onto the row under it. */
+  flex: 0 0 100%;
   margin-top: -4px !important;
   padding-top: 0 !important;
 }
@@ -2509,7 +2545,7 @@ export default defineComponent({
    Interval/Range themselves) read as too tight specifically here, where a
    switch's label text sits right up against its edge. */
 .soundfx-arpeggio-switch, .soundfx-envelope-switch {
-  margin-right: 12px !important;
+  margin-right: 0 !important;
 }
 
 .soundfx-arpeggio-btn.soundfx-arpeggio-btn-active >>> .v-icon {

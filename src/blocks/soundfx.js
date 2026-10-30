@@ -146,6 +146,7 @@ export const DEFAULT_SOUND_EFFECTS = {
       envelope: false,
       envelopeAttack: DEFAULT_ENVELOPE_ATTACK,
       envelopeDecay: DEFAULT_ENVELOPE_DECAY,
+      envelopeAttackEnd: DEFAULT_ENVELOPE_VOLUME_PERCENT,
       envelopeDecayEnd: DEFAULT_ENVELOPE_VOLUME_PERCENT,
       envelopeReleaseStart: DEFAULT_ENVELOPE_VOLUME_PERCENT,
       envelopeSustainLength: DEFAULT_ENVELOPE_SUSTAIN_FRAMES,
@@ -182,6 +183,7 @@ export const DEFAULT_SOUND_EFFECTS = {
       pitchEnvelopeAmount: DEFAULT_PITCH_ENVELOPE_AMOUNT,
       pitchEnvelopeAttack: DEFAULT_PITCH_ENVELOPE_ATTACK,
       pitchEnvelopeDecay: DEFAULT_PITCH_ENVELOPE_DECAY,
+      pitchEnvelopeAttackEnd: 100,
       pitchEnvelopeDecayEnd: DEFAULT_PITCH_ENVELOPE_DECAY_END,
       pitchEnvelopeSustainLength: DEFAULT_PITCH_ENVELOPE_SUSTAIN_LENGTH,
       pitchEnvelopeReleaseStart: DEFAULT_PITCH_ENVELOPE_RELEASE_START,
@@ -262,6 +264,9 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
     const legacySustain = Number(soundEffect.envelopeSustain);
     const legacySustainFallback = ENVELOPE_VOLUME_PERCENT_OPTIONS.includes(legacySustain) ?
       legacySustain : DEFAULT_ENVELOPE_VOLUME_PERCENT;
+    // The level the attack reaches: a sound saved before it existed reaches the full volume, as it did.
+    Vue.set(soundEffect, 'envelopeAttackEnd', ENVELOPE_VOLUME_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeAttackEnd)) ?
+      Number(soundEffect.envelopeAttackEnd) : DEFAULT_ENVELOPE_VOLUME_PERCENT);
     if (!ENVELOPE_VOLUME_PERCENT_OPTIONS.includes(Number(soundEffect.envelopeDecayEnd))) {
       Vue.set(soundEffect, 'envelopeDecayEnd', legacySustainFallback);
     } else {
@@ -330,6 +335,8 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
         ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_ATTACK));
     Vue.set(soundEffect, 'pitchEnvelopeDecay', oneOf(soundEffect.pitchEnvelopeDecay,
         ENVELOPE_STAGE_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_DECAY));
+    Vue.set(soundEffect, 'pitchEnvelopeAttackEnd', oneOf(soundEffect.pitchEnvelopeAttackEnd,
+        ENVELOPE_VOLUME_PERCENT_OPTIONS, 100));
     Vue.set(soundEffect, 'pitchEnvelopeDecayEnd', oneOf(soundEffect.pitchEnvelopeDecayEnd,
         ENVELOPE_VOLUME_PERCENT_OPTIONS, DEFAULT_PITCH_ENVELOPE_DECAY_END));
     Vue.set(soundEffect, 'pitchEnvelopeSustainLength', oneOf(soundEffect.pitchEnvelopeSustainLength,

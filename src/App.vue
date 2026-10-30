@@ -3625,6 +3625,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   border-top-color: rgba(255, 255, 255, 0.24) !important;
 }
 
+.dark-mode.v-application .soundfx-envelope-graph-toolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.24) !important;
+}
+
 .dark-mode.v-application .animation-card,
 .dark-mode.v-application .background-card,
 .dark-mode.v-application .data-card,
@@ -3861,7 +3865,21 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .dark-mode.v-application .envelope-graph-snap-line-vertical {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+}
+
+/* The horizontal lines of the envelope graphs (a gradient of the graph's background) are too faint at 6% black on the darker backgrounds of the
+   Subdued Palette, and invisible in Dark Mode: a stronger line in each. */
+.desaturate-app-colors .envelope-graph {
+  background-image: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.16) 0, rgba(0, 0, 0, 0.16) 1px, transparent 1px, transparent 25%) !important;
+}
+
+.desaturate-app-colors .envelope-graph-snap-line-vertical {
+  background: rgba(0, 0, 0, 0.16) !important;
+}
+
+.dark-mode.v-application .envelope-graph {
+  background-image: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.16) 0, rgba(255, 255, 255, 0.16) 1px, transparent 1px, transparent 25%) !important;
 }
 
 .dark-mode.v-application .instrument-summary-chip-active,

@@ -56,7 +56,7 @@ const arpeggioToEvents = (event) => {
       envelope: event.envelope && remaining === 0,
       notePlayedIndex: phase === 0 ? event.notePlayedIndex : 0,
       ...(remaining === 0 ? {} : {envelopeAttack: 0, envelopeDecay: 0, envelopeDecayEnd: 0, envelopeRelease: 0,
-        envelopeSustainLength: 0, envelopeReleaseStart: 0})});
+        envelopeSustainLength: 0, envelopeReleaseStart: 0, envelopeAttackEnd: 100})});
   }
   return events;
 };
@@ -898,7 +898,8 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   // its original pieces happened to have.
   const pushEvent = (channel, audv, audc, audf, frames, envelope = false, arpeggioSpeed = 0, arpeggioInterval = 0,
       arpeggioRange = 0, notePlayedIndex = 0, envelopeAttack = 0, envelopeDecay = 0, envelopeDecayEnd = 0,
-      envelopeRelease = 0, envelopeSustainLength = 0, envelopeReleaseStart = 0, instrumentNp = 0, instrumentAudv = 0, hitPitch = 255) => {
+      envelopeRelease = 0, envelopeSustainLength = 0, envelopeReleaseStart = 0, instrumentNp = 0, instrumentAudv = 0, hitPitch = 255,
+      envelopeAttackEnd = 100) => {
     if (frames <= 0) return;
     const events = perChannel[channel];
     const prev = events[events.length - 1];
@@ -910,12 +911,12 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       prev.envelopeDecayEnd === envelopeDecayEnd && prev.envelopeRelease === envelopeRelease &&
       prev.envelopeSustainLength === envelopeSustainLength && prev.envelopeReleaseStart === envelopeReleaseStart &&
       prev.instrumentNp === instrumentNp && prev.instrumentAudv === instrumentAudv &&
-      prev.hitPitch === hitPitch) {
+      prev.hitPitch === hitPitch && prev.envelopeAttackEnd === envelopeAttackEnd) {
       prev.frames += frames;
     } else {
       events.push({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
         notePlayedIndex, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
-        envelopeReleaseStart, instrumentNp, instrumentAudv, hitPitch});
+        envelopeReleaseStart, instrumentNp, instrumentAudv, hitPitch, envelopeAttackEnd});
     }
   };
 
@@ -934,6 +935,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     } else if (note.envelope) {
       curve = buildEnvelopeCurve({
         attack: note.envelopeAttack, decay: note.envelopeDecay, decayEndPercent: note.envelopeDecayEnd,
+        attackEndPercent: note.envelopeAttackEnd,
         sustainLength: note.envelopeSustainLength, releaseStartPercent: note.envelopeReleaseStart,
         release: note.envelopeRelease, peakVolume: note.audv, totalFrames, loopSustain: true,
       });
@@ -949,7 +951,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       pushEvent(channel, note.audv, note.audc, note.audf, frames, note.envelope, note.arpeggioSpeed,
           note.arpeggioInterval, note.arpeggioRange, note.notePlayedIndex, note.envelopeAttack, note.envelopeDecay,
           note.envelopeDecayEnd, note.envelopeRelease, note.envelopeSustainLength, note.envelopeReleaseStart,
-          note.instrumentNp, note.instrumentAudv, note.hitPitch);
+          note.instrumentNp, note.instrumentAudv, note.hitPitch, note.envelopeAttackEnd);
       return;
     }
     const perFrame = bakedFrames(note, totalFrames).slice(offset, offset + frames);
@@ -1043,6 +1045,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
         envelope: !!soundEffect.envelope && !soundEffect.staircase,
         envelopeAttack: soundEffect.envelopeAttack,
         envelopeDecay: soundEffect.envelopeDecay,
+        envelopeAttackEnd: soundEffect.envelopeAttackEnd,
         envelopeDecayEnd: soundEffect.envelopeDecayEnd,
         envelopeReleaseStart: soundEffect.envelopeReleaseStart,
         envelopeSustainLength: soundEffect.envelopeSustainLength,
@@ -1213,7 +1216,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
       events.flatMap((event) => (event.arpeggioSpeed > 0 && event.audv > 0 ? arpeggioToEvents(event) : [event])) : events;
     playedEvents.forEach(({audv, audc, audf, frames, envelope, arpeggioSpeed, arpeggioInterval, arpeggioRange,
       notePlayedIndex, instrumentNp, instrumentAudv, hitPitch, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
-      envelopeReleaseStart}) => {
+      envelopeReleaseStart, envelopeAttackEnd}) => {
       const maxFrames = MAX_EVENT_FRAMES;
       let remaining = frames;
       while (remaining > 0) {
@@ -1237,6 +1240,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
           envelopeRelease: isFinalChunk ? envelopeRelease : 0,
           envelopeSustainLength: isFinalChunk ? envelopeSustainLength : 0,
           envelopeReleaseStart: isFinalChunk ? envelopeReleaseStart : 0,
+          envelopeAttackEnd: isFinalChunk ? envelopeAttackEnd : 100,
         });
       }
     });
@@ -1336,7 +1340,7 @@ const eventsToPages = (events, getInstrumentIndex, chip) => {
   let lastEnvelopeSelector = NO_ENVELOPE_SENTINEL;
   events.forEach((event) => {
     const {audv, frames, envelope, envelopeAttack, envelopeDecay, envelopeDecayEnd, envelopeRelease, envelopeSustainLength,
-      envelopeReleaseStart} = event;
+      envelopeReleaseStart, envelopeAttackEnd} = event;
     const rest = isRestEvent(event);
     let volumeMode = 0;
     let noWatch = false;
@@ -1357,7 +1361,7 @@ const eventsToPages = (events, getInstrumentIndex, chip) => {
     const envelopeSelector = envelope ? registerEnvelopeConfig({
       attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
       release: envelopeRelease, decayEndPercent: envelopeDecayEnd, releaseStartPercent: envelopeReleaseStart,
-      peakVolume: Number(audv), totalFrames: frames, loopSustain: true,
+      peakVolume: Number(audv), totalFrames: frames, loopSustain: true, attackEndPercent: envelopeAttackEnd,
     }) : NO_ENVELOPE_SENTINEL;
     if (envelopeSelector !== lastEnvelopeSelector) {
       if (envelopeSelector >= VOLUME_MARKER_BASE && envelopeSelector < NO_ENVELOPE_SENTINEL) {

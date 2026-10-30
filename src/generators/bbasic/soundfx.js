@@ -156,7 +156,7 @@ export const envelopeStartPosition = (config) => (config.envelopeLength ? config
 // actually read - AUDV just stays wherever the last real write left it,
 // same "leave it alone" convention Sustain's gap already relied on).
 const buildEnvelopeConfigTables = ({attack, decay, sustainLength, release, decayEndPercent, releaseStartPercent,
-  peakVolume, totalFrames, loopSustain, staircase = null}) => {
+  peakVolume, totalFrames, loopSustain, staircase = null, attackEndPercent = 100}) => {
   // A staircase volume is a table of the volume of each frame, used as it is.
   if (staircase) {
     return {envelopeLength: staircase.length, envelopeTable: [0, ...staircase.slice().reverse()]};
@@ -166,7 +166,7 @@ const buildEnvelopeConfigTables = ({attack, decay, sustainLength, release, decay
   const envelopeLength = a + d + s + r;
   const curve = buildEnvelopeCurve({
     attack, decay, decayEndPercent, sustainLength, releaseStartPercent, release, peakVolume, totalFrames,
-    loopSustain,
+    loopSustain, attackEndPercent,
   });
   const envelopeTable = envelopeLength ?
     Array.from({length: envelopeLength + 1}, (_, k) => k === 0 ? 0 : curve[envelopeLength - k]) : null;
@@ -185,9 +185,9 @@ const buildEnvelopeConfigTables = ({attack, decay, sustainLength, release, decay
 // wrap/collide in that byte, corrupting playback for whichever
 // sound loses the collision. Caught here instead, at compile time.
 export const registerEnvelopeConfig = ({attack, decay, sustainLength, release, decayEndPercent, releaseStartPercent,
-  peakVolume, totalFrames, loopSustain = false, staircase = null}) => {
+  peakVolume, totalFrames, loopSustain = false, staircase = null, attackEndPercent = 100}) => {
   const key = staircase ? `staircase:${staircase.join(',')}` : `${attack}:${decay}:${sustainLength}:${release}:${decayEndPercent}:` +
-    `${releaseStartPercent}:${peakVolume}:${totalFrames}:${loopSustain}`;
+    `${releaseStartPercent}:${peakVolume}:${totalFrames}:${loopSustain}` + (attackEndPercent === 100 ? '' : `:a${attackEndPercent}`);
   if (envelopeConfigs.has(key)) return envelopeConfigs.get(key).index;
   if (envelopeConfigs.size >= NO_ENVELOPE_SENTINEL) {
     throw new Error(`This project uses ${envelopeConfigs.size + 1} distinct envelope shapes (combinations of ` +
@@ -197,7 +197,7 @@ export const registerEnvelopeConfig = ({attack, decay, sustainLength, release, d
   }
   const index = envelopeConfigs.size;
   const built = buildEnvelopeConfigTables({attack, decay, sustainLength, release,
-    decayEndPercent, releaseStartPercent, peakVolume, totalFrames, loopSustain, staircase});
+    decayEndPercent, releaseStartPercent, peakVolume, totalFrames, loopSustain, staircase, attackEndPercent});
   const flatBase = envelopeFlatNext;
   if (built.envelopeTable) {
     envelopeFlatNext += built.envelopeTable.length;
@@ -353,7 +353,7 @@ export default (Blockly) => {
     if (config.muteAllAudio) return 'rem Sound muted\n';
 
     const {audc, audf, audv, envelopeAttack, envelopeDecay, envelopeDecayEnd,
-      envelopeReleaseStart, envelopeSustainLength, envelopeRelease} = soundEffect;
+      envelopeReleaseStart, envelopeSustainLength, envelopeRelease, envelopeAttackEnd} = soundEffect;
     // The frames a sound has left are one byte, so a longer sound is cut at 255 frames (the Duration field stops there too).
     const duration = Math.min(255, Number(soundEffect.duration) || 0);
     // A staircase volume (the volume of each frame) is played through the same table as an envelope, and takes its place.
@@ -421,7 +421,7 @@ export default (Blockly) => {
           configIndex = registerEnvelopeConfig({
             attack: envelopeAttack, decay: envelopeDecay, sustainLength: envelopeSustainLength,
             release: envelopeRelease, decayEndPercent: envelopeDecayEnd, releaseStartPercent: envelopeReleaseStart,
-            peakVolume: effectiveAudv, totalFrames: duration,
+            peakVolume: effectiveAudv, totalFrames: duration, attackEndPercent: envelopeAttackEnd,
           });
           stageLength = attack + decay + sustainLength + release;
         }
