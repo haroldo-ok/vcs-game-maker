@@ -106,7 +106,8 @@ const bandEnergies = (signal, offset) => {
 
 // The volume of each frame of a card with an envelope (the same curve the Sound tab and the ROM use: see buildEnvelopeCurve in
 // utils/envelope.js, with no looping sustain).
-export const envelopeVolumes = ({attack, decay, sustainLength, release, decayEnd, releaseStart}, peak, frames) => {
+export const envelopeVolumes = ({attack, decay, sustainLength, release, decayEnd, releaseStart, attackEnd = 100}, peak, frames) => {
+  const attackEndVolume = Math.round(peak * attackEnd / 100);
   const decayEndVolume = Math.round(peak * decayEnd / 100);
   const releaseStartVolume = Math.round(peak * releaseStart / 100);
   const sustainStart = attack + decay;
@@ -114,8 +115,8 @@ export const envelopeVolumes = ({attack, decay, sustainLength, release, decayEnd
   const end = releaseFrom + release;
   const out = [];
   for (let i = 0; i < frames; i++) {
-    if (i < attack) out.push(attack === 0 ? peak : Math.round(peak * (i + 1) / attack));
-    else if (i < sustainStart) out.push(decay === 0 ? decayEndVolume : Math.round(peak - (peak - decayEndVolume) * (i - attack + 1) / decay));
+    if (i < attack) out.push(attack === 0 ? attackEndVolume : Math.round(attackEndVolume * (i + 1) / attack));
+    else if (i < sustainStart) out.push(decay === 0 ? decayEndVolume : Math.round(attackEndVolume - (attackEndVolume - decayEndVolume) * (i - attack + 1) / decay));
     else if (i < releaseFrom) {
       out.push(sustainLength === 0 ? decayEndVolume :
         Math.round(decayEndVolume + (releaseStartVolume - decayEndVolume) * (i - sustainStart + 1) / sustainLength));
@@ -130,7 +131,8 @@ export const envelopeVolumes = ({attack, decay, sustainLength, release, decayEnd
 const pitchEnvelopeOffsets = (card, frames) => {
   if (!card.pitchAmount) return null;
   const levels = envelopeVolumes({attack: card.pitchAttack, decay: card.pitchDecay, sustainLength: card.pitchSustainLength,
-    release: card.pitchRelease, decayEnd: card.pitchDecayEnd, releaseStart: card.pitchReleaseStart}, 15, frames);
+    release: card.pitchRelease, decayEnd: card.pitchDecayEnd, releaseStart: card.pitchReleaseStart,
+    attackEnd: card.pitchAttackEnd}, 15, frames);
   return levels.map((level) => Math.round(card.pitchAmount * level / 15));
 };
 
@@ -375,15 +377,17 @@ const envelopeCandidates = (prepared, count) => {
   const nearest = Math.min(...lengths.map((l) => Math.abs(l.total - frames)));
   const slack = Math.max(1, nearest);
   lengths.filter((l) => Math.abs(l.total - frames) <= slack).forEach((l) => {
-    ENVELOPE_LEVELS.forEach((decayEnd) => ENVELOPE_LEVELS.forEach((releaseStart) => {
+    ENVELOPE_LEVELS.forEach((attackEnd) => ENVELOPE_LEVELS.forEach((decayEnd) => ENVELOPE_LEVELS.forEach((releaseStart) => {
       if (releaseStart > decayEnd || (l.sustainLength === 0 && releaseStart !== decayEnd)) return;
+      // With no decay the level jumps from the end of the attack to the decay end: only the two ends that make sense are tried.
+      if (l.decay === 0 && attackEnd !== 100 && attackEnd !== decayEnd) return;
       // The curve in unit levels (the rounding to the 16 volumes is left to the full comparison).
       let error = 0;
       const end = Math.max(frames, l.total);
       for (let i = 0; i < end; i++) {
         let level;
-        if (i < l.attack) level = (i + 1) / l.attack;
-        else if (i < l.attack + l.decay) level = 1 - (1 - decayEnd / 100) * (i - l.attack + 1) / l.decay;
+        if (i < l.attack) level = attackEnd / 100 * (i + 1) / l.attack;
+        else if (i < l.attack + l.decay) level = attackEnd / 100 - (attackEnd - decayEnd) / 100 * (i - l.attack + 1) / l.decay;
         else if (i < l.attack + l.decay + l.sustainLength) {
           level = decayEnd / 100 - (decayEnd - releaseStart) / 100 * (i - l.attack - l.decay + 1) / l.sustainLength;
         } else if (i < l.total) level = releaseStart / 100 * (1 - (i - l.attack - l.decay - l.sustainLength + 1) / l.release);
@@ -391,8 +395,8 @@ const envelopeCandidates = (prepared, count) => {
         const wanted = i < frames ? target[i] : 0;
         error += (level - wanted) * (level - wanted);
       }
-      all.push({...l, decayEnd, releaseStart, error});
-    }));
+      all.push({...l, attackEnd, decayEnd, releaseStart, error});
+    })));
   });
   all.sort((a, b) => a.error - b.error);
   return {candidates: all.slice(0, count), slack};
@@ -414,8 +418,10 @@ const bendFrequency = (card) => {
     card.pitchSustainLength = pick(ENVELOPE_DECAY_SUSTAIN_FRAMES);
   } else if (roll < 0.9) {
     card.pitchRelease = pick(ENVELOPE_ATTACK_RELEASE_FRAMES);
-  } else if (roll < 0.95) {
+  } else if (roll < 0.94) {
     card.pitchDecayEnd = pick(ENVELOPE_LEVELS);
+  } else if (roll < 0.97) {
+    card.pitchAttackEnd = pick(ENVELOPE_LEVELS);
   } else {
     card.pitchReleaseStart = pick(ENVELOPE_LEVELS);
   }
@@ -575,9 +581,9 @@ export const fitTiaSample = async (prepared, options = {}) => {
   const base = {
     tia: true, audc: 4, audf: 10, volume: 15, clockScale: options.clockScale || 1,
     attack: first.attack, decay: first.decay, sustainLength: first.sustainLength, release: first.release,
-    decayEnd: first.decayEnd, releaseStart: first.releaseStart,
+    attackEnd: first.attackEnd, decayEnd: first.decayEnd, releaseStart: first.releaseStart,
     sweep: false, sweepEnd: 0, sweepStep: 1, sweepFrames: 1,
-    pitchAmount: 0, pitchAttack: 0, pitchDecay: 8, pitchSustainLength: 0, pitchRelease: 0, pitchDecayEnd: 0, pitchReleaseStart: 0,
+    pitchAmount: 0, pitchAttack: 0, pitchDecay: 8, pitchSustainLength: 0, pitchRelease: 0, pitchAttackEnd: 100, pitchDecayEnd: 0, pitchReleaseStart: 0,
     ...(fixed || {}),
     ...(fixed && fixed.sweep ? {sweepEnd: 31} : {}),
   };
@@ -644,7 +650,7 @@ export const fitTiaSample = async (prepared, options = {}) => {
       if (!fixed) {
         better = await improve(state, Array.from({length: 12}, (_, i) => ({...at(), volume: 4 + i}))) || better;
         better = await improve(state, candidates.map((e) => ({...at(), attack: e.attack, decay: e.decay, sustainLength: e.sustainLength,
-          release: e.release, decayEnd: e.decayEnd, releaseStart: e.releaseStart}))) || better;
+          release: e.release, attackEnd: e.attackEnd, decayEnd: e.decayEnd, releaseStart: e.releaseStart}))) || better;
       }
       // The sweep: its end, and (when the card is free to) how fast it goes.
       if (!fixed || fixed.sweep) {
@@ -662,7 +668,7 @@ export const fitTiaSample = async (prepared, options = {}) => {
           if (!amount) continue;
           for (const decay of [2, 4, 8, 16, 32]) {
             bends.push({...at(), pitchAmount: amount, pitchAttack: 0, pitchDecay: decay, pitchSustainLength: 0, pitchRelease: 0,
-              pitchDecayEnd: 0, pitchReleaseStart: 0});
+              pitchAttackEnd: 100, pitchDecayEnd: 0, pitchReleaseStart: 0});
           }
         }
         better = await improve(state, bends) || better;
@@ -727,6 +733,7 @@ export const fitTiaSample = async (prepared, options = {}) => {
       duration: length,
       envelope: true,
       envelopeAttack: card.attack,
+      envelopeAttackEnd: card.attackEnd,
       envelopeDecay: card.decay,
       envelopeDecayEnd: card.decayEnd,
       envelopeSustain: card.decayEnd,
@@ -743,6 +750,7 @@ export const fitTiaSample = async (prepared, options = {}) => {
       pitchEnvelopeAmount: card.pitchAmount,
       pitchEnvelopeAttack: card.pitchAttack,
       pitchEnvelopeDecay: card.pitchDecay,
+      pitchEnvelopeAttackEnd: card.pitchAttackEnd,
       pitchEnvelopeDecayEnd: card.pitchDecayEnd,
       pitchEnvelopeSustainLength: card.pitchSustainLength,
       pitchEnvelopeReleaseStart: card.pitchReleaseStart,
@@ -811,9 +819,9 @@ export const fitSample = async (prepared, options = {}) => {
   const card = {
     hz: 300, volume: 15, bars: Array.from({length: barCount}, () => randomInt(16)),
     attack: first.attack, decay: first.decay, sustainLength: first.sustainLength, release: first.release,
-    decayEnd: first.decayEnd, releaseStart: first.releaseStart,
+    attackEnd: first.attackEnd, decayEnd: first.decayEnd, releaseStart: first.releaseStart,
     sweep: false, sweepEnd: 0, sweepStep: 1, sweepFrames: 1,
-    pitchAmount: 0, pitchAttack: 0, pitchDecay: 8, pitchSustainLength: 0, pitchRelease: 0, pitchDecayEnd: 0, pitchReleaseStart: 0,
+    pitchAmount: 0, pitchAttack: 0, pitchDecay: 8, pitchSustainLength: 0, pitchRelease: 0, pitchAttackEnd: 100, pitchDecayEnd: 0, pitchReleaseStart: 0,
   };
   let limits = {minHz: MIN_HZ, maxHz: MAX_NOISE_HZ, minEnd: 0, maxEnd: 0};
   if (tone) {
@@ -925,7 +933,7 @@ export const fitSample = async (prepared, options = {}) => {
       const [pitchAttack, pitchDecay, pitchSustainLength, pitchRelease] = stages;
       if (pitchAttack + pitchDecay + pitchSustainLength + pitchRelease > length0) continue;
       const trial = {...card, bars: card.bars.slice(), pitchAmount: amount, pitchAttack, pitchDecay, pitchSustainLength, pitchRelease,
-        pitchDecayEnd: 0, pitchReleaseStart: 0};
+        pitchAttackEnd: 100, pitchDecayEnd: 0, pitchReleaseStart: 0};
       if (!allowed(trial)) continue;
       const trialModel = modelOf(trial);
       const cost = await settle(trialModel, trial.bars, 1);
@@ -971,7 +979,7 @@ export const fitSample = async (prepared, options = {}) => {
       } else if (kind < 0.7) {
         const e = candidates[randomInt(candidates.length)];
         Object.assign(candidate, {attack: e.attack, decay: e.decay, sustainLength: e.sustainLength, release: e.release,
-          decayEnd: e.decayEnd, releaseStart: e.releaseStart});
+          attackEnd: e.attackEnd, decayEnd: e.decayEnd, releaseStart: e.releaseStart});
       } else if (kind < 0.88 || !candidate.sweep) {
         bendFrequency(candidate);
       } else if (Math.random() < 0.5) {
@@ -1042,6 +1050,7 @@ export const fitSample = async (prepared, options = {}) => {
       duration: length,
       envelope: true,
       envelopeAttack: card.attack,
+      envelopeAttackEnd: card.attackEnd,
       envelopeDecay: card.decay,
       envelopeDecayEnd: card.decayEnd,
       envelopeSustain: card.decayEnd,
@@ -1052,6 +1061,7 @@ export const fitSample = async (prepared, options = {}) => {
       pitchEnvelopeAmount: card.pitchAmount,
       pitchEnvelopeAttack: card.pitchAttack,
       pitchEnvelopeDecay: card.pitchDecay,
+      pitchEnvelopeAttackEnd: card.pitchAttackEnd,
       pitchEnvelopeDecayEnd: card.pitchDecayEnd,
       pitchEnvelopeSustainLength: card.pitchSustainLength,
       pitchEnvelopeReleaseStart: card.pitchReleaseStart,

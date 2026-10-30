@@ -2391,6 +2391,15 @@ export default {
   margin-right: 2px;
 }
 
+/* A toggle icon button of the Sound tab's toolbars that is on (the Staircase button of the envelope): the theme's blue, at rest and on hover,
+   in every theme (the icon colors of these buttons are forced, so this has to be as specific). */
+.v-btn.soundfx-stop-btn.soundfx-loop-btn-active .v-icon,
+.v-btn.soundfx-stop-btn.soundfx-loop-btn-active:hover .v-icon,
+.dark-mode.v-application .soundfx-stop-btn.soundfx-loop-btn-active .v-icon,
+.dark-mode.v-application .soundfx-stop-btn.soundfx-loop-btn-active:hover .v-icon {
+  color: var(--v-primary-base, #1976d2) !important;
+}
+
 /* Every checkbox box is the same size: a dense checkbox draws its icon at 20px (Vuetify's v-icon--dense), the others at 24px. */
 .v-input--checkbox .v-input--selection-controls__input .v-icon {
   font-size: 24px !important;

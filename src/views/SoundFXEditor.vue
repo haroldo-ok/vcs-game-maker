@@ -480,7 +480,7 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
-                          label="Attack End Volume"
+                          label="Attack End"
                           title="The volume level (percent of full volume) Attack ramps up to, and Decay ramps down from."
                           v-model="chipFx(soundEffect).envelopeAttackEnd"
                           :items="envelopeVolumePercentOptionItems"
@@ -498,7 +498,7 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
-                          label="Decay End Volume"
+                          label="Decay End"
                           title="The volume level (percent of full volume) Decay ramps down to, and Sustain ramps from."
                           v-model="chipFx(soundEffect).envelopeDecayEnd"
                           :items="envelopeVolumePercentOptionItems"
@@ -507,7 +507,7 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
-                          label="Sustain length"
+                          label="Sustain"
                           title="How many frames Sustain takes to glide from the Decay End level to the Release Start level, before Release begins - 0 skips straight from Decay into Release."
                           v-model="chipFx(soundEffect).envelopeSustainLength"
                           :items="envelopeSustainFrameOptionItems"
@@ -516,7 +516,7 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
-                          label="Release Start Volume"
+                          label="Release Start"
                           title="The volume level (percent of full volume) Sustain ramps to, and Release ramps down from - can be set higher than Decay End, so Sustain glides UP into Release instead of only ever down."
                           v-model="chipFx(soundEffect).envelopeReleaseStart"
                           :items="envelopeVolumePercentOptionItems"
@@ -533,40 +533,6 @@
                           @change="handleChildChange"
                           class="soundfx-envelope-field"
                         />
-                        <!-- The envelope in steps: each level held for a few frames, the levels multiples of a step; the graph shows it. -->
-                        <div class="soundfx-sweep-switches">
-                          <v-checkbox
-                            v-model="chipFx(soundEffect).staircase"
-                            label="Staircase"
-                            title="Plays the envelope in steps instead of gliding: the volume holds one level for a few frames, then jumps to the next. The graph shows the steps."
-                            hide-details
-                            dense
-                            class="soundfx-sweep-switch"
-                            @change="handleChildChange"
-                          />
-                        </div>
-                        <div v-if="chipFx(soundEffect).staircase" class="soundfx-sweep-fields">
-                          <v-text-field
-                            label="Step"
-                            title="The volume levels are multiples of this (2 gives 2, 4, 6 ...)."
-                            v-model.number="chipFx(soundEffect).staircaseStep"
-                            type="number"
-                            min="1"
-                            :max="MAX_STAIRCASE_STEP"
-                            hide-details
-                            @change="handleChildChange"
-                            class="soundfx-sweep-field"
-                          />
-                          <v-select
-                            label="Hold"
-                            title="How many frames each level is held."
-                            v-model="chipFx(soundEffect).staircaseFrames"
-                            :items="staircaseFrameOptionItems"
-                            hide-details
-                            @change="handleChildChange"
-                            class="soundfx-sweep-field"
-                          />
-                        </div>
                         <div class="soundfx-envelope-graph-toolbar">
                           <v-btn
                             icon
@@ -598,6 +564,39 @@
                           >
                             <v-icon small>mdi-redo</v-icon>
                           </v-btn>
+                          <v-divider class="soundfx-toolbar-divider" vertical />
+                          <!-- The envelope in steps: each level held for a few frames, the levels multiples of a step; the graph shows it. -->
+                          <v-btn
+                            icon
+                            small
+                            title="Staircase: plays the envelope in steps instead of gliding: the volume holds one level for a few frames, then jumps to the next. The graph shows the steps."
+                            :class="['soundfx-stop-btn', 'soundfx-icon-btn-size', {'soundfx-loop-btn-active': chipFx(soundEffect).staircase}]"
+                            @click="() => { chipFx(soundEffect).staircase = !chipFx(soundEffect).staircase; handleChildChange(); }"
+                          >
+                            <v-icon small>mdi-stairs</v-icon>
+                          </v-btn>
+                        </div>
+                        <div v-if="chipFx(soundEffect).staircase" class="soundfx-sweep-fields">
+                          <v-text-field
+                            label="Step"
+                            title="The volume levels are multiples of this (2 gives 2, 4, 6 ...)."
+                            v-model.number="chipFx(soundEffect).staircaseStep"
+                            type="number"
+                            min="1"
+                            :max="MAX_STAIRCASE_STEP"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
+                          <v-select
+                            label="Hold"
+                            title="How many frames each level is held."
+                            v-model="chipFx(soundEffect).staircaseFrames"
+                            :items="staircaseFrameOptionItems"
+                            hide-details
+                            @change="handleChildChange"
+                            class="soundfx-sweep-field"
+                          />
                         </div>
                         <EnvelopeGraph
                           :staircase-step="chipFx(soundEffect).staircase ? chipFx(soundEffect).staircaseStep : 0"
@@ -784,7 +783,7 @@
                           class="soundfx-envelope-field"
                         />
                         <v-select
-                          label="Sustain length"
+                          label="Sustain"
                           title="How many frames Sustain takes to glide from the Decay End level to the Release Start level."
                           v-model="chipFx(soundEffect).pitchEnvelopeSustainLength"
                           :items="envelopeSustainFrameOptionItems"
