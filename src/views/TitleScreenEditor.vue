@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat class="editor-container" :ripple="false" @click="deselectCard">
-      <v-card-title>Title (alpha 0.8)</v-card-title>
+      <v-card-title>Title (alpha 0.84)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message titlescreen-intro-paragraph">
           Compose a title screen from stacked image strips (top to bottom). 48x1 images are
@@ -136,12 +136,12 @@
                   >
                     Choose .json + image&hellip;
                   </v-btn>
-                  <v-switch
+                  <v-checkbox
                     v-model="replaceFramesOnImport"
                     label="Replace frames"
                     hide-details
                   />
-                  <v-switch
+                  <v-checkbox
                     v-model="keepColorsOnImport"
                     label="Keep row and box colors"
                     :disabled="!replaceFramesOnImport"
@@ -340,12 +340,12 @@
                                     >
                                       Choose images&hellip;
                                     </v-btn>
-                                    <v-switch
+                                    <v-checkbox
                                       v-model="replaceFramesOnImport"
                                       label="Replace frames"
                                       hide-details
                                     />
-                                    <v-switch
+                                    <v-checkbox
                                       v-model="keepColorsOnImport"
                                       label="Keep row and box colors"
                                       :disabled="!replaceFramesOnImport"
@@ -549,7 +549,7 @@
                                 Plays back automatically (each frame's Duration is in real frame ticks,
                                 same as a Player sprite animation) - no trigger block needed.
                               </p>
-                              <v-switch
+                              <v-checkbox
                                 v-if="card.frames.length > 1"
                                 v-model="card.playOnce"
                                 label="Play animation once"
@@ -848,6 +848,7 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE, MAX_PLAYER_CARDS,
   titleFrameBox} from '../blocks/titlescreen';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {appVersionField} from '../utils/app-version';
+import {CLOCK_ASPECT} from '../utils/pixel-aspect';
 
 // Same "module-scope ref, not per-instance state" reasoning as
 // PlayerEditor.vue's copiedFrameData - a copied frame survives
@@ -973,12 +974,11 @@ export default defineComponent({
     // consistent, legible scale.
     const TITLESCREEN_PIXEL_SCALE = 14;
     const editorWidth = (card) => `${Math.round(cardWidth(card) * TITLESCREEN_PIXEL_SCALE * zoom.value)}px`;
-    // On the emulator's screen a TIA color clock is 160 wide and the picture about 212 lines tall
-    // at 4:3, so one source pixel (one clock wide) is about 1.77 times as wide as one scanline is
-    // tall. A 48x2/96x2 card's rows are 2 scanlines tall, a 48x1 card's rows 1 scanline, so a pixel
+    // On the emulator's screen one source pixel (one clock wide) is 1.82 times as wide as one scanline is
+    // tall (see utils/pixel-aspect.js). A 48x2/96x2 card's rows are 2 scanlines tall, a 48x1 card's rows 1 scanline, so a pixel
     // is 1.77 / (scanlines per row) as wide as it is tall: a bit narrower than square for x2 cards,
     // wider than square for 48x1.
-    const CLOCK_TO_SCANLINE_RATIO = 4 / 3 * 212 / 160;
+    const CLOCK_TO_SCANLINE_RATIO = CLOCK_ASPECT;
     const cardAspectRatio = (card, rowCount) => {
       const isDoubleLine = !!(TITLE_SCREEN_KERNEL_TYPES[card.type] || {}).doubleLine;
       const ratio = cardWidth(card) / (rowCount || 1);
@@ -2633,10 +2633,8 @@ export default defineComponent({
 }
 
 
-/* Room on the left for the switch's round highlight, which the card would otherwise clip. */
 .titlescreen-play-once-switch {
   margin-top: 0;
-  margin-left: 8px;
   padding-top: 0;
   margin-bottom: 12px;
 }

@@ -47,14 +47,14 @@
           @input="(byte) => (scoreBkColor = byte === null ? 'background' : byte)"
         />
         <span class="score-bkcolor-label">Score background color</span>
-        <v-switch
+        <v-checkbox
           v-model="scoreFadeEnabled"
           label="Score fade shading (scorefade)"
           title="Adds shading to the score digits. Set the score's color (or keep changing it, e.g. every frame) with the Score category's color blocks on the Actions tab to see the effect - incrementing it continuously produces the classic Atari color-bar look."
           hide-details
           class="score-fade-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="fiveScoreDigits"
           :disabled="cycleScoreOn"
           label="5 score digits"
@@ -70,7 +70,7 @@
       </p>
       <template>
         <div class="score-extras-row">
-          <v-switch
+          <v-checkbox
             v-model="extraGlyphsEnabled"
             label="Use extra glyphs (10-15)"
             :hint="secondaryActive ? 'Not available while a secondary score font is set.' :
@@ -173,12 +173,13 @@ import {
   scoreFontEditKey,
   scoreFontOriginalBytes,
 } from '../utils/score-font';
+import {CLOCK_ASPECT} from '../utils/pixel-aspect';
 
 // Score digits are drawn with player graphics, one colour clock per pixel, and
-// those 160 clocks are stretched across a 4:3 frame, so on screen each pixel
-// ends up twice as wide as it is tall (measured at 1.998:1 in the emulator).
-// The grid is square, so this doubles as the preview's width-to-height ratio.
-const PIXEL_ASPECT = 2;
+// on the emulator's screen each pixel is 1.82 times as wide as it is tall (see
+// utils/pixel-aspect.js). The grid is square, so this doubles as the preview's
+// width-to-height ratio.
+const PIXEL_ASPECT = CLOCK_ASPECT;
 
 // Width of one digit editor at 100% zoom.
 const DIGIT_BASE_WIDTH = 120;
@@ -222,8 +223,6 @@ export default defineComponent({
     // since a smaller score font is a reasonable choice by itself.
     // A font with changes drawn for it is marked as edited (Custom and Squish Custom are all
     // drawing, so they are not).
-    // The DPC+ kernel has no secondary font yet.
-    const isDpcPlus = computed(() => ((configurationStorage.value || {}).kernel === 'dpcplus'));
     const scoreFontOptions = computed(() => [...BASE_SCORE_FONT_OPTIONS,
       {text: 'Squish (compact - shrinks the score row)', value: SQUISH_SCORE_FONT},
       {text: 'Squish Custom (compact - drawn below)', value: SQUISH_CUSTOM_SCORE_FONT},
@@ -265,7 +264,7 @@ export default defineComponent({
       },
     });
     const isSquishFont = (font) => font === SQUISH_SCORE_FONT || font === SQUISH_CUSTOM_SCORE_FONT;
-    const secondaryUnavailable = computed(() => isSquishFont(selectedFont.value) || isDpcPlus.value);
+    const secondaryUnavailable = computed(() => isSquishFont(selectedFont.value));
     const secondaryActive = computed(() => !!secondaryFont.value && !secondaryUnavailable.value);
     const secondaryFontOptions = computed(() => [
       {text: 'None', value: ''},

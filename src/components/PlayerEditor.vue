@@ -155,7 +155,7 @@
                   >
                     Choose .json + image&hellip;
                   </v-btn>
-                  <v-switch
+                  <v-checkbox
                     v-model="asepriteReplaceAnimations"
                     label="Replace animations"
                     hide-details
@@ -309,12 +309,12 @@
                           >
                             Choose .spr files&hellip;
                           </v-btn>
-                          <v-switch
+                          <v-checkbox
                             v-model="replaceFramesOnImport"
                             label="Replace frames"
                             hide-details
                           />
-                          <v-switch
+                          <v-checkbox
                             v-model="keepColorsOnImport"
                             label="Keep row colors"
                             :disabled="!replaceFramesOnImport"
@@ -375,7 +375,7 @@
                         :key="widthOfAnimation(animation)"
                         :width="widthOfAnimation(animation)"
                         :height="frame.pixels.length || 1"
-                        :aspectRatio="(widthOfAnimation(animation) / (frame.pixels.length || 1)) * (animation.previewWidthScale || 1)"
+                        :aspectRatio="(widthOfAnimation(animation) / (frame.pixels.length || 1)) * (animation.previewWidthScale || 1) * CLOCK_ASPECT_PER_LINE_PAIR"
                         v-model="frame.pixels"
                         :fgColor="fgColor"
                         :rowColors="editorRowColors(frame)"
@@ -532,6 +532,7 @@ import {escapeHtml} from '../utils/build-error';
 import {clampFrameDuration} from '../utils/duration';
 import {REMOVED, removeCards} from '../utils/card-refs';
 import {parseSpriteFile, resizeRowsToWidth, setAnimationWide, widthOfAnimation} from '../utils/wide-sprite';
+import {CLOCK_ASPECT_PER_LINE_PAIR} from '../utils/pixel-aspect';
 
 // Width of one frame editor at 100% zoom. The container is normally sized by
 // its  contents, so this pins it before the zoom factor is applied.
@@ -1479,7 +1480,7 @@ export default defineComponent({
       handleImportAnimationFrames, replaceFramesOnImport, keepColorsOnImport, importMenuOpenAnimationId,
       handleImportAsepriteSheet, asepriteReplaceAnimations, asepriteImportMenuOpen,
       handleAddAnimation, handleDeleteAnimation, handleDuplicateAnimation, handleSetPreviewScale, handleSetWide, handleImportSpriteFiles,
-      widthOfAnimation, isDpcPlus,
+      widthOfAnimation, isDpcPlus, CLOCK_ASPECT_PER_LINE_PAIR,
       testingId, buildInProgress, handleTestAnimation,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, editorRowColors, spriteColorsEnabled,
       copiedFrameRowColors, handleCopyRowColors, handlePasteRowColors,

@@ -20,7 +20,7 @@
           <pixel-grid-toggle v-model="showPixelGrid" />
         </template>
         <template v-slot:after-tools>
-          <v-switch
+          <v-checkbox
             v-model="showInGamePreview"
             label="Preview as in-game"
             title="The kernel actually draws a blank scanline between each row of a glyph's pixels - toggle this to see glyphs that way instead of as a plain, solid pixel grid. Read-only: switch back to Off to keep editing."
@@ -214,12 +214,13 @@ import {
   processCursorGlyphDefaults,
   DEFAULT_TEXT_CURSOR,
 } from '../utils/text-font';
+import {CLOCK_ASPECT} from '../utils/pixel-aspect';
 
 // Same reasoning as ScoreFontEditor.vue's  PIXEL_ASPECT - these glyphs are
 // drawn with player graphics too (one color clock per pixel bit, stretched
-// 2:1 by the screen itself), regardless of being only 4 bits wide instead of
+// 1.82:1 by the screen itself), regardless of being only 4 bits wide instead of
 // 8.
-const PIXEL_ASPECT = 2;
+const PIXEL_ASPECT = CLOCK_ASPECT;
 
 // Width of one glyph editor at 100% zoom - narrower than ScoreFontEditor's
 // DIGIT_BASE_WIDTH (120px for an 8-wide digit), since these glyphs are
@@ -592,15 +593,15 @@ export default defineComponent({
   display: flex;
 }
 
-/* aspect-ratio 2/1 matches PIXEL_ASPECT (edit mode's  pixel cells are
-   twice as wide as tall, for the same "one screen pixel is 2:1" reason - see
+/* aspect-ratio 1.82/1 matches PIXEL_ASPECT (edit mode's  pixel cells are
+   1.82 times as wide as tall, for the same "one screen pixel is 1.82:1" reason - see
    PIXEL_ASPECT's comment) - a blank interlaced row (see
    interlacedPreviewRows) is a real scanline too, so it keeps the exact same
    per-row height as a genuine pixel row rather than reading as a thin
    spacer. */
 .glyph-preview-cell {
   flex: 1;
-  aspect-ratio: 2 / 1;
+  aspect-ratio: 1.82 / 1;
 }
 
 .reset-button {

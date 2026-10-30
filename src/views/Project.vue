@@ -162,7 +162,7 @@
           persistent-placeholder
           class="project-title-field"
         />
-        <v-switch
+        <v-checkbox
           v-model="projectIncludeDateInFilename"
           label="Include date/time in filename"
           title="Adds the current date and time to the saved filename. Only optional once Project Title is filled in - with no title, the date is the only thing keeping repeated saves from overwriting each other, so it stays on regardless of this switch."
@@ -184,7 +184,7 @@
             label="Version"
             persistent-placeholder
           />
-          <v-switch
+          <v-checkbox
             v-model="projectAutoIncrementVersion"
             label="Increment on Save"
             title="Bumps the last segment of this Version field (e.g. 1.2.3 -> 1.2.4) every time you save the project."
@@ -270,15 +270,28 @@
           class="example-card sound-bank-card"
           @click="handleSelectSoundBank(bank)"
         >
-          <v-btn
-            icon
-            small
-            class="sound-bank-preview-btn"
-            :title="data.previewingSoundBank === bank.name ? 'Stop the preview' : (bank.isBank ? 'Preview every sound in this bank, one after another' : 'Preview this sound')"
-            @click.stop="handlePreviewSoundBank(bank)"
-          >
-            <v-icon>{{ data.previewingSoundBank === bank.name ? 'mdi-stop' : 'mdi-play' }}</v-icon>
-          </v-btn>
+          <div class="sound-bank-preview-btn">
+            <v-btn
+              v-if="soundBankHasKernel(bank, 'dpcplus')"
+              icon
+              small
+              class="data-icon-btn-size sound-bank-play-btn"
+              :title="isPreviewingSoundBank(bank, 'dpc') ? 'Stop the preview' : (bank.isBank ? 'Preview every sound in this bank on the DPC+ chip, one after another' : 'Preview this sound on the DPC+ chip')"
+              @click.stop="handlePreviewSoundBank(bank, 'dpc')"
+            >
+              <v-icon>{{ isPreviewingSoundBank(bank, 'dpc') ? 'mdi-stop' : 'mdi-play-circle-outline' }}</v-icon>
+            </v-btn>
+            <v-btn
+              v-if="soundBankHasKernel(bank, 'standard')"
+              icon
+              small
+              class="data-icon-btn-size sound-bank-play-btn"
+              :title="isPreviewingSoundBank(bank, 'tia') ? 'Stop the preview' : (bank.isBank ? 'Preview every sound in this bank on the TIA, one after another' : 'Preview this sound on the TIA')"
+              @click.stop="handlePreviewSoundBank(bank, 'tia')"
+            >
+              <v-icon>{{ isPreviewingSoundBank(bank, 'tia') ? 'mdi-stop' : 'mdi-alpha-t-circle-outline' }}</v-icon>
+            </v-btn>
+          </div>
           <div class="example-card-text">
             <div class="example-card-title">
               <!-- The same icons the app uses elsewhere: the Sound tab's waveform for a sound,
@@ -459,7 +472,7 @@ import {defineComponent, reactive, computed, onMounted, onBeforeUnmount, ref, ge
 import {saveAs} from 'file-saver';
 import YAML from 'yaml';
 
-import {appendCompileLog, useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useProjectIncludeDateInFilenameStorage, useProjectShowExamplesStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useProjectShowSoundBanksStorage, useScoreFontEditsStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage, useWorkspaceStorage} from '../hooks/project';
+import {appendCompileLog, useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage, useDataTablesStorage, usePlayerAnimationsStorage, useProjectAutoIncrementVersionStorage, useProjectIncludeDateInFilenameStorage, useProjectShowExamplesStorage, useProjectShowSoundBanksStorage, useScoreFontEditsStorage, useScoreFontStorage, useSongsStorage, useSoundEffectsStorage, useSquishCustomScoreFontStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage, useWorkspaceStorage} from '../hooks/project';
 import {combineLegacyPlayerAnimations, remapPlayer1AnimationIndexesInWorkspaceXml} from '../hooks/migrate-player-animations';
 import {migrateLegacyPlayerBlocksInWorkspaceXml} from '../hooks/migrate-player-blocks';
 import {migrateLegacyBounceBlocksInWorkspaceXml} from '../hooks/migrate-bounce-blocks';
@@ -484,10 +497,7 @@ import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
 import {buildSoundBankImportEntries, importSoundBankEntries, soundEffectsInBankFile, kernelSettingsLabel} from '../utils/sound-bank';
 import {KERNEL_NAMES} from '../utils/dpc-sound';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
-import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
-import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
-import {isDpcPlusSound} from '../utils/dpc-sound';
-import {DEFAULT_DIM_PERCENT, dimVolume} from '../generators/bbasic/soundfx';
+import {playSoundBankSounds, stopSoundBankPreview} from '../utils/sound-bank-preview';
 import pkg from '../../package.json';
 const appVersion = pkg.version;
 
@@ -551,6 +561,7 @@ export default defineComponent({
       exampleSearch: '',
       // Name of the sound bank whose preview is playing, or ''.
       previewingSoundBank: '',
+      previewingSoundBankChip: '',
       // The handle "Save" writes back to, from the last "Save As..." or
       // "Open Project" that went through the File System Access API (see
       // SUPPORTS_FILE_SYSTEM_ACCESS above) - null whenever there's nothing
@@ -1464,11 +1475,19 @@ export default defineComponent({
     // Plays a card's sound, or every sound in a bank one after another (each
     // starts when the one before has run its duration). Clicking again, or
     // starting another card's preview, stops it.
-    handlePreviewSoundBank(bank) {
-      const wasPlaying = this.data.previewingSoundBank === bank.name;
-      (this.soundBankPreviewTimers || []).forEach((timer) => window.clearTimeout(timer));
+    // Whether a sound or bank has settings for a kernel (a Standard one plays on the TIA, a DPC+ one on the DPC+ chip).
+    soundBankHasKernel(bank, kernel) {
+      return (bank.kernels && bank.kernels.length ? bank.kernels : [bank.kernel]).includes(kernel);
+    },
+
+    isPreviewingSoundBank(bank, chip) {
+      return this.data.previewingSoundBank === bank.name && this.data.previewingSoundBankChip === chip;
+    },
+
+    handlePreviewSoundBank(bank, chip) {
+      const wasPlaying = this.data.previewingSoundBank === bank.name && this.data.previewingSoundBankChip === chip;
+      stopSoundBankPreview(this.soundBankPreviewTimers);
       this.soundBankPreviewTimers = [];
-      stopSoundEffectPreview();
       this.data.previewingSoundBank = '';
       if (wasPlaying) return;
       let sounds;
@@ -1480,22 +1499,12 @@ export default defineComponent({
       }
       this.data.soundBankError = '';
       this.data.previewingSoundBank = bank.name;
-      const dimOn = useDimSoundFxStorage().value;
-      const dimPercent = useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT).value;
-      let startMs = 0;
-      sounds.forEach((sound) => {
-        // The volume the emulator plays it at with DIM on (see the Sound tab).
-        const audv = dimOn ? dimVolume(sound.audv, dimPercent) : sound.audv;
-        // A sound with a DPC+ waveform is played by the DPC+ sound chip, the way the Sound tab does it (its Standard settings are the same for
-        // every waveform, so the TIA would play one sound over and over).
-        const dimMultiplier = dimOn ? (Number(dimPercent) || 0) / 100 : 1;
-        this.soundBankPreviewTimers.push(window.setTimeout(() => (isDpcPlusSound(sound) ?
-          previewDpcPlusSoundEffect(sound, useConfigurationStorage().value || {}, dimMultiplier) : previewSoundEffect({...sound, audv})), startMs));
-        startMs += (Math.max(0, Number(sound.duration) || 0) / 60) * 1000 + 250;
-      });
+      this.data.previewingSoundBankChip = chip;
+      const {timers, totalMs} = playSoundBankSounds(sounds, chip);
+      this.soundBankPreviewTimers = timers;
       this.soundBankPreviewTimers.push(window.setTimeout(() => {
         this.data.previewingSoundBank = '';
-      }, startMs));
+      }, totalMs));
     },
 
     // Opens the import popup for a bank's sounds against the open project's
@@ -2010,6 +2019,44 @@ export default defineComponent({
   top: 4px;
   right: 4px;
   z-index: 1;
+}
+
+.sound-bank-preview-btn {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* The look of the toolbar's icon buttons (see .project-toolbar-row): flat, faint at rest, darker on hover, shrinking while pressed. */
+.sound-bank-preview-btn >>> .v-btn {
+  margin: 0;
+  width: 30px !important;
+  height: 30px !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.sound-bank-preview-btn >>> .v-btn::before {
+  display: none;
+}
+
+.sound-bank-preview-btn >>> .v-btn .v-icon {
+  font-size: 24px !important;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.sound-bank-preview-btn >>> .v-btn--disabled .v-icon {
+  color: rgba(0, 0, 0, 0.18) !important;
+}
+
+.sound-bank-preview-btn >>> .v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.sound-bank-preview-btn >>> .v-btn:not(.v-btn--disabled):active .v-icon {
+  transform: scale(0.82);
 }
 
 .sound-bank-names {

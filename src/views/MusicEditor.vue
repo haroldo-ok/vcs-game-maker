@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card flat :ripple="false" class="editor-container">
-      <v-card-title>Music (alpha 0.88)</v-card-title>
+      <v-card-title>Music (alpha 0.9)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message music-intro-paragraph">
           Compose songs here, then play one at runtime with a "Play song" block (Actions tab).
@@ -114,27 +114,7 @@
             <v-icon>{{ playingSongId === activeSong().id ? 'mdi-volume-high' : 'mdi-play' }}</v-icon>
           </v-btn>
           <v-divider class="music-toolbar-divider" vertical />
-          <div class="dim-controls" title="When DIM is on, every note plays at the volume set here, as a percentage of its set volume (the same setting as the Sound tab's DIM, so changing it here changes it there too). Off: notes play at their set volume.">
-            <v-switch
-              v-model="dimSoundFx"
-              label="DIM"
-              hide-details
-              class="dim-switch"
-            />
-            <v-slider
-              :value="dimSoundFxPercentDisplay"
-              @input="(v) => (dimSoundFxPercentDisplay = v)"
-              @change="(v) => (dimSoundFxPercent = v)"
-              :disabled="!dimSoundFx"
-              min="0"
-              max="100"
-              step="1"
-              dense
-              hide-details
-              class="dim-slider"
-            />
-            <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
-          </div>
+          <DimControls description="When DIM is on, every note plays at the volume set here, as a percentage of its set volume (the same setting as the Sound tab's DIM, so changing it here changes it there too). Off: notes play at their set volume." />
         </div>
         <v-divider class="music-divider" />
       </div>
@@ -826,6 +806,7 @@ import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
 
+import DimControls from '../components/DimControls.vue';
 import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import {useCollapsedIds} from '../hooks/collapse';
 import {removeCards} from '../utils/card-refs';
@@ -833,7 +814,7 @@ import {recordReorder, sameItems} from '../hooks/reorder-history';
 import {newestSteps} from '../hooks/undo-limit';
 import {canRedoReorder, canUndoReorder, noteEdit, settleEdits, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
 import {useMusicEditorActiveState, usePlaybackStatusState} from '../hooks/music-editor-state';
-import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSongsStorage,
+import {useConfigurationStorage, useSongsStorage,
   useSoundEffectsStorage, loadMutedMusicTrackIds, loadSoloedMusicTrackIds, MUTED_MUSIC_TRACKS_KEY,
   SOLOED_MUSIC_TRACKS_KEY, isMusicTrackMuted, useDarkModeStorage} from '../hooks/project';
 import {
@@ -842,7 +823,6 @@ import {
   processSongsStorageDefaults,
 } from '../blocks/music';
 import {processSoundEffectsStorageDefaults} from '../blocks/soundfx';
-import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {channelOptions} from '../blocks/sound';
 import {getDateInfix} from '../utils/date';
 import {openFileDialog} from '../utils/file';
@@ -957,44 +937,12 @@ const emptyTrack = (id, soundEffectId, channel = 0) => ({
 });
 
 export default defineComponent({
-  components: {ConfirmDeleteMenu},
+  components: {ConfirmDeleteMenu, DimControls},
   setup() {
     const songsStorage = useSongsStorage();
     const darkModeStorage = useDarkModeStorage();
     const soundEffectsStorage = useSoundEffectsStorage();
     const configurationStorage = useConfigurationStorage();
-    // Same shared app-wide storage keys as SoundFXEditor.vue's  identical
-    // dimSoundFx/dimSoundFxPercent pair (see useDimSoundFxStorage's
-    // comment in hooks/project.js - a standing app preference, not part of
-    // this project's  saved configuration) - deliberately not scoped to
-    // this tab, so toggling/adjusting either one here or on the Sound tab
-    // updates the exact same underlying value both read from, no separate
-    // sync logic needed. Music's  note volumes already read these same
-    // two keys (see generators/bbasic/music.js's  buildMusicPlayResetBody/
-    // flattenPatternEvents), so this UI is the only piece that was actually
-    // missing.
-    const dimSoundFx = useDimSoundFxStorage();
-    const dimSoundFxPercent = useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT);
-    // The slider's  visible thumb position/percentage - deliberately NOT
-    // bound directly to dimSoundFxPercent above. That computed's setter still
-    // does a synchronous localStorage write on every call, and v-slider's
-    // v-model fires on every "input" event - many times per second while
-    // actually dragging. Doing that write on every single drag tick (worse
-    // still, an earlier version of this wrote the ENTIRE shared
-    // configurationStorage object, plus the reactive re-render cascade that
-    // triggered everywhere else it's read) was blocking the main thread badly
-    // enough that the visible thumb lagged behind the mouse and only
-    // "caught up" once dragging stopped - a real reported bug. This ref
-    // instead absorbs every "input" tick for free (cheap, local, nothing
-    // else depends on it), and the persisted write only happens once, on
-    // "change" (drag release) - see the v-slider below.
-    const dimSoundFxPercentDisplay = ref(dimSoundFxPercent.value);
-    // Keeps the slider in sync if the value changes from elsewhere (e.g. the
-    // Sound tab's  identical slider, since both read/write the same
-    // underlying configurationStorage key).
-    watch(dimSoundFxPercent, (value) => {
-      dimSoundFxPercentDisplay.value = value;
-    });
     const pianoRollZoomStored = ref(clampPianoRollZoom(parseFloat(localStorage.getItem(PIANO_ROLL_ZOOM_KEY))));
     const pianoRollZoom = computed({
       get: () => pianoRollZoomStored.value,
@@ -4166,7 +4114,6 @@ export default defineComponent({
     });
 
     return {
-      dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
       state, handleChildChange, handleChangeSubdivision, snapEnabled, handleToggleSnap,
       pianoRollTool, setPianoRollTool, handleCellMouseDown,
       pianoRollSelection, isNoteSelected, marqueeSelecting, marqueeBoxStyle,
@@ -4240,50 +4187,6 @@ export default defineComponent({
   width: 100%;
 }
 
-.dim-controls {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 4px;
-  height: 26px;
-  /* Room between the divider before it and the DIM switch, on top of the
-     row's 4px gap (the same 8px as the Columns switches). */
-  margin-left: 8px;
-}
-
-/* Vuetify gives switches/checkboxes ("selection controls") a built-in
-   margin-top: 16px, meant for stacking them below other form fields - with
-   nothing above it here, that just pushes the switch down out of line with
-   the slider next to it (which has no such margin). !important because
-   Vuetify's ".v-input--selection-controls" rule outweighs a single
-   custom class on specificity alone. */
-.dim-switch {
-  flex: 0 0 auto;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-/* A short slider: this sits at the left of the toolbar row, beside the
-   icon buttons. */
-.dim-slider {
-  flex: 0 0 90px;
-  margin: 0;
-  min-height: 0;
-}
-
-/* Keeps the slider (normally 32px tall) inside the 26px toolbar row. */
-.dim-slider >>> .v-input__control {
-  min-height: 26px;
-}
-
-.dim-slider >>> .v-input__slot {
-  margin: 0;
-}
-
-.dim-percent {
-  flex: 0 0 auto;
-  min-width: 2.5em;
-}
 /* Left/right zeroed too - .song-card is a plain div now (no border/padding
  - see its comment), so this v-card-text's default 16px
    side padding used to stack with the inner v-card-text sections'

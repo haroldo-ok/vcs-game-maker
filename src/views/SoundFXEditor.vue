@@ -173,27 +173,7 @@
               <v-icon>mdi-play</v-icon>
             </v-btn>
             <v-divider class="soundfx-toolbar-divider" vertical />
-            <div class="dim-controls" title="When DIM is on, every sound effect plays at the volume set here, as a percentage of its set volume (the same setting as the Music tab's DIM). Off: sound effects play at their set volume.">
-              <v-switch
-                v-model="dimSoundFx"
-                label="DIM"
-                hide-details
-                class="dim-switch"
-              />
-              <v-slider
-                :value="dimSoundFxPercentDisplay"
-                @input="(v) => (dimSoundFxPercentDisplay = v)"
-                @change="(v) => (dimSoundFxPercent = v)"
-                :disabled="!dimSoundFx"
-                min="0"
-                max="100"
-                step="1"
-                dense
-                hide-details
-                class="dim-slider"
-              />
-              <span class="dim-percent">{{ dimSoundFxPercentDisplay }}%</span>
-            </div>
+            <DimControls description="When DIM is on, every sound effect plays at the volume set here, as a percentage of its set volume (the same setting as the Music tab's DIM). Off: sound effects play at their set volume." />
             <v-divider class="soundfx-toolbar-divider soundfx-toolbar-divider-wide" vertical />
             <v-select
               v-model="soundFilter"
@@ -437,7 +417,7 @@
                     <div class="soundfx-arpeggio-block"
                       :class="{'soundfx-arpeggio-block--expanded': chipFx(soundEffect).arpeggio}"
                     >
-                      <v-switch
+                      <v-checkbox
                         v-model="chipFx(soundEffect).arpeggio"
                         label="Arpeggio"
                         title="Always on for every note played with this instrument on the Music tab, and when the sound is played from blocks - rapidly flips between the note's pitch and a second nearby pitch (set below) to fake a chord."
@@ -480,7 +460,7 @@
                     <div class="soundfx-envelope-block"
                       :class="{'soundfx-envelope-block--expanded': chipFx(soundEffect).envelope}"
                     >
-                      <v-switch
+                      <v-checkbox
                         v-model="chipFx(soundEffect).envelope"
                         label="Envelope"
                         title="Shapes this sound's volume over time (Attack/Decay/Sustain/Release), instead of playing at a fixed volume until it ends. Applies both here and when this preset is used as a Music tab instrument."
@@ -545,7 +525,7 @@
                         />
                         <!-- The envelope in steps: each level held for a few frames, the levels multiples of a step; the graph shows it. -->
                         <div class="soundfx-sweep-switches">
-                          <v-switch
+                          <v-checkbox
                             v-model="chipFx(soundEffect).staircase"
                             label="Staircase"
                             title="Plays the envelope in steps instead of gliding: the volume holds one level for a few frames, then jumps to the next. The graph shows the steps."
@@ -627,7 +607,7 @@
                       </template>
                     </div>
                     <!-- A sound of the DPC+ chip can play the pitches the TIA plays: the sweep, frequency envelope and arpeggio of the Standard settings. -->
-                    <v-switch
+                    <v-checkbox
                       v-if="cardDpc(soundEffect) && (chipFx(soundEffect).sweep || chipFx(soundEffect).pitchEnvelope || chipFx(soundEffect).arpeggio)"
                       :input-value="dpcFollows(soundEffect)"
                       label="Same pitches as Standard"
@@ -641,7 +621,7 @@
                     <div class="soundfx-arpeggio-block soundfx-sweep-block"
                       :class="{'soundfx-arpeggio-block--expanded': chipFx(soundEffect).sweep}"
                     >
-                      <v-switch
+                      <v-checkbox
                         v-model="chipFx(soundEffect).sweep"
                         label="Frequency sweep"
                         title="The pitch moves from the Frequency (or Note) above to the end frequency while the sound plays, one step every few frames."
@@ -708,7 +688,7 @@
                           />
                         </div>
                         <div class="soundfx-sweep-switches">
-                          <v-switch
+                          <v-checkbox
                             v-if="!cardDpc(soundEffect) || dpcFollows(soundEffect)"
                             v-model="chipFx(soundEffect).sweepWrap"
                             label="Wrap"
@@ -718,7 +698,7 @@
                             class="soundfx-sweep-switch"
                             @change="handleChildChange"
                           />
-                          <v-switch
+                          <v-checkbox
                             v-model="chipFx(soundEffect).sweepRepeat"
                             label="Repeat"
                             title="When the sweep reaches the end frequency it starts over from the Frequency above. Off: it stays on the end frequency."
@@ -734,7 +714,7 @@
                     <div class="soundfx-envelope-block"
                       :class="{'soundfx-envelope-block--expanded': chipFx(soundEffect).pitchEnvelope}"
                     >
-                      <v-switch
+                      <v-checkbox
                         v-model="chipFx(soundEffect).pitchEnvelope"
                         label="Frequency envelope"
                         title="Shapes the pitch over time (Attack/Decay/Sustain/Release), like the volume Envelope shapes the volume: the frequency moves away from the Frequency above by up to the amount set here. Plays when the sound is played from blocks."
@@ -880,7 +860,7 @@
 </template>
 <script>
 import Vue from 'vue';
-import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
+import {computed, defineComponent, getCurrentInstance, onBeforeUnmount, onMounted, ref} from '@vue/composition-api';
 import {watchDeep} from '../hooks/watch-deep';
 import {saveAs} from 'file-saver';
 import {max} from 'lodash';
@@ -921,6 +901,7 @@ import {buildSoundBankImportEntries, importSoundBankEntries} from '../utils/soun
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
 import WaveformEditor from '../components/WaveformEditor.vue';
 import PixelGridToggle from '../components/PixelGridToggle.vue';
+import DimControls from '../components/DimControls.vue';
 import SoundBankImportDialog from '../components/SoundBankImportDialog.vue';
 import SampleImportDialog from '../components/SampleImportDialog.vue';
 import CardFolderBar from '../components/CardFolderBar.vue';
@@ -930,7 +911,7 @@ import {appVersionField} from '../utils/app-version';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 
 export default defineComponent({
-  components: {WaveformEditor, ColorSwatchPicker, CardFolderBar, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog, SampleImportDialog},
+  components: {DimControls, WaveformEditor, ColorSwatchPicker, CardFolderBar, ConfirmDeleteMenu, EnvelopeGraph, PixelGridToggle, SoundBankImportDialog, SampleImportDialog},
   setup() {
     const soundEffectsStorage = useSoundEffectsStorage();
     // App-wide preference, not part of this project's  saved
@@ -938,20 +919,6 @@ export default defineComponent({
     // hooks/project.js.
     const dimSoundFx = useDimSoundFxStorage();
     const dimSoundFxPercent = useDimSoundFxPercentStorage(DEFAULT_DIM_PERCENT);
-    // Same reasoning as MusicEditor.vue's  identical dimSoundFxPercentDisplay -
-    // dimSoundFxPercent's  setter still does a synchronous localStorage
-    // write on every call, which v-slider's v-model would otherwise trigger
-    // on every "input" tick while dragging - the exact repeated-main-thread-
-    // work pattern that caused the visible thumb to lag behind the mouse and
-    // only catch up once dragging stopped (a real reported bug, originally
-    // against the old, much heavier whole-configurationStorage-object write
-    // this used to do). This cheap local ref absorbs every "input" tick
-    // instead; the persisted write only happens once, on "change" (drag
-    // release).
-    const dimSoundFxPercentDisplay = ref(dimSoundFxPercent.value);
-    watch(dimSoundFxPercent, (value) => {
-      dimSoundFxPercentDisplay.value = value;
-    });
 
     // Purely a visual "which card am I looking at" marker - same
     // selectCard/selectedCardId/deselectCard pattern as MusicEditor.vue's
@@ -1763,7 +1730,7 @@ export default defineComponent({
       handleStopPreview, loopPreview, handleSetSoundEffectColor, autoInstrumentColor,
       isCollapsed, toggleCollapsed,
       audcHasTunableNotes, frequencyItems, endFrequencyItems, handleAudcChange,
-      dimSoundFx, dimSoundFxPercent, dimSoundFxPercentDisplay,
+      dimSoundFx, dimSoundFxPercent,
       soundFxColumns, soundFilter, soundFilterItems, matchesSoundFilter, soundKinds, soundKindFor, handleSetSoundKind, dpcPlusSoundCards, dpcPlusNoteValue, dpcPlusNoteItems,
       handleSweepSwitch, dpcFollows, setDpcFollows, pianoKeyItems, MAX_DPC_SWEEP_STEP, MAX_STAIRCASE_STEP,
       staircaseFrameOptionItems: STAIRCASE_FRAME_OPTIONS.map((value) => ({text: `${value} ${value === 1 ? 'frame' : 'frames'}`, value})),
@@ -1855,51 +1822,6 @@ export default defineComponent({
   padding: 0;
   overflow: visible;
   min-width: 0;
-}
-
-.dim-controls {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 4px;
-  height: 26px;
-  /* Room between the divider before it and the DIM switch, on top of the
-     row's 4px gap (the same 8px as the Columns switches). */
-  margin-left: 8px;
-}
-
-/* Vuetify gives switches/checkboxes ("selection controls") a built-in
-   margin-top: 16px, meant for stacking them below other form fields - with
-   nothing above it here, that just pushes the switch down out of line with
-   the slider next to it (which has no such margin). !important because
-   Vuetify's ".v-input--selection-controls" rule outweighs a single
-   custom class on specificity alone. */
-.dim-switch {
-  flex: 0 0 auto;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-/* A short slider: this sits at the left of the toolbar row, beside the
-   icon buttons. */
-.dim-slider {
-  flex: 0 0 90px;
-  margin: 0;
-  min-height: 0;
-}
-
-/* Keeps the slider (normally 32px tall) inside the 26px toolbar row. */
-.dim-slider >>> .v-input__control {
-  min-height: 26px;
-}
-
-.dim-slider >>> .v-input__slot {
-  margin: 0;
-}
-
-.dim-percent {
-  flex: 0 0 auto;
-  min-width: 2.5em;
 }
 
 /* The "Show" select and Columns switch sit in the toolbar row, after the Play

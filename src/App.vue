@@ -588,7 +588,7 @@
     </v-main>
 
     <v-dialog v-model="soundKernelNotice.open" max-width="520">
-      <v-card>
+      <v-card class="sound-kernel-notice">
         <v-card-title>{{ soundKernelNotice.title }}</v-card-title>
         <v-card-text>
           <p v-for="line in soundKernelNotice.lines" :key="line">{{ line }}</p>
@@ -730,6 +730,9 @@ import {startGamepadInput} from './hooks/gamepad';
 import {startTapHold} from './hooks/tap-hold';
 import {syncSoundBanks} from './hooks/soundbanks';
 import {soundKernelNotice, syncSoundsToKernel} from './hooks/sound-kernel';
+
+// The z-index of the dialogs (see the .v-dialog__content rule in the style): a scrim is kept under it.
+const SCRIM_Z_LIMIT = 100000;
 import {nextTip, tipNear} from './hooks/tips';
 import {optionToReveal} from './hooks/option-reveal';
 import KeyMappingDialog from './components/KeyMappingDialog.vue';
@@ -885,6 +888,7 @@ export default {
       this.tipOpen = !!this.tip;
     }
     this.lookForNewVersion();
+    this.keepScrimsBelowDialogs();
     // Once per page load: fetch new/changed example projects (see hooks/examples.js).
     syncExamples();
     syncSoundBanks();
@@ -900,6 +904,7 @@ export default {
     this.emulatorWatchdogTimer = window.setInterval(this.checkEmulatorCanvas, EMULATOR_WATCHDOG_INTERVAL);
   },
   beforeDestroy() {
+    if (this.scrimObserver) this.scrimObserver.disconnect();
     this.stopResize();
     if (this.stopGamepadInput) this.stopGamepadInput();
     if (this.stopTapHold) this.stopTapHold();
@@ -1251,6 +1256,19 @@ export default {
     },
   },
   methods: {
+    // Vuetify puts the dark scrim of a dialog just under the highest menu or dialog open at that moment, and the dialogs and menus have fixed,
+    // very high z-indexes (see the .v-dialog__content rule below), so a dialog opened over a menu got a scrim above itself. A scrim that
+    // would be that high is kept just under the dialogs; the scrims of the sidebars are far lower and are left as they are.
+    keepScrimsBelowDialogs() {
+      const clamp = () => {
+        document.querySelectorAll('.v-overlay').forEach((overlay) => {
+          if ((parseInt(overlay.style.zIndex, 10) || 0) >= SCRIM_Z_LIMIT) overlay.style.zIndex = String(SCRIM_Z_LIMIT - 1);
+        });
+      };
+      this.scrimObserver = new MutationObserver(clamp);
+      this.scrimObserver.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['style']});
+      clamp();
+    },
     // The desktop app (only: the web version is always the newest one) looks at the newest release when it starts and, when it is newer
     // than this version and not one the user skipped, shows the notice with the download for this system.
     async lookForNewVersion() {
@@ -1795,6 +1813,12 @@ export default {
      moved into this component's DOM by attachEmulator(), so it never
      carries this component's scope attribute. -->
 <style>
+/* Vuetify breaks a card title anywhere (word-break: break-all): this one breaks between words, and inside a word only when it is too long for the line. */
+.sound-kernel-notice .v-card__title {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
 /* The flat icon-button look of the emulator toolbar's screenshot and keyboard
    mapping buttons - the same flat-icon treatment as every other icon button
    in the app (e.g. Project.vue's .project-flat-icon-btn): transparent
@@ -3407,6 +3431,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .data-flat-icon-btn .v-icon,
 .dark-mode.v-application .generated-code-toolbar-row .v-btn .v-icon,
 .dark-mode.v-application .generated-code-flat-icon-btn .v-icon,
+.dark-mode.v-application .sound-bank-preview-btn .v-btn .v-icon,
+.dark-mode.v-application .sound-bank-import-play .v-btn .v-icon,
 .dark-mode.v-application .project-toolbar-row .v-btn .v-icon,
 .dark-mode.v-application .soundfx-bank-btn .v-icon,
 .dark-mode.v-application .soundfx-instrument-btn .v-icon,
@@ -3430,6 +3456,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .data-flat-icon-btn:hover .v-icon,
 .dark-mode.v-application .generated-code-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .generated-code-flat-icon-btn:hover .v-icon,
+.dark-mode.v-application .sound-bank-preview-btn .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .sound-bank-import-play .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .project-toolbar-row .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .soundfx-bank-btn:hover .v-icon,
 .dark-mode.v-application .soundfx-instrument-btn:hover .v-icon,
@@ -3445,6 +3473,8 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .dark-mode.v-application .get-tools .v-btn--disabled .v-icon,
 .dark-mode.v-application .scene-tools .v-btn--disabled .v-icon,
 .dark-mode.v-application .data-toolbar-row .v-btn--disabled:not(.pixel-grid-toggle-btn) .v-icon,
+.dark-mode.v-application .sound-bank-preview-btn .v-btn--disabled .v-icon,
+.dark-mode.v-application .sound-bank-import-play .v-btn--disabled .v-icon,
 .dark-mode.v-application .project-toolbar-row .v-btn--disabled .v-icon,
 .dark-mode.v-application .music-flat-icon-btn.v-btn--disabled .v-icon {
   color: rgba(255, 255, 255, 0.2) !important;

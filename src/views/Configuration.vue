@@ -24,7 +24,7 @@
           hint="DPC+ trades the standard kernel's playfield/missile/ball tricks (Superchip, per-row playfield colors, no_blank_lines) for an ARM co-processor with different capabilities (settable playfield row height, independent per-row playfield AND background colors) - see the options that appear below once selected."
           persistent-hint
         />
-        <v-switch
+        <v-checkbox
           v-if="!kernelIsDpcPlus"
           v-model="configurationState.enableRand16"
           @change="handleChangeConfiguration"
@@ -34,7 +34,7 @@
           class="option-switch"
         />
         <template v-if="!kernelIsDpcPlus">
-          <v-switch
+          <v-checkbox
             v-model="enableMissile0BlankLines"
             @change="handleChangeConfiguration"
             :disabled="player0RainbowColorsActive"
@@ -48,7 +48,7 @@
           />
         </template>
         <template v-else>
-          <v-switch
+          <v-checkbox
             v-model="configurationState.enablePfColors"
             @change="handleChangeConfiguration"
             label="Enable per-row playfield colors"
@@ -56,7 +56,7 @@
             persistent-hint
             class="option-switch"
           />
-          <v-switch
+          <v-checkbox
             v-model="configurationState.enableDpcPlusBkColors"
             @change="handleChangeConfiguration"
             label="Enable per-row background colors"
@@ -64,7 +64,7 @@
             persistent-hint
             class="option-switch"
           />
-          <v-switch
+          <v-checkbox
             v-model="configurationState.enableDpcPlusAudio"
             @change="handleChangeConfiguration"
             label="Play sound and music with the DPC+ sound chip"
@@ -73,7 +73,7 @@
             class="option-switch"
           />
         </template>
-        <v-switch
+        <v-checkbox
           v-if="!kernelIsDpcPlus"
           v-model="configurationState.enablePlayer0SpriteColors"
           @change="handleChangeConfiguration"
@@ -82,7 +82,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-if="!kernelIsDpcPlus"
           v-model="configurationState.enablePlayer1SpriteColors"
           @change="handleChangeConfiguration"
@@ -95,7 +95,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-if="!kernelIsDpcPlus"
           v-model="configurationState.enablePfColors"
           @change="handleChangeConfiguration"
@@ -134,7 +134,7 @@
             'Smaller sizes are hidden while Superchip RAM is on - see below.' : undefined"
           :persistent-hint="configurationState.enableSuperchip"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.showScore"
           @change="handleChangeConfiguration"
           label="Show score at bottom of screen (noscore)"
@@ -142,7 +142,7 @@
           persistent-hint
           class="option-switch score-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.muteAllAudio"
           @change="handleChangeConfiguration"
           label="Mute in-game audio"
@@ -195,7 +195,7 @@
           </div>
         </template>
         <template v-if="!kernelIsDpcPlus">
-          <v-switch
+          <v-checkbox
             v-model="configurationState.enableSuperchip"
             @change="handleToggleSuperchip"
             label="Enable Superchip RAM for higher-resolution playfields"
@@ -218,7 +218,7 @@
             persistent-hint
             class="pfres-field"
           />
-          <v-switch
+          <v-checkbox
             v-model="configurationState.enablePfRowHeight"
             @change="handleTogglePfRowHeight"
             label="Override playfield row height (pfrowheight)"
@@ -249,7 +249,7 @@
         <span class="text-subtitle-1">Compiler Options</span>
       </div>
       <div v-if="!isSectionCollapsed('compiler')" class="option-section-content">
-        <v-switch
+        <v-checkbox
           v-model="configurationState.enableInlineRand"
           @change="handleChangeConfiguration"
           :disabled="!romSizeIsBankswitched"
@@ -258,7 +258,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.enableOptimizationSpeed"
           @change="handleChangeConfiguration"
           label="Optimize for speed (speed)"
@@ -266,7 +266,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.enableFastMath"
           @change="handleChangeConfiguration"
           label="Faster multiply and divide"
@@ -274,7 +274,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.enableCycleScore"
           @change="handleToggleCycleScore"
           label="Show remaining CPU cycles as the score (cyclescore)"
@@ -282,7 +282,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.enableScanlinesDebug"
           @change="handleToggleScanlinesScore"
           label="Show NTSC scanlines used as the score"
@@ -310,14 +310,14 @@
           persistent-hint
           class="undo-limit-field"
         />
-        <v-switch
+        <v-checkbox
           v-model="loadLastProject"
           label="Load last project on startup"
           hint="When on, the app starts with your last open project, so you can pick up where you left off."
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-if="isElectron"
           v-model="checkForUpdates"
           label="Notify me of new versions"
@@ -325,7 +325,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           id="show-startup-tips-option"
           v-model="showStartupTips"
           label="Show Tips at startup"
@@ -333,14 +333,14 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="muteBlocklySounds"
           label="Mute Blockly sounds"
           hint="Silences the click, delete, and disconnect sounds heard while editing blocks on the Actions tab. Doesn't affect the game itself - see &quot;Mute in-game audio&quot; above for that."
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-if="emulatorSettings.backend === 'gopher2600'"
           v-model="adaptiveFrameSkip"
           label="Adaptive frame skipping"
@@ -348,7 +348,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="configurationState.showVariableComments"
           @change="handleChangeConfiguration"
           label="Show detailed comments in generated code"
@@ -356,28 +356,28 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="darkMode"
           label="Dark Mode"
           hint="Switches the app to a dark theme. Combines with Subdued Palette below."
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="desaturateBlocklyColors"
           label="Subdued Palette"
           hint="Mutes colors for a calmer, less colorful view."
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="colorblindMode"
           label="High Contrast"
           hint="Makes the icons in the left and top toolbars black instead of a color for each, or white in Dark Mode."
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="hideTopToolbar"
           :disabled="hideSidebar"
           label="Hide top toolbar"
@@ -385,7 +385,7 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="hideSidebar"
           :disabled="hideTopToolbar"
           label="Hide left toolbar"
@@ -393,14 +393,14 @@
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="hideDescriptionText"
           label="Expert mode"
           hint="Hides the small explanatory hint text under fields and switches throughout the app (including this one), for a more compact layout once you're familiar with VCS Game Maker."
           persistent-hint
           class="option-switch"
         />
-        <v-switch
+        <v-checkbox
           v-model="hideToolbarLabels"
           :disabled="!hideDescriptionText"
           label="Hide toolbar text labels"
@@ -1006,7 +1006,7 @@ export default defineComponent({
 }
 
 .option-switch >>> .v-messages {
-  margin-left: 46px;
+  margin-left: 32px;
 }
 
 /* Vuetify's ".v-input--selection-controls" gives every switch a fixed

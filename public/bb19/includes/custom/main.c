@@ -284,7 +284,13 @@ void copynybble(unsigned char num)
     unsigned char *destination;
     unsigned char *source;
     destination=queue+(scorepointer(1)<<8)+scorepointer(0)+((temp5++)<<3);
+#ifdef DPC_SCOREFONT
+    // The table of digits in use: its address (bank coded, two bytes) is in the display memory, the 89th and 90th byte of the score
+    // digits, put there by the program (the primary font's at the start, and the secondary font's when a "Score set font to" block says so).
+    source=flashdata+(queue[(scorepointer(1)<<8)+scorepointer(0)+89]<<8)+queue[(scorepointer(1)<<8)+scorepointer(0)+88]+((num&0x0F)<<3);
+#else
     source=flashdata+(scoregraphics(1)<<8)+scoregraphics(0)+((num&0x0F)<<3);
+#endif
         for(i=0;i<8;i++)
                 destination[i] = source[7-i];
 

@@ -22,14 +22,9 @@ export const syncSoundsToKernel = (soundEffectsStorage, config) => {
   if (JSON.stringify(soundEffects) !== JSON.stringify(stored.soundEffects)) {
     soundEffectsStorage.value = {...stored, soundEffects};
   }
-  const approximated = failed.approximated || [];
+  // (A sound changed to the closest Standard sound, failed.approximated, is not reported: it is not worth a popup.)
   const fresh = failed.filter(({name}) => !reported.has(name));
   reported = new Set(failed.map(({name}) => name));
-  if (approximated.length && !fresh.length) {
-    soundKernelNotice.title = 'Some sounds were changed to the closest Standard sound';
-    soundKernelNotice.lines = approximated.map(({name, note}) => `${name}: ${note}.`);
-    soundKernelNotice.open = true;
-  }
   if (fresh.length) {
     soundKernelNotice.title = `Some sounds can't be converted to ${KERNEL_NAMES[kernel]}`;
     soundKernelNotice.lines = fresh.map(({name, reason}) => `${name}: ${reason}.`);

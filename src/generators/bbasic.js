@@ -43,7 +43,8 @@ import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/d
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBuildBBasic} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
-  customScoreFontUsesExtraGlyphs, secondaryScoreFontName} from '../utils/score-font';
+  customScoreFontUsesExtraGlyphs, secondaryScoreFontName, dpcPlusSecondaryScoreFontBytes, dpcPlusScoreFontPointerLines,
+  DPC_PLUS_SECONDARY_FONT_LABEL} from '../utils/score-font';
 import {canonicalDistanceVarName, distancePointVarName} from '../utils/distance';
 import {superchipRwFreeCount, pfRowDivisorFor, dpcPlusRowLinesFor, backgroundRowLinesFor} from '../utils/playfield-coords';
 import {DPCPLUS_FIXED_VARIABLE_SLOTS, DPCPLUS_MOVED_FIXED_SLOT_COUNT, dpcPlusFixedSlotsMoved} from '../utils/fixed-vars';
@@ -2754,9 +2755,13 @@ Blockly.BBasic.init = function(workspace) {
   // free once the picture is drawn: see text12DPCplus.asm.)
 
   // A secondary score font (see buildScoreFontOverride in utils/score-font.js): the standard kernel's score code reads the low
-  // byte of the table in use from this one variable (see std_overscan.asm), which "Score set font to" changes. Not yet for DPC+.
+  // byte of the table in use from this one variable (see std_overscan.asm), which "Score set font to" changes. The DPC+ coprocessor is
+  // given the address of the table instead (see dpcPlusScoreFontPointerLines), and only when a "Score set font to" block is used.
   this.scoreFontsEnabled = !config.enableCycleScore && !config.enableScanlinesDebug && config.kernel !== 'dpcplus' &&
     secondaryScoreFontName(config.scoreFont, config.secondaryScoreFont) !== null;
+  this.dpcPlusScoreFonts = config.kernel === 'dpcplus' && !config.enableCycleScore && !config.enableScanlinesDebug &&
+    secondaryScoreFontName(config.scoreFont, config.secondaryScoreFont) !== null &&
+    workspace.getAllBlocks(false).some((block) => block.type === 'score_font_set' && block.isEnabled() && !block.getInheritedDisabled());
   if (this.scoreFontsEnabled) {
     reserveDevVar('scorefontlow', undefined, 'low byte of the score font table in use (primary or secondary)');
   }
@@ -3513,6 +3518,13 @@ Blockly.BBasic.init = function(workspace) {
   // body, populated as subroutine_define blocks are walked, then spliced
   // into their  section by generateSubroutines() below.
   this.subroutines = {};
+
+  // The digits of the DPC+ secondary score font: data in whichever bank has room (the kernel's bank has none).
+  if (this.dpcPlusScoreFonts) {
+    const digits = dpcPlusSecondaryScoreFontBytes(config.scoreFont, config.secondaryScoreFont);
+    this.subroutines['_dpc_score_font_secondary'] = ['asm', '@' + DPC_PLUS_SECONDARY_FONT_LABEL,
+      ...digits.map((byte) => ' .byte ' + byte), '@end'].join('\n');
+  }
 
   // Registered here (not from a finish()-time generate* function the way
   // every other Blockly.BBasic.subroutines entry is) specifically because
@@ -5753,6 +5765,8 @@ Blockly.BBasic.generateDpcPlusBankPreamble = function() {
     this.generateDisplayRamVarClears() +
     // The Score tab's 5 digits option: the leftmost digit reads these 8 bytes of display memory, which have to hold zeros (see
     // SCOREBLANK in DPCplus_kernel.asm; an immediate load of 0 would read a data fetcher in the kernel).
+    // A secondary score font: the coprocessor starts with the primary one's table.
+    (this.dpcPlusScoreFonts ? [' asm', ...dpcPlusScoreFontPointerLines('scoretable').map((line) => ' ' + line), 'end'].join('\n') + '\n' : '') +
     (scoreDigitsOf(config) === 5 ? [' asm', ' lda #<(scoredata+80)', ' sta DF0LOW', ' lda #(>(scoredata+80)) & $0F', ' sta DF0HI',
       ' ldx #0', ...Array(8).fill(' stx DF0WRITE'), 'end'].join('\n') + '\n' : '');
 };

@@ -23,7 +23,7 @@
           persistent-hint
           @change="(value) => update({backend: value})"
         />
-        <v-switch
+        <v-checkbox
           class="emulator-vox-switch"
           dense
           :input-value="settings.atariVox"

@@ -1099,7 +1099,8 @@ export default defineComponent({
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  aspect-ratio: 5 / 3;
+  /* 160 color clocks, each 1.82 times as wide as a line is tall (see utils/pixel-aspect.js), over 192 lines. */
+  aspect-ratio: 291.2 / 192;
   outline: 1px solid rgba(0, 0, 0, 0.3);
 }
 

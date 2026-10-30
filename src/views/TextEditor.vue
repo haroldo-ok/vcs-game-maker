@@ -21,7 +21,7 @@
             @input="(byte) => (textBkColor = byte)"
           />
           <span class="text-bkcolor-label">Text background color</span>
-          <v-switch
+          <v-checkbox
             v-model="enableTextScrollCursor"
             label="Show a scroll cursor"
             title="Shows a small indicator (edit its shape in the Text Minikernel Font card below) right after whichever row is currently the last one visible, but only while there's more of the message left to reveal with &quot;Scroll text lines down&quot;. Costs a few extra scanlines whenever this is on, regardless of whether any particular message actually needs it."
@@ -67,7 +67,7 @@
             hide-details
             class="text-max-width-field"
           />
-          <v-switch
+          <v-checkbox
             v-model="textColumns"
             label="Columns"
             title="Lay text cards out in multiple columns when there's room, instead of one full-width column."
@@ -189,7 +189,7 @@
                     persistent-hint
                     @change="() => handleTextChange(entry)"
                   />
-                  <v-switch
+                  <v-checkbox
                     v-model="entry.wrapToLine2"
                     label="Multiline"
                     title="When this message is longer than 12 characters, shows its second line automatically underneath the first, with no scrolling needed. Off (or for a message with more than 2 lines), only the first line shows until a &quot;Scroll text lines&quot; block is used to reveal the rest. Only the plain &quot;Show text&quot; blocks support this - the &quot;(scrolling)&quot; blocks always scroll a single line and ignore it."

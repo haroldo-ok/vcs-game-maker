@@ -578,3 +578,21 @@ export const buildScoreFontOverride = async (font, secondaryFont, dpcPlus = fals
     pageCheck +
     pristine.slice(footerStart);
 };
+
+// The DPC+ kernel's coprocessor copies the digits of the score from a table it is given the address of: the display memory holds that
+// address (see DPC_SCOREFONT in public/bb19/includes/custom/main.c), in the 88th and 89th byte of the score digits, so a secondary font is
+// another table, in any bank, and "Score set font to" writes its address there. The ten digits of the secondary font, or null without one.
+export const dpcPlusSecondaryScoreFontBytes = (primary, stored) => {
+  const font = secondaryScoreFontName(primary, stored);
+  return font === null ? null : resolveScoreDigitBytes(font);
+};
+
+export const DPC_PLUS_SECONDARY_FONT_LABEL = 'scorefontsecondary';
+
+// The lines (of an asm block) that give the coprocessor the table at the label: the address as the coprocessor sees the ROM, the way the
+// kernel gives it the primary one (scorepointer in DPCplus_kernel.asm).
+export const dpcPlusScoreFontPointerLines = (label) => [
+  'lda #<(scoredata+88)', 'sta DF0LOW', 'lda #(>(scoredata+88)) & $0f', 'sta DF0HI',
+  `lda #<${label}`, 'sta DF0WRITE',
+  `lda #((>${label}) & $0f) | (((>${label}) / 2) & $70)`, 'sta DF0WRITE',
+];

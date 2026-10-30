@@ -1554,7 +1554,7 @@ const buildRomInner = async () => {
       // full-height digits, not Squish's shorter ones.
       // DPC+ draws the digits from the same table (scoretable) through its ARM code, so the primary font works there as it does
       // with the standard kernel, extra glyphs included, and so do the Squish fonts (written as a plain table, with the kernel's score
-      // loop shortened to match, see utils/dpc-squish.js). A secondary font is not for DPC+ yet.
+      // loop shortened to match, see utils/dpc-squish.js). A secondary font is a separate table in another bank (see dpcPlusScoreFonts).
       const dpcPlusScore = config.kernel === 'dpcplus';
       const effectiveScoreFont = (config.enableCycleScore || config.enableScanlinesDebug) ? null : config.scoreFont;
       if (!dpcPlusScore && effectiveScoreFont === SQUISH_SCORE_FONT && !scoreFontIsEdited(SQUISH_SCORE_FONT)) {
@@ -1642,6 +1642,7 @@ const buildRomInner = async () => {
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
         offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
+        scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       dropUnusedDivMul(compiled, siblingFiles);
@@ -2547,6 +2548,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
+        scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
       dropUnusedDivMul(compiled, siblingFiles);

@@ -546,6 +546,7 @@ import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor, dpcPlusRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
 import {rowColorsForMove} from '../utils/row-color-move';
+import {CLOCK_ASPECT_PER_LINE_PAIR} from '../utils/pixel-aspect';
 import {backgroundColorRows, backgroundHasColorRows, colorsAtRows, DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
   processBackgroundStorageDefaults} from '../blocks/background';
 
@@ -588,7 +589,7 @@ export default defineComponent({
     const backgroundAspectRatio = (background) => {
       const config = configurationStorage.value;
       const rowHeight = (config && config.kernel === 'dpcplus') ? backgroundRowLinesFor(background, config) / 2 : pfRowDivisorFor(config);
-      return (32 * PF_COLUMN_WIDTH_PX) / (background.pixels.length * rowHeight);
+      return (32 * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (background.pixels.length * rowHeight);
     };
     // Shared with PlayerEditor.vue's  Player 0/1 tabs (see
     // PixelGridToggle.vue's  comment).
@@ -797,7 +798,7 @@ export default defineComponent({
     // One group's columns as a picture of the rows it has, drawn as tall as the others (every group fills the screen height).
     const groupAspectRatio = (rows) => {
       const config = configurationStorage.value;
-      return (8 * PF_COLUMN_WIDTH_PX) / (rows * dpcPlusRowLinesFor(config, rows) / 2);
+      return (8 * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (rows * dpcPlusRowLinesFor(config, rows) / 2);
     };
     const groupPixels = (background, group) => background.pixels.slice(0, background.groupPfres[group]).map((row) => row.slice(group * 8, group * 8 + 8));
     // The row colors (kept at the resolution of the tallest group) as the rows of a group show them.

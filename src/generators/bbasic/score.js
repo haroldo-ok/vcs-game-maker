@@ -1,6 +1,7 @@
 'use strict';
 
 import {superchipOn} from '../../utils/superchip';
+import {dpcPlusScoreFontPointerLines} from '../../utils/score-font';
 import {useConfigurationStorage} from '../../hooks/project';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
@@ -225,8 +226,9 @@ export default (Blockly) => {
   // Points the score code at the table of the chosen font: both tables are in one page of ROM (see
   // buildScoreFontOverride), so only the low byte of the address changes.
   Blockly.BBasic[`score_font_set`] = function(block) {
-    if (!Blockly.BBasic.scoreFontsEnabled) return 'rem No secondary score font chosen on the Score tab\n';
     const label = block.getFieldValue('FONT') === 'secondary' ? 'scorefontsecondary' : 'scoretable';
+    if (Blockly.BBasic.dpcPlusScoreFonts) return ['asm', ...dpcPlusScoreFontPointerLines(label), '@end'].join('\n') + '\n';
+    if (!Blockly.BBasic.scoreFontsEnabled) return 'rem No secondary score font chosen on the Score tab\n';
     const fontLow = Blockly.BBasic.nameDB_.getName('scorefontlow', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return ['asm', `lda #<${label}`, `sta ${fontLow}`, '@end'].join('\n') + '\n';
   };
