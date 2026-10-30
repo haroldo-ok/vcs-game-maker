@@ -3137,6 +3137,10 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(SPEECH_QUEUE_VARS[0], undefined, 'AtariVox speech: the phrase to say next (its number + 1, 0 = none)');
     reserveDevVar(SPEECH_QUEUE_VARS[1], undefined, 'AtariVox speech: the phrase to say after that');
   }
+  // The table of high scores in the AtariVox's memory needs three bytes (the place, the place being moved, the byte of a place).
+  if (Blockly.BBasic.avoxHighScoresUsed) {
+    HIGH_SCORE_VARS.forEach((name) => reserveDevVar(name, undefined, 'AtariVox high scores: a place of the table, or a byte of one, while the table is changed'));
+  }
   reserveAnimFinishedDoneDevVars(reserveDevVar, this.playerAnimationFinishedWatches);
   // "Background scroll" with "scroll playfield colors" checked (needs the row
   // color table, see needsPlayfieldColorTable) - see
@@ -8597,7 +8601,8 @@ import random from './bbasic/random';
 import score from './bbasic/score';
 import sound from './bbasic/sound';
 import avoxMemory from './bbasic/avox-memory';
-import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR, SPEECH_POSITION_HIGH_VAR, SPEECH_QUEUE_VARS} from './bbasic/speech';
+import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR, SPEECH_POSITION_HIGH_VAR, SPEECH_QUEUE_VARS,
+  HIGH_SCORE_VARS} from './bbasic/speech';
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';

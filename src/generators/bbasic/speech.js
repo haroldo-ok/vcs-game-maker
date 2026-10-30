@@ -17,6 +17,8 @@ import {registerMemorySubroutine} from './avox-memory';
 // high; 0 when none is being sent), so the table can be as long as the ROM has room for.
 
 export const SPEECH_POSITION_VAR = '_avoxPos';
+// The variables of the table of high scores in the AtariVox's memory (see avox-memory.js).
+export const HIGH_SCORE_VARS = ['_avoxHsA', '_avoxHsB', '_avoxHsC'];
 export const SPEECH_POSITION_HIGH_VAR = '_avoxPosHi';
 export const SPEECH_QUEUE_VARS = ['_avoxQ1', '_avoxQ2'];
 export const SPEECH_SUBROUTINE_NAME = '_avox_step';
@@ -36,17 +38,20 @@ const speechKey = (block) => {
   switch (block.type) {
     case 'speech_say_text': return `text:${block.getFieldValue('TEXT_ID')}`;
     case 'speech_voice': return `voice:${block.getFieldValue('KIND')}:${Number(block.getFieldValue('VALUE')) || 0}`;
+    case 'speech_effect': return `words:${block.getFieldValue('EFFECT')}`;
     default: return `words:${String(block.getFieldValue('TEXT') || '')}`;
   }
 };
 
 // The speech blocks of the project (enabled ones), the table of all their phrases, and the number of each phrase. Called from init.
 export const prepareSpeech = (Blockly, workspace) => {
-  const speechTypes = ['speech_say', 'speech_say_text', 'speech_say_card', 'speech_say_number', 'speech_voice', 'speech_stop', 'speech_busy'];
+  const speechTypes = ['speech_say', 'speech_effect', 'speech_say_text', 'speech_say_card', 'speech_say_number', 'speech_voice', 'speech_stop', 'speech_busy'];
   const blocks = workspace.getAllBlocks(false).filter((block) => block.isEnabled());
   const used = blocks.some((block) => speechTypes.includes(block.type));
   // The AtariVox's memory (a 32 KB EEPROM on the same port): blocks that save and load a byte (see avox-memory.js).
-  Blockly.BBasic.avoxMemoryUsed = blocks.some((block) => block.type === 'avox_memory_save' || block.type === 'avox_memory_load');
+  Blockly.BBasic.avoxHighScoresUsed = blocks.some((block) => block.type.startsWith('avox_highscore_'));
+  Blockly.BBasic.avoxMemoryUsed = Blockly.BBasic.avoxHighScoresUsed ||
+    blocks.some((block) => block.type === 'avox_memory_save' || block.type === 'avox_memory_load' || block.type === 'avox_memory_check');
   const phrases = [];
   const numbers = {};
   const add = (key, bytes) => {
@@ -68,6 +73,8 @@ export const prepareSpeech = (Blockly, workspace) => {
       const found = encodeSpeech(text);
       if (found.unknown.length) appendCompileLog(`AtariVox phrase "${text}": not understood: ${found.unknown.join(', ')}.`, 'info');
       add(key, found.bytes);
+    } else if (block.type === 'speech_effect') {
+      add(key, encodeSpeech(String(block.getFieldValue('EFFECT') || '')).bytes);
     } else if (block.type === 'speech_voice') {
       const [code, largest] = SPEECH_VOICE_CODES[block.getFieldValue('KIND')] || SPEECH_VOICE_CODES.volume;
       add(key, [code, Math.max(0, Math.min(largest, Number(block.getFieldValue('VALUE')) || 0))]);
@@ -199,7 +206,9 @@ const resolve = (Blockly, name) => Blockly.BBasic.nameDB_.getName(name, Blockly.
 
 // Once a frame, in the main loop: sends the next byte of a phrase that is still being sent (or takes the next one of the queue).
 export const generateSpeechChecks = (Blockly) => {
-  if (Blockly.BBasic.avoxMemoryUsed) registerMemorySubroutine(Blockly);
+  if (Blockly.BBasic.avoxMemoryUsed) {
+    registerMemorySubroutine(Blockly, Blockly.BBasic.avoxHighScoresUsed ? HIGH_SCORE_VARS.map((name) => resolve(Blockly, name)) : null);
+  }
   if (!Blockly.BBasic.speechUsed) return '';
   registerSpeechSubroutine(Blockly);
   const low = resolve(Blockly, SPEECH_POSITION_VAR);
@@ -252,6 +261,7 @@ export default (Blockly) => {
     return sayLines(index + 1, block.getFieldValue('MODE') || 'now').join('\n') + '\n';
   };
   Blockly.BBasic['speech_say'] = say;
+  Blockly.BBasic['speech_effect'] = say;
   Blockly.BBasic['speech_say_text'] = say;
   // A change of voice goes in the queue like a phrase, so it comes in its place between the phrases.
   Blockly.BBasic['speech_voice'] = function(block) {

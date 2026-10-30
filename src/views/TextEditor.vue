@@ -209,6 +209,7 @@
                     @change="(value) => handleSpeechChange(entry, value)"
                     @click:clear="() => handleSpeechChange(entry, '')"
                   />
+                  <div v-if="speechHint(entry)" class="text-speech-time">{{ speechHint(entry) }}</div>
                   <v-btn text small class="text-speech-edit-btn" :disabled="!generatedSpeech(entry)" @click.stop="() => handleSpeechChange(entry, generatedSpeech(entry))">
                     Edit the generated words
                   </v-btn>
@@ -256,7 +257,7 @@ import {DEFAULT_TEXT_JUSTIFY, DEFAULT_TEXT_STRINGS, DEFAULT_TEXT_MAX_DISPLAY_WID
 import {BLINK_SPEED_OPTIONS, DEFAULT_BLINK_SPEED} from '../utils/text-font';
 import {encodeSpeech} from '../utils/speakjet';
 import {parsePronunciations, speechWordsFor, textToSpeakJetWords} from '../utils/speakjet-text';
-import {speakBytes, stopSpeech} from '../utils/speech-preview';
+import {speakBytes, stopSpeech, speechTimeHint, setSpeechDurationListener} from '../utils/speech-preview';
 
 export default defineComponent({
   components: {CardFolderBar, ColorSwatchPicker, ConfirmDeleteMenu, TextFontEditor},
@@ -421,7 +422,20 @@ export default defineComponent({
         if (speakingId.value === entry.id) speakingId.value = null;
       }
     };
-    onBeforeUnmount(stopSpeech);
+    // How long a message takes to speak (the hint under its spoken words); it shows once the chip's sound for it has been made.
+    const durationTick = ref(0);
+    setSpeechDurationListener(() => {
+      durationTick.value += 1;
+    });
+    const speechHint = (entry) => {
+      // eslint-disable-next-line no-unused-expressions
+      durationTick.value;
+      return speechTimeHint(encodeSpeech(speechWordsFor(entry, state.value)).bytes) || '';
+    };
+    onBeforeUnmount(() => {
+      stopSpeech();
+      setSpeechDurationListener(null);
+    });
 
     // Every card starts collapsed on every visit to this tab (see
     // collapseAll's  comment in hooks/collapse.js), not just ones never
@@ -556,7 +570,7 @@ export default defineComponent({
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
       cardHandleListeners, folderToolbar, folderToolbarHeight,
-      pronunciations, generatedSpeech, handleSpeechChange, speakingId, handleSpeak,
+      pronunciations, generatedSpeech, handleSpeechChange, speakingId, handleSpeak, speechHint,
     };
   },
 });
@@ -792,6 +806,12 @@ export default defineComponent({
   display: flex;
   align-items: center;
   z-index: 1;
+}
+
+.text-speech-time {
+  font-size: 12px;
+  opacity: 0.7;
+  margin: 2px 0 4px;
 }
 
 .text-speech-field {

@@ -40,6 +40,37 @@ export const stopSpeech = () => {
   }
 };
 
+// How long a phrase takes to speak: the length of the sound the chip makes (worked out once for each phrase, then kept). The hint says
+// it in seconds and frames, and how long the bytes take to send (a byte a frame), which is what "is still being sent" waits for.
+const durations = new Map();
+const durationKey = (bytes) => Array.from(bytes).join(',');
+let onDuration = null;
+export const speechSeconds = async (bytes) => {
+  const key = durationKey(bytes);
+  if (!durations.has(key)) {
+    const samples = bytes.length ? await renderSpeech(bytes) : new Float32Array(0);
+    durations.set(key, samples.length / SAMPLE_RATE);
+    if (onDuration) onDuration();
+  }
+  return durations.get(key);
+};
+// Called when a duration has been worked out (so that what shows it can show it).
+export const setSpeechDurationListener = (listener) => {
+  onDuration = listener;
+};
+// The hint for a phrase, or null while it is being worked out (this starts that) or when there is nothing to say.
+export const speechTimeHint = (bytes) => {
+  if (!bytes || !bytes.length) return null;
+  const key = durationKey(bytes);
+  if (!durations.has(key)) {
+    speechSeconds(bytes);
+    return null;
+  }
+  const seconds = durations.get(key);
+  if (!seconds) return null;
+  return `Takes about ${seconds.toFixed(1)} seconds (${Math.round(seconds * 60)} frames) to speak; its ${bytes.length} bytes take ${bytes.length} frames to send.`;
+};
+
 // Plays a phrase from its bytes; resolves when it has ended (or at once, if there is nothing to hear).
 export const speakBytes = async (bytes) => {
   stopSpeech();
