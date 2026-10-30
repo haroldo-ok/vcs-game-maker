@@ -17,7 +17,8 @@ import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
 import {useDimSoundFxPercentStorage, useDimSoundFxStorage} from '../hooks/project';
 import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from './music-notes';
-import {channelUsesTia, dpcPlusFor, playDpcPlusSound} from './dpc-preview';
+import {channelUsesTia, dpcPlusFor, dpcPlusPreviewActive, playDpcPlusSound} from './dpc-preview';
+import {dpcSettings} from './chip-settings';
 import {buildEnvelopeCurve} from './envelope';
 import {buildPitchTable, buildDpcPitchOffsets} from './pitch-table';
 import {buildVolumeStaircase} from './staircase';
@@ -664,8 +665,11 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
   // reach the overlap branch below.
   const notesByChannel = {};
   pattern.tracks.forEach((track) => {
-    const soundEffect = soundEffects.find(({id}) => id == track.soundEffectId);
-    if (!soundEffect) return;
+    const baseSound = soundEffects.find(({id}) => id == track.soundEffectId);
+    if (!baseSound) return;
+    // A track the DPC+ chip plays has the settings the chip has of the instrument (see utils/chip-settings.js).
+    const tiaTrack = channelUsesTia(track.channel);
+    const soundEffect = !tiaTrack && dpcPlusPreviewActive() ? dpcSettings(baseSound) : baseSound;
     // Every track's notes are scheduled regardless of its CURRENT mute
     // state - muting only sets this gain node to 0 rather than skipping
     // scheduling entirely, so toggling mute mid-playback (see
@@ -699,7 +703,6 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     // AUDC_APPROXIMATIONS, since several tunable Sound types (e.g. AUDC 1's
     // "buzzy tones") still need the buffer-based buzzy synthesis, not a
     // plain square oscillator.
-    const tiaTrack = channelUsesTia(track.channel);
     const isTunable = soundHasTunableNotes(soundEffect, tiaTrack);
     // Same "always on for every note this instrument plays" rule as the
     // compiled ROM (see soundfx.js/generators/bbasic/music.js) - not

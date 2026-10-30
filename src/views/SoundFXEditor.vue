@@ -218,6 +218,9 @@
           :files="sampleImportFiles"
           :replace-name="sampleImportReplaceName"
           :default-chip="sampleImportDefaultChip"
+          :dpc-available="sampleImportDpcAvailable"
+          :clock-scale="sampleImportClockScale"
+          :existing-names="sampleImportExistingNames"
           @confirm="handleConfirmSampleImport"
         />
         <v-list class="soundfx-list" :class="{'soundfx-list--single-column': !soundFxColumns}">
@@ -412,7 +415,7 @@
                       />
                       <v-text-field
                         label="Volume"
-                        v-model.number="soundEffect.audv"
+                        v-model.number="chipFx(soundEffect).audv"
                         type="number"
                         min="0"
                         max="15"
@@ -421,32 +424,32 @@
                       />
                       <v-text-field
                         label="Duration"
-                        v-model.number="soundEffect.duration"
+                        v-model.number="chipFx(soundEffect).duration"
                         type="number"
                         min="0"
                         max="255"
-                        :disabled="!!soundEffect.envelope"
-                        :title="soundEffect.envelope ? 'Set by the envelope: always its full length (Attack + Decay + Sustain + Release).' : ''"
+                        :disabled="!!chipFx(soundEffect).envelope"
+                        :title="chipFx(soundEffect).envelope ? 'Set by the envelope: always its full length (Attack + Decay + Sustain + Release).' : ''"
                         @change="handleChildChange"
                         class="soundfx-number"
                       />
                     </div>
                     <div class="soundfx-arpeggio-block"
-                      :class="{'soundfx-arpeggio-block--expanded': soundEffect.arpeggio}"
+                      :class="{'soundfx-arpeggio-block--expanded': chipFx(soundEffect).arpeggio}"
                     >
                       <v-switch
-                        v-model="soundEffect.arpeggio"
+                        v-model="chipFx(soundEffect).arpeggio"
                         label="Arpeggio"
                         title="Always on for every note played with this instrument on the Music tab, and when the sound is played from blocks - rapidly flips between the note's pitch and a second nearby pitch (set below) to fake a chord."
                         hide-details
                         class="soundfx-arpeggio-switch"
                         @change="handleChildChange"
                       />
-                      <template v-if="soundEffect.arpeggio">
+                      <template v-if="chipFx(soundEffect).arpeggio">
                         <v-select
                           label="Speed"
                           title="How often it flips pitch, relative to the song/pattern's tempo - speeds up and slows down with the song."
-                          v-model="soundEffect.arpeggioDivision"
+                          v-model="chipFx(soundEffect).arpeggioDivision"
                           :items="arpeggioDivisionOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -455,7 +458,7 @@
                         <v-text-field
                           label="Interval"
                           title="Fixed pitch jump between the note's pitch and the second alternating pitch."
-                          v-model.number="soundEffect.arpeggioInterval"
+                          v-model.number="chipFx(soundEffect).arpeggioInterval"
                           type="number"
                           :min="MIN_ARPEGGIO_INTERVAL"
                           :max="MAX_ARPEGGIO_INTERVAL"
@@ -466,7 +469,7 @@
                         <v-select
                           label="Range"
                           title="1 OCT: cycles only between the note's pitch and pitch+interval. 2 OCT: plays that pattern, then repeats it one octave up before looping back."
-                          v-model="soundEffect.arpeggioRange"
+                          v-model="chipFx(soundEffect).arpeggioRange"
                           :items="arpeggioRangeOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -475,21 +478,21 @@
                       </template>
                     </div>
                     <div class="soundfx-envelope-block"
-                      :class="{'soundfx-envelope-block--expanded': soundEffect.envelope}"
+                      :class="{'soundfx-envelope-block--expanded': chipFx(soundEffect).envelope}"
                     >
                       <v-switch
-                        v-model="soundEffect.envelope"
+                        v-model="chipFx(soundEffect).envelope"
                         label="Envelope"
                         title="Shapes this sound's volume over time (Attack/Decay/Sustain/Release), instead of playing at a fixed volume until it ends. Applies both here and when this preset is used as a Music tab instrument."
                         hide-details
                         class="soundfx-envelope-switch"
                         @change="handleChildChange"
                       />
-                      <template v-if="soundEffect.envelope">
+                      <template v-if="chipFx(soundEffect).envelope">
                         <v-select
                           label="Attack"
                           title="Frames to ramp up from silence to full volume."
-                          v-model="soundEffect.envelopeAttack"
+                          v-model="chipFx(soundEffect).envelopeAttack"
                           :items="envelopeAttackReleaseFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -498,7 +501,7 @@
                         <v-select
                           label="Decay"
                           title="Frames to ramp down from full volume to the Decay End level."
-                          v-model="soundEffect.envelopeDecay"
+                          v-model="chipFx(soundEffect).envelopeDecay"
                           :items="envelopeStageFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -507,7 +510,7 @@
                         <v-select
                           label="Decay End Volume"
                           title="The volume level (percent of full volume) Decay ramps down to, and Sustain ramps from."
-                          v-model="soundEffect.envelopeDecayEnd"
+                          v-model="chipFx(soundEffect).envelopeDecayEnd"
                           :items="envelopeVolumePercentOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -516,7 +519,7 @@
                         <v-select
                           label="Sustain length"
                           title="How many frames Sustain takes to glide from the Decay End level to the Release Start level, before Release begins - 0 skips straight from Decay into Release."
-                          v-model="soundEffect.envelopeSustainLength"
+                          v-model="chipFx(soundEffect).envelopeSustainLength"
                           :items="envelopeSustainFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -525,7 +528,7 @@
                         <v-select
                           label="Release Start Volume"
                           title="The volume level (percent of full volume) Sustain ramps to, and Release ramps down from - can be set higher than Decay End, so Sustain glides UP into Release instead of only ever down."
-                          v-model="soundEffect.envelopeReleaseStart"
+                          v-model="chipFx(soundEffect).envelopeReleaseStart"
                           :items="envelopeVolumePercentOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -534,7 +537,7 @@
                         <v-select
                           label="Release"
                           title="Frames to ramp down from the Release Start level to silence, starting right after Sustain ends."
-                          v-model="soundEffect.envelopeRelease"
+                          v-model="chipFx(soundEffect).envelopeRelease"
                           :items="envelopeAttackReleaseFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -543,7 +546,7 @@
                         <!-- The envelope in steps: each level held for a few frames, the levels multiples of a step; the graph shows it. -->
                         <div class="soundfx-sweep-switches">
                           <v-switch
-                            v-model="soundEffect.staircase"
+                            v-model="chipFx(soundEffect).staircase"
                             label="Staircase"
                             title="Plays the envelope in steps instead of gliding: the volume holds one level for a few frames, then jumps to the next. The graph shows the steps."
                             hide-details
@@ -552,11 +555,11 @@
                             @change="handleChildChange"
                           />
                         </div>
-                        <div v-if="soundEffect.staircase" class="soundfx-sweep-fields">
+                        <div v-if="chipFx(soundEffect).staircase" class="soundfx-sweep-fields">
                           <v-text-field
                             label="Step"
                             title="The volume levels are multiples of this (2 gives 2, 4, 6 ...)."
-                            v-model.number="soundEffect.staircaseStep"
+                            v-model.number="chipFx(soundEffect).staircaseStep"
                             type="number"
                             min="1"
                             :max="MAX_STAIRCASE_STEP"
@@ -567,7 +570,7 @@
                           <v-select
                             label="Hold"
                             title="How many frames each level is held."
-                            v-model="soundEffect.staircaseFrames"
+                            v-model="chipFx(soundEffect).staircaseFrames"
                             :items="staircaseFrameOptionItems"
                             hide-details
                             @change="handleChildChange"
@@ -580,7 +583,7 @@
                             small
                             title="Reset envelope to default"
                             class="soundfx-stop-btn soundfx-icon-btn-size"
-                            @click="() => handleResetEnvelope(soundEffect)"
+                            @click="() => handleResetEnvelope(chipFx(soundEffect))"
                           >
                             <v-icon small>mdi-restore</v-icon>
                           </v-btn>
@@ -606,26 +609,26 @@
                           </v-btn>
                         </div>
                         <EnvelopeGraph
-                          :staircase-step="soundEffect.staircase ? soundEffect.staircaseStep : 0"
-                          :staircase-frames="soundEffect.staircase ? soundEffect.staircaseFrames : 0"
-                          :peak-volume="soundEffect.audv"
-                          :attack="soundEffect.envelopeAttack"
-                          :decay="soundEffect.envelopeDecay"
-                          :decay-end-percent="soundEffect.envelopeDecayEnd"
-                          :sustain-length="soundEffect.envelopeSustainLength"
-                          :release-start-percent="soundEffect.envelopeReleaseStart"
-                          :release="soundEffect.envelopeRelease"
-                          @update:attack="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeAttack', value)"
-                          @update:decay="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeDecay', value)"
-                          @update:decayEndPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeDecayEnd', value)"
-                          @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeReleaseStart', value)"
-                          @update:release="(value) => handleEnvelopeGraphChange(soundEffect, 'envelopeRelease', value)"
+                          :staircase-step="chipFx(soundEffect).staircase ? chipFx(soundEffect).staircaseStep : 0"
+                          :staircase-frames="chipFx(soundEffect).staircase ? chipFx(soundEffect).staircaseFrames : 0"
+                          :peak-volume="chipFx(soundEffect).audv"
+                          :attack="chipFx(soundEffect).envelopeAttack"
+                          :decay="chipFx(soundEffect).envelopeDecay"
+                          :decay-end-percent="chipFx(soundEffect).envelopeDecayEnd"
+                          :sustain-length="chipFx(soundEffect).envelopeSustainLength"
+                          :release-start-percent="chipFx(soundEffect).envelopeReleaseStart"
+                          :release="chipFx(soundEffect).envelopeRelease"
+                          @update:attack="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeAttack', value)"
+                          @update:decay="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeDecay', value)"
+                          @update:decayEndPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeDecayEnd', value)"
+                          @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeReleaseStart', value)"
+                          @update:release="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'envelopeRelease', value)"
                         />
                       </template>
                     </div>
                     <!-- A sound of the DPC+ chip can play the pitches the TIA plays: the sweep, frequency envelope and arpeggio of the Standard settings. -->
                     <v-switch
-                      v-if="cardDpc(soundEffect) && (soundEffect.sweep || soundEffect.pitchEnvelope || soundEffect.arpeggio)"
+                      v-if="cardDpc(soundEffect) && (chipFx(soundEffect).sweep || chipFx(soundEffect).pitchEnvelope || chipFx(soundEffect).arpeggio)"
                       :input-value="dpcFollows(soundEffect)"
                       label="Same pitches as Standard"
                       title="On: the chip plays the same pitches as the TIA plays for this sound's sweep, frequency envelope and arpeggio (the settings of the Standard side, in steps of the frequency number), so the two sound alike. Off: the sweep moves in semitones to an End note."
@@ -636,17 +639,17 @@
                     />
                     <!-- A frequency sweep: the pitch moves from the Frequency above to the end frequency while the sound plays. -->
                     <div class="soundfx-arpeggio-block soundfx-sweep-block"
-                      :class="{'soundfx-arpeggio-block--expanded': soundEffect.sweep}"
+                      :class="{'soundfx-arpeggio-block--expanded': chipFx(soundEffect).sweep}"
                     >
                       <v-switch
-                        v-model="soundEffect.sweep"
+                        v-model="chipFx(soundEffect).sweep"
                         label="Frequency sweep"
                         title="The pitch moves from the Frequency (or Note) above to the end frequency while the sound plays, one step every few frames."
                         hide-details
                         class="soundfx-arpeggio-switch"
                         @change="() => handleSweepSwitch(soundEffect)"
                       />
-                      <template v-if="soundEffect.sweep">
+                      <template v-if="chipFx(soundEffect).sweep">
                         <!-- The numbers on one full-width row, the two switches under them. -->
                         <div class="soundfx-sweep-fields">
                           <!-- A sound of the DPC+ chip sweeps to a note of the piano, in semitones. -->
@@ -686,7 +689,7 @@
                           <v-text-field
                             label="Step"
                             :title="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? 'How many semitones the pitch moves each time it steps.' : 'How far the frequency moves each time it steps.'"
-                            v-model.number="soundEffect.sweepStep"
+                            v-model.number="chipFx(soundEffect).sweepStep"
                             type="number"
                             min="1"
                             :max="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? MAX_DPC_SWEEP_STEP : MAX_SWEEP_STEP"
@@ -697,7 +700,7 @@
                           <v-select
                             label="Every"
                             title="How many frames pass between steps."
-                            v-model="soundEffect.sweepFrames"
+                            v-model="chipFx(soundEffect).sweepFrames"
                             :items="sweepFrameOptionItems"
                             hide-details
                             @change="handleChildChange"
@@ -707,7 +710,7 @@
                         <div class="soundfx-sweep-switches">
                           <v-switch
                             v-if="!cardDpc(soundEffect) || dpcFollows(soundEffect)"
-                            v-model="soundEffect.sweepWrap"
+                            v-model="chipFx(soundEffect).sweepWrap"
                             label="Wrap"
                             title="The frequencies run from 0 to 31 and then start over. Off: the sweep takes the short way to the end frequency (30 to 20 plays 30, 29 ... 20). On: it takes the long way, past the end of the range (30 to 20 plays 30, 31, 0, 1 ... 20)."
                             hide-details
@@ -716,7 +719,7 @@
                             @change="handleChildChange"
                           />
                           <v-switch
-                            v-model="soundEffect.sweepRepeat"
+                            v-model="chipFx(soundEffect).sweepRepeat"
                             label="Repeat"
                             title="When the sweep reaches the end frequency it starts over from the Frequency above. Off: it stays on the end frequency."
                             hide-details
@@ -729,21 +732,21 @@
                     </div>
                     <!-- A frequency envelope: the pitch moves by up to an amount, following the envelope's shape. -->
                     <div class="soundfx-envelope-block"
-                      :class="{'soundfx-envelope-block--expanded': soundEffect.pitchEnvelope}"
+                      :class="{'soundfx-envelope-block--expanded': chipFx(soundEffect).pitchEnvelope}"
                     >
                       <v-switch
-                        v-model="soundEffect.pitchEnvelope"
+                        v-model="chipFx(soundEffect).pitchEnvelope"
                         label="Frequency envelope"
                         title="Shapes the pitch over time (Attack/Decay/Sustain/Release), like the volume Envelope shapes the volume: the frequency moves away from the Frequency above by up to the amount set here. Plays when the sound is played from blocks."
                         hide-details
                         class="soundfx-envelope-switch"
                         @change="handleChildChange"
                       />
-                      <template v-if="soundEffect.pitchEnvelope">
+                      <template v-if="chipFx(soundEffect).pitchEnvelope">
                         <v-text-field
                           label="Amount"
                           :title="cardDpc(soundEffect) && !dpcFollows(soundEffect) ? 'How many semitones the pitch moves at the peak of the envelope, -31 to 31. A positive number is a higher pitch.' : 'How far the frequency moves at the peak of the envelope, -31 to 31. A positive number is a lower pitch.'"
-                          v-model.number="soundEffect.pitchEnvelopeAmount"
+                          v-model.number="chipFx(soundEffect).pitchEnvelopeAmount"
                           type="number"
                           min="-31"
                           max="31"
@@ -754,7 +757,7 @@
                         <v-select
                           label="Attack"
                           title="Frames to move from the Frequency to the full amount."
-                          v-model="soundEffect.pitchEnvelopeAttack"
+                          v-model="chipFx(soundEffect).pitchEnvelopeAttack"
                           :items="envelopeAttackReleaseFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -763,7 +766,7 @@
                         <v-select
                           label="Decay"
                           title="Frames to move from the full amount to the Decay End level."
-                          v-model="soundEffect.pitchEnvelopeDecay"
+                          v-model="chipFx(soundEffect).pitchEnvelopeDecay"
                           :items="envelopeStageFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -772,7 +775,7 @@
                         <v-select
                           label="Decay End"
                           title="The part of the amount (percent) Decay ends at, and Sustain starts from."
-                          v-model="soundEffect.pitchEnvelopeDecayEnd"
+                          v-model="chipFx(soundEffect).pitchEnvelopeDecayEnd"
                           :items="envelopeVolumePercentOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -781,7 +784,7 @@
                         <v-select
                           label="Sustain length"
                           title="How many frames Sustain takes to glide from the Decay End level to the Release Start level."
-                          v-model="soundEffect.pitchEnvelopeSustainLength"
+                          v-model="chipFx(soundEffect).pitchEnvelopeSustainLength"
                           :items="envelopeSustainFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -790,7 +793,7 @@
                         <v-select
                           label="Release Start"
                           title="The part of the amount (percent) Sustain ends at, and Release starts from."
-                          v-model="soundEffect.pitchEnvelopeReleaseStart"
+                          v-model="chipFx(soundEffect).pitchEnvelopeReleaseStart"
                           :items="envelopeVolumePercentOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -799,7 +802,7 @@
                         <v-select
                           label="Release"
                           title="Frames to move from the Release Start level back to the Frequency."
-                          v-model="soundEffect.pitchEnvelopeRelease"
+                          v-model="chipFx(soundEffect).pitchEnvelopeRelease"
                           :items="envelopeAttackReleaseFrameOptionItems"
                           hide-details
                           @change="handleChildChange"
@@ -811,7 +814,7 @@
                             small
                             title="Reset the frequency envelope to default"
                             class="soundfx-stop-btn soundfx-icon-btn-size"
-                            @click="() => handleResetPitchEnvelope(soundEffect)"
+                            @click="() => handleResetPitchEnvelope(chipFx(soundEffect))"
                           >
                             <v-icon small>mdi-restore</v-icon>
                           </v-btn>
@@ -838,17 +841,17 @@
                         </div>
                         <!-- The same graph as the volume envelope's: its height is the part of the Amount the pitch has moved. -->
                         <EnvelopeGraph
-                          :attack="soundEffect.pitchEnvelopeAttack"
-                          :decay="soundEffect.pitchEnvelopeDecay"
-                          :decay-end-percent="soundEffect.pitchEnvelopeDecayEnd"
-                          :sustain-length="soundEffect.pitchEnvelopeSustainLength"
-                          :release-start-percent="soundEffect.pitchEnvelopeReleaseStart"
-                          :release="soundEffect.pitchEnvelopeRelease"
-                          @update:attack="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeAttack', value)"
-                          @update:decay="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeDecay', value)"
-                          @update:decayEndPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeDecayEnd', value)"
-                          @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeReleaseStart', value)"
-                          @update:release="(value) => handleEnvelopeGraphChange(soundEffect, 'pitchEnvelopeRelease', value)"
+                          :attack="chipFx(soundEffect).pitchEnvelopeAttack"
+                          :decay="chipFx(soundEffect).pitchEnvelopeDecay"
+                          :decay-end-percent="chipFx(soundEffect).pitchEnvelopeDecayEnd"
+                          :sustain-length="chipFx(soundEffect).pitchEnvelopeSustainLength"
+                          :release-start-percent="chipFx(soundEffect).pitchEnvelopeReleaseStart"
+                          :release="chipFx(soundEffect).pitchEnvelopeRelease"
+                          @update:attack="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeAttack', value)"
+                          @update:decay="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeDecay', value)"
+                          @update:decayEndPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeDecayEnd', value)"
+                          @update:releaseStartPercent="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeReleaseStart', value)"
+                          @update:release="(value) => handleEnvelopeGraphChange(chipFx(soundEffect), 'pitchEnvelopeRelease', value)"
                         />
                       </template>
                     </div>
@@ -892,6 +895,8 @@ import {newestSteps} from '../hooks/undo-limit';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useSoundEffectsStorage,
   useSoundFxColumnsStorage} from '../hooks/project';
 import {frequencyForMidi, midiForPianoIndex, normalizeTiaShape, PIANO_KEY_COUNT} from '../utils/dpc-sound';
+import {tvAudioClockScale} from '../utils/tv-standard';
+import {armSettingsFrom, hasSeparateArm, settingsOfView} from '../utils/chip-settings';
 import {AUDC_OPTIONS} from '../blocks/sound';
 import {DEFAULT_SOUND_EFFECTS, processSoundEffectsStorageDefaults, ARPEGGIO_DIVISION_OPTIONS,
   DEFAULT_ARPEGGIO_DIVISION, DEFAULT_ARPEGGIO_INTERVAL, MIN_ARPEGGIO_INTERVAL,
@@ -997,14 +1002,17 @@ export default defineComponent({
     // when the editor opens, for projects saved before this applied. Iterates
     // every sound effect since the caller can't say which one changed.
     const syncEnvelopeDurations = () => {
-      state.value.soundEffects.forEach((soundEffect) => {
-        if (!soundEffect.envelope) return;
-        // At most 255: a sound's frames are counted down in a byte (see clampEnvelopeStages).
-        const combinedFrames = Math.min(255, (Number(soundEffect.envelopeAttack) || 0) + (Number(soundEffect.envelopeDecay) || 0) +
-          (Number(soundEffect.envelopeSustainLength) || 0) + (Number(soundEffect.envelopeRelease) || 0));
-        if (combinedFrames > 0 && Number(soundEffect.duration) !== combinedFrames) {
-          soundEffect.duration = combinedFrames;
-        }
+      state.value.soundEffects.forEach((card) => {
+        // The settings of the TIA and, when the card has them, the separate ones of the ARM.
+        [card, ...(hasSeparateArm(card) ? [card.arm] : [])].forEach((soundEffect) => {
+          if (!soundEffect.envelope) return;
+          // At most 255: a sound's frames are counted down in a byte (see clampEnvelopeStages).
+          const combinedFrames = Math.min(255, (Number(soundEffect.envelopeAttack) || 0) + (Number(soundEffect.envelopeDecay) || 0) +
+            (Number(soundEffect.envelopeSustainLength) || 0) + (Number(soundEffect.envelopeRelease) || 0));
+          if (combinedFrames > 0 && Number(soundEffect.duration) !== combinedFrames) {
+            soundEffect.duration = combinedFrames;
+          }
+        });
       });
     };
     const configurationStorage = useConfigurationStorage();
@@ -1049,10 +1057,15 @@ export default defineComponent({
     const ENVELOPE_HISTORY_KEYS = ['envelopeAttack', 'envelopeDecay', 'envelopeDecayEnd', 'envelopeSustainLength',
       'envelopeReleaseStart', 'envelopeRelease', 'pitchEnvelopeAttack', 'pitchEnvelopeDecay', 'pitchEnvelopeDecayEnd',
       'pitchEnvelopeSustainLength', 'pitchEnvelopeReleaseStart', 'pitchEnvelopeRelease'];
-    const snapshotEnvelope = (soundEffect) => JSON.stringify(
-        ENVELOPE_HISTORY_KEYS.reduce((acc, key) => {
-          acc[key] = soundEffect[key]; return acc;
-        }, {}));
+    const snapshotEnvelope = (soundEffect) => JSON.stringify({
+      ...ENVELOPE_HISTORY_KEYS.reduce((acc, key) => {
+        acc[key] = soundEffect[key]; return acc;
+      }, {}),
+      // The separate settings of the ARM have shapes that are separate (see utils/chip-settings.js).
+      arm: hasSeparateArm(soundEffect) ? ENVELOPE_HISTORY_KEYS.reduce((acc, key) => {
+        acc[key] = soundEffect.arm[key]; return acc;
+      }, {}) : null,
+    });
     const envelopeUndoStacks = ref({});
     const envelopeRedoStacks = ref({});
     const envelopeLastSnapshot = {};
@@ -1084,6 +1097,11 @@ export default defineComponent({
       ENVELOPE_HISTORY_KEYS.forEach((key) => {
         soundEffect[key] = data[key];
       });
+      if (data.arm && hasSeparateArm(soundEffect)) {
+        ENVELOPE_HISTORY_KEYS.forEach((key) => {
+          soundEffect.arm[key] = data.arm[key];
+        });
+      }
       // Written directly (not through the watcher above) so restoring a
       // snapshot is never itself mistaken for a new edit worth recording.
       envelopeLastSnapshot[soundEffect.id] = snapshotJson;
@@ -1339,7 +1357,7 @@ export default defineComponent({
 
     // A new sound card with the numbered name and the default settings of every field.
     const buildNewSoundEffect = (id) => {
-      return {
+      const card = {
         id,
         ...newCardFolder(),
         name: `Sound effect ${id}`,
@@ -1380,6 +1398,9 @@ export default defineComponent({
         pitchEnvelopeReleaseStart: DEFAULT_PITCH_ENVELOPE_RELEASE_START,
         pitchEnvelopeRelease: DEFAULT_PITCH_ENVELOPE_RELEASE,
       };
+      // The settings of the DPC+ chip, next to the TIA's (see utils/chip-settings.js).
+      card.arm = armSettingsFrom(card);
+      return card;
     };
 
     const handleAddSoundEffect = () => {
@@ -1480,6 +1501,9 @@ export default defineComponent({
     const sampleImportReplaceName = ref(null);
     // A DPC+ project's sounds are made for both chips; a Standard project has only the TIA.
     const sampleImportDefaultChip = computed(() => ((configurationStorage.value || {}).kernel === 'dpcplus' ? 'both' : 'tia'));
+    const sampleImportDpcAvailable = computed(() => (configurationStorage.value || {}).kernel === 'dpcplus');
+    const sampleImportClockScale = computed(() => tvAudioClockScale(configurationStorage.value || {}));
+    const sampleImportExistingNames = computed(() => state.value.soundEffects.map((soundEffect) => soundEffect.name || ''));
     const handleImportSamples = () => {
       openFileDialogMultiple('audio/*,.wav,.ogg,.mp3,.flac,.m4a,.aac')
           .then((files) => {
@@ -1496,23 +1520,35 @@ export default defineComponent({
       ...fields, name, isInstrument: kind === 'instrument', isPercussion: kind === 'percussion',
       ...(chip === 'tia' && dpcPlusSoundCards.value ? {dpcView: 'standard'} : {}),
     });
-    const handleConfirmSampleImport = (imports) => {
+    // The card is made again from the defaults with the imported sound, so nothing of the sound it had stays; it keeps its id, folder and color.
+    const replaceCardWithImport = (target, imported) => {
+      const keep = {id: target.id, folder: target.folder, color: target.color};
+      const fresh = buildNewSoundEffect(target.id);
+      Object.keys(target).forEach((key) => {
+        if (!(key in keep)) delete target[key];
+      });
+      Object.assign(target, fresh, importedSoundFields(imported), keep);
+      if (keep.folder === undefined) delete target.folder;
+    };
+    const handleConfirmSampleImport = (imports, {replaceSameName = false} = {}) => {
       if (!imports.length) return;
       const soundEffects = state.value.soundEffects;
       const remaining = imports.slice();
       const target = selectedSoundEffect.value;
+      const replaced = new Set();
       if (target) {
-        const first = importedSoundFields(remaining.shift());
-        const keep = {id: target.id, folder: target.folder, color: target.color};
-        // The card is made again from the defaults, so nothing of the sound it had stays.
-        const fresh = buildNewSoundEffect(target.id);
-        Object.keys(target).forEach((key) => {
-          if (!(key in keep)) delete target[key];
-        });
-        Object.assign(target, fresh, first, keep);
-        if (keep.folder === undefined) delete target.folder;
+        replaceCardWithImport(target, remaining.shift());
+        replaced.add(target.id);
       }
       remaining.forEach((imported) => {
+        const name = (imported.name || '').trim().toLowerCase();
+        const sameName = replaceSameName && name ?
+          soundEffects.find((soundEffect) => !replaced.has(soundEffect.id) && (soundEffect.name || '').trim().toLowerCase() === name) : null;
+        if (sameName) {
+          replaceCardWithImport(sameName, imported);
+          replaced.add(sameName.id);
+          return;
+        }
         const maxId = max(soundEffects.map((o) => o.id)) || 0;
         soundEffects.push({...buildNewSoundEffect(maxId + 1), ...importedSoundFields(imported)});
       });
@@ -1624,7 +1660,7 @@ export default defineComponent({
       else handleChildChange();
     };
     const handleSweepSwitch = (soundEffect) => {
-      if (cardDpc(soundEffect) && soundEffect.sweep && !soundEffect.dpcSweepEnd) {
+      if (cardDpc(soundEffect) && chipFx(soundEffect).sweep && !soundEffect.dpcSweepEnd) {
         const key = dpcKeyForHz(Number(soundEffect.dpcFrequency) || 440);
         soundEffect.dpcSweepEnd = Math.min(108, key + 20 + 12);
       }
@@ -1655,6 +1691,8 @@ export default defineComponent({
     };
     const cardTia = (soundEffect) => !!soundEffect && dpcPlusSoundCards.value && cardView(soundEffect) === 'standard';
     const cardDpc = (soundEffect) => dpcPlusSoundCards.value && !cardTia(soundEffect);
+    // The settings the card shows and changes: the card's, or with the ARM showing and a card that has them, the separate ones of the ARM.
+    const chipFx = (soundEffect) => settingsOfView(soundEffect, cardDpc(soundEffect));
     const handleStandardChange = (soundEffect, typeChanged = false) => {
       if (cardTia(soundEffect)) handleTiaChange(soundEffect, typeChanged);
       else if (typeChanged) handleAudcChange(soundEffect);
@@ -1719,7 +1757,7 @@ export default defineComponent({
       handleExportSoundEffect, handleImportSoundEffect,
       handleExportSoundBank, handleImportSoundBank,
       soundBankImportOpen, soundBankImportEntries, handleConfirmSoundBankImport,
-      sampleImportOpen, sampleImportFiles, sampleImportReplaceName, sampleImportDefaultChip, handleImportSamples, handleConfirmSampleImport,
+      sampleImportOpen, sampleImportFiles, sampleImportReplaceName, sampleImportDefaultChip, sampleImportDpcAvailable, chipFx, sampleImportClockScale, sampleImportExistingNames, handleImportSamples, handleConfirmSampleImport,
       canUndoEnvelope, canRedoEnvelope, handleUndoEnvelope, handleRedoEnvelope, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, handleResetEnvelope,
       handleResetPitchEnvelope,
       handleStopPreview, loopPreview, handleSetSoundEffectColor, autoInstrumentColor,
@@ -2319,6 +2357,11 @@ export default defineComponent({
   flex-wrap: wrap;
 }
 
+/* The track of a dense switch is 12 pixels tall but sits where one of 14 does, so it is a pixel above the middle of its label. */
+.soundfx-fields >>> .v-input--dense.v-input--switch .v-input--switch__track {
+  top: calc(50% - 6px);
+}
+
 .soundfx-kernel-toggle {
   flex: 1 1 100%;
   margin: 4px 0 8px;
@@ -2483,7 +2526,19 @@ export default defineComponent({
 .soundfx-sweep-switch {
   flex: 0 0 auto;
   margin-top: 0 !important;
+  margin-bottom: 0 !important;
   padding-top: 0 !important;
+}
+
+/* The switch's slot has a margin under it by default, which is too much space between the switch and what follows it. */
+.soundfx-sweep-switch >>> .v-input__slot {
+  margin-bottom: 0;
+}
+
+/* With the staircase switch just above it (the switch turned off, so its Step and Hold fields are not between them) the graph's controls sit
+   as far under the switch as the switch is under the Release field above it. */
+.soundfx-sweep-switches + .soundfx-envelope-graph-toolbar {
+  margin-top: 0;
 }
 
 /* Full width so it forces its  line above the graph, same "100%-width

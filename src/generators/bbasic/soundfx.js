@@ -6,7 +6,8 @@ import {useConfigurationStorage,
 import {buildEnvelopeCurve, clampEnvelopeStages} from '../../utils/envelope';
 import {buildPitchTable, buildDpcPitchOffsets, pitchTableByFramesLeft} from '../../utils/pitch-table';
 import {buildVolumeStaircase} from '../../utils/staircase';
-import {chipNoteRegister} from './dpcplus-audio';
+import {chipNoteRegister, isChipChannel} from './dpcplus-audio';
+import {settingsForChannel} from '../../utils/chip-settings';
 
 // The DIM toggle's default percentage, used until the user picks a value
 // on the slider next to it.
@@ -44,7 +45,9 @@ export const anySoundEffectHasEnvelope = () => {
     const configurationStorage = useConfigurationStorage();
     if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return false;
     const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
-    return data.soundEffects.some((soundEffect) => !!(soundEffect.envelope || soundEffect.staircase));
+    // (Either chip's settings count: which chip plays a sound is known where it is played.)
+    return data.soundEffects.some((soundEffect) => !!(soundEffect.envelope || soundEffect.staircase ||
+      (soundEffect.arm && (soundEffect.arm.envelope || soundEffect.arm.staircase))));
   } catch (e) {
     return false;
   }
@@ -66,11 +69,16 @@ export const soundEffectChannelHasEnvelope = (workspace, channel) => {
     const configurationStorage = useConfigurationStorage();
     if (((configurationStorage && configurationStorage.value) || {}).muteAllAudio) return false;
     const data = processSoundEffectsStorageDefaults(useSoundEffectsStorage());
+    // A channel the DPC+ chip plays has the settings the chip has of a sound (see utils/chip-settings.js).
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const chipChannel = config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false && isChipChannel(channel);
     return workspace.getAllBlocks(false).some((block) =>
       block.type === 'soundfx_play' && block.isEnabled() &&
       `${block.getFieldValue('CHANNEL')}` === `${channel}` &&
-      data.soundEffects.some((soundEffect) =>
-        `${soundEffect.id}` === `${block.getFieldValue('SOUNDFX')}` && !!(soundEffect.envelope || soundEffect.staircase)));
+      data.soundEffects.some((card) => {
+        const soundEffect = settingsForChannel(card, chipChannel);
+        return `${soundEffect.id}` === `${block.getFieldValue('SOUNDFX')}` && !!(soundEffect.envelope || soundEffect.staircase);
+      }));
   } catch (e) {
     return false;
   }
@@ -278,7 +286,7 @@ export const soundPitchChannels = (workspace, dpcAudioPlan) => {
       const channel = `${block.getFieldValue('CHANNEL')}`;
       const soundEffect = data.soundEffects.find(({id}) => `${id}` === `${block.getFieldValue('SOUNDFX')}`);
       const plan = dpcAudioPlan && dpcAudioPlan.isChannel(channel) ? dpcAudioPlan : null;
-      if (soundEffect && soundPitchValues(soundEffect, plan)) channels.add(`${Number(channel)}`);
+      if (soundEffect && soundPitchValues(settingsForChannel(soundEffect, !!plan), plan)) channels.add(`${Number(channel)}`);
     });
   } catch (e) {
     return channels;
@@ -324,10 +332,14 @@ export default (Blockly) => {
 
   Blockly.BBasic['soundfx_play'] = function(block) {
     const channel = Blockly.BBasic.normalizeChannel(block.getFieldValue('CHANNEL'));
-    const soundEffect = findSoundEffectById(block.getFieldValue('SOUNDFX'));
-    if (!soundEffect) {
+    const foundSoundEffect = findSoundEffectById(block.getFieldValue('SOUNDFX'));
+    if (!foundSoundEffect) {
       return `rem Sound effect not found\n`;
     }
+    // On a channel the DPC+ chip plays, the settings the chip has of the sound (see utils/chip-settings.js): only what is played on the chip
+    // or on the TIA is used, so a sound played on one of them has nothing of the other in the ROM.
+    const soundEffect = settingsForChannel(foundSoundEffect,
+        !!(Blockly.BBasic.dpcAudioPlan && Blockly.BBasic.dpcAudioPlan.isChannel(channel)));
 
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};

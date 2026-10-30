@@ -12,6 +12,7 @@ import {useConfigurationStorage,
 import {effectiveTempo} from '../../utils/music-playback';
 import {buildEnvelopeCurve} from '../../utils/envelope';
 import {frequencyForMidi} from '../../utils/dpc-sound';
+import {settingsForChannel} from '../../utils/chip-settings';
 import {buildVolumeStaircase} from '../../utils/staircase';
 import {noteAudf, noteAudv, soundHasTunableNotes, rawFrequencyOf} from '../../utils/music-notes';
 import {envelopeFlatOn, envelopeStartPosition, registerEnvelopeConfig, NO_ENVELOPE_SENTINEL, volumeLimitAsm, soundPitchValues,
@@ -983,8 +984,12 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     const channel = trackChannel(track);
     if (!notesByChannel[channel]) return;
     if (isMusicTrackMuted(mutedTrackIds, soloedTrackIds, song, pattern, track)) return;
-    const soundEffect = soundEffects.find(({id}) => `${id}` === `${track.soundEffectId}`);
-    if (!soundEffect) return;
+    const baseSound = soundEffects.find(({id}) => `${id}` === `${track.soundEffectId}`);
+    if (!baseSound) return;
+    // Under DPC+ only the chip's channels are played by the chip (channel 1 stays on the TIA), and the notes on one use the settings the chip
+    // has of the instrument: an instrument only played on one of them has nothing of the other in the ROM (see utils/chip-settings.js).
+    const chipPlan = dpcPlusPlan && dpcPlusPlan.isChannel(channel) ? dpcPlusPlan : null;
+    const soundEffect = settingsForChannel(baseSound, !!chipPlan);
     // arpeggioDivision is tempo-relative (e.g. 8 = "flip every 1/8 step" -
     // see blocks/soundfx.js), converted here into this note's  actual
     // frame count using the framesPerUnit already computed above for this
@@ -1003,7 +1008,6 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
     // , they always follow the instrument's live settings, even if
     // those change after the note was placed.
     // Under DPC+ only channel 0 is played by the chip; channel 1 stays on the TIA, with the sound's Standard type.
-    const chipPlan = dpcPlusPlan && dpcPlusPlan.isChannel(channel) ? dpcPlusPlan : null;
     const isTunable = soundHasTunableNotes(soundEffect, !chipPlan);
     // 0 (the "no watched instrument" sentinel - see
     // resolveNotePlayedInstruments) for an instrument nothing actually

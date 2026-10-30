@@ -708,7 +708,8 @@ export default defineComponent({
       return words.every((word) => text.includes(word));
     };
     const filteredSoundBanks = computed(() => soundBanksState.entries.filter(
-        (bank) => (data.soundBankFilter === 'all' || bank.kind === data.soundBankFilter) &&
+        (bank) => (data.soundBankFilter === 'all' || bank.kind === data.soundBankFilter ||
+          (bank.kind === 'bank' && (bank.soundKinds || []).includes(data.soundBankFilter))) &&
           matchesSearch(data.soundBankSearch, [bank.name, bank.developer, bank.kernel, bank.kind, ...(bank.sounds || [])])));
     const filteredExamples = computed(() => examplesState.entries.filter(
         (example) => matchesSearch(data.exampleSearch,

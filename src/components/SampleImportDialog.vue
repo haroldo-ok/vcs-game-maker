@@ -19,6 +19,48 @@
             title="Longer fits are closer to the recording. Change it, then use the refit button on a sound."
           />
         </div>
+        <div v-if="items.length > 1" class="sample-import-row sample-import-all">
+          <span class="sample-import-all-label">Set every sound</span>
+          <v-select
+            v-model="allKind"
+            :items="kindItems"
+            label="Sound is"
+            dense
+            hide-details
+            clearable
+            class="sample-import-kind"
+            @change="(value) => applyAll('kind', value)"
+          />
+          <v-select
+            v-if="dpcAvailable"
+            v-model="allChip"
+            :items="chipItems"
+            label="Plays on"
+            dense
+            hide-details
+            clearable
+            class="sample-import-chip"
+            @change="(value) => applyAll('chip', value)"
+          />
+          <v-select
+            v-model="allMode"
+            :items="modeItems"
+            label="Fit as"
+            dense
+            hide-details
+            clearable
+            class="sample-import-mode"
+            @change="(value) => applyAll('mode', value)"
+          />
+          <v-checkbox
+            v-model="replaceSameName"
+            label="Replace the cards that have the same name"
+            dense
+            hide-details
+            class="sample-import-replace"
+            title="A sound whose name is the name of a card of this project replaces that card (it keeps its place, folder and color) instead of becoming a new card"
+          />
+        </div>
         <div v-for="item in items" :key="item.key" class="sample-import-row">
           <v-text-field v-model="item.name" label="Sound name" dense hide-details class="sample-import-name" />
           <v-select
@@ -31,6 +73,7 @@
             title="Where the sound is offered: a Play sound effect block, the Music tab's instruments, or the Music tab's Hit row"
           />
           <v-select
+            v-if="dpcAvailable"
             v-model="item.chip"
             :items="chipItems"
             label="Plays on"
@@ -48,11 +91,12 @@
             dense
             hide-details
             class="sample-import-mode"
-            :disabled="item.status === 'reading' || item.chip === 'tia'"
+            :disabled="item.status === 'reading'"
             title="A tone has a pitch that can move (a tom, a blip); a noise has none (a snare, a hat). Automatic decides from the recording."
             @change="() => refit(item)"
           />
           <v-select
+            v-if="dpcAvailable"
             v-model="item.bars"
             :items="barItems"
             label="Bars"
@@ -72,7 +116,16 @@
           <div class="sample-import-status">
             <v-progress-linear v-if="item.status === 'reading' || item.status === 'fitting'" :value="item.status === 'reading' ? 0 : item.progress * 100" :indeterminate="item.status === 'reading'" height="6" />
             <span v-else-if="item.status === 'error'" class="sample-import-error">{{ item.message }}</span>
-            <span v-else-if="item.status === 'done'">{{ item.message }}</span>
+            <template v-else-if="item.status === 'done'">
+              <svg v-if="item.result && item.result.curve" class="sample-import-curve" viewBox="0 0 84 28" aria-hidden="true">
+                <title>How loud each frame is: the recording (grey), the DPC+ sound (blue) and the TIA sound (orange)</title>
+                <polyline class="sample-import-curve-wanted" :points="curvePoints(item.result.curve.wanted)" />
+                <polyline v-if="item.result.curve.played && item.chip !== 'tia'" class="sample-import-curve-played" :points="curvePoints(item.result.curve.played)" />
+                <polyline v-if="item.chip === 'tia' && item.result.curve.played" class="sample-import-curve-tia" :points="curvePoints(item.result.curve.played)" />
+                <polyline v-if="item.result.curve.tiaPlayed" class="sample-import-curve-tia" :points="curvePoints(item.result.curve.tiaPlayed)" />
+              </svg>
+              <span>{{ item.message }}<em v-if="willReplace(item)" class="sample-import-replaces"> Replaces a card.</em></span>
+            </template>
             <span v-else>Waiting</span>
           </div>
           <div class="sample-import-result-buttons">
@@ -121,7 +174,7 @@ import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
 // The "Import audio samples" popup of the Sound tab. The parent hands it the files the user picked and what the import is going to
 // do with the selected card (replaceName), and puts the sounds it emits with "confirm" on cards. The files are read here one after the
 // other and fitted on worker threads, several at once (see utils/sample-fit-pool.js).
-const QUALITY_SCALE = {fast: 0.5, normal: 1, best: 3};
+const QUALITY_SCALE = {fast: 0.4, normal: 1, best: 3};
 
 export default defineComponent({
   props: {
@@ -131,10 +184,21 @@ export default defineComponent({
     replaceName: {type: String, default: null},
     // What a sound is made for until it is changed: 'dpc' (the DPC+ chip's waveform) or 'tia' (a TIA type and divider).
     defaultChip: {type: String, default: 'dpc'},
+    // Whether the project has the DPC+ sound chip (without it a sound is made for the TIA only).
+    dpcAvailable: {type: Boolean, default: true},
+    // How much slower the TIA's audio clock runs than on an NTSC console (see tvAudioClockScale).
+    clockScale: {type: Number, default: 1},
+    // The names of the cards of the project, for replacing the ones that have the same name.
+    existingNames: {type: Array, default: () => []},
   },
   setup(props, context) {
     const items = ref([]);
     const quality = ref('normal');
+    const replaceSameName = ref(true);
+    // What the "set every sound" choices show (they are only for choosing: the sounds hold the values).
+    const allKind = ref(null);
+    const allChip = ref(null);
+    const allMode = ref(null);
     // Incremented to stop whatever is being fitted (the dialog was closed, or another round started).
     let generation = 0;
     // The decoded recordings, by item key: they are not reactive data.
@@ -165,10 +229,10 @@ export default defineComponent({
       const frames = item.prepared.frames;
       const seconds = (frames / 60).toFixed(2);
       if (result.mode === 'both') {
-        return `DPC+ ${describeMismatch(result.dpcMismatch)}, TIA ${describeMismatch(result.tiaMismatch)} (type ${result.audc}), ${frames} frames (${seconds} s)`;
+        return `DPC+ ${describeMismatch(result.dpcMismatch)} (${result.dpcMismatch.toFixed(2)}), TIA ${describeMismatch(result.tiaMismatch)} (${result.tiaMismatch.toFixed(2)}, type ${result.audc}), ${frames} frames (${seconds} s)`;
       }
-      if (result.mode === 'tia') return `${describeMismatch(result.mismatch)} match, TIA type ${result.audc}, ${frames} frames (${seconds} s)`;
-      return `${describeMismatch(result.mismatch)} match, ${result.mode === 'tone' ? 'tone' : 'noise'}, ${frames} frames (${seconds} s)`;
+      if (result.mode === 'tia') return `${describeMismatch(result.mismatch)} match (${result.mismatch.toFixed(2)}), TIA type ${result.audc}, ${frames} frames (${seconds} s)`;
+      return `${describeMismatch(result.mismatch)} match (${result.mismatch.toFixed(2)}), ${result.mode === 'tone' ? 'tone' : 'noise'}, ${frames} frames (${seconds} s)`;
     };
 
     const fitItem = async (item) => {
@@ -180,7 +244,7 @@ export default defineComponent({
       item.progress = 0;
       let result = null;
       try {
-        result = await runFit(item.chip, item.prepared, {mode: item.mode, bars: Number(item.bars), timeScale: QUALITY_SCALE[quality.value] || 1}, {
+        result = await runFit(item.chip, item.prepared, {mode: item.mode, bars: Number(item.bars), timeScale: QUALITY_SCALE[quality.value] || 1, clockScale: props.clockScale}, {
           onStart: () => {
             if (!stale()) item.status = 'fitting';
           },
@@ -276,6 +340,28 @@ export default defineComponent({
       else previewSoundEffect({...card, loop: false});
     };
 
+    // Sets one choice of every sound; a change of the chip or of how it is fitted fits the sound again.
+    const applyAll = (field, value) => {
+      if (value) {
+        items.value.forEach((item) => {
+          if (item[field] === value || item.status === 'reading') return;
+          item[field] = value;
+          if (field !== 'kind') refit(item);
+        });
+      }
+      allKind.value = null;
+      allChip.value = null;
+      allMode.value = null;
+    };
+
+    // Whether the sound takes the place of a card that has its name.
+    const willReplace = (item) => replaceSameName.value && !!item.name.trim() &&
+      props.existingNames.some((name) => name.trim().toLowerCase() === item.name.trim().toLowerCase());
+
+    // The points of the little graph of a sound's loudness (0 to 1 a frame).
+    const curvePoints = (values) => values.map((value, index) =>
+      `${(1 + (values.length > 1 ? index / (values.length - 1) : 0) * 82).toFixed(1)},${(26 - Math.min(1, value) * 24).toFixed(1)}`).join(' ');
+
     const playOriginal = (item) => {
       const sound = decoded.get(item.key);
       if (sound) playAudioBuffer(sound.buffer);
@@ -298,12 +384,12 @@ export default defineComponent({
         chip: item.chip,
       }));
       generation++;
-      context.emit('confirm', imports);
+      context.emit('confirm', imports, {replaceSameName: replaceSameName.value});
       context.emit('input', false);
     };
 
     return {
-      items, quality, qualityItems, kindItems, modeItems, barItems, chipItems, whereText, ready, refit, playOriginal, playResult, handleCancel, handleConfirm,
+      items, quality, qualityItems, kindItems, modeItems, barItems, chipItems, whereText, ready, refit, playOriginal, playResult, replaceSameName, allKind, allChip, allMode, applyAll, willReplace, curvePoints, handleCancel, handleConfirm,
     };
   },
 });
@@ -351,6 +437,47 @@ export default defineComponent({
   gap: 0;
 }
 
+.sample-import-all {
+  border-top: none;
+  padding-bottom: 4px;
+}
+
+.sample-import-all-label {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.sample-import-replace {
+  margin: 0 0 0 auto;
+  padding: 0;
+}
+
+.sample-import-replaces {
+  opacity: 0.75;
+}
+
+.sample-import-curve {
+  flex: 0 0 84px;
+  width: 84px;
+  height: 28px;
+  margin-right: 8px;
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.sample-import-curve-wanted {
+  stroke: #9e9e9e;
+}
+
+.sample-import-curve-played {
+  stroke: #1976d2;
+}
+
+.sample-import-curve-tia {
+  stroke: #ef6c00;
+}
+
 .sample-import-result-hidden {
   visibility: hidden;
 }
@@ -368,7 +495,9 @@ export default defineComponent({
 }
 
 .sample-import-status {
-  flex: 0 0 260px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 300px;
   font-size: 0.8rem;
   min-width: 0;
 }

@@ -14,11 +14,12 @@
 // improving. It runs in short slices so that the page stays responsive.
 
 import {DPC_WAVE_LENGTH, DPC_WAVE_MAX, TIA_AUDCS, TIA_CLOCK_HZ, tiaChipPattern} from './dpc-sound';
+import {CHIP_SETTING_KEYS} from './chip-settings';
 
 // The chip is read once a scanline: 262 scanlines a frame, 60 frames a second.
 export const CHIP_RATE = 15734;
 const FRAME = 262;
-const BAND_COUNT = 20;
+const BAND_COUNT = 40;
 const FIRST_BAND_HZ = 60;
 const LAST_BAND_HZ = 7500;
 // A card's length is counted in a byte.
@@ -39,17 +40,28 @@ const MIN_HZ = 30;
 const MIN_PITCH_HZ = 27.5;
 const MAX_PITCH_HZ = 4186;
 const MAX_PITCH_AMOUNT = 31;
-// The types of the TIA that are noise (see presetForAudc in utils/dpc-sound.js).
-const TIA_NOISE_AUDCS = [3, 7, 8, 9, 15];
 
 const randomInt = (n) => Math.floor(Math.random() * n);
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
+// The bands are single frequencies, spread evenly in pitch from 60 to 7500 Hz: close enough together that a loop of a few harmonics, which
+// has gaps between them, reads as different from the even hiss of a noise.
+const bandHz = (band) => FIRST_BAND_HZ * Math.pow(LAST_BAND_HZ / FIRST_BAND_HZ, band / (BAND_COUNT - 1));
 // Goertzel's coefficient of each band's frequency (see bandEnergies).
-const BAND_COEFFICIENT = Float64Array.from({length: BAND_COUNT}, (_, band) => {
-  const hz = FIRST_BAND_HZ * Math.pow(LAST_BAND_HZ / FIRST_BAND_HZ, band / (BAND_COUNT - 1));
-  return 2 * Math.cos(2 * Math.PI * hz / CHIP_RATE);
-});
+const BAND_COEFFICIENT = Float64Array.from({length: BAND_COUNT}, (_, band) => 2 * Math.cos(2 * Math.PI * bandHz(band) / CHIP_RATE));
+// The cosine and sine of each band's frequency at every sample of a frame, and what a constant frame reads (see buildWaveModel).
+const BAND_COS = new Float64Array(BAND_COUNT * FRAME);
+const BAND_SIN = new Float64Array(BAND_COUNT * FRAME);
+const BAND_DC_RE = new Float64Array(BAND_COUNT);
+const BAND_DC_IM = new Float64Array(BAND_COUNT);
+for (let band = 0; band < BAND_COUNT; band++) {
+  for (let i = 0; i < FRAME; i++) {
+    BAND_COS[band * FRAME + i] = Math.cos(2 * Math.PI * bandHz(band) / CHIP_RATE * i);
+    BAND_SIN[band * FRAME + i] = Math.sin(2 * Math.PI * bandHz(band) / CHIP_RATE * i);
+    BAND_DC_RE[band] += BAND_COS[band * FRAME + i];
+    BAND_DC_IM[band] -= BAND_SIN[band * FRAME + i];
+  }
+}
 const centered = new Float64Array(FRAME);
 
 // The recording as the chip's rate, a mono signal. samples is one channel (or the average of them) at sampleRate.
@@ -195,7 +207,7 @@ const renderTia = (card, frames) => {
   const volumes = envelopeVolumes(card, card.volume, frames);
   const dividers = tiaAudfTrack(card, frames);
   const out = new Float64Array(frames * FRAME);
-  const clock = TIA_CLOCK_HZ / (slow ? 3 : 1);
+  const clock = TIA_CLOCK_HZ * (card.clockScale || 1) / (slow ? 3 : 1);
   let phase = 0;
   for (let frame = 0; frame < frames; frame++) {
     const volume = volumes[frame];
@@ -416,6 +428,133 @@ const nextSlice = () => new Promise((resolve) => setTimeout(resolve, 0));
 // The words for how close a fit is, from its mismatch.
 export const describeMismatch = (value) => (value <= 0.6 ? 'very close' : value <= 1.5 ? 'close' : value <= 3 ? 'rough' : 'loose');
 
+// How loud each frame of a played sound is next to the loudest one, with the recording's, for the little graph of an import.
+const loudnessCurves = (prepared, played) => {
+  const frames = Math.floor(played.length / FRAME);
+  const levels = [];
+  for (let frame = 0; frame < frames; frame++) {
+    let mean = 0;
+    for (let i = 0; i < FRAME; i++) mean += played[frame * FRAME + i];
+    mean /= FRAME;
+    let sum = 0;
+    for (let i = 0; i < FRAME; i++) sum += Math.pow(played[frame * FRAME + i] - mean, 2);
+    levels.push(Math.sqrt(sum / FRAME));
+  }
+  const loudest = Math.max(...levels) || 1;
+  const round = (value) => Math.round(value * 100) / 100;
+  return {wanted: Array.from(prepared.loudness, round), played: levels.map((level) => round(level / loudest))};
+};
+
+// The waveform part of the search, much faster than playing the card every time. With the pitch, the volume and the envelope fixed, the
+// energy that every band of every frame holds is made from the 32 samples of the waveform in a simple way: the frame's reading of
+// a band is the sum, over the samples, of the sample's value times a number that only depends on when the sample is read in the frame.
+// Those numbers are worked out once (buildWaveModel); then moving a bar changes the readings by a multiple of them, and the comparison is
+// worked out from the readings. It leaves out the rounding of the volume to the chip's 16 steps, which the exact comparison (mismatch)
+// counts, so the search ends with that.
+const buildWaveModel = (prepared, card) => {
+  const length = card.attack + card.decay + card.sustainLength + card.release;
+  const frames = Math.max(prepared.frames, length);
+  const volumes = envelopeVolumes(card, card.volume, frames);
+  const track = pitchTrack(card, frames);
+  const bands = BAND_COUNT;
+  const size = DPC_WAVE_LENGTH;
+  const re = new Float64Array(frames * bands * size);
+  const im = new Float64Array(frames * bands * size);
+  const counts = new Float64Array(size);
+  const sampleBar = new Int32Array(FRAME);
+  let phase = 0;
+  for (let frame = 0; frame < frames; frame++) {
+    counts.fill(0);
+    const step = track[frame] / CHIP_RATE;
+    for (let i = 0; i < FRAME; i++) {
+      const bar = Math.floor(phase * size) % size;
+      sampleBar[i] = bar;
+      counts[bar]++;
+      phase += step;
+      if (phase >= 1) phase -= Math.floor(phase);
+    }
+    for (let band = 0; band < bands; band++) {
+      const base = (frame * bands + band) * size;
+      const offset = band * FRAME;
+      for (let i = 0; i < FRAME; i++) {
+        const bar = sampleBar[i];
+        re[base + bar] += BAND_COS[offset + i];
+        im[base + bar] -= BAND_SIN[offset + i];
+      }
+      // The mean of the frame is taken off before it is read: that is a multiple of the reading of a constant.
+      for (let bar = 0; bar < size; bar++) {
+        re[base + bar] -= counts[bar] * BAND_DC_RE[band] / FRAME;
+        im[base + bar] -= counts[bar] * BAND_DC_IM[band] / FRAME;
+      }
+    }
+  }
+  const level = Float64Array.from(volumes, (volume) => volume / DPC_WAVE_MAX);
+  const cells = frames * bands;
+  const readingRe = new Float64Array(cells);
+  const readingIm = new Float64Array(cells);
+  const wantedLog = new Float64Array(cells);
+  const weight = new Float64Array(cells);
+  let weightSum = 0;
+  for (let frame = 0; frame < frames; frame++) {
+    for (let band = 0; band < bands; band++) {
+      const cell = frame * bands + band;
+      wantedLog[cell] = Math.log((frame < prepared.frames ? prepared.reference[frame][band] : 0) + prepared.epsilon);
+      weight[cell] = frame < prepared.frames ? prepared.weights[frame][band] : 0.12;
+      weightSum += weight[cell];
+    }
+  }
+  const energy = new Float64Array(cells);
+  return {
+    // The readings for a waveform of 32 sample values.
+    setWave(wave) {
+      for (let frame = 0; frame < frames; frame++) {
+        for (let band = 0; band < bands; band++) {
+          const cell = frame * bands + band;
+          const base = cell * size;
+          let sumRe = 0;
+          let sumIm = 0;
+          for (let bar = 0; bar < size; bar++) {
+            sumRe += wave[bar] * re[base + bar];
+            sumIm += wave[bar] * im[base + bar];
+          }
+          readingRe[cell] = sumRe * level[frame];
+          readingIm[cell] = sumIm * level[frame];
+        }
+      }
+    },
+    // Adds delta to the given samples of the waveform.
+    moveBar(samples, delta) {
+      for (const sample of samples) {
+        for (let frame = 0; frame < frames; frame++) {
+          const factor = level[frame] * delta;
+          if (factor === 0) continue;
+          for (let band = 0; band < bands; band++) {
+            const cell = frame * bands + band;
+            readingRe[cell] += factor * re[cell * size + sample];
+            readingIm[cell] += factor * im[cell * size + sample];
+          }
+        }
+      }
+    },
+    // How far the waveform is from the recording: the same measure as mismatch.
+    cost() {
+      let total = 0;
+      for (let cell = 0; cell < cells; cell++) {
+        const value = readingRe[cell] * readingRe[cell] + readingIm[cell] * readingIm[cell];
+        energy[cell] = value;
+        total += value;
+      }
+      const scale = total > 0 ? prepared.total / total : 1;
+      let sum = 0;
+      for (let cell = 0; cell < cells; cell++) {
+        const difference = Math.log(energy[cell] * scale + prepared.epsilon) - wantedLog[cell];
+        sum += weight[cell] * difference * difference;
+      }
+      return sum / weightSum;
+    },
+  };
+};
+
 // Fits a TIA sound (a type AUDC, a divider AUDF, a volume, an envelope, a sweep and a frequency envelope of the divider) to the prepared
 // recording, by trying every type at every divider and then improving the best few. Takes the same options as fitSample (mode and bars
 // do not apply). options.fixed holds card settings that stay as they are (the volume, the envelope, the shape of the sweep and the
@@ -423,22 +562,18 @@ export const describeMismatch = (value) => (value <= 0.6 ? 'very close' : value 
 // decayEnd, releaseStart, sweep, sweepStep, sweepFrames, pitchAmount...). Resolves to {fields, mismatch, mode: 'tia', audc}.
 export const fitTiaSample = async (prepared, options = {}) => {
   const {onProgress = () => {}, isCancelled = () => false} = options;
-  const budgetMs = (options.seconds || clamp(3 + prepared.frames * 0.1, 4, 15)) * 1000 * (options.timeScale || 1);
+  const budgetMs = (options.seconds || clamp(2 + prepared.frames * 0.05, 3, 8)) * 1000 * (options.timeScale || 1);
   const started = performance.now();
   prepared.lengthSlack = 1;
   const {candidates, slack} = envelopeCandidates(prepared, 24);
   prepared.lengthSlack = slack;
   const first = candidates[0];
   const fixed = options.fixed || null;
-  // A sound with no clear pitch (a snare, a cymbal, a hat) is made with a noise type of the TIA: the others are tones, and they sound
-  // like one however the band energies line up.
-  const wantedMode = options.mode || 'auto';
-  const analysis = wantedMode === 'noise' ? null : analysePitch(prepared);
-  const noisy = options.noisy !== undefined ? options.noisy :
-    wantedMode === 'noise' || (wantedMode !== 'tone' && !(analysis && analysis.startHz <= 600));
-  const audcs = noisy ? TIA_AUDCS.filter((audc) => TIA_NOISE_AUDCS.includes(audc)) : TIA_AUDCS;
+  // Every type is tried: the measure tells a tone from a noise (it sees the gaps between the harmonics of a tone), so a hiss comes out as
+  // a noise type and a pitched sound as a tone.
+  const audcs = TIA_AUDCS;
   const base = {
-    tia: true, audc: 4, audf: 10, volume: 15,
+    tia: true, audc: 4, audf: 10, volume: 15, clockScale: options.clockScale || 1,
     attack: first.attack, decay: first.decay, sustainLength: first.sustainLength, release: first.release,
     decayEnd: first.decayEnd, releaseStart: first.releaseStart,
     sweep: false, sweepEnd: 0, sweepStep: 1, sweepFrames: 1,
@@ -472,48 +607,109 @@ export const fitTiaSample = async (prepared, options = {}) => {
   }
   if (!overall) overall = {value: Infinity, card: base};
   grid.sort((a, b) => a.value - b.value);
-  // The best few, each improved by small random changes for an equal share of the time left.
-  const starts = grid.slice(0, 4);
-  const share = Math.max(300, (budgetMs - (performance.now() - started)) / Math.max(1, starts.length));
-  for (const start of starts) {
-    let current = {...start.card};
-    let currentValue = start.value;
-    const until = performance.now() + share;
-    while (performance.now() < until) {
-      if (isCancelled()) return null;
-      const candidate = {...current};
-      const kind = Math.random();
-      if (kind < 0.3) {
-        candidate.audf = clamp(candidate.audf + (randomInt(2) ? 1 : -1) * (1 + randomInt(3)), 0, 31);
-      } else if (kind < 0.4) {
-        candidate.audc = audcs[randomInt(audcs.length)];
-      } else if (fixed) {
-        // Only the sweep's end is the card's to choose here.
-        if (candidate.sweep) candidate.sweepEnd = randomInt(32);
-        else candidate.audf = clamp(candidate.audf + randomInt(3) - 1, 0, 31);
-      } else if (kind < 0.5) {
-        candidate.volume = clamp(candidate.volume + randomInt(3) - 1, 4, 15);
-      } else if (kind < 0.6) {
-        const e = candidates[randomInt(candidates.length)];
-        Object.assign(candidate, {attack: e.attack, decay: e.decay, sustainLength: e.sustainLength, release: e.release,
-          decayEnd: e.decayEnd, releaseStart: e.releaseStart});
-      } else if (kind < 0.8) {
-        candidate.sweep = true;
-        if (Math.random() < 0.4) candidate.sweepEnd = randomInt(32);
-        else if (Math.random() < 0.5) candidate.sweepStep = SWEEP_STEPS[randomInt(SWEEP_STEPS.length)];
-        else candidate.sweepFrames = SWEEP_FRAME_COUNTS[randomInt(SWEEP_FRAME_COUNTS.length)];
-        if (Math.random() < 0.1) candidate.sweep = false;
-      } else {
-        bendFrequency(candidate);
-      }
+  const timeUp = () => performance.now() - started > budgetMs;
+  const lengthOf = (c) => c.attack + c.decay + c.sustainLength + c.release;
+
+  // The best of a list of cards, when it is better than the card there is. Resolves to whether it was.
+  const improve = async (state, list) => {
+    let top = null;
+    for (const candidate of list) {
+      if (lengthOf(candidate) > 0 && candidate.pitchAmount && candidate.pitchAttack + candidate.pitchDecay + candidate.pitchSustainLength +
+        candidate.pitchRelease > lengthOf(candidate)) continue;
       const value = mismatch(prepared, candidate);
-      if (value !== null && value < currentValue - 1e-9) {
-        current = candidate;
-        currentValue = value;
-        if (value < overall.value) overall = {value, card: candidate};
-      }
+      if (value !== null && (!top || value < top.value)) top = {value, card: candidate};
       await maybeYield();
+      if (isCancelled()) return false;
     }
+    if (top && top.value < state.value - 1e-9) {
+      state.value = top.value;
+      state.card = top.card;
+      if (top.value < overall.value) overall = {value: top.value, card: top.card};
+      return true;
+    }
+    return false;
+  };
+
+  // One setting at a time, every choice of it tried and the best kept, round after round until a round finds nothing better.
+  const refine = async (state) => {
+    for (let round = 0; round < 8 && !timeUp(); round++) {
+      let better = false;
+      const at = () => state.card;
+      // The type and the divider.
+      const neighbours = [];
+      for (const audc of audcs) {
+        for (let step = -4; step <= 4; step++) neighbours.push({...at(), audc, audf: clamp(at().audf + step, 0, 31)});
+      }
+      better = await improve(state, neighbours) || better;
+      if (!fixed) {
+        better = await improve(state, Array.from({length: 12}, (_, i) => ({...at(), volume: 4 + i}))) || better;
+        better = await improve(state, candidates.map((e) => ({...at(), attack: e.attack, decay: e.decay, sustainLength: e.sustainLength,
+          release: e.release, decayEnd: e.decayEnd, releaseStart: e.releaseStart}))) || better;
+      }
+      // The sweep: its end, and (when the card is free to) how fast it goes.
+      if (!fixed || fixed.sweep) {
+        const ends = Array.from({length: 32}, (_, end) => ({...at(), sweep: true, sweepEnd: end}));
+        better = await improve(state, at().sweep || fixed ? ends : ends.filter((c, end) => end % 3 === 0 || Math.abs(end - at().audf) <= 4)) || better;
+      }
+      if (!fixed) {
+        const speeds = [];
+        SWEEP_STEPS.forEach((step) => SWEEP_FRAME_COUNTS.forEach((every) => speeds.push({...at(), sweepStep: step, sweepFrames: every})));
+        if (at().sweep) better = await improve(state, speeds) || better;
+        better = await improve(state, [{...at(), sweep: false}]) || better;
+        // The frequency envelope: how far it bends and how long it takes.
+        const bends = [{...at(), pitchAmount: 0}];
+        for (let amount = -16; amount <= 16; amount += 2) {
+          if (!amount) continue;
+          for (const decay of [2, 4, 8, 16, 32]) {
+            bends.push({...at(), pitchAmount: amount, pitchAttack: 0, pitchDecay: decay, pitchSustainLength: 0, pitchRelease: 0,
+              pitchDecayEnd: 0, pitchReleaseStart: 0});
+          }
+        }
+        better = await improve(state, bends) || better;
+      }
+      if (!better) break;
+    }
+  };
+
+  // The best few starts, each refined while there is time (the best one first).
+  const used = new Set();
+  const starts = [];
+  for (const entry of grid) {
+    const key = `${entry.card.audc}`;
+    if (!used.has(key)) {
+      used.add(key);
+      starts.push(entry);
+    }
+    if (starts.length >= 4) break;
+  }
+  for (const start of starts) {
+    if (timeUp() || isCancelled()) break;
+    const state = {value: start.value, card: {...start.card}};
+    await refine(state);
+  }
+  // What time is left goes to small random changes of the best card.
+  let current = {value: overall.value, card: {...overall.card}};
+  while (!timeUp()) {
+    if (isCancelled()) return null;
+    const candidate = {...current.card};
+    const kind = Math.random();
+    if (kind < 0.4) {
+      candidate.audf = clamp(candidate.audf + (randomInt(2) ? 1 : -1) * (1 + randomInt(2)), 0, 31);
+    } else if (kind < 0.5) {
+      candidate.audc = audcs[randomInt(audcs.length)];
+    } else if (fixed) {
+      if (candidate.sweep) candidate.sweepEnd = randomInt(32);
+    } else if (kind < 0.7) {
+      candidate.volume = clamp(candidate.volume + randomInt(3) - 1, 4, 15);
+    } else {
+      bendFrequency(candidate);
+    }
+    const value = mismatch(prepared, candidate);
+    if (value !== null && value < current.value - 1e-9) {
+      current = {value, card: candidate};
+      if (value < overall.value) overall = current;
+    }
+    await maybeYield();
   }
 
   onProgress({fraction: 1, mismatch: overall.value});
@@ -523,6 +719,7 @@ export const fitTiaSample = async (prepared, options = {}) => {
     mismatch: overall.value,
     mode: 'tia',
     audc: card.audc,
+    curve: loudnessCurves(prepared, renderTia(card, Math.max(prepared.frames, length))),
     fields: {
       audc: String(card.audc),
       audf: card.audf,
@@ -554,6 +751,43 @@ export const fitTiaSample = async (prepared, options = {}) => {
   };
 };
 
+// A waveform whose harmonics (multiples of hz) have the recording's average level at their frequency: where the search for a noisy sound
+// starts, much nearer than random bars. The phases are random: the best of several tries by the given comparison is kept.
+const spectralStart = (prepared, hz, count, trial, evaluate) => {
+  const mean = Array.from({length: BAND_COUNT}, (_, band) => {
+    let sum = 0;
+    for (let frame = 0; frame < prepared.frames; frame++) sum += prepared.reference[frame][band];
+    return Math.sqrt(sum / prepared.frames);
+  });
+  const amplitudeAt = (frequency) => {
+    if (frequency <= bandHz(0)) return mean[0];
+    if (frequency >= bandHz(BAND_COUNT - 1)) return mean[BAND_COUNT - 1];
+    let band = 0;
+    while (bandHz(band + 1) < frequency) band++;
+    const t = Math.log(frequency / bandHz(band)) / Math.log(bandHz(band + 1) / bandHz(band));
+    return mean[band] * (1 - t) + mean[band + 1] * t;
+  };
+  const harmonics = Math.floor(count / 2);
+  const amplitudes = Array.from({length: harmonics}, (_, k) => amplitudeAt((k + 1) * hz));
+  let bestBars = trial.bars;
+  let bestValue = Infinity;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const wave = new Float64Array(count);
+    for (let k = 0; k < harmonics; k++) {
+      const phase = Math.random() * 2 * Math.PI;
+      for (let i = 0; i < count; i++) wave[i] += amplitudes[k] * Math.cos(2 * Math.PI * (k + 1) * i / count + phase);
+    }
+    const peak = Math.max(...wave.map(Math.abs)) || 1;
+    const bars = Array.from(wave, (v) => clamp(Math.round(7.5 + 7.5 * v / peak), 0, DPC_WAVE_MAX));
+    const value = evaluate({...trial, bars});
+    if (value !== null && value < bestValue) {
+      bestValue = value;
+      bestBars = bars;
+    }
+  }
+  return bestBars;
+};
+
 // Fits a card to the prepared recording.
 //   options.mode: 'auto' (decided from the recording), 'tone' or 'noise'
 //   options.bars: how many bars the waveform is drawn with: 24 or 32
@@ -562,14 +796,14 @@ export const fitTiaSample = async (prepared, options = {}) => {
 // Resolves to {fields, mismatch, mode}: the fields to put on a sound card (see the Sound tab).
 export const fitSample = async (prepared, options = {}) => {
   const {mode: wantedMode = 'auto', bars: barCount = 32, onProgress = () => {}, isCancelled = () => false} = options;
-  const budgetMs = (options.seconds || clamp(3 + prepared.frames * 0.1, 4, 15)) * 1000 * (options.timeScale || 1);
+  const budgetMs = (options.seconds || clamp(2 + prepared.frames * 0.05, 3, 8)) * 1000 * (options.timeScale || 1);
   const started = performance.now();
   const analysis = wantedMode === 'noise' ? null : analysePitch(prepared);
   // A pitch above what a loop of 32 samples can play (it would be read more than once a sample) is better made as a noise.
   const tone = wantedMode === 'tone' ? !!analysis : !!analysis && wantedMode !== 'noise' && analysis.startHz <= 600;
   prepared.lengthSlack = 1;
 
-  // The envelope: the lengths nearest the recording's (the search below picks among the best few by the full comparison).
+  // The envelope: the lengths nearest the recording's (the search below changes it to the other of the best few when that matches better).
   const {candidates, slack} = envelopeCandidates(prepared, 24);
   prepared.lengthSlack = slack;
   const first = candidates[0];
@@ -611,14 +845,22 @@ export const fitSample = async (prepared, options = {}) => {
       limits.maxEnd = 0;
     }
   }
-  const bendFits = (c) => !c.pitchAmount ||
-    c.pitchAttack + c.pitchDecay + c.pitchSustainLength + c.pitchRelease <= c.attack + c.decay + c.sustainLength + c.release;
-  const allowed = (c) => bendFits(c) && c.hz >= limits.minHz && c.hz <= (tone ? MAX_TONE_HZ : limits.maxHz) &&
+  const lengthOf = (c) => c.attack + c.decay + c.sustainLength + c.release;
+  const bendFits = (c) => !c.pitchAmount || c.pitchAttack + c.pitchDecay + c.pitchSustainLength + c.pitchRelease <= lengthOf(c);
+  const allowed = (c) => bendFits(c) && Math.abs(lengthOf(c) - prepared.frames) <= prepared.lengthSlack && c.hz >= limits.minHz &&
+    c.hz <= (tone ? MAX_TONE_HZ : limits.maxHz) &&
     (!tone || !c.sweep || (c.sweepEnd >= limits.minEnd && c.sweepEnd <= limits.maxEnd && c.sweepEnd >= 21 && c.sweepEnd <= 108));
+  // The exact comparison (the chip's 4 bit volume steps and all), and the quick one of the waveform's bars (see buildWaveModel).
   const evaluate = (c) => (allowed(c) ? mismatch(prepared, c) : null);
+  const groups = Array.from({length: barCount}, (_, bar) => Array.from({length: DPC_WAVE_LENGTH}, (_, i) => i)
+      .filter((i) => Math.floor(i * barCount / DPC_WAVE_LENGTH) === bar));
+  const modelOf = (c) => {
+    const model = buildWaveModel(prepared, c);
+    model.setWave(expandBars(c.bars));
+    return model;
+  };
 
-  let best = evaluate(card);
-  if (best === null) best = Infinity;
+  let best = Infinity;
   let sliceStart = performance.now();
   const maybeYield = async () => {
     if (performance.now() - sliceStart > 25) {
@@ -628,108 +870,166 @@ export const fitSample = async (prepared, options = {}) => {
     }
   };
   const timeUp = () => performance.now() - started > budgetMs;
-  const tryCard = (candidate) => {
-    const value = evaluate(candidate);
-    if (value !== null && value < best - 1e-9) {
-      best = value;
-      Object.assign(card, candidate, {bars: candidate.bars.slice()});
-      return true;
+
+  // Each bar moved up or down while that matches better, a pass at a time (the bars in a different order every time).
+  const settle = async (model, bars, passes) => {
+    let current = model.cost();
+    for (let pass = 0; pass < passes; pass++) {
+      let improved = false;
+      const order = bars.map((_, i) => i).sort(() => Math.random() - 0.5);
+      for (const bar of order) {
+        for (const delta of [-4, -2, -1, 1, 2, 4]) {
+          const value = clamp(bars[bar] + delta, 0, DPC_WAVE_MAX);
+          if (value === bars[bar]) continue;
+          model.moveBar(groups[bar], value - bars[bar]);
+          const cost = model.cost();
+          if (cost < current - 1e-9) {
+            current = cost;
+            bars[bar] = value;
+            improved = true;
+          } else {
+            model.moveBar(groups[bar], bars[bar] - value);
+          }
+        }
+        await maybeYield();
+        if (isCancelled()) return current;
+      }
+      if (!improved) break;
     }
-    return false;
+    return current;
   };
 
-  // The best of the envelopes that fit.
-  for (const candidate of candidates) {
-    tryCard({...card, bars: card.bars, attack: candidate.attack, decay: candidate.decay, sustainLength: candidate.sustainLength,
-      release: candidate.release, decayEnd: candidate.decayEnd, releaseStart: candidate.releaseStart});
-    await maybeYield();
-  }
-  // A noisy sound has no pitch to start from: its loop sounds different at every pitch, so each pitch gets a separate short fit.
+  // A noisy sound has no pitch to start from: its loop sounds different at every pitch, so each pitch gets a separate fit.
   if (!tone) {
-    let top = {value: best, card: {...card, bars: card.bars.slice()}};
-    for (const hz of [160, 220, 300, 380, 440, 490]) {
+    let top = null;
+    for (const hz of [120, 160, 220, 300, 380, 440, 490]) {
       const trial = {...card, hz, bars: card.bars.slice()};
-      for (let pass = 0; pass < 3; pass++) {
-        for (let i = 0; i < trial.bars.length; i++) {
-          for (const delta of [-4, -2, -1, 1, 2, 4]) {
-            const v = trial.bars[i] + delta;
-            if (v < 0 || v > DPC_WAVE_MAX) continue;
-            const old = trial.bars[i];
-            trial.bars[i] = v;
-            const value = evaluate(trial);
-            if (value !== null && value < (trial.value === undefined ? Infinity : trial.value)) trial.value = value;
-            else trial.bars[i] = old;
-          }
-          await maybeYield();
-          if (isCancelled()) return null;
-        }
-      }
-      if (trial.value !== undefined && trial.value < top.value) top = {value: trial.value, card: {...trial, bars: trial.bars.slice()}};
+      trial.bars = spectralStart(prepared, hz, trial.bars.length, trial, (c) => (allowed(c) ? mismatch(prepared, c) : null));
+      const model = modelOf(trial);
+      const cost = await settle(model, trial.bars, 3);
+      if (isCancelled()) return null;
+      if (!top || cost < top.cost) top = {cost, card: trial};
     }
     Object.assign(card, top.card, {bars: top.card.bars.slice()});
-    best = top.value;
+  } else {
+    // A tone starts from the cycle of the recording.
+    await settle(modelOf(card), card.bars, 3);
   }
-
+  let model = modelOf(card);
+  best = model.cost();
 
   // A frequency envelope bends the pitch over the sound: a few shapes are tried, and the search below changes the best of them.
-  const length0 = card.attack + card.decay + card.sustainLength + card.release;
+  const length0 = lengthOf(card);
   for (const amount of [-24, -12, -7, -4, 4, 7, 12, 24]) {
     for (const stages of [[0, 8, 0, 0], [0, 16, 0, 0], [0, 32, 0, 0], [0, 0, 0, 16], [0, 0, 0, 32]]) {
       const [pitchAttack, pitchDecay, pitchSustainLength, pitchRelease] = stages;
       if (pitchAttack + pitchDecay + pitchSustainLength + pitchRelease > length0) continue;
-      tryCard({...card, bars: card.bars, pitchAmount: amount, pitchAttack, pitchDecay, pitchSustainLength, pitchRelease,
-        pitchDecayEnd: 0, pitchReleaseStart: 0});
-      await maybeYield();
+      const trial = {...card, bars: card.bars.slice(), pitchAmount: amount, pitchAttack, pitchDecay, pitchSustainLength, pitchRelease,
+        pitchDecayEnd: 0, pitchReleaseStart: 0};
+      if (!allowed(trial)) continue;
+      const trialModel = modelOf(trial);
+      const cost = await settle(trialModel, trial.bars, 1);
+      if (cost < best - 1e-9) {
+        Object.assign(card, trial);
+        model = trialModel;
+        best = cost;
+      }
+      if (isCancelled()) return null;
     }
   }
 
-  // The random search: a few bars at a time, the pitch, the volume, a sweep setting or the envelope.
+  // The search: the bars changed at random and settled again, or the pitch, the volume, the envelope, the frequency envelope or the
+  // sweep changed and the bars settled again for it.
   let lastGain = performance.now();
   let lastBest = best;
-  const minimumMs = 800;
+  const minimumMs = 1000;
   while (!timeUp()) {
     if (isCancelled()) return null;
-    const candidate = {...card, bars: card.bars.slice()};
-    const kind = Math.random();
-    if (kind < 0.8) {
-      const changes = 1 + randomInt(3);
+    if (Math.random() < 0.45) {
+      const bars = card.bars.slice();
+      const changes = 1 + randomInt(4);
       for (let j = 0; j < changes; j++) {
-        const i = randomInt(candidate.bars.length);
-        candidate.bars[i] = clamp(candidate.bars[i] + randomInt(7) - 3, 0, DPC_WAVE_MAX);
+        const bar = randomInt(bars.length);
+        const value = clamp(bars[bar] + randomInt(9) - 4, 0, DPC_WAVE_MAX);
+        model.moveBar(groups[bar], value - bars[bar]);
+        bars[bar] = value;
       }
-    } else if (kind < 0.88) {
-      candidate.hz = clamp(Math.round(candidate.hz * (0.97 + Math.random() * 0.06) * 100) / 100, MIN_HZ, tone ? MAX_TONE_HZ : MAX_NOISE_HZ);
-    } else if (kind < 0.93) {
-      candidate.volume = clamp(candidate.volume + randomInt(3) - 1, 4, 15);
-    } else if (kind < 0.93) {
-      const e = candidates[randomInt(candidates.length)];
-      Object.assign(candidate, {attack: e.attack, decay: e.decay, sustainLength: e.sustainLength, release: e.release,
-        decayEnd: e.decayEnd, releaseStart: e.releaseStart});
-    } else if (kind < 0.97 || !candidate.sweep) {
-      bendFrequency(candidate);
+      const cost = await settle(model, bars, 1);
+      if (cost < best - 1e-9) {
+        card.bars = bars;
+        best = cost;
+      } else {
+        model.setWave(expandBars(card.bars));
+      }
     } else {
-      if (Math.random() < 0.5) candidate.sweepEnd += randomInt(3) - 1;
-      else {
+      const candidate = {...card, bars: card.bars.slice()};
+      const kind = Math.random();
+      if (kind < 0.35) {
+        candidate.hz = clamp(Math.round(candidate.hz * (0.96 + Math.random() * 0.08) * 100) / 100, MIN_HZ, tone ? MAX_TONE_HZ : MAX_NOISE_HZ);
+      } else if (kind < 0.5) {
+        candidate.volume = clamp(candidate.volume + randomInt(3) - 1, 4, 15);
+      } else if (kind < 0.7) {
+        const e = candidates[randomInt(candidates.length)];
+        Object.assign(candidate, {attack: e.attack, decay: e.decay, sustainLength: e.sustainLength, release: e.release,
+          decayEnd: e.decayEnd, releaseStart: e.releaseStart});
+      } else if (kind < 0.88 || !candidate.sweep) {
+        bendFrequency(candidate);
+      } else if (Math.random() < 0.5) {
+        candidate.sweepEnd += randomInt(3) - 1;
+      } else {
         candidate.sweepStep = SWEEP_STEPS[randomInt(SWEEP_STEPS.length)];
         candidate.sweepFrames = SWEEP_FRAME_COUNTS[randomInt(SWEEP_FRAME_COUNTS.length)];
       }
+      if (allowed(candidate)) {
+        const candidateModel = modelOf(candidate);
+        // Only a change that is not far off is worth settling the bars for.
+        if (candidateModel.cost() < best * 1.6) {
+          const cost = await settle(candidateModel, candidate.bars, 2);
+          if (cost < best - 1e-9) {
+            Object.assign(card, candidate);
+            model = candidateModel;
+            best = cost;
+          }
+        }
+      }
+      await maybeYield();
     }
-    if (tryCard(candidate) && best < lastBest * 0.995) {
+    if (best < lastBest * 0.997) {
       lastBest = best;
       lastGain = performance.now();
     }
-    await maybeYield();
     // Stop early when nothing better has turned up for a while.
     const sinceStart = performance.now() - started;
-    if (sinceStart > minimumMs && performance.now() - lastGain > Math.max(2500, sinceStart * 0.5)) break;
+    if (sinceStart > minimumMs && performance.now() - lastGain > Math.max(1500, sinceStart * 0.4)) break;
+  }
+
+  // The bars one last time against the exact comparison, which counts the chip's volume steps.
+  best = evaluate(card);
+  if (best === null) best = Infinity;
+  const polishUntil = performance.now() + Math.min(1200, budgetMs * 0.2);
+  while (performance.now() < polishUntil) {
+    if (isCancelled()) return null;
+    const candidate = {...card, bars: card.bars.slice()};
+    const changes = 1 + randomInt(2);
+    for (let j = 0; j < changes; j++) {
+      const bar = randomInt(candidate.bars.length);
+      candidate.bars[bar] = clamp(candidate.bars[bar] + randomInt(5) - 2, 0, DPC_WAVE_MAX);
+    }
+    const value = evaluate(candidate);
+    if (value !== null && value < best - 1e-9) {
+      best = value;
+      card.bars = candidate.bars;
+    }
+    await maybeYield();
   }
 
   onProgress({fraction: 1, mismatch: best});
-  const length = card.attack + card.decay + card.sustainLength + card.release;
+  const length = lengthOf(card);
   const wave = expandBars(card.bars);
-  return {
+  const result = {
     mismatch: best,
     mode: tone ? 'tone' : 'noise',
+    curve: loudnessCurves(prepared, renderCard(card, Math.max(prepared.frames, length))),
     fields: {
       dpcShape: 'custom',
       dpcWave: wave,
@@ -762,29 +1062,31 @@ export const fitSample = async (prepared, options = {}) => {
       sweepFrames: card.sweepFrames,
     },
   };
+  // The chip's settings are also kept apart (see utils/chip-settings.js), so a card made for the chip alone has them where the chip reads them.
+  result.fields.arm = {};
+  CHIP_SETTING_KEYS.forEach((key) => {
+    if (result.fields[key] !== undefined) result.fields.arm[key] = result.fields[key];
+  });
+  return result;
 };
 
-// The card settings the TIA sound of a card for both chips shares with its DPC+ sound (see fitTiaSample's options.fixed).
-const sharedSettings = (fields) => ({
-  volume: fields.audv, attack: fields.envelopeAttack, decay: fields.envelopeDecay, sustainLength: fields.envelopeSustainLength,
-  release: fields.envelopeRelease, decayEnd: fields.envelopeDecayEnd, releaseStart: fields.envelopeReleaseStart,
-  sweep: !!fields.sweep, sweepStep: fields.sweepStep, sweepFrames: fields.sweepFrames,
-  pitchAmount: fields.pitchEnvelope ? fields.pitchEnvelopeAmount : 0, pitchAttack: fields.pitchEnvelopeAttack, pitchDecay: fields.pitchEnvelopeDecay,
-  pitchSustainLength: fields.pitchEnvelopeSustainLength, pitchRelease: fields.pitchEnvelopeRelease,
-  pitchDecayEnd: fields.pitchEnvelopeDecayEnd, pitchReleaseStart: fields.pitchEnvelopeReleaseStart,
-});
-
-// Fits a card for both chips: the DPC+ sound first, then the TIA sound, which shares its volume, envelope and the steps of its sweep.
+// Fits a card for both chips: a DPC+ sound and a TIA sound, each with a volume, envelope and sweep that are separate. The card keeps the TIA's in
+// its fields (as every card does) and the chip's in "arm" (see utils/chip-settings.js), next to the chip's waveform and pitch.
 // Resolves to {fields, mismatch (the worse of the two), dpcMismatch, tiaMismatch, mode: 'both', audc}, or null when cancelled.
 export const fitBoth = async (prepared, options = {}) => {
   const {onProgress = () => {}} = options;
   const half = (from) => ({...options, onProgress: ({fraction}) => onProgress({fraction: from + fraction / 2})});
   const dpc = await fitSample(prepared, half(0));
   if (!dpc) return null;
-  const tia = await fitTiaSample(prepared, {...half(0.5), fixed: sharedSettings(dpc.fields), noisy: dpc.mode === 'noise'});
+  const tia = await fitTiaSample(prepared, half(0.5));
   if (!tia) return null;
+  const arm = {};
+  CHIP_SETTING_KEYS.forEach((key) => {
+    if (dpc.fields[key] !== undefined) arm[key] = dpc.fields[key];
+  });
   return {
     mode: 'both', mismatch: Math.max(dpc.mismatch, tia.mismatch), dpcMismatch: dpc.mismatch, tiaMismatch: tia.mismatch, audc: tia.audc,
-    fields: {...dpc.fields, audc: tia.fields.audc, audf: tia.fields.audf, ...(dpc.fields.sweep ? {sweepEnd: tia.fields.sweepEnd} : {})},
+    curve: {...dpc.curve, tiaPlayed: tia.curve.played},
+    fields: {...dpc.fields, ...tia.fields, arm},
   };
 };

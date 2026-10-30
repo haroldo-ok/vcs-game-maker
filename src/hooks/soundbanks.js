@@ -91,6 +91,18 @@ const kindOf = (text, isBank) => {
   }
 };
 
+// The kinds of sound a file holds: a bank of drums is listed under Percussion as well as under Sound banks, one of instruments under Instruments,
+// and so on ('percussion', 'instrument' and 'sound' for a plain sound effect).
+const soundKindsIn = (text) => {
+  try {
+    const kinds = new Set(soundEffectsInBankFile(JSON.parse(text)).map((sound) =>
+      (sound.isPercussion ? 'percussion' : sound.isInstrument ? 'instrument' : 'sound')));
+    return [...kinds];
+  } catch (e) {
+    return [];
+  }
+};
+
 // The kernel a file says it was made for; a file saved before that was recorded is a Standard kernel one.
 const kernelOf = (text) => {
   try {
@@ -137,6 +149,7 @@ const toEntry = (record) => ({
   text: record.text,
   ...record.summary,
   kind: kindOf(record.text, record.summary && record.summary.isBank),
+  soundKinds: soundKindsIn(record.text),
   kernel: kernelOf(record.text),
   kernels: kernelsOf(record.text),
   ...creditOf(record.text),

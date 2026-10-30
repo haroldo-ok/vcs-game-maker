@@ -854,6 +854,7 @@ import {autoInstrumentColor, instrumentColorFor, isLightColor,
   mixColorWithWhite, mixColorWithTransparent} from '../utils/instrument-colors';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 import {appVersionField} from '../utils/app-version';
+import {dpcSettings} from '../utils/chip-settings';
 
 // The piano roll's  zoom range (25%-1600%) goes well past the shared
 // hooks/zoom.js's  discrete ZOOM_LEVELS (used by the sprite/background/
@@ -2825,6 +2826,11 @@ export default defineComponent({
       const config = (configurationStorage && configurationStorage.value) || {};
       return config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false && Number(track.channel) === 1;
     };
+    // The instrument as the chip that plays the track has it (a track of the DPC+ chip plays the settings the chip has of the instrument).
+    const playedSound = (track, soundEffect) => {
+      const config = (configurationStorage && configurationStorage.value) || {};
+      return config.kernel === 'dpcplus' && config.enableDpcPlusAudio !== false && Number(track.channel) !== 1 ? dpcSettings(soundEffect) : soundEffect;
+    };
     const rowIsAvailable = (track, row) => {
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect) return false;
@@ -3620,15 +3626,16 @@ export default defineComponent({
       hideHoverPreview();
       handleChildChange();
       if (!isTrackMuted(song, pattern, activeTrack)) {
+        const played = playedSound(activeTrack, soundEffect);
         previewPatternNote({
-          audc: soundEffect.audc,
-          audf: audf == null ? soundEffect.audf : audf,
-          audv: noteAudv(newNote, soundEffect),
-          arpeggio: soundEffect.arpeggio,
-          arpeggioDivision: soundEffect.arpeggioDivision,
-          arpeggioInterval: soundEffect.arpeggioInterval,
-          arpeggioRange: soundEffect.arpeggioRange,
-          soundEffect, midi: row.midi, tia: trackUsesTia(activeTrack),
+          audc: played.audc,
+          audf: audf == null ? played.audf : audf,
+          audv: noteAudv(newNote, played),
+          arpeggio: played.arpeggio,
+          arpeggioDivision: played.arpeggioDivision,
+          arpeggioInterval: played.arpeggioInterval,
+          arpeggioRange: played.arpeggioRange,
+          soundEffect: played, midi: row.midi, tia: trackUsesTia(activeTrack),
           tempo: effectiveTempo(song, pattern),
         });
       }
@@ -3653,15 +3660,16 @@ export default defineComponent({
       const soundEffect = trackSoundEffect(track);
       if (!soundEffect || isTrackMuted(song, pattern, track)) return;
       const audf = rowAudf(track, {midi: note.midi});
+      const played = playedSound(track, soundEffect);
       previewPatternNote({
-        audc: soundEffect.audc,
-        audf: audf == null ? soundEffect.audf : audf,
-        audv: noteAudv(note, soundEffect),
-        arpeggio: soundEffect.arpeggio,
-        arpeggioDivision: soundEffect.arpeggioDivision,
-        arpeggioInterval: soundEffect.arpeggioInterval,
-        arpeggioRange: soundEffect.arpeggioRange,
-        soundEffect, midi: note.midi, tia: trackUsesTia(track),
+        audc: played.audc,
+        audf: audf == null ? played.audf : audf,
+        audv: noteAudv(note, played),
+        arpeggio: played.arpeggio,
+        arpeggioDivision: played.arpeggioDivision,
+        arpeggioInterval: played.arpeggioInterval,
+        arpeggioRange: played.arpeggioRange,
+        soundEffect: played, midi: note.midi, tia: trackUsesTia(track),
         tempo: effectiveTempo(song, pattern),
       });
     };

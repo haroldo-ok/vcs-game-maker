@@ -9,6 +9,7 @@
 
 import {configurationValue} from '../hooks/configuration-value';
 import {buildEnvelopeCurve} from './envelope';
+import {dpcSettings} from './chip-settings';
 import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, frequencyForTia, isDpcPlusSound} from './dpc-sound';
 import {rawFrequencyOf} from './music-notes';
 import {buildDpcPitchOffsets} from './pitch-table';
@@ -135,7 +136,9 @@ export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, st
 
 // The Sound tab's preview of a card.
 // dimMultiplier is the DIM percentage as 0-1, applied as the emulator applies it (to the output, not the volume register).
-export const previewDpcPlusSoundEffect = (soundEffect, config, dimMultiplier = 1, loop = false) => {
+export const previewDpcPlusSoundEffect = (card, config, dimMultiplier = 1, loop = false) => {
+  // The chip plays the settings it has of its card (see utils/chip-settings.js).
+  const soundEffect = dpcSettings(card);
   const seconds = Math.max(0, Number(soundEffect.duration) || 0) / FRAMES_PER_SECOND;
   if (seconds <= 0) return;
   const sound = asDpcPlusSound(soundEffect, config);
@@ -153,16 +156,17 @@ export const previewDpcPlusSoundEffect = (soundEffect, config, dimMultiplier = 1
     const disconnect = source.onended;
     source.onended = () => {
       if (disconnect) disconnect();
-      if (isSoundEffectPreviewActive(sources)) previewDpcPlusSoundEffect(soundEffect, config, dimMultiplier, true);
+      if (isSoundEffectPreviewActive(sources)) previewDpcPlusSoundEffect(card, config, dimMultiplier, true);
     };
   }
 };
 
 // What the Music tab plays a note of an instrument with: the sound as a DPC+ one and the pitch (a piano key for an
 // instrument, the pitch of the sound itself for percussion), or null when the project does not use the DPC+ sound chip.
-export const dpcPlusFor = (soundEffect, midi) => {
+export const dpcPlusFor = (card, midi) => {
   const config = dpcPlusPreviewActive();
   if (!config) return null;
+  const soundEffect = dpcSettings(card);
   const sound = asDpcPlusSound(soundEffect, config);
   // A note on a frequency row plays the pitch the TIA has for that frequency number with the sound's type (tiaAudf: the frequency
   // number, for a sweep that follows the Standard pitches from it).

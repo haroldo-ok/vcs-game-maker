@@ -7,6 +7,7 @@ import {useSoundEffectsStorage} from '../hooks/project';
 import {cardOptions} from '../utils/card-refs';
 import {channelOptions} from './sound';
 import {SOUND_ICON} from './icon';
+import {CHIP_SETTING_KEYS, armSettingsFrom, hasSeparateArm} from '../utils/chip-settings';
 import {STAIRCASE_FRAME_OPTIONS, DEFAULT_STAIRCASE_STEP, DEFAULT_STAIRCASE_FRAMES, MAX_STAIRCASE_STEP} from '../utils/staircase';
 import {SWEEP_FRAME_OPTIONS, DEFAULT_SWEEP_END, DEFAULT_SWEEP_STEP, DEFAULT_SWEEP_FRAMES, MAX_SWEEP_STEP,
   DEFAULT_PITCH_ENVELOPE_AMOUNT, MAX_PITCH_ENVELOPE_AMOUNT, DEFAULT_PITCH_ENVELOPE_ATTACK, DEFAULT_PITCH_ENVELOPE_DECAY,
@@ -206,10 +207,14 @@ export const DEFAULT_SOUND_EFFECTS = {
 export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
   const soundEffects = soundEffectsStorage.value;
   if (!soundEffects || !soundEffects.soundEffects || !soundEffects.soundEffects.length) {
-    return structuredClone(DEFAULT_SOUND_EFFECTS);
+    const defaults = structuredClone(DEFAULT_SOUND_EFFECTS);
+    defaults.soundEffects.forEach((soundEffect) => {
+      soundEffect.arm = armSettingsFrom(soundEffect);
+    });
+    return defaults;
   }
   // Presets saved before Arpeggio existed won't have these fields yet.
-  soundEffects.soundEffects.forEach((soundEffect) => {
+  const normalizeSettings = (soundEffect) => {
     soundEffect.arpeggio = !!soundEffect.arpeggio;
     // Vue.set (not a plain assignment) for every envelope* field below -
     // soundEffectsStorage is a Vue ref whose reactivity was already set up
@@ -333,6 +338,20 @@ export const processSoundEffectsStorageDefaults = (soundEffectsStorage) => {
         ENVELOPE_VOLUME_PERCENT_OPTIONS, DEFAULT_PITCH_ENVELOPE_RELEASE_START));
     Vue.set(soundEffect, 'pitchEnvelopeRelease', oneOf(soundEffect.pitchEnvelopeRelease,
         ENVELOPE_ATTACK_RELEASE_FRAME_OPTIONS, DEFAULT_PITCH_ENVELOPE_RELEASE));
+  };
+  soundEffects.soundEffects.forEach((soundEffect) => {
+    normalizeSettings(soundEffect);
+    // Every card has the settings of the DPC+ chip next to the TIA's (a card made before it had none starts with the TIA's values).
+    if (!hasSeparateArm(soundEffect)) Vue.set(soundEffect, 'arm', armSettingsFrom(soundEffect));
+    if (hasSeparateArm(soundEffect)) {
+      // The separate settings of the DPC+ chip are checked the same way, on a copy that has them in place of the card's.
+      const copy = {...soundEffect, ...soundEffect.arm};
+      delete copy.arm;
+      normalizeSettings(copy);
+      CHIP_SETTING_KEYS.forEach((key) => {
+        if (copy[key] !== undefined) Vue.set(soundEffect.arm, key, copy[key]);
+      });
+    }
   });
   return soundEffects;
 };

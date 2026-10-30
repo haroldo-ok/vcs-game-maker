@@ -265,10 +265,9 @@ export default defineComponent({
 }
 
 .waveform-bars-select {
-  /* Right under the Priority dropdown in the card's name row: the same 80px wide, and ending where it ends (past the
-     kind button's 26px and the row's 4px gap). */
+  /* At the right edge of the card, 80px wide. */
   flex: 0 0 80px;
-  margin: 12px 32px 0 auto;
+  margin: 12px 0 0 auto;
   padding-top: 0;
 }
 
