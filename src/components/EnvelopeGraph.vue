@@ -106,10 +106,10 @@
       <!-- Positioned under each segment's  midpoint (not evenly spaced
            regardless of actual segment width) so a label always sits under
            the part of the curve it actually names. -->
-      <span class="envelope-graph-stage-label" :style="labelStyle(0, attackX)">Atk</span>
+      <span v-if="attack > 0" class="envelope-graph-stage-label" :style="labelStyle(0, attackX)">Atk</span>
       <span v-if="decay > 0" class="envelope-graph-stage-label" :style="labelStyle(attackX, decayX)">Dec</span>
       <span v-if="sustainLength > 0" class="envelope-graph-stage-label" :style="labelStyle(decayX, sustainEndX)">Sus</span>
-      <span class="envelope-graph-stage-label" :style="labelStyle(sustainEndX, releaseX)">Rel</span>
+      <span v-if="release > 0" class="envelope-graph-stage-label" :style="labelStyle(sustainEndX, releaseX)">Rel</span>
     </div>
   </div>
 </template>
@@ -185,11 +185,12 @@ export default defineComponent({
     // above each label, reusing that exact math rather than duplicating a
     // second copy of it.
     labelXPercents() {
+      // (A stage of 0 frames has no label, so no line for it either.)
       return [
-        (0 + this.attackX) / 2,
-        (this.attackX + this.decayX) / 2,
-        (this.decayX + this.sustainEndX) / 2,
-        (this.sustainEndX + this.releaseX) / 2,
+        ...(this.attack > 0 ? [(0 + this.attackX) / 2] : []),
+        ...(this.decay > 0 ? [(this.attackX + this.decayX) / 2] : []),
+        ...(this.sustainLength > 0 ? [(this.decayX + this.sustainEndX) / 2] : []),
+        ...(this.release > 0 ? [(this.sustainEndX + this.releaseX) / 2] : []),
       ].map((mid) => Math.max(6, Math.min(94, mid)));
     },
     // SVG y=0 is the TOP, so every level here is (100 - percent) to make

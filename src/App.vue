@@ -2391,6 +2391,11 @@ export default {
   margin-right: 2px;
 }
 
+/* Every checkbox box is the same size: a dense checkbox draws its icon at 20px (Vuetify's v-icon--dense), the others at 24px. */
+.v-input--checkbox .v-input--selection-controls__input .v-icon {
+  font-size: 24px !important;
+}
+
 /* The buttons in a popup's bottom row sit the same distance from the bottom edge as from the side edges (Vuetify's default
    leaves half as much below them as beside them). */
 .v-dialog > .v-card > .v-card__actions {

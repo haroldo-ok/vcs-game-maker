@@ -610,7 +610,7 @@
                     <v-checkbox
                       v-if="cardDpc(soundEffect) && (chipFx(soundEffect).sweep || chipFx(soundEffect).pitchEnvelope || chipFx(soundEffect).arpeggio)"
                       :input-value="dpcFollows(soundEffect)"
-                      label="Same pitches as Standard"
+                      label="Same pitch as TIA"
                       title="On: the chip plays the same pitches as the TIA plays for this sound's sweep, frequency envelope and arpeggio (the settings of the Standard side, in steps of the frequency number), so the two sound alike. Off: the sweep moves in semitones to an End note."
                       hide-details
                       dense
@@ -2497,18 +2497,11 @@ export default defineComponent({
   padding-top: 0 !important;
 }
 
-/* Extra push-down ONLY while the block is expanded (fields showing beside
-   the switch) - collapsed, the switch is alone by itself line and the
-   base -4px above already looks right. Under align-items: flex-start (see
-   that rule's comment for why it replaced center), every item pins to
-   the TOP of its line, which for a v-select/v-text-field means the top of
-   its LABEL text, well above where its actual input box sits - this was
-   applied unconditionally before, which correctly aligned the switch with
-   its fields when expanded but left an oversized gap above a COLLAPSED
-   switch that has no taller sibling to align with at all. */
-.soundfx-arpeggio-block--expanded .soundfx-arpeggio-switch,
-.soundfx-envelope-block--expanded .soundfx-envelope-switch {
-  margin-top: 16px !important;
+/* (A checkbox stays where it is when its block is turned on: no extra top margin while expanded.) */
+
+/* The box of the check mark icon sits 3px in from the left edge of its 24px square, so a checkbox looked indented next to the fields: pulled out by that much. */
+.soundfx-fields >>> .v-input--checkbox .v-input--selection-controls__input {
+  margin-left: -3px;
 }
 
 /* Extra breathing room between each switch's  label text and the field(s)
