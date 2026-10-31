@@ -16,9 +16,10 @@
 import {DPC_WAVE_LENGTH, DPC_WAVE_MAX, TIA_AUDCS, TIA_CLOCK_HZ, tiaChipPattern} from './dpc-sound';
 import {CHIP_SETTING_KEYS} from './chip-settings';
 
-// The chip is read once a scanline: 262 scanlines a frame, 60 frames a second.
-export const CHIP_RATE = 15734;
-const FRAME = 262;
+// The chip is read once a scanline: 262 scanlines a frame at 15734 a second (60 frames a second) on NTSC, 312 at 15625 (50 frames a second) on PAL.
+// useTelevision switches between them: the fit and the sounds it makes go by the project's TV standard.
+export let CHIP_RATE = 15734;
+let FRAME = 262;
 const BAND_COUNT = 40;
 const FIRST_BAND_HZ = 60;
 const LAST_BAND_HZ = 7500;
@@ -48,24 +49,40 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 // has gaps between them, reads as different from the even hiss of a noise.
 const bandHz = (band) => FIRST_BAND_HZ * Math.pow(LAST_BAND_HZ / FIRST_BAND_HZ, band / (BAND_COUNT - 1));
 // Goertzel's coefficient of each band's frequency (see bandEnergies).
-const BAND_COEFFICIENT = Float64Array.from({length: BAND_COUNT}, (_, band) => 2 * Math.cos(2 * Math.PI * bandHz(band) / CHIP_RATE));
+let BAND_COEFFICIENT;
 // The cosine and sine of each band's frequency at every sample of a frame, and what a constant frame reads (see buildWaveModel).
-const BAND_COS = new Float64Array(BAND_COUNT * FRAME);
-const BAND_SIN = new Float64Array(BAND_COUNT * FRAME);
-const BAND_DC_RE = new Float64Array(BAND_COUNT);
-const BAND_DC_IM = new Float64Array(BAND_COUNT);
-for (let band = 0; band < BAND_COUNT; band++) {
-  for (let i = 0; i < FRAME; i++) {
-    BAND_COS[band * FRAME + i] = Math.cos(2 * Math.PI * bandHz(band) / CHIP_RATE * i);
-    BAND_SIN[band * FRAME + i] = Math.sin(2 * Math.PI * bandHz(band) / CHIP_RATE * i);
-    BAND_DC_RE[band] += BAND_COS[band * FRAME + i];
-    BAND_DC_IM[band] -= BAND_SIN[band * FRAME + i];
+let BAND_COS;
+let BAND_SIN;
+let BAND_DC_RE;
+let BAND_DC_IM;
+let centered;
+let tablesFor = null;
+const useTelevision = (pal) => {
+  const wanted = !!pal;
+  if (tablesFor === wanted) return;
+  tablesFor = wanted;
+  CHIP_RATE = wanted ? 15625 : 15734;
+  FRAME = wanted ? 312 : 262;
+  BAND_COEFFICIENT = Float64Array.from({length: BAND_COUNT}, (_, band) => 2 * Math.cos(2 * Math.PI * bandHz(band) / CHIP_RATE));
+  BAND_COS = new Float64Array(BAND_COUNT * FRAME);
+  BAND_SIN = new Float64Array(BAND_COUNT * FRAME);
+  BAND_DC_RE = new Float64Array(BAND_COUNT);
+  BAND_DC_IM = new Float64Array(BAND_COUNT);
+  for (let band = 0; band < BAND_COUNT; band++) {
+    for (let i = 0; i < FRAME; i++) {
+      BAND_COS[band * FRAME + i] = Math.cos(2 * Math.PI * bandHz(band) / CHIP_RATE * i);
+      BAND_SIN[band * FRAME + i] = Math.sin(2 * Math.PI * bandHz(band) / CHIP_RATE * i);
+      BAND_DC_RE[band] += BAND_COS[band * FRAME + i];
+      BAND_DC_IM[band] -= BAND_SIN[band * FRAME + i];
+    }
   }
-}
-const centered = new Float64Array(FRAME);
+  centered = new Float64Array(FRAME);
+};
+useTelevision(false);
 
 // The recording as the chip's rate, a mono signal. samples is one channel (or the average of them) at sampleRate.
-export const resampleToChipRate = (samples, sampleRate) => {
+export const resampleToChipRate = (samples, sampleRate, pal = false) => {
+  useTelevision(pal);
   const step = sampleRate / CHIP_RATE;
   const out = [];
   for (let at = 0; at + step <= samples.length; at += step) {
@@ -226,8 +243,8 @@ const renderTia = (card, frames) => {
 };
 
 // The recording, ready to be compared with: its energy in every band of every frame.
-export const prepareSample = (samples, sampleRate) => {
-  let signal = resampleToChipRate(samples, sampleRate);
+export const prepareSample = (samples, sampleRate, pal = false) => {
+  let signal = resampleToChipRate(samples, sampleRate, pal);
   // The silence at the end (below -60 dB) is not part of the sound.
   let peak = 0;
   for (let i = 0; i < signal.length; i++) peak = Math.max(peak, Math.abs(signal[i]));
@@ -256,6 +273,7 @@ export const prepareSample = (samples, sampleRate) => {
     weights: reference.map((energies) => Array.from(energies, (value) => Math.sqrt(value / maxEnergy) + 0.12)),
     loudness: rms.map((value) => value / loudest),
     seconds: signal.length / CHIP_RATE,
+    pal: !!pal,
   };
 };
 
@@ -323,6 +341,7 @@ const median = (values) => {
 
 // Whether the recording is a tone with a pitch that moves (a tom, a kick, a blip) and, if so, where it starts and ends.
 export const analysePitch = (prepared) => {
+  useTelevision(prepared.pal);
   const length = 1048;
   let readings = [];
   for (let frame = 0; frame < prepared.frames; frame++) {
@@ -567,6 +586,7 @@ const buildWaveModel = (prepared, card) => {
 // frequency envelope: a card for both chips shares them), as the card fields of this file (volume, attack, decay, sustainLength, release,
 // decayEnd, releaseStart, sweep, sweepStep, sweepFrames, pitchAmount...). Resolves to {fields, mismatch, mode: 'tia', audc}.
 export const fitTiaSample = async (prepared, options = {}) => {
+  useTelevision(prepared.pal);
   const {onProgress = () => {}, isCancelled = () => false} = options;
   const budgetMs = (options.seconds || clamp(2 + prepared.frames * 0.05, 3, 8)) * 1000 * (options.timeScale || 1);
   const started = performance.now();
@@ -803,6 +823,7 @@ const spectralStart = (prepared, hz, count, trial, evaluate) => {
 //   options.onProgress({fraction, mismatch}), options.isCancelled(): checked between slices
 // Resolves to {fields, mismatch, mode}: the fields to put on a sound card (see the Sound tab).
 export const fitSample = async (prepared, options = {}) => {
+  useTelevision(prepared.pal);
   const {mode: wantedMode = 'auto', bars: barCount = 32, onProgress = () => {}, isCancelled = () => false} = options;
   const budgetMs = (options.seconds || clamp(2 + prepared.frames * 0.05, 3, 8)) * 1000 * (options.timeScale || 1);
   const started = performance.now();
@@ -1084,6 +1105,7 @@ export const fitSample = async (prepared, options = {}) => {
 // its fields (as every card does) and the chip's in "arm" (see utils/chip-settings.js), next to the chip's waveform and pitch.
 // Resolves to {fields, mismatch (the worse of the two), dpcMismatch, tiaMismatch, mode: 'both', audc}, or null when cancelled.
 export const fitBoth = async (prepared, options = {}) => {
+  useTelevision(prepared.pal);
   const {onProgress = () => {}} = options;
   const half = (from) => ({...options, onProgress: ({fraction}) => onProgress({fraction: from + fraction / 2})});
   const dpc = await fitSample(prepared, half(0));

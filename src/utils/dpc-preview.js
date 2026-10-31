@@ -18,8 +18,9 @@ import {buildVolumeStaircase} from './staircase';
 import {getAudioContext, registerSoundEffectPreview, isSoundEffectPreviewActive} from './sound-preview';
 
 const CHIP_CLOCK = 20000;
-const SCANLINE_RATE = 15720;
-const LINES_PER_FRAME = 262;
+// 262 lines a frame at 15720 reads a second on NTSC, 312 lines at 15625 on PAL (50 frames a second).
+const scanlineRate = () => (framesPerSecond() === 50 ? 15625 : 15720);
+const linesPerFrame = () => (framesPerSecond() === 50 ? 312 : 262);
 const PICTURE_LINES = 192;
 const SCORE_LINES_END = 202;
 const framesPerSecond = () => tvFramesPerSecond(configurationValue());
@@ -27,7 +28,6 @@ const framesPerSecond = () => tvFramesPerSecond(configurationValue());
 const VOICE_CAP = 15;
 // The buffer is built at three times the read rate (each read held three samples) and the browser resamples it.
 const HOLD = 3;
-const OUTPUT_RATE = SCANLINE_RATE * HOLD;
 const TWO_POW_32 = 4294967296;
 const TWO_POW_27 = 134217728;
 const FADE_SECONDS = 0.004;
@@ -40,6 +40,8 @@ export const dpcPlusLevelFor = (volume) => {
 // The samples (-0.5 to 0.5) of a sound: wave is 32 samples 0-15, frequencyForFrame and volumeForFrame give each 60 Hz
 // frame's pitch (Hz) and volume (0-15).
 export const renderDpcPlusSamples = ({wave, frequencyForFrame, volumeForFrame, seconds}) => {
+  const SCANLINE_RATE = scanlineRate();
+  const LINES_PER_FRAME = linesPerFrame();
   const lines = Math.ceil(seconds * SCANLINE_RATE);
   const out = new Float32Array(lines * HOLD);
   let counter = 0;
@@ -118,7 +120,7 @@ export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, st
       return frequency * Math.pow(2, arpeggioShift(token, arpeggioInterval) / 12);
     },
   });
-  const buffer = context.createBuffer(1, samples.length, OUTPUT_RATE);
+  const buffer = context.createBuffer(1, samples.length, scanlineRate() * HOLD);
   buffer.copyToChannel(samples, 0);
   const source = context.createBufferSource();
   source.buffer = buffer;

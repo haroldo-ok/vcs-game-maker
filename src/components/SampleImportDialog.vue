@@ -170,6 +170,8 @@ import {describeMismatch, prepareSample} from '../utils/sample-fit';
 import {runFit} from '../utils/sample-fit-pool';
 import {previewSoundEffect, stopSoundEffectPreview} from '../utils/sound-preview';
 import {previewDpcPlusSoundEffect} from '../utils/dpc-preview';
+import {configurationValue} from '../hooks/configuration-value';
+import {tvFramesPerSecond} from '../utils/tv-standard';
 
 // The "Import audio samples" popup of the Sound tab. The parent hands it the files the user picked and what the import is going to
 // do with the selected card (replaceName), and puts the sounds it emits with "confirm" on cards. The files are read here one after the
@@ -227,7 +229,7 @@ export default defineComponent({
 
     const describe = (item, result) => {
       const frames = item.prepared.frames;
-      const seconds = (frames / 60).toFixed(2);
+      const seconds = (frames / tvFramesPerSecond(configurationValue())).toFixed(2);
       if (result.mode === 'both') {
         return `DPC+ ${describeMismatch(result.dpcMismatch)} (${result.dpcMismatch.toFixed(2)}), TIA ${describeMismatch(result.tiaMismatch)} (${result.tiaMismatch.toFixed(2)}, type ${result.audc}), ${frames} frames (${seconds} s)`;
       }
@@ -275,7 +277,7 @@ export default defineComponent({
       try {
         const sound = await decodeAudioFile(item.file);
         decoded.set(item.key, sound);
-        item.prepared = prepareSample(sound.samples, sound.sampleRate);
+        item.prepared = prepareSample(sound.samples, sound.sampleRate, tvFramesPerSecond(configurationValue()) === 50);
         item.canPlay = true;
       } catch (error) {
         item.status = 'error';

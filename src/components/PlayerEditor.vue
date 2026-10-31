@@ -528,6 +528,7 @@ import {rowColorsForMove} from '../utils/row-color-move';
 import {loadImageFromFile, openFileDialogMultiple, sortImportedAnimationFrameFiles} from '../utils/file';
 import {createCroppedResizedCanvas, createResizedCanvas} from '../utils/image';
 import {parseAsepriteSheet} from '../utils/aseprite';
+import {tvFramesPerSecond} from '../utils/tv-standard';
 import {escapeHtml} from '../utils/build-error';
 import {clampFrameDuration} from '../utils/duration';
 import {REMOVED, removeCards} from '../utils/card-refs';
@@ -1175,7 +1176,7 @@ export default defineComponent({
     // whole new animations - one per frameTag in the .json, in that tag's
     // frame order/direction, each frame cropped straight out of the
     // strip image at the .json's recorded rectangle and its duration
-    // converted from Aseprite's milliseconds to this app's NTSC-frame count
+    // converted from Aseprite's milliseconds to this app's count of video frames
     // (see utils/aseprite.js). Only offered on this tab (see
     // GraphicEditorToolbar.vue's "extra-tools" slot) - Background/Title/
     // Score/Text have no concept of a multi-pose animation a frameTag could
@@ -1193,7 +1194,7 @@ export default defineComponent({
         readFileAsText(jsonFile).then((text) => {
           let sheet;
           try {
-            sheet = parseAsepriteSheet(JSON.parse(text));
+            sheet = parseAsepriteSheet(JSON.parse(text), tvFramesPerSecond(configurationStorage.value));
           } catch (err) {
             errorStorage.value = `Import from Aseprite: ${escapeHtml(err.message)}.`;
             return;

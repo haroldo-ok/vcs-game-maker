@@ -5,19 +5,17 @@
 // duration, and each frameTag (Aseprite's name for an animation clip) as an
 // ordered list of indexes into that frame list.
 
-// This app's compiled output is NTSC-only (see App.vue's gopher2600-wasm
-// integration, pinned to NTSC to avoid a black-screen TV-spec bug), which
-// runs at a fixed 60 frames/sec - frame.duration below (a per-frame counter
-// compared against in generators/bbasic.js's processAnimation) counts real
-// NTSC frames, not milliseconds.
+// frame.duration below (a per-frame counter compared against in
+// generators/bbasic.js's processAnimation) counts video frames, not
+// milliseconds: 60 a second on NTSC (and PAL60), 50 on PAL (tvFramesPerSecond).
 const NTSC_FRAMES_PER_SECOND = 60;
 
 // Aseprite stores each frame's duration in milliseconds; this app's
-// frame.duration is a count of NTSC frames (see the module comment above).
+// frame.duration is a count of video frames (see the module comment above).
 // Rounds to the nearest frame, never below 1 - a 0-frame duration would
 // make that pose invisible rather than just brief.
-export const asepriteDurationToFrames = (ms) =>
-  Math.max(1, Math.round((ms || 0) * NTSC_FRAMES_PER_SECOND / 1000));
+export const asepriteDurationToFrames = (ms, framesPerSecond = NTSC_FRAMES_PER_SECOND) =>
+  Math.max(1, Math.round((ms || 0) * framesPerSecond / 1000));
 
 // Expands one frameTag's [from, to] range into the actual play-order list of
 // frame indexes, per Aseprite's four tag directions.
@@ -45,7 +43,7 @@ const frameIndexesForTag = (tag) => {
 // the caller) rather than failing silently or with a cryptic JS error, since
 // this is parsing a file the user hand-picked from disk, not app-internal
 // data that's always expected to be well-formed.
-export const parseAsepriteSheet = (json) => {
+export const parseAsepriteSheet = (json, framesPerSecond = NTSC_FRAMES_PER_SECOND) => {
   if (!json || typeof json !== 'object' || !json.frames || !json.meta) {
     throw new Error('not a valid Aseprite sprite sheet JSON export (missing "frames"/"meta")');
   }
@@ -60,7 +58,7 @@ export const parseAsepriteSheet = (json) => {
     y: frame.frame.y,
     w: frame.frame.w,
     h: frame.frame.h,
-    durationFrames: asepriteDurationToFrames(frame.duration),
+    durationFrames: asepriteDurationToFrames(frame.duration, framesPerSecond),
   }));
 
   const tags = (json.meta.frameTags || []).map((tag) => ({
