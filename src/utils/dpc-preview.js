@@ -8,6 +8,7 @@
 // value for the score lines and silent for the rest of each 262 line frame. Nothing is smoothed.
 
 import {configurationValue} from '../hooks/configuration-value';
+import {tvFramesPerSecond} from './tv-standard';
 import {buildEnvelopeCurve} from './envelope';
 import {dpcSettings} from './chip-settings';
 import {DPC_WAVE_LENGTH, dpcWaveOf, convertSoundToDpcPlus, frequencyForMidi, frequencyForTia, isDpcPlusSound} from './dpc-sound';
@@ -21,7 +22,7 @@ const SCANLINE_RATE = 15720;
 const LINES_PER_FRAME = 262;
 const PICTURE_LINES = 192;
 const SCORE_LINES_END = 202;
-const FRAMES_PER_SECOND = 60;
+const framesPerSecond = () => tvFramesPerSecond(configurationValue());
 // Channel 0 is the first voice alone, so it has all 15 steps of the volume register.
 const VOICE_CAP = 15;
 // The buffer is built at three times the read rate (each read held three samples) and the browser resamples it.
@@ -97,7 +98,7 @@ const arpeggioShift = (token, interval) =>
 export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, startTime, destination, loopSustain = false,
   dimMultiplier = 1, arpeggioSpeed = 0, arpeggioInterval = 0, arpeggioRange = 0, pitchOffsets = null, volumeCurve = null}) => {
   const wave = dpcWaveOf(sound);
-  const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
+  const totalFrames = Math.max(1, Math.round(seconds * framesPerSecond()));
   const curve = volumeCurve || (sound.envelope ? buildEnvelopeCurve({
     attack: sound.envelopeAttack, decay: sound.envelopeDecay, decayEndPercent: sound.envelopeDecayEnd,
     attackEndPercent: sound.envelopeAttackEnd,
@@ -140,7 +141,7 @@ export const playDpcPlusSound = (context, {sound, frequency, volume, seconds, st
 export const previewDpcPlusSoundEffect = (card, config, dimMultiplier = 1, loop = false) => {
   // The chip plays the settings it has of its card (see utils/chip-settings.js).
   const soundEffect = dpcSettings(card);
-  const seconds = Math.max(0, Number(soundEffect.duration) || 0) / FRAMES_PER_SECOND;
+  const seconds = Math.max(0, Number(soundEffect.duration) || 0) / framesPerSecond();
   if (seconds <= 0) return;
   const sound = asDpcPlusSound(soundEffect, config);
   const context = getAudioContext();

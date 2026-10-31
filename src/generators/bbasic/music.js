@@ -6,6 +6,7 @@ import {findSongById, processSongsStorageDefaults, DEFAULT_PATTERN_STEPS, LENGTH
 import {functionCallDiscardVarName} from '../../blocks/function';
 import {processSoundEffectsStorageDefaults, DEFAULT_ARPEGGIO_DIVISION, DEFAULT_NOISE_PRIORITY} from '../../blocks/soundfx';
 import {MAX_DATA_TABLE_VALUES} from '../../blocks/data';
+import {tvFramesPerSecond} from '../../utils/tv-standard';
 import {useConfigurationStorage,
   useSoundEffectsStorage, useSongsStorage, loadMutedMusicTrackIds, loadSoloedMusicTrackIds,
   isMusicTrackMuted} from '../../hooks/project';
@@ -62,7 +63,7 @@ const arpeggioToEvents = (event) => {
   return events;
 };
 
-const FRAMES_PER_SECOND = 60; // NTSC - matches "set tv ntsc" in bbasic.bb.hbs
+const framesPerSecond = () => tvFramesPerSecond(useConfigurationStorage().value || {}); // 60 for NTSC and PAL60, 50 for PAL
 // How many frames one event (a note or a rest) holds at most, the duration being a byte: a longer note is written as several events (see
 // the final chunking pass in flattenPatternEvents). The duration of an event stays below VOLUME_MARKER_BASE: the resume of a sound effect
 // looks at the byte before a note for a volume marker.
@@ -983,7 +984,7 @@ const flattenPatternEvents = (song, pattern, channels, soundEffects, config = {}
   // Two steps per beat, LENGTH_UNITS_PER_STEP fine units per step - same
   // math as music-playback.js's stepSeconds/unitSeconds, converted to
   // frames instead of seconds.
-  const framesPerUnit = (30 / tempo) / LENGTH_UNITS_PER_STEP * FRAMES_PER_SECOND;
+  const framesPerUnit = (30 / tempo) / LENGTH_UNITS_PER_STEP * framesPerSecond();
   const stepCount = pattern.stepCount || DEFAULT_PATTERN_STEPS;
   const patternTotalFrames = Math.round(stepCount * LENGTH_UNITS_PER_STEP * framesPerUnit);
 

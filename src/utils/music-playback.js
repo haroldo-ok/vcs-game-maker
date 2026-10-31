@@ -15,6 +15,8 @@ import {
 import {DEFAULT_PATTERN_STEPS, DEFAULT_TEMPO, LENGTH_UNITS_PER_STEP} from '../blocks/music';
 import {DEFAULT_DIM_PERCENT} from '../generators/bbasic/soundfx';
 import {DEFAULT_ARPEGGIO_DIVISION, DEFAULT_NOISE_PRIORITY} from '../blocks/soundfx';
+import {configurationValue} from '../hooks/configuration-value';
+import {tvFramesPerSecond} from './tv-standard';
 import {useConfigurationStorage, useDimSoundFxPercentStorage, useDimSoundFxStorage, useTextStringsStorage} from '../hooks/project';
 import {processTextStringsStorageDefaults} from '../blocks/text-strings';
 import {isVoiceInstrument, noteSpeechBytes} from './note-speech';
@@ -70,7 +72,7 @@ const getMasterDestination = (context) => {
 // generators/bbasic/music.js) - arpeggioSpeed is a frame count there, so
 // previewing it here needs the same frames-to-seconds conversion to sound
 // like what the ROM will actually play.
-const FRAMES_PER_SECOND = 60;
+const framesPerSecond = () => tvFramesPerSecond(configurationValue());
 // Mirrors MAX_ARPEGGIO_SPEED_FRAMES in generators/bbasic/music.js exactly
 // (duplicated for the same reason as ARPEGGIO_PHASE_SEQUENCES below) - the
 // ROM has to clamp to this since it's stored in a 4-bit nibble, so the
@@ -142,7 +144,7 @@ const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope,
   const gainNode = context.createGain();
   let endValue;
   if (envelope || volumeCurve) {
-    const totalFrames = Math.max(1, Math.round(seconds * FRAMES_PER_SECOND));
+    const totalFrames = Math.max(1, Math.round(seconds * framesPerSecond()));
     // loopSustain: true - this is the Music tab's note preview (see this
     // file's playInstrumentHit), where a note longer than its instrument's
     // envelope loops Sustain to fill the gap instead of falling silent
@@ -159,7 +161,7 @@ const buildGain = (context, {peakGain, peakVolume, startTime, seconds, envelope,
     // the next automation point anyway, and a long note is hundreds of frames.
     curve.forEach((step, i) => {
       if (i === 0 || step !== curve[i - 1]) {
-        gainNode.gain.setValueAtTime(step / 15 * 0.3 * dimMultiplier, startTime + i / FRAMES_PER_SECOND);
+        gainNode.gain.setValueAtTime(step / 15 * 0.3 * dimMultiplier, startTime + i / framesPerSecond());
       }
     });
     endValue = curve[curve.length - 1] / 15 * 0.3 * dimMultiplier;
@@ -350,8 +352,8 @@ const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioIn
     for (let frame = 0; frame < pitchTable.length;) {
       let end = frame + 1;
       while (end < pitchTable.length && pitchTable[end] === pitchTable[frame]) end++;
-      const t = startTime + frame / FRAMES_PER_SECOND;
-      const segmentSeconds = Math.min((end - frame) / FRAMES_PER_SECOND, startTime + seconds - t);
+      const t = startTime + frame / framesPerSecond();
+      const segmentSeconds = Math.min((end - frame) / framesPerSecond(), startTime + seconds - t);
       if (segmentSeconds > 0) {
         const source = context.createBufferSource();
         source.buffer = buildBuffer(shiftClockFor(pitchTable[frame], {slowClock: approximation.slowClock}), segmentSeconds);
@@ -386,7 +388,7 @@ const playInstrumentHit = (context, {audc, audf, audv, arpeggioSpeed, arpeggioIn
   // no such limitation since it just writes AUDF directly every frame).
   const variants = arpeggioPitchVariants(audf, arpeggioInterval);
   const sequence = ARPEGGIO_PHASE_SEQUENCES[arpeggioRange] || ARPEGGIO_PHASE_SEQUENCES[0];
-  const flipSeconds = arpeggioSpeed / FRAMES_PER_SECOND;
+  const flipSeconds = arpeggioSpeed / framesPerSecond();
   const sources = [];
   const nodes = [gainNode];
   let t = startTime;
@@ -586,14 +588,14 @@ export const previewPatternNote = ({audc, audf, audv, arpeggio, arpeggioDivision
   // from, so tempo defaults to DEFAULT_TEMPO instead.
   const stepSeconds = 30 / tempo;
   const arpeggioSpeed = arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES, Math.round(
-      (stepSeconds / (Number(arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * FRAMES_PER_SECOND,
+      (stepSeconds / (Number(arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * framesPerSecond(),
   ))) : 0;
   const resolvedArpeggioInterval = arpeggio ? Number(arpeggioInterval) || 0 : 0;
   const resolvedArpeggioRange = arpeggio ? Number(arpeggioRange) || 0 : 0;
 
   const dpcPlus = soundEffect && !tia ? dpcPlusFor(soundEffect, midi) : null;
   // The pitch of each frame, as it plays in a song (see schedulePattern).
-  const frames = Math.round(seconds * FRAMES_PER_SECOND);
+  const frames = Math.round(seconds * framesPerSecond());
   const pitchTable = !changesPitch ? null : dpcPlus ?
     buildDpcPitchOffsets({...soundEffect, ...(dpcPlus.tiaAudf !== undefined ? {audf: dpcPlus.tiaAudf} : {}), duration: frames},
         dpcPlus.frequency, {arpeggioFrames: arpeggioSpeed}) :
@@ -718,7 +720,7 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     // pattern's  tempo, same formula as generators/bbasic/music.js's
     // flattenPatternEvents so the preview's flip rate matches the compiled ROM.
     const arpeggioSpeed = soundEffect.arpeggio ? Math.max(1, Math.min(MAX_ARPEGGIO_SPEED_FRAMES, Math.round(
-        (stepSeconds / (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * FRAMES_PER_SECOND,
+        (stepSeconds / (Number(soundEffect.arpeggioDivision) || DEFAULT_ARPEGGIO_DIVISION)) * framesPerSecond(),
     ))) : 0;
     const arpeggioInterval = soundEffect.arpeggio ? Number(soundEffect.arpeggioInterval) || 0 : 0;
     const arpeggioRange = soundEffect.arpeggio ? Number(soundEffect.arpeggioRange) || 0 : 0;
@@ -795,23 +797,23 @@ const schedulePattern = (context, pattern, soundEffects, startTime, tempo, isTra
     // The pitch of each frame of this slice of the note, from a table made for the whole note.
     let pitchTable = null;
     if (note.pitchSound) {
-      const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND));
+      const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * framesPerSecond()));
       // For a note of the DPC+ chip the semitones each frame is above the note.
       const whole = (note.dpcPlus ?
         buildDpcPitchOffsets({...note.pitchSound, ...(note.dpcPlus.tiaAudf !== undefined ? {audf: note.dpcPlus.tiaAudf} : {}), duration: noteFrames},
             note.dpcPlus.frequency, {arpeggioFrames: note.arpeggioSpeed}) :
         buildPitchTable({...note.pitchSound, audf: note.audf, duration: noteFrames}, {arpeggioFrames: note.arpeggioSpeed})) || [];
-      const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND);
-      const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * FRAMES_PER_SECOND));
+      const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * framesPerSecond());
+      const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * framesPerSecond()));
       pitchTable = Array.from({length: count}, (_, i) => whole[Math.min(from + i, whole.length - 1)] ?? (note.dpcPlus ? 0 : note.audf));
     }
     // The volume of each frame of this slice, from a staircase made for the whole note.
     let volumeCurve = null;
     if (note.staircaseSound) {
-      const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND));
+      const noteFrames = Math.max(1, Math.round((note.endUnits - note.startUnits) * unitSeconds * framesPerSecond()));
       const whole = buildVolumeStaircase({...note.staircaseSound, audv: note.audv, duration: noteFrames}, {loopSustain: true}) || [];
-      const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * FRAMES_PER_SECOND);
-      const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * FRAMES_PER_SECOND));
+      const from = Math.round((audibleStartUnits - note.startUnits) * unitSeconds * framesPerSecond());
+      const count = Math.max(1, Math.round((segEndUnits - audibleStartUnits) * unitSeconds * framesPerSecond()));
       volumeCurve = Array.from({length: count}, (_, i) => whole[Math.min(from + i, whole.length - 1)] ?? note.audv);
     }
     activeSources.push(...playInstrumentHit(context, {

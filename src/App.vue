@@ -745,6 +745,7 @@ import {useEmulatorSettings, saveEmulatorSettings} from './hooks/emulator-settin
 import {escapeHtml} from './utils/build-error';
 import {captureEmulatorScreenshot} from './utils/emulator-screenshot';
 import {sanitizeForFilename} from './utils/file';
+import {tvFrameLines, tvPictureLines} from './utils/tv-standard';
 import {syncExamples} from './hooks/examples';
 import {startGamepadInput} from './hooks/gamepad';
 import {startTapHold} from './hooks/tap-hold';
@@ -844,8 +845,7 @@ const readStoredEmulatorVisible = () => localStorage.getItem(EMULATOR_VISIBLE_KE
 
 // The name the debug info gives to the byte it reads to tell when the Title Screen Kernel runs (the one with the title loop's flag).
 const TITLE_KERNEL_WATCH_NAME = '__titleKernelRunning';
-// The lines in a frame of both TV standards the project can use (NTSC and PAL60).
-const NTSC_FRAME_SCANLINES = 262;
+// (The lines in a frame, and the most a kernel draws, are the TV standard's: see tvFrameLines and tvPictureLines.)
 
 export default {
   components: {KeyMappingDialog, EmulatorSettingsDialog, DebugSettingsDialog},
@@ -1015,8 +1015,8 @@ export default {
         `  S $${hex(info.s, 2)}  ${flagLetters}\n` +
         // The scanlines the kernel draws (VBLANK off) out of the most a kernel can draw: the picture of the TV standard (192 lines on NTSC,
         // 228 on PAL), when the emulator counts them.
-        (info.kernelLines === undefined ? `Scanlines ${info.scanlines} of ${NTSC_FRAME_SCANLINES}` :
-          `Scanlines ${info.kernelLines} of ${(this.configurationStorage || {}).tvStandard === 'pal' ? 228 : 192} max`) +
+        (info.kernelLines === undefined ? `Scanlines ${info.scanlines} of ${tvFrameLines(this.configurationStorage || {})}` :
+          `Scanlines ${info.kernelLines} of ${tvPictureLines(this.configurationStorage || {})} max`) +
         `  Frame ${info.frame}\n` +
         (info.busyCycles === null ?
           `CPU cycles/frame ${info.cpuCycles}` :

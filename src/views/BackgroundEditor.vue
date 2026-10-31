@@ -588,6 +588,9 @@ const buildDefaultBackgroundPixels = (rows, cols = 32) =>
 // Router destroys and recreates this component each time).
 const copiedBackgroundRowColors = ref(null);
 const copiedBackgroundBkRowColors = ref(null);
+// The number of separate color rows each copy had (pfColorRows, bkColorRows; undefined for one color a row of the picture).
+let copiedPfColorRows;
+let copiedBkColorRows;
 const copiedBackgroundData = ref(null);
 
 export default defineComponent({
@@ -1170,19 +1173,30 @@ export default defineComponent({
     // rowColors instead of a frame's.
     const handleCopyBackgroundRowColors = (background) => {
       copiedBackgroundRowColors.value = structuredClone(background.rowColors || []);
+      copiedPfColorRows = background.pfColorRows;
+    };
+    // The colors go with the number of rows they were made for.
+    const pasteColorsAndRows = (background, rowsKey, rows, listKey, colors) => {
+      recordFieldsChange([{owner: background, fields: [rowsKey, listKey]}], () => {
+        if (rows > 0) background[rowsKey] = rows;
+        else delete background[rowsKey];
+        background[listKey] = structuredClone(colors);
+        saveAndRedraw();
+      }, {afterChange: saveAndRedraw});
     };
     const handlePasteBackgroundRowColors = (background) => {
       if (!copiedBackgroundRowColors.value) return;
-      handleRowColorsInput(background, structuredClone(copiedBackgroundRowColors.value));
+      pasteColorsAndRows(background, 'pfColorRows', copiedPfColorRows, 'rowColors', copiedBackgroundRowColors.value);
     };
 
     // The same pair for the background row colors (the colors behind the cells that are off).
     const handleCopyBackgroundBkRowColors = (background) => {
       copiedBackgroundBkRowColors.value = structuredClone(background.bkRowColors || []);
+      copiedBkColorRows = background.bkColorRows;
     };
     const handlePasteBackgroundBkRowColors = (background) => {
       if (!copiedBackgroundBkRowColors.value) return;
-      handleBkRowColorsInput(background, structuredClone(copiedBackgroundBkRowColors.value));
+      pasteColorsAndRows(background, 'bkColorRows', copiedBkColorRows, 'bkRowColors', copiedBackgroundBkRowColors.value);
     };
 
     // Same "whole image, pixels + row colors together" pair as

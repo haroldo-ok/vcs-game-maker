@@ -9,6 +9,7 @@
 // to NTSC - only the color palette and the TIA audio clock differ.
 export const TV_STANDARD_OPTIONS = [
   {text: 'NTSC', value: 'ntsc'},
+  {text: 'PAL', value: 'pal'},
   {text: 'PAL60', value: 'pal60'},
 ];
 
@@ -36,4 +37,14 @@ export const emulatorTvSpec = (config) => tvStandardFor(config).toUpperCase();
 const PAL60_AUDIO_CLOCK_SCALE = 15625 / 15734.26;
 
 export const tvAudioClockScale = (config) =>
-  (tvStandardFor(config) === 'pal60' ? PAL60_AUDIO_CLOCK_SCALE : 1);
+  (tvStandardFor(config) === 'ntsc' ? 1 : PAL60_AUDIO_CLOCK_SCALE);
+
+// Whether the console's color signal is PAL's (PAL and PAL60): the editors show NTSC colors and a build swaps each for the closest PAL one.
+export const tvIsPalColor = (config) => tvStandardFor(config) !== 'ntsc';
+
+// The video frames in a second: 50 on PAL, 60 on NTSC and PAL60. A song's tempo and the sound previews go by it.
+export const tvFramesPerSecond = (config) => (tvStandardFor(config) === 'pal' ? 50 : 60);
+
+// The lines in a frame, and the most of them a kernel draws.
+export const tvFrameLines = (config) => (tvStandardFor(config) === 'pal' ? 312 : 262);
+export const tvPictureLines = (config) => (tvStandardFor(config) === 'pal' ? 228 : 192);

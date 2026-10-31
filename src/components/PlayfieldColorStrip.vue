@@ -58,7 +58,7 @@
 </template>
 <script>
 import {NTSC_COLORS, PALETTE_COLUMNS, colorByteToCss, colorByteToBBasic} from '../utils/palette';
-import {usePixelTool, useDrawColor} from '../hooks/pixel-tool';
+import {usePixelTool, useDrawColor, useMirrorDraw} from '../hooks/pixel-tool';
 import {DEFAULT_ROW_COLOR} from '../blocks/background';
 
 export default {
@@ -172,19 +172,26 @@ export default {
     bbasicLiteral(byte) {
       return colorByteToBBasic(byte);
     },
+    // Paints a row, or with Fill the run of rows of its color, and with vertical mirror drawing on (the toolbar's button) the row the same distance
+    // from the other end of the strip, or its run, too. (The horizontal one has nothing to do here: a strip has one color for each row.)
     handlePick(rowIndex, colorByte) {
       const next = this.value.slice();
-      if (this.fillMode) {
-        const target = this.value[rowIndex];
-        if (target === colorByte) return;
-        let first = rowIndex;
-        let last = rowIndex;
-        while (first > 0 && this.value[first - 1] === target) first--;
-        while (last < this.value.length - 1 && this.value[last + 1] === target) last++;
-        for (let row = first; row <= last; row++) next[row] = colorByte;
-      } else {
-        next[rowIndex] = colorByte;
-      }
+      const mirror = useMirrorDraw().vertical;
+      const paintFrom = (start) => {
+        if (this.fillMode) {
+          const target = this.value[start];
+          let first = start;
+          let last = start;
+          while (first > 0 && this.value[first - 1] === target) first--;
+          while (last < this.value.length - 1 && this.value[last + 1] === target) last++;
+          for (let row = first; row <= last; row++) next[row] = colorByte;
+        } else {
+          next[start] = colorByte;
+        }
+      };
+      if (this.fillMode && this.value[rowIndex] === colorByte) return;
+      paintFrom(rowIndex);
+      if (mirror) paintFrom(this.value.length - 1 - rowIndex);
       this.$emit('input', next);
     },
     handleTake(colorByte) {
