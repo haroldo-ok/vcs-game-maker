@@ -18,19 +18,28 @@ export const PF_BOX_Y = 'pfboxy';
 export const PF_BOX_HIT = 'pfboxhit';
 // Lines a sweep adds to the box (and with its top bit which way to look): only in a project with the Jump block (see pf-box.js, extVar).
 export const PF_BOX_EXT = 'pfboxext';
-export const pfHitVarName = (player) => `pfhit${player}`;
+// The byte that holds the height of the bottom 8 lines box while the test runs (see feetOf in pf-box.js).
+export const PF_BOX_FEET = 'pfboxfeet';
+// The hit byte of a player: the whole box, or (feet) only the bottom 8 lines of the sprite.
+export const pfHitVarName = (player, feet = false) => `pfhit${player}${feet ? 'f' : ''}`;
 
-export const pfBoxSubroutineName = (player) => `_pfbox_${player}`;
+export const pfBoxSubroutineName = (player, feet = false) => `_pfbox_${player}${feet ? '_feet' : ''}`;
 
 // The bytes the blocks of this project need: the three above when any block tries a position, and the hit byte of each
 // extra player (2 to 9) a block asks about.
-export const reservePfBoxDevVars = (reserveDevVar, boxPlayers, hitPlayers, sweep = false) => {
+export const reservePfBoxDevVars = (reserveDevVar, boxPlayers, hitPlayers, sweep = false, feetHitPlayers = new Set(), feetBoxUsed = false) => {
   if (boxPlayers && boxPlayers.size) {
     reserveDevVar(PF_BOX_X, undefined, 'x of the position the playfield box test tries');
     reserveDevVar(PF_BOX_Y, undefined, 'y of the position the playfield box test tries');
     reserveDevVar(PF_BOX_HIT, undefined, '1 when the sprite box at that position overlaps the playfield');
     if (sweep) reserveDevVar(PF_BOX_EXT, undefined, 'lines the sprite box test adds to the box (and which way it looks): 0 for a plain test');
   }
+  if (feetBoxUsed || (feetHitPlayers && feetHitPlayers.size)) {
+    reserveDevVar(PF_BOX_FEET, undefined, 'height of the bottom 8 lines of a sprite, for the box test of that part of it');
+  }
+  (feetHitPlayers || new Set()).forEach((player) => {
+    reserveDevVar(pfHitVarName(player, true), undefined, `the bottom 8 lines of ${player} are in the playfield (1) or not (0), as of the end of the last frame`);
+  });
   (hitPlayers || new Set()).forEach((player) => {
     reserveDevVar(pfHitVarName(player), undefined, `${player} is in the playfield (1) or not (0), as of the end of the last frame`);
   });
@@ -66,8 +75,8 @@ const undoQuickLastX = (Blockly, player) => {
 
 // The subroutine of a player, made the first time a block asks for it. Returns the lines that call it (the caller sets
 // pfboxx and pfboxy first).
-export const callPfBox = (Blockly, player) => {
-  const name = pfBoxSubroutineName(player);
+export const callPfBox = (Blockly, player, feet = false) => {
+  const name = pfBoxSubroutineName(player, feet);
   if (!Blockly.BBasic.subroutines[name]) {
     const config = (useConfigurationStorage() || {}).value || {};
     const resolveVar = (canonicalName) =>
@@ -126,7 +135,8 @@ export const callPfBox = (Blockly, player) => {
       yVar: resolveVar(PF_BOX_Y),
       sizeVar: `${player}size`,
       ...objectOptions,
-      heightVar: `${player}height`,
+      heightVar: feet ? resolveVar(PF_BOX_FEET) : `${player}height`,
+      ...(feet ? {feetOf: {realHeightVar: `${player}height`}} : {}),
       resultVar: resolveVar(PF_BOX_HIT),
       partnerFrameVar: (Blockly.BBasic.widePartners || {})[player] ? `${Blockly.BBasic.widePartners[player]}frame` : undefined,
       partnerHiddenVar: (Blockly.BBasic.sharedPartnerVars || {})[(Blockly.BBasic.widePartners || {})[player]] ?
@@ -137,7 +147,7 @@ export const callPfBox = (Blockly, player) => {
       armGroups: armBox && groupRows,
       dpcPlusScan: dpcPlus,
       armRows: dpcPlus && varying,
-      extVar: Blockly.BBasic.pfBoxSweep ? resolveVar(PF_BOX_EXT) : undefined,
+      extVar: Blockly.BBasic.pfBoxSweep && !feet ? resolveVar(PF_BOX_EXT) : undefined,
       blankLines: Blockly.BBasic.effectiveShowBlankLines ? !!Blockly.BBasic.effectiveShowBlankLines() : true,
       ...geometry,
     }).join('\n');
@@ -146,8 +156,8 @@ export const callPfBox = (Blockly, player) => {
 };
 
 // The same, going in by the quick way (see quickEntry in pf-box.js): a move that stays in the columns of the old x answers "clear" at once.
-export const callPfBoxQuick = (Blockly, player) => {
-  const call = callPfBox(Blockly, player);
+export const callPfBoxQuick = (Blockly, player, feet = false) => {
+  const call = callPfBox(Blockly, player, feet);
   return undoQuickLastX(Blockly, player) ? call.replace(/^gosub (\S+)/, 'gosub $1_chk') : call;
 };
 
@@ -155,22 +165,26 @@ export const callPfBoxQuick = (Blockly, player) => {
 // or not.
 export const generatePfHitChecks = (Blockly) => {
   const players = Blockly.BBasic.pfHitExtras;
-  if (!players || !players.size) return '';
+  const feetPlayers = Blockly.BBasic.pfHitFeet;
+  if ((!players || !players.size) && (!feetPlayers || !feetPlayers.size)) return '';
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const lines = [];
-  [...players].sort().forEach((player) => {
-    // The sprite showing the right half of a wide player is not there while the frame byte says 255.
-    const isPartner = Object.values(Blockly.BBasic.widePartners || {}).includes(player);
-    const id = isPartner ? Blockly.BBasic.blockNumbers.next(`pfhit_${player}`) : 0;
-    lines.push(` rem ${player} in the playfield:`,
-        ...(isPartner ? [` ${resolveVar(pfHitVarName(player))} = 0`, ` if ${player}frame = 255 then goto _pfhit_${player}_${id}_done`,
-          ...((Blockly.BBasic.sharedPartnerVars || {})[player] ? [` if ${player}size{6} then goto _pfhit_${player}_${id}_done`] : [])] : []),
-        ` ${resolveVar(PF_BOX_X)} = ${player}x`,
-        ` ${resolveVar(PF_BOX_Y)} = ${player}y`,
-        ` ${callPfBox(Blockly, player)}`,
-        ` ${resolveVar(pfHitVarName(player))} = ${resolveVar(PF_BOX_HIT)}`,
-        ...(isPartner ? [`_pfhit_${player}_${id}_done`] : []));
+  const everyPlayer = [...new Set([...(players || []), ...(feetPlayers || [])])].sort();
+  everyPlayer.forEach((player) => {
+    [false, true].filter((feet) => (feet ? feetPlayers : players) && (feet ? feetPlayers : players).has(player)).forEach((feet) => {
+      // The sprite showing the right half of a wide player is not there while the frame byte says 255.
+      const isPartner = Object.values(Blockly.BBasic.widePartners || {}).includes(player);
+      const id = isPartner ? Blockly.BBasic.blockNumbers.next(`pfhit_${player}${feet ? 'f' : ''}`) : 0;
+      lines.push(` rem ${player} ${feet ? '(bottom 8 lines) ' : ''}in the playfield:`,
+          ...(isPartner ? [` ${resolveVar(pfHitVarName(player, feet))} = 0`, ` if ${player}frame = 255 then goto _pfhit_${player}${feet ? 'f' : ''}_${id}_done`,
+            ...((Blockly.BBasic.sharedPartnerVars || {})[player] ? [` if ${player}size{6} then goto _pfhit_${player}${feet ? 'f' : ''}_${id}_done`] : [])] : []),
+          ` ${resolveVar(PF_BOX_X)} = ${player}x`,
+          ` ${resolveVar(PF_BOX_Y)} = ${player}y`,
+          ` ${callPfBox(Blockly, player, feet)}`,
+          ` ${resolveVar(pfHitVarName(player, feet))} = ${resolveVar(PF_BOX_HIT)}`,
+          ...(isPartner ? [`_pfhit_${player}${feet ? 'f' : ''}_${id}_done`] : []));
+    });
   });
   return lines.join('\n') + '\n';
 };

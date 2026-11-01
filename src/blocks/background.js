@@ -1093,6 +1093,26 @@ Blockly.defineBlocksWithJsonArray([
       `one by one, so a big area takes a while: use it now and then (for example when a brick is cleared), ` +
       `not on every frame. Can't be used inside a custom function.`,
   },
+  // Block for setting, clearing or flipping a whole rectangle of playfield pixels
+  {
+    'type': `background_fill_area`,
+    'message0': `${BACKGROUND_ICON} Playfield %1 area from X %2 Y %3 to X %4 Y %5`,
+    'args0': [
+      {'type': 'field_dropdown', 'name': 'OPERATION', 'options': BACKGROUND_PFPIXEL_OPTIONS},
+      {'type': 'input_value', 'name': 'X1', 'check': 'Number'},
+      {'type': 'input_value', 'name': 'Y1', 'check': 'Number'},
+      {'type': 'input_value', 'name': 'X2', 'check': 'Number'},
+      {'type': 'input_value', 'name': 'Y2', 'check': 'Number'},
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Sets, clears or flips every playfield pixel in the rectangle between the two corners (columns ` +
+      `0-31 and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in either ` +
+      `order, and any part of the rectangle outside the playfield is ignored. It draws a row at a time, so ` +
+      `a big area takes a while. Can't be used inside a custom function.`,
+  },
   // Block for setting a playfield pixel
   {
     'type': `background_change_pixel`,

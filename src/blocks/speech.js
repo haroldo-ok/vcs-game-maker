@@ -212,8 +212,9 @@ Blockly.Blocks['avox_memory_save'] = {
     this.setColour(SPEECH_COLOR);
     this.setTooltip('Saves a byte (0 to 255) in the memory of the AtariVox (a memory chip on its controller port), kept when the console is off: a ' +
       'high score or a setting, one byte in each of its slots 0 to 255. Saving waits for the memory to finish, a few milliseconds, so the ' +
-      'picture can jump once: do it between games, not during one. With no AtariVox plugged in nothing happens. In the preview the memory lasts ' +
-      'while the preview runs.');
+      'picture can jump once: do it between games, not during one. With no AtariVox plugged in nothing happens. The save file counts from the ' +
+      'first of the save files set on the Vox tab (the single file 65 unless changed; the games that came before keep their data in the first ' +
+      '8 KB). In the preview the memory lasts while the preview runs.');
   },
 };
 
@@ -233,7 +234,8 @@ Blockly.Blocks['avox_memory_load'] = {
     this.setNextStatement(true, null);
     this.setColour(SPEECH_COLOR);
     this.setTooltip('Loads the byte saved in a slot (0 to 255) of the memory of the AtariVox into a variable. A slot that was never saved holds 255. ' +
-      'With no AtariVox plugged in the variable is left as it was. It takes a few lines of the picture: do it once, not every frame.');
+      'With no AtariVox plugged in the variable is left as it was. It takes a few lines of the picture: do it once, not every frame. The save file counts from the first of the ' +
+      'save files set on the Vox tab (the single file 65 unless changed).');
   },
 };
 

@@ -13,7 +13,7 @@ import {bankSuffixedTableName} from '../../blocks/data';
 import {getNamedScrollLayout, registerFreeTypedScrollMessage, buildTextScrollSetupLines,
   trackTextByIdScrollUsage, textScrollFarEndVarName,
   textScrollBaseVarName, textScrollStateVarName,
-  textScrollPauseOperand, textScrollTimerVarName,
+  textScrollPauseOperand, textScrollTimerVarName, isTextScrollTimerPacked, packedTimerValue,
   TEXT_SCROLL_DIR_MASK} from './text-scroll';
 import {getStaticMessageLayout, staticMessageRegionEnd, splitMessageLines} from './text-minikernel-layout';
 
@@ -1013,7 +1013,8 @@ export default (Blockly) => {
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const base = resolveVar(textScrollBaseVarName());
-    const timer = resolveVar(textScrollTimerVarName());
+    const packed = isTextScrollTimerPacked();
+    const timer = packed ? null : resolveVar(textScrollTimerVarName());
     const pauseDuration = textScrollPauseOperand(resolveVar).value;
     const state = resolveVar(textScrollStateVarName());
     const action = block.getFieldValue('ACTION');
@@ -1033,13 +1034,15 @@ export default (Blockly) => {
     // alongside the tri-state value), so they mask it in via
     // TEXT_SCROLL_DIR_MASK instead: clear only the tri-state bits, OR in the
     // new value, leaving bit 2 exactly as it was.
-    if (action === 'pause') return `${state} = (${state} & ${TEXT_SCROLL_DIR_MASK}) | 1\n`;
-    if (action === 'start' || action === 'unpause') return `${state} = ${state} & ${TEXT_SCROLL_DIR_MASK}\n`;
-    if (action === 'stop') return resetToStart + `${state} = 1\n`;
+    // A packed timer (the top 5 bits of the state byte) is left as it is by all of them.
+    if (action === 'pause') return packed ? `${state} = (${state} & $FC) | 1\n` : `${state} = (${state} & ${TEXT_SCROLL_DIR_MASK}) | 1\n`;
+    if (action === 'start' || action === 'unpause') return packed ? `${state} = ${state} & $FC\n` : `${state} = ${state} & ${TEXT_SCROLL_DIR_MASK}\n`;
+    if (action === 'stop') return resetToStart + (packed ? `${state} = (${state} & $F8) | 1\n` : `${state} = 1\n`);
     // 'restart' - waits the "pause at limits" duration before its first
     // step, matching buildTextScrollSetupLines'  reasoning for why a
     // freshly (re)started message shouldn't immediately start scrolling
     // away after only a "speed"-length delay.
+    if (packed) return resetToStart + `${state} = ${packedTimerValue(Number(pauseDuration))}\n`;
     return resetToStart + `${state} = 0\n` + `${timer} = ${pauseDuration}\n`;
   };
 

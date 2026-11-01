@@ -116,7 +116,7 @@
                   <v-btn
                     :title="testingId === scene.table.id ? 'Building...' :
                       buildInProgress ? 'Another build is already running - try again once it finishes' :
-                      'Test this scene in the emulator'"
+                      'Test this scene in the emulator (its offset areas move)'"
                     icon
                     small
                     :disabled="buildInProgress && testingId !== scene.table.id"
@@ -149,7 +149,9 @@
                 <v-card-text v-if="!isCollapsed(scene.table)" class="scene-body-section" @click.stop>
                   <div class="scene-caption-row">
                     <div class="scene-caption">
-                      {{ scene.objects.length }} sprite{{ scene.objects.length === 1 ? '' : 's' }}
+                      {{ scene.objects.length }} sprite{{ scene.objects.length === 1 ? '' : 's' }},
+                      {{ scene.triggers.length }} trigger{{ scene.triggers.length === 1 ? '' : 's' }},
+                      {{ scene.offsets.length }} offset area{{ scene.offsets.length === 1 ? '' : 's' }}
                     </div>
                   </div>
 
@@ -179,6 +181,14 @@
                           </v-list-item>
                         </v-list>
                       </v-menu>
+                      <v-btn text small class="scene-add-sprite-btn" title="Add a rectangle that acts when a sprite touches it" @click.stop="handleAddTrigger(scene)">
+                        <v-icon left small>mdi-plus</v-icon>
+                        Add trigger
+                      </v-btn>
+                      <v-btn text small class="scene-add-sprite-btn" title="Add an area of the playfield whose pixels move" @click.stop="handleAddOffset(scene)">
+                        <v-icon left small>mdi-plus</v-icon>
+                        Add offset area
+                      </v-btn>
                       <div class="scene-chips">
                         <v-chip
                           v-for="sprite in scene.objects"
@@ -192,6 +202,187 @@
                           @click.stop="select(scene, sprite.object)"
                         >{{ objectLabel(sprite.object) }}</v-chip>
                         <span v-if="!scene.objects.length" class="scene-empty">No sprites yet: use Add sprite.</span>
+                      </div>
+                      <div v-if="scene.triggers.length" class="scene-chips">
+                        <v-chip
+                          v-for="(trigger, index) in scene.triggers"
+                          v-bind:key="`trigger-${index}`"
+                          small
+                          :outlined="!isTriggerSelected(scene, index)"
+                          color="pink accent-2"
+                          :text-color="isTriggerSelected(scene, index) ? 'white' : null"
+                          :class="{'scene-chip-idle': !isTriggerSelected(scene, index)}"
+                          style="--scene-chip-colour: #ff4081"
+                          @click.stop="selectTrigger(scene, index)"
+                        >{{ index + 1 }} {{ trigger.name }}</v-chip>
+                      </div>
+
+                      <div v-if="selectedTrigger(scene)" class="scene-fields" @click.stop>
+                        <v-text-field
+                          :label="`Trigger ${(selected.trigger || 0) + 1} name (its number for the by number blocks)`" outlined dense hide-details class="scene-select-field"
+                          :value="selectedTrigger(scene).name"
+                          @change="(value) => handleTriggerName(scene, value)"
+                        />
+                        <div class="scene-number-row">
+                          <v-text-field
+                            label="Left" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedTrigger(scene).left"
+                            @change="(value) => handleTriggerField(scene, 'left', value)"
+                          />
+                          <v-text-field
+                            label="Top" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedTrigger(scene).top"
+                            @change="(value) => handleTriggerField(scene, 'top', value)"
+                          />
+                          <v-text-field
+                            label="Width" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedTrigger(scene).width"
+                            @change="(value) => handleTriggerField(scene, 'width', value)"
+                          />
+                          <v-text-field
+                            label="Height" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedTrigger(scene).height"
+                            @change="(value) => handleTriggerField(scene, 'height', value)"
+                          />
+                        </div>
+                        <!-- Hidden for now (what a trigger does by itself: moving the sprite, setting up a scene; the blocks of the project
+                             act for it): remove the v-if="false" of these three to show them again. -->
+                        <v-select
+                          v-if="false"
+                          label="When a sprite touches it"
+                          outlined
+                          dense
+                          hide-details
+                          class="scene-select-field"
+                          :items="triggerKindItems"
+                          :value="selectedTrigger(scene).kind"
+                          @change="(value) => handleTriggerKind(scene, value)"
+                        />
+                        <div v-if="false && selectedTrigger(scene).kind === TRIGGER_MOVE" class="scene-number-row">
+                          <v-text-field
+                            label="Move to X" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedTrigger(scene).targetX"
+                            @change="(value) => handleTriggerField(scene, 'targetX', value)"
+                          />
+                          <v-text-field
+                            label="Move to Y" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedTrigger(scene).targetY"
+                            @change="(value) => handleTriggerField(scene, 'targetY', value)"
+                          />
+                        </div>
+                        <v-select
+                          v-else-if="false"
+                          label="Scene"
+                          outlined
+                          dense
+                          hide-details
+                          class="scene-select-field"
+                          :items="triggerSceneItems"
+                          :value="selectedTrigger(scene).targetScene"
+                          @change="(value) => handleTriggerScene(scene, value)"
+                        />
+                        <div class="scene-label scene-trigger-by" title="Which sprites set this trigger off" @click.stop="triggerByOpen = !triggerByOpen">
+                          <v-icon small>{{ triggerByOpen ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+                          Triggered by
+                        </div>
+                        <template v-if="triggerByOpen">
+                          <!-- The players line up in columns; the missiles and the ball are together on a line. -->
+                          <div class="scene-check-row scene-trigger-checks">
+                            <v-checkbox
+                              v-for="object in triggerObjects().filter(isPlayer)"
+                              v-bind:key="object"
+                              :label="objectLabel(object)"
+                              dense
+                              hide-details
+                              class="scene-check"
+                              :input-value="!!(selectedTrigger(scene).mask & (1 << object))"
+                              @change="(value) => handleTriggerMask(scene, object, value)"
+                            />
+                          </div>
+                          <div class="scene-check-row scene-trigger-checks">
+                            <v-checkbox
+                              v-for="object in triggerObjects().filter((candidate) => !isPlayer(candidate))"
+                              v-bind:key="object"
+                              :label="objectLabel(object)"
+                              dense
+                              hide-details
+                              class="scene-check"
+                              :input-value="!!(selectedTrigger(scene).mask & (1 << object))"
+                              @change="(value) => handleTriggerMask(scene, object, value)"
+                            />
+                          </div>
+                        </template>
+                        <v-btn text small @click.stop="handleRemoveTrigger(scene)">
+                          <v-icon left small>mdi-minus</v-icon>
+                          Remove trigger
+                        </v-btn>
+                      </div>
+
+                      <div v-if="scene.offsets.length" class="scene-chips">
+                        <v-chip
+                          v-for="(offset, index) in scene.offsets"
+                          v-bind:key="`offset-${index}`"
+                          small
+                          :outlined="!isOffsetSelected(scene, index)"
+                          color="cyan darken-1"
+                          :text-color="isOffsetSelected(scene, index) ? 'white' : null"
+                          :class="{'scene-chip-idle': !isOffsetSelected(scene, index)}"
+                          style="--scene-chip-colour: #00acc1"
+                          @click.stop="selectOffset(scene, index)"
+                        >Offset {{ index + 1 }}</v-chip>
+                      </div>
+
+                      <div v-if="selectedOffset(scene)" class="scene-fields" @click.stop>
+                        <v-select
+                          label="Pixels move" outlined dense hide-details class="scene-select-field"
+                          :items="offsetDirectionItems"
+                          :value="selectedOffset(scene).direction"
+                          @change="(value) => handleOffsetDirection(scene, value)"
+                        />
+                        <v-checkbox
+                          label="Whole playfield" dense hide-details class="scene-check"
+                          :input-value="selectedOffset(scene).whole"
+                          @change="(value) => handleOffsetWhole(scene, value)"
+                        />
+                        <div v-if="!selectedOffset(scene).whole" class="scene-number-row">
+                          <v-text-field
+                            label="From X" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedOffset(scene).left"
+                            @change="(value) => handleOffsetField(scene, 'left', value)"
+                          />
+                          <v-text-field
+                            label="From Y" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedOffset(scene).top"
+                            @change="(value) => handleOffsetField(scene, 'top', value)"
+                          />
+                          <v-text-field
+                            label="To X" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedOffset(scene).right"
+                            @change="(value) => handleOffsetField(scene, 'right', value)"
+                          />
+                          <v-text-field
+                            label="To Y" type="number" outlined dense hide-details class="scene-number-field"
+                            :value="selectedOffset(scene).bottom"
+                            @change="(value) => handleOffsetField(scene, 'bottom', value)"
+                          />
+                        </div>
+                        <div class="scene-number-row">
+                          <v-select
+                            label="How often" outlined dense hide-details class="scene-select-field scene-often-field"
+                            :items="offsetFrameItems"
+                            :value="selectedOffset(scene).mask"
+                            @change="(value) => handleOffsetMask(scene, value)"
+                          />
+                          <v-text-field
+                            label="+ frames" type="number" min="0" max="255" outlined dense hide-details class="scene-number-field scene-delta-field"
+                            :value="selectedOffset(scene).delta"
+                            @change="(value) => handleOffsetDelta(scene, value)"
+                          />
+                        </div>
+                        <v-btn text small @click.stop="handleRemoveOffset(scene)">
+                          <v-icon left small>mdi-minus</v-icon>
+                          Remove offset area
+                        </v-btn>
                       </div>
 
                       <div v-if="selectedSprite(scene)" class="scene-fields" @click.stop>
@@ -271,7 +462,7 @@
                           Remove sprite
                         </v-btn>
                       </div>
-                      <div v-else-if="scene.objects.length" class="scene-empty">Click a sprite to change its settings, or drag/use arrow keys to place in Scene.</div>
+                      <div v-else-if="scene.objects.length && !selectedTrigger(scene)" class="scene-empty">Click a sprite to change its settings, or drag/use arrow keys to place in Scene.</div>
                     </div>
                   </div>
                 </v-card-text>
@@ -311,7 +502,7 @@ import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, us
 import {processDataTablesStorageDefaults} from '../blocks/data';
 import {sceneObjectColour} from '../blocks/sprites';
 import {adjustedBlockColour} from '../utils/block-colours';
-import {processBackgroundStorageDefaults, colorsAtRows} from '../blocks/background';
+import {BACKGROUND_OFFSET_OPTIONS, processBackgroundStorageDefaults, colorsAtRows} from '../blocks/background';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {insertCardAfter, remapKeyed, removeCards} from '../utils/card-refs';
 import {buildScenePreviewRom, useBuildInProgress} from '../hooks/rom';
@@ -320,13 +511,15 @@ import {useCardSelection} from '../hooks/card-selection';
 import {useCardFolders} from '../hooks/card-folders';
 import {useDragReorder} from '../hooks/drag-reorder';
 import {canRedoReorder, canUndoReorder, tryRedoReorder, tryUndoReorder} from '../hooks/reorder-history';
+import {beginCardDelete, recordCardDelete} from '../hooks/delete-history';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 import {colorByteToCss} from '../utils/palette';
 import {pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
 import {
   SCENE_FLAG_ANIMATION, SCENE_FLAG_COLOR, SCENE_FLAG_FLIPPED, SCENE_FLAG_HEIGHT, SCENE_FLAG_HIDDEN, SCENE_FLAG_SIZE, SCENE_NO_ANIMATION,
-  MISSILE_WIDTHS, availableSceneObjects, decodeScene, encodeScene, isScenePlayer, isSceneTable, newSceneObject, sceneObjectLabel,
-  sceneValueFormats, sceneValueNotes,
+  MISSILE_WIDTHS, SCENE_TRIGGER_LOAD, SCENE_TRIGGER_MOVE, SCENE_SCREEN_LINES, SCENE_SCREEN_WIDTH, availableSceneObjects, decodeScene,
+  SCENE_OFFSET_MASKS, encodeScene, isScenePlayer, isSceneTable, newSceneObject, newSceneOffset, newSceneTrigger, sceneObjectLabel, sceneValueFormats,
+  sceneValueNotes, triggerNamesOf,
 } from '../utils/scene';
 
 // White or black text, whichever has the higher contrast ratio (WCAG relative luminance) against the given CSS color: the same rule the
@@ -367,6 +560,8 @@ const backgroundLayout = (background, config) => ({
 
 const SCREEN_WIDTH = 160;
 const SCREEN_LINES = 192;
+// How an offset area is marked on the picture: the way its pixels move.
+const OFFSET_ARROWS = {alternate: '⇄', alternate_rl: '⇄', left: '←', right: '→', alternate_ud: '⇅', alternate_du: '⇅', up: '↑', down: '↓'};
 // The playfield is 128 pixels wide, centered on the 160 pixel screen.
 const PLAYFIELD_LEFT = 16;
 // Where each copy of a player is, in pixels from the first (the number of the width/quantity option is the index).
@@ -392,7 +587,7 @@ export default defineComponent({
     const showGridLabels = usePixelGridLabelsStorage();
     const cardColumns = useSceneCardColumnsStorage();
 
-    const scenes = computed(() => tables.value.filter(isSceneTable).map((table) => ({table, ...decodeScene(table.values)})));
+    const scenes = computed(() => tables.value.filter(isSceneTable).map((table) => ({table, ...decodeScene(table.values, table.triggerNames)})));
     const instance = getCurrentInstance();
 
     // The cards are selected, collapsed and reordered the way the other tabs' are. The scenes are cards among the Data tab's
@@ -405,7 +600,12 @@ export default defineComponent({
         .map((table, index) => (selectedCardIds.value.includes(table.id) ? index : -1)).filter((index) => index >= 0);
     const {isCollapsed, toggleCollapsed, collapseAll, ensureExpanded, remapIds: remapCollapsedIds} = useCollapsedIds('scene', true);
     collapseAll();
-    const selectedScene = computed(() => scenes.value.find(({table}) => table.id === selectedCardId.value) || null);
+    // The scene whose card is selected, or the one a sprite or a trigger is selected in (Undo and Redo, and the Delete key, work on it).
+    // (When nothing is selected any more, the one that was changed last: a sprite that was deleted can be brought back.)
+    const lastChangedSceneId = ref(null);
+    const selectedScene = computed(() => scenes.value.find(({table}) => table.id === selectedCardId.value) ||
+      (selected.value && scenes.value.find(({table}) => table.id === selected.value.scene)) ||
+      scenes.value.find(({table}) => table.id === lastChangedSceneId.value) || null);
     const tableIndex = (scene) => tables.value.indexOf(scene.table);
 
     const backgrounds = () => processBackgroundStorageDefaults(backgroundsStorage).backgrounds;
@@ -428,7 +628,7 @@ export default defineComponent({
     const redoStacks = {};
     const historyVersion = ref(0);
     const snapshotOf = (table) => ({name: table.name, values: table.values.slice(), valueFormats: (table.valueFormats || []).slice(),
-      valueNotes: (table.valueNotes || []).slice()});
+      valueNotes: (table.valueNotes || []).slice(), triggerNames: (table.triggerNames || []).slice()});
     const stackOf = (stacks, id) => {
       if (!stacks[id]) stacks[id] = [];
       return stacks[id];
@@ -473,6 +673,29 @@ export default defineComponent({
       if (!step || !selected.value || event.ctrlKey || event.metaKey || event.altKey) return;
       if (target && target.closest && target.closest('input, textarea, select, [contenteditable], .v-menu__content, [role="listbox"]')) return;
       const scene = scenes.value.find(({table}) => table.id === selected.value.scene);
+      if (scene && selected.value.offset !== undefined && selectedOffset(scene) && !selectedOffset(scene).whole) {
+        event.preventDefault();
+        const grid = offsetGrid(scene);
+        withScene(scene, (next) => {
+          const moved = next.offsets[selected.value.offset];
+          const width = Math.abs(moved.right - moved.left);
+          const height = Math.abs(moved.bottom - moved.top);
+          const left = clampTo(Math.min(moved.left, moved.right) + step[0], 0, grid.columns - 1 - width);
+          const top = clampTo(Math.min(moved.top, moved.bottom) + step[1], 0, grid.rows - 1 - height);
+          Object.assign(moved, {left, right: left + width, top, bottom: top + height});
+        });
+        return;
+      }
+      if (scene && selected.value.trigger !== undefined && selectedTrigger(scene)) {
+        event.preventDefault();
+        const moveBy = event.shiftKey ? 4 : 1;
+        withScene(scene, (next) => {
+          const moved = next.triggers[selected.value.trigger];
+          moved.left = clampTo(moved.left + step[0] * moveBy, 0, SCENE_SCREEN_WIDTH - moved.width);
+          moved.top = clampTo(moved.top + step[1] * moveBy, 0, SCENE_SCREEN_LINES - moved.height);
+        });
+        return;
+      }
       const sprite = scene && scene.objects.find((candidate) => candidate.object === selected.value.object);
       if (!sprite) return;
       event.preventDefault();
@@ -482,6 +705,24 @@ export default defineComponent({
         moved.x = Math.min(255, Math.max(0, moved.x + step[0] * amount));
         moved.y = Math.min(255, Math.max(0, moved.y + step[1] * amount));
       });
+    };
+    const handleDeleteKey = (event) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const target = event.target;
+      if (!selected.value || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (target && target.closest && target.closest('input, textarea, select, [contenteditable], .v-menu__content, [role="listbox"]')) return;
+      const scene = scenes.value.find(({table}) => table.id === selected.value.scene);
+      if (!scene) return;
+      if (selected.value.offset !== undefined && selectedOffset(scene)) {
+        event.preventDefault();
+        handleRemoveOffset(scene);
+      } else if (selected.value.trigger !== undefined && selectedTrigger(scene)) {
+        event.preventDefault();
+        handleRemoveTrigger(scene);
+      } else if (selectedSprite(scene)) {
+        event.preventDefault();
+        handleRemoveObject(scene);
+      }
     };
     const handleHistoryHotkey = (event) => {
       const history = undoRedoKind(event);
@@ -577,17 +818,20 @@ export default defineComponent({
     });
 
     const writeScene = (id, scene) => {
+      lastChangedSceneId.value = id;
       recordChange(id);
       save((data) => {
         const table = data.dataTables.find((candidate) => candidate.id === id);
         if (!table) return;
         table.values = encodeScene(scene);
-        table.valueFormats = sceneValueFormats(scene.objects.length);
-        table.valueNotes = sceneValueNotes(scene.objects);
+        table.valueFormats = sceneValueFormats(scene.objects.length, (scene.triggers || []).length, (scene.offsets || []).length);
+        table.valueNotes = sceneValueNotes(scene.objects, scene.triggers || [], scene.offsets || []);
+        table.triggerNames = triggerNamesOf(scene.triggers || []);
       });
     };
     const withScene = (scene, change) => {
-      const next = {background: scene.background, objects: scene.objects.map((sprite) => ({...sprite}))};
+      const next = {background: scene.background, objects: scene.objects.map((sprite) => ({...sprite})),
+        triggers: (scene.triggers || []).map((trigger) => ({...trigger})), offsets: (scene.offsets || []).map((offset) => ({...offset}))};
       change(next);
       writeScene(scene.table.id, next);
     };
@@ -610,9 +854,134 @@ export default defineComponent({
     const select = (scene, object) => {
       selected.value = {scene: scene.table.id, object};
     };
+    // The triggers (rectangles that act when a sprite touches them) are selected the same way: {scene, trigger: place in the scene's list}.
+    const selectedTrigger = (scene) => (selected.value && selected.value.scene === scene.table.id && selected.value.trigger !== undefined ?
+      (scene.triggers || [])[selected.value.trigger] || null : null);
+    const isTriggerSelected = (scene, index) => !!selected.value && selected.value.scene === scene.table.id && selected.value.trigger === index;
+    const selectTrigger = (scene, index) => {
+      selected.value = {scene: scene.table.id, trigger: index};
+    };
+    const triggerKindItems = [{text: 'Move the sprite to X and Y', value: SCENE_TRIGGER_MOVE}, {text: 'Set up a scene', value: SCENE_TRIGGER_LOAD}];
+    const triggerSceneItems = computed(() => scenes.value.map(({table}) => ({text: table.name || `Scene ${table.id}`, value: table.id})));
+    const triggerObjects = () => availableSceneObjects(config());
+    // Whether the sprites that set the selected trigger off are listed (a line of them, short, when they are not).
+    const triggerByOpen = ref(false);
+    // The playfield offset areas: rectangles of playfield cells whose pixels move while the scene is showing. Selected as {scene, offset: place in the list}.
+    const selectedOffset = (scene) => (selected.value && selected.value.scene === scene.table.id && selected.value.offset !== undefined ?
+      (scene.offsets || [])[selected.value.offset] || null : null);
+    const isOffsetSelected = (scene, index) => !!selected.value && selected.value.scene === scene.table.id && selected.value.offset === index;
+    const selectOffset = (scene, index) => {
+      selected.value = {scene: scene.table.id, offset: index};
+    };
+    const offsetDirectionItems = BACKGROUND_OFFSET_OPTIONS.map(([text, value]) => ({text, value}));
+    const offsetFrameItems = SCENE_OFFSET_MASKS.map((mask) => ({text: mask === 0 ? 'every frame' : `${mask + 1} frames`, value: mask}));
+    // The cells of the playfield the scene has: its columns, its rows, and how tall a row is in lines.
+    const offsetGrid = (scene) => {
+      const background = backgrounds().find(({id}) => id === scene.background) || backgrounds()[0];
+      const pixels = background && background.pixels ? background.pixels : [];
+      return {rows: pixels.length || 11, columns: pixels[0] ? pixels[0].length : 32, rowLines: background ? backgroundLayout(background, config()).rowLines : 16};
+    };
+    // The rectangle of an area on the picture, in pixels and lines.
+    const offsetRect = (scene, offset) => {
+      const grid = offsetGrid(scene);
+      const left = offset.whole ? 0 : Math.min(offset.left, offset.right);
+      const right = offset.whole ? grid.columns - 1 : Math.max(offset.left, offset.right);
+      const top = offset.whole ? 0 : Math.min(offset.top, offset.bottom);
+      const bottom = offset.whole ? grid.rows - 1 : Math.max(offset.top, offset.bottom);
+      return {x: PLAYFIELD_LEFT + 4 * left, y: grid.rowLines * top, width: 4 * (right - left + 1), height: grid.rowLines * (bottom - top + 1)};
+    };
+    const handleAddOffset = (scene) => {
+      const index = (scene.offsets || []).length;
+      withScene(scene, (next) => {
+        const grid = offsetGrid(scene);
+        const offset = newSceneOffset();
+        offset.right = Math.min(offset.right, grid.columns - 1);
+        offset.bottom = Math.min(offset.bottom, grid.rows - 1);
+        offset.top = Math.min(offset.top, offset.bottom);
+        next.offsets.push(offset);
+      });
+      selectOffset(scene, index);
+    };
+    const handleRemoveOffset = (scene) => {
+      const index = selected.value && selected.value.offset;
+      if (index === undefined || !selectedOffset(scene)) return;
+      withScene(scene, (next) => {
+        next.offsets.splice(index, 1);
+      });
+      selected.value = null;
+    };
+    const changeOffset = (scene, change) => {
+      const index = selected.value && selected.value.offset;
+      if (index === undefined || !selectedOffset(scene)) return;
+      withScene(scene, (next) => change(next.offsets[index]));
+    };
+    const handleOffsetField = (scene, field, value) => changeOffset(scene, (offset) => {
+      const grid = offsetGrid(scene);
+      offset[field] = clampTo(value, 0, field === 'left' || field === 'right' ? grid.columns - 1 : grid.rows - 1);
+    });
+    const handleOffsetDirection = (scene, direction) => changeOffset(scene, (offset) => {
+      offset.direction = direction;
+    });
+    const handleOffsetWhole = (scene, whole) => changeOffset(scene, (offset) => {
+      offset.whole = !!whole;
+    });
+    const handleOffsetMask = (scene, mask) => changeOffset(scene, (offset) => {
+      offset.mask = mask;
+    });
+    const handleOffsetDelta = (scene, value) => changeOffset(scene, (offset) => {
+      offset.delta = Math.max(0, Math.min(255, Math.round(Number(value)) || 0));
+    });
+    const triggerNameFor = (scene) => {
+      let number = (scene.triggers || []).length + 1;
+      while ((scene.triggers || []).some((trigger) => trigger.name === `Trigger ${number}`)) number++;
+      return `Trigger ${number}`;
+    };
+    const handleAddTrigger = (scene) => {
+      const index = (scene.triggers || []).length;
+      withScene(scene, (next) => {
+        next.triggers.push(newSceneTrigger(triggerNameFor(scene), config()));
+      });
+      selectTrigger(scene, index);
+    };
+    const handleRemoveTrigger = (scene) => {
+      const index = selected.value && selected.value.trigger;
+      if (index === undefined || !selectedTrigger(scene)) return;
+      withScene(scene, (next) => {
+        next.triggers.splice(index, 1);
+      });
+      selected.value = null;
+    };
+    const changeTrigger = (scene, change) => {
+      const index = selected.value && selected.value.trigger;
+      if (index === undefined || !selectedTrigger(scene)) return;
+      withScene(scene, (next) => change(next.triggers[index]));
+    };
+    const clampTo = (value, low, high) => Math.min(high, Math.max(low, Math.round(Number(value)) || 0));
+    const handleTriggerField = (scene, field, value) => changeTrigger(scene, (trigger) => {
+      if (field === 'left') trigger.left = clampTo(value, 0, SCENE_SCREEN_WIDTH - 1);
+      else if (field === 'top') trigger.top = clampTo(value, 0, SCENE_SCREEN_LINES - 1);
+      else if (field === 'width') trigger.width = clampTo(value, 1, SCENE_SCREEN_WIDTH);
+      else if (field === 'height') trigger.height = clampTo(value, 1, SCENE_SCREEN_LINES);
+      else trigger[field] = clampTo(value, 0, 255);
+      trigger.width = Math.min(trigger.width, SCENE_SCREEN_WIDTH - trigger.left);
+      trigger.height = Math.min(trigger.height, SCENE_SCREEN_LINES - trigger.top);
+    });
+    const handleTriggerName = (scene, name) => changeTrigger(scene, (trigger) => {
+      trigger.name = String(name || '').trim() || trigger.name;
+    });
+    const handleTriggerKind = (scene, kind) => changeTrigger(scene, (trigger) => {
+      trigger.kind = kind;
+    });
+    const handleTriggerScene = (scene, id) => changeTrigger(scene, (trigger) => {
+      trigger.targetScene = id;
+    });
+    const handleTriggerMask = (scene, object, on) => changeTrigger(scene, (trigger) => {
+      trigger.mask = on ? trigger.mask | (1 << object) : trigger.mask & ~(1 << object);
+    });
 
     const handleAddScene = () => {
       let newId = 0;
+      const before = beginCardDelete();
       save((data) => {
         const id = (max(data.dataTables.map((table) => table.id)) || 0) + 1;
         newId = id;
@@ -622,13 +991,15 @@ export default defineComponent({
           id,
           ...newCardFolder(),
           name: `Scene ${number}`,
-          values: encodeScene({background: first ? first.id : 0, objects: []}),
-          valueFormats: sceneValueFormats(0),
-          valueNotes: sceneValueNotes([]),
+          values: encodeScene({background: first ? first.id : 0, objects: [], triggers: []}),
+          valueFormats: sceneValueFormats(0, 0, 0),
+          valueNotes: sceneValueNotes([], [], []),
+          triggerNames: [],
           columns: 8,
           scene: true,
         });
       });
+      recordCardDelete(before);
       const added = tables.value.find((table) => table.id === newId);
       if (added) ensureExpanded(added);
       selectCard(newId);
@@ -644,6 +1015,7 @@ export default defineComponent({
     };
     const handleDuplicateScene = (scene) => {
       let copyId = 0;
+      const before = beginCardDelete();
       save((data) => {
         const source = data.dataTables.find((candidate) => candidate.id === scene.table.id);
         if (!source) return;
@@ -652,6 +1024,7 @@ export default defineComponent({
         if (idMap) renumbered(idMap);
         copyId = copy.id;
       });
+      recordCardDelete(before);
       const copy = tables.value.find((table) => table.id === copyId);
       if (copy) ensureExpanded(copy);
       selectCard(copyId);
@@ -827,6 +1200,47 @@ export default defineComponent({
           });
         }
       }
+      // The offset areas: a tinted rectangle of cells with the way the pixels move in its middle.
+      (scene.offsets || []).forEach((offset, index) => {
+        const rect = offsetRect(scene, offset);
+        const chosen = isOffsetSelected(scene, index);
+        context.fillStyle = 'rgba(0, 188, 212, 0.28)';
+        context.fillRect(rect.x, rect.y, rect.width, rect.height);
+        context.strokeStyle = chosen ? '#00e676' : 'rgba(0, 188, 212, 0.95)';
+        context.lineWidth = 1;
+        context.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
+        context.font = '12px sans-serif';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillStyle = '#ffffff';
+        context.fillText(OFFSET_ARROWS[offset.direction] || '', rect.x + rect.width / 2, rect.y + rect.height / 2);
+        context.textAlign = 'start';
+        if (chosen && !offset.whole) {
+          context.fillStyle = '#00e676';
+          context.fillRect(rect.x - 1, rect.y - 1, 4, 4);
+          context.fillRect(rect.x + rect.width - 3, rect.y + rect.height - 3, 4, 4);
+        }
+      });
+      // The triggers are drawn over the playfield and under the sprites: a tinted rectangle, with its name when it is wide enough.
+      (scene.triggers || []).forEach((trigger, index) => {
+        const chosen = isTriggerSelected(scene, index);
+        context.fillStyle = 'rgba(255, 64, 129, 0.32)';
+        context.fillRect(trigger.left, trigger.top, trigger.width, trigger.height);
+        context.strokeStyle = chosen ? '#00e676' : 'rgba(255, 64, 129, 0.95)';
+        context.lineWidth = 1;
+        context.strokeRect(trigger.left + 0.5, trigger.top + 0.5, trigger.width - 1, trigger.height - 1);
+        if (trigger.width >= 24 && trigger.height >= 9) {
+          context.font = '7px sans-serif';
+          context.textBaseline = 'top';
+          context.fillStyle = '#ffffff';
+          context.fillText(trigger.name, trigger.left + 2, trigger.top + 2, trigger.width - 4);
+        }
+        if (chosen) {
+          context.fillStyle = '#00e676';
+          context.fillRect(trigger.left - 1, trigger.top - 1, 4, 4);
+          context.fillRect(trigger.left + trigger.width - 3, trigger.top + trigger.height - 3, 4, 4);
+        }
+      });
       scene.objects.forEach((sprite) => {
         context.globalAlpha = hasFlag(sprite, SCENE_FLAG_HIDDEN) ? 0.35 : 1;
         const rects = spriteRects(sprite);
@@ -955,17 +1369,75 @@ export default defineComponent({
       return [...scene.objects].reverse().find((sprite) =>
         spriteRects(sprite).some((rect) => px >= rect.left && px < rect.left + rect.width && line >= rect.top && line < rect.top + rect.height));
     };
-    // The pointer is an arrow, and a hand over a sprite (a closed one while it is dragged).
+    // The trigger under the pointer (the one drawn last when they overlap), and which part of the selected one it is on: its corners resize it.
+    const triggerAt = (scene, canvas, event) => {
+      const {px, line} = pointerAt(canvas, event);
+      const chosen = selectedTrigger(scene);
+      if (chosen) {
+        const near = (x, y) => Math.abs(px - x) <= 3 && Math.abs(line - y) <= 3;
+        if (near(chosen.left + chosen.width, chosen.top + chosen.height)) return {index: selected.value.trigger, mode: 'br'};
+        if (near(chosen.left, chosen.top)) return {index: selected.value.trigger, mode: 'tl'};
+      }
+      for (let index = scene.triggers.length - 1; index >= 0; index--) {
+        const trigger = scene.triggers[index];
+        if (px >= trigger.left && px < trigger.left + trigger.width && line >= trigger.top && line < trigger.top + trigger.height) {
+          return {index, mode: 'move'};
+        }
+      }
+      return null;
+    };
+    // The offset area under the pointer, and which part of the selected one it is on (its corners resize it, in cells).
+    const offsetAt = (scene, canvas, event) => {
+      const {px, line} = pointerAt(canvas, event);
+      const chosen = selectedOffset(scene);
+      if (chosen && !chosen.whole) {
+        const rect = offsetRect(scene, chosen);
+        const near = (x, y) => Math.abs(px - x) <= 3 && Math.abs(line - y) <= 3;
+        if (near(rect.x + rect.width, rect.y + rect.height)) return {index: selected.value.offset, mode: 'br'};
+        if (near(rect.x, rect.y)) return {index: selected.value.offset, mode: 'tl'};
+      }
+      for (let index = scene.offsets.length - 1; index >= 0; index--) {
+        const rect = offsetRect(scene, scene.offsets[index]);
+        if (px >= rect.x && px < rect.x + rect.width && line >= rect.y && line < rect.y + rect.height) {
+          return {index, mode: scene.offsets[index].whole ? 'select' : 'move'};
+        }
+      }
+      return null;
+    };
+    // The pointer is an arrow, and a hand over a sprite or a trigger (a closed one while it is dragged).
     const handlePointerHover = (scene, event) => {
       if (drag) return;
-      event.currentTarget.style.cursor = spriteAt(scene, event.currentTarget, event) ? 'grab' : 'default';
+      const onSprite = !!spriteAt(scene, event.currentTarget, event);
+      const trigger = onSprite ? null : triggerAt(scene, event.currentTarget, event);
+      const offset = onSprite || trigger ? null : offsetAt(scene, event.currentTarget, event);
+      event.currentTarget.style.cursor = onSprite ? 'grab' : trigger ? (trigger.mode === 'move' ? 'grab' : 'nwse-resize') :
+        offset ? (offset.mode === 'move' ? 'grab' : offset.mode === 'select' ? 'pointer' : 'nwse-resize') : 'default';
     };
     const handlePointerDown = (scene, event) => {
       const canvas = event.currentTarget;
       const {px, line} = pointerAt(canvas, event);
       const hit = spriteAt(scene, canvas, event);
       if (!hit) {
-        selected.value = null;
+        const trigger = triggerAt(scene, canvas, event);
+        if (!trigger) {
+          const area = offsetAt(scene, canvas, event);
+          if (!area) {
+            selected.value = null;
+            return;
+          }
+          selectOffset(scene, area.index);
+          if (area.mode === 'select') return;
+          canvas.setPointerCapture(event.pointerId);
+          const chosenArea = scene.offsets[area.index];
+          drag = {scene, canvas, offset: area.index, mode: area.mode, startPx: px, startLine: line,
+            start: {left: chosenArea.left, top: chosenArea.top, right: chosenArea.right, bottom: chosenArea.bottom}, moved: false};
+          return;
+        }
+        selectTrigger(scene, trigger.index);
+        canvas.setPointerCapture(event.pointerId);
+        const chosen = scene.triggers[trigger.index];
+        drag = {scene, canvas, trigger: trigger.index, mode: trigger.mode, startPx: px, startLine: line,
+          start: {left: chosen.left, top: chosen.top, width: chosen.width, height: chosen.height}, moved: false};
         return;
       }
       select(scene, hit.object);
@@ -973,8 +1445,72 @@ export default defineComponent({
       canvas.style.cursor = 'grabbing';
       drag = {scene, canvas, object: hit.object, startPx: px, startLine: line, startX: hit.x, startY: hit.y, moved: false};
     };
+    const handleTriggerDrag = (event) => {
+      const {px, line} = pointerAt(drag.canvas, event);
+      const dx = Math.round(px - drag.startPx);
+      const dy = Math.round(line - drag.startLine);
+      const trigger = drag.scene.triggers[drag.trigger];
+      if (!trigger) return;
+      const start = drag.start;
+      let {left, top, width, height} = start;
+      if (drag.mode === 'move') {
+        left = clampTo(start.left + dx, 0, SCENE_SCREEN_WIDTH - start.width);
+        top = clampTo(start.top + dy, 0, SCENE_SCREEN_LINES - start.height);
+      } else if (drag.mode === 'br') {
+        width = clampTo(start.width + dx, 1, SCENE_SCREEN_WIDTH - start.left);
+        height = clampTo(start.height + dy, 1, SCENE_SCREEN_LINES - start.top);
+      } else {
+        left = clampTo(start.left + dx, 0, start.left + start.width - 1);
+        top = clampTo(start.top + dy, 0, start.top + start.height - 1);
+        width = start.left + start.width - left;
+        height = start.top + start.height - top;
+      }
+      if (trigger.left === left && trigger.top === top && trigger.width === width && trigger.height === height) return;
+      Object.assign(trigger, {left, top, width, height});
+      drag.moved = true;
+      drawScene(drag.scene);
+    };
+    // An offset area is moved and resized a cell at a time.
+    const handleOffsetDrag = (event) => {
+      const {px, line} = pointerAt(drag.canvas, event);
+      const grid = offsetGrid(drag.scene);
+      const dc = Math.round((px - drag.startPx) / 4);
+      const dr = Math.round((line - drag.startLine) / grid.rowLines);
+      const offset = drag.scene.offsets[drag.offset];
+      if (!offset) return;
+      const start = drag.start;
+      const first = {left: Math.min(start.left, start.right), right: Math.max(start.left, start.right), top: Math.min(start.top, start.bottom),
+        bottom: Math.max(start.top, start.bottom)};
+      let {left, right, top, bottom} = first;
+      if (drag.mode === 'move') {
+        const width = first.right - first.left;
+        const height = first.bottom - first.top;
+        left = clampTo(first.left + dc, 0, grid.columns - 1 - width);
+        top = clampTo(first.top + dr, 0, grid.rows - 1 - height);
+        right = left + width;
+        bottom = top + height;
+      } else if (drag.mode === 'br') {
+        right = clampTo(first.right + dc, first.left, grid.columns - 1);
+        bottom = clampTo(first.bottom + dr, first.top, grid.rows - 1);
+      } else {
+        left = clampTo(first.left + dc, 0, first.right);
+        top = clampTo(first.top + dr, 0, first.bottom);
+      }
+      if (offset.left === left && offset.right === right && offset.top === top && offset.bottom === bottom) return;
+      Object.assign(offset, {left, right, top, bottom});
+      drag.moved = true;
+      drawScene(drag.scene);
+    };
     const handlePointerMove = (event) => {
       if (!drag) return;
+      if (drag.offset !== undefined) {
+        handleOffsetDrag(event);
+        return;
+      }
+      if (drag.trigger !== undefined) {
+        handleTriggerDrag(event);
+        return;
+      }
       const {px, line} = pointerAt(drag.canvas, event);
       const x = Math.min(255, Math.max(0, Math.round(drag.startX + px - drag.startPx)));
       const sprite = drag.scene.objects.find((candidate) => candidate.object === drag.object);
@@ -993,8 +1529,13 @@ export default defineComponent({
       drag = null;
       finished.canvas.style.cursor = 'grab';
       if (!finished.moved) return;
-      const sprite = finished.scene.objects.find((candidate) => candidate.object === finished.object);
-      if (sprite) writeScene(finished.scene.table.id, {background: finished.scene.background, objects: finished.scene.objects});
+      const found = finished.offset !== undefined ? finished.scene.offsets[finished.offset] :
+        finished.trigger !== undefined ? finished.scene.triggers[finished.trigger] :
+          finished.scene.objects.find((candidate) => candidate.object === finished.object);
+      if (found) {
+        writeScene(finished.scene.table.id, {background: finished.scene.background, objects: finished.scene.objects, triggers: finished.scene.triggers,
+          offsets: finished.scene.offsets});
+      }
     };
 
     // The toolbar grows and gains a line once the tab is scrolled, as the Data tab's does.
@@ -1009,6 +1550,7 @@ export default defineComponent({
       window.addEventListener('pointerup', handlePointerUp);
       window.addEventListener('keydown', handleHistoryHotkey);
       window.addEventListener('keydown', handleArrowKeys);
+      window.addEventListener('keydown', handleDeleteKey);
       window.addEventListener('resize', redraw);
       scrollContainer = instance.proxy.$el.querySelector('.editor-container');
       if (scrollContainer) scrollContainer.addEventListener('scroll', handleScroll);
@@ -1019,6 +1561,7 @@ export default defineComponent({
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('keydown', handleHistoryHotkey);
       window.removeEventListener('keydown', handleArrowKeys);
+      window.removeEventListener('keydown', handleDeleteKey);
       window.removeEventListener('resize', redraw);
       if (resizeObserver) resizeObserver.disconnect();
       if (scrollContainer) scrollContainer.removeEventListener('scroll', handleScroll);
@@ -1032,6 +1575,11 @@ export default defineComponent({
       handleUndo, handleRedo, reorderCanUndo, reorderCanRedo, UNDO_TITLE, REDO_TITLE, isToolbarScrolled, handleDuplicateScene,
       handleDeselect, testingId, buildInProgress, handleTestScene,
       objectLabel, spriteColor, isPlayer, hasFlag, hasColor, freeObjects, widthItems, selectedSprite, isSelected, select,
+      selectedOffset, isOffsetSelected, selectOffset, offsetDirectionItems, offsetFrameItems, handleAddOffset, handleRemoveOffset, handleOffsetField,
+      handleOffsetDirection, handleOffsetWhole, handleOffsetMask, handleOffsetDelta,
+      triggerByOpen, selectedTrigger, isTriggerSelected, selectTrigger, triggerKindItems, triggerSceneItems, triggerObjects, handleAddTrigger, handleRemoveTrigger,
+      handleTriggerField, handleTriggerName, handleTriggerKind, handleTriggerScene, handleTriggerMask, TRIGGER_MOVE: SCENE_TRIGGER_MOVE,
+      TRIGGER_LOAD: SCENE_TRIGGER_LOAD,
       handleAddScene, handleRename, handleDeleteScene, handleBackground, handleAddObject, handleRemoveObject, handleField, handleColor,
       handleWidth, handleAnimation, handleFlag, handlePointerDown, handlePointerHover,
       COLOR_FLAG: SCENE_FLAG_COLOR, SIZE_FLAG: SCENE_FLAG_SIZE, ANIMATION_FLAG: SCENE_FLAG_ANIMATION, FLIPPED_FLAG: SCENE_FLAG_FLIPPED,
@@ -1191,6 +1739,8 @@ export default defineComponent({
 .scene-canvas-wrap {
   position: relative;
   flex: 0 1 auto;
+  /* The height follows the shape of the picture, not the height of the settings beside it (they grow when a sprite, a trigger or an area is selected). */
+  align-self: flex-start;
   min-width: 0;
   max-width: 100%;
   /* 160 color clocks, each 1.82 times as wide as a line is tall (see utils/pixel-aspect.js), over 192 lines. */
@@ -1270,6 +1820,16 @@ export default defineComponent({
   padding: 0;
 }
 
+.scene-often-field {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+}
+
+.scene-delta-field {
+  flex: 0 0 110px;
+}
+
 .scene-check-row {
   display: flex;
   gap: 24px;
@@ -1284,6 +1844,22 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.scene-trigger-checks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.scene-trigger-checks >>> .v-input--selection-controls {
+  margin: 0;
+  padding: 0;
+}
+
+.scene-trigger-by {
+  cursor: pointer;
+  user-select: none;
 }
 
 .scene-empty,

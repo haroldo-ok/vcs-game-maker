@@ -1586,6 +1586,60 @@ export default (Blockly) => {
     ];
   };
 
+  // "Playfield set/clear/flip area from X Y to X Y": the corners go into temp4 to temp6 and the variable of the area check (x1, y1, x2, y2),
+  // and a shared subroutine for the operation draws one row at a time with pfhline, which only overwrites temp1 to temp3. The corners may be
+  // in either order and are clamped to the playfield.
+  const AREA_FILL_SUBROUTINES = {on: '_background_area_set', off: '_background_area_clear_pixels', flip: '_background_area_flip'};
+  const buildAreaFillBody = (operation, maxRow, last) => {
+    const lab = (part) => `@ _areafill_${operation}_${part}`;
+    const label = (part) => `_areafill_${operation}_${part}`;
+    return [
+      `if temp4 <= temp6 then goto ${label('xok')}`,
+      `temp1 = temp4`,
+      `temp4 = temp6`,
+      `temp6 = temp1`,
+      lab('xok'),
+      `if temp5 <= ${last.read} then goto ${label('yok')}`,
+      `temp1 = temp5`,
+      `temp5 = ${last.read}`,
+      `${last.write} = temp1`,
+      lab('yok'),
+      `if temp6 > 31 then temp6 = 31`,
+      `if ${last.read} > ${maxRow} then ${last.write} = ${maxRow}`,
+      `if temp4 > temp6 then goto ${label('end')}`,
+      `if temp5 > ${last.read} then goto ${label('end')}`,
+      lab('row'),
+      `temp1 = temp4`,
+      `temp2 = temp5`,
+      `temp3 = temp6`,
+      `pfhline temp1 temp2 temp3 ${operation}`,
+      `temp5 = temp5 + 1`,
+      `if temp5 <= ${last.read} then goto ${label('row')}`,
+      lab('end'),
+    ].join('\n');
+  };
+
+  Blockly.BBasic['background_fill_area'] = function(block) {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const last = Blockly.BBasic.superchipRwPairs[areaClearLeftVarName()];
+    if (!last) return '';
+    const operation = block.getFieldValue('OPERATION');
+    const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const x1 = arg('X1');
+    const y1 = arg('Y1');
+    const x2 = arg('X2');
+    const y2 = arg('Y2');
+    const name = AREA_FILL_SUBROUTINES[operation];
+    if (!Blockly.BBasic.subroutines[name]) {
+      Blockly.BBasic.subroutines[name] = buildAreaFillBody(operation, maxRow, last);
+    }
+    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
+    // The corners (x1, y1, x2, y2) become temp4, temp5, temp6 and the second row.
+    return `temp4 = ${x1}\ntemp5 = ${y1}\ntemp6 = ${x2}\n${last.write} = ${y2}\ngosub ${name}${suffix}\n`;
+  };
+
   // "Playfield offset": moves the pixels of the playfield (or of an area of it, whole bytes wide) by one pixel column or
   // row, wrapping inside the area. A row is four bytes of eight pixels; the first and third have their left pixel in
   // bit 7 and the second and fourth in bit 0 (the same order pfscroll and pfpixel use), so a shift sideways is a

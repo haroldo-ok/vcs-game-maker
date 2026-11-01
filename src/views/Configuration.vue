@@ -507,6 +507,9 @@ const DEFAULT_CONFIGURATION = {
   secondaryScoreFont: '',
   muteAllAudio: false,
   enableAtariVox: false,
+  // The save files (256 bytes each, 0 to 127) of the AtariVox's memory the project keeps its data in: the default is the single file 65 (4100-41FF), free in the AtariAge allocation list.
+  avoxFileStart: 65,
+  avoxFileEnd: 65,
   showVariableComments: false,
 };
 
@@ -901,6 +904,8 @@ export default defineComponent({
       state.enableScanlinesDebug = DEFAULT_CONFIGURATION.enableScanlinesDebug;
       state.muteAllAudio = DEFAULT_CONFIGURATION.muteAllAudio;
       state.enableAtariVox = DEFAULT_CONFIGURATION.enableAtariVox;
+      state.avoxFileStart = DEFAULT_CONFIGURATION.avoxFileStart;
+      state.avoxFileEnd = DEFAULT_CONFIGURATION.avoxFileEnd;
       state.showVariableComments = DEFAULT_CONFIGURATION.showVariableComments;
       configurationState.value = state;
 

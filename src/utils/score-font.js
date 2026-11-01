@@ -571,10 +571,15 @@ export const buildScoreFontOverride = async (font, secondaryFont, dpcPlus = fals
   const pageCheck = secondaryDigits ?
     '\n if (>scorefontsecondary) != (>scoretable)\n   echo "The two score fonts do not fit in one page of ROM."\n   err\n endif\n' : '';
 
+  // The stock file ends the default font with 8 blank bytes, which the code after the table sits behind; the DPC+ kernel is fussy about
+  // where its code lies, so a table that is written out keeps them.
+  const dpcPlusPad = dpcPlus && !secondaryDigits ? '       .byte 0\n'.repeat(8) : '';
+
   return shiftedHeader +
     secondaryBlock +
     pristine.slice(headerEnd - DIGITS_START.length, headerEnd) + '\n\n' +
     digits.map((byte) => '       .byte ' + byte).join('\n') + '\n' +
+    dpcPlusPad +
     pageCheck +
     pristine.slice(footerStart);
 };

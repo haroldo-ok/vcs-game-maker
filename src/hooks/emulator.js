@@ -62,6 +62,16 @@ export const setEmulatorPaused = (paused) => {
   });
 };
 
+// Starts the ROM that is loaded again from the beginning, as if the console had been switched off and on (the bytes are the ones the
+// last build, or preview, loaded; nothing is built). Returns whether there was a ROM to start.
+export const restartEmulatorRom = () => {
+  const bytes = useLastLoadedRomBytes();
+  if (!bytes.value) return false;
+  const tvSpec = useLastLoadedTvSpec();
+  safeWithGopher2600((gopher2600) => gopher2600.loadRom(bytes.value, tvSpec.value));
+  return true;
+};
+
 // Empties the emulator and forgets the ROM behind it, for a new or imported
 // project (the ROM belonged to the project it replaces). A no-op on the
 // emulator side if it isn't loaded yet or is an older build without clearRom.

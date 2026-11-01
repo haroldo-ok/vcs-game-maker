@@ -12,7 +12,7 @@ export const MEMORY_SUBROUTINE_NAME = '_avox_mem';
 // The jobs of the subroutine's code (see its comment): the bus is set up, the job is picked, and the result is a flag in temp6 (the high
 // scores' jobs give the place there instead). The memory is read and written by two small routines that take the address in temp6 (high) and
 // temp4 (low), and give 0 in A when the memory answered.
-const memoryCode = (hs) => {
+const memoryCode = (hs, hsFile = 65) => {
   let counter = 0;
   const lines = [];
   const asm = (...l) => lines.push(...l);
@@ -148,10 +148,10 @@ const memoryCode = (hs) => {
   );
   if (hs) {
     const [a, b, c] = hs;
-    // The table of the high scores is in the save file 127: the slot 0 holds $A5 once the table is made, then 10 places of 3 bytes (the
+    // The table of the high scores is in the last save file of the range (set on the Vox tab): the slot 0 holds $A5 once the table is made, then 10 places of 3 bytes (the
     // score as the three bytes of the score, the largest digits first). a: the place, b: the place being copied, c: the byte of a place.
     asm(
-        // temp4 = 3 * b + 1 + c, temp6 = 127: where a byte of a place is
+        // temp4 = 3 * b + 1 + c, temp6 = the save file of the table: where a byte of a place is
         '@_hs_where',
         'lda ' + b,
         'asl',
@@ -162,7 +162,7 @@ const memoryCode = (hs) => {
         'clc',
         'adc #1',
         'sta temp4',
-        'lda #127',
+        `lda #${hsFile}`,
         'sta temp6',
         'rts',
         // every place is 0 and the table is marked as made
@@ -170,7 +170,7 @@ const memoryCode = (hs) => {
         'lda #1',
         'sta ' + c,
         '@_hs_wipeloop',
-        'lda #127',
+        `lda #${hsFile}`,
         'sta temp6',
         'lda ' + c,
         'sta temp4',
@@ -182,7 +182,7 @@ const memoryCode = (hs) => {
         'lda ' + c,
         'cmp #31',
         'bne _hs_wipeloop',
-        'lda #127',
+        `lda #${hsFile}`,
         'sta temp6',
         'lda #0',
         'sta temp4',
@@ -193,7 +193,7 @@ const memoryCode = (hs) => {
         'rts',
         // the table is made when the memory is new (A is 0 when it is)
         '@_hs_init',
-        'lda #127',
+        `lda #${hsFile}`,
         'sta temp6',
         'lda #0',
         'sta temp4',
@@ -452,7 +452,7 @@ export const registerMemorySubroutine = (Blockly, hsVars = null) => {
     'jsr _i2c_sclh',
     'jsr _i2c_scll',
     'rts',
-    ...memoryCode(hsVars),
+    ...memoryCode(hsVars, (Blockly.BBasic.avoxFileRange || {end: 65}).end),
     '@end',
   ].join('\n');
 };
@@ -462,16 +462,32 @@ export default (Blockly) => {
   const memoryCall = () => ` gosub ${MEMORY_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(),
       Blockly.BBasic.getSubroutineBank(MEMORY_SUBROUTINE_NAME))}`;
 
-  // The save file of a block (0 to 127; a block saved before there were files has none: file 0).
-  const fileOf = (block) => {
+  // The lines that put the save file of a block in temp6 (a block saved before there were files has none: file 0). The number counts from the
+  // first file of the range of the Vox tab and stays inside it (with the table of the high scores, the last file of the range is the
+  // table's, so the data files stop before it).
+  const fileLines = (block) => {
     const code = Blockly.BBasic.valueToCode(block, 'FILE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return /^\d+$/.test(code.trim()) ? `${Math.min(127, Number(code))}` : `(${code}) & 127`;
+    const plain = /^\d+$/.test(code.trim());
+    const range = Blockly.BBasic.avoxFileRange || {start: 65, end: 65};
+    const top = Blockly.BBasic.avoxHighScoresUsed && range.end > range.start ? range.end - 1 : range.end;
+    const span = top - range.start;
+    if (plain) return [` temp6 = ${range.start + Math.min(span, Number(code))}`];
+    return [` temp6 = ${code}`, ` if temp6 > ${span} then temp6 = ${span}`, ...(range.start ? [` temp6 = temp6 + ${range.start}`] : [])];
+  };
+
+  // The lines that put the slot of a block in temp4. With the table of the high scores in the one save file the project has, its 31 first
+  // slots are the table's, so the slots of the blocks (0 to 224) come after them.
+  const slotLines = (code) => {
+    const range = Blockly.BBasic.avoxFileRange || {start: 65, end: 65};
+    if (!Blockly.BBasic.avoxHighScoresUsed || range.end > range.start) return [` temp4 = ${code}`];
+    if (/^\d+$/.test(code.trim())) return [` temp4 = ${Math.min(224, Number(code)) + 31}`];
+    return [` temp4 = ${code}`, ' if temp4 > 224 then temp4 = 224', ' temp4 = temp4 + 31'];
   };
 
   Blockly.BBasic['avox_memory_save'] = function(block) {
     const value = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const slot = Blockly.BBasic.valueToCode(block, 'SLOT', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return [` temp5 = ${value}`, ` temp4 = ${slot}`, ` temp6 = ${fileOf(block)}`, ' temp3 = 1', memoryCall()].join('\n') + '\n';
+    return [` temp5 = ${value}`, ...slotLines(slot), ...fileLines(block), ' temp3 = 1', memoryCall()].join('\n') + '\n';
   };
 
   Blockly.BBasic['avox_memory_load'] = function(block) {
@@ -479,10 +495,10 @@ export default (Blockly) => {
     const variable = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
     // A memory that does not answer leaves the variable as it was.
     const skip = label('noload');
-    return [` temp4 = ${slot}`, ` temp6 = ${fileOf(block)}`, ' temp3 = 2', memoryCall(), ` if temp6 = 0 then goto ${skip}`, ` ${variable} = temp5`, `@ ${skip}`].join('\n') + '\n';
+    return [...slotLines(slot), ...fileLines(block), ' temp3 = 2', memoryCall(), ` if temp6 = 0 then goto ${skip}`, ` ${variable} = temp5`, `@ ${skip}`].join('\n') + '\n';
   };
 
-  // The table of the 10 best scores (in the save file 127): add the score of the game, put a place of the table in the score, wipe the table.
+  // The table of the 10 best scores (in the last save file of the range): add the score of the game, put a place of the table in the score, wipe the table.
   Blockly.BBasic['avox_highscore_add'] = function(block) {
     const variable = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
     return [' temp6 = 0', ' temp3 = 4', memoryCall(), ` ${variable} = temp6`].join('\n') + '\n';

@@ -419,6 +419,14 @@
           </v-btn>
           <v-btn
             small
+            :disabled="!lastLoadedRomBytes"
+            title="Restart the ROM from the beginning, without building it"
+            @click="handleRestartRom"
+          >
+            <v-icon small>mdi-restart</v-icon>
+          </v-btn>
+          <v-btn
+            small
             :color="emulatorColorMode ? 'primary' : undefined"
             title="Color/B&W switch"
             @click="handleToggleColorMode(!emulatorColorMode)"
@@ -467,6 +475,7 @@
         <div class="rom-buttons-row mt-2">
           <v-btn
             :color="romOutdated ? 'warning' : 'primary'"
+            small
             :loading="building"
             :disabled="buildInProgress && !building"
             :title="buildInProgress && !building ?
@@ -475,20 +484,12 @@
           >
             {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
           </v-btn>
-          <v-btn
-            v-if="isElectron"
-            color="primary"
-            :loading="launchingStella"
-            :disabled="!hasCompiledRom"
-            @click="handleTestInStella"
-          >
-            Test in Stella
-          </v-btn>
           <v-menu v-model="romSaveMenuOpen" top offset-y>
             <template v-slot:activator="{ attrs }">
               <!-- The button opens this small menu to pick .bin or .a26. -->
               <v-btn
                 color="primary"
+                small
                 :disabled="!hasCompiledRom"
                 v-bind="attrs"
                 @click="handleSaveRomClick"
@@ -505,6 +506,18 @@
               </v-list-item>
             </v-list>
           </v-menu>
+        </div>
+        <!-- The desktop app can also open the ROM in Stella: its button is on a row under the ROM buttons. -->
+        <div v-if="isElectron" class="rom-buttons-row mt-2">
+          <v-btn
+            color="primary"
+            small
+            :loading="launchingStella"
+            :disabled="!hasCompiledRom"
+            @click="handleTestInStella"
+          >
+            Test in Stella
+          </v-btn>
         </div>
         <div
           v-if="romCapacityText"
@@ -739,7 +752,8 @@ import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDar
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
-import {safeWithGopher2600} from './hooks/emulator';
+import {restartEmulatorRom, safeWithGopher2600} from './hooks/emulator';
+import {useLastLoadedRomBytes} from './hooks/rom-status';
 import {useRemountKey} from './hooks/delete-history';
 import {useEmulatorSettings, saveEmulatorSettings} from './hooks/emulator-settings';
 import {escapeHtml} from './utils/build-error';
@@ -883,7 +897,7 @@ export default {
       emulatorSettings: useEmulatorSettings(), debugSymbols: useDebugVariables(), debugTitleLoop: useDebugTitleLoop(),
       errorStorage, errorBannerHighlight: useErrorBannerHighlight(),
       compileLog: useCompileLog(), romOutdated: useRomOutdated(), romCapacity: useRomCapacity(),
-      hasCompiledRom: useHasCompiledRom(), compiledRomBytes: useCompiledRomBytes(),
+      hasCompiledRom: useHasCompiledRom(), compiledRomBytes: useCompiledRomBytes(), lastLoadedRomBytes: useLastLoadedRomBytes(),
       buildInProgress: useBuildInProgress(),
       productName, version, hideDescriptionTextStorage: useHideDescriptionTextStorage(),
       hideToolbarLabelsStorage: useHideToolbarLabelsStorage(),
@@ -1715,6 +1729,9 @@ export default {
       if (!title) return 'compiled-rom';
       const version = sanitizeForFilename(config.projectVersion || '0.0.0').replace(/\./g, '-');
       return `${title}_${version}`;
+    },
+    handleRestartRom() {
+      restartEmulatorRom();
     },
     handleSaveRomClick() {
       this.romSaveMenuOpen = !this.romSaveMenuOpen;

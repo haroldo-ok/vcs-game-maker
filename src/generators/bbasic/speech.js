@@ -90,6 +90,13 @@ export const prepareSpeech = (Blockly, workspace) => {
   const used = blocks.some((block) => speechTypes.includes(block.type)) || avoxCards.length > 0;
   // The AtariVox's memory (a 32 KB EEPROM on the same port): blocks that save and load a byte (see avox-memory.js).
   Blockly.BBasic.avoxHighScoresUsed = blocks.some((block) => block.type.startsWith('avox_highscore_'));
+  // The save files the project keeps its data in (the two fields of the Vox tab, in the project's options): the data files count from the first,
+  // and the table of the high scores is the last. Without them it is the single file 65, the first file nobody has reserved (see
+  // src/data/savekey-allocations.js).
+  const avoxConfig = config;
+  const rangeStart = Math.max(0, Math.min(127, Math.round(Number(avoxConfig.avoxFileStart ?? 65))));
+  const rangeEnd = Math.max(rangeStart, Math.min(127, Math.round(Number(avoxConfig.avoxFileEnd ?? 65))));
+  Blockly.BBasic.avoxFileRange = {start: rangeStart, end: rangeEnd};
   Blockly.BBasic.avoxMemoryUsed = Blockly.BBasic.avoxHighScoresUsed ||
     blocks.some((block) => block.type === 'avox_memory_save' || block.type === 'avox_memory_load' || block.type === 'avox_memory_check');
   // The voices (the Voice tab): each phrase of speech starts by putting the chip in the controls of its voice, for the controls that any voice
@@ -366,10 +373,10 @@ export const registerSpeechSubroutine = (Blockly) => {
     'bne _avox_sent',
     'inc temp4',
     '@_avox_sent',
-    // bit 0 is an output (the line idles high), then the start bit, 8 data bits, the stop bit
+    // bit 0 is an output (the latch is set first so the line does not dip while the pin becomes an output; it idles high), then the start bit, 8 data bits, the stop bit
     'lda #1',
-    'sta SWACNT',
     'sta SWCHA',
+    'sta SWACNT',
     'lda #0',
     'sta SWCHA',
     'ldx #8',

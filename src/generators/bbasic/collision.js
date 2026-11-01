@@ -150,8 +150,8 @@ const isBoxedPlayer = (Blockly, name) => isExtraPlayer(name) || (name === 'playe
 const widePartnerOf = (Blockly, name) => (Blockly.BBasic.widePartners || {})[name];
 
 export default (Blockly) => {
-  const hitVar = (player) =>
-    Blockly.BBasic.nameDB_.getName(pfHitVarName(player), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const hitVar = (player, feet = false) =>
+    Blockly.BBasic.nameDB_.getName(pfHitVarName(player, feet), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
 
   Blockly.BBasic[`collision_get`] = function(block) {
     const var0 = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR0'),
@@ -166,7 +166,8 @@ export default (Blockly) => {
       const owner = var0 === 'playfield' ? var1 : var0;
       if (/^player\d$/.test(owner)) {
         const partner = widePartnerOf(Blockly, owner);
-        return partner ? [`${hitVar(owner)} || ${hitVar(partner)}`, Blockly.BBasic.ORDER_LOGICAL_OR] : [hitVar(owner), Blockly.BBasic.ORDER_ATOMIC];
+        const feet = block.getFieldValue('BOXMODE') === 'feet';
+        return partner ? [`${hitVar(owner, feet)} || ${hitVar(partner, feet)}`, Blockly.BBasic.ORDER_LOGICAL_OR] : [hitVar(owner, feet), Blockly.BBasic.ORDER_ATOMIC];
       }
     }
     if (var0 !== var1 && (var0 === 'playfield' || var1 === 'playfield') && (wide0 || wide1)) {
@@ -542,8 +543,10 @@ export default (Blockly) => {
       const lastX = lastXPair.read;
       const lastY = Blockly.BBasic.superchipRwPairs[collisionMoveOldYVar(playerNum)].read;
       const lab = (suffix) => `_undo_end_${playerNum}_${suffix}`;
-      const box = callPfBox(Blockly, player);
-      const firstBox = callPfBoxQuick(Blockly, player);
+      // The bottom 8 lines only when every Undo block of the player says so.
+      const feet = Blockly.BBasic.collisionMoveFeetPlayers.has(playerNum);
+      const box = callPfBox(Blockly, player, feet);
+      const firstBox = callPfBoxQuick(Blockly, player, feet);
       const boxOffset = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus' ? 16 : 17;
       chunks.push([
         ` rem undo last move of ${player}, looked at before it is drawn:`,

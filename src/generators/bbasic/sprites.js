@@ -417,6 +417,10 @@ export const spriteOwnBit = (name) => {
   return bits[name];
 };
 export const seekActiveBit = (name) => flagPoolBit(SEEK_FLAGS_FAMILY, spriteOwnBit(name));
+// One bit for each sprite a Move block with "one axis at a time" moves: set by the block that moved it last when that block has the box checked.
+export const SEEK_AXIS_FAMILY = 'seekAxisFlags';
+export const seekAxisFlagsVarName = () => flagPoolVar(SEEK_AXIS_FAMILY);
+export const seekAxisBit = (name) => flagPoolBit(SEEK_AXIS_FAMILY, spriteOwnBit(name));
 export const seekXVarName = (name) => `${name}SeekX`;
 export const seekYVarName = (name) => `${name}SeekY`;
 export const seekSpeedVarName = (name) => `${name}SeekSpeed`;
@@ -806,9 +810,10 @@ export const reserveMissileBounceDevVars = (reserveDevVarRW, usedFor, inertiaUse
 // block used anywhere in the project.
 // throttleVar/throttleResetVar route through reserveDevVarRW - same
 // reasoning as reserveMissileFireDevVars'  identical change above.
-export const reserveSeekDevVars = (reserveDevVar, reserveDevVarRW, usedFor) => {
+export const reserveSeekDevVars = (reserveDevVar, reserveDevVarRW, usedFor, axisUsedFor) => {
   if (!usedFor || !usedFor.size) return;
   reserveDevVar(seekFlagsVarName(), undefined, 'shared active-bit byte for seeking sprites');
+  if (axisUsedFor && axisUsedFor.size) reserveDevVar(seekAxisFlagsVarName(), undefined, 'shared byte of the sprites that move one axis at a time');
   usedFor.forEach((name) => {
     reserveDevVar(seekXVarName(name), undefined, 'this sprite\'s seek target X');
     reserveDevVar(seekYVarName(name), undefined, 'this sprite\'s seek target Y');
@@ -1587,6 +1592,7 @@ export const generateSeekChecks = (Blockly) => {
       `${resolveVar(seekArrivedFlagsVarName())}{${seekArrivedBit(name)}}` : null;
     const throttlePair = Blockly.BBasic.superchipRwPairs[seekThrottleVarName(name)];
     const throttleResetPair = Blockly.BBasic.superchipRwPairs[seekThrottleResetVarName(name)];
+    const axisBit = (Blockly.BBasic.seekAxisUsedFor || new Set()).has(name) ? `${resolveVar(seekAxisFlagsVarName())}{${seekAxisBit(name)}}` : null;
 
     const buildAxisSteps = (axis, targetVar) => {
       const axisDoneLabel = `_seek_${name}_${blockNumber}_${axis}done`;
@@ -1613,7 +1619,10 @@ export const generateSeekChecks = (Blockly) => {
         ` if ${throttlePair.read} then goto ${doneLabel}`,
         ` ${throttlePair.write} = ${throttleResetPair.read}`,
         ...buildAxisSteps('x', targetXVar),
+        // "One axis at a time": the y moves only once x is on the target column, so the two never move in the same frame.
+        ...(axisBit ? [` if ${axisBit} && ${name}x <> ${targetXVar} then goto _seek_${name}_${blockNumber}_ystay`] : []),
         ...buildAxisSteps('y', targetYVar),
+        ...(axisBit ? [`_seek_${name}_${blockNumber}_ystay`] : []),
         ` if ${name}x = ${targetXVar} && ${name}y = ${targetYVar} then goto ${arrivedLabel}`,
         ` goto ${doneLabel}`,
         `${arrivedLabel}`,
@@ -2653,6 +2662,10 @@ export default (Blockly) => {
     // flags byte only actually exists when at least one object_seek_arrived
     // block is watching, so this only reads/writes it when that's the case.
     const arrivedWatches = Blockly.BBasic.seekArrivedWatches || new Set();
+    // The box "one axis at a time" of this block: the bit of the sprite is set or cleared (it only exists when a block of the project has the box checked).
+    const axisLine = (Blockly.BBasic.seekAxisUsedFor || new Set()).has(name) ?
+      `${resolveVar(seekAxisFlagsVarName())}{${seekAxisBit(name)}} = ${block.getFieldValue('AXIS') === 'TRUE' ? 1 : 0}
+` : '';
     const clearArrived = arrivedWatches.has(name) ?
       `${resolveVar(seekArrivedFlagsVarName())}{${seekArrivedBit(name)}} = 0\n` : '';
     return `${targetXVar} = ${x}\n` +
@@ -2664,6 +2677,7 @@ export default (Blockly) => {
       // interval.
       `${throttlePair.write} = ${interval}\n` +
       `${flagsVar}{${activeBit}} = 1\n` +
+      axisLine +
       clearArrived;
   };
 

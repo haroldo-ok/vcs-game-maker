@@ -744,6 +744,28 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_fill_area">
+            <value name="X1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="Y1">
+                <shadow type="math_number">
+                    <field name="NUM">0</field>
+                </shadow>
+            </value>
+            <value name="X2">
+                <shadow type="math_number">
+                    <field name="NUM">3</field>
+                </shadow>
+            </value>
+            <value name="Y2">
+                <shadow type="math_number">
+                    <field name="NUM">3</field>
+                </shadow>
+            </value>
+        </block>
         <block type="background_change_hv_line">
             <value name="LENGTH">
                 <shadow type="math_number">
@@ -863,6 +885,12 @@
         <block type="scene_set_by_id">
             <value name="ID"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
         </block>
+        <block type="trigger_on"></block>
+        <block type="trigger_on_by_number">
+            <value name="TRIGGER"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+            <value name="SCENE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
+        <block type="trigger_fired"></block>
     </category>
     <category name="Sound" colour="rgb(156, 39, 176)">
         <block type="simple_sound_set"></block>

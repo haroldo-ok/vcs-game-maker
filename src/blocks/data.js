@@ -40,7 +40,8 @@ export const processDataTablesStorageDefaults = (dataTablesStorage) => {
   // A scene made before its cells had notes gets them here, so the Data tab shows what every value is.
   dataTables.dataTables.forEach((table) => {
     if (table.scene && (!table.valueNotes || !table.valueNotes.some(Boolean))) {
-      table.valueNotes = sceneValueNotes(decodeScene(table.values).objects);
+      const scene = decodeScene(table.values, table.triggerNames);
+      table.valueNotes = sceneValueNotes(scene.objects, scene.triggers, scene.offsets);
     }
   });
   return dataTables;

@@ -1341,7 +1341,7 @@ Blockly.defineBlocksWithJsonArray([
 Blockly.defineBlocksWithJsonArray([
   {
     'type': 'object_seek_to',
-    'message0': `${SEEK_ICON} Seek %1 to X %2 Y %3 at speed %4`,
+    'message0': `${SEEK_ICON} Move %1 to X %2 Y %3 at speed %4`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1372,6 +1372,14 @@ Blockly.defineBlocksWithJsonArray([
         'checked': false,
       },
     ],
+    'message2': 'one axis at a time %1',
+    'args2': [
+      {
+        'type': 'field_checkbox',
+        'name': 'AXIS',
+        'checked': false,
+      },
+    ],
     'inputsInline': true,
     'previousStatement': null,
     'nextStatement': null,
@@ -1389,7 +1397,9 @@ Blockly.defineBlocksWithJsonArray([
       'directly inside an "every X frames" block, slows the actual movement itself down to ' +
       'that same rate (one step every X frames) instead of moving every frame regardless - ' +
       'unchecked (the default), movement always happens every frame once triggered, no ' +
-      'matter what wraps this block.',
+      'matter what wraps this block. "one axis at a time", when checked, makes it move along X until it ' +
+      'is in the target column, then along Y, never both in the same frame (unchecked, the default, it ' +
+      'moves both at once).',
   },
   // A plain boolean value (plugs into an "if", same as collision_get/
   // background_fade_active elsewhere in this codebase - a bare 'output':
@@ -1404,7 +1414,7 @@ Blockly.defineBlocksWithJsonArray([
   // the first check.
   {
     'type': 'object_seek_arrived',
-    'message0': `${SEEK_ICON} %1 arrived at its seek target`,
+    'message0': `${SEEK_ICON} %1 arrived at its move target`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1415,9 +1425,9 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Boolean',
     'colour': 'purple',
     'extensions': ['object_seek_colour_sync'],
-    'tooltip': 'True once a matching "Seek" block (same player/missile/ball choice) reaches its ' +
-      'target X/Y, and stays true until that object is given a new Seek target. Always false ' +
-      'if no matching Seek block ever runs anywhere in the project.',
+    'tooltip': 'True once a matching "Move" block (same player/missile/ball choice) reaches its ' +
+      'target X/Y, and stays true until that object is given a new Move target. Always false ' +
+      'if no matching Move block ever runs anywhere in the project.',
   },
   // True once a Fire block's object has gone off the screen and stopped there.
   {

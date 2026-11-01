@@ -43,10 +43,13 @@ const DEFAULT_PF_X_OFFSET = 17;
 // armRows: DPC+ only, with rows whose height is only known when the program runs (backgrounds with different numbers of rows): the rows of a line
 // and the first line of a row are worked out by the coprocessor (functions 56 and 60 of custom/main.c, built with DPC_ROWS) where the 6502
 // would need a loop of multiplications or divisions for each.
+// feetOf: {realHeightVar}: the box is only the bottom 8 lines of the sprite (its full width): heightVar is a byte the test sets from the
+// player's height (realHeightVar), 8 lines tall at most, and under DPC+ (y is the top line) y is put down to the top of those 8 lines
+// while the test runs, then back.
 // partnerFrameVar: for a 16 pixel wide player, the frame byte of the sprite that shows its right half (255 while it is not shown);
 // the box is twice as wide while it is shown. partnerHiddenVar: a bit that also hides it.
 export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: baseHeightVar, resultVar, maxRow, rowDivisor, dpcPlusRows, dpcPlusRowSets, rowFracVar, maxRowVar,
-  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0, extVar, dpcPlusScan = false, armRows = false, quickLastXVar, armBox = false, armGroups = false}) => {
+  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0, extVar, dpcPlusScan = false, armRows = false, quickLastXVar, armBox = false, armGroups = false, feetOf}) => {
   const heightVar = extraHeight ? `(${baseHeightVar} ${extraHeight < 0 ? '-' : '+'} ${Math.abs(extraHeight)})` : baseHeightVar;
   const lab = (name) => `${label}_${name}`;
   const at = (name) => `@ ${lab(name)}`;
@@ -702,6 +705,23 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     '@end',
     ...oneTail,
   ] : [];
+  // The bottom 8 lines of the sprite: the standard kernel's y is the bottom line and its height variable one less than the lines, so 7 is 8 lines;
+  // under DPC+ y is the top line and the height counts the lines.
+  const feetPrelude = feetOf ? (dpcPlusScan ? [
+    `${baseHeightVar} = ${feetOf.realHeightVar}`,
+    `if ${baseHeightVar} <= 8 then goto ${lab('feetok')}`,
+    `${yVar} = ${yVar} + ${feetOf.realHeightVar} - 8`,
+    `${baseHeightVar} = 8`,
+    at('feetok'),
+  ] : [
+    `${baseHeightVar} = ${feetOf.realHeightVar}`,
+    `if ${baseHeightVar} > 7 then ${baseHeightVar} = 7`,
+  ]) : [];
+  const feetPostlude = feetOf && dpcPlusScan ? [
+    `if ${feetOf.realHeightVar} <= 8 then goto ${lab('feetback')}`,
+    `${yVar} = ${yVar} - ${feetOf.realHeightVar} + 8`,
+    at('feetback'),
+  ] : [];
   const start = [
     `goto ${lab('start')}`,
     ...quickEntry,
@@ -709,6 +729,7 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     at('one'),
     ...(armBox ? armOne : oneBox),
     at('start'),
+    ...feetPrelude,
     `if ${xVar} >= ${pfXOffset + 160} then ${resultVar} = 0 : goto ${lab('finish')}`,
     `gosub ${lab('one')}`,
     `if ${resultVar} then goto ${lab('finish')}`,
@@ -730,6 +751,7 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     at('copies4'),
     ...copyStep(64),
     at('finish'),
+    ...feetPostlude,
     ...(extVar ? [`if ${extVar} = 0 then goto ${lab('keepy')}`, `if ${resultVar} then ${yVar} = temp2`, at('keepy'), `${extVar} = 0`] : []),
   ];
   // A missile or the ball has no copies.

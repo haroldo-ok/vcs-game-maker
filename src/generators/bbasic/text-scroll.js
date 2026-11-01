@@ -127,17 +127,25 @@ export const resolveTextScrollConstants = (workspace) => {
   return {speed: only(speeds, DEFAULT_TEXT_SCROLL_SPEED), pause: only(pauses, DEFAULT_TEXT_SCROLL_PAUSE)};
 };
 
+// When the speed and the pause are both fixed numbers from 1 to 31, the frames left before the next step is a 5 bit count, which lives in
+// the top bits of the state byte (the state takes bits 0 to 2) instead of taking a byte.
+export const TEXT_SCROLL_PACKED_MAX = 31;
+export const textScrollTimerIsPacked = (constants) => !!constants && [constants.speed, constants.pause].every(
+    (value) => Number.isInteger(value) && value >= 1 && value <= TEXT_SCROLL_PACKED_MAX);
+
 export const reserveTextScrollDevVars = (reserveDevVar, textMinikernelUsed, constants = {}) => {
   if (!textMinikernelUsed) return;
   [
     [textScrollBaseVarName(), 'scrolling text: TextIndex at the message\'s start'],
     [textScrollFarEndVarName(), 'scrolling text: TextIndex at the message\'s end'],
-    [textScrollTimerVarName(), 'scrolling text: frames left before the next step'],
+    ...(textScrollTimerIsPacked(constants) ? [] : [[textScrollTimerVarName(), 'scrolling text: frames left before the next step']]),
     ...(constants.speed === null || constants.speed === undefined ?
       [[textScrollSpeedVarName(), 'scrolling text: frames per step']] : []),
     ...(constants.pause === null || constants.pause === undefined ?
       [[textScrollPauseDurationVarName(), 'scrolling text: frames to hold at each end']] : []),
-    [textScrollStateVarName(), 'scrolling text: playing/paused/cleared + direction bit'],
+    [textScrollStateVarName(), textScrollTimerIsPacked(constants) ?
+      'scrolling text: playing/paused/cleared + direction bit + (top 5 bits) frames left before the next step' :
+      'scrolling text: playing/paused/cleared + direction bit'],
   ].forEach(([name, description]) => reserveDevVar(name, undefined, description));
 };
 
@@ -147,6 +155,9 @@ let fixedConstants = {speed: null, pause: null};
 export const setTextScrollConstants = (constants) => {
   fixedConstants = constants;
 };
+export const isTextScrollTimerPacked = () => textScrollTimerIsPacked(fixedConstants);
+// The state byte with a timer of the given number of frames in its top bits (the state bits all clear).
+export const packedTimerValue = (frames) => frames * 8;
 const operand = (fixed, varName, resolveVar) =>
   (fixed === null || fixed === undefined ? {value: resolveVar(varName), fixed: false} : {value: String(fixed), fixed: true});
 // How the speed and pause are read: the compiled-in number when the project has just one, else the variable.
@@ -402,7 +413,8 @@ export const buildTextScrollSetupLines = (
     // themselves need - see that generator's  comment) is correct here
     // specifically BECAUSE this is the one place direction is meant to reset
     // too - see TEXT_SCROLL_DIR_BIT's  comment.
-    `${state()} = ${startAtEnd ? TEXT_SCROLL_DIR_MASK : '0'}`,
+    // (A packed timer starts at 1 in the same write.)
+    `${state()} = ${isTextScrollTimerPacked() ? packedTimerValue(1) + (startAtEnd ? 4 : 0) : (startAtEnd ? TEXT_SCROLL_DIR_MASK : '0')}`,
     // 1, not pauseCode/speedCode - generateTextScrollAdvance's "dec
     // timer; bne done" only falls through to the actual advance once timer
     // hits 0, so starting it at 1 makes that happen on the very next frame
@@ -411,7 +423,7 @@ export const buildTextScrollSetupLines = (
     // "pause at limits" delay a mid-scroll reversal waits out at each end -
     // deliberately dropped: a first run isn't a reversal, and the user
     // reported it shouldn't wait like one.)
-    `${timer()} = 1`,
+    ...(isTextScrollTimerPacked() ? [] : [`${timer()} = 1`]),
     `@${skipLabel}`,
     // Absolute, not relative (see textScrollFarEndVarName's  comment) -
     // "base" here (not offsetExpr again) deliberately reuses whatever
@@ -445,7 +457,8 @@ export const generateTextScrollAdvance = (Blockly) => {
   const resolveVar = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const base = resolveVar(textScrollBaseVarName());
   const farEnd = resolveVar(textScrollFarEndVarName());
-  const timer = resolveVar(textScrollTimerVarName());
+  const packed = isTextScrollTimerPacked();
+  const timer = packed ? null : resolveVar(textScrollTimerVarName());
   const speedOperand = textScrollSpeedOperand(resolveVar);
   const pauseOperand = textScrollPauseOperand(resolveVar);
   const speed = speedOperand.fixed ? '#' + speedOperand.value : speedOperand.value;
@@ -473,6 +486,60 @@ export const generateTextScrollAdvance = (Blockly) => {
   // branch (this whole block is under 40 bytes), so plain beq/bne reach every
   // conditional target directly - only the three "always fall through to
   // done after writing pauseDuration/speed" cases need an actual JMP.
+  if (packed) {
+    // The timer is the top 5 bits of the state byte: it counts down by 8, and is up when the byte is under 8.
+    const timerBits = (operand) => '#' + packedTimerValue(Number(operand.value));
+    return [
+      ' asm',
+      '       lda ' + farEnd,
+      '       cmp ' + base,
+      '       beq _textscrolladvanceasm_done',
+      '       lda ' + state,
+      '       and #' + TEXT_SCROLL_STATE_MASK,
+      '       bne _textscrolladvanceasm_done',
+      '       lda ' + state,
+      '       sec',
+      '       sbc #8',
+      '       sta ' + state,
+      '       cmp #8',
+      '       bcs _textscrolladvanceasm_done',
+      '       and #$04',
+      '       bne _textscrolladvanceasm_back',
+      '       lda TextIndex',
+      '       cmp ' + farEnd,
+      '       bne _textscrolladvanceasm_advance',
+      '       lda ' + state,
+      '       and #$07',
+      '       ora #$04',
+      '       ora ' + timerBits(pauseOperand),
+      '       sta ' + state,
+      '       jmp _textscrolladvanceasm_done',
+      '_textscrolladvanceasm_advance',
+      '       inc TextIndex',
+      '       lda ' + state,
+      '       and #$07',
+      '       ora ' + timerBits(speedOperand),
+      '       sta ' + state,
+      '       jmp _textscrolladvanceasm_done',
+      '_textscrolladvanceasm_back',
+      '       lda TextIndex',
+      '       cmp ' + base,
+      '       bne _textscrolladvanceasm_retreat',
+      '       lda ' + state,
+      '       and #$03',
+      '       ora ' + timerBits(pauseOperand),
+      '       sta ' + state,
+      '       jmp _textscrolladvanceasm_done',
+      '_textscrolladvanceasm_retreat',
+      '       dec TextIndex',
+      '       lda ' + state,
+      '       and #$07',
+      '       ora ' + timerBits(speedOperand),
+      '       sta ' + state,
+      '_textscrolladvanceasm_done',
+      'end',
+    ].join('\n') + '\n';
+  }
   return [
     ' asm',
     '       lda ' + farEnd,

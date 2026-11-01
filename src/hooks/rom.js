@@ -35,7 +35,8 @@ import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2Color
 import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
   textScrollCursorColorVarName, textEndIconColorVarName} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
-import {expandSceneBlocks, sceneBlocksXml} from '../utils/scene';
+import {removeUnusedDefinitions} from '../utils/unused-definitions';
+import {expandSceneBlocks, sceneBlocksXml, sceneTablesHaveOffsets, triggerEventXml} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {useGeneratedBasic, markGeneratedFresh, setGeneratedCodeBuilder} from './generated';
@@ -101,6 +102,8 @@ const withHeadlessWorkspace = (callback, xmlOverride) => {
     if (xmlOverride === undefined) {
       const tables = useDataTablesStorage().value;
       expandSceneBlocks(dom, tables && tables.dataTables, Blockly, (useConfigurationStorage() || {}).value || {});
+      // A Subroutine or Function that nothing calls is left out of the build, with the variables only it uses.
+      removeUnusedDefinitions(dom);
     }
     Blockly.Xml.domToWorkspace(dom, workspace);
     return callback(workspace);
@@ -1319,6 +1322,19 @@ const titleScreenHas48x2Graphic = () => {
     return false;
   }
 };
+// The title screen that needed the shared setup when the build was tried without it (kept for the session, so the next build of the same
+// title screen starts compact instead of working through the relocations that cannot fit it first).
+let compactTitleSignature = null;
+const titleScreenSignature = () => {
+  try {
+    return JSON.stringify(useTitleScreenStorage().value.screens || []);
+  } catch (e) {
+    return null;
+  }
+};
+// With a title screen that has 48x2 graphics, a build that has moved the Titlescreen Kernel this many times and still overflows another
+// bank will not fit without the shared setup: the build stops there and is tried again compact (each attempt takes about half a second).
+const TITLE_COMPACT_GIVE_UP_ATTEMPTS = 6;
 const titleScreenNeedsSharedSetup = () => {
   if (!titleScreenHas48x2Graphic()) return false;
   try {
@@ -1344,11 +1360,13 @@ export const buildRom = async () => {
     // A title screen too big for its bank has its 48x2 graphics share one setup routine (about 50 bytes less for each, but each
     // graphic starts up to a line lower: see 48x2_S_kernel.asm). It is used when the title screen cannot fit without it: when the
     // estimate of its size is already over, or when the build fails and there are graphics to share.
-    setTitleCompact(titleScreenNeedsSharedSetup());
+    const signature = titleScreenSignature();
+    setTitleCompact(titleScreenNeedsSharedSetup() || (signature !== null && signature === compactTitleSignature && titleScreenHas48x2Graphic()));
     let built = await buildRomInner();
     if (!built && !BlocklyBB.titleShareSetup && titleScreenHas48x2Graphic()) {
       setTitleCompact(true);
       built = await buildRomInner();
+      if (built) compactTitleSignature = signature;
     }
     // Grabbed once the game has been running a moment, so the picture shows
     // the game rather than a blank first frame.
@@ -2050,6 +2068,10 @@ const buildRomInner = async () => {
               titleOverBytes = Math.max(titleOverBytes, parseBankOverflowBytes(e.dasmStdout, overflowedBank));
             }
           }
+          if (!BlocklyBB.titleShareSetup && titleOverBytes > 0 && attempt >= TITLE_COMPACT_GIVE_UP_ATTEMPTS && titleScreenHas48x2Graphic()) {
+            appendCompileLog('The title screen does not fit in a bank as it is: trying it with its 48x2 graphics sharing one setup routine.', 'stage');
+            return false;
+          }
           // Not an 'error'-level entry - an overflow here is an expected,
           // automatically-handled part of the relocation retry loop, not a
           // real problem the user needs to act on (see isOverflowError's
@@ -2283,14 +2305,17 @@ export const buildScenePreviewRom = (table) => {
     `<field name="NUM">0</field></shadow></value>`;
   // The name of the scene shows on the Text Minikernel's first line, as the previews of a playfield and of a sprite show theirs.
   const steps = [previewNameBlockXml(table.name), hide(0), hide(1)];
-  const chain = steps.map((step) => step + '<next>').join('') + sceneBlocksXml(table, config) + steps.map(() => '</next></block>').join('');
+  // The playfield offset areas of the scene move in the preview, as they do in a game (an event that works them while the scene is showing).
+  const offsets = sceneTablesHaveOffsets([table]);
+  const chain = steps.map((step) => step + '<next>').join('') + sceneBlocksXml(table, config, offsets) + steps.map(() => '</next></block>').join('');
+  const offsetEvent = offsets ? triggerEventXml([table], config, false) : '';
   return buildPreviewRom({
     name: `Scene ${table.id}${table.name ? ` (${table.name})` : ''}`,
     // The score area is left out, so the text row sits in the same place as in the other previews.
     configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +
-      `<statement name="DO">${chain}</statement></block></xml>`,
+      `<statement name="DO">${chain}</statement></block>${offsetEvent}</xml>`,
   });
 };
 
@@ -2548,6 +2573,8 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
+        // (The playfield offset areas of a scene work on the coprocessor too.)
+        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);

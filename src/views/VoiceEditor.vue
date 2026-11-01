@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-card class="editor-container" :ripple="false" flat @click="deselectCard">
-      <v-card-title>Vox (alpha 0.2)</v-card-title>
+      <v-card-title>Vox (alpha 0.3)</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message voice-intro-paragraph">
           The voices of the AtariVox, the speech chip in the Player 2 port (turn it on in the Options tab). The speech blocks pick the voice they say with. Each voice sets the controls of the chip (volume, speed, pitch and bend) before the speech starts. A "set voice"
@@ -126,12 +126,34 @@
         </div>
 
         <voice-bank-import-dialog v-model="importOpen" :entries="importEntries" @confirm="handleConfirmImport" />
-        <v-text-field
-          v-model="state.voicePreview"
-          label="Preview message"
-          class="voice-preview-field"
-          @change="handleChange"
-        />
+        <div class="voice-preview-row">
+          <v-text-field
+            v-model="state.voicePreview"
+            label="Preview message"
+            class="voice-preview-field"
+            @change="handleChange"
+          />
+          <v-select
+            :value="saveFileStart"
+            :items="saveFileItems"
+            label="Save files from"
+            class="voice-save-field"
+            :error="saveFileOwners.length > 0"
+            title="The AtariVox memory (32 KB) is shared with other games: the save files (256 bytes each, 0 to 127) this game keeps its data in. The save and load blocks count from the first, and the table of the high scores is in the last. Files 65 to 95 and 31 to 47 are free in the AtariAge SaveKey allocation list; one file holds 256 bytes, which is enough for most games."
+            @change="(value) => handleSaveFiles('avoxFileStart', value)"
+          />
+          <v-select
+            :value="saveFileEnd"
+            :items="saveFileEndItems"
+            label="to"
+            class="voice-save-field"
+            :error="saveFileOwners.length > 0"
+            @change="(value) => handleSaveFiles('avoxFileEnd', value)"
+          />
+        </div>
+        <div v-if="saveFileOwners.length" class="voice-save-warning">
+          Games have reserved pages of these save files: {{ saveFileOwners.slice(0, 6).join(', ') }}<template v-if="saveFileOwners.length > 6"> and {{ saveFileOwners.length - 6 }} more</template>. Their data can be overwritten on a real AtariVox: files 65 to 95 are free.
+        </div>
         <v-divider class="voice-dictionary-divider" />
         <div class="voice-dictionary-section">
         <div class="option-section-header voice-dictionary-header" @click="dictionaryOpen = !dictionaryOpen">
@@ -406,6 +428,7 @@ import {textToSpeakJetWords} from '../utils/speakjet-text';
 import {builtinDictionary, downloadedDictionaryEntries, dictionaryFromFile, dictionaryToFile, dictionaryWordCount, fullDictionaryText, mergeDictionary, parseDictionaryLines, pronunciationsFor, setDictionaryWord,
   unknownDictionaryWords} from '../utils/speakjet-dictionary';
 import {speakBytes, stopSpeech} from '../utils/speech-preview';
+import {saveFileOwners as saveFileOwnersOf} from '../data/savekey-allocations';
 
 const CONTROLS = [
   {control: 'volume', label: 'Volume', hint: 'How loud the chip is (0 to 127, 96 at start).'},
@@ -499,6 +522,38 @@ export default defineComponent({
 
     // The toolbar: it acts on the selected cards (see Sound tab's toolbar).
     const configurationStorage = useConfigurationStorage();
+    // The save files of the AtariVox's memory the project keeps its data in (see generators/bbasic/avox-memory.js and src/data/savekey-allocations.js).
+    const saveFileStart = computed(() => Number((configurationStorage.value || {}).avoxFileStart ?? 65));
+    const saveFileEnd = computed(() => Number((configurationStorage.value || {}).avoxFileEnd ?? 65));
+    const saveFileOwners = computed(() => saveFileOwnersOf(saveFileStart.value, saveFileEnd.value));
+    // The save files nobody has reserved, with the first address each holds.
+    const saveFileItems = Array.from({length: 128}, (_, file) => file).filter((file) => saveFileOwnersOf(file, file).length === 0)
+        .map((file) => ({text: `${file}  (${file.toString(16).toUpperCase().padStart(2, '0')}00)`, value: file}));
+    const saveFileIsFree = (file) => saveFileOwnersOf(file, file).length === 0;
+    // The last file can be any file from the first to the last free one before a reserved file: the range has no reserved file inside it.
+    const saveFileEndItems = computed(() => {
+      const items = [];
+      for (let file = saveFileStart.value; file < 128 && saveFileIsFree(file); file++) {
+        items.push({text: `${file}  (${file.toString(16).toUpperCase().padStart(2, '0')}00)`, value: file});
+      }
+      return items;
+    });
+    // A file a project had picked that a game has reserved is not offered: it goes back to the default, file 65.
+    if (!saveFileIsFree(saveFileStart.value) || !saveFileIsFree(saveFileEnd.value)) {
+      configurationStorage.value = {...(configurationStorage.value || {}), avoxFileStart: 65, avoxFileEnd: 65};
+    }
+    const handleSaveFiles = (key, value) => {
+      const number = Math.max(0, Math.min(127, Math.round(Number(value)) || 0));
+      const config = {...(configurationStorage.value || {})};
+      config[key] = number;
+      // The range stays on free files: a first file that is after the last one, or with a reserved file between them, takes the last along.
+      const start = Number(config.avoxFileStart ?? 65);
+      const end = Number(config.avoxFileEnd ?? 65);
+      let reach = start;
+      while (reach < 127 && saveFileIsFree(reach + 1)) reach++;
+      if (key === 'avoxFileStart' && (end < start || end > reach)) config.avoxFileEnd = number;
+      configurationStorage.value = config;
+    };
     const selectedVoices = computed(() => state.value.voices.filter((voice) => selectedCardIds.value.includes(voice.id)));
     const selectedVoice = computed(() => state.value.voices.find((voice) => voice.id === selectedCardId.value) || selectedVoices.value[0] || null);
     const reorderCanUndo = computed(() => canUndoReorder());
@@ -753,7 +808,7 @@ export default defineComponent({
       if (scrollContainer) scrollContainer.removeEventListener('scroll', handleScroll);
     });
     return {selectedCardId, selectedCardIds, selectCard, deselectCard, dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners, state, controls: CONTROLS, handleChange, setValue, handleAdd, handleReset, handleDelete, handleDuplicate, isCollapsed, toggleCollapsed, speakingId, handleSpeak,
-      deleteQuestion, selectedVoices, selectedVoice, reorderCanUndo, reorderCanRedo, tryUndoReorder, tryRedoReorder, UNDO_TITLE, REDO_TITLE,
+      deleteQuestion, saveFileStart, saveFileEnd, saveFileOwners, saveFileItems, saveFileEndItems, handleSaveFiles, selectedVoices, selectedVoice, reorderCanUndo, reorderCanRedo, tryUndoReorder, tryRedoReorder, UNDO_TITLE, REDO_TITLE,
       handleExportSelected, handleExportBank, handleImportIntoSelected, handleImportBank, handleConfirmImport, importOpen, importEntries, isToolbarScrolled, largeDictionary: largeDictionaryState, largeDictionaryWords: LARGE_DICTIONARY_WORDS, downloadLargeDictionary, removeLargeDictionary, speechCommands, rememberSoundsField, handleInsertCommand, soundsEdited, dictionaryOpen, dictionarySearch, dictionaryLimit, dictionaryError, newWord, newSounds, dictionaryMatches, shownWords, canAddWord,
       handleAddWord, handleEditWord, handleRemoveWord, handleSaySounds, importedWordCount, builtinWordCount, clearDictionaryOpen, handleImportDictionary, handleExportDictionary, handleClearDictionary};
   },
@@ -1005,8 +1060,26 @@ export default defineComponent({
 }
 
 /* 16px from the line of the field to the line under it, as far as the field is from the left edge (the room under it for hints is taken back). */
+.voice-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
 .voice-preview-field {
+  flex: 1 1 auto;
   margin-bottom: -14px;
+}
+
+.voice-save-field {
+  flex: 0 0 190px;
+  margin-bottom: -14px;
+}
+
+.voice-save-warning {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ff5252;
 }
 
 /* Lines above and below the section across the full width, as the Text tab's Text Minikernel Font Editor has. */

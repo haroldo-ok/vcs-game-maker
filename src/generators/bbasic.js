@@ -78,7 +78,7 @@ import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generate
   reservePlayerHeightLimitDevVars, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
   reserveRomNoiseDevVars, reserveRainbowColorDevVars, reserveBackgroundRainbowDevVars,
-  ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, FIRE_OFFSCREEN_FLAGS_FAMILY, fireOffscreenFlagsVarName, SEEK_FLAGS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
+  ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, FIRE_OFFSCREEN_FLAGS_FAMILY, fireOffscreenFlagsVarName, SEEK_FLAGS_FAMILY, SEEK_AXIS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
   SPRITE_SCROLL_FLAGS_FAMILY, SPRITE_HIDDEN_FLAGS_FAMILY, hasHiddenFlag, hiddenFlagRef, INERTIA_ACCEL_FLAGS_FAMILY, INERTIA_DECEL_FLAGS_FAMILY,
   romNoiseOwnBit, rainbowColorOwnBit, BACKGROUND_RAINBOW_OWN_BIT, BACKGROUND_RAINBOW_LOADED_BIT, backgroundRainbowLoadedBit, romNoiseFlagsVarName, missileFireOwnBit, spriteOwnBit,
   backgroundColorTableLoVarName, backgroundColorTableHiVarName, BACKGROUND_RAINBOW_RESTORE_NAME,
@@ -94,6 +94,7 @@ import {reservePfBoxDevVars, generatePfHitChecks} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool, flagPoolVar, flagPoolBit} from './bbasic/flag-pool';
 import {overlapTargetsOf, overlapPairsOf, overlapFamilies, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
+import {prepareTriggers, triggerFamilies, reserveTriggerDevVars} from './bbasic/triggers';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
   registerMusicPlayResetSubroutine, resolveMusicEventFlags,
@@ -880,9 +881,12 @@ Blockly.BBasic.init = function(workspace) {
   // this reads that field directly rather than matching one block type per
   // name.
   this.seekUsedFor = new Set();
+  // The sprites that a Move block with "one axis at a time" checked moves (they keep a bit for which way the block that moved them last asked).
+  this.seekAxisUsedFor = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'object_seek_to' && block.isEnabled()) {
       this.seekUsedFor.add(block.getFieldValue('OBJECT'));
+      if (block.getFieldValue('AXIS') === 'TRUE') this.seekAxisUsedFor.add(block.getFieldValue('OBJECT'));
     }
   });
 
@@ -890,6 +894,8 @@ Blockly.BBasic.init = function(workspace) {
   // block asks whether they are in the playfield: those get a byte each frame (see generators/bbasic/pf-box-sub.js).
   this.pfBoxPlayers = new Set();
   this.pfHitExtras = new Set();
+  // The players whose bottom 8 lines are asked about (see the box mode of the collision blocks).
+  this.pfHitFeet = new Set();
   // The players a jump and gravity block is used for (it tries positions with the same box test).
   this.platformerPlayers = new Set();
   this.platformerJumpPlayers = new Set();
@@ -924,11 +930,14 @@ Blockly.BBasic.init = function(workspace) {
     } else if (block.type === 'collision_get') {
       const names = [block.getFieldValue('VAR0'), block.getFieldValue('VAR1')];
       if (names.includes('playfield')) {
-        names.filter((name) => (block.getFieldValue('BOX') === 'TRUE' ? /^player\d$/ : /^player[2-9]$/).test(name)).forEach((name) => this.pfHitExtras.add(name));
+        const feet = block.getFieldValue('BOX') === 'TRUE' && block.getFieldValue('BOXMODE') === 'feet';
+        names.filter((name) => (block.getFieldValue('BOX') === 'TRUE' ? /^player\d$/ : /^player[2-9]$/).test(name))
+            .forEach((name) => (feet ? this.pfHitFeet : this.pfHitExtras).add(name));
       }
     }
   });
   this.pfHitExtras.forEach((player) => this.pfBoxPlayers.add(player));
+  this.pfHitFeet.forEach((player) => this.pfBoxPlayers.add(player));
 
   // The sprites a Lock or an Unlock block makes a child (see generators/bbasic/sprite-lock.js), and for each child the parents the
   // Lock blocks give it.
@@ -1449,12 +1458,18 @@ Blockly.BBasic.init = function(workspace) {
   this.collisionMovePlayers = new Set();
   // The players whose block goes back two frames, which keep the position from before that too.
   this.collisionMoveTwoFramePlayers = new Set();
+  // The players whose Undo last move blocks all test only the bottom 8 lines (a block that says the whole box wins).
+  this.collisionMoveFeetPlayers = new Set();
+  const collisionMoveWholePlayers = new Set();
   workspace.getAllBlocks(false).forEach((block) => {
     if (block.type === 'collision_check_position' && block.isEnabled()) {
+      (block.getFieldValue('BOXMODE') === 'feet' ? this.collisionMoveFeetPlayers : collisionMoveWholePlayers).add(block.getFieldValue('PLAYER'));
       this.collisionMovePlayers.add(block.getFieldValue('PLAYER'));
       if (block.getFieldValue('FRAMES') === '2') this.collisionMoveTwoFramePlayers.add(block.getFieldValue('PLAYER'));
     }
   });
+
+  collisionMoveWholePlayers.forEach((player) => this.collisionMoveFeetPlayers.delete(player));
 
   // The tallest frame across every animation in the shared player-animation
   // pool (see processPlayerAnimationsStorageDefaults's comment in
@@ -2159,8 +2174,8 @@ Blockly.BBasic.init = function(workspace) {
   // "Background area ... is clear" (see background_area_clear's generator): the
   // one variable its scan needs.
   if (workspace.getAllBlocks(false).some((block) =>
-    block.type === 'background_area_clear' && block.isEnabled() && !block.getInheritedDisabled())) {
-    reserveDevVarRW(areaClearLeftVarName(), 'area clear check: the left column each row restarts from');
+    (block.type === 'background_area_clear' || block.type === 'background_fill_area') && block.isEnabled() && !block.getInheritedDisabled())) {
+    reserveDevVarRW(areaClearLeftVarName(), 'area clear check: the left column each row restarts from; the area fill block: its last row');
   }
 
   if (this.collisionPixelUsed) {
@@ -2353,6 +2368,8 @@ Blockly.BBasic.init = function(workspace) {
   this.overlapBlocks = workspace.getAllBlocks(false).filter((block) =>
     block.isEnabled() && block.type === 'sprite_overlap_event' && overlapTargetsOf(block).length > 0);
   overlapPairsOf(this.overlapBlocks).pairs.forEach((key) => boxPairKeys.add(key));
+  // The triggers of the scenes (see generators/bbasic/triggers.js): their sprites' boxes are worked out each frame too.
+  this.triggerPlayers = prepareTriggers(Blockly, workspace);
   this.boxPairOrder = [...boxPairKeys].sort();
   {
     const config = (useConfigurationStorage().value || {});
@@ -2382,6 +2399,7 @@ Blockly.BBasic.init = function(workspace) {
     {family: MISSILE_FIRE_FLAGS_FAMILY, bits: ownBits(this.missileFireUsedFor, missileFireOwnBit)},
     {family: FIRE_OFFSCREEN_FLAGS_FAMILY, bits: ownBits(this.fireOffscreenUsedFor, missileFireOwnBit)},
     {family: SEEK_FLAGS_FAMILY, bits: ownBits(this.seekUsedFor, spriteOwnBit)},
+    {family: SEEK_AXIS_FAMILY, bits: ownBits(this.seekAxisUsedFor, spriteOwnBit)},
     {family: SEEK_ARRIVED_FLAGS_FAMILY, bits: ownBits(this.seekArrivedWatches, spriteOwnBit)},
     {family: SPRITE_SCROLL_FLAGS_FAMILY, bits: ownBits(this.spriteScrollUsedFor, spriteOwnBit)},
     {family: SPRITE_HIDDEN_FLAGS_FAMILY, bits: ownBits(this.spriteHiddenUsedFor, spriteOwnBit)},
@@ -2401,6 +2419,7 @@ Blockly.BBasic.init = function(workspace) {
     {family: JOY_TAP_FAMILY, bits: joyTapOwnBits(this.joyTapOnlyFor)},
     ...boxHitFamilies(this.boxPairOrder),
     ...overlapFamilies(this.overlapBlocks),
+    ...triggerFamilies(Blockly),
     ...colorSetFamilies(this.colorOverridePlayers),
   ]);
   reserveSwitchEdgeDevVars(reserveDevVar, this.switchEdgeUsedFor);
@@ -2483,15 +2502,15 @@ Blockly.BBasic.init = function(workspace) {
   // Same bucket again, for "Seek to"'s  per-sprite target/speed state
   // (see reserveSeekDevVars'  comment in generators/bbasic/sprites.js) -
   // a no-op unless seekUsedFor's  early pre-scan (above) found it used.
-  reserveSeekDevVars(reserveDevVar, reserveDevVarRW, this.seekUsedFor);
+  reserveSeekDevVars(reserveDevVar, reserveDevVarRW, this.seekUsedFor, this.seekAxisUsedFor);
   reserveLockDevVars(reserveDevVar, this.lockChildren);
   // The right half of a wide player is in the playfield too when the player is asked about, and a block that compares the boxes
   // of two sprites needs how wide each box is (see generators/bbasic/collision.js).
   this.boxWidthPlayers = new Set();
   this.boxPairs = new Set();
-  const addPartnerOf = (owner) => {
+  const addPartnerOf = (owner, feet = false) => {
     if (this.widePartners[owner]) {
-      this.pfHitExtras.add(this.widePartners[owner]);
+      (feet ? this.pfHitFeet : this.pfHitExtras).add(this.widePartners[owner]);
       this.pfBoxPlayers.add(this.widePartners[owner]);
     }
   };
@@ -2499,6 +2518,8 @@ Blockly.BBasic.init = function(workspace) {
   overlapSprites.pairs.forEach((key) => this.boxPairs.add(key));
   [...overlapSprites.names].filter(isPlayerName).forEach((name) => this.boxWidthPlayers.add(name));
   reserveOverlapDevVars(reserveDevVar, this.overlapBlocks);
+  this.triggerPlayers.forEach((name) => this.boxWidthPlayers.add(name));
+  reserveTriggerDevVars(reserveDevVar, Blockly);
   workspace.getAllBlocks(false).forEach((block) => {
     if (!block.isEnabled()) return;
     if (block.type === 'collision_check_position') {
@@ -2506,7 +2527,8 @@ Blockly.BBasic.init = function(workspace) {
     } else if (block.type === 'collision_get') {
       const names = [block.getFieldValue('VAR0'), block.getFieldValue('VAR1')];
       if (names.includes('playfield')) {
-        names.forEach(addPartnerOf);
+        const feet = block.getFieldValue('BOX') === 'TRUE' && block.getFieldValue('BOXMODE') === 'feet';
+        names.forEach((name) => addPartnerOf(name, feet));
       } else if (names[0] !== names[1] && names.some((name) => this.widePartners[name] || /^player[2-9]$/.test(name) || (this.player1Shared && name === 'player1'))) {
         names.filter(isPlayerName).forEach((name) => this.boxWidthPlayers.add(name));
         this.boxPairs.add(pairKey(names[0], names[1]));
@@ -2521,7 +2543,7 @@ Blockly.BBasic.init = function(workspace) {
   // The fixed colors a Playfield set background / playfield color block gave under DPC+ with a color for each row (see background_set_color).
   this.bgColorOverrides = {COLUBK: new Set(), COLUPF: new Set()};
   reserveBackgroundColorFlagsDevVar(reserveDevVar, this.bgColorFlagBits, this.bgRainbowIdBits);
-  reservePfBoxDevVars(reserveDevVar, this.pfBoxPlayers, this.pfHitExtras, this.pfBoxSweep);
+  reservePfBoxDevVars(reserveDevVar, this.pfBoxPlayers, this.pfHitExtras, this.pfBoxSweep, this.pfHitFeet, this.collisionMoveFeetPlayers.size > 0);
   // (An Undo last move block for the same player already stops it at the walls.)
   this.collisionMovePlayers.forEach((playerNum) => this.platformerWallsPlayers.delete(playerNum));
   this.platformerPlans = Object.fromEntries(Object.entries(platformerBlocks).map(([player, blocks]) => [player, platformerPlanOf(blocks)]));
@@ -3005,7 +3027,7 @@ Blockly.BBasic.init = function(workspace) {
     });
     if (this.dpcPlusGeometries.length > 1) {
       const rowBlocks = ['background_pixel_to_sprite', 'background_sprite_to_pixel', 'background_get_resolution',
-        'background_collision_pixel', 'background_collision_pixel_direction', 'background_area_clear'];
+        'background_collision_pixel', 'background_collision_pixel_direction', 'background_area_clear', 'background_fill_area'];
       const pfBoxUsed = this.pfBoxPlayers.size > 0 || (this.pfHitExtras && this.pfHitExtras.size > 0);
       const rowsUsed = pfBoxUsed || this.missileFireUsedFor.size > 0 || this.missileBounceUsedFor.size > 0 ||
         this.inertiaUsedFor.size > 0 || workspace.getAllBlocks(false).some((block) => rowBlocks.includes(block.type));
@@ -8626,6 +8648,7 @@ import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR, SPEECH
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
+import triggers from './bbasic/triggers';
 import spriteOverlap from './bbasic/sprite-overlap-block';
 import subroutine from './bbasic/subroutine';
 import text from './bbasic/text';
@@ -8638,7 +8661,7 @@ import {runOnceResetLines, runOnceClearLines, runOnceStartupLines} from '../util
 import {collectChipChannels, createDpcPlusAudioPlan, DPC_AUDIO_SUBROUTINE_NAME, dpcAudioVars, redirectSoundRegisters} from './bbasic/dpcplus-audio';
 
 [background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
-  random, score, sound, soundfx, speech, avoxMemory, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, variables]
+  random, score, sound, soundfx, speech, avoxMemory, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, triggers, variables]
     .forEach((init) => init(Blockly));
 
 // With the AtariVox off (Options tab, ROM Options) its blocks build to nothing (a value block says 0): see prepareSpeech.

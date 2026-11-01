@@ -20,6 +20,9 @@ const collisionOptions = function() {
   return [...options.slice(0, 2), ...extra, ...options.slice(2)];
 };
 
+// The part of a sprite the playfield box test looks at: all of it, or only its bottom 8 lines (as wide as the sprite, double and quad wide included).
+const BOX_MODE_OPTIONS = [['whole box', 'whole'], ['bottom 8 lines', 'feet']];
+
 // The "Check bounding box collision with Playfield" / "Bounding box
 // collision result" block pair (predictive software box collision, with
 // per-axis sliding) was removed here for now - every design tried (full
@@ -32,7 +35,7 @@ Blockly.defineBlocksWithJsonArray([
   // Block for the getter.
   {
     'type': `collision_get`,
-    'message0': `Collided %1 and %2 %3 use box`,
+    'message0': `Collided %1 and %2 %3 use box %4`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -49,11 +52,13 @@ Blockly.defineBlocksWithJsonArray([
         'name': 'BOX',
         'checked': false,
       },
+      {'type': 'field_dropdown', 'name': 'BOXMODE', 'options': BOX_MODE_OPTIONS},
     ],
     'output': 'Boolean',
     'colour': 'purple',
     'tooltip': `Checks if the objects colided. With "use box" ticked, a player and the Playfield are tested with the whole box of the ` +
-      `player (its full width and height, whatever pixels are lit in it) instead of the hardware flag; the answer is as of the end of the last frame.`,
+      `player (its full width and height, whatever pixels are lit in it) instead of the hardware flag; the answer is as of the end of the last frame. ` +
+      `"bottom 8 lines" tests only the lowest 8 lines of the player (all of its width, double and quad wide too), for its feet.`,
   },
 ]);
 
@@ -75,10 +80,11 @@ const playerOptions = function() {
 // in the playfield. The frames setting is from the older version of the block, which read the hardware collision flag a frame late.
 const buildCollisionCheckBlock = () => ({
   'type': 'collision_check_position',
-  'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield, going back %2`,
+  'message0': `${PLAYER_ICON} Undo last move for %1 if it collided with Playfield, going back %2 using the %3`,
   'args0': [
     {'type': 'field_dropdown', 'name': 'PLAYER', 'options': playerOptions},
     {'type': 'field_dropdown', 'name': 'FRAMES', 'options': [['1 frame', '1'], ['2 frames', '2']]},
+    {'type': 'field_dropdown', 'name': 'BOXMODE', 'options': BOX_MODE_OPTIONS},
   ],
   'previousStatement': null,
   'nextStatement': null,
@@ -87,8 +93,10 @@ const buildCollisionCheckBlock = () => ({
     'against the Playfield after the blocks that move it have run. If the box would be in a lit pixel, takes back ' +
     'as much of the move as it needs: the part of it along an axis that is clear is kept, so the player ' +
     'slides along a wall. Place this before whatever block(s) move the player each frame - it only backs up ' +
-    'and restores position, it does not move the player itself. The frames setting is kept for older projects ' +
-    'and has no effect.',
+    'and restores position, it does not move the player itself. "bottom 8 lines" tests only the lowest 8 lines of the ' +
+    'player (all of its width, double and quad wide too) instead of the whole box, so a player can walk past things ' +
+    'that are higher up. When several of these blocks are for the same player, the whole box is used unless every one ' +
+    'says bottom 8 lines. The frames setting is kept for older projects and has no effect.',
 });
 
 // A jump for a player, with gravity and landing on the pixels of the playfield (see generators/bbasic/collision.js). It goes inside an if

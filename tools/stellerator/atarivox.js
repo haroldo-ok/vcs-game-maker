@@ -48,7 +48,9 @@ const createAtariVox = () => {
     // The line: SWACNT bit 0 (output), the last SWCHA written, and the edges of the level with the cycle they came at.
     output: false,
     cnt: 0,
-    swcha: 0xff,
+    // The output latch of SWCHA is 0 after a reset: a program that never writes it (the AtariVox programmer's guide driver, and the games that
+    // use it, only switch bit 0 of SWACNT between output and input) sends a 0 on its line while the pin is an output.
+    swcha: 0,
     level: 1,
     edges: [],
     // The byte being received: the cycle its start bit began, or null.
@@ -123,6 +125,12 @@ const createAtariVox = () => {
       let byte = 0;
       for (let bit = 0; bit < 8; bit++) {
         if (levelAt(vox.start + CYCLES_PER_BIT * (1.5 + bit))) byte |= 1 << bit;
+      }
+      // A low that ends before the middle of its bit is a glitch (the chip's input does not take it for a start bit).
+      if (levelAt(vox.start + CYCLES_PER_BIT / 2) !== 0) {
+        vox.consumed = vox.start + CYCLES_PER_BIT / 2;
+        vox.start = null;
+        continue;
       }
       const framed = levelAt(vox.start) === 0 && levelAt(stopMiddle) === 1;
       vox.consumed = vox.start + CYCLES_PER_BIT * 9;

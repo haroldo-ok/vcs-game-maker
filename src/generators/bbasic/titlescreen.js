@@ -785,7 +785,12 @@ const buildTitleTextCall = (Blockly) => {
 // the SAME per-copy kernel files - 48x1_X_kernel.asm's  position48 calls
 // via plain same-bank "jsr" - being reachable from multiple different
 // banks, which they can't be without their  bank-switch trampolines).
+// A page's picture is timed with a fixed number of ticks (230 of 64 cycles) and the overscan after it with 34. With text under the pages the picture
+// is given these ticks more and the overscan as many less (the frame keeps its length): a page with a lot of graphics (the Bricks of Olympus
+// logo page, with the logo, its title and the torches) had less than the text needs left, and showed none.
+const TITLE_TEXT_EXTRA_TICKS = 12;
 const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName, textCall, shareSetup = false, shareKeys = null, uniformUsed = false) => {
+  const extraTicks = textCall && textCall.length ? TITLE_TEXT_EXTRA_TICKS : 0;
   const lines = ['asm'];
 
   lines.push(
@@ -830,7 +835,7 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
       '\tsta ENABL',
       '',
       '@title_playfield',
-      '\tlda #230',
+      `\tlda #${230 + extraTicks}`,
       '\tsta TIM64T',
       '',
       '\tlda #1',
@@ -931,9 +936,9 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
       '',
       '@OVERSCAN',
       '\tifnconst overscan_time',
-      '\tlda #34+128',
+      `\tlda #${34 - extraTicks}+128`,
       '\telse',
-      '\tlda #overscan_time+128-5',
+      `\tlda #overscan_time+128-5-${extraTicks}`,
       '\tendif',
       '\tsta TIM64T',
       '',
