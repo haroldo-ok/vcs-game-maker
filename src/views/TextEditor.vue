@@ -139,6 +139,7 @@
                     @confirm="handleDeleteEntry(entry)"
                   />
                   <v-btn
+                    v-if="atariVoxOn"
                     icon
                     small
                     :title="speakingId === entry.id ? 'Speaking...' : 'Hear this message spoken, as the AtariVox says it'"
@@ -198,6 +199,7 @@
                     @change="handleChildChange"
                   />
                   <v-text-field
+                    v-if="atariVoxOn"
                     label="Spoken as (AtariVox, sounds)"
                     :value="entry.speech"
                     :placeholder="generatedSpeech(entry)"
@@ -209,8 +211,8 @@
                     @change="(value) => handleSpeechChange(entry, value)"
                     @click:clear="() => handleSpeechChange(entry, '')"
                   />
-                  <div v-if="speechHint(entry)" class="text-speech-time">{{ speechHint(entry) }}</div>
-                  <v-btn text small class="text-speech-edit-btn" :disabled="!generatedSpeech(entry)" @click.stop="() => handleSpeechChange(entry, generatedSpeech(entry))">
+                  <div v-if="atariVoxOn && speechHint(entry)" class="text-speech-time">{{ speechHint(entry) }}</div>
+                  <v-btn v-if="atariVoxOn" text small class="text-speech-edit-btn" :disabled="!generatedSpeech(entry)" @click.stop="() => handleSpeechChange(entry, generatedSpeech(entry))">
                     Edit the generated words
                   </v-btn>
                 </v-card-text>
@@ -405,6 +407,8 @@ export default defineComponent({
         state.value.pronunciations = value;
       },
     });
+    // The AtariVox's play button and spoken words show only while the AtariVox is on (Options tab, ROM Options).
+    const atariVoxOn = computed(() => !!(configurationStorage.value || {}).enableAtariVox);
     const generatedSpeech = (entry) => textToSpeakJetWords(entry.text, pronunciationsFor(state.value));
     const handleSpeechChange = (entry, value) => {
       entry.speech = String(value || '').toUpperCase();
@@ -573,7 +577,7 @@ export default defineComponent({
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex,
       cardHandleListeners, folderToolbar, folderToolbarHeight,
-      pronunciations, generatedSpeech, handleSpeechChange, speakingId, handleSpeak, speechHint,
+      pronunciations, atariVoxOn, generatedSpeech, handleSpeechChange, speakingId, handleSpeak, speechHint,
     };
   },
 });

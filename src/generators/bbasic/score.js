@@ -407,7 +407,14 @@ export default (Blockly) => {
     // (see usesScoreBkColorSetter's  comment in generators/bbasic.js) -
     // that block needs a real, independent byte of its  to write to,
     // not backgroundrealcolor's  raw target.
-    if (this.usesScoreBkColorSetter || !this.scoreBkColorIsBackground(config.scoreBkColor)) return '';
+    if (this.usesScoreBkColorSetter) return '';
+    // A color picked on the Score tab that no block changes is a constant: the text kernel loads it as a number (scorebkcolorimm), so it takes no RAM.
+    if (!this.scoreBkColorIsBackground(config.scoreBkColor)) {
+      if (config.kernel === 'dpcplus') return '';
+      return `
+ const scorebkcolor = ${colorByteToBuildBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}
+ const scorebkcolorimm = 1`;
+    }
     const comment = (config.showVariableComments ?? false) ?
       '  ; score row\'s background color, aliased onto the live background color' : '';
     return `\n dim scorebkcolor = ${this.backgroundRealColorRawTarget()}${comment}`;
@@ -437,7 +444,8 @@ export default (Blockly) => {
         ` scorebkcolor = ${colorByteToBuildBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}\n` : '';
     }
     if (!this.isTextMinikernelActive()) return '';
-    if (!this.usesScoreBkColorSetter && this.scoreBkColorIsBackground(config.scoreBkColor)) return '';
+    // (Without a block that sets it, the color is an alias of the background color, or a constant.)
+    if (!this.usesScoreBkColorSetter) return '';
     return ` scorebkcolor = ${colorByteToBuildBBasic(this.resolveScoreBkColorByte(config.scoreBkColor))}\n`;
   };
 

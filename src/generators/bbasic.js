@@ -1119,9 +1119,10 @@ Blockly.BBasic.init = function(workspace) {
     const config = (configurationStorage && configurationStorage.value) || {};
     // DPC+ draws the score row's background from a one-shot "minikernel" routine (see
     // generateDpcPlusBankPreamble), which only needs a byte of RAM when a block changes the color.
+    // (Under the standard kernel a color picked on the Score tab that no block changes is a constant the text kernel loads as a number: see
+    // generateScoreBkColorRuntimeDims.)
     this.scoreBkColorNeedsOwnVar = config.kernel === 'dpcplus' ? this.usesScoreBkColorSetter :
-      this.isTextMinikernelActive() &&
-      (this.usesScoreBkColorSetter || !this.scoreBkColorIsBackground(config.scoreBkColor));
+      this.isTextMinikernelActive() && this.usesScoreBkColorSetter;
   }
 
   // Collects every distinct (axis, object pair) a "Distance" getter block
@@ -3178,10 +3179,13 @@ Blockly.BBasic.init = function(workspace) {
   // are taken out of defvars below): the ones only the Variables blocks that read, set and change a variable use, and not in the
   // condition of a "while" (which is checked again every time round, where the byte a read leaves ahead of the statement would be stale).
   const displayRamNotIds = new Set();
+  // How many blocks use each user variable, so that when some have to go in the display memory it is the ones used least.
+  const userVarUses = new Map();
   workspace.getAllBlocks(false).forEach((block) => {
     const plain = DISPLAY_RAM_VARIABLE_BLOCK_TYPES.includes(block.type);
     block.inputList.forEach((input) => input.fieldRow.forEach((field) => {
       if (!field.referencesVariables || !field.referencesVariables()) return;
+      userVarUses.set(field.getValue(), (userVarUses.get(field.getValue()) || 0) + 1);
       if (!plain) displayRamNotIds.add(field.getValue());
     }));
     if (block.type === 'variables_get') {
@@ -3194,6 +3198,7 @@ Blockly.BBasic.init = function(workspace) {
       }
     }
   });
+  this.userVarUseCounts = new Map(Object.entries(userVarNameById).map(([id, name]) => [name, userVarUses.get(id) || 0]));
   this.displayRamEligibleNames = new Set(Object.entries(userVarNameById)
       .filter(([id, name]) => !displayRamNotIds.has(id) && !(this.displayRamExcluded && this.displayRamExcluded.has(name))).map(([, name]) => name));
 
@@ -3350,11 +3355,21 @@ Blockly.BBasic.init = function(workspace) {
       if (i !== -1 && i < runOnceDefvarsStart) runOnceDefvarsStart--;
     });
   }
-  // The display memory comes before the letters: every variable that can live there does, so the letters stay free.
+  // Only as many variables as the letters have no room for go in the display memory (a use of one costs code and cycles), the ones the
+  // blocks use least first. (A variable that is used by a block that needs it in a letter never goes there: see displayRamEligibleNames.)
   if (config.kernel === 'dpcplus' && !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127) {
-    for (let i = defvars.length - 1; i >= 0 && this.displayRamVars.size < DISPLAY_RAM_VAR_CAPACITY; i--) {
-      if (!this.displayRamEligibleNames.has(defvars[i])) continue;
-      if (this.titleSharedSlots.some(({target}) => target === defvars[i])) continue;
+    const candidates = defvars.map((name, i) => ({name, i}))
+        .filter(({name}) => this.displayRamEligibleNames.has(name) && !this.titleSharedSlots.some(({target}) => target === name))
+        .sort((a, b) => ((this.userVarUseCounts.get(a.name) || 0) - (this.userVarUseCounts.get(b.name) || 0)) || (b.i - a.i));
+    let over = defvars.length - availableLetters.length;
+    const moving = new Set();
+    for (let k = 0; k < candidates.length && over > 0 && this.displayRamVars.size + moving.size < DISPLAY_RAM_VAR_CAPACITY; k++) {
+      moving.add(candidates[k].name);
+      over--;
+    }
+    // (In the order the variables were made, last first, as before.)
+    for (let i = defvars.length - 1; i >= 0; i--) {
+      if (!moving.has(defvars[i])) continue;
       const [name] = defvars.splice(i, 1);
       const index = this.displayRamVars.size;
       this.displayRamVars.set(name, {area: 5 - Math.floor(index / 128), byte: 127 - (index % 128)});

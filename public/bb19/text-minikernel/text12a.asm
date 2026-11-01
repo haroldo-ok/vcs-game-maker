@@ -49,7 +49,12 @@ minikernel
 	        ; compile-time constant. +1 cycle (zero-page load vs immediate);
 	        ; this block runs right after WSYNC, at the very start of the
 	        ; scanline, where that's well within the existing slack.
-	        lda scorebkcolor
+	        ifconst scorebkcolorimm
+	            ; vcs-game-maker: no block changes the color, so it is a constant (no byte of RAM).
+	            lda #scorebkcolor
+	        else
+	            lda scorebkcolor
+	        endif
 	        sta COLUBK
 	    endif
 	endif
@@ -242,7 +247,11 @@ begintextscore
              ; fill below.
              sta WSYNC
              ifconst scorebkcolor
-                 lda scorebkcolor
+                 ifconst scorebkcolorimm
+                     lda #scorebkcolor
+                 else
+                     lda scorebkcolor
+                 endif
                  sta COLUBK
              endif
          endif
@@ -250,7 +259,11 @@ begintextscore
              ; A second line of the same fill - same reasoning as the first.
              sta WSYNC
              ifconst scorebkcolor
-                 lda scorebkcolor
+                 ifconst scorebkcolorimm
+                     lda #scorebkcolor
+                 else
+                     lda scorebkcolor
+                 endif
                  sta COLUBK
              endif
          endif
