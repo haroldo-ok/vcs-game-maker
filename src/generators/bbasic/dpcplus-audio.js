@@ -198,7 +198,7 @@ export const createDpcPlusAudioPlan = (config, channels = [0], keySeed = null) =
       ' lda #0',
       ' sta $15 ; AUDC0 = 0 holds the output high, so the volume register alone makes the sound'];
     // The volume mix: the voices' volumes go to temp4 to temp6. The chip adds the voices up into the 15 steps of the TIA's
-    // volume register, so volumes that add up to more than 15 are scaled down together by the coprocessor (function 52).
+    // volume register, so volumes that add up to more than 15 are scaled down together by the coprocessor (function 105).
     channels.forEach((channel, position) => {
       lines.push(` lda ${names[`dpcAudv${channel}`]}`, ' and #15', ` sta temp${4 + position}`);
     });
@@ -212,7 +212,7 @@ export const createDpcPlusAudioPlan = (config, channels = [0], keySeed = null) =
           ' sta DF0LOW',
           ' lda #(>C_function) & $0F',
           ' sta DF0HI',
-          ' lda #52',
+          ' lda #105',
           ' sta DF0WRITE',
           ' lda temp4',
           ' sta DF0WRITE',
@@ -281,23 +281,17 @@ export const createDpcPlusAudioPlan = (config, channels = [0], keySeed = null) =
           ` bne ${label('rebuild')}`,
           ` jmp ${label('same')}`,
           '@' + label('rebuild'),
-          // The coprocessor writes the voice's 32 bytes (functions 44 and 48 in custom/main.c): the waveform's samples,
-          // from the table below, scaled to the height.
+          // The coprocessor writes the voice's 32 bytes (function 104 of the program that is in the ROM as data, armprog.c): the waveform's samples, from the
+          // table below, scaled to the height. It is given where the table is (as the sprite pointers are, the low byte and the high byte with the bank in its upper bits).
           ' lda #<C_function',
           ' sta DF0LOW',
           ' lda #(>C_function) & $0F',
           ' sta DF0HI',
-          ' lda #44',
+          ' lda #104',
           ' sta DF0WRITE',
           ' lda #<_dpcwaves',
           ' sta DF0WRITE',
           ' lda #((>_dpcwaves) & $0f) | (((>_dpcwaves) / 2) & $70)',
-          ' sta DF0WRITE',
-          ' lda #255',
-          ' sta CALLFUNCTION',
-          ' lda #<C_function',
-          ' sta DF0LOW',
-          ' lda #48',
           ' sta DF0WRITE',
           ` lda #(${wave}&$7f)`,
           ' sta DF0WRITE',

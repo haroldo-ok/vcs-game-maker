@@ -39,7 +39,7 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   ROW_FADE_IDLE_STEP, rowFadeStartColor, multicolorFadeVarName,
   backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME, FADE_STEPS} from '../blocks/background';
 import {chooseSpill, applySpill, remainingUses} from './bbasic/spill';
-import {buildGroupRowsLoad, GROUP_ROWS_TABLE} from './bbasic/offset-arm';
+import {buildGroupRowsLoad, GROUP_ROWS_TABLE, ensureArmProgram} from './bbasic/offset-arm';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
@@ -1673,6 +1673,7 @@ Blockly.BBasic.init = function(workspace) {
     const chipChannels = chipOn ? collectChipChannels(workspace, processSongsStorageDefaults(useSongsStorage()).songs) : [];
     this.dpcAudioPlan = chipChannels.length ? createDpcPlusAudioPlan(soundConfig, chipChannels, this.chipKeySeed || null) : null;
     this.dpcAudioFiles = {};
+    this.dpcAudioArm = false;
     setMusicDpcPlusPlan(this.dpcAudioPlan);
   }
   this.projectMusic = resolveProjectMusic(workspace, this.notePlayedInstruments);
@@ -4599,6 +4600,9 @@ Blockly.BBasic.finish = function(code) {
       [name, this.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE)]));
     this.subroutines[DPC_AUDIO_SUBROUTINE_NAME] = this.dpcAudioPlan.routine(dpcAudioNames);
     this.dpcAudioFiles = {'DPC_frequencies.h': this.dpcAudioPlan.frequencyFile()};
+    // The routine's coprocessor functions (waveform rebuild, volume mix) are in the program that is in the ROM as data, in a bank of its own (see offset-arm.js).
+    this.dpcAudioArm = true;
+    ensureArmProgram(Blockly, undefined, 'a');
     // What the kernel's exit needs to leave the volume register at the voices' middle level (see withDpcPlusAudioHook).
     this.dpcAudioMidLevel = {channels: this.dpcAudioPlan.channels, names: dpcAudioNames};
     generatedDpcPlusAudio = ` gosub ${DPC_AUDIO_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(

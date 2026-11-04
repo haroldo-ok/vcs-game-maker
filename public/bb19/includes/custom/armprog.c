@@ -19,7 +19,7 @@ static u load(volatile b8 *p,u r)
   return conv((p[r]<<24)|(p[256+r]<<16)|(p[512+r]<<8)|p[768+r]);
 }
 
-// Built in a program for each set of functions a project needs (see offset-arm.js and the files of the prog folder): with and without -DGROUPS, and with any of the five sets of functions left out: -DNOOFFSET (the Playfield offset block), -DNOBOX (the playfield box test), -DNOCIRCLE (the circle block), -DNOPIX (the pixel finding and the bounce of the ball and the missiles) and -DNOFIRE (the movement of an object a Fire block launched with the playfield check on)
+// Built in a program for each set of functions a project needs (see offset-arm.js and the files of the prog folder): with and without -DGROUPS, and with any of the six sets of functions left out: -DNOOFFSET (the Playfield offset block), -DNOBOX (the playfield box test), -DNOCIRCLE (the circle block), -DNOPIX (the pixel finding and the bounce of the ball and the missiles), -DNOFIRE (the movement of an object a Fire block launched with the playfield check on) and -DNOAUDIO (the DPC+ sound engine's waveform rebuild and volume mix)
 // too) for a project with groups of columns that have separate rows, which is a good deal bigger.
 // The numbers of the project's rows, put in by the generator in place of these: rows of a line = line * K[0] / 256, the last row K[1],
 // whether a line is held to 191 first K[2], whether the groups of columns have separate rows K[3]. Then each group (column byte) has its
@@ -506,6 +506,46 @@ next:
 }
 #endif
 
+#ifndef NOAUDIO
+// The DPC+ sound engine (generators/bbasic/dpcplus-audio.js), kept here so that its code is in the ROM as data in another bank instead of in the bank
+// next to the kernel, where it took about 200 bytes.
+// Function 104, the rebuild of a voice's waveform: CF[1] and CF[2] = where the waveforms are in the ROM (the low byte, then the high byte with the bank in its upper
+// bits, as the sprite pointers are), 8 waveforms of 32 samples (0 to 15), two to a byte, the first in the low nibble. CF[3] = RAM slot of the voice (display RAM
+// address / 32), CF[4] = waveform number * 16 + height. Writes the 32 samples of the waveform scaled to the height (a sample * height / 15, rounded), the first two
+// bytes carrying the waveform and the height in their high nibbles.
+static void audiowave(void)
+{
+  const b8 *src=(const b8 *)(0xC00+(CF[2]<<8)+CF[1]+((CF[4]>>4)<<4));
+  volatile b8 *dst=(volatile b8 *)(0x40000C00+((CF[3]&0x7f)<<5));
+  u height=CF[4]&15;
+  u k;
+  for (k=0;k<32;++k)
+  {
+    u value=((((src[k>>1]>>((k&1)<<2))&15)*height*17+134)>>8);
+    if (k<2) value|=(k==0)?(CF[4]&0xF0):(height<<4);
+    dst[k]=value;
+  }
+}
+
+// Function 105, the volume mix: CF[1] to CF[3] = the volumes (0 to 15) of up to three voices. When they add up to more than the 15 the chip's output has, each
+// is scaled down by 15 over the total (a voice that sounds keeps at least 1); the results are written back to CF[1] to CF[3].
+static void audiomix(void)
+{
+  u total=CF[1]+CF[2]+CF[3];
+  u k;
+  if (total>15)
+  {
+    for (k=1;k<4;++k)
+    {
+      u rest=CF[k]*15;
+      u share=0;
+      for (;rest>=total;++share) rest-=total;
+      CF[k]=(share==0 && CF[k]!=0)?1:share;
+    }
+  }
+}
+#endif
+
 void __attribute__((section(".text.entry"))) run(void)
 {
   // The first column of the playfield: the address the kernel's first data fetcher has, in display memory (get32bitdff(0) of main.c).
@@ -527,6 +567,10 @@ void __attribute__((section(".text.entry"))) run(void)
 #endif
 #ifndef NOFIRE
   else if (op==101) firemove(p);
+#endif
+#ifndef NOAUDIO
+  else if (op==104) audiowave();
+  else if (op==105) audiomix();
 #endif
   else
   {

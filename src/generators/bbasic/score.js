@@ -552,6 +552,8 @@ export default (Blockly) => {
       `${varName} = 0`,
       `temp1 = ${targetCode}`,
       `if temp1 = 0 then goto ${doneLabel}`,
+      // A bar byte has 8 bits, so steps past 8 change nothing; a count out of range (a lives variable below 0 reads as 255) would otherwise run the loop for about 5,000 cycles.
+      'if temp1 > 8 then temp1 = 8',
       'for temp2 = 1 to temp1',
       `${varName} = ${stepExpression}`,
       'next',
@@ -613,6 +615,8 @@ export default (Blockly) => {
     return [
       `temp1 = ${deltaCode}`,
       `if temp1 = 0 then goto ${doneLabel}`,
+      // A bar byte has 8 bits, so steps past 8 change nothing; a count out of range (a lives variable below 0 reads as 255) would otherwise run the loop for about 5,000 cycles.
+      'if temp1 > 8 then temp1 = 8',
       'for temp2 = 1 to temp1',
       `${varName} = ${growStep}`,
       'next',

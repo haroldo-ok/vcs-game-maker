@@ -161,10 +161,6 @@ const unsigned char maskdata[32]=
          0x7F,0x3F,0x1F,0x0F,0x07,0x03,0x01,0
           };
 
-#ifdef DPC_AUDIO
-// Where the sound engine's waveforms are in the ROM (set by function 44).
-const unsigned char *dpcwaves;
-#endif
 char spritesort[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0};
 char myGfxIndex[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0};
 
@@ -427,46 +423,6 @@ int main()
       return;
     }
 
-#ifdef DPC_AUDIO
-    case 44: // sound engine waveforms: C_function1 / C_function2 = where they are in the ROM, as the sprite pointers are
-    {        // (low byte, then the high byte with the bank in its upper bits). 8 waveforms of 32 samples (0 to 15), two to a
-             // byte, the first in the low nibble.
-      dpcwaves=flashdata+(C_function2<<8)+C_function1;
-      return;
-    }
-    case 48: // waveform rebuild: C_function1 = RAM slot of the voice (display RAM address / 32), C_function2 = waveform number * 16
-    {        // + height. Writes the 32 samples of the waveform scaled to the height (a sample * height / 15, rounded), the first
-             // two bytes carrying the waveform and the height in their high nibbles.
-      unsigned char *dst=(unsigned char *)queue+((C_function1&0x7f)<<5);
-      const unsigned char *src=dpcwaves+((C_function2>>4)<<4);
-      unsigned int height=C_function2&15;
-      unsigned int k;
-      for (k=0;k<32;++k)
-      {
-        unsigned int value=((((src[k>>1]>>((k&1)<<2))&15)*height*17+134)>>8);
-        if (k<2) value|=(k==0)?(C_function2&0xF0):(height<<4);
-        dst[k]=value;
-      }
-      return;
-    }
-    case 52: // sound engine volume mix: C_function1 to 3 = the volumes (0 to 15) of up to three voices. When they add up to more
-    {        // than the 15 the chip's output has, each is scaled down by 15 over the total (a voice that sounds keeps at least 1);
-             // the results are written back to C_function1 to 3.
-      unsigned int total=C_function1+C_function2+C_function3;
-      unsigned int k;
-      if (total>15)
-      {
-        for (k=1;k<4;++k)
-        {
-          unsigned int rest=C_function[k]*15;
-          unsigned int share=0;
-          for (;rest>=total;++share) rest-=total;
-          C_function[k]=(share==0 && C_function[k]!=0)?1:share;
-        }
-      }
-      return;
-    }
-#endif
 #ifdef DPC_MATH
     case 40: // div8: C_function1 / C_function2 back in C_function[3]. A divisor under 2 gives the numerator
     {        // unchanged, as the 6502's "jsr div8" does.

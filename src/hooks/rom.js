@@ -1713,10 +1713,9 @@ const buildRomInner = async () => {
         Object.assign(siblingFiles, await getDpcPlusNoScoreSiblingFiles(siblingFiles));
       }
       Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
-        audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
-        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
+        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm || !!BlocklyBB.dpcAudioArm,
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
@@ -1728,7 +1727,7 @@ const buildRomInner = async () => {
       cheapBankJumps(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
-      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
+      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm) patchArmProgramAddress(compiledResult);
       // The ROM itself is fully compiled and valid at this point - a failure
       // from here on is the PREVIEW emulator's problem, not a compile error,
       // and must never be reported (or retried into) as one. In particular,
@@ -2632,11 +2631,10 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         Object.assign(siblingFiles, await getDpcPlusNoScoreSiblingFiles(siblingFiles));
       }
       Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
-        audio: Object.keys(BlocklyBB.dpcAudioFiles || {}).length > 0,
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
         // (The playfield offset areas of a scene work on the coprocessor too.)
-        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm,
+        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm || !!BlocklyBB.dpcAudioArm,
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
@@ -2648,7 +2646,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       cheapBankJumps(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
-      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
+      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm) patchArmProgramAddress(compiledResult);
       try {
         withGopher2600((gopher2600) => {
           gopher2600.setAtariVoxRequired(false);

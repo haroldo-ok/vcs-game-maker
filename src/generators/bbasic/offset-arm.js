@@ -9,15 +9,15 @@ export const OFFSET_ARM_PROGRAM = '_dpc_arm_program_code';
 export const OFFSET_ARM_FUNCTION = {alternate: 68, left: 69, right: 70, up: 71, down: 72, alternate_rl: 73, alternate_ud: 74, alternate_du: 75};
 
 // The program is one of the files of public/bb19/includes/custom/prog, each made from armprog.c for the set of its functions a project needs: the letters of its
-// name are o (the Playfield offset block), b (the playfield box test), c (the circle block), p (the pixel finding and the bounce of the ball and the missiles) and
-// f (the movement of an object a Fire block launched with the playfield check on) in that order, then g when the groups of columns have separate rows. Built with arm-none-eabi-gcc 10.3 as
-// `-c -Os -mcpu=arm7tdmi -mthumb -fPIC` with -DNOOFFSET, -DNOBOX, -DNOCIRCLE, -DNOPIX and -DNOFIRE for the sets it does not have and -DGROUPS, linked with a script that
+// name are o (the Playfield offset block), b (the playfield box test), c (the circle block), p (the pixel finding and the bounce of the ball and the missiles),
+// f (the movement of an object a Fire block launched with the playfield check on), and a (the DPC+ sound engine: the waveform rebuild and the volume mix, functions 104 and 105) in that order, then g when the groups of columns have separate rows. Built with arm-none-eabi-gcc 10.3 as
+// `-c -Os -mcpu=arm7tdmi -mthumb -fPIC` with -DNOOFFSET, -DNOBOX, -DNOCIRCLE, -DNOPIX, -DNOFIRE and -DNOAUDIO for the sets it does not have and -DGROUPS, linked with a script that
 // puts .text.entry first, and turned into a binary with objcopy. Only the functions of a project are in its ROM.
 // The generated code only has a line that names the file and the numbers of the project's rows (see fillArmProgram, which is run on the code before it is compiled).
 // The four bytes A5 5A C3 3C near the end of a program that has a box test, an offset or a circle are put over by those numbers: the increment of a line to its row, the last
 // row, whether a line is held to 191 first, and whether the groups of columns have separate rows, in which case the increment and last row
 // of each group are in the display memory instead, see GROUP_ROWS_TABLE_OFFSET.
-export const armProgramKey = (rows, features = 'ob') => `${['o', 'b', 'c', 'p', 'f'].filter((f) => features.includes(f)).join('')}${rows && rows.groups ? 'g' : ''}`;
+export const armProgramKey = (rows, features = 'ob') => `${['o', 'b', 'c', 'p', 'f', 'a'].filter((f) => features.includes(f)).join('')}${rows && rows.groups ? 'g' : ''}`;
 const ARM_PROGRAM_LINE = /^[ \t]*;ARM_PROGRAM (\S+) (\d+) (\d+) (\d) (\d)[ \t\r]*$/m;
 
 // The subroutine that holds the program (only data; never called). rows: the numbers of the project's rows for the box test (see above).
@@ -35,7 +35,7 @@ const armProgramState = new WeakMap();
 export const ensureArmProgram = (Blockly, rows, features = '') => {
   const subroutines = Blockly.BBasic.subroutines;
   const state = armProgramState.get(subroutines) || {rows: undefined, features: ''};
-  const wanted = {rows: rows || state.rows, features: ['o', 'b', 'c', 'p', 'f'].filter((f) => features.includes(f) || state.features.includes(f)).join('')};
+  const wanted = {rows: rows || state.rows, features: ['o', 'b', 'c', 'p', 'f', 'a'].filter((f) => features.includes(f) || state.features.includes(f)).join('')};
   if (subroutines[ARM_PROGRAM_SUBROUTINE] && wanted.rows === state.rows && wanted.features === state.features) return;
   armProgramState.set(subroutines, wanted);
   subroutines[ARM_PROGRAM_SUBROUTINE] = buildArmProgramBody(wanted.rows, wanted.features);
