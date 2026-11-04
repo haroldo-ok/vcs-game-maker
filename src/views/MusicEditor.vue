@@ -1233,7 +1233,7 @@ export default defineComponent({
     // regardless), but shouldn't be newly choosable from this dropdown.
     // (The AtariVox instruments, sound effects of the SpeakJet chip, are offered while the AtariVox is on: Options tab.)
     const soundEffectOptions = () => {
-      const avoxOn = !!(configurationStorage.value || {}).enableAtariVox;
+      const avoxOn = !!(configurationStorage.value || {}).enableAtariVox && !(configurationStorage.value || {}).pxe;
       // The AtariVox instruments that a track already uses stay in the list while the AtariVox is off (a song imported from a project that had it on): they
       // are said as silent notes, and say so, instead of leaving the track with nothing selected.
       const used = new Set();
@@ -1289,9 +1289,21 @@ export default defineComponent({
     // typical undo history actually reads to a user - see stopResize's
     // single "release" point for the equivalent idea applied to just resize.
     let patternHistoryDebounce = null;
+    // The songs and patterns there are: a change in these (a song deleted, moved or added) is not an edit of a pattern, even when a pattern now has
+    // the number another had (the cards are numbered by their place).
+    const songsShape = () => state.value.songs.map((song) => `${song.id}:${song.patterns.map((pattern) => pattern.id).join(',')}`).join('|');
+    let lastSongsShape = songsShape();
     watchDeep(() => state.value.songs, () => {
       clearTimeout(patternHistoryDebounce);
       patternHistoryDebounce = setTimeout(() => {
+        const shape = songsShape();
+        if (shape !== lastSongsShape) {
+          lastSongsShape = shape;
+          state.value.songs.forEach((song) => song.patterns.forEach((pattern) => {
+            patternLastSnapshot[pattern.id] = snapshotPattern(pattern);
+          }));
+          return;
+        }
         state.value.songs.forEach((song) => song.patterns.forEach((pattern) => {
           const snapshot = snapshotPattern(pattern);
           const last = patternLastSnapshot[pattern.id];
@@ -4910,7 +4922,9 @@ export default defineComponent({
    for what's usually a short title. Placed after that rule (not merged
    into it) so it wins the same-specificity tie via source order. */
 .song-name-row .music-name-field {
-  flex: 0 1 360px;
+  /* Wide when there is room, down to 120px before Tempo has to drop to the next line: the basis is what decides when a flex row wraps. */
+  flex: 1 1 120px;
+  min-width: 120px;
   /* flex-grow: 0 alone isn't enough to actually cap this - Vuetify's
      .v-input rules set their width, which wins over the flex item's
      basis. max-width is what actually enforces the cap. */

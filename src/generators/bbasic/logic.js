@@ -17,6 +17,7 @@ goog.require('Blockly.BBasic');
 */
 
 import {joyButtonHeldVarName, joyTapJustRef} from './input';
+import {joystickNameOf} from '../../utils/pxe';
 
 // The joysticks whose "Fire tapped" a condition block contains.
 const tappedJoysticksIn = (condition) => {
@@ -26,7 +27,7 @@ const tappedJoysticksIn = (condition) => {
     if (child.type !== 'input_joystick_fire_pattern') return;
     const mode = child.getFieldValue('MODE');
     if (mode === 'HOLD' || mode === 'RELEASED' || mode === 'DOUBLE_TAP') return;
-    found.add(`joy${child.getFieldValue('JOYSTICK') === '1' ? '1' : '0'}`);
+    found.add(joystickNameOf(child.getFieldValue('JOYSTICK')));
   });
   return found;
 };

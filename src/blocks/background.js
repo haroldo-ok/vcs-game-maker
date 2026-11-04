@@ -5,6 +5,7 @@ import * as Blockly from 'blockly/core';
 
 import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
 import {cardOptions} from '../utils/card-refs';
+import {pfWidthOf, pfIsWide, resizePixelColumns} from '../utils/pxe';
 import {playfieldToMatrix} from '../utils/pixels';
 import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON, PLAYER_ICON, MISSILE_ICON, BALL_ICON} from './icon';
 
@@ -172,6 +173,9 @@ export const backgroundGetPixelYVarName = () => 'bgGetPixelY';
 // there's no "only when nested in a function" condition to gate on).
 // The one variable "Playfield area ... is clear" needs: the left column its scan restarts from on every row.
 export const areaClearLeftVarName = () => 'areaClearLeft';
+// The circle block keeps its center, its radius with the row it is on (two nibbles) and the padding of the sides (a nibble each) between the rows it draws
+// (the row drawing routine uses every scratch byte).
+export const circleVarNames = () => ['circleX', 'circleY', 'circleRD', 'circlePadLR', 'circlePadTB'];
 export const collisionPixelColumnVarName = () => 'collisionPixelColumn';
 export const collisionPixelRowVarName = () => 'collisionPixelRow';
 // Pure internal scratch for the "nudged by one cell" candidates the
@@ -356,7 +360,8 @@ export const colorsAtPixelRows = (background, kind) => {
 export const backgroundGroupPfres = (background, config) => {
   const base = backgroundPfresOf(background, config);
   const groups = background && background.groupPfres;
-  if (!config || config.kernel !== 'dpcplus' || !Array.isArray(groups) || groups.length !== 4) return [base, base, base, base];
+  // (The wide PXE playfields have the same step for every column, see PXE_WIDE_PF_MODE: no separate rows for a group.)
+  if (!config || config.kernel !== 'dpcplus' || pfIsWide(config) || !Array.isArray(groups) || groups.length !== 4) return [base, base, base, base];
   return groups.map((rows) => {
     const n = Math.round(Number(rows));
     return n > 0 ? Math.min(192, n) : base;
@@ -754,7 +759,7 @@ Blockly.Blocks['background_offset'] = {
         `of the playfield goes right, the next left). "alternate columns up and down" moves one column up, the next down, and so on, ` +
         `each column wrapping from the top to the bottom ("alternate columns down and up" starts the other way round: the first ` +
         `column goes down, the next up). Untick "whole playfield" to move just an area: its left and right edges ` +
-        `are any of the playfield's columns 0 to 31 and its top and bottom are rows counted from 0 like "Playfield get ` +
+        `are any of the playfield's columns 0 to 31 (0 to 39, 63 or 119 with a wider PXE playfield) and its top and bottom are rows counted from 0 like "Playfield get ` +
         `pixel". Run it every few frames ` +
         `for a slower drift. Pixels only move; per-row colors stay where they are.`);
   },
@@ -822,6 +827,90 @@ export const DEFAULT_BACKGROUNDS = {
   ],
 };
 
+// Set, clear or flip every playfield pixel in a circle. The padding keeps the edges of the playfield out of it: one number for all four sides (PADDING),
+// or one for each (PAD_LEFT, PAD_RIGHT, PAD_TOP, PAD_BOTTOM), which the PADMODE dropdown picks between (the inputs not used are hidden).
+const CIRCLE_PADDING_MODES = [['the same on all sides', 'ALL'], ['separate for each side', 'EACH']];
+const CIRCLE_PADDING_INPUTS = {ALL: ['PADDING'], EACH: ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM']};
+Blockly.Blocks['background_fill_circle'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BACKGROUND_ICON} Playfield`)
+        .appendField(new Blockly.FieldDropdown(BACKGROUND_PFPIXEL_OPTIONS), 'OPERATION')
+        .appendField('circle at X');
+    this.appendValueInput('X').setCheck('Number');
+    this.appendValueInput('Y').setCheck('Number').appendField('Y');
+    this.appendValueInput('RADIUS').setCheck('Number').appendField('radius');
+    this.appendDummyInput('PADDING_MODE')
+        .appendField('padding')
+        .appendField(new Blockly.FieldDropdown(CIRCLE_PADDING_MODES), 'PADMODE');
+    this.appendValueInput('PADDING').setCheck('Number');
+    this.appendValueInput('PAD_LEFT').setCheck('Number').appendField('left');
+    this.appendValueInput('PAD_RIGHT').setCheck('Number').appendField('right');
+    this.appendValueInput('PAD_TOP').setCheck('Number').appendField('top');
+    this.appendValueInput('PAD_BOTTOM').setCheck('Number').appendField('bottom');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(BACKGROUND_COLOR);
+    Blockly.Extensions.apply('background_circle_padding_sync', this, false);
+    this.setTooltip(`Sets, clears or flips every playfield pixel within the radius (in playfield pixels, up to 15) of the center column and row, the ` +
+      `same numbers as "Playfield get pixel". A pixel is in the circle when its distance from the center is no more than the radius. ` +
+      `Any part of the circle outside the playfield is ignored. The padding is how many columns at the left and at the right of the ` +
+      `playfield, and how many rows at the top and at the bottom, the block leaves alone whatever it does (set, clear or flip): 0 draws to the ` +
+      `edges. It can be one number for all the sides or a number for each. It draws a row at a time, so a big circle takes a while. ` +
+      `Can't be used inside a custom function.`);
+  },
+};
+
+// Shows the padding input(s) of the mode picked and hides the others: applied at once and when the mode changes (a validator of the field, as
+// 'input_fire_pattern_frames_sync' in blocks/input.js: it also runs for a block built from the toolbox).
+Blockly.Extensions.register('background_circle_padding_sync', function() {
+  // eslint-disable-next-line no-invalid-this
+  const block = this;
+  const modeField = block.getField('PADMODE');
+  if (!modeField) return;
+  const apply = (mode) => {
+    // (Nothing to show or hide on a workspace that is not drawn: the generator reads the mode, not what is visible.)
+    if (!block.workspace || !block.workspace.rendered) return;
+    Object.entries(CIRCLE_PADDING_INPUTS).forEach(([inputMode, names]) => names.forEach((name) => {
+      const input = block.getInput(name);
+      if (input && input.isVisible() !== (inputMode === mode)) input.setVisible(inputMode === mode);
+    }));
+    if (typeof block.queueRender === 'function') block.queueRender();
+    else if (typeof block.render === 'function') block.render();
+    if (block.workspace.resizeContents) block.workspace.resizeContents();
+  };
+  // Every input holds a number block (a shadow, 0 for the padding) when the block was not built from the toolbox, or by an older version of the block.
+  const fillWithNumbers = () => {
+    if (!block.workspace || block.disposed || !block.workspace.rendered || block.isInsertionMarker()) return;
+    // (Without events: a shadow made later than the block would be an undo step of its own, and undoing the block's creation first leaves
+    // that step pointing at a block that is gone: "The associated block is undefined".)
+    const eventsWereOn = Blockly.Events.isEnabled();
+    Blockly.Events.disable();
+    try {
+      ['X', 'Y', 'RADIUS', 'PADDING', 'PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].forEach((name) => {
+        const input = block.getInput(name);
+        if (!input || !input.connection || input.connection.targetBlock()) return;
+        const shadow = block.workspace.newBlock('math_number');
+        shadow.setShadow(true);
+        shadow.setFieldValue(name === 'X' ? 16 : name === 'Y' ? 5 : name === 'RADIUS' ? 4 : 0, 'NUM');
+        shadow.initSvg();
+        shadow.render();
+        input.connection.connect(shadow.outputConnection);
+      });
+    } finally {
+      if (eventsWereOn) Blockly.Events.enable();
+    }
+  };
+  modeField.setValidator((value) => {
+    apply(value);
+    setTimeout(fillWithNumbers, 0);
+    return value;
+  });
+  apply(modeField.getValue());
+  setTimeout(fillWithNumbers, 0);
+});
+
 export const processBackgroundStorageDefaults = (backgroundsStorage) => {
   const backgrounds = backgroundsStorage.value;
   if (!backgrounds || !backgrounds.backgrounds || !backgrounds.backgrounds.length) {
@@ -830,13 +919,18 @@ export const processBackgroundStorageDefaults = (backgroundsStorage) => {
     const defaults = structuredClone(DEFAULT_BACKGROUNDS);
     const rows = backgroundDataRows((useConfigurationStorage() || {}).value);
     defaults.backgrounds.forEach((background) => {
-      const width = background.pixels[0] ? background.pixels[0].length : 32;
+      const width = pfWidthOf((useConfigurationStorage() || {}).value);
       background.pixels = Array.from({length: rows}, (_, y) =>
         Array.from({length: width}, (__, x) =>
           (y === 0 || y >= rows - 2 || x === 0 || x === width - 1) ? 1 : 0));
     });
     return defaults;
   }
+  // A background of another width than the project's playfield (the PXE kernel has 32 and 40 columns, see pfWidthOf) is made the right one.
+  const width = pfWidthOf((useConfigurationStorage() || {}).value);
+  backgrounds.backgrounds.forEach((background) => {
+    if (background.pixels && background.pixels[0] && background.pixels[0].length !== width) background.pixels = resizePixelColumns(background.pixels, width);
+  });
   // Background rows that all still hold the old starting color (a copy of the playfield's light grey) were never colored: they are black now.
   backgrounds.backgrounds.forEach((background) => {
     const rows = background.bkRowColors;
@@ -1088,7 +1182,7 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Boolean',
     'colour': BACKGROUND_COLOR,
     'tooltip': `True when every playfield pixel in the rectangle between the two corners is off (columns ` +
-      `0-31 and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in ` +
+      `0-31 (0-39, 0-63 or 0-119 with a wider PXE playfield) and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in ` +
       `either order, and any part of the rectangle outside the playfield is ignored. It reads the pixels ` +
       `one by one, so a big area takes a while: use it now and then (for example when a brick is cleared), ` +
       `not on every frame. Can't be used inside a custom function.`,
@@ -1109,7 +1203,7 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Sets, clears or flips every playfield pixel in the rectangle between the two corners (columns ` +
-      `0-31 and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in either ` +
+      `0-31 (0-39, 0-63 or 0-119 with a wider PXE playfield) and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in either ` +
       `order, and any part of the rectangle outside the playfield is ignored. It draws a row at a time, so ` +
       `a big area takes a while. Can't be used inside a custom function.`,
   },
@@ -1274,7 +1368,7 @@ Blockly.defineBlocksWithJsonArray([
     'inputsInline': true,
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
-    'tooltip': `Converts a playfield pixel column (0-31) or row to the matching Player/Missile/Ball X or ` +
+    'tooltip': `Converts a playfield pixel column (0-31, 0-39, 0-63 or 0-119 with a wider PXE playfield) or row to the matching Player/Missile/Ball X or ` +
       `Y coordinate. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
       `that the column (0-31, the empty one is the first column) is in.`,
   },
@@ -1411,7 +1505,7 @@ Blockly.defineBlocksWithJsonArray([
     'args0': [],
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
-    'tooltip': `The playfield column (0-31) found by the last "Find playfield pixel collided with" ` +
+    'tooltip': `The playfield column (0-31, 0-39, 0-63 or 0-119 with a wider PXE playfield) found by the last "Find playfield pixel collided with" ` +
       `block that ran - meaningless if read before that block has run this frame.`,
   },
   {
@@ -1505,6 +1599,19 @@ Blockly.defineBlocksWithJsonArray([
       `screen. Works whether it comes before or after a "Set background" block in the same event, and ` +
       `sprites that follow the scroll aren't moved. Use it right after switching backgrounds, or ` +
       `later to jump the view.`,
+  },
+  // Back to the top row: the same as "Set playfield scroll to row" 0.
+  {
+    'type': `background_scroll_reset`,
+    'message0': `${BACKGROUND_ICON} Reset playfield scroll`,
+    'args0': [],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Moves the scroll back to the top row of the background, as it is when a background is switched to ` +
+      `(the same as "Set playfield scroll to row" 0). Only does anything for a background taller than the ` +
+      `screen. Works whether it comes before or after a "Set background" block in the same event, and ` +
+      `sprites that follow the scroll aren't moved.`,
   },
   // Block for drawing the screen
   {

@@ -168,18 +168,8 @@ textkernel
     adc temp7               ; 3 - Use existing carry from last operation
     endif
     
-    ; vcs-game-maker: with the score hidden row 1 reads the messages directly (showtextrowfast below), so the pointer is only
-    ; set up for a second row.
-    ifnconst dpchidescore
-    ifconst extendedtxt
-        adc #>text_strings  ; carry already clear
-    else
-        lda #>text_strings
-    endif
-    sta TextDataPtr+1
-    lda #<text_strings
-    sta TextDataPtr
-    else
+    ; vcs-game-maker: row 1 is always read straight from the message table (showtextrowfast), which starts the text sooner, so the pointer
+    ; is only set up for a second row.
         ifconst textkernel2ndrow
     ifconst extendedtxt
         adc #>text_strings  ; carry already clear
@@ -190,7 +180,6 @@ textkernel
     lda #<text_strings
     sta TextDataPtr
         endif
-    endif
 
 	lda TextColor
 	sta COLUP0
@@ -199,11 +188,7 @@ textkernel
 	sta COLUBK
 	
     lda TextIndex
-    ifconst dpchidescore
     jsr showtextrowfast
-    else
-    jsr showtextrow
-    endif
 
     ; "textkernel2ndrow" is the app's switch for the wrapped second line (not the bB "extendedtxt" const).
     ; Row 2 is drawn every frame whenever this is compiled in, so the frame always has the same number of
@@ -233,7 +218,6 @@ gotrow2base
 
 ; vcs-game-maker: the same fill as showtextrow, read from the message table directly (absolute indexed by X, 4 cycles a byte
 ; instead of the 10 of the pointer and Y, and no pointer to set up), then on to the drawing. A is the row's base offset.
-    ifconst dpchidescore
 showtextrowfast
     tax
     lda text_strings+11,x
@@ -261,7 +245,6 @@ showtextrowfast
     lda text_strings+0,x
     sta textoffset0
     jmp showtextrowdraw
-    endif
 
 ; Reads 12 message bytes from (TextDataPtr) starting at the offset in A, then draws that row.
 showtextrow

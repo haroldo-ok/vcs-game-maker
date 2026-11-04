@@ -408,7 +408,7 @@ export default defineComponent({
       },
     });
     // The AtariVox's play button and spoken words show only while the AtariVox is on (Options tab, ROM Options).
-    const atariVoxOn = computed(() => !!(configurationStorage.value || {}).enableAtariVox);
+    const atariVoxOn = computed(() => !!(configurationStorage.value || {}).enableAtariVox && !(configurationStorage.value || {}).pxe);
     const generatedSpeech = (entry) => textToSpeakJetWords(entry.text, pronunciationsFor(state.value));
     const handleSpeechChange = (entry, value) => {
       entry.speech = String(value || '').toUpperCase();

@@ -1,11 +1,13 @@
 'use strict';
 
+import {isPxe} from '../../utils/pxe';
 import {chunk} from 'lodash';
 
 import {useConfigurationStorage} from '../../hooks/project';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {fixedFreeVariable} from '../../utils/fixed-vars';
 import {resolveBlinkMask} from '../../utils/text-font';
+import {flagPoolVar} from './flag-pool';
 import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings,
   resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 import {functionCallDiscardVarName} from '../../blocks/function';
@@ -45,10 +47,17 @@ export const textLinesMaxVarName = () => 'textLinesMax';
 // textLinesMaxVarName/textLinesBaseVarName, for the same reason (see that
 // function's  doc comment).
 export const textRow2ColorVarName = () => 'textRow2Color';
+// The text rows' background color while the game runs (a "Text set background color" block): the kernel loads it where it used the constant textbkcolor.
+export const textBkColorVarName = () => 'textBkColor';
 export const textClearTimerVarName = () => 'textClearTimer';
 // A "Blink text" block: the state (bits 0-4 the blinks left, bit 5 forever, bit 6 clear the text when done, bit 7 the text is hidden now) and the
 // color the text had (put back when it shows again).
 export const textBlinkVarName = () => 'textBlink';
+// The text kernel called by the Title Screen kernel returns to that bank by hand (see posttextkernel in text12a.asm): this flag, bit 0 of a
+// pooled byte (so the assembly code can set it with INC and clear it with DEC, in the cycles of the load and store it replaces), says
+// the call came from there.
+export const TITLE_TEXT_FLAG_FAMILY = 'titleTextFlag';
+export const titleTextFlagVar = () => flagPoolVar(TITLE_TEXT_FLAG_FAMILY);
 export const textBlinkColorVarName = () => 'textBlinkColor';
 export const textScrollCursorColorVarName = () => 'textScrollCursorColor';
 // The "end of message" icon's  color (via "Text: set end icon color",
@@ -314,6 +323,8 @@ export default (Blockly) => {
   // false: "Scroll text lines down" still reveals it, one row at a time,
   // just never automatically.
   const namedMessageWrapToLine2 = (id) => getStaticMessageLayout()[namedMessagePosition(id)].wrapToLine2;
+  // What a text card of a Title Screen page needs (see titlescreen.js): where the entry's rows start and whether the second row shows.
+  Blockly.BBasic.titleTextCardInfo = (id) => ({offset: namedMessageOffset(id), wrap: !!namedMessageWrapToLine2(id) && namedMessageLineCount(id) >= 2});
   // Just this entry's  FIRST line of raw text (before glyph-encoding) -
   // used by text_minikernel_show_named_row below, which only ever shows one
   // row of a named entry (no word-wrap/scrolling), same "first line only"
@@ -795,7 +806,7 @@ export default (Blockly) => {
       ` if temp1 = 0 then goto ${show}`,
       ` if ${state}{7} then goto ${done}`,
       ` ${saved} = TextColor`,
-      ' TextColor = textbkcolor',
+      ` TextColor = ${Blockly.BBasic.textBkColorBlockUsed ? Blockly.BBasic.nameDB_.getName(textBkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : 'textbkcolor'}`,
       ` ${state}{7} = 1`,
       ` goto ${done}`,
       show,
@@ -897,6 +908,13 @@ export default (Blockly) => {
   // another "both"/"row 1" set) the way the automatic fallback otherwise
   // does. Only "2" ever writes row 2's  var, switching it from
   // "following row 1" to "independent" from that point on.
+  Blockly.BBasic['text_minikernel_set_background'] = function(block) {
+    markTextMinikernelUsed();
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return `${Blockly.BBasic.nameDB_.getName(textBkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${argument0}
+`;
+  };
+
   Blockly.BBasic['text_minikernel_set_color'] = function(block) {
     markTextMinikernelUsed();
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
@@ -1137,7 +1155,7 @@ export default (Blockly) => {
     const wrapping = listTextStrings().filter((entry) => entry.wrapToLine2);
     const wrappingShown = wrapping.length && (this.textEntryShowBlocks || []).some((block) =>
       block.type === 'text_minikernel_show_by_id' ||
-      wrapping.some((entry) => `${entry.id}` === `${block.getFieldValue('TEXT_ID')}`));
+      wrapping.some((entry) => `${entry.id}` === `${block.textId}`));
     return this.isTextMinikernelActive() && (!!wrappingShown || !!this.textRowSetUsed);
   };
 
@@ -1257,6 +1275,9 @@ export default (Blockly) => {
       const row2Color = Blockly.BBasic.nameDB_.getName(
           textRow2ColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       lines.push(` ${row2Color} = $01`);
+    }
+    if (this.textBkColorBlockUsed) {
+      lines.push(` ${Blockly.BBasic.nameDB_.getName(textBkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${colorByteToBuildBBasic(((useConfigurationStorage().value || {}).textBkColor) ?? 0)}`);
     }
     if (this.textScrollCursorUsed) {
       // $0E's  bit 0 is already 0 (even), so this doubles as the
@@ -1466,4 +1487,13 @@ export default (Blockly) => {
 
     return `${skippedBankPlaceholders.join('\n')}\n bank ${kernelBank}${harmonyCartFix}\n${block}\n bank 1`;
   };
+
+  // The PXE kernel has no Text Minikernel yet (the one here switches banks): its blocks make no code.
+  Object.keys(Blockly.BBasic).filter((key) => key.startsWith('text_minikernel_')).forEach((key) => {
+    const generate = Blockly.BBasic[key];
+    Blockly.BBasic[key] = function(block, ...rest) {
+      if (!isPxe(useConfigurationStorage().value)) return generate.call(this, block, ...rest);
+      return block.outputConnection ? ['0', Blockly.BBasic.ORDER_ATOMIC] : '';
+    };
+  });
 };

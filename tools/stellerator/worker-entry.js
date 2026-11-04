@@ -26,6 +26,7 @@ const AudioOutputBuffer = require('6502.ts/lib/tools/AudioOutputBuffer').default
 const CpuFactory = require('6502.ts/lib/machine/cpu/Factory').default;
 const palettes = require('6502.ts/lib/machine/stella/tia/palette');
 const {matchDriverFractionalFetchers} = require('./dpcplus-driver');
+const CartridgePXE = require('./pxe/CartridgePXE');
 const {createAtariVox} = require('./atarivox');
 
 const FRAME_WIDTH = 160;
@@ -108,6 +109,39 @@ const destroyBoard = () => {
   state.hpIn = state.hpOut = 0;
 };
 
+// The save data of a PXE game (see CartridgePXE's nvStores) is kept in the browser's IndexedDB, under the game's key, so it is still there after
+// a reload of the page (a new build of the project is a new game).
+const SAVE_DB = 'vcsgm-pxe-save';
+const openSaveDb = () => new Promise((resolve, reject) => {
+  if (typeof indexedDB === 'undefined') {
+    reject(new Error('no IndexedDB'));
+    return;
+  }
+  const request = indexedDB.open(SAVE_DB, 1);
+  request.onupgradeneeded = () => request.result.createObjectStore('saves');
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error);
+});
+const restoreSavedData = async (key) => {
+  if (CartridgePXE.nvStores.has(key)) return;
+  try {
+    const db = await openSaveDb();
+    const slots = await new Promise((resolve, reject) => {
+      const request = db.transaction('saves').objectStore('saves').get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    if (Array.isArray(slots)) CartridgePXE.nvStores.set(key, slots.map((slot) => (slot ? Uint8Array.from(slot) : slot)));
+  } catch (error) {
+    // (No saved data, or no way to keep it: the game starts fresh.)
+  }
+};
+CartridgePXE.nvSink = (key, slots) => {
+  openSaveDb().then((db) => {
+    db.transaction('saves', 'readwrite').objectStore('saves').put(slots.map((slot) => (slot ? Array.from(slot) : slot)), key);
+  }).catch(() => {});
+};
+
 const createBoard = async () => {
   destroyBoard();
   if (!state.rom || !state.poweredOn) return;
@@ -121,9 +155,17 @@ const createBoard = async () => {
     frameStart: pal ? -1 : NTSC_FRAME_START,
     cpuType: state.cpuAccuracy === 'instruction' ? CpuFactory.Type.batchedAccess : CpuFactory.Type.stateMachine,
   });
-  const cartridge = await new CartridgeFactory().createCartridge(state.rom);
-  // (The fractional fetchers of a DPC+ cartridge count the rows of the playfield; see dpcplus-driver.js.)
-  matchDriverFractionalFetchers(cartridge, state.rom);
+  // A PXE ROM is an ARM ELF file, run by CartridgePXE (see pxe/CartridgePXE.js); the others are cartridges of 6502.ts.
+  let cartridge;
+  if (CartridgePXE.matchesBuffer(state.rom)) {
+    await restoreSavedData(CartridgePXE.keyOf(state.rom));
+    cartridge = new CartridgePXE(state.rom, {tvSpec: state.pal60 ? 'PAL60' : state.tvSpec === 'PAL' ? 'PAL' : 'NTSC'});
+    await cartridge.init();
+  } else {
+    cartridge = await new CartridgeFactory().createCartridge(state.rom);
+    // (The fractional fetchers of a DPC+ cartridge count the rows of the playfield; see dpcplus-driver.js.)
+    matchDriverFractionalFetchers(cartridge, state.rom);
+  }
   const board = new Board(config, cartridge);
   // The field is private to 6502.ts (like the palette below); the frame is this many lines plus 20.
   if (!pal && board._tia && board._tia._frameManager) board._tia._frameManager._kernelLines = NTSC_PICTURE_LINES;

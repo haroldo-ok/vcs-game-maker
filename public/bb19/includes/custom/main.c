@@ -248,6 +248,11 @@ int checkswap(int a, int b)
   s1=checkwrap(RIOT[player1y+a],RIOT[player1height+a]);
   s2=checkwrap(RIOT[player1y+b],RIOT[player1height+b]);
   temp1=s1-s2;
+  // A sprite with no height draws nothing (the text kernel keeps one at the line of its row, an unused one waits off the picture), so it takes no
+  // line from the sprite next to it: it only has to be in order. Without this a text row put a sprite of no height within 5 lines of the paddle and the
+  // two took turns being left out, the paddle drawn every other frame.
+  if (!RIOT[player1height+a] || !RIOT[player1height+b])
+    return temp1>=0?SKIP:NOOVERLAP;
   if (temp1>0)
   { // larger is higher
     if ((temp1-=5)>0)

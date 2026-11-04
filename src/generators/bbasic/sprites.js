@@ -3,15 +3,21 @@
 import {superchipOn} from '../../utils/superchip';
 import {playfieldToMatrix} from '../../utils/pixels';
 import {useConfigurationStorage, usePlayerAnimationsStorage} from '../../hooks/project';
+import {isPxe, playerColorPointerBase, playerCount, EXTRA_PLAYER_NAME} from '../../utils/pxe';
 import {clampFrameDuration} from '../../utils/duration';
 import {fireObjectName} from '../../utils/fire-object';
-import {pfRowDivisorFor as exactRowDivisorFor, missileBallPfXOffset} from '../../utils/playfield-coords';
+import {pfRowDivisorFor as exactRowDivisorFor, missileBallPfXOffset, pfColumnOf, pfMaxColumn, pfScrollColumns} from '../../utils/playfield-coords';
+import {ensureArmProgram, buildPixArmCall, ARM_FIND_PIXEL_FUNCTION} from './offset-arm';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps, so the nearest whole number of steps is used.
 const pfRowDivisorFor = (config) => Math.max(1, Math.round(exactRowDivisorFor(config)));
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {fadeFlagsVarName, fadeActiveBit, effectiveBackgroundRows} from '../../blocks/background';
+
+// The high byte of the pointers of the noise (memory read as graphics or colors): DPC+ reads the display memory at $04xx; PXE reads a page of
+// its header with 256 different bytes (the lookup tables of PXEheader.asm), at $0600.
+const noiseHighByte = (config) => (isPxe(config) ? '$06' : '$04');
 
 
 export const DEFAULT_SPRITES={
@@ -110,6 +116,18 @@ export const colorSetFamilies = (players) => ['colorSetFlags', 'colorSetFlagsB']
 // The player's bit, as batari Basic writes it.
 export const colorOverrideRef = (Blockly, name) => `${Blockly.BBasic.nameDB_.getName(flagPoolVar(colorSetFamily(name)),
     Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${flagPoolBit(colorSetFamily(name), colorSetBit(name))}}`;
+// PXE edge masking: one bit for each player a Masking block names (Players 1 to 16, eight to a byte, see flag-pool.js).
+const maskFamily = (number) => `maskFlags${Math.floor(Number(number) / 8)}`;
+export const maskFamilies = (players) => [0, 1, 2].map((index) => ({
+  family: `maskFlags${index}`, bits: [...(players || [])].filter((number) => Math.floor(number / 8) === index).map((number) => number % 8)}));
+// The player's bit, as batari Basic writes it.
+export const maskRef = (Blockly, number) => `${Blockly.BBasic.nameDB_.getName(flagPoolVar(maskFamily(number)),
+    Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{${flagPoolBit(maskFamily(number), Number(number) % 8)}}`;
+export const reserveMaskDevVars = (reserveDevVar, players) => {
+  [...new Set([...(players || [])].map(maskFamily))].forEach((family) => {
+    reserveDevVar(flagPoolVar(family), undefined, 'a bit for each player a Masking block was used for: edge masking on (PXE)');
+  });
+};
 export const reserveColorOverrideDevVars = (reserveDevVar, players) => {
   [...new Set([...(players || [])].map(colorSetFamily))].forEach((family) => {
     reserveDevVar(flagPoolVar(family), undefined, 'a bit for each player that a block set or faded the color of, over its row colors');
@@ -124,7 +142,7 @@ ${flag} = 1
 `;
 };
 
-export const playerNameOfValue = (value) => `player${/^[0-9]$/.test(String(value)) ? value : '0'}`;
+export const playerNameOfValue = (value) => `player${/^([0-9]|1[0-6])$/.test(String(value)) ? value : '0'}`;
 
 export const resolveUsedPlayerAnimations = (workspace) => {
   const used = {player0: new Set([0]), player1: new Set([0])};
@@ -285,7 +303,7 @@ const romNoiseBaseHighByteHex = (config) => {
 export const ROM_NOISE_FLAGS_FAMILY = 'romNoiseFlags';
 // Players 2 to 9 (DPC+) have a byte for this, one bit each, so the shared byte above keeps its room.
 export const ROM_NOISE_EXTRA_FAMILY = 'romNoiseExtraFlags';
-export const isRomNoiseExtra = (name) => /^player[2-9]$/.test(name);
+export const isRomNoiseExtra = (name) => EXTRA_PLAYER_NAME.test(name);
 export const romNoiseExtraOwnBit = (name) => Number(name.slice(6)) - 2;
 export const romNoiseFlagsVarName = (name) =>
   flagPoolVar(name && isRomNoiseExtra(name) ? ROM_NOISE_EXTRA_FAMILY : ROM_NOISE_FLAGS_FAMILY);
@@ -357,7 +375,7 @@ export const MISSILE_FIRE_FLAGS_FAMILY = 'missileFireFlags';
 export const missileFireFlagsVarName = () => flagPoolVar(MISSILE_FIRE_FLAGS_FAMILY);
 export const missileFireOwnBit = (name) => ({missile0: 0, missile1: 1, ball: 2,
   player0: 3, player1: 4, player2: 5, player3: 6, player4: 7, player5: 8, player6: 9, player7: 10, player8: 11,
-  player9: 12})[name];
+  player9: 12, player10: 13, player11: 14, player12: 15, player13: 16, player14: 17, player15: 18, player16: 19})[name];
 export const missileFireActiveBit = (name) => flagPoolBit(MISSILE_FIRE_FLAGS_FAMILY, missileFireOwnBit(name));
 // One bit for each object a block asks about: set when its Fire stopped because it went off the screen, cleared by the next Fire.
 export const FIRE_OFFSCREEN_FLAGS_FAMILY = 'fireOffscreenFlags';
@@ -413,7 +431,8 @@ export const seekFlagsVarName = () => flagPoolVar(SEEK_FLAGS_FAMILY);
 // The bit number of a sprite in the seek, scroll and inertia flag bytes.
 export const spriteOwnBit = (name) => {
   const bits = {player0: 0, player1: 1, missile0: 2, missile1: 3, ball: 4,
-    player2: 5, player3: 6, player4: 7, player5: 8, player6: 9, player7: 10, player8: 11, player9: 12};
+    player2: 5, player3: 6, player4: 7, player5: 8, player6: 9, player7: 10, player8: 11, player9: 12,
+    player10: 13, player11: 14, player12: 15, player13: 16, player14: 17, player15: 18, player16: 19};
   return bits[name];
 };
 export const seekActiveBit = (name) => flagPoolBit(SEEK_FLAGS_FAMILY, spriteOwnBit(name));
@@ -508,6 +527,22 @@ export const inertiaDecelFlagsVarName = () => flagPoolVar(INERTIA_DECEL_FLAGS_FA
 // not a shared one, even though the layout happens to match.
 export const inertiaAccelActiveBit = (name) => flagPoolBit(INERTIA_ACCEL_FLAGS_FAMILY, spriteOwnBit(name));
 export const inertiaDecelActiveBit = (name) => flagPoolBit(INERTIA_DECEL_FLAGS_FAMILY, spriteOwnBit(name));
+// The Gravity block (object_gravity): an active bit for each object, one signed byte for each object (its fall speed in pixels a frame, in the read/write RAM
+// pool, which is the Superchip RAM or DPC+ display memory when there is room), and its numbers (the frames between a speed-up, the max fall speed and how much of the
+// speed a bounce keeps, in quarters) as constants when every Gravity block for the object has the same, else bytes too.
+export const OBJECT_GRAVITY_FLAGS_FAMILY = 'objectGravityFlags';
+export const objectGravityFlagsVarName = () => flagPoolVar(OBJECT_GRAVITY_FLAGS_FAMILY);
+export const objectGravityBit = (name) => flagPoolBit(OBJECT_GRAVITY_FLAGS_FAMILY, spriteOwnBit(name));
+export const objectGravitySpeedVarName = (name) => `${name}GravitySpeed`;
+export const OBJECT_GRAVITY_FIELDS = ['mask', 'max', 'keep'];
+export const objectGravityFieldVarName = (name, field) => `${name}Gravity${field[0].toUpperCase()}${field.slice(1)}`;
+// The value of a number every Gravity block of the object gives alike (a number block), else undefined: it is a byte then.
+export const objectGravityConstant = (Blockly, name, field) => {
+  const values = ((Blockly.BBasic.objectGravityParams || {})[name] || {})[field];
+  return values && values.size === 1 && ![...values].some((value) => value === null) ? [...values][0] : undefined;
+};
+// One shared byte for the fired objects that check the playfield: the cell the object being moved started its frame in (see buildPlayfieldCheckedMovement).
+export const fireCellVarName = () => 'fireCell';
 export const inertiaVelocityXVarName = (name) => `${name}VelocityX`;
 export const inertiaVelocityYVarName = (name) => `${name}VelocityY`;
 // Only reserved for a sprite with an actual "Accelerate" block targeting
@@ -732,6 +767,7 @@ export const reserveRainbowColorDevVars = (reserveDevVar, reserveDevVarRW, usedF
 export const reserveMissileFireDevVars = (reserveDevVar, reserveDevVarRW, usedFor, used16, usedPfCheck, usedThrottle, constSpeed) => {
   if (!usedFor || !usedFor.size) return;
   reserveDevVar(missileFireFlagsVarName(), undefined, 'shared active-bit byte for fired missiles');
+  if (usedPfCheck && usedPfCheck.size) reserveDevVarRW(fireCellVarName(), 'playfield cell a fired object started its frame in (while it moves)');
   usedFor.forEach((name) => {
     reserveDevVar(missileFireDirVarName(name), undefined, 'this missile\'s fired direction (0-7, or 255 for none)');
     const speedIsConst = !!(constSpeed && constSpeed.has(name));
@@ -966,10 +1002,9 @@ export const generateRomNoiseChecks = (Blockly) => {
   // DPC+ reads graphics at an offset into the cartridge's data instead of at a 6507 address, and only Player 0's
   // pointer is a variable (player0pointerlo/hi).
   const dpcPlus = config.kernel === 'dpcplus';
-  const baseHigh = dpcPlus ? '$04' : romNoiseBaseHighByteHex(config);
+  const baseHigh = dpcPlus ? noiseHighByte(config) : romNoiseBaseHighByteHex(config);
   const lines = [];
-  (dpcPlus ? ['player0', 'player1', 'player2', 'player3', 'player4', 'player5', 'player6', 'player7', 'player8', 'player9'] :
-    ['player0', 'player1']).forEach((name) => {
+  Array.from({length: playerCount(config)}, (_, n) => `player${n}`).forEach((name) => {
     if (!used.has(name)) return;
     const flagsVar = resolveVar(romNoiseFlagsVarName(name));
     const doneLabel = `_romnoise_${name}_done`;
@@ -1160,16 +1195,16 @@ const generateDpcPlusRainbowColorChecks = (Blockly) => {
         ...(name === 'player0' ? [
           '       lda temp1',
           '       sta player0color',
-          '       lda #$04',
+          `       lda #${noiseHighByte(useConfigurationStorage().value)}`,
           '       sta player0color+1',
         ] : [
-          '       lda #<(playerpointers+18)',
+          `       lda #<(playerpointers+${playerColorPointerBase(useConfigurationStorage().value)})`,
           '       sta DF0LOW',
-          '       lda #(>(playerpointers+18)) & $0F',
+          `       lda #(>(playerpointers+${playerColorPointerBase(useConfigurationStorage().value)})) & $0F`,
           '       sta DF0HI',
           '       lda temp1',
           '       sta DF0WRITE',
-          '       lda #$04',
+          `       lda #${noiseHighByte(useConfigurationStorage().value)}`,
           '       sta DF0WRITE',
         ]),
         'end',
@@ -1282,7 +1317,32 @@ const isHalfStep = (step, otherStep) => Math.abs(step) === 1 && Math.abs(otherSt
 // The y that counts the playfield rows for the top edge of an object: one past its top row, except that under DPC+ a missile's or the ball's y is
 // its top scanline itself (see topYText in generators/bbasic/background.js). Reading the row one line up put a ball that only touches a ceiling
 // inside it: it could never take a step upwards, slid along the ceiling and, touching only, never set a collision for the Bounce.
-const pfTopY = (config, name) => (config.kernel === 'dpcplus' && /^(missile|ball)/.test(name) ? `${name}y` : `${name}y - 1`);
+const pfTopY = (config, name) => (config.kernel === 'dpcplus' && /^(missile|ball)/.test(name) ? (/^missile/.test(name) && !config.pxe ? (name === 'missile1' ? `${name}y - 1` : `${name}y + 1`) : `${name}y`) : `${name}y - 1`);
+
+// The tables of the direction a Fire movement works from (16 entries, a byte each; an 8 way direction is the entry of twice its number): the step of the main axis
+// and of the other axis in x and y (-1, 0 or 1; a diagonal or a compass point has no other axis step), the sign of an axis and, in the last, which amount each takes
+// when the object is not stepped a pixel at a time (bit 0: x takes temp3, the main amount; bit 1: y does; a halfway direction has the other axis take temp4).
+const FIRE_TABLES = {
+  mainx: '_fire_tab_mainx', mainy: '_fire_tab_mainy', minx: '_fire_tab_minx', miny: '_fire_tab_miny', sx: '_fire_tab_sx', sy: '_fire_tab_sy', big: '_fire_tab_big',
+};
+const fireTables = () => {
+  const sign = (v) => (v > 0 ? 1 : v < 0 ? 255 : 0);
+  const minorOf = (step, other) => Math.abs(step) === 1 && Math.abs(other) === 2;
+  const row = (fn) => '       .byte ' + DIRECTION16_STEPS.map(([x, y]) => fn(x, y)).join(',');
+  return [
+    ' asm',
+    '       jmp _fire_tables_end',
+    FIRE_TABLES.mainx, row((x, y) => (x && !minorOf(x, y) ? sign(x) : 0)),
+    FIRE_TABLES.mainy, row((x, y) => (y && !minorOf(y, x) ? sign(y) : 0)),
+    FIRE_TABLES.minx, row((x, y) => (x && minorOf(x, y) ? sign(x) : 0)),
+    FIRE_TABLES.miny, row((x, y) => (y && minorOf(y, x) ? sign(y) : 0)),
+    FIRE_TABLES.sx, row((x) => sign(x)),
+    FIRE_TABLES.sy, row((x, y) => sign(y)),
+    FIRE_TABLES.big, row((x, y) => (Math.abs(x) === 2 ? 1 : 0) | (Math.abs(y) === 2 ? 2 : 0)),
+    '_fire_tables_end',
+    'end',
+  ];
+};
 
 // "Check playfield while moving": the object moves one pixel at a time and, after each pixel,
 // looks at the playfield cell it is in; the first lit cell ends the frame's movement there. The
@@ -1303,35 +1363,84 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   Blockly.BBasic.usesDivMul = true;
   const id = Blockly.BBasic.blockNumbers.next('fireStep');
   const label = (part) => `_missilefire_${name}_${id}_${part}`;
-  const step = (axis, sign) => ` ${name}${axis} = ${name}${axis} ${sign} 1`;
   // The cell the object is in now. x/y are unsigned bytes, so a value that wrapped below 0 shows up as too large here and is
   // skipped. A lit cell ends the movement there.
-  // While a Bounce has just turned the object round and it is still touching the wall (its stage byte, bits 4 and 5, is not 0), the
-  // lit cell it is inside does not stop it: it takes its steps and gets out of the wall. Stopping on the first step out (the cell
-  // it leaves is lit too) left it one pixel a frame in the wall, long enough for the Bounce to give up and turn it back round.
-  const stagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ?
-    Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
-  const cellCheck = (tag) => [
-    ...(stagePair ? [` if ${stagePair.read}{4} then goto ${label(`skip${tag}`)}`, ` if ${stagePair.read}{5} then goto ${label(`skip${tag}`)}`] : []),
+  // An object that starts the frame inside a lit cell (a Bounce has just turned it round near a wall, or it was pinned against the wall by the
+  // paddle) is not stopped by that cell, but by any other lit cell it comes to: it gets out of the wall, but can not go on through the pixels (stopping
+  // on the first step in a lit cell left it one pixel a frame in the wall, and so on through it). A byte (shared by the fired objects, as only one moves at a
+  // time; temp7 is not safe across the playfield read in a bankswitched ROM) holds 1 + a number of the cell it started in
+  // (its column xor 8 times its row, different for neighbouring cells), or 0 when it started in a clear cell.
+  const cellPair = Blockly.BBasic.superchipRwPairs[fireCellVarName()];
+  const stagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
+  const litEnd = stagePair ? 'endlit' : 'end';
+  const cellRead = (target) => [
     ...Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor),
-    ` temp1 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
-    ` if temp1 > 31 then goto ${label(`skip${tag}`)}`,
-    ` if temp2 > ${maxRow} then goto ${label(`skip${tag}`)}`,
-    ` if pfread(temp1, temp2) then goto ${label('end')}`,
+    ` temp1 = ${pfColumnOf(`${name}x`, missileBallPfXOffset(config, name), config)}`,
+    ` if temp1 > ${pfMaxColumn(config)} then goto ${target}`,
+    ` if temp2 > ${maxRow} then goto ${target}`,
+  ];
+  const cellCheck = (tag) => [
+    ...cellRead(label(`skip${tag}`)),
+    ` if pfread(temp1, temp2) then goto ${label(`lit${tag}`)}`,
+    ` goto ${label(`skip${tag}`)}`,
+    label(`lit${tag}`),
+    // An object that comes into a lit cell from a clear one meets a new wall: the stage of the Bounce (the stuck frames of an earlier wall) starts again, so
+    // that its next Bounce is a first one and turns it (a second wall met in the frames after the first was passed over, and the object went through it).
+    ...(stagePair ? [` if ${cellPair.read} <> 0 then goto ${label(`known${tag}`)}`, ` ${stagePair.write} = ${stagePair.read} & 207`, ` goto ${label(litEnd)}`, label(`known${tag}`)] :
+      [` if ${cellPair.read} = 0 then goto ${label(litEnd)}`]),
+    // (The playfield read leaves temp1 and temp2 as it likes: the cell is worked out again.)
+    ...cellRead(label(`skip${tag}`)),
+    ' temp2 = temp2 * 8',
+    ' temp1 = temp1 ^ temp2',
+    ' temp1 = temp1 + 1',
+    ...(stagePair ? [` if temp1 = ${cellPair.read} then goto ${label(`same${tag}`)}`,
+      // An object held in a wall by all the stages of the Bounce, which has been turned from the heading it had (the low bits of the stage byte) by the last of them, is
+      // let move on: it was held in a wall along which it moved. One whose heading is still the one it had (a game that aims it at the wall every frame) is held.
+      ` if !${stagePair.read}{4} then goto ${label(`undo${tag}`)}`, ` if !${stagePair.read}{5} then goto ${label(`undo${tag}`)}`,
+      ` temp1 = ${dirVar} ^ ${stagePair.read}`, ' temp1 = temp1 & 15', ` if temp1 = 0 then goto ${label(`undo${tag}`)}`, ` goto ${label(`skip${tag}`)}`, label(`same${tag}`)] :
+      [` if temp1 <> ${cellPair.read} then goto ${label(`undo${tag}`)}`]),
+    // In the cell it started in the object only crawls, a step a frame, until a Bounce has turned it (its stage, bits 4 and 5 of the stage byte, is not 0): the
+    // Bounce looks at the collision a frame late, and an object let loose in the cell with its old heading came out on the far side of a thin wall.
+    ...(stagePair ? [` if ${stagePair.read}{4} then goto ${label(`skip${tag}`)}`, ` if ${stagePair.read}{5} then goto ${label(`skip${tag}`)}`, ` goto ${label(litEnd)}`] :
+      [` goto ${label(litEnd)}`]),
     label(`skip${tag}`),
   ];
-  const lines = [];
+  // The cell the object starts the frame in is looked at every frame (about 150 cycles). Looking only when the last frame ended in a lit cell (bit 7 of the stage byte,
+  // set at endlit) was tried and lost an object pinned against a wall (it ran on through the wall a pixel a frame), for a reason that was not found.
+  const lines = [
+    ` ${cellPair.write} = 0`,
+    ...Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor),
+    ` temp1 = ${pfColumnOf(`${name}x`, missileBallPfXOffset(config, name), config)}`,
+    ` if temp1 > ${pfMaxColumn(config)} then goto ${label('probed')}`,
+    ` if temp2 > ${maxRow} then goto ${label('probed')}`,
+    ` if pfread(temp1, temp2) then goto ${label('inside')}`,
+    ` goto ${label('probed')}`,
+    label('inside'),
+    ...cellRead(label('probed')),
+    ' temp2 = temp2 * 8',
+    ` ${cellPair.write} = temp1 ^ temp2`,
+    ` ${cellPair.write} = ${cellPair.read} + 1`,
+    label('probed'),
+  ];
+  // The steps are taken from tables of the direction (see fireTables): the main axis, or both axes of a diagonal, one pixel, and on a halfway direction the other
+  // axis now and then, in assembly (about 40 bytes) instead of a line for each direction, each compared in turn.
+  Blockly.BBasic.fireTablesUsed = true;
+  const stepCode = (kind, count, tag, undo = false) => {
+    const skip = label(`${tag}move`);
+    return [
+      ' asm',
+      `       ldx ${dirVar}`,
+      `       cpx #${count}`,
+      `       bcs ${skip}`,
+      ...(count === 8 ? ['       txa', '       asl', '       tax'] : []),
+      `       lda ${name}x`, undo ? '       sec' : '       clc', `       ${undo ? 'sbc' : 'adc'} ${FIRE_TABLES[kind + 'x']},x`, `       sta ${name}x`,
+      `       lda ${name}y`, undo ? '       sec' : '       clc', `       ${undo ? 'sbc' : 'adc'} ${FIRE_TABLES[kind + 'y']},x`, `       sta ${name}y`,
+      skip,
+      'end',
+    ];
+  };
   if (is16) {
-    lines.push(' temp6 = temp3', ' temp5 = 0', label('sub'));
-    // Every step moves the main axis (both axes of a diagonal) one pixel.
-    const minor = [];
-    DIRECTION16_STEPS.forEach(([xStep, yStep], dir) => {
-      [['x', xStep, yStep], ['y', yStep, xStep]].forEach(([axis, mine, other]) => {
-        if (!mine) return;
-        const line = ` if ${dirVar} = ${dir} then ${step(axis, mine > 0 ? '+' : '-').trim()}`;
-        (isHalfStep(mine, other) ? minor : lines).push(line);
-      });
-    });
+    lines.push(' temp6 = temp3', ' temp5 = 0', label('sub'), ...stepCode('main', 16, 'm'));
     // The other axis of a halfway direction moves on some of the steps. The cell is looked at after the main axis moved and again
     // after the other one did: with both axes moving at once the object could slip through the corner between two lit cells that
     // touch diagonally.
@@ -1341,19 +1450,25 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
         ' temp5 = temp5 + temp4',
         ` if temp5 < temp6 then goto ${label('next')}`,
         ' temp5 = temp5 - temp6',
-        ...minor,
+        ...stepCode('min', 16, 'n'),
         label('final'));
   } else {
-    lines.push(` ${stepsVar} = ${speedVar}`, label('sub'));
-    [[1, 'x', '+'], [2, 'x', '+'], [3, 'x', '+'], [5, 'x', '-'], [6, 'x', '-'], [7, 'x', '-'],
-      [3, 'y', '+'], [4, 'y', '+'], [5, 'y', '+'], [7, 'y', '-'], [0, 'y', '-'], [1, 'y', '-']]
-        .forEach(([dir, axis, sign]) => lines.push(` if ${dirVar} = ${dir} then ${step(axis, sign).trim()}`));
+    lines.push(` ${stepsVar} = ${speedVar}`, label('sub'), ...stepCode('main', 8, 'm'));
   }
   lines.push(
       ...cellCheck('b'),
       label('next'),
       ` ${stepsVar} = ${stepsVar} - 1`,
       ` if ${stepsVar} > 0 then goto ${label('sub')}`,
+      ...(stagePair ? [` if ${cellPair.read} = 0 then goto ${label('end')}`, ` goto ${label('endlit')}`] : [` goto ${label('end')}`]),
+      // An object that started in a lit cell does not go into another one: the step that did is taken back (the main axis' step after the first look, and
+      // after the second look the other axis' step when there was one).
+      ...(is16 ? [label('undoa'), ...stepCode('main', 16, 'ua', true), ` goto ${label(litEnd)}`] : []),
+      label('undob'),
+      ...(is16 ? [` if ${dirVar}{0} then goto ${label('undon')}`, ` goto ${label('undoa')}`,
+        label('undon'), ...stepCode('min', 16, 'un', true)] : [...stepCode('main', 8, 'ub', true)]),
+      // Ended the frame in a lit cell: next frame looks at the cell it starts in.
+      ...(stagePair ? [label('endlit')] : []),
       label('end'),
   );
   return lines;
@@ -1374,12 +1489,12 @@ export const generateBounceStageChecks = (Blockly) => {
     const doneLabel = `_bouncestage_${name}_done`;
     lines.push(
         ` if !${pair.read}{6} then goto ${clearLabel}`,
-        // Only the mark goes (bit 6): the stage (bits 4 and 5) and the heading it started from (bits 0 to 3) stay, so the stage can go on to
+        // Only the mark goes (bit 6; bit 7 stays too, it says the object ended its last frame in a lit cell, see buildPlayfieldCheckedMovement): the stage (bits 4 and 5) and the heading it started from (bits 0 to 3) stay, so the stage can go on to
         // the next one. (The mask here used to keep bit 6 and clear the stage, which put every frame of a collision back at the first stage.)
-        ` ${pair.write} = ${pair.read} & 63`,
+        ` ${pair.write} = ${pair.read} & 191`,
         ` goto ${doneLabel}`,
         clearLabel,
-        ` ${pair.write} = ${pair.read} & 15`,
+        ` ${pair.write} = ${pair.read} & 143`,
         doneLabel);
   });
   return lines.length ? lines.join('\n') + '\n' : '';
@@ -1400,7 +1515,8 @@ export const generateMissileFireChecks = (Blockly) => {
   const offscreenVar = offscreenUsed.size ? resolveVar(fireOffscreenFlagsVarName()) : null;
   const fracSlots = missileFireFracSlots(used, used16);
   const lines = [];
-  ['missile0', 'missile1', 'ball', ...[...used].filter((name) => /^player[0-9]$/.test(name))].forEach((name) => {
+  Blockly.BBasic.fireTablesUsed = false;
+  ['missile0', 'missile1', 'ball', ...[...used].filter((name) => /^player([0-9]|1[0-6])$/.test(name))].forEach((name) => {
     if (!used.has(name)) return;
     const doneLabel = `_missilefire_${name}_done`;
     const edgeDoneLabel = `_missilefire_${name}_edgedone`;
@@ -1432,24 +1548,52 @@ export const generateMissileFireChecks = (Blockly) => {
     const dispatchSteps = is16 ? DIRECTION16_STEPS :
       [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
     const dispatchEnd = `_missilefire_${name}_dispatchend`;
-    const dispatchLabel = (dir) => `_mfd${dir}_${name}`;
     // A halfway direction (an odd angle) moves its main axis by temp3 and its other axis by
     // temp4, worked out each frame by the lines before the dispatch (see leanLines).
-    const stepLine = (axis, step, other) => {
-      const sign = step > 0 ? '+' : '-';
-      const amount = is16 && Math.abs(step) === 2 ? 'temp3' : is16 && Math.abs(other) === 2 ? 'temp4' : speedVar;
-      return ` ${name}${axis} = ${name}${axis} ${sign} ${amount}`;
+    // One step along each axis from the tables of the direction (see fireTables): the sign of the axis and which amount it takes (the speed, or temp3 and temp4
+    // for the two axes of a halfway direction, worked out by the lines before this): about 90 bytes for every direction, where a handler for each took 300.
+    Blockly.BBasic.fireTablesUsed = true;
+    const axisAsm = (axis) => {
+      const lab = (part) => `_missilefire_${name}_${axis}${part}`;
+      return [
+        `       lda ${FIRE_TABLES['s' + axis]},x`,
+        `       beq ${lab('skip')}`,
+        '       sta temp7',
+        `       lda ${FIRE_TABLES.big},x`,
+        `       and #${axis === 'x' ? 1 : 2}`,
+        `       beq ${lab('nb')}`,
+        '       lda temp3',
+        `       jmp ${lab('have')}`,
+        lab('nb'),
+        `       lda ${FIRE_TABLES.big},x`,
+        `       and #${axis === 'x' ? 2 : 1}`,
+        `       beq ${lab('speed')}`,
+        '       lda temp4',
+        `       jmp ${lab('have')}`,
+        lab('speed'),
+        `       lda ${speedVar.startsWith('#') || /^[0-9]+$/.test(speedVar) ? '#' + speedVar.replace('#', '') : speedVar}`,
+        lab('have'),
+        '       sta temp6',
+        '       lda temp7',
+        `       bmi ${lab('sub')}`,
+        `       lda ${name}${axis}`, '       clc', '       adc temp6', `       jmp ${lab('store')}`,
+        lab('sub'),
+        `       lda ${name}${axis}`, '       sec', '       sbc temp6',
+        lab('store'),
+        `       sta ${name}${axis}`,
+        lab('skip'),
+      ];
     };
     const dispatch = [
-      ` if ${dirVar} >= ${dispatchSteps.length} then goto ${dispatchEnd}`,
-      ` on ${dirVar} goto ${dispatchSteps.map((_, dir) => dispatchLabel(dir)).join(' ')}`,
-      ...dispatchSteps.flatMap(([xStep, yStep], dir) => [
-        dispatchLabel(dir),
-        ...(xStep ? [stepLine('x', xStep, yStep)] : []),
-        ...(yStep ? [stepLine('y', yStep, xStep)] : []),
-        ` goto ${dispatchEnd}`,
-      ]),
+      ' asm',
+      `       ldx ${dirVar}`,
+      `       cpx #${dispatchSteps.length}`,
+      `       bcs ${dispatchEnd}`,
+      ...(is16 ? [] : ['       txa', '       asl', '       tax']),
+      ...axisAsm('x'),
+      ...axisAsm('y'),
       dispatchEnd,
+      'end',
     ];
     // The steps of a halfway direction (see stepLine), skipped for the other directions.
     const leanDone = `_missilefire_${name}_leandone`;
@@ -1479,6 +1623,31 @@ export const generateMissileFireChecks = (Blockly) => {
           ` temp3 = temp3 + ${speedVar}`,
           ' temp4 = temp4 / 16');
       leanLines.push(leanDone);
+    }
+    // Under DPC+ the coprocessor does the movement of an object that checks the playfield when the option for it is on (function 101 of armprog.c, the same steps and
+    // checks: the 6502 hands it the object's numbers and takes them back, about 85 bytes less for each object and some 150 to 300 cycles a frame less at a speed of 2 or
+    // 3 pixels, but the program is 720 to 840 bytes and a speed of 1 takes more cycles than the 6502 code; an object that does not check the playfield has about
+    // 100 cycles of 6502 code, less than the call, so it is never moved this way). One row height and no scrolling, as for the pixel finding.
+    const armConfig = (useConfigurationStorage().value || {});
+    const armRowDivisor = Blockly.BBasic.rowDivisorText(armConfig, true);
+    const armMaxRow = Blockly.BBasic.maxRowText(armConfig);
+    const armStagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
+    const armFracPair = is16 ? resolveRW(missileFireFracVarName(fracSlots.get(name))) : null;
+    const plainName = (text) => /^[A-Za-z_]\w*$/.test(String(text));
+    const fireArm = pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
+      (constSpeed !== undefined || plainName(speedVar)) && (!armStagePair || (plainName(armStagePair.read) && plainName(armStagePair.write))) &&
+      (!armFracPair || (plainName(armFracPair.read) && plainName(armFracPair.write))) && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(armConfig) &&
+      /^\d+$/.test(String(armRowDivisor)) && 256 % Number(armRowDivisor) === 0 && /^\d+$/.test(String(armMaxRow));
+    let fireArmLines = [];
+    if (fireArm) {
+      ensureArmProgram(Blockly, undefined, 'f');
+      Blockly.BBasic.pfBoxArm = true;
+      const topShift = /\+ 1$/.test(pfTopY(armConfig, name)) ? 4 : /- 1$/.test(pfTopY(armConfig, name)) ? 8 : 0;
+      fireArmLines = buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.fire, read: 0, args: [
+        [`lda ${name}x`], [`lda ${name}y`], [`lda ${dirVar}`], [constSpeed !== undefined ? `lda #${constSpeed}` : `lda ${speedVar}`],
+        [armFracPair ? `lda ${armFracPair.read}` : 'lda #0'], [`lda #${(is16 ? 1 : 0) + 2 + topShift}`], [armStagePair ? `lda ${armStagePair.read}` : 'lda #0'],
+        [`lda #${missileBallPfXOffset(armConfig, name)}`], [`lda #${armMaxRow}`], [`lda #${256 / Number(armRowDivisor)}`]],
+      after: [`${name}x`, `${name}y`, ...(armFracPair ? [armFracPair.write] : ['']), ...(armStagePair ? [armStagePair.write] : [''])]}).split('\n').map((line) => (line === '@end' ? 'end' : ` ${line}`));
     }
     const throttleContinueLabel = `_missilefire_${name}_throttlecontinue`;
     lines.push(
@@ -1513,15 +1682,17 @@ export const generateMissileFireChecks = (Blockly) => {
         // 1, or the pixel-step counter) may run for it.
         ...(constSpeed === undefined ? [` if ${speedVar} = 0 then goto ${doneLabel}`] :
           constSpeed === 0 ? [` goto ${doneLabel}`] : []),
-        ...(is16 ? leanLines : []),
-        ...(pfChecked ?
-          buildPlayfieldCheckedMovement({
-            Blockly, name, is16, dirVar, speedVar,
-            // temp3 survives the playfield reads (only temp1/temp2 are overwritten),
-            // so the sub-step counter needs no variable.
-            stepsVar: 'temp3',
-          }) :
-          dispatch),
+        ...(fireArm ? fireArmLines : [
+          ...(is16 ? leanLines : []),
+          ...(pfChecked ?
+            buildPlayfieldCheckedMovement({
+              Blockly, name, is16, dirVar, speedVar,
+              // temp3 survives the playfield reads (only temp1/temp2 are overwritten),
+              // so the sub-step counter needs no variable.
+              stepsVar: 'temp3',
+            }) :
+            dispatch),
+        ]),
         // Off-screen (standard NTSC playfield bounds) stops the movement -
         // clears the active bit so this missile's  dispatch above is
         // skipped every frame from here on - WITHOUT touching its
@@ -1547,7 +1718,7 @@ export const generateMissileFireChecks = (Blockly) => {
         `${doneLabel}`,
     );
   });
-  return lines.join('\n') + '\n';
+  return [...(Blockly.BBasic.fireTablesUsed ? fireTables() : []), ...lines].join('\n') + '\n';
 };
 
 // Spliced into commongamelogic right alongside generateMissileFireChecks
@@ -1827,6 +1998,108 @@ const buildFinePositionStepAsm = (posVar, intVar, fracVar, posFracVar) => [
   '       sta ' + posVar,
 ];
 
+export const reserveGravityDevVars = (Blockly, reserveDevVar, reserveDevVarRW, usedFor) => {
+  if (!usedFor || !usedFor.size) return;
+  reserveDevVar(objectGravityFlagsVarName(), undefined, 'shared active-bit byte for objects with gravity');
+  usedFor.forEach((name) => {
+    reserveDevVarRW(objectGravitySpeedVarName(name), 'fall speed of this object with gravity (signed, pixels a frame)');
+    OBJECT_GRAVITY_FIELDS.forEach((field) => {
+      if (objectGravityConstant(Blockly, name, field) === undefined) reserveDevVarRW(objectGravityFieldVarName(name, field), `gravity of this object: ${field}`);
+    });
+  });
+};
+
+// What an instruction of the assembly reads of a number of the gravity of an object: the constant, or the byte that holds it.
+const gravityOperand = (Blockly, name, field) => {
+  const constant = objectGravityConstant(Blockly, name, field);
+  return constant !== undefined ? `#${constant}` : Blockly.BBasic.superchipRwPairs[objectGravityFieldVarName(name, field)].read;
+};
+
+// A bounce turns the fall speed of an object with Gravity round and keeps keep quarters of its size (worked out on the size, so a slow speed is not
+// made faster by the rounding of a negative number). Uses temp1 and temp2. `at` is "@" in code that goes through normalizeIndents.
+const buildGravityBounceAsm = (Blockly, name, label, at = '@') => {
+  const flags = Blockly.BBasic.nameDB_.getName(objectGravityFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  // A bounce that leaves no speed ends the gravity of the object (it rests: its Bounce block would not turn it again while it is touching the wall, and it would fall
+  // through).
+  // (A fired object stops all its movement then: its Fire stops too.)
+  const hasFire = (Blockly.BBasic.missileFireUsedFor || new Set()).has(name);
+  const fireFlags = hasFire ? Blockly.BBasic.nameDB_.getName(missileFireFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+  // (And so do Accelerate and Decelerate: the velocity goes to 0 and their action stops.)
+  const resolve = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const inertiaStop = [];
+  if ((Blockly.BBasic.inertiaUsedFor || new Set()).has(name)) {
+    const fine = (Blockly.BBasic.inertiaFineUsedFor || new Set()).has(name);
+    inertiaStop.push('       lda #0', '       sta ' + resolve(inertiaVelocityXVarName(name)), '       sta ' + resolve(inertiaVelocityYVarName(name)));
+    if (fine) inertiaStop.push('       sta ' + resolve(inertiaVelocityFracXVarName(name)), '       sta ' + resolve(inertiaVelocityFracYVarName(name)));
+    [[Blockly.BBasic.inertiaAccelUsedFor, inertiaAccelFlagsVarName, inertiaAccelActiveBit], [Blockly.BBasic.inertiaDecelUsedFor, inertiaDecelFlagsVarName, inertiaDecelActiveBit]]
+        .forEach(([used, flagsName, bitOf]) => {
+          if (!used || !used.has(name)) return;
+          inertiaStop.push('       lda ' + resolve(flagsName()), `       and #${255 ^ (1 << bitOf(name))}`, '       sta ' + resolve(flagsName()));
+        });
+  }
+  const stopAtRest = ['       lda ' + Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)].read, '       bne ' + label + 'live', '       lda ' + flags,
+    `       and #${255 ^ (1 << objectGravityBit(name))}`, '       sta ' + flags,
+    ...(hasFire ? ['       lda ' + fireFlags, `       and #${255 ^ (1 << missileFireActiveBit(name))}`, '       sta ' + fireFlags] : []),
+    ...inertiaStop, at + label + 'live'];
+  const speed = Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)];
+  const keep = objectGravityConstant(Blockly, name, 'keep');
+  const keepOperand = gravityOperand(Blockly, name, 'keep');
+  const negate = ['       lda ' + speed.read, '       eor #$FF', '       clc', '       adc #1', '       sta ' + speed.write];
+  // The object takes back the move of the fall speed it just made (it is in the wall by that much), so that it is out of it when it goes the other way.
+  const stepBack = ['       lda ' + name + 'y', '       sec', '       sbc ' + speed.read, '       sta ' + name + 'y'];
+  if (keep === 4) return [...stepBack, ...negate, ...stopAtRest];
+  const dispatch = keep === undefined ? [
+    '       sta temp1', '       lda ' + keepOperand, '       cmp #3', '       beq ' + label + 'k3', '       cmp #2', '       beq ' + label + 'k2',
+    '       cmp #1', '       beq ' + label + 'k1', '       lda #0', '       jmp ' + label + 'res',
+    at + label + 'k1', '       lda temp1', '       jmp ' + label + 'res',
+    at + label + 'k2', '       txa', '       jmp ' + label + 'res',
+    at + label + 'k3', '       stx temp1', '       txa', '       clc', '       adc temp1',
+  ] : (keep === 0 ? ['       lda #0'] : keep === 2 ? ['       txa'] : keep === 3 ? ['       stx temp1', '       clc', '       adc temp1'] : []);
+  return [
+    ...stepBack,
+    ...(keep === undefined ? ['       lda ' + keepOperand, '       cmp #4', '       bcc ' + label + 'scale', ...negate, '       jmp ' + label + 'done', at + label + 'scale'] : []),
+    '       lda ' + speed.read, '       sta temp2', '       bpl ' + label + 'mag', '       eor #$FF', '       clc', '       adc #1', at + label + 'mag',
+    '       lsr', '       tax', '       lsr',
+    ...dispatch,
+    at + label + 'res',
+    '       ldx temp2', '       bmi ' + label + 'out', '       eor #$FF', '       clc', '       adc #1',
+    at + label + 'out', '       sta ' + speed.write,
+    at + label + 'done',
+    ...stopAtRest,
+  ];
+};
+
+// Once a frame (spliced into commongamelogic): an object with Gravity on is pulled down: every so many frames its fall speed (pixels a frame, signed) grows by 1,
+// until it is the max fall speed (a rising object, after a bounce, slows down first), and the object moves by it.
+export const generateGravityChecks = (Blockly) => {
+  const used = Blockly.BBasic.objectGravityUsedFor;
+  if (!used || !used.size) return '';
+  const flags = Blockly.BBasic.nameDB_.getName(objectGravityFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  const lines = [];
+  used.forEach((name) => {
+    const speed = Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)];
+    const skip = `_gravity_${name}_skip`;
+    const move = `_gravity_${name}_move`;
+    lines.push(
+        ` if !${flags}{${objectGravityBit(name)}} then goto ${skip}`,
+        ' asm',
+        '       lda framecounter',
+        `       and ${gravityOperand(Blockly, name, 'mask')}`,
+        `       bne ${move}`,
+        `       lda ${speed.read}`,
+        `       bmi _gravity_${name}_inc`,
+        `       cmp ${gravityOperand(Blockly, name, 'max')}`,
+        `       bcs ${move}`,
+        `_gravity_${name}_inc`,
+        '       clc', `       lda ${speed.read}`, '       adc #1', `       sta ${speed.write}`,
+        move,
+        `       lda ${speed.read}`, '       clc', `       adc ${name}y`, `       sta ${name}y`,
+        'end',
+        skip);
+  });
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+};
+
 // Spliced into commongamelogic right alongside generateSeekChecks/
 // generateMissileFireChecks (same region, same "nothing else touches this
 // sprite's position there" reasoning) - one block per sprite name that
@@ -1840,6 +2113,23 @@ const buildFinePositionStepAsm = (posVar, intVar, fracVar, posFracVar) => [
 // integration itself is a single plain bB add per axis, unconditional,
 // after both accel/decel have had their turn - works correctly on the
 // two's-complement byte with no special handling at all.
+// The tables of Accelerate's direction: for each of the 16 directions what the x and the y do, as bits (see axisCode in generateInertiaChecks).
+const INERTIA_TABLE_X = '_inertia_table_x';
+const INERTIA_TABLE_Y = '_inertia_table_y';
+const inertiaActionTables = () => {
+  const entry = (step, other) => (step ? 1 | (step < 0 ? 2 : 0) | (isHalfStep(step, other) ? 4 : 0) : 0);
+  return [
+    ' asm',
+    '       jmp _inertia_tables_end',
+    INERTIA_TABLE_X,
+    '       .byte ' + DIRECTION16_STEPS.map(([x, y]) => entry(x, y)).join(','),
+    INERTIA_TABLE_Y,
+    '       .byte ' + DIRECTION16_STEPS.map(([x, y]) => entry(y, x)).join(','),
+    '_inertia_tables_end',
+    'end',
+  ];
+};
+
 export const generateInertiaChecks = (Blockly) => {
   const usedFor = Blockly.BBasic.inertiaUsedFor;
   if (!usedFor || !usedFor.size) return '';
@@ -1851,7 +2141,7 @@ export const generateInertiaChecks = (Blockly) => {
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const accelFlagsVar = accelUsedFor.size ? resolveVar(inertiaAccelFlagsVarName()) : null;
   const decelFlagsVar = decelUsedFor.size ? resolveVar(inertiaDecelFlagsVarName()) : null;
-  const lines = [];
+  const lines = accelUsedFor.size ? [...inertiaActionTables()] : [];
   moveableSpriteNames(Blockly).forEach((name) => {
     if (!usedFor.has(name)) return;
     const velocityXVar = resolveVar(inertiaVelocityXVarName(name));
@@ -1917,52 +2207,52 @@ export const generateInertiaChecks = (Blockly) => {
       // Checks alongside it) is spliced directly into commongamelogic,
       // never wrapped as a relocatable unit, so the auto-relocation system
       // can never move it out of bank 1 no matter how large it gets.
-      const buildFineAxisDispatch = (addDirs, subDirs, velVar, fracVar, suffix) => {
-        const addLabel = `_inertiafineaccel_${uid}_${suffix}add`;
-        const subLabel = `_inertiafineaccel_${uid}_${suffix}sub`;
-        const skipLabel = `_inertiafineaccel_${uid}_${suffix}skip`;
+      // The direction picks what each axis does from a table of 16 entries (the DIRECTION16_STEPS ones, see inertiaActionTables), a byte each: bit 0 says the axis
+      // moves, bit 1 that it is a subtraction and bit 2 that it uses the half rate. An 8 way direction is the entry of twice its number (the compass points and
+      // diagonals are the even ones). About 40 bytes and 40 cycles for an axis, where a line for each direction (12 or 20 of them, each compared in turn) was a few
+      // hundred, and the same code for the three kinds of mode.
+      const axisCode = (axis, velVar, fracVar) => {
+        const lab = (part) => `_inertiatab_${uid}_${axis}${part}`;
         return [
-          ...addDirs.map((dir) => ` if ${dirVar} = ${dir} then goto ${addLabel}`),
-          ...subDirs.map((dir) => ` if ${dirVar} = ${dir} then goto ${subLabel}`),
-          ` goto ${skipLabel}`,
-          addLabel,
-          ' asm',
-          ...build16BitAddAsm(velVar, fracVar, rateVar),
-          'end',
-          ` goto ${skipLabel}`,
-          subLabel,
-          ' asm',
-          ...build16BitSubAsm(velVar, fracVar, rateVar),
-          'end',
-          skipLabel,
+          `       lda ${axis === 'x' ? INERTIA_TABLE_X : INERTIA_TABLE_Y},x`,
+          `       beq ${lab('skip')}`,
+          '       sta temp7',
+          ...(is16 ? [
+            '       and #4',
+            `       beq ${lab('full')}`,
+            `       lda ${halfRateVar}`,
+            `       jmp ${lab('have')}`,
+            lab('full'),
+            `       lda ${rateVar}`,
+            lab('have'),
+          ] : [`       lda ${rateVar}`]),
+          '       sta temp6',
+          '       lda temp7',
+          '       and #2',
+          `       bne ${lab('sub')}`,
+          ...(isFine ? build16BitAddAsm(velVar, fracVar, 'temp6') : [
+            `       lda ${velVar}`, '       clc', '       adc temp6', `       jmp ${lab('store')}`,
+            lab('sub'),
+            `       lda ${velVar}`, '       sec', '       sbc temp6',
+            lab('store'),
+            `       sta ${velVar}`,
+          ]),
+          ...(isFine ? [`       jmp ${lab('skip')}`, lab('sub'), ...build16BitSubAsm(velVar, fracVar, 'temp6')] : []),
+          lab('skip'),
         ];
       };
-      const dispatch = isFine ?
-        [
-          ...buildFineAxisDispatch([1, 2, 3], [5, 6, 7], velocityXVar, velocityFracXVar, 'x'),
-          ...buildFineAxisDispatch([3, 4, 5], [7, 0, 1], velocityYVar, velocityFracYVar, 'y'),
-        ] :
-        is16 ?
-        DIRECTION16_STEPS.flatMap(([xStep, yStep], dir) => [
-          ...(xStep ? [` if ${dirVar} = ${dir} then ${velocityXVar} = ${velocityXVar} ${xStep > 0 ? '+' : '-'} ` +
-            `${isHalfStep(xStep, yStep) ? halfRateVar : rateVar}`] : []),
-          ...(yStep ? [` if ${dirVar} = ${dir} then ${velocityYVar} = ${velocityYVar} ${yStep > 0 ? '+' : '-'} ` +
-            `${isHalfStep(yStep, xStep) ? halfRateVar : rateVar}`] : []),
-        ]) :
-        [
-          ` if ${dirVar} = 1 then ${velocityXVar} = ${velocityXVar} + ${rateVar}`,
-          ` if ${dirVar} = 2 then ${velocityXVar} = ${velocityXVar} + ${rateVar}`,
-          ` if ${dirVar} = 3 then ${velocityXVar} = ${velocityXVar} + ${rateVar}`,
-          ` if ${dirVar} = 5 then ${velocityXVar} = ${velocityXVar} - ${rateVar}`,
-          ` if ${dirVar} = 6 then ${velocityXVar} = ${velocityXVar} - ${rateVar}`,
-          ` if ${dirVar} = 7 then ${velocityXVar} = ${velocityXVar} - ${rateVar}`,
-          ` if ${dirVar} = 3 then ${velocityYVar} = ${velocityYVar} + ${rateVar}`,
-          ` if ${dirVar} = 4 then ${velocityYVar} = ${velocityYVar} + ${rateVar}`,
-          ` if ${dirVar} = 5 then ${velocityYVar} = ${velocityYVar} + ${rateVar}`,
-          ` if ${dirVar} = 7 then ${velocityYVar} = ${velocityYVar} - ${rateVar}`,
-          ` if ${dirVar} = 0 then ${velocityYVar} = ${velocityYVar} - ${rateVar}`,
-          ` if ${dirVar} = 1 then ${velocityYVar} = ${velocityYVar} - ${rateVar}`,
-        ];
+      const dispatch = [
+        ' asm',
+        '       lda ' + dirVar,
+        `       cmp #${is16 ? 16 : 8}`,
+        `       bcs _inertiatab_${uid}_end`,
+        ...(is16 ? [] : ['       asl']),
+        '       tax',
+        ...axisCode('x', velocityXVar, velocityFracXVar),
+        ...axisCode('y', velocityYVar, velocityFracYVar),
+        `_inertiatab_${uid}_end`,
+        'end',
+      ];
       lines.push(
           ` if !${accelFlagsVar}{${accelBit()}} then goto ${skipLabel}`,
           ...(is16 ? [
@@ -2101,7 +2391,7 @@ export default (Blockly) => {
   };
   // Players 2 to 9 (DPC+) keep their animation, frame, color and size in bytes the generator reserves itself, so the name is used as it
   // is: asking the variable names for it handed back a renamed one (player3animation2, player2realcolor2) that nothing declares.
-  const spriteVarName = (field) => /^player[2-9](animation|frame|realcolor|size)$/.test(field) ? field :
+  const spriteVarName = (field) => /^player([2-9]|1[0-6])(animation|frame|realcolor|size)$/.test(field) ? field :
     Blockly.BBasic.nameDB_.getName(field, Blockly.VARIABLE_CATEGORY_NAME);
 
   const createGeneratorForSprite = (name) => {
@@ -2304,7 +2594,7 @@ export default (Blockly) => {
     const resolvePlayerName = (block) => playerNameOfValue(block.getFieldValue('PLAYER'));
     // Players 2 to 9 (DPC+) are bytes the generator reserves itself, so their name is used as it is: asking the variable names for
     // it handed back a renamed one (player2animation2) that nothing declares.
-    const animationVarOf = (player) => /^player[2-9]$/.test(player) ? `${player}animation` :
+    const animationVarOf = (player) => EXTRA_PLAYER_NAME.test(player) ? `${player}animation` :
       Blockly.BBasic.nameDB_.getName(`${player}animation`, Blockly.VARIABLE_CATEGORY_NAME);
 
     // The dropdown already holds the animation's position in the list, which is
@@ -2356,6 +2646,11 @@ export default (Blockly) => {
       return `${varName} = ${varName} & $F8\n` +
         `${varName} = ${varName} | ${size}\n` +
         (setVar ? `${setVar} = ${size} + 1\n` : '');
+    };
+
+    // PXE: a bit for the player asks for the kernel's edge masking, which is bit 6 of NUSIZ (see the NUSIZ lines in bbasic.js).
+    Blockly.BBasic['sprite_player_mask'] = function(block) {
+      return `${maskRef(Blockly, block.getFieldValue('PLAYER'))} = ${block.getFieldValue('STATE') === 'on' ? 1 : 0}\n`;
     };
 
     // Bit 6 of the size variable pauses the animation: the frame counter is
@@ -2798,6 +3093,33 @@ export default (Blockly) => {
       `${flagsVar}{${activeBit}} = 1\n`;
   };
 
+  // Gravity: Start sets the numbers the Gravity blocks of the object do not all give alike (in bytes), sets the fall speed to 0 and turns it on; Stop turns it off and
+  // sets the fall speed to 0 (the object stops falling at once).
+  Blockly.BBasic['object_gravity'] = function(block) {
+    const name = block.getFieldValue('OBJECT');
+    const flagsVar = Blockly.BBasic.nameDB_.getName(objectGravityFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const bit = objectGravityBit(name);
+    const speed = Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)];
+    if (block.getFieldValue('ACTION') === 'stop') {
+      return `${flagsVar}{${bit}} = 0
+${speed.write} = 0
+`;
+    }
+    const lines = [];
+    const setField = (field, value) => {
+      if (objectGravityConstant(Blockly, name, field) === undefined) {
+        lines.push(`${Blockly.BBasic.superchipRwPairs[objectGravityFieldVarName(name, field)].write} = ${value}`);
+      }
+    };
+    // (A number that is not a number block is the frames between speed-ups less 1, for the frames are counted with a mask.)
+    setField('mask', `${Blockly.BBasic.valueToCode(block, 'RATE', Blockly.BBasic.ORDER_ASSIGNMENT) || '4'} - 1`);
+    setField('max', Blockly.BBasic.valueToCode(block, 'MAXFALL', Blockly.BBasic.ORDER_ASSIGNMENT) || '4');
+    setField('keep', `${Number(block.getFieldValue('BOUNCE')) || 0}`);
+    return lines.map((line) => line + String.fromCharCode(10)).join('') + `${speed.write} = 0
+${flagsVar}{${bit}} = 1
+`;
+  };
+
   // Reflects whichever movement system(s) the chosen object actually uses
   // off of whatever it just collided with - Fire's  fired direction
   // (missile0/1/ball only) AND/OR Inertia's  velocity (any of the 5
@@ -2968,6 +3290,9 @@ export default (Blockly) => {
         flipY.push(` ${velocityYVar} = 0 - ${velocityYVar}`);
       }
     }
+    if ((Blockly.BBasic.objectGravityUsedFor || new Set()).has(name)) {
+      flipY.push(' asm', ...buildGravityBounceAsm(Blockly, name, `_gravkeep_${name}_${id}_`), '@end');
+    }
     lines.push(
         ` if ${name}x >= 240 then goto ${label('left')}`,
         ` if ${name}x > 159 then goto ${label('right')}`,
@@ -3029,20 +3354,58 @@ export default (Blockly) => {
     const lines = [];
     // --- heading, and which axes to flip
     const fireDirVar = hasFire ? resolveVar(missileFireDirVarName(name)) : null;
+    // Under DPC+ the coprocessor works the new heading out (function 100 of armprog.c: the same cells in the same order, about 900 cycles less): a Fire
+    // heading only, on a playfield with one row height and no scrolling.
+    if (hasFire && !hasInertia && !(Blockly.BBasic.objectGravityUsedFor || new Set()).has(name) && config.kernel === 'dpcplus' && !config.pxe && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(config) &&
+        /^(ball|missile)/.test(name) && /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 && /^\d+$/.test(String(maxRow))) {
+      ensureArmProgram(Blockly, undefined, 'p');
+      Blockly.BBasic.pfBoxArm = true;
+      const topLines = /\+ 1$/.test(pfTopY(config, name)) ? [`lda ${name}y`, 'clc', 'adc #1'] : [`lda ${name}y`];
+      return [
+        ...buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.bounce, read: 1, args: [[`lda ${name}x`], topLines, [`lda ${fireDirVar}`], [`lda #${steps}`], [`lda #${maxRow}`],
+          [`lda #${missileBallPfXOffset(config, name)}`], [`lda #${256 / Number(rowDivisor)}`]]}).split('\n'),
+        ` ${fireDirVar} = temp3`,
+      ];
+    }
+    const hasGravity = (Blockly.BBasic.objectGravityUsedFor || new Set()).has(name);
+    const gravitySpeed = hasGravity ? Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)] : null;
+    const gravityHeading = hasFire && hasGravity;
     const velocityXVar = hasInertia ? resolveVar(inertiaVelocityXVarName(name)) : null;
     const velocityYVar = hasInertia ? resolveVar(inertiaVelocityYVarName(name)) : null;
     const diagonalLines = [
       lab('diagonal'),
       // the object's cell (clamped), stepping back out of it when it is
       // already inside the wall
-      ` temp3 = (${name}x - ${missileBallPfXOffset(config)}) / 4`,
+      ` temp3 = ${pfColumnOf(`${name}x`, missileBallPfXOffset(config, name), config)}`,
       ...Blockly.BBasic.rowOfLineCode(config, 'temp4', pfTopY(config, name), rowDivisor),
-      ` if temp3 > 31 then temp3 = 31`,
+      ` if temp3 > ${pfMaxColumn(config)} then temp3 = ${pfMaxColumn(config)}`,
       ` if temp4 > ${maxRow} then temp4 = ${maxRow}`,
       ` if pfread(temp3, temp4) then goto ${label('inside')}`,
       ` goto ${label('base')}`,
       lab('inside'),
-      // A halfway direction that mostly goes along y (bit 4 of the heading) came in along y: that is looked at first.
+      // The pixel before the one the object is on (one step back along its heading) says which way it came in: if only the column changed it came in along x,
+      // if only the row did, along y (with two walls touching at their corners the cell behind it along the other axis is on the far side of the wall). That is
+      // looked at first; when both changed (or neither) the halfway direction's own guess stands: one that mostly goes along y (bit 4 of the heading) came in along y.
+      // (Not for an object with Gravity: its fall speed moves it too, so the step back along the heading is not the way it came in.)
+      ...(hasGravity ? [] : [
+        ` temp6 = ${name}x`,
+        ` if temp5{1} then temp6 = temp6 + 1`,
+        ` if !temp5{1} then temp6 = temp6 - 1`,
+        ` temp1 = ${pfColumnOf('temp6', missileBallPfXOffset(config, name), config)}`,
+        ` if temp1 <> temp3 then temp5 = temp5 | 32`,
+        ` temp6 = ${pfTopY(config, name)}`,
+        ` if temp5{3} then temp6 = temp6 + 1`,
+        ` if !temp5{3} then temp6 = temp6 - 1`,
+        ...Blockly.BBasic.rowOfLineCode(config, 'temp6', 'temp6', rowDivisor),
+        ` if temp6 <> temp4 then temp5 = temp5 | 64`,
+        ` if !temp5{5} then goto ${label('chg_noxc')}`,
+        ` if temp5{6} then goto ${label('chg_done')}`,
+        ` temp5 = temp5 & 239`,
+        ` goto ${label('chg_done')}`,
+        lab('chg_noxc'),
+        ` if temp5{6} then temp5 = temp5 | 16`,
+        lab('chg_done'),
+      ]),
       ` if temp5{4} then goto ${label('inside_yfirst')}`,
       // Inside a wall: the base is the cell just outside it, found by stepping back along the axis the object came in on (a Check
       // playfield movement ends the moment a cell is lit, so the object came in on one axis, and stepping back along both would
@@ -3053,7 +3416,7 @@ export default (Blockly) => {
       ` if temp6 > 0 then temp6 = temp6 - 1`,
       ` goto ${label('bxtest')}`,
       lab('bxplus'),
-      ` if temp6 < 31 then temp6 = temp6 + 1`,
+      ` if temp6 < ${pfMaxColumn(config)} then temp6 = temp6 + 1`,
       lab('bxtest'),
       ` if pfread(temp6, temp4) then goto ${label('inside_y')}`,
       ` temp3 = temp6`,
@@ -3075,7 +3438,7 @@ export default (Blockly) => {
       ` if temp3 > 0 then temp3 = temp3 - 1`,
       ` goto ${label('bxdone2')}`,
       lab('bxplus2'),
-      ` if temp3 < 31 then temp3 = temp3 + 1`,
+      ` if temp3 < ${pfMaxColumn(config)} then temp3 = temp3 + 1`,
       lab('bxdone2'),
       ` temp4 = temp6`,
       ` goto ${label('base')}`,
@@ -3097,7 +3460,7 @@ export default (Blockly) => {
       ` if temp6 > 0 then temp6 = temp6 - 1`,
       ` goto ${label('yfxtest')}`,
       lab('yfxplus'),
-      ` if temp6 < 31 then temp6 = temp6 + 1`,
+      ` if temp6 < ${pfMaxColumn(config)} then temp6 = temp6 + 1`,
       lab('yfxtest'),
       ` if pfread(temp6, temp4) then goto ${label('yf_both')}`,
       ` temp3 = temp6`,
@@ -3113,7 +3476,7 @@ export default (Blockly) => {
       // A: the pixel next to the base cell along x
       ` temp6 = temp3`,
       ` if temp5{1} then goto ${label('axminus')}`,
-      ` if temp6 < 31 then temp6 = temp6 + 1`,
+      ` if temp6 < ${pfMaxColumn(config)} then temp6 = temp6 + 1`,
       ` goto ${label('axdone')}`,
       lab('axminus'),
       ` if temp6 > 0 then temp6 = temp6 - 1`,
@@ -3162,11 +3525,45 @@ export default (Blockly) => {
           `@ ${label('headgo')}`,
           ' sta temp5',
           '@end',
+          // An object with Gravity that is fired straight along x is also falling (or rising): the pixels around it say which wall it met, with the
+          // vertical way from the fall speed (down when it is 0: gravity pulls it down), as the diagonal heading's bits would.
+          ...(gravityHeading ? [
+            ` if temp5 <> 255 then goto ${label('gravdone')}`,
+            ' temp5 = 1',
+            ` if ${fireDirVar} >= ${half} then temp5 = 3`,
+            ` if ${gravitySpeed.read} > 127 then goto ${label('gravup')}`,
+            ' temp5 = temp5 | 4',
+            ` goto ${label('gravdone')}`,
+            lab('gravup'),
+            ' temp5 = temp5 | 12',
+            lab('gravdone'),
+            // A heading that goes up or down and along x, of an object with Gravity: the fall speed moves it too and mostly decides which wall it met (a ball fired
+            // up and along x that gravity brings down onto a floor met the floor, not what is above it): its vertical way is the fall speed's, when it has one.
+            ' asm',
+            '       lda temp5',
+            `       beq ${label('gravdone2')}`,
+            `       ldx ${gravitySpeed.read}`,
+            `       beq ${label('gravdone2')}`,
+            '       and #243',
+            `       cpx #128`,
+            '       bcs ' + label('gravup2'),
+            '       ora #4',
+            `       bne ${label('gravset2')}`,
+            lab('gravup2'),
+            '       ora #12',
+            lab('gravset2'),
+            '       sta temp5',
+            lab('gravdone2'),
+            '@end',
+          ] : []),
           ` if temp5 = 0 then goto ${label('flipy')}`,
           ` if temp5 = 255 then goto ${label('flipx')}`,
           ` goto ${label('diagonal')}`);
     } else {
       lines.push(' temp5 = 0');
+      if (hasGravity) {
+        lines.push(` temp5 = temp5 | $04`, ` if ${gravitySpeed.read} > 127 then temp5 = temp5 | $0C`);
+      }
       if (hasInertia) {
         lines.push(
             ` if ${velocityXVar} > 0 then temp5 = temp5 | $01`,
@@ -3200,17 +3597,21 @@ export default (Blockly) => {
       ` ${fireDirVar} = ${fireDirVar} + ${half}`,
       ` if ${fireDirVar} >= ${steps} then ${fireDirVar} = ${fireDirVar} - ${steps}`,
     ];
-    // Inertia velocity is only reflected for an object with no Fire heading, so
-    // a sprite that uses both is reflected through Fire's heading alone.
+    // The Inertia velocity (Accelerate) is reflected too for an object that also has a Fire heading: both are turned.
+    // (The fall speed of an object with Gravity is reflected too, by the flip of y, also when the object is fired: the Fire heading and the fall speed are both
+    // turned, and a bounce keeps only part of the fall speed.)
+    let keepCount = 0;
     const velocityFlip = (axis) => {
-      if (!hasInertia || hasFire) return [];
+      // (The fall speed of an object with Gravity is turned by the flip of y, fired or not: a bounce keeps only part of it.)
+      const gravityFlip = hasGravity && axis === 'y' ? (keepCount++, [' asm', ...buildGravityBounceAsm(Blockly, name, `_gravkeep_${name}_${uid}_${keepCount}_`), '@end']) : [];
+      if (!hasInertia) return gravityFlip;
       const intVar = axis === 'x' ? velocityXVar : velocityYVar;
       if (isFine) {
         const fracVar = resolveVar(axis === 'x' ? inertiaVelocityFracXVarName(name) :
           inertiaVelocityFracYVarName(name));
-        return [' asm', ...build16BitNegateAsm(intVar, fracVar), '@end'];
+        return [' asm', ...build16BitNegateAsm(intVar, fracVar), '@end', ...gravityFlip];
       }
-      return [` ${intVar} = 0 - ${intVar}`];
+      return [` ${intVar} = 0 - ${intVar}`, ...gravityFlip];
     };
     lines.push(
         lab('flipx'), ...fireFlipX, ...velocityFlip('x'), ` goto ${label('done')}`,
@@ -3352,7 +3753,20 @@ export default (Blockly) => {
     // shared subroutine (relocatable like any other) and each Bounce block
     // just calls it - several Bounce blocks otherwise filled bank 1.
     const reflectName = `_bouncepix_${name}`;
-    if (!Blockly.BBasic.subroutines[reflectName]) {
+    // Under DPC+ the coprocessor does the whole stage code (function 100 of armprog.c: the same stages and the same reflect), for a Fire heading without Inertia on a
+    // playfield with one row height that does not scroll: the 6502 hands it the object's numbers and takes the heading and the stage byte back.
+    const bounceConfig = useConfigurationStorage().value || {};
+    const bounceRowDivisor = Blockly.BBasic.rowDivisorText(bounceConfig, true);
+    const bounceMaxRow = Blockly.BBasic.maxRowText(bounceConfig);
+    const bounceDirVar = hasFire ? resolveVar(missileFireDirVarName(name)) : null;
+    const bounceArm = hasFire && !hasInertia && bounceConfig.kernel === 'dpcplus' && !bounceConfig.pxe && !Blockly.BBasic.dpcPlusGroupFracVars &&
+      !pfScrollColumns(bounceConfig) && /^(ball|missile)/.test(name) && /^\d+$/.test(String(bounceRowDivisor)) && 256 % Number(bounceRowDivisor) === 0 &&
+      /^\d+$/.test(String(bounceMaxRow)) && /^[A-Za-z_]\w*$/.test(String(bounceDirVar)) && /^[A-Za-z_]\w*$/.test(String(stagePair.read)) &&
+      /^[A-Za-z_]\w*$/.test(String(stagePair.write));
+    const armGravity = bounceArm && (Blockly.BBasic.objectGravityUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)] : null;
+    if (bounceArm) ensureArmProgram(Blockly, undefined, 'p');
+    if (bounceArm) Blockly.BBasic.pfBoxArm = true;
+    if (!bounceArm && !Blockly.BBasic.subroutines[reflectName]) {
       Blockly.BBasic.subroutines[reflectName] =
         buildPixelReflect({Blockly, name, resolveVar, hasFire, hasInertia, uid: 'shared'})
             .map((line) => line.replace(/^ /, '')).join('\n');
@@ -3384,6 +3798,21 @@ export default (Blockly) => {
     }
 
     // Reached by every Bounce block through a gosub, not repeated in each one.
+    if (bounceArm && !Blockly.BBasic.subroutines[stageName]) {
+      const topText = pfTopY(bounceConfig, name);
+      const topLines = /\+ 1$/.test(topText) ? [`lda ${name}y`, 'clc', 'adc #1'] : /- 1$/.test(topText) ? [`lda ${name}y`, 'sec', 'sbc #1'] : [`lda ${name}y`];
+      Blockly.BBasic.subroutines[stageName] = [
+        ...buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.bounce, read: 2, args: [[`lda ${name}x`], topLines, [`lda ${bounceDirVar}`],
+          [`lda #${(Blockly.BBasic.missileFire16UsedFor || new Set()).has(name) ? 16 : 8}`], [`lda #${bounceMaxRow}`],
+          [`lda #${missileBallPfXOffset(bounceConfig, name)}`], [`lda #${256 / Number(bounceRowDivisor)}`], [`lda ${stagePair.read}`],
+          ...(armGravity ? [['lda #1'], [`lda ${armGravity.read}`]] : [['lda #0']])]}).split('\n'),
+        `${bounceDirVar} = temp3`,
+        `${stagePair.write} = temp4`,
+        // The coprocessor turned the vertical way of an object with Gravity (bit 7 of the stage byte): its fall speed is bounced here.
+        ...(armGravity ? ['asm', `lda ${stagePair.read}`, `bpl _bouncestage_${name}_nograv`, 'and #127', `sta ${stagePair.write}`,
+          ...buildGravityBounceAsm(Blockly, name, `_gravkeep_${name}_arm_`, '@'), `@_bouncestage_${name}_nograv`, '@end'] : []),
+      ].join('\n');
+    }
     if (!Blockly.BBasic.subroutines[stageName]) {
       Blockly.BBasic.subroutines[stageName] = [
         // "Still the same collision, one frame later" check - frameVar is
@@ -3402,23 +3831,23 @@ export default (Blockly) => {
         ...fireLines.stage1,
         ...inertiaLines.stage1,
         ...reflectCall,
-        ` ${stagePair.write} = (${stagePair.read} & 79) | 16`,
+        ` ${stagePair.write} = (${stagePair.read} & 207) | 16`,
         ` goto ${doneLabel}`,
         `@ ${stage2Label}`,
         ...fireLines.stage2,
         ...inertiaLines.stage2,
-        ` ${stagePair.write} = (${stagePair.read} & 79) | 32`,
+        ` ${stagePair.write} = (${stagePair.read} & 207) | 32`,
         ` goto ${doneLabel}`,
         // Combat's deliberate "do nothing" grace frame (MxPFcount=$02) -
         // gives the object one more frame to clear the wall on stage 2's
         // heading before stage 4 gives up on it.
         `@ ${stage3Label}`,
-        ` ${stagePair.write} = (${stagePair.read} & 79) | 48`,
+        ` ${stagePair.write} = (${stagePair.read} & 207) | 48`,
         ` goto ${doneLabel}`,
         `@ ${stage4Label}`,
         ...fireLines.stage4,
         ...inertiaLines.stage4,
-        ` ${stagePair.write} = (${stagePair.read} & 79) | 48`,
+        ` ${stagePair.write} = (${stagePair.read} & 207) | 48`,
         `@ ${doneLabel}`,
       ].map((line) => line.replace(/^ /, '')).join('\n');
     }

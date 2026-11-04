@@ -10,14 +10,16 @@ import Vue from 'vue';
 import VueCompositionApi, {ref} from '@vue/composition-api';
 
 import Blockly from 'blockly';
+import {fixFracIncs, flattenBanks, isPxe, pfBuffersOf, pfIsWide} from '../utils/pxe';
+import {legalizeForPxe} from '../utils/pxe-legalize';
 import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from './bb-compiler';
 
 import '../blocks';
 import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
-import {getFastMathSiblingFiles, fastMathOn} from '../utils/fast-math';
+import {getFastMathSiblingFiles, getPxeMathSiblingFiles, fastMathOn} from '../utils/fast-math';
 import {getDpcPlusProgramSiblingFile} from '../utils/dpc-program';
-import {patchArmProgramAddress} from '../generators/bbasic/offset-arm';
+import {patchArmProgramAddress, fillArmProgram} from '../generators/bbasic/offset-arm';
 import {getDpcPlusNoScoreSiblingFiles} from '../utils/dpc-noscore';
 import {getDpcPlusSquishSiblingFiles} from '../utils/dpc-squish';
 import {getDpcPlusAudioSiblingFiles} from '../generators/bbasic/dpcplus-audio';
@@ -32,8 +34,8 @@ import {findSongById} from '../blocks/music';
 import {buildScoreFontOverride, scoreFontIsEdited, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT} from '../utils/score-font';
 import {buildTextFontOverride, buildTextScrollCursorOverride, buildTextRow2ColorOverride,
   packCursorGlyphByte, processCursorGlyphDefaults, resolveBlinkMask} from '../utils/text-font';
-import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName,
-  textScrollCursorColorVarName, textEndIconColorVarName} from '../generators/bbasic/text-minikernel';
+import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName, textBkColorVarName,
+  textScrollCursorColorVarName, textEndIconColorVarName, titleTextFlagVar} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
 import {removeUnusedDefinitions} from '../utils/unused-definitions';
 import {expandSceneBlocks, sceneBlocksXml, sceneTablesHaveOffsets, triggerEventXml} from '../utils/scene';
@@ -207,7 +209,7 @@ const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown 
 const shareDpcPlusPlayerData = (compiled, config) => {
   if (!config || config.kernel !== 'dpcplus') return;
   // The scrolling backgrounds keep one repeat of their rows, and the rest is copied in when they load.
-  const tiles = expandDpcPlusTiles(compiled.mainAsm);
+  const tiles = expandDpcPlusTiles(compiled.mainAsm, isPxe(config), pfBuffersOf(config));
   compiled.mainAsm = tiles.asm;
   const markers = (compiled.mainAsm.match(/^\.?_dpctile_\d+_\d+_\d+_[pcb]+\s*$/gm) || []).length;
   if (markers !== tiles.expanded) {
@@ -243,6 +245,24 @@ const moveDivMulOutOfKernelBank = (compiled) => {
       .replace(bank3, (line) => ` include div_mul.asm\n${line}`)
       .replace(calls, (all, before, after) => `${before}2${after}`);
   appendCompileLog('Moved the multiply and divide routine from bank 1 (the kernel, which has little room) to bank 2.');
+};
+
+// The compiler jumps (goto, and gosub with the return address pushed first) to another bank with a call to BS_jsr, which keeps A and X across the jump (the compiler saves A in temp7, pushes it and X,
+// and BS_jsr gets them back): 49 cycles. The code after a jump starts with statements that load what they use, so nothing has to survive (but for a few
+// routines that read A or X), and the jump only has to read the bank's hotspot and return to the address
+// pushed (BS_goto): 25 cycles. DPC+ only (see withBankGoto in bb-compiler.js, which adds BS_goto to the bank switching code of every bank).
+const cheapBankJumps = (compiled, config) => {
+  if (!config || config.kernel !== 'dpcplus' || isPxe(config)) return;
+  let count = 0;
+  const jump = /^ sta temp7\r?\n((?: lda #>\([^)\r\n]+-1\)\r?\n pha\r?\n lda #<\([^)\r\n]+-1\)\r?\n pha\r?\n){1,2}) lda temp7\r?\n pha\r?\n txa\r?\n pha\r?\n( ldx #\d+\r?\n) jmp BS_jsr/gm;
+  compiled.mainAsm = compiled.mainAsm.replace(jump, (all, push, load) => {
+    // (The multiply and divide routines are given a number in A; pfsetup and commongamelogic need A or X kept: projects that call them with
+    // the cheap jump drew a different picture or played differently.)
+    if (/\b(mul|div)(8|16)\b|pfsetup|commongamelogic/.test(push)) return all;
+    count++;
+    return `${push}${load} jmp BS_goto`;
+  });
+  if (count) appendCompileLog(`${count} jumps to another bank take 24 cycles less.`);
 };
 
 const dropUnusedDivMul = (compiled, siblingFiles) => {
@@ -1344,6 +1364,15 @@ const titleScreenNeedsSharedSetup = () => {
   }
 };
 
+// Set by the Cancel button while a build runs: the build stops before its next attempt (an attempt is one synchronous run of the compiler,
+// which cannot be stopped in the middle, and the page cannot react to a click while it runs; the click is handled between the attempts).
+let buildCancelRequested = false;
+export const cancelBuild = () => {
+  if (!buildInProgress.value || buildCancelRequested) return;
+  buildCancelRequested = true;
+  appendCompileLog('Cancelling: the build stops when the compile that is running ends.', 'stage');
+};
+
 export const buildRom = async () => {
   // See buildInProgress's comment above - a title screen preview build
   // running concurrently with this one corrupted a real build's output
@@ -1353,6 +1382,7 @@ export const buildRom = async () => {
     return false;
   }
   buildInProgress.value = true;
+  buildCancelRequested = false;
   setEmulatorPaused(true);
   const screenshotRef = useLastBuildScreenshot();
   screenshotRef.value = null;
@@ -1363,7 +1393,7 @@ export const buildRom = async () => {
     const signature = titleScreenSignature();
     setTitleCompact(titleScreenNeedsSharedSetup() || (signature !== null && signature === compactTitleSignature && titleScreenHas48x2Graphic()));
     let built = await buildRomInner();
-    if (!built && !BlocklyBB.titleShareSetup && titleScreenHas48x2Graphic()) {
+    if (!built && !buildCancelRequested && !BlocklyBB.titleShareSetup && titleScreenHas48x2Graphic()) {
       setTitleCompact(true);
       built = await buildRomInner();
       if (built) compactTitleSignature = signature;
@@ -1445,7 +1475,8 @@ const buildRomInner = async () => {
   let goodCapacity = null;
   const squeezeTried = new Set();
   const trySqueeze = (capacity) => {
-    if (squeezeCount >= MAX_SQUEEZE_ATTEMPTS) return false;
+    // (The PXE kernel has no banks to move anything between.)
+    if (squeezeCount >= MAX_SQUEEZE_ATTEMPTS || isPxe(configurationStorage.value)) return false;
     const move = pickSqueezeMove(capacity, configurationStorage.value || {}, getRelocationBanks(), squeezeTried);
     if (!move) return false;
     const members = move.unit.members || [{kind: move.unit.kind, name: move.unit.name}];
@@ -1458,7 +1489,7 @@ const buildRomInner = async () => {
 
   // The other way: a unit that runs on every frame, moved into the main bank when the last good build left room there.
   const tryPullBack = (capacity) => {
-    if (squeezeCount >= MAX_SQUEEZE_ATTEMPTS) return false;
+    if (squeezeCount >= MAX_SQUEEZE_ATTEMPTS || isPxe(configurationStorage.value)) return false;
     const config = configurationStorage.value || {};
     const move = pickPullBackMove(capacity, config, getRelocationBanks(), squeezeTried);
     if (!move) return false;
@@ -1485,6 +1516,10 @@ const buildRomInner = async () => {
     // responsive between attempts, without changing anything about the
     // relocation logic itself.
     await new Promise((resolve) => setTimeout(resolve, 0));
+    if (buildCancelRequested) {
+      appendCompileLog('Build cancelled.');
+      return false;
+    }
     appendCompileLog(attempt === 0 ? 'Generating bBasic code...' :
       `Attempt ${attempt + 1}: generating bBasic code...`, 'stage');
     let code;
@@ -1493,7 +1528,7 @@ const buildRomInner = async () => {
     // pair a ROM built for one standard with the emulator spec of the other.
     let buildTvSpec;
     try {
-      code = regenerateCode();
+      code = await fillArmProgram(regenerateCode());
       buildTvSpec = emulatorTvSpec(useConfigurationStorage().value || {});
       useGeneratedBasic().value = code;
       markGeneratedFresh();
@@ -1538,6 +1573,7 @@ const buildRomInner = async () => {
       if (BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})) {
         Object.assign(siblingFiles, await getFastMathSiblingFiles(config.kernel));
       }
+      if (BlocklyBB.pxeScratch && BlocklyBB.usesDivMulRoutine()) Object.assign(siblingFiles, getPxeMathSiblingFiles(BlocklyBB.pxeScratch));
       // The Titlescreen Kernel's  static shared helper code (public/bb19/
       // titlescreen/) plus this build's  generated titlescreen_layout_N.asm
       // (one per title screen page) and combined titlescreen_data.asm (see
@@ -1580,7 +1616,7 @@ const buildRomInner = async () => {
       } else {
         const scoreFontOverride = await buildScoreFontOverride(effectiveScoreFont,
             (config.enableCycleScore || config.enableScanlinesDebug || dpcPlusScore) ? undefined : config.secondaryScoreFont,
-            dpcPlusScore);
+            dpcPlusScore, !!BlocklyBB.dpcPlusMovedScoreFont);
         if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
       }
       // Same override mechanism, for the Text Minikernel's  drawn
@@ -1608,6 +1644,26 @@ const buildRomInner = async () => {
               textRow2ColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
           siblingFiles[textKernelFile] = buildTextRow2ColorOverride(
               siblingFiles[textKernelFile], {colorVarName});
+        }
+        // A "Text set background color" block: the kernel loads the color from its byte where it used the constant textbkcolor (a project with the block
+        // draws each text line a cycle later: a zero page load takes 3 cycles, the immediate one 2).
+        if (BlocklyBB.textBkColorBlockUsed) {
+          const bkVar = BlocklyBB.nameDB_.getName(textBkColorVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          ['text12a.asm', textKernelFile].forEach((file) => {
+            if (siblingFiles[file]) siblingFiles[file] = siblingFiles[file].replace(/(ldy|lda) #textbkcolor/g, `$1 ${bkVar}`);
+          });
+        }
+        // The flag of a text call from the Title Screen kernel is bit 0 of a pooled byte: INC sets it and DEC clears it (the same cycles as the
+        // load and the store they replace), and the check masks the bit.
+        if (BlocklyBB.isTitleTextUsed()) {
+          const flagByte = BlocklyBB.nameDB_.getName(titleTextFlagVar(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+          ['text12a.asm', textKernelFile].forEach((file) => {
+            if (!siblingFiles[file]) return;
+            siblingFiles[file] = siblingFiles[file]
+                .replace(/lda #1(\r?\n)(\s*)sta titleTextFlag/g, `inc ${flagByte}`)
+                .replace(/lda titleTextFlag(\r?\n)(\s*)beq (\w+)(\r?\n)(\s*)lda #0(\r?\n)(\s*)sta titleTextFlag/g,
+                    `lda ${flagByte}$1$2and #1$1$2beq $3$1$2dec ${flagByte}$1$2lda #0`);
+          });
         }
         // The "more below" scroll cursor (see utils/text-font.js's
         // buildTextScrollCursorOverride) splices its  drawing code into
@@ -1643,7 +1699,8 @@ const buildRomInner = async () => {
       appendCompileLog('Preprocessing...', 'stage');
       // Sprite frames that repeat are cut out of the source batari Basic compiles (see utils/dpc-share-source.js).
       const sharedSource = (configurationStorage.value || {}).kernel === 'dpcplus' ? shareDpcPlusPlayerSource(code) : null;
-      const preprocessed = await preprocessBatariBasic(sharedSource ? sharedSource.code : code, log);
+      const preprocessed = await preprocessBatariBasic(
+          isPxe(configurationStorage.value) ? fixFracIncs(flattenBanks(sharedSource ? sharedSource.code : code), pfIsWide(configurationStorage.value), pfBuffersOf(configurationStorage.value), !!configurationStorage.value.pxeSeparateScroll) : (sharedSource ? sharedSource.code : code), log);
       appendCompileLog('Compiling to assembly...', 'stage');
       Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles, BlocklyBB.dpcAudioMidLevel));
       // The text builds' kernels are made above, with the Squish loop in them.
@@ -1663,9 +1720,12 @@ const buildRomInner = async () => {
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      // (The compiler puts the bank of a data table in front of its name, with a bank of one "$10" (names of data tables start with an underscore): the PXE kernel has one bank, and no such address.)
+      if (isPxe(configurationStorage.value)) compiled.mainAsm = legalizeForPxe(compiled.mainAsm.replace(/\$[0-9a-f]0(?=[g-z_])/gi, ''), BlocklyBB.pxeScratch, true);
       dropUnusedDivMul(compiled, siblingFiles);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
+      cheapBankJumps(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);
@@ -2548,6 +2608,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       if (BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})) {
         Object.assign(siblingFiles, await getFastMathSiblingFiles((configurationStorage.value || {}).kernel));
       }
+      if (BlocklyBB.pxeScratch && BlocklyBB.usesDivMulRoutine()) Object.assign(siblingFiles, getPxeMathSiblingFiles(BlocklyBB.pxeScratch));
       if (BlocklyBB.isTextMinikernelActive()) {
         const textKernelFile = previewDpcPlus ? 'text12DPCplus.asm' : 'text12b.asm';
         const textFontOverride = await buildTextFontOverride(previewDpcPlus ? siblingFiles[textKernelFile] : null);
@@ -2561,7 +2622,8 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       appendCompileLog('Preprocessing...', 'stage');
       // Sprite frames that repeat are cut out of the source batari Basic compiles (see utils/dpc-share-source.js).
       const sharedSource = (configurationStorage.value || {}).kernel === 'dpcplus' ? shareDpcPlusPlayerSource(code) : null;
-      const preprocessed = await preprocessBatariBasic(sharedSource ? sharedSource.code : code, log);
+      const preprocessed = await preprocessBatariBasic(
+          isPxe(configurationStorage.value) ? fixFracIncs(flattenBanks(sharedSource ? sharedSource.code : code), pfIsWide(configurationStorage.value), pfBuffersOf(configurationStorage.value), !!configurationStorage.value.pxeSeparateScroll) : (sharedSource ? sharedSource.code : code), log);
       appendCompileLog('Compiling to assembly...', 'stage');
       Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles, BlocklyBB.dpcAudioMidLevel));
       // A hidden score gives its scanlines to the picture (the Text Minikernel's score row stays, it draws the text).
@@ -2578,9 +2640,12 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
+      // (The compiler puts the bank of a data table in front of its name, with a bank of one "$10" (names of data tables start with an underscore): the PXE kernel has one bank, and no such address.)
+      if (isPxe(configurationStorage.value)) compiled.mainAsm = legalizeForPxe(compiled.mainAsm.replace(/\$[0-9a-f]0(?=[g-z_])/gi, ''), BlocklyBB.pxeScratch, true);
       dropUnusedDivMul(compiled, siblingFiles);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
+      cheapBankJumps(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm) patchArmProgramAddress(compiledResult);

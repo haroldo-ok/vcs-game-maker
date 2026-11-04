@@ -1,6 +1,7 @@
 'use strict';
 
 import {superchipOn} from './superchip';
+import {pfWidthOf, pfIsWide, pfMaxScrollOf} from './pxe';
 import {effectiveBackgroundRows, dpcPlusPfresOf, backgroundPfresOf} from '../blocks/background';
 
 // Pixel-to-cell math for pfread()-based playfield lookups. Recreated for
@@ -17,6 +18,23 @@ import {effectiveBackgroundRows, dpcPlusPfresOf, backgroundPfresOf} from '../blo
 // Background editor's canvas too wide for its height.
 export const PF_COLUMN_WIDTH_PX = 4;
 
+// The PXE kernel can run a playfield of 40 columns (see pfWidthOf in utils/pxe.js) that starts at the left edge of the screen, 16 pixels (4 columns)
+// before the 32 column one does: a sprite's column is 16 pixels more, and the last column is 39.
+export const pfColumnBias = (config) => (pfIsWide(config) ? 16 : 0);
+export const pfMaxColumn = (config) => pfWidthOf(config) - 1;
+// The text of a sprite x less the offset the playfield starts at (see the offsets below), allowing for the bias: (x - n) or (x + n).
+// A playfield of 64 or 120 columns scrolls sideways (PF_HOR_SCROLL_LO and HI, 16 bits of pixels): the map column under a screen pixel is the scroll plus
+// the pixel, over 4. The scroll's whole columns are added after the division, its extra pixels (0 to 3) before it.
+const pfScrolls = (config) => pfMaxScrollOf(config) > 0;
+export const pfScrollFraction = (config) => (pfScrolls(config) ? ' + (PF_HOR_SCROLL_LO & 3)' : '');
+export const pfScrollColumns = (config) => (pfScrolls(config) ? ' + (PF_HOR_SCROLL_LO / 4) + (PF_HOR_SCROLL_HI * 64)' : '');
+export const pfColumnText = (x, offset, config) => {
+  const n = offset - pfColumnBias(config);
+  return n >= 0 ? `(${x} - ${n}${pfScrollFraction(config)})` : `(${x} + ${-n}${pfScrollFraction(config)})`;
+};
+// The map column under a sprite's x: what the text above gives over 4, and the scroll's columns.
+export const pfColumnOf = (x, offset, config) => `${pfColumnText(x, offset, config)} / 4${pfScrollColumns(config)}`;
+
 // A player's x is one more than the screen pixel its left edge sits on (the
 // playfield's first column starts at x 17), but a missile or the ball sits one
 // pixel further left for the same x - the TIA starts drawing a missile or the
@@ -28,9 +46,16 @@ export const MISSILE_BALL_PF_X_OFFSET = 18;
 // Under DPC+ a player is drawn one pixel further right for the same x (measured on the emulator with the same sprite on both kernels:
 // its left edge is at pixel 76 for player0x 80, against 75 on the standard kernel), so its playfield column is (x - 16) / 4.
 export const playerPfXOffset = (config) => (config && config.kernel === 'dpcplus' ? PLAYER_PF_X_OFFSET - 1 : PLAYER_PF_X_OFFSET);
-// Under DPC+ the ball and the missiles are drawn two pixels further left for the same x (measured on the emulator: a ball at ballx 73
-// is the first to touch a wall whose first pixel is 72), so their playfield column is (x - 20) / 4.
-export const missileBallPfXOffset = (config) => (config && config.kernel === 'dpcplus' ? MISSILE_BALL_PF_X_OFFSET + 2 : MISSILE_BALL_PF_X_OFFSET);
+// Under DPC+ the ball and the missiles sit at other columns than on the standard kernel. Measured with the hardware collision flag of a one pixel
+// object swept across a single lit playfield cell (column c): the ball touches it for ballx 17 + 4 * c to 20 + 4 * c (a ball w pixels wide from
+// w - 1 less), so its playfield column is (x - 17) / 4; a missile for missile0x 14 + 4 * c to 17 + 4 * c, so (x - 14) / 4. (Their first pixel is
+// the same for any width. Rows: the ball covers lines y and below, a missile lines y + 1 and below.)
+// (The PXE kernel keeps the numbers it had: it has not been measured.)
+export const missileBallPfXOffset = (config, name = 'ball') => {
+  if (!config || config.kernel !== 'dpcplus') return MISSILE_BALL_PF_X_OFFSET;
+  if (config.pxe) return MISSILE_BALL_PF_X_OFFSET + 2;
+  return /^missile/.test(name) ? 14 : 17;
+};
 
 // Row height in scanlines - matches std_kernel.asm/startup.asm's
 // default row height calculation ("lda #(96/pfres)"), confirmed against

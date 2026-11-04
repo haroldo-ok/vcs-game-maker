@@ -1,5 +1,7 @@
 'use strict';
 
+import {playerCount} from './pxe';
+
 // A scene is a Data table card (see blocks/data.js) with `scene: true`, whose values are laid out the same way for every kind of game, so that a
 // stage, a level, a menu or a cut scene can all be kept in one: eight values for the header, then eight for each sprite that is placed.
 //
@@ -50,23 +52,32 @@ export const SCENE_FLAG_HEIGHT = 32;
 
 export const SCENE_OBJECT_NAMES = [
   'player0', 'player1', 'player2', 'player3', 'player4', 'player5', 'player6', 'player7', 'player8', 'player9', 'missile0', 'missile1', 'ball',
+  // (The sprites of PXE past Player 9 come after the ball, so the numbers of the sprites a project already has stay what they were.)
+  'player10', 'player11', 'player12', 'player13', 'player14', 'player15', 'player16',
 ];
 const SCENE_OBJECT_LABELS = [
   'Player 0', 'Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6', 'Player 7', 'Player 8', 'Player 9', 'Missile 0', 'Missile 1', 'Ball',
+  'Player 10', 'Player 11', 'Player 12', 'Player 13', 'Player 14', 'Player 15', 'Player 16',
 ];
 export const sceneObjectName = (object) => SCENE_OBJECT_NAMES[object] || 'player0';
 export const sceneObjectLabel = (object) => SCENE_OBJECT_LABELS[object] || 'Player 0';
-export const isScenePlayer = (object) => object >= 0 && object <= 9;
+export const isScenePlayer = (object) => (object >= 0 && object <= 9) || (object >= 13 && object <= 19);
+// The number of the player a scene sprite is.
+export const scenePlayerNumber = (object) => (object >= 13 ? object - 3 : object);
+// The sprites a trigger can be set off by: the ones its record has room for (the players 10 to 16 of PXE are left out).
+export const SCENE_TRIGGER_OBJECT_LIMIT = 12;
 export const MISSILE_WIDTHS = [1, 2, 4, 8];
 
 // The sprites a scene can hold under the kernel and options of the project: Player 0 and the missiles and the ball on the standard kernel; with
 // DPC+ also the virtual sprites that the Options tab has turned on (Player 1 up to the highest one that is on).
 export const availableSceneObjects = (config) => {
   const dpcPlus = !!config && config.kernel === 'dpcplus';
+  const highest = playerCount(config) - 1;
   const configured = config && config.dpcPlusSpriteMax;
-  const virtual = configured === undefined || configured === null ? 9 : Math.min(9, Math.max(1, Number(configured) || 1));
-  const players = dpcPlus ? Array.from({length: virtual + 1}, (_, i) => i) : [0, 1];
-  return [...players, 10, 11, 12];
+  const virtual = configured === undefined || configured === null ? 9 : Math.min(highest, Math.max(1, Number(configured) || 1));
+  const players = dpcPlus ? Array.from({length: Math.min(virtual, 9) + 1}, (_, i) => i) : [0, 1];
+  const pxePlayers = virtual > 9 ? Array.from({length: virtual - 9}, (_, i) => 13 + i) : [];
+  return [...players, 10, 11, 12, ...pxePlayers];
 };
 
 const clampByte = (value, fallback = 0) => {
@@ -100,7 +111,7 @@ export const newSceneTrigger = (name, config) => ({
   targetX: 80,
   targetY: 50,
   targetScene: 0,
-  mask: availableSceneObjects(config).reduce((mask, object) => mask | (1 << object), 0),
+  mask: availableSceneObjects(config).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT).reduce((mask, object) => mask | (1 << object), 0),
 });
 
 export const isSceneTable = (table) => !!(table && table.scene);
@@ -205,7 +216,7 @@ export const sceneBlocksXml = (table, config = {}, mark = false) => {
     const name = sceneObjectName(sprite.object);
     const flags = sprite.flags;
     if (isScenePlayer(sprite.object)) {
-      const player = sprite.object;
+      const player = scenePlayerNumber(sprite.object);
       blocks.push(setPlayer(player, `${name}x`, number(sprite.x)), setPlayer(player, `${name}y`, number(sprite.y)));
       if (flags & SCENE_FLAG_COLOR) blocks.push(setPlayer(player, `${name}realcolor`, number(sprite.color)));
       if (flags & SCENE_FLAG_SIZE) {
@@ -266,7 +277,7 @@ export const triggerEventXml = (tables, config = {}, withTriggers = true) => {
     if (areas.length) offsetBlocks.push(`<block type="scene_active_if"><field name="SCENE">${table.id}</field><statement name="DO">${chain(areas)}</statement></block>`);
     if (!withTriggers) return;
     scene.triggers.forEach((trigger, index) => {
-      const sprites = availableSceneObjects(config).filter((object) => trigger.mask & (1 << object)).map(sceneObjectName);
+      const sprites = availableSceneObjects(config).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT && trigger.mask & (1 << object)).map(sceneObjectName);
       if (!sprites.length) return;
       checks.push(`<block type="trigger_check"><field name="KEY">${table.id}:${index}</field><field name="NAME">${xmlText(trigger.name)}</field>` +
         `<field name="SCENE">${table.id}</field><field name="SPRITES">${sprites.join(',')}</field><field name="LEFT">${trigger.left}</field>` +

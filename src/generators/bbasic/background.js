@@ -1,19 +1,20 @@
 'use strict';
 
 import {useConfigurationStorage} from '../../hooks/project';
+import {buildPxeOffsetBody, PXE_OFFSET_VARS, PXE_OFFSET_ROUTINE} from './offset-pxe';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
-import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, ensureArmProgram} from './offset-arm';
+import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, buildCircleArmCall, ensureArmProgram, ARM_FIND_PIXEL_FUNCTION, buildPixArmCall} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
 import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
   backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS, rowFadeStartColor, multicolorFadeVarName,
   backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
-  collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName,
+  collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
   backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName, backgroundScrollActiveVarName, backgroundColorBgVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
-import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset} from '../../utils/playfield-coords';
+import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset, pfColumnText, pfColumnOf, pfScrollColumns, pfMaxColumn, pfColumnBias} from '../../utils/playfield-coords';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps (28 rows of 6.857 lines), so those blocks use the nearest whole number of steps.
@@ -42,6 +43,8 @@ const FADE_INCREMENT = 2;
 // exact same sprite<->playfield-pixel X offset rather than each guessing
 // their.
 export const spriteXOffset = (width) => (width === 'SINGLE' ? 17 : 16);
+// The configuration, for the width of the playfield.
+const pfConfigOf = () => (useConfigurationStorage() || {}).value || {};
 
 // DPC+: how many times a Background scroll block has to run for one step of the picture: the playfield rows are cut `fine` lines thick (see
 // generateBackgrounds) and a block moves two lines a time (four for the "2x" directions), rounded to a power of two.
@@ -289,6 +292,14 @@ export const OFFSET_AREA_VARS = {
   b1: 'offsetb1', m1: 'offsetm1', b2: 'offsetb2', m2: 'offsetm2', pixel: 'offsetpixel',
   mask: ['offsetmask0', 'offsetmask1', 'offsetmask2', 'offsetmask3'],
 };
+// The inputs of a circle block that count (the ones the block's padding mode shows).
+const circleInputNames = (block) => ['X', 'Y', 'RADIUS', ...(block.getFieldValue('PADMODE') === 'EACH' ? ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'] : ['PADDING'])];
+const isPlainNumberBlock = (target) => !target || (target.type === 'math_number' && /^[0-9]+$/.test(String(target.getFieldValue('NUM'))));
+// The coprocessor (DPC+, not PXE) takes the circle block when the numbers it works out (the ones that are not plain numbers) fit in the six scratch
+// bytes that hold them till they are sent; with more of them the 6502 draws it, as on the other kernels.
+export const circleArmFits = (config, block) => config.kernel === 'dpcplus' && !config.pxe &&
+  circleInputNames(block).filter((name) => !isPlainNumberBlock(block.getInputTargetBlock(name))).length <= 6;
+
 // The bytes the Playfield offset block of the coprocessor needs while its blocks run: the left and right column. The bytes the box test uses for
 // the position it tries are only used when the end of the frame runs, so they do the job when the project has them. Returns the names (null for the ones to reserve here).
 export const offsetArmSharedVars = ({boxTest}) => ({b1: boxTest ? 'pfboxx' : null, b2: boxTest ? 'pfboxy' : null});
@@ -459,7 +470,11 @@ export default (Blockly) => {
     }
     const x = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_MULTIPLICATION) || '0';
     const xOffset = spriteXOffset(block.getFieldValue('WIDTH'));
-    return [`4 * ${x} + ${xOffset}`, Blockly.BBasic.ORDER_ADDITION];
+    if (pfScrollColumns(pfConfigOf())) {
+      return [`(${x} - (PF_HOR_SCROLL_LO / 4) - (PF_HOR_SCROLL_HI * 64)) * 4 + ${xOffset - pfColumnBias(pfConfigOf())} - (PF_HOR_SCROLL_LO & 3)`,
+        Blockly.BBasic.ORDER_ADDITION];
+    }
+    return [`4 * ${x} + ${xOffset - pfColumnBias(pfConfigOf())}`, Blockly.BBasic.ORDER_ADDITION];
   };
 
   Blockly.BBasic[`background_sprite_to_pixel`] = function(block) {
@@ -477,7 +492,7 @@ export default (Blockly) => {
     }
     const x = Blockly.BBasic.valueToCode(block, 'COORD', Blockly.BBasic.ORDER_SUBTRACTION) || '0';
     const xOffset = spriteXOffset(block.getFieldValue('WIDTH'));
-    return [`(${x} - ${xOffset}) / 4`, Blockly.BBasic.ORDER_DIVISION];
+    return [pfColumnOf(x, xOffset, pfConfigOf()), pfScrollColumns(pfConfigOf()) ? Blockly.BBasic.ORDER_ADDITION : Blockly.BBasic.ORDER_DIVISION];
   };
 
   // background_collision_pixel's  per-sprite X/Y system vars, plus each
@@ -497,13 +512,13 @@ export default (Blockly) => {
   // resolve the shadow var's real letter, so this has to be a function.
   const spriteCollisionCoords = (sprite) => {
     const pfConfig = (useConfigurationStorage() || {}).value;
-    const missileOffset = missileBallPfXOffset(pfConfig);
+    const missileOffsetOf = (name) => missileBallPfXOffset(pfConfig, name);
     const playerOffset = playerPfXOffset(pfConfig);
     if (sprite === 'ball') {
       const shadowVar = Blockly.BBasic.nameDB_.getName(
           ctrlpfShadowVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       return {x: 'ballx', y: 'bally', stretched: `${shadowVar} & $30 <> 0`, sizeBits: shadowVar, heightVar: 'ballheight',
-        pfXOffset: missileOffset};
+        pfXOffset: missileOffsetOf('ball')};
     }
     // Under DPC+ a player's y is its top scanline and its height counts scanlines, like a missile's, so the
     // collision rows come from both.
@@ -515,9 +530,9 @@ export default (Blockly) => {
       player1: {x: 'player1x', y: 'player1y', stretched: 'player1size & $05 = $05', pfXOffset: playerOffset,
         ...(dpcPlus ? {heightVar: 'player1height'} : {})},
       missile0: {x: 'missile0x', y: 'missile0y', stretched: 'player0size & $30 <> 0', sizeBits: 'player0size',
-        heightVar: 'missile0height', pfXOffset: missileOffset},
+        heightVar: 'missile0height', pfXOffset: missileOffsetOf('missile0'), ...(dpcPlus && !(pfConfig && pfConfig.pxe) ? {topY: 'missile0y + 1', extraHeight: -1} : {})},
       missile1: {x: 'missile1x', y: 'missile1y', stretched: 'player1size & $30 <> 0', sizeBits: 'player1size',
-        heightVar: 'missile1height', pfXOffset: missileOffset},
+        heightVar: 'missile1height', pfXOffset: missileOffsetOf('missile1'), ...(dpcPlus && !(pfConfig && pfConfig.pxe) ? {topY: 'missile1y - 1', extraHeight: 1} : {})},
     };
     return byName[sprite];
   };
@@ -526,7 +541,7 @@ export default (Blockly) => {
   // on the standard kernel) y is one past its top row; under DPC+ a missile's
   // or the ball's y is its top scanline itself.
   const topYText = (coords, config) =>
-    (coords.heightVar && config.kernel === 'dpcplus') ? coords.y : `${coords.y} - 1`;
+    (coords.heightVar && config.kernel === 'dpcplus') ? (coords.topY || coords.y) : `${coords.y} - 1`;
 
   // Given a sprite that just registered a hardware Playfield collision,
   // works out which exact playfield column/row it's touching - see this
@@ -585,9 +600,10 @@ export default (Blockly) => {
 
     return [
       // Exact column/row, clamped before anything ever reads them.
-      `${col.write} = (${coords.x} - ${coords.pfXOffset}) / 4`,
-      `if ${coords.stretched} then ${col.write} = (${coords.x} - ${coords.pfXOffset - 1}) / 4`,
-      `if ${col.read} > 31 then ${col.write} = 31`,
+      `${col.write} = ${pfColumnOf(coords.x, coords.pfXOffset, pfConfigOf())}`,
+      // (Under DPC+ the left edge of the ball and of a missile is the same pixel for any width.)
+      ...(config.kernel === 'dpcplus' && !config.pxe && coords.heightVar ? [] : [`if ${coords.stretched} then ${col.write} = ${pfColumnOf(coords.x, coords.pfXOffset - 1, pfConfigOf())}`]),
+      `if ${col.read} > ${pfMaxColumn(pfConfigOf())} then ${col.write} = ${pfMaxColumn(pfConfigOf())}`,
       ...(groupRows ? Blockly.BBasic.rowOfLineCode(config, row.write, coords.y, 1, coords.heightVar ? 1 : 2, Blockly.BBasic.groupIncrementAsm(col.read)) :
         coords.heightVar ? Blockly.BBasic.rowOfLineCode(config, row.write, topYText(coords, config), rowDivisor) : [`${row.write} = (${topYText(coords, config)}) / ${rowDivisor}`]),
       `if ${row.read} > ${maxRow} then ${row.write} = ${maxRow}`,
@@ -599,7 +615,7 @@ export default (Blockly) => {
       `if ${col2.read} > 0 then ${col2.write} = ${col2.read} - 1`,
       `goto ${afterColLabel}`,
       `@ ${colRightLabel}`,
-      `if ${col2.read} < 31 then ${col2.write} = ${col2.read} + 1`,
+      `if ${col2.read} < ${pfMaxColumn(pfConfigOf())} then ${col2.write} = ${col2.read} + 1`,
       `@ ${afterColLabel}`,
       `if pfread(${col2.read}, ${row.read}) then goto ${useCol2Label}`,
       // Nudged row alone.
@@ -647,6 +663,26 @@ export default (Blockly) => {
   // only overwrites temp1/temp2).
   const buildFindPixelBody = ({sprite, is16, maxRow, rowDivisor, topY, col, row, groupRows}) => {
     const coords = spriteCollisionCoords(sprite);
+    // Under DPC+ the coprocessor finds it (function 99 of armprog.c, the same cells in the same order; about 350 cycles less): the numbers go to it and the column
+    // and the row come back.
+    const config = useConfigurationStorage().value || {};
+    if (config.kernel === 'dpcplus' && !config.pxe && !groupRows && !pfScrollColumns(config) && coords.heightVar && coords.sizeBits &&
+        /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 && /^\d+$/.test(String(maxRow))) {
+      ensureArmProgram(Blockly, undefined, 'p');
+      Blockly.BBasic.pfBoxArm = true;
+      const lda = (operand) => [`lda ${operand}`];
+      return [
+        buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.find, read: 2, args: [
+          lda(coords.x),
+          topY === coords.y ? lda(coords.y) : /\+ 1$/.test(topY) ? [`lda ${coords.y}`, 'clc', 'adc #1'] : [`lda ${coords.y}`, 'sec', 'sbc #1'],
+          // (The lines it covers are the height less one for missile 0 and one more for missile 1: measured against the hardware flag.)
+          coords.extraHeight < 0 ? [`lda ${coords.heightVar}`, `beq _fp_${sprite}_hz`, 'sec', 'sbc #1', `_fp_${sprite}_hz`] :
+            coords.extraHeight > 0 ? [`lda ${coords.heightVar}`, 'clc', 'adc #1'] : lda(coords.heightVar), lda(coords.sizeBits), lda('temp5'), lda(`#${is16 ? 16 : 8}`), lda(`#${maxRow}`), lda(`#${coords.pfXOffset}`),
+          lda(`#${256 / Number(rowDivisor)}`)]}),
+        `${col.write} = temp3`,
+        `${row.write} = temp4`,
+      ].join('\n');
+    }
     const label = (part) => `_fp_${sprite}_${is16 ? 16 : 8}_${part}`;
     const lab = (part) => `@ ${label(part)}`;
     const widthBits = coords.sizeBits || null;
@@ -679,20 +715,21 @@ export default (Blockly) => {
       '@end',
     ];
     lines.push(
-        `${col.write} = (${coords.x} - ${coords.pfXOffset}) / 4`,
-        ...(widthBits ? [] : [`if ${coords.stretched} then ${col.write} = (${coords.x} - ${coords.pfXOffset - 1}) / 4`]),
-        `if ${col.read} > 31 then ${col.write} = 31`,
+        `${col.write} = ${pfColumnOf(coords.x, coords.pfXOffset, pfConfigOf())}`,
+        ...(widthBits ? [] : [`if ${coords.stretched} then ${col.write} = ${pfColumnOf(coords.x, coords.pfXOffset - 1, pfConfigOf())}`]),
+        `if ${col.read} > ${pfMaxColumn(pfConfigOf())} then ${col.write} = ${pfMaxColumn(pfConfigOf())}`,
         `temp4 = ${col.read}`);
     if (widthBits) {
       // The right-hand column: the sprite is 1, 2, 4 or 8 pixels wide.
       lines.push(
           `temp5 = ${widthBits} & 48`,
-          `temp4 = ${coords.x} - ${coords.pfXOffset}`,
+          `temp4 = ${pfColumnText(coords.x, coords.pfXOffset, pfConfigOf())}`,
           `if temp5 = 16 then temp4 = temp4 + 1`,
           `if temp5 = 32 then temp4 = temp4 + 3`,
           `if temp5 = 48 then temp4 = temp4 + 7`,
           `temp4 = temp4 / 4`,
-          `if temp4 > 31 then temp4 = 31`);
+          ...(pfScrollColumns(pfConfigOf()) ? [`temp4 = temp4${pfScrollColumns(pfConfigOf())}`] : []),
+          `if temp4 > ${pfMaxColumn(pfConfigOf())} then temp4 = ${pfMaxColumn(pfConfigOf())}`);
     }
     lines.push(
         ...(groupRows ? Blockly.BBasic.rowOfLineCode(useConfigurationStorage().value || {}, row.write, coords.y, 1, coords.heightVar ? 1 : 2,
@@ -703,8 +740,8 @@ export default (Blockly) => {
         `temp5 = ${row.read}`,
         ...(coords.heightVar ? [
           // One row unit taller than the height says, for the same reason.
-          `if ${coords.heightVar} = 0 then goto ${label('nobottom')}`,
-          ...Blockly.BBasic.rowOfLineCode(useConfigurationStorage().value || {}, 'temp5', `${coords.y} + ${coords.heightVar} - 1`, rowDivisor, 1,
+          `if ${coords.heightVar} ${coords.extraHeight < 0 ? '<' : '='} ${coords.extraHeight < 0 ? 2 : 0} then goto ${label('nobottom')}`,
+          ...Blockly.BBasic.rowOfLineCode(useConfigurationStorage().value || {}, 'temp5', `${topY} + ${coords.heightVar}${coords.extraHeight ? (coords.extraHeight < 0 ? ' - 2' : '') : ' - 1'}`, rowDivisor, 1,
               groupRows ? Blockly.BBasic.groupIncrementAsm(col.read) : null),
           lab('nobottom'),
           `if temp5 > ${maxRow} then temp5 = ${maxRow}`,
@@ -717,7 +754,7 @@ export default (Blockly) => {
         `goto ${label('cdone')}`,
         lab('cright'),
         `temp3 = temp4`,
-        `if temp3 < 31 then temp3 = temp3 + 1`,
+        `if temp3 < ${pfMaxColumn(pfConfigOf())} then temp3 = temp3 + 1`,
         `goto ${label('cdone')}`,
         lab('cleft'),
         `temp3 = ${col.read}`,
@@ -1540,7 +1577,7 @@ export default (Blockly) => {
       `temp4 = temp6`,
       `temp6 = temp1`,
       lab('yok'),
-      `if temp5 > 31 then temp5 = 31`,
+      `if temp5 > ${pfMaxColumn(pfConfigOf())} then temp5 = ${pfMaxColumn(pfConfigOf())}`,
       `if temp6 > ${maxRow} then temp6 = ${maxRow}`,
       `if temp3 > temp5 then goto ${label('clear')}`,
       `if temp4 > temp6 then goto ${label('clear')}`,
@@ -1590,7 +1627,7 @@ export default (Blockly) => {
   // and a shared subroutine for the operation draws one row at a time with pfhline, which only overwrites temp1 to temp3. The corners may be
   // in either order and are clamped to the playfield.
   const AREA_FILL_SUBROUTINES = {on: '_background_area_set', off: '_background_area_clear_pixels', flip: '_background_area_flip'};
-  const buildAreaFillBody = (operation, maxRow, last) => {
+  const buildAreaFillBody = (operation, maxRow, last, pxe = false) => {
     const lab = (part) => `@ _areafill_${operation}_${part}`;
     const label = (part) => `_areafill_${operation}_${part}`;
     return [
@@ -1604,7 +1641,7 @@ export default (Blockly) => {
       `temp5 = ${last.read}`,
       `${last.write} = temp1`,
       lab('yok'),
-      `if temp6 > 31 then temp6 = 31`,
+      `if temp6 > ${pfMaxColumn(pfConfigOf())} then temp6 = ${pfMaxColumn(pfConfigOf())}`,
       `if ${last.read} > ${maxRow} then ${last.write} = ${maxRow}`,
       `if temp4 > temp6 then goto ${label('end')}`,
       `if temp5 > ${last.read} then goto ${label('end')}`,
@@ -1612,7 +1649,9 @@ export default (Blockly) => {
       `temp1 = temp4`,
       `temp2 = temp5`,
       `temp3 = temp6`,
-      `pfhline temp1 temp2 temp3 ${operation}`,
+      // (PXE has no line function in its ARM program: the row is drawn a pixel at a time.)
+      ...(pxe ? [lab('col'), `pfpixel temp1 temp2 ${operation}`, 'temp1 = temp1 + 1', `if temp1 <= temp3 then goto ${label('col')}`] :
+        [`pfhline temp1 temp2 temp3 ${operation}`]),
       `temp5 = temp5 + 1`,
       `if temp5 <= ${last.read} then goto ${label('row')}`,
       lab('end'),
@@ -1633,11 +1672,134 @@ export default (Blockly) => {
     const y2 = arg('Y2');
     const name = AREA_FILL_SUBROUTINES[operation];
     if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = buildAreaFillBody(operation, maxRow, last);
+      Blockly.BBasic.subroutines[name] = buildAreaFillBody(operation, maxRow, last, !!config.pxe);
     }
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     // The corners (x1, y1, x2, y2) become temp4, temp5, temp6 and the second row.
     return `temp4 = ${x1}\ntemp5 = ${y1}\ntemp6 = ${x2}\n${last.write} = ${y2}\ngosub ${name}${suffix}\n`;
+  };
+
+  // "Playfield set/clear/flip circle": the rows of the circle from the center row outwards, each drawn by the area fill routine (the same one the area block
+  // calls, so it is a row of pixels on every kernel). The half width of a row is the biggest d whose square is not more than the radius squared less the
+  // square of the row's distance from the center, found in a table of squares (so a radius is 15 at most: 15 * 15 is 225, the biggest square of a byte).
+  // The row routine uses every scratch byte, so five variables keep what is needed between the rows: the center (two), the radius and the distance of
+  // the row from the center (a nibble each, in one byte) and the padding of the four sides (a nibble each, in two bytes: 15 at most).
+  // The block's numbers go to the coprocessor in order: the center, the radius and the padding (the one number four times, or one for each side).
+  const buildCircleArm = (block, config) => {
+    const groupRows = !!Blockly.BBasic.dpcPlusGroupFracVars;
+    const maxRow = groupRows ? '191' : Blockly.BBasic.maxRowText(config);
+    const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const setups = [];
+    let used = 0;
+    // A plain number is written as it is; the others are worked out into the next scratch byte, in the order the block has them.
+    const operandOf = (name) => {
+      const text = arg(name);
+      if (/^[0-9]+$/.test(String(text).trim())) return `#${Number(text)}`;
+      used++;
+      setups.push(`temp${used} = ${text}`);
+      return `temp${used}`;
+    };
+    const separate = block.getFieldValue('PADMODE') === 'EACH';
+    const cx = operandOf('X');
+    const cy = operandOf('Y');
+    const radius = operandOf('RADIUS');
+    const [padLeft, padRight, padTop, padBottom] = separate ?
+      ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].map(operandOf) : Array(4).fill(operandOf('PADDING'));
+    ensureArmProgram(Blockly, groupRows ? {inc: 0, maxRow: 0, clamp: true, groups: true} : undefined, 'c');
+    Blockly.BBasic.pfBoxArm = true;
+    return [...setups, buildCircleArmCall({operation: block.getFieldValue('OPERATION'), cx, cy, radius, padLeft, padRight, padTop, padBottom, last: `#${maxRow}`})].join('\n') + '\n';
+  };
+
+  const CIRCLE_RADIUS_MAX = 15;
+  Blockly.BBasic['background_fill_circle'] = function(block) {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    // Under DPC+ the coprocessor draws it (see circleArmFits): the numbers go to it as they are and it does every row in one go.
+    if (circleArmFits(config, block)) return buildCircleArm(block, config);
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const maxColumn = pfMaxColumn(config);
+    const last = Blockly.BBasic.superchipRwPairs[areaClearLeftVarName()];
+    const vars = circleVarNames().map((name) => Blockly.BBasic.superchipRwPairs[name]);
+    if (!last || vars.some((pair) => !pair)) return '';
+    const [cx, cy, rd, padLR, padTB] = vars;
+    const operation = block.getFieldValue('OPERATION');
+    const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    // The padding: the same number on all four sides, or one for each.
+    const separate = block.getFieldValue('PADMODE') === 'EACH';
+    const [padLeft, padRight, padTop, padBottom] = separate ? ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].map(arg) : Array(4).fill(arg('PADDING'));
+    const fillName = AREA_FILL_SUBROUTINES[operation];
+    if (!Blockly.BBasic.subroutines[fillName]) {
+      Blockly.BBasic.subroutines[fillName] = buildAreaFillBody(operation, maxRow, last, !!config.pxe);
+    }
+    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(fillName));
+    const id = Blockly.BBasic.blockNumbers.next('circle');
+    const label = (part) => `_circle_${id}_${part}`;
+    const squares = Array.from({length: CIRCLE_RADIUS_MAX + 1}, (_, i) => i * i).join(',');
+    // Two numbers (0 to 15 each) in a byte: the first the low nibble.
+    const pack = (low, high, variable) => [
+      `temp1 = ${low}`, `if temp1 > 15 then temp1 = 15`,
+      `temp2 = ${high}`, `if temp2 > 15 then temp2 = 15`,
+      'temp2 = temp2 + temp2', 'temp2 = temp2 + temp2', 'temp2 = temp2 + temp2', 'temp2 = temp2 + temp2',
+      `${variable.write} = temp1 + temp2`,
+    ];
+    // One row of the circle: `below` is the row under the center row (else the one above). The half width comes from the table, the row and the
+    // columns are held to the padding, and a row with nothing left is not given to the area routine (it would put the corners in order).
+    const row = (below) => {
+      const skip = label(below ? 'belowskip' : 'aboveskip');
+      return [
+        `temp1 = ${rd.read} / 16`,
+        ...(below ? [`temp5 = ${cy.read} + temp1`] : [`if ${cy.read} < temp1 then goto ${skip}`, `temp5 = ${cy.read} - temp1`]),
+        `temp2 = ${rd.read} & 15`,
+        ['asm', `jmp ${label(below ? 'skipb' : 'skipa')}`, `@${label(below ? 'sqb' : 'sqa')}`, `.byte ${squares}`, `@${label(below ? 'skipb' : 'skipa')}`,
+          'ldx temp1', `lda ${label(below ? 'sqb' : 'sqa')},x`, 'sta temp1', 'ldx temp2', `lda ${label(below ? 'sqb' : 'sqa')},x`, 'sec', 'sbc temp1',
+          'sta temp1', 'ldx temp2', `@${label(below ? 'findb' : 'finda')}`, `lda ${label(below ? 'sqb' : 'sqa')},x`, 'cmp temp1',
+          `beq ${label(below ? 'foundb' : 'founda')}`, `bcc ${label(below ? 'foundb' : 'founda')}`, 'dex', `bne ${label(below ? 'findb' : 'finda')}`,
+          `@${label(below ? 'foundb' : 'founda')}`, 'stx temp3', '@end'].join('\n'),
+        `temp1 = ${padTB.read} & 15`,
+        `if temp5 < temp1 then goto ${skip}`,
+        `temp1 = ${padTB.read} / 16`,
+        `if temp1 > ${maxRow} then goto ${skip}`,
+        `temp1 = ${maxRow} - temp1`,
+        `if temp5 > temp1 then goto ${skip}`,
+        'temp4 = 0',
+        `if ${cx.read} >= temp3 then temp4 = ${cx.read} - temp3`,
+        `temp6 = ${cx.read} + temp3`,
+        `temp1 = ${padLR.read} & 15`,
+        'if temp4 < temp1 then temp4 = temp1',
+        `temp1 = ${padLR.read} / 16`,
+        `if temp1 > ${maxColumn} then goto ${skip}`,
+        `temp1 = ${maxColumn} - temp1`,
+        'if temp6 > temp1 then temp6 = temp1',
+        `if temp4 > temp6 then goto ${skip}`,
+        `${last.write} = temp5`,
+        `gosub ${fillName}${suffix}`,
+        `@ ${skip}`,
+      ];
+    };
+    return [
+      `temp1 = ${arg('X')}`,
+      `temp2 = ${arg('Y')}`,
+      `${cx.write} = temp1`,
+      `${cy.write} = temp2`,
+      `temp1 = ${arg('RADIUS')}`,
+      `if temp1 > ${CIRCLE_RADIUS_MAX} then temp1 = ${CIRCLE_RADIUS_MAX}`,
+      `${rd.write} = temp1`,
+      ...pack(padLeft, padRight, padLR),
+      ...pack(padTop, padBottom, padTB),
+      `@ ${label('loop')}`,
+      ...row(true),
+      // The row above the center row (the center row itself is drawn once).
+      `temp1 = ${rd.read} / 16`,
+      `if temp1 = 0 then goto ${label('next')}`,
+      ...row(false),
+      `@ ${label('next')}`,
+      `temp1 = ${rd.read} / 16`,
+      `temp2 = ${rd.read} & 15`,
+      `if temp1 >= temp2 then goto ${label('done')}`,
+      `${rd.write} = ${rd.read} + 16`,
+      `goto ${label('loop')}`,
+      `@ ${label('done')}`,
+    ].join('\n') + '\n';
   };
 
   // "Playfield offset": moves the pixels of the playfield (or of an area of it, whole bytes wide) by one pixel column or
@@ -2072,6 +2234,26 @@ export default (Blockly) => {
 
   Blockly.BBasic['background_offset'] = function(block) {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    // (The PXE kernel has no coprocessor program of the app to move the playfield.)
+    if (config.pxe) {
+      // PXE: a cell at a time by the 6502 (see offset-pxe.js): the corners are put in order inside the playfield, then the routine is called.
+      const whole = block.getFieldValue('WHOLE') === 'TRUE';
+      const maxRow = Blockly.BBasic.maxRowText(config);
+      const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+      const resolvePxo = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const placed = Blockly.BBasic.offsetPxePlacement || {};
+      const v = Object.fromEntries(PXE_OFFSET_VARS.map((name) => [name, placed[name] || resolvePxo(name)]));
+      if (!Blockly.BBasic.subroutines[PXE_OFFSET_ROUTINE]) Blockly.BBasic.subroutines[PXE_OFFSET_ROUTINE] = buildPxeOffsetBody(v, maxRow, pfMaxColumn(config)).join('\n');
+      const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(PXE_OFFSET_ROUTINE));
+      const direction = {alternate: 0, left: 1, right: 2, up: 3, down: 4, alternate_rl: 5, alternate_ud: 6, alternate_du: 7}[block.getFieldValue('DIRECTION')] || 0;
+      // A byte of the extended RAM is stored through temp1; the routine puts the corners in order and inside the playfield.
+      const put = (name, value) => (!placed[name] ? `${v[name]} = ${value}\n` : /^\d+$/.test(value) ?
+        ['asm', `lda #${value}`, `sta ${v[name]}`, '@end'].join('\n') + '\n' :
+        `temp1 = ${value}\n` + ['asm', 'lda temp1', `sta ${v[name]}`, '@end'].join('\n') + '\n');
+      const corners = whole ? [put('pxoX1', '0'), put('pxoX2', String(pfMaxColumn(config))), put('pxoY1', '0'), put('pxoY2', String(maxRow))] :
+        [put('pxoX1', arg('X1')), put('pxoX2', arg('X2')), put('pxoY1', arg('Y1')), put('pxoY2', arg('Y2'))];
+      return corners.join('') + put('pxoDir', String(direction)) + `gosub ${PXE_OFFSET_ROUTINE}${suffix}\n`;
+    }
     const dpcPlus = config.kernel === 'dpcplus';
     const superchip = !dpcPlus && !!config.enableSuperchip;
     const direction = block.getFieldValue('DIRECTION');
@@ -2110,7 +2292,7 @@ export default (Blockly) => {
       const last = plain(maxRow) !== null ? `#${maxRow}` : maxRow;
       const y1 = whole ? '#0' : operandOf(arg('Y1'), 'temp5');
       const y2 = whole ? last : operandOf(arg('Y2'), 'temp6');
-      ensureArmProgram(Blockly, groupRows ? {inc: 0, maxRow: 0, clamp: true, groups: true} : undefined);
+      ensureArmProgram(Blockly, groupRows ? {inc: 0, maxRow: 0, clamp: true, groups: true} : undefined, 'o');
       return [...setups, buildOffsetArmCall({fn: OFFSET_ARM_FUNCTION[direction], x1, x2, y1, y2, last})].join('\n') + '\n';
     }
     // The whole playfield, or an area whose edges are plain numbers that are whole bytes of eight columns, goes by the routine that moves whole
@@ -2269,6 +2451,23 @@ export default (Blockly) => {
     // need their  separate scratch vars rather than reusing it).
     // A compound number (a division goes through a routine that uses temp1 and temp2) is worked out into temp4 to temp6 first, so that
     // working out the next one cannot put the answer of the one before out.
+    // PXE: the ARM program has no line functions (only the pixel ones), so the line is drawn a pixel at a time.
+    if (((useConfigurationStorage() && useConfigurationStorage().value) || {}).pxe) {
+      const number = Blockly.BBasic.blockNumbers.next('hvline');
+      const step = direction === 'pfhline' ? 'temp2' : 'temp3';
+      return `temp4 = ${argumentX}\n` +
+        `temp5 = ${argumentY}\n` +
+        `temp6 = ${argumentLineLength}\n` +
+        `temp2 = temp4\n` +
+        `temp3 = temp5\n` +
+        `if temp6 = 0 then goto _hvline_${number}_done\n` +
+        `@ _hvline_${number}_loop\n` +
+        `pfpixel temp2 temp3 ${operation}\n` +
+        `${step} = ${step} + 1\n` +
+        `temp6 = temp6 - 1\n` +
+        `if temp6 > 0 then goto _hvline_${number}_loop\n` +
+        `@ _hvline_${number}_done\n`;
+    }
     const isSimple = (code) => !/\s/.test(code);
     if (isSimple(argumentX) && isSimple(argumentY) && isSimple(argumentLineLength)) {
       return `temp2 = ${argumentX}\n` +
@@ -2705,11 +2904,10 @@ export default (Blockly) => {
   // resetting to the top. With no switch pending the load runs right here.
   // Does nothing without a background taller than the window, where there is
   // no position to set.
-  Blockly.BBasic[`background_scroll_set_row`] = function(block) {
+  const scrollToRowCode = (row) => {
     if (!Blockly.BBasic.backgroundScrollStartUsed) return '';
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    const row = Blockly.BBasic.valueToCode(block, 'ROW', Blockly.BBasic.ORDER_ADDITION) || '0';
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const doneLabel = `_bgscroll_${Blockly.BBasic.blockNumbers.next('bgscroll')}_setrow_done`;
@@ -2730,6 +2928,33 @@ export default (Blockly) => {
       `@ ${doneLabel}`,
     ].join('\n') + '\n';
   };
+  Blockly.BBasic[`background_scroll_set_row`] = (block) => scrollToRowCode(Blockly.BBasic.valueToCode(block, 'ROW', Blockly.BBasic.ORDER_ADDITION) || '0');
+  // "Reset playfield scroll": the scroll goes back to the top row, as when a background is switched to.
+  Blockly.BBasic[`background_scroll_reset`] = () => {
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    if (config.kernel !== 'dpcplus') return scrollToRowCode('0');
+    // The tall scrolling of DPC+ (and PXE) follows its position in a byte for the picture (and one for each kind of colors a Background scroll colors
+    // block moves by itself): a wrapping scroll starts a background-height in (the offset is the rows of the background) and a scroll that stops at its
+    // ends at 0. Back to that: the queues are scrolled by what is left of the way (the other way round for 0), and the byte is put back.
+    const scroll = Blockly.BBasic.dpcPlusScroll;
+    if (!scroll) return ' rem Reset playfield scroll needs a background taller than the screen (DPC+)' + '\n';
+    const rowsText = Blockly.BBasic.dpcPlusScrollRowsVar || scroll.rows;
+    const colorOnly = Blockly.BBasic.dpcPlusColorOnlyScrollUsed || {};
+    const sequences = [
+      {queueSets: Blockly.BBasic.dpcPlusScrollQueues(config, !!scroll.pfColors && !colorOnly.pf, !!scroll.bkColors && !colorOnly.bk, false), offsetName: '_dpcScrollOffset'},
+      ...[['pf', '_dpcColorScrollOffset'], ['bk', '_dpcBkColorScrollOffset']].filter(([kind]) => colorOnly[kind]).map(([kind, offsetName]) =>
+        ({queueSets: Blockly.BBasic.dpcPlusScrollQueues(config, kind === 'pf', kind === 'bk', true), offsetName})),
+    ];
+    const uid = Blockly.BBasic.blockNumbers.next('dpcscrollreset');
+    const lines = [];
+    sequences.forEach(({queueSets, offsetName}, index) => {
+      const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const done = `_dpcscrollreset_${uid}_${index}_done`;
+      lines.push(` temp1 = ${scroll.noWrap ? '0' : rowsText} - ${offset}`, ` if temp1 = 0 then goto ${done}`,
+          ...queueSets.map((queues) => ` pfscroll temp1${queues}`), ` ${offset} = ${scroll.noWrap ? '0' : rowsText}`, `@ ${done}`);
+    });
+    return lines.join('\n') + '\n';
+  };
 
   // Starts a Playfield transition: the Playfield scroll blocks then bring the chosen background in a row at a time (see background_scroll).
   Blockly.BBasic[`background_transition`] = function(block) {
@@ -2749,6 +2974,15 @@ export default (Blockly) => {
   Blockly.BBasic[`background_scroll_position`] = function(block) {
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // The tall scrolling of DPC+ and PXE (see background_scroll) keeps no row variable: the offset it follows starts one background height in and
+    // goes down by a row for a scroll down, so the row at the top is the height less it (a background that does not wrap, which starts at row 0,
+    // is its offset).
+    const tall = Blockly.BBasic.dpcPlusScroll;
+    if (tall) {
+      const offset = resolveVar('_dpcScrollOffset');
+      if (tall.noWrap) return [offset, Blockly.BBasic.ORDER_ATOMIC];
+      return [`${Blockly.BBasic.dpcPlusScrollRowsVar || tall.rows} - ${offset}`, Blockly.BBasic.ORDER_SUBTRACTION];
+    }
     const rowVar = resolveVar(backgroundScrollRowVarName());
     // In overflow mode the variable also carries the active background's
     // index in its high bits - see backgroundScrollPacking.
@@ -2758,7 +2992,8 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic[`draw_screen`] = function(block) {
-    // Draw screen.
+    // Draw screen. (DPC+ and PXE keep the sprite colors in tables, not in player0color and player1color.)
+    if (((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus') return 'drawscreen\n';
     return 'COLUP1 = player1color\n' +
       'COLUP0 = player0color\n' +
       'drawscreen\n';

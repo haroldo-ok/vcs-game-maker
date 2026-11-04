@@ -17,7 +17,7 @@ const RIGHT_EDGE_X = 177;
 export const boxWidthVarName = (player) => `${player}boxw`;
 export const boxCopyCountVarName = (player) => `${player}boxn`;
 export const boxCopyXVarName = (player, copy) => `${player}boxc${copy}`;
-export const isPlayerName = (name) => /^player\d$/.test(name);
+export const isPlayerName = (name) => /^player([0-9]|1[0-6])$/.test(name);
 export const pairKey = (first, second) => [first, second].sort().join('|');
 // The answers of the pairs are bits of shared bytes (eight pairs to a byte, see flag-pool.js): the pairs in the order of boxPairOrder.
 const BOX_HIT_BITS_PER_BYTE = 8;

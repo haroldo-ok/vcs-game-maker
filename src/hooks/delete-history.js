@@ -29,15 +29,21 @@ const put = (snapshot) => {
   remountKey.value++;
 };
 
-// Called as a delete ends: the tab writes its list once the delete has returned, so what the project holds is read just after.
+// Called as a delete ends: the tab writes its list once the delete has returned (the Music tab a moment later than the others, as it saves
+// its songs after a short wait), so what the project holds is read just after, and again for a while until it has changed.
 export const recordCardDelete = (before) => {
-  setTimeout(() => {
+  let tries = 0;
+  const look = () => {
     const after = snapshotStorageKeys(PROJECT_KEYS);
-    if (Object.keys(before).every((key) => before[key] === after[key])) return;
+    if (Object.keys(before).every((key) => before[key] === after[key])) {
+      if (++tries < 40) setTimeout(look, 50);
+      return;
+    }
     recordReorder({
       undo: () => put(before),
       redo: () => put(after),
       isCurrent: () => storageKeysMatch(after),
     });
-  }, 0);
+  };
+  setTimeout(look, 0);
 };

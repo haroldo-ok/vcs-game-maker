@@ -392,6 +392,22 @@
                               </p>
                             </template>
 
+                            <template v-else-if="card.type === 'text'">
+                              <v-select
+                                label="Text"
+                                title="The entry of the Text tab this card shows, in the text rows of the Text Minikernel (the same rows, colors and font as the text in the game)."
+                                :items="textCardOptions()"
+                                v-model="card.textId"
+                                hide-details
+                                @change="handleChildChange"
+                              />
+                              <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
+                                Draws the text kernel here, between the cards around it, with the text color and background of the
+                                Text tab. It takes about 19 scanlines of the page (about 32 with a second row), which the graphics
+                                of the page have to leave room for. A page with a text card has no text under its graphics.
+                              </p>
+                            </template>
+
                             <template v-else-if="card.type === 'player'">
                               <div class="titlescreen-player-row">
                                 <v-text-field
@@ -847,6 +863,7 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE, MAX_PLAYER_CARDS,
   blankTitleScreenPixels, migrateCardFrames, processTitleScreenStorageDefaults, cardFrameHeight,
   titleFrameBox} from '../blocks/titlescreen';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
+import {listTextStrings} from '../blocks/text-strings';
 import {appVersionField} from '../utils/app-version';
 import {CLOCK_ASPECT} from '../utils/pixel-aspect';
 
@@ -989,6 +1006,7 @@ export default defineComponent({
       if (card.type === 'space') return 'Space';
       if (card.type === 'player') return 'Player sprites';
       if (card.type === 'score') return 'Score';
+      if (card.type === 'text') return 'Text';
       return card.type;
     };
 
@@ -1046,6 +1064,11 @@ export default defineComponent({
         .reduce((total, screen) => total + screen.cards.filter((card) => card.type === type).length, 0);
     const maxCopiesForType = (type) => type === 'player' ? MAX_PLAYER_CARDS :
       type === 'score' ? MAX_SCORE_CARDS : MAX_KERNEL_COPIES_PER_TYPE;
+    const textCardOptions = () => {
+      const entries = listTextStrings();
+      return entries.length ? entries.map((entry) => ({text: entry.name || String(entry.text || '').split(String.fromCharCode(10))[0] || `Text ${entry.id}`, value: entry.id})) :
+        [{text: 'No text on the Text tab', value: ''}];
+    };
     const canAddCardType = (type) => type === 'space' || countOfType(type) < maxCopiesForType(type);
     const maxCopies = MAX_KERNEL_COPIES_PER_TYPE;
 
@@ -1055,6 +1078,7 @@ export default defineComponent({
       const newCard = (() => {
         if (type === 'space') return {id: maxId + 1, type, lines: 10};
         if (type === 'score') return {id: maxId + 1, type};
+        if (type === 'text') return {id: maxId + 1, type, textId: (listTextStrings()[0] || {}).id};
         if (type === 'player') {
           return {
             id: maxId + 1, type,
@@ -1484,7 +1508,7 @@ export default defineComponent({
         if (!source || !Array.isArray(source.cards)) {
           throw new Error('the file does not contain a title screen');
         }
-        const known = ['space', 'score', 'player', ...Object.keys(TITLE_SCREEN_KERNEL_TYPES)];
+        const known = ['space', 'score', 'player', 'text', ...Object.keys(TITLE_SCREEN_KERNEL_TYPES)];
         const cards = source.cards.map(migrateCardFrames);
         const unknown = cards.find((card) => !known.includes(card.type));
         if (unknown) throw new Error(`it has a card of an unknown kind (${escapeHtml(String(unknown.type))})`);
@@ -2007,7 +2031,7 @@ export default defineComponent({
       testingScreenId, buildInProgress, handleTestTitleScreen,
       screenDragAttrs, screenDragCardClass, screenDragHandleListeners, screenDragTargetListeners,
       cardWidth, editorWidth, cardAspectRatio, cardHasRowColors, editorRowColors, editorFgColor, cardTypeLabel,
-      addCardOptions, canAddCardType, maxCopies, maxCopiesForType, playerAnimationOptions,
+      addCardOptions, canAddCardType, maxCopies, maxCopiesForType, playerAnimationOptions, textCardOptions,
       handleAddCard, handleDeleteCard, handleDuplicateCard,
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,
       handleClearBox,

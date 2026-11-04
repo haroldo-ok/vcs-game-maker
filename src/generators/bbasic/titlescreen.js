@@ -1,5 +1,6 @@
 'use strict';
 
+import {isPxe} from '../../utils/pxe';
 import {packTitleData} from '../../utils/title-data-pack';
 import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
   processTitleScreenStorageDefaults, isCardAnimated, cardFrameHeight,
@@ -10,7 +11,7 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, titleFrameBox, titleCardFadeTargetVarName, titleCardFadeTimerVarName,
   titleCardFadePaceVarName} from '../../blocks/titlescreen';
 import {useTitleScreenStorage, usePlayerAnimationsStorage,
-  useConfigurationStorage} from '../../hooks/project';
+  useConfigurationStorage, appendCompileLog} from '../../hooks/project';
 import {processPlayerAnimationsStorageDefaults, ctrlpfShadowVarName} from './sprites';
 import {clampFrameDuration} from '../../utils/duration';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
@@ -505,6 +506,12 @@ const buildScoreDataAsm = () => {
 // playfield/vblank/overscan boilerplate plus each used minikernel type's
 // draw routine) - both real, but not knowable ahead of an actual compile,
 // and both small next to what many animation frames add up to.
+// Whether any page has a text card that names a Text tab entry.
+export const titleScreensHaveTextCard = () => {
+  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  return screens.some((screen) => (screen.cards || []).some((card) => card.type === 'text' && card.textId !== undefined && card.textId !== ''));
+};
+
 export const estimateTitleScreenGraphicsBytes = (storage) => {
   const {screens} = processTitleScreenStorageDefaults(storage);
   let bytes = 0;
@@ -606,6 +613,8 @@ const assignKernelSlots = (screens, Blockly) => {
   // "draw_score" macro) - only one real "score" bB variable/display exists
   // regardless of how many cards might ask for it.
   let hasScoreCard = false;
+  let textCardCount = 0;
+  let hasTextCard = false;
 
   // Maps "screenId:cardId" (a card's  id is only unique within its
   // screen, not project-wide - see handleAddCard's  getMaxId) to its
@@ -626,7 +635,9 @@ const assignKernelSlots = (screens, Blockly) => {
 
   screens.forEach((screen) => {
     const layoutLines = [];
+    let screenHasTextCard = false;
     (screen.cards || []).forEach((card) => {
+      if (card.type === 'text' && Blockly.BBasic.isTitleTextUsed() && card.textId !== undefined && card.textId !== '') screenHasTextCard = true;
       if (card.type === 'space') {
         const spaceLines = Math.max(1, Math.round(Number(card.lines) || 1));
         layoutLines.push(` draw_space ${spaceLines}`);
@@ -650,6 +661,13 @@ const assignKernelSlots = (screens, Blockly) => {
               `player${playerIndex}x = ${playerIndex === 0 ? 64 : 92}`, `player${playerIndex}y = ${y}`);
         });
         cardSlotsByRef[`${screen.id}:${card.id}`] = 'player';
+        return;
+      }
+      if (card.type === 'text') {
+        if (!Blockly.BBasic.isTitleTextUsed() || !Blockly.BBasic.titleTextCardInfo || card.textId === undefined || card.textId === '') return;
+        textCardCount++;
+        hasTextCard = true;
+        layoutLines.push(...buildTextCardLines(Blockly, card.textId, textCardCount));
         return;
       }
       if (card.type === 'score') {
@@ -716,16 +734,33 @@ const assignKernelSlots = (screens, Blockly) => {
       }
     });
 
+    // About how many lines the page's cards take: the picture of a page shows about 200 lines (the rest of the page is cut off, a text row among it), a graphic
+    // takes its rows (two lines each when it is square pixels) and about 7 lines to set up, a text card or the text under the page about 19 (32 with a second row).
+    const textLines = Blockly.BBasic.isTextRow2Used() ? 32 : 19;
+    const estimatedLines = (screen.cards || []).reduce((total, card) => {
+      if (card.type === 'space') return total + Math.max(1, Math.round(Number(card.lines) || 1));
+      if (card.type === 'player') return total + Math.max(1, Math.round(Number(card.windowHeight) || 50)) + 4;
+      if (card.type === 'score') return total + 12;
+      if (card.type === 'text') return total + (screenHasTextCard ? textLines : 0);
+      const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+      return typeInfo ? total + padTitleCardFrames(card, typeInfo).frameHeight * (typeInfo.doubleLine ? 2 : 1) + 7 : total;
+    }, 0) + (!screenHasTextCard && Blockly.BBasic.isTitleTextUsed() && Blockly.BBasic.titleUnderTextUsed ? textLines : 0);
+    if (estimatedLines > 200 && !Blockly.BBasic.titleLayoutWarned.has(screen.id)) {
+      Blockly.BBasic.titleLayoutWarned.add(screen.id);
+      appendCompileLog(`Title screen "${screen.name || screen.id}": its cards take about ${estimatedLines} lines, and the picture shows about 200: the end of the page is cut off` +
+        `${screenHasTextCard || (Blockly.BBasic.isTitleTextUsed() && Blockly.BBasic.titleUnderTextUsed) ? ' (a text row at the end with it)' : ''}.`, 'info');
+    }
     screenPlans.push({
       id: screen.id,
       backgroundColor: Number(screen.backgroundColor) || 0,
       layoutMacroName: `titlescreenlayout_${screen.id}`,
       layoutLines,
+      hasTextCard: screenHasTextCard,
     });
   });
 
   return {usedKernelKeys, dataBlocks, screenPlans, cardSlotsByRef, cardAnimationByRef,
-    hasPlayerCard, playerHeights, hasScoreCard};
+    hasPlayerCard, playerHeights, hasScoreCard, hasTextCard};
 };
 
 // The text under a page's graphics (see titletextkernel in text12a.asm), when the project uses the Text Minikernel too: called
@@ -734,10 +769,36 @@ const assignKernelSlots = (screens, Blockly) => {
 const TEXT_KERNEL_BANK_BY_ROMSIZE = {'8k': 2, '16k': 4, '32k': 8, '64k': 16};
 // (The DPC+ text kernel, text12DPCplus.asm, is in bank 6: see "const textbank = 6" in generators/bbasic.js.)
 const DPC_PLUS_TEXT_BANK = 6;
-const buildTitleTextCall = (Blockly) => {
-  if (!Blockly.BBasic.isTitleTextUsed()) return [];
+const titleTextKernelBank = () => {
   const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
-  const kernelBank = config.kernel === 'dpcplus' ? DPC_PLUS_TEXT_BANK : TEXT_KERNEL_BANK_BY_ROMSIZE[config.romSize] || 0;
+  return config.kernel === 'dpcplus' ? DPC_PLUS_TEXT_BANK : TEXT_KERNEL_BANK_BY_ROMSIZE[config.romSize] || 0;
+};
+
+// A text card in a page's layout (the text of one Text tab entry, in the middle of the page): the entry's first row goes where the text kernel
+// reads it, the kernel is called the way the call under the page does it (see buildTitleTextCall), and the page's color is put back
+// on the line after the text.
+const buildTextCardLines = (Blockly, textId, number) => {
+  const {offset, wrap} = Blockly.BBasic.titleTextCardInfo(textId);
+  const kernelBank = titleTextKernelBank();
+  const ret = `title_textcard_${number}_ret`;
+  return [
+    ` lda #${offset}`,
+    ' sta TextIndex',
+    ...(Blockly.BBasic.isTextRow2Used() ? [` lda #${wrap ? 1 : 0}`, ' sta TextRow2Active'] : []),
+    ...(kernelBank ? [
+      ` lda #>(${ret}-1)`, ' pha', ` lda #<(${ret}-1)`, ' pha',
+      ' lda #>(titletextkernel-1)', ' pha', ' lda #<(titletextkernel-1)', ' pha',
+      ' pha', ' pha', ` ldx #${kernelBank}`, ' jmp BS_jsr', ret,
+    ] : [' jsr titletextkernel']),
+    ' sta WSYNC',
+    ' lda titlescreencolor',
+    ' sta COLUBK',
+  ];
+};
+
+const buildTitleTextCall = (Blockly) => {
+  if (!Blockly.BBasic.isTitleTextUsed() || !Blockly.BBasic.titleUnderTextUsed) return [];
+  const kernelBank = titleTextKernelBank();
   return [
     '\tlda INTIM',
     `\tcmp #${Blockly.BBasic.titleTextTimerTicks()}`,
@@ -790,7 +851,7 @@ const buildTitleTextCall = (Blockly) => {
 // logo page, with the logo, its title and the torches) had less than the text needs left, and showed none.
 const TITLE_TEXT_EXTRA_TICKS = 12;
 const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName, textCall, shareSetup = false, shareKeys = null, uniformUsed = false) => {
-  const extraTicks = textCall && textCall.length ? TITLE_TEXT_EXTRA_TICKS : 0;
+  const extraTicks = (textCall && textCall.length) || screenPlans.some((plan) => plan.hasTextCard) ? TITLE_TEXT_EXTRA_TICKS : 0;
   const lines = ['asm'];
 
   lines.push(
@@ -874,7 +935,8 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
         '\tsta titlescreencolor',
         '\tsta COLUBK',
         `\t${plan.layoutMacroName}`,
-        '\tjmp title_playfield_done',
+        // (A page with a text card has its text in the middle: none under it.)
+        plan.hasTextCard ? '\tjmp PFWAIT' : '\tjmp title_playfield_done',
     );
     if (!isLast) lines.push(`@titlescreen_skip_${plan.id}`);
   });
@@ -1792,4 +1854,12 @@ export default (Blockly) => {
         titlePlayerIndexVarName(playerIndex), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return `${indexVar} = ${value} * ${height}\n`;
   };
+  // The PXE kernel has no Title Screen kernel yet (the one here switches banks): its blocks make no code.
+  Object.keys(Blockly.BBasic).filter((key) => key.startsWith('titlescreen_')).forEach((key) => {
+    const generate = Blockly.BBasic[key];
+    Blockly.BBasic[key] = function(block, ...rest) {
+      if (!isPxe(useConfigurationStorage().value)) return generate.call(this, block, ...rest);
+      return block.outputConnection ? ['0', Blockly.BBasic.ORDER_ATOMIC] : '';
+    };
+  });
 };

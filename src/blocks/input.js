@@ -9,6 +9,8 @@ import {
   HORIZONTAL_ICON, VERTICAL_ICON, KEYPAD_ICON,
 } from './icon';
 import {registerDropdownFieldSyncExtension} from './sprites';
+import {useConfigurationStorage} from '../hooks/project';
+import {joystickNameOf, joystickCount} from '../utils/pxe';
 
 // Every object that has an X/Y position to measure a distance between -
 // unlike collision.js's  options, Playfield is left out since it has no
@@ -58,8 +60,11 @@ const buildInputOptions = (name, difficultySwitchName) => [
   ['\u2B05 Left', `${name}left`],
   ['\u2196 Up-Left', `${name}upleft`],
   [FIRE_ICON + ' Fire', `${name}fire`],
-  [DIFFICULTY_ADVANCED_ICON + ' Difficulty A', `not ${difficultySwitchName}`],
-  [DIFFICULTY_BEGINNER_ICON + ' Difficulty B', `${difficultySwitchName}`],
+  // (The joysticks of a Quadtari have no difficulty switch.)
+  ...(difficultySwitchName ? [
+    [DIFFICULTY_ADVANCED_ICON + ' Difficulty A', `not ${difficultySwitchName}`],
+    [DIFFICULTY_BEGINNER_ICON + ' Difficulty B', `${difficultySwitchName}`],
+  ] : []),
 ];
 
 const CONSOLE_SWITCH_OPTIONS = [
@@ -72,9 +77,12 @@ const CONSOLE_SWITCH_OPTIONS = [
 // Same "bare 0/1, not Joystick 0/Joystick 1" reasoning as PLAYER_OPTIONS/
 // MISSILE_OPTIONS in blocks/sprites.js - every combined Joystick block's
 // message0 already has a static "Joystick" word right before this dropdown.
-const JOYSTICK_OPTIONS = [['0', '0'], ['1', '1']];
+// (Joysticks 2 and 3 are the ones of a Quadtari, which the PXE kernel reads.)
+const JOYSTICK_OPTIONS = function() {
+  return Array.from({length: joystickCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => [String(i), String(i)]);
+};
 
-const joystickNameFromField = (block) => `joy${block && block.getFieldValue('JOYSTICK') === '1' ? '1' : '0'}`;
+const joystickNameFromField = (block) => joystickNameOf(block && block.getFieldValue('JOYSTICK'));
 
 // Joystick 0's Difficulty switch is switchleftb, Joystick 1's is
 // switchrightb (real bB names, not something this project chose) - the one
@@ -119,8 +127,7 @@ Blockly.defineBlocksWithJsonArray([
   },
 ]);
 
-registerDropdownFieldSyncExtension('input_joystick_field_sync', 'JOYSTICK',
-    (value) => `joy${value === '1' ? '1' : '0'}`);
+registerDropdownFieldSyncExtension('input_joystick_field_sync', 'JOYSTICK', joystickNameOf);
 
 // One 0-7 direction per joystick, clockwise from Up (0=Up, 1=Up-Right,
 // 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left), or 255

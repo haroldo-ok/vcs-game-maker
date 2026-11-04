@@ -283,6 +283,22 @@ Blockly.defineBlocksWithJsonArray([
       'row-1-only behavior before this dropdown existed.',
   },
   {
+    'type': 'text_minikernel_set_background',
+    'message0': `${COLOR_ICON} Text set background color to %1`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': TEXT_COLOR,
+    'tooltip': 'Sets the background color of the text rows while the game runs (the Background color on the Text tab is the color it starts with). ' +
+      'A project with this block draws each text line 1 color clock later than without it, and "Clear text" and "Blink text" hide the text with ' +
+      'the background color you set last.',
+  },
+  {
     'type': 'text_minikernel_set_cursor_color',
     'message0': `${COLOR_ICON} Text set scroll cursor color to %1`,
     'args0': [

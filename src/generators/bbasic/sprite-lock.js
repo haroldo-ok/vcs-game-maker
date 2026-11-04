@@ -11,7 +11,7 @@
 
 // Every sprite a lock can have for a child or a parent, as their blocks name them.
 export const LOCK_SPRITES = ['player0', 'player1', 'player2', 'player3', 'player4', 'player5', 'player6', 'player7', 'player8',
-  'player9', 'missile0', 'missile1', 'ball'];
+  'player9', 'player10', 'player11', 'player12', 'player13', 'player14', 'player15', 'player16', 'missile0', 'missile1', 'ball'];
 
 export const lockParentVarName = (child) => `${child}lockparent`;
 export const lockXVarName = (child) => `${child}lockx`;

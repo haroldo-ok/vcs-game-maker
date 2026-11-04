@@ -36,7 +36,7 @@
             class="editor-canvas backdrop-canvas"
           />
           <canvas
-            v-if="showGrid || selection || polygonPreview || hoverCell"
+            v-if="showGrid || selection || polygonPreview || hoverCell || guideColumns"
             ref="gridOverlay"
             class="grid-overlay-canvas"
           />
@@ -144,6 +144,8 @@ export default {
     // ResizeObserver) - a pure visual aid, never part of the pixel data
     // itself.
     showGrid: {type: Boolean, default: false},
+    // A vertical guide line every this many columns (0: none): where the screens of a playfield wider than the screen begin.
+    guideColumns: {type: Number, default: 0},
     // Labels each cell with its  column index (0-based, matching the X
     // argument every "Background: pixel at X/Y" block already uses) at the
     // cell's center - opt-in separately from showGrid since it's only
@@ -248,7 +250,7 @@ export default {
   mounted() {
     this.initEditor(this.value.length, this.value);
 
-    if (this.showGrid || this.selection || this.polygonPreview || this.hoverCell) this.setupGridOverlay();
+    if (this.showGrid || this.selection || this.polygonPreview || this.hoverCell || this.guideColumns) this.setupGridOverlay();
     this.setupBackdrop();
     window.addEventListener('mouseup', this.handleWindowMouseUp);
   },
@@ -314,7 +316,7 @@ export default {
     // showGrid off but an active selection (or in-progress polygon) still
     // needs it mounted.
     showGrid(value) {
-      if (value || this.selection || this.polygonPreview || this.hoverCell) {
+      if (value || this.selection || this.polygonPreview || this.hoverCell || this.guideColumns) {
         this.$nextTick(() => this.setupGridOverlay());
       } else {
         this.teardownGridOverlay();
@@ -324,7 +326,7 @@ export default {
     // other direction - a selection tool can make this go from null to a
     // real Set (or back) at any time, independent of showGrid.
     selection(value) {
-      if (value || this.showGrid || this.polygonPreview || this.hoverCell) {
+      if (value || this.showGrid || this.polygonPreview || this.hoverCell || this.guideColumns) {
         this.$nextTick(() => {
           if (!this.gridResizeObserver) this.setupGridOverlay();
           else this.drawGridOverlay();
@@ -336,7 +338,7 @@ export default {
     // Same overlay-lifecycle reasoning again, for the polygon tool's
     // in-progress vertex list (see PolygonSelect's onPreview callback).
     polygonPreview(value) {
-      if (value || this.showGrid || this.selection || this.hoverCell) {
+      if (value || this.showGrid || this.selection || this.hoverCell || this.guideColumns) {
         this.$nextTick(() => {
           if (!this.gridResizeObserver) this.setupGridOverlay();
           else this.drawGridOverlay();
@@ -352,7 +354,7 @@ export default {
     // the very first hover (or one starting after everything else that
     // keeps the overlay mounted has cleared) pays for a real setup.
     hoverCell(value) {
-      if (value || this.showGrid || this.selection || this.polygonPreview) {
+      if (value || this.showGrid || this.selection || this.polygonPreview || this.guideColumns) {
         this.$nextTick(() => {
           if (!this.gridResizeObserver) this.setupGridOverlay();
           else this.drawGridOverlay();
@@ -578,6 +580,20 @@ export default {
           ctx.lineTo(cssWidth, y);
         }
         ctx.stroke();
+      }
+
+      if (this.guideColumns > 0) {
+        ctx.strokeStyle = 'rgba(255, 152, 0, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        for (let col = this.guideColumns; col < cols; col += this.guideColumns) {
+          const x = Math.round(col * cellWidth);
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, cssHeight);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
 
       // A semi-transparent fill over every selected cell, plus a solid

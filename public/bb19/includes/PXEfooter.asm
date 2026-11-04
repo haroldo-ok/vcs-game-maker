@@ -9,9 +9,11 @@ end_of_address_space
  incbin "PXE-post.arm"
 
     SEG.U
-    rorg $000a
+    rorg $0008
 Paddle0 ds 1
 Paddle1 ds 1
+Paddle2 ds 1
+Paddle3 ds 1
 
     rorg $002d
 Score_Background_Color ds 1
@@ -40,3 +42,5 @@ pfscroll_right ds 1
 pfscroll_left ds 1
 pfscroll_down ds 1
 pfscroll_up ds 1
+write_savedata_0 ds 1
+write_savedata_1 ds 1

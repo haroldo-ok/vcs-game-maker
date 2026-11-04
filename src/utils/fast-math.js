@@ -20,4 +20,52 @@ export const getFastMathSiblingFiles = (kernel) => {
 
 // On DPC+ the coprocessor does the big divisions and no table has to be kept, so it is always used there (when a block multiplies or
 // divides by something that is not a power of 2); the other kernels use it when the Options tab's switch is on.
-export const fastMathOn = (configuration) => configuration.kernel === 'dpcplus' || !!configuration.enableFastMath;
+export const fastMathOn = (configuration) => (configuration.kernel === 'dpcplus' && !configuration.pxe) || !!configuration.enableFastMath;
+
+// The PXE kernel's 6502 has no memory shifts, INY or CPY, which the stock routine uses, so it gets this one: the same entry points and
+// results, with the working bytes in the scratch RAM the legalizer reserves (see utils/pxe-legalize.js).
+export const getPxeMathSiblingFiles = ({a, t}) => ({
+  'div_mul.asm': `mul8
+ sty temp1
+ sta temp2
+ lda #0
+ sta ${t}
+reptmul8
+ lda temp2
+ lsr
+ sta temp2
+ bcc skipmul8
+ lda ${t}
+ clc
+ adc temp1
+ sta ${t}
+skipmul8
+ lda temp1
+ asl
+ sta temp1
+ bne reptmul8
+donemul8
+ lda ${t}
+ RETURN
+
+div8
+ sty temp1
+ sta ${a}
+ lda temp1
+ cmp #2
+ bcc div8bail
+ lda #$ff
+ sta ${t}
+ lda ${a}
+ sec
+div8loop
+ sbc temp1
+ inc ${t}
+ bcs div8loop
+ lda ${t}
+ RETURN
+div8bail
+ lda ${a}
+ RETURN
+`,
+});

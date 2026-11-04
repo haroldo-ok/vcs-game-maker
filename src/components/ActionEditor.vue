@@ -46,6 +46,7 @@ import blocklyToolboxBackground from 'raw-loader!./blockly-toolbox-background.xm
 import blocklyToolboxExampleEvent from 'raw-loader!./blockly-toolbox-example-event.xml';
 
 import {showError} from '../utils/build-error';
+import {isPxe} from '../utils/pxe';
 import {useWorkspaceStorage, useErrorStorage, useConfigurationStorage, useMuteBlocklySoundsStorage,
   useGridSnapStorage, useDesaturateBlocklyColorsStorage, useDarkModeStorage} from '../hooks/project';
 import {useGeneratedBasic} from '../hooks/generated';
@@ -127,7 +128,12 @@ const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors, k
     enablePlayer0SpriteColors,
     enablePlayer1SpriteColors,
     kernelIsDpcPlus,
-    atariVoxOn,
+    // (No AtariVox on PXE: its ARM program can not write to the controller ports.)
+    atariVoxOn: !!atariVoxOn && !isPxe((useConfigurationStorage() || {}).value),
+    // The PXE kernel has the memory blocks without an AtariVox (the Save/Load category of the toolbox, there with the AtariVox too).
+    saveLoadOn: !!atariVoxOn || isPxe((useConfigurationStorage() || {}).value),
+    // The color table of the PXE kernel.
+    paletteOn: isPxe((useConfigurationStorage() || {}).value),
   });
 
 export default {

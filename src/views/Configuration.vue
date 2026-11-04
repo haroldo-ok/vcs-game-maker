@@ -142,7 +142,26 @@
           persistent-hint
           class="option-switch score-switch"
         />
+        <v-select
+          v-if="configurationState.pxe"
+          :value="pfWidthOf(configurationState)"
+          :items="pxePfWidthOptions"
+          @change="handleChangePxePfWidth"
+          label="Playfield width"
+          hint="32 columns is the playfield of the other kernels, with 16 pixels free at each side of the screen. 40 columns fills the screen. 64 and 120 columns are wider than the screen: it shows 40 of them and the PXE playfield scroll blocks (PXE category) move the picture sideways. Every block that takes a playfield column uses the wider picture (the last column is 39, 63 or 119), a background has the same rows for all its columns (no separate rows for groups of 8 columns), and changing the width adds or removes columns of every background (4 at the left going to or from 32, the rest at the right)."
+          persistent-hint
+        />
         <v-checkbox
+          v-if="configurationState.pxe && pfWidthOf(configurationState) > 32"
+          v-model="configurationState.pxeSeparateScroll"
+          @change="handleChangeConfiguration"
+          label="Each column group has its own scroll and row step (parallax)"
+          hint="Every group of 8 columns keeps a vertical scroll position and a row step of its kind, which the PXE category blocks set (column group show row at the top, column group row step), so groups can move at different speeds and have taller or shorter rows. The background scroll blocks do not move the columns while this is on (the colors still scroll): scroll with the column group blocks."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-checkbox
+          v-if="!configurationState.pxe"
           v-model="configurationState.enableAtariVox"
           @change="handleChangeConfiguration"
           label="AtariVox in the Player 2 port"
@@ -188,7 +207,7 @@
               <div class="dpcplus-sprites-buttons">
                 <v-btn small depressed class="dpcplus-sprite-button" color="primary" disabled>1</v-btn>
                 <v-btn
-                  v-for="n in [2, 3, 4, 5, 6, 7, 8, 9]"
+                  v-for="n in dpcPlusSpriteNumbers"
                   :key="n"
                   small
                   depressed
@@ -279,6 +298,15 @@
           @change="handleChangeConfiguration"
           label="Faster multiply and divide"
           hint="Replaces the multiply and divide routines with ones that look the answer up in a table (multiplying always takes about 60 cycles instead of up to 180) and shift and subtract for big answers (dividing takes at most about 210 cycles instead of over 1000). Costs about 600 bytes of ROM. Only matters when a block multiplies or divides by something that is not a power of 2, such as the playfield and sprite conversion blocks. On DPC+ this is always on and only dividing changes: big answers are worked out by the coprocessor, and no extra ROM is used."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-checkbox
+          v-if="configurationState.kernel === 'dpcplus' && !configurationState.pxe"
+          v-model="configurationState.enableFireCoprocessor"
+          @change="handleChangeConfiguration"
+          label="Move fired objects with the coprocessor (DPC+)"
+          hint="Saves ROM: an object a Fire block launches with Check playfield while moving on is moved by the coprocessor, about 85 bytes less for each object, but the coprocessor program takes 720 to 840 bytes, so it only saves ROM from about nine such objects, and for an object that moves 1 pixel a frame it takes more cycles than the 6502 code (from 2 pixels a frame it takes fewer). Off by default."
           persistent-hint
           class="option-switch"
         />
@@ -437,9 +465,10 @@
 <script>
 import {computed, defineComponent, nextTick, onMounted, ref, watch} from '@vue/composition-api';
 import {TV_STANDARD_OPTIONS} from '../utils/tv-standard';
+import {playerCount, resizePixelColumns, pfWidthOf, PF_WIDTHS} from '../utils/pxe';
 
 import {USER_VARIABLE_LETTERS_WITHOUT_SUPERCHIP, dpcPlusFreedSpriteRam} from '../generators/bbasic';
-import {useConfigurationStorage,
+import {useBackgroundsStorage, useConfigurationStorage,
   useColorblindModeStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useLoadLastProjectStorage, useCheckForUpdatesStorage,
   useMuteBlocklySoundsStorage, useShowStartupTipsStorage,
@@ -494,6 +523,7 @@ const DEFAULT_CONFIGURATION = {
   enableSuperchip: false,
   enableOptimizationSpeed: false,
   enableFastMath: false,
+  enableFireCoprocessor: false,
   enableInlineRand: true,
   enableRand16: true,
   enableCycleScore: false,
@@ -518,12 +548,13 @@ const DEFAULT_CONFIGURATION = {
 // unlike romSizeOptions below.
 const KERNEL_OPTIONS = [
   {text: 'Standard', value: 'standard'},
-  {text: 'DPC+ (Experimental)', value: 'dpcplus'},
+  {text: 'DPC+ (beta 0.3)', value: 'dpcplus'},
 ];
 
 export default defineComponent({
   setup(props, context) {
     const configurationStorage = useConfigurationStorage();
+    const backgroundsStorage = useBackgroundsStorage();
     // A standing app preference, not part of the project itself (see
     // hooks/project.js's  comment) - kept separate from configurationState
     // below so it survives clearProjectStorage() and can be checked at
@@ -811,10 +842,12 @@ export default defineComponent({
     // The highest virtual sprite that is on; the ones below it are on as well (the kernel keeps them in a row).
     const dpcPlusSpriteMax = computed(() => {
       const configured = configurationState.value.dpcPlusSpriteMax;
-      return configured === undefined || configured === null ? 9 : Math.min(9, Math.max(1, Number(configured) || 1));
+      return configured === undefined || configured === null ? 9 : Math.min(playerCount(configurationState.value) - 1, Math.max(1, Number(configured) || 1));
     });
+    // The virtual sprites there are to turn on (Players 2 to 9, and 2 to 16 on PXE).
+    const dpcPlusSpriteNumbers = computed(() => Array.from({length: playerCount(configurationState.value) - 2}, (_, i) => i + 2));
     // How many variable slots the virtual sprites that are off give to the project (see dpcPlusFreedSpriteRam).
-    const dpcPlusSpriteVariableSlots = computed(() => dpcPlusFreedSpriteRam(dpcPlusSpriteMax.value, false).length);
+    const dpcPlusSpriteVariableSlots = computed(() => dpcPlusFreedSpriteRam(dpcPlusSpriteMax.value, false, false, !!configurationState.value.pxe).length);
     const handleToggleDpcPlusSprite = (number) => {
       const state = configurationState.value;
       state.dpcPlusSpriteMax = number <= dpcPlusSpriteMax.value ? number - 1 : number;
@@ -898,6 +931,7 @@ export default defineComponent({
       state.enableSuperchip = DEFAULT_CONFIGURATION.enableSuperchip;
       state.enableOptimizationSpeed = DEFAULT_CONFIGURATION.enableOptimizationSpeed;
       state.enableFastMath = DEFAULT_CONFIGURATION.enableFastMath;
+      state.enableFireCoprocessor = DEFAULT_CONFIGURATION.enableFireCoprocessor;
       state.enableInlineRand = DEFAULT_CONFIGURATION.enableInlineRand;
       state.enableRand16 = DEFAULT_CONFIGURATION.enableRand16;
       state.enableCycleScore = DEFAULT_CONFIGURATION.enableCycleScore;
@@ -919,10 +953,29 @@ export default defineComponent({
       projectAutoIncrementVersion.value = false;
     };
 
+    const pxePfWidthOptions = PF_WIDTHS.map((width) => ({
+      text: width === 32 ? '32 columns (centered, like DPC+)' : width === 40 ? '40 columns (the whole screen)' :
+        `${width} columns (the screen shows 40 of them and scrolls sideways)`,
+      value: width,
+    }));
+    // Every background is made the new width (the picture stays where it is on the screen), then the setting is kept.
+    const handlePxePfWidthChange = (width) => {
+      const backgrounds = backgroundsStorage.value;
+      if (backgrounds && backgrounds.backgrounds) {
+        backgrounds.backgrounds.forEach((background) => {
+          background.pixels = resizePixelColumns(background.pixels, width);
+        });
+        backgroundsStorage.value = backgrounds;
+      }
+      configurationState.value.pxePfWidth = width;
+      handleChangeConfiguration();
+    };
+
     return {
+      pfWidthOf, pxePfWidthOptions, handleChangePxePfWidth: handlePxePfWidthChange,
       configurationState,
       handleChangeConfiguration, handleToggleCycleScore, handleToggleScanlinesScore,
-      handleChangeResolution, handleInputPfres, handleTogglePfRowHeight, pfRowHeightShown, handleInputPfRowHeight, handleChangeDpcPlusPfres, handleChangeDpcPlusPfresPreset, dpcPlusPfresPreset, dpcPlusSpriteMax, dpcPlusSpriteVariableSlots, handleToggleDpcPlusSprite,
+      handleChangeResolution, handleInputPfres, handleTogglePfRowHeight, pfRowHeightShown, handleInputPfRowHeight, handleChangeDpcPlusPfres, handleChangeDpcPlusPfresPreset, dpcPlusPfresPreset, dpcPlusSpriteMax, dpcPlusSpriteNumbers, dpcPlusSpriteVariableSlots, handleToggleDpcPlusSprite,
       DPC_PLUS_PFRES_PRESETS,
       handleChangePfRowHeight,
       handleToggleSuperchip,

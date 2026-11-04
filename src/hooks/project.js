@@ -147,7 +147,8 @@ export const appendCompileLog = (text, level = 'info', html = false) => {
 export const ensureAtariVoxOn = (what) => {
   const configurationStorage = useConfigurationStorage();
   const config = configurationStorage.value || {};
-  if (config.enableAtariVox) return false;
+  // (Nothing turns it on for PXE, which has no AtariVox.)
+  if (config.enableAtariVox || config.pxe) return false;
   configurationStorage.value = {...config, enableAtariVox: true};
   appendCompileLog(`The AtariVox was turned on (Options tab, ROM Options), which ${what} needs.`, 'info');
   return true;

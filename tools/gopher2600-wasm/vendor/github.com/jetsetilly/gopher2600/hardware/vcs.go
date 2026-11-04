@@ -69,6 +69,12 @@ type VCS struct {
 	// television detects a change in the TV signal it will notify the emulated
 	// console, allowing it to note the new implied clock speed.
 	Clock float32
+
+	// VCS GAME MAKER: the per-cycle function Step() hands to the CPU and the callback it
+	// calls each color clock. Step() used to build a new closure on every call, which
+	// escaped to the heap: one allocation per CPU instruction (about 6,700 per frame).
+	stepCallback func(isCycle bool) error
+	stepCycle    func() error
 }
 
 // NewVCS creates a new VCS and everything associated with the hardware. It is

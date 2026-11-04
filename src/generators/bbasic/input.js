@@ -2,6 +2,8 @@
 
 import {canonicalDistanceVarName, distancePointVarName} from '../../utils/distance';
 import {keypadKeyVarName} from '../../utils/keypad';
+import {isPxe, joystickNameOf} from '../../utils/pxe';
+import {useConfigurationStorage} from '../../hooks/project';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 
 // Each of the 4 "rows" a keypad scan cycles through - SWCHA is written with
@@ -299,12 +301,18 @@ export const generateJoystickDirection8Checks = (Blockly) => {
   const resolveDevVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const lines = [];
-  ['joy0', 'joy1'].forEach((name) => {
+  ['joy0', 'joy1', 'joy2', 'joy3'].forEach((name) => {
     if (!used.has(name)) return;
     const resultVar = resolveDevVar(joyDir8ResultVarName(name));
     // The four directions are the bits of one nibble of SWCHA (joy0: the high one, right, left, down, up from the top; joy1: the low
     // one), 0 for pressed. Inverted and shifted down, that nibble is the index (up 1, down 2, left 4, right 8) the table wants, read in
     // one go instead of by four tests.
+    // The joysticks of a Quadtari (2 and 3, PXE) are not in SWCHA: each direction is asked of the compiler by its name (joy2up and so on).
+    if (name === 'joy2' || name === 'joy3') {
+      lines.push(' temp1 = 0', ...[['up', 1], ['down', 2], ['left', 4], ['right', 8]].map(([direction, bit]) => ` if ${name}${direction} then temp1 = temp1 + ${bit}`),
+          ' asm', ' ldx temp1', ` lda ${JOY_DIR8_TABLE_NAME},x`, ` sta ${resultVar}`, 'end');
+      return;
+    }
     lines.push(
         ' asm',
         ' lda SWCHA',
@@ -375,10 +383,10 @@ export const reserveJoystickButtonDevVars = (reserveDevVar, usedFor, needsReleas
 // A joystick whose Fire is only asked "tapped" (true for the frame it goes down) needs no count of the frames it is held: two bits, "was down
 // last frame" and "went down this frame", for each, in a pool byte.
 export const JOY_TAP_FAMILY = 'joyTapFlags';
-const joyTapPrevBit = (name) => flagPoolBit(JOY_TAP_FAMILY, name === 'joy1' ? 2 : 0);
-const joyTapJustBit = (name) => flagPoolBit(JOY_TAP_FAMILY, name === 'joy1' ? 3 : 1);
+const joyTapPrevBit = (name) => flagPoolBit(JOY_TAP_FAMILY, Number(name.slice(3)) * 2);
+const joyTapJustBit = (name) => flagPoolBit(JOY_TAP_FAMILY, Number(name.slice(3)) * 2 + 1);
 export const joyTapFlagsVarName = () => flagPoolVar(JOY_TAP_FAMILY);
-export const joyTapOwnBits = (tapOnly) => [...(tapOnly || [])].flatMap((name) => (name === 'joy1' ? [2, 3] : [0, 1]));
+export const joyTapOwnBits = (tapOnly) => [...(tapOnly || [])].flatMap((name) => [Number(name.slice(3)) * 2, Number(name.slice(3)) * 2 + 1]);
 export const reserveJoyTapDevVars = (reserveDevVar, tapOnly) => {
   if (!tapOnly || !tapOnly.size) return;
   reserveDevVar(joyTapFlagsVarName(), undefined, 'joysticks Fire: down last frame / went down this frame');
@@ -451,7 +459,7 @@ export const generateJoystickButtonChecks = (Blockly) => {
   const resolveDevVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const lines = [];
-  ['joy0', 'joy1'].forEach((name) => {
+  ['joy0', 'joy1', 'joy2', 'joy3'].forEach((name) => {
     if (!used.has(name)) return;
     const fireVar = resolveSystemVar(`${name}fire`);
     if ((Blockly.BBasic.joyTapOnlyFor || new Set()).has(name)) {
@@ -584,14 +592,14 @@ export const generateJoystickDoubleTapChecks = (Blockly) => {
 // JOYSTICK field (0/1) at compile time to know which - matching
 // playerNameFromField/missileNameFromField's shape in
 // generators/bbasic/sprites.js.
-const joystickNameFromBlock = (block) => `joy${block && block.getFieldValue('JOYSTICK') === '1' ? '1' : '0'}`;
+const joystickNameFromBlock = (block) => joystickNameOf(block && block.getFieldValue('JOYSTICK'));
 
 export default (Blockly) => {
   Blockly.BBasic['input_joystick_get'] = function(block) {
     const varName = block.getFieldValue('VAR');
     const getName = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.VARIABLE_CATEGORY_NAME);
     // A diagonal is the two straight directions it is made of, both pushed.
-    const diagonal = /^(joy[01])(up|down)(left|right)$/.exec(varName);
+    const diagonal = /^(joy[0-3])(up|down)(left|right)$/.exec(varName);
     if (diagonal) {
       const [, joystick, vertical, horizontal] = diagonal;
       return [`${getName(joystick + vertical)} && ${getName(joystick + horizontal)}`,
@@ -677,6 +685,8 @@ export default (Blockly) => {
   // order as logic_compare's "EQ" case, since that's exactly what this
   // is.
   Blockly.BBasic['input_keypad_get'] = function(block) {
+    // (No keypad on PXE: see keypad0Used in generators/bbasic.js.)
+    if (isPxe((useConfigurationStorage() || {}).value)) return ['0', Blockly.BBasic.ORDER_ATOMIC];
     const varName = Blockly.BBasic.nameDB_.getName(
         keypadKeyVarName(keypadPortFromBlock(block)), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const key = block.getFieldValue('KEY');
@@ -687,6 +697,8 @@ export default (Blockly) => {
   // currently held - see KEYPAD_KEY_OPTIONS' comment in blocks/input.js)
   // instead of one specific key.
   Blockly.BBasic['input_keypad_any_pressed'] = function(block) {
+    // (No keypad on PXE: see keypad0Used in generators/bbasic.js.)
+    if (isPxe((useConfigurationStorage() || {}).value)) return ['0', Blockly.BBasic.ORDER_ATOMIC];
     const varName = Blockly.BBasic.nameDB_.getName(
         keypadKeyVarName(keypadPortFromBlock(block)), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return [`${varName} <> 0`, Blockly.BBasic.ORDER_EQUALITY];
@@ -695,6 +707,8 @@ export default (Blockly) => {
   // "Key ID pressed" - the poll byte itself, exposed as a plain Number
   // rather than compared against anything.
   Blockly.BBasic['input_keypad_id_get'] = function(block) {
+    // (No keypad on PXE: see keypad0Used in generators/bbasic.js.)
+    if (isPxe((useConfigurationStorage() || {}).value)) return ['0', Blockly.BBasic.ORDER_ATOMIC];
     const varName = Blockly.BBasic.nameDB_.getName(
         keypadKeyVarName(keypadPortFromBlock(block)), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return [varName, Blockly.BBasic.ORDER_ATOMIC];

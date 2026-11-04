@@ -2,6 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayerAnimationsStorage, useConfigurationStorage} from '../hooks/project';
+import {playerCount, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
 import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, LOCK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
@@ -50,7 +51,7 @@ const buildAnimationSelectBlock = ({icon, colour, storageFactory}) => {
           (block.workspace.isDragging && block.workspace.isDragging())) return;
         const parentPlayer = block.getParent() && block.getParent().getFieldValue('PLAYER');
         const wanted = parentPlayer == null ? 'red' :
-          parentPlayer === '1' ? 'blue' : /^[2-9]$/.test(parentPlayer) ? extraPlayerColour(parentPlayer) : 'red';
+          parentPlayer === '1' ? 'blue' : EXTRA_PLAYER_NUMBER.test(parentPlayer) ? extraPlayerColour(parentPlayer) : 'red';
         if (block.getColour() === Blockly.utils.colour.parse(wanted)) return;
         setTimeout(() => {
           if (block.disposed || !block.workspace || block.isInsertionMarker() || block.workspace.isDragging()) return;
@@ -339,14 +340,14 @@ const setupFireDefaultAngleSync = (block) => {
 const PLAYER_OPTIONS = [['0', '0'], ['1', '1']];
 
 // The DPC+ kernel has eight more sprites (Player 2 to 9), offered by the blocks that can drive them.
+// (And the PXE kernel eight more, Player 10 to 16.)
 const PLAYER_DROPDOWN_OPTIONS = function() {
-  const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
-  return Array.from({length: dpcPlus ? 10 : 2}, (_, i) => [String(i), String(i)]);
+  return Array.from({length: playerCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => [String(i), String(i)]);
 };
 
 const playerNameFromField = (block) => {
   const value = block && block.getFieldValue('PLAYER');
-  return `player${/^[0-9]$/.test(value) ? value : '0'}`;
+  return `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`;
 };
 
 // Same reasoning as PLAYER_OPTIONS above, for Missile 0/1 - genuinely
@@ -363,22 +364,24 @@ const MISSILE_OPTIONS = [['0', '0'], ['1', '1']];
 const FIRE_OBJECT_OPTIONS = [['Missile 0', '0'], ['Missile 1', '1'], ['Ball', 'ball']];
 // Fire also launches the players (all ten on DPC+, two otherwise), as a Fire object like the missiles.
 const FIRE_OBJECT_DROPDOWN_OPTIONS = function() {
-  const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
-  const players = Array.from({length: dpcPlus ? 10 : 2}, (_, i) => ['Player ' + i, 'player' + i]);
+  const players = Array.from({length: playerCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => ['Player ' + i, 'player' + i]);
   return [...FIRE_OBJECT_OPTIONS, ...players];
 };
 // Players 2 to 9 (DPC+ virtual sprites) each get a different color on the blocks that pick one, Player 0 is red and Player 1 blue.
 const EXTRA_PLAYER_COLOURS = {
   2: '#2e9e4f', 3: '#8a5ac2', 4: '#d4a017', 5: '#17a2b8', 6: '#d6338a', 7: '#7a8c2c', 8: '#8d5a3b', 9: '#607d8b',
+  // (PXE: Players 10 to 16, the shades of the first seven again but darker or lighter.)
+  10: '#1b7a3a', 11: '#6d3fa8', 12: '#b88a00', 13: '#0f7f92', 14: '#b02070', 15: '#5c6b1f', 16: '#6e4630',
 };
 const extraPlayerColour = (number) => EXTRA_PLAYER_COLOURS[number] || '#8a5ac2';
 const fireObjectColour = (value) => (value === 'ball' ? '#ff8800' : (value === '1' || value === 'player1') ? 'blue' :
-  /^player[2-9]$/.test(value) ? extraPlayerColour(value.slice(6)) : 'red');
+  EXTRA_PLAYER_NAME.test(value) ? extraPlayerColour(value.slice(6)) : 'red');
 
-// The color of the blocks for a sprite of a scene (utils/scene.js: 0 to 9 the players, 10 and 11 the missiles, 12 the ball).
+// The color of the blocks for a sprite of a scene (utils/scene.js: 0 to 9 the players, 10 and 11 the missiles, 12 the ball, 13 to 19 the
+// players 10 to 16 of PXE).
 export const sceneObjectColour = (object) => {
   const colour = object <= 9 ? (object === 0 ? 'red' : object === 1 ? 'blue' : extraPlayerColour(object)) :
-    fireObjectColour(object === 12 ? 'ball' : String(object - 10));
+    object >= 13 ? extraPlayerColour(object - 3) : fireObjectColour(object === 12 ? 'ball' : String(object - 10));
   // The blocks draw the names red and blue as pure #ff0000 and #0000ff (a chip would take them for the Material colors).
   return colour === 'red' ? '#ff0000' : colour === 'blue' ? '#0000ff' : colour;
 };
@@ -477,7 +480,7 @@ const buildMissileVarOptionsFn = (extraOptionsFor) => function() {
 // directly (same "dropdown drives colour + optional VAR-prefix translate"
 // shape) rather than duplicating it.
 export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldName, namePrefixFor) => {
-  const colourFor = (value) => (value === '1' ? 'blue' : /^[2-9]$/.test(value) ? extraPlayerColour(value) : 'red');
+  const colourFor = (value) => (value === '1' ? 'blue' : EXTRA_PLAYER_NUMBER.test(value) ? extraPlayerColour(value) : 'red');
   Blockly.Extensions.register(extensionName, function() {
     // eslint-disable-next-line no-invalid-this
     const block = this;
@@ -551,7 +554,7 @@ export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldN
 };
 
 registerDropdownFieldSyncExtension('sprite_player_field_sync', 'PLAYER',
-    (value) => `player${/^[0-9]$/.test(value) ? value : '0'}`);
+    (value) => `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`);
 registerDropdownFieldSyncExtension('sprite_missile_field_sync', 'MISSILE',
     (value) => `missile${value === '1' ? '1' : '0'}`);
 
@@ -962,6 +965,12 @@ const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOption
   ]);
 };
 
+// The players the PXE kernel can mask at the screen edges: every one but Player 0.
+const MASK_PLAYER_OPTIONS = function() {
+  const count = Math.max(2, playerCount(((useConfigurationStorage() || {}).value || {})));
+  return Array.from({length: count - 1}, (_, i) => [String(i + 1), String(i + 1)]);
+};
+
 const buildPlayerBlocks = ({icon, colour}) => {
   Blockly.defineBlocksWithJsonArray([
     // Block for changing a player's size and quantity.
@@ -984,6 +993,28 @@ const buildPlayerBlocks = ({icon, colour}) => {
       'nextStatement': null,
       colour,
       'extensions': ['sprite_player_field_sync', 'math_change_tooltip'],
+    },
+    // Block for the left and right edge masking of the PXE kernel.
+    {
+      'type': 'sprite_player_mask',
+      'message0': `${icon} Player %1 edge masking %2`,
+      'args0': [
+        {
+          'type': 'field_dropdown',
+          'name': 'PLAYER',
+          'options': MASK_PLAYER_OPTIONS,
+        },
+        {
+          'type': 'field_dropdown',
+          'name': 'STATE',
+          'options': [['on', 'on'], ['off', 'off']],
+        },
+      ],
+      'previousStatement': null,
+      'nextStatement': null,
+      colour,
+      'tooltip': 'PXE kernel only: with masking on a sprite that goes past the left or right edge of the screen is cut off there, instead of ' +
+        'showing up on the other side (and the sprite does not jump when x gets high). Player 0 has no masking.',
     },
     // Block for pausing/resuming a player's animation.
     {
@@ -1193,9 +1224,9 @@ const SEEK_OBJECT_OPTIONS = [
 
 // Seek and Inertia also move the DPC+ kernel's extra sprites (Player 2 to 9).
 const SEEK_OBJECT_DROPDOWN_OPTIONS = function() {
-  const dpcPlus = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus';
-  if (!dpcPlus) return SEEK_OBJECT_OPTIONS;
-  const extra = Array.from({length: 8}, (_, i) => [PLAYER_ICON + ' Player ' + (i + 2), 'player' + (i + 2)]);
+  const count = playerCount(((useConfigurationStorage() || {}).value || {}));
+  if (count <= 2) return SEEK_OBJECT_OPTIONS;
+  const extra = Array.from({length: count - 2}, (_, i) => [PLAYER_ICON + ' Player ' + (i + 2), 'player' + (i + 2)]);
   return [...SEEK_OBJECT_OPTIONS.slice(0, 2), ...extra, ...SEEK_OBJECT_OPTIONS.slice(2)];
 };
 
@@ -1207,7 +1238,7 @@ const SEEK_OBJECT_DROPDOWN_OPTIONS = function() {
 // this file) rather than inventing a new palette just for this dropdown.
 const SEEK_OBJECT_COLOURS = {
   player0: 'red', player1: 'blue', missile0: 'red', missile1: 'blue', ball: '#ff8800',
-  ...Object.fromEntries([2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`player${n}`, extraPlayerColour(n)])),
+  ...Object.fromEntries([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((n) => [`player${n}`, extraPlayerColour(n)])),
 };
 // Validator-based, not setOnChange - see registerDropdownFieldSyncExtension's
 // comment above for why: setOnChange only ever fires from a real
@@ -1658,6 +1689,55 @@ Blockly.defineBlocksWithJsonArray([
       '(skipping frames automatically) as it approaches 0, instead of jumping straight from 1px/' +
       'frame to a dead stop - costs 2 extra hidden bytes per axis. Must match whatever "Accelerate" ' +
       '(if any) uses for the same object.',
+  },
+  // Gravity for a fired object: it keeps its Fire movement and falls (or, after a Bounce, rises) on top of it, in a curve. The speed is the vertical
+  // speed of the object's Fine inertia (see sprite_inertia_accelerate), so Bounce reflects it too.
+  {
+    'type': 'object_gravity',
+    'message0': `${INERTIA_ICON} %1 Gravity %2 %3 speed up every %4 frames, max fall speed %5`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'ACTION',
+        'options': [['Start', 'start'], ['Stop', 'stop']],
+      },
+      {
+        'type': 'field_dropdown',
+        'name': 'OBJECT',
+        'options': SEEK_OBJECT_DROPDOWN_OPTIONS,
+      },
+      {'type': 'input_dummy'},
+      {
+        'type': 'input_value',
+        'name': 'RATE',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'MAXFALL',
+        'check': 'Number',
+      },
+    ],
+    'message1': '%1 bounce keeps %2',
+    'args1': [
+      {'type': 'field_label', 'text': ' '},
+      {
+        'type': 'field_dropdown',
+        'name': 'BOUNCE',
+        'options': [['100%', '4'], ['75%', '3'], ['50%', '2'], ['25%', '1'], ['0%', '0']],
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': 'purple',
+    'extensions': ['object_seek_colour_sync'],
+    'tooltip': 'Start: from now on the player, missile or ball is pulled down: its fall speed (pixels a frame) grows by 1 every so many frames (1, 2, 4, 8, 16 or 32: ' +
+      'another number is taken down to one of these; a variable or other block is the number of frames less 1) up to "max fall speed", and it moves by that, on top of ' +
+      'its Fire movement, so a fired object follows a curve. Start also sets the fall speed to 0, so run it when the object is fired. "Bounce keeps": when a Bounce block ' +
+      'turns the object back from something above or below it, the fall speed turns round and keeps this much of its size (100% never settles; less loses height at every ' +
+      'bounce). Gravity does not look at the playfield by itself: use a Bounce block when it hits something. Number blocks in this block that are the same in every ' +
+      'Gravity block of the object take no memory. Stop: gravity is off and the fall speed is 0.',
   },
   // One block, OBJECT dropdown covers all 5 names (same shape as
   // object_seek_to/the Inertia blocks above) - replaces the old, separate
@@ -2120,7 +2200,7 @@ Blockly.Extensions.register('sprite_player_fade_colour_sync', function() {
   const varField = block.getField('VAR');
   if (!varField) return;
   const colourFor = (value) => {
-    const extra = /^player([2-9])realcolor$/.exec(value);
+    const extra = /^player([2-9]|1[0-6])realcolor$/.exec(value);
     return value === 'player1realcolor' ? 'blue' : extra ? extraPlayerColour(extra[1]) : 'red';
   };
   block.setColour(colourFor(varField.getValue()));

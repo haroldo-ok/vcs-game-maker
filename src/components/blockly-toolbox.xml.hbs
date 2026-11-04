@@ -158,6 +158,18 @@
         </block>
         <block type="random_get"></block>
         <block type="random_range_get"></block>
+        <block type="random_between_get">
+            <value name="MIN">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+            <value name="MAX">
+                <shadow type="math_number">
+                    <field name="NUM">10</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_player_set">
             <field name="VAR">player0x</field>
             <value name="VALUE">
@@ -270,6 +282,9 @@
             </value>
         </block>
         <block type="sprite_player_size" />
+        {{#if paletteOn}}
+        <block type="sprite_player_mask" />
+        {{/if}}
         <block type="sprite_player_set_animation"></block>
         <block type="sprite_player_set_animation_id">
             <value name="VALUE">
@@ -600,6 +615,18 @@
                 </shadow>
             </value>
         </block>
+        <block type="object_gravity">
+            <value name="RATE">
+                <shadow type="math_number">
+                    <field name="NUM">4</field>
+                </shadow>
+            </value>
+            <value name="MAXFALL">
+                <shadow type="math_number">
+                    <field name="NUM">4</field>
+                </shadow>
+            </value>
+        </block>
         <block type="object_bounce">
             <value name="ANGLE">
                 <shadow type="math_number">
@@ -744,6 +771,16 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_fill_circle">
+            <value name="X"><shadow type="math_number"><field name="NUM">16</field></shadow></value>
+            <value name="Y"><shadow type="math_number"><field name="NUM">5</field></shadow></value>
+            <value name="RADIUS"><shadow type="math_number"><field name="NUM">4</field></shadow></value>
+            <value name="PADDING"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="PAD_LEFT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="PAD_RIGHT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="PAD_TOP"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="PAD_BOTTOM"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
         <block type="background_fill_area">
             <value name="X1">
                 <shadow type="math_number">
@@ -825,6 +862,7 @@
                 </shadow>
             </value>
         </block>
+        <block type="background_scroll_reset"></block>
         <block type="background_scroll_edge_reached">
             <field name="EDGE">bottom</field>
         </block>
@@ -1073,6 +1111,42 @@
         <block type="speech_voice"></block>
         <block type="speech_stop"></block>
         <block type="speech_busy"></block>
+
+    </category>
+    {{/if}}
+    {{#if paletteOn}}
+    <category name="PXE" colour="rgb(122, 76, 158)">
+        <block type="pxe_screen_mode"></block>
+        <block type="palette_set">
+            <value name="INDEX"><shadow type="math_number"><field name="NUM">14</field></shadow></value>
+            <value name="COLOR"><shadow type="math_number"><field name="NUM">68</field></shadow></value>
+        </block>
+        <block type="pxe_pf_scroll">
+            <value name="AMOUNT"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+        </block>
+        <block type="pxe_pf_scroll_to">
+            <value name="COLUMN"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
+        <block type="pxe_pf_scroll_get"></block>
+        <block type="pxe_pf_column_step">
+            <value name="GROUP"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="STEP"><shadow type="math_number"><field name="NUM">16</field></shadow></value>
+        </block>
+        <block type="pxe_pf_column_row_get">
+            <value name="GROUP"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
+        <block type="pxe_pf_column_scroll">
+            <value name="GROUP"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+            <value name="POSITION"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
+        </block>
+        <block type="palette_get">
+            <value name="INDEX"><shadow type="math_number"><field name="NUM">14</field></shadow></value>
+        </block>
+        <block type="palette_is_pal"></block>
+    </category>
+    {{/if}}
+    {{#if saveLoadOn}}
+    <category name="Save/Load" colour="rgb(158, 157, 36)">
         <block type="avox_memory_save">
             <value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
             <value name="SLOT"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
@@ -1154,6 +1228,13 @@
             <value name="VALUE">
                 <shadow type="color_get">
                     <field name="COLOR">15</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="text_minikernel_set_background">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">0</field>
                 </shadow>
             </value>
         </block>

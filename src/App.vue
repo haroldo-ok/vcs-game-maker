@@ -49,7 +49,7 @@
           <span class="top-toolbar-label">Music β</span>
         </v-btn>
 
-        <v-btn v-if="configurationStorage && configurationStorage.enableAtariVox" to="/vox" link text class="voice-item" title="Vox α" elevation="0">
+        <v-btn v-if="configurationStorage && configurationStorage.enableAtariVox && !configurationStorage.pxe" to="/vox" link text class="voice-item" title="Vox α" elevation="0">
           <v-icon>mdi-chat-processing-outline</v-icon>
           <span class="top-toolbar-label">Vox α</span>
         </v-btn>
@@ -211,7 +211,7 @@
         </v-list-item>
 
         <v-list-item
-          v-if="configurationStorage && configurationStorage.enableAtariVox"
+          v-if="configurationStorage && configurationStorage.enableAtariVox && !configurationStorage.pxe"
           to="/vox"
           link
           class="voice-item"
@@ -484,6 +484,15 @@
           >
             {{ romOutdated ? 'Update ROM' : 'ROM up to date' }}
           </v-btn>
+          <v-btn
+            v-if="building"
+            color="error"
+            small
+            title="Stop the build before its next compile attempt (a compile that is running cannot be stopped in the middle)"
+            @click="handleRomCancel"
+          >
+            Cancel
+          </v-btn>
           <v-menu v-model="romSaveMenuOpen" top offset-y>
             <template v-slot:activator="{ attrs }">
               <!-- The button opens this small menu to pick .bin or .a26. -->
@@ -750,7 +759,7 @@
 import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useCheckForUpdatesStorage, useSkippedUpdateStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
-import {buildRom, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
+import {buildRom, cancelBuild, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
   useBuildInProgress} from './hooks/rom';
 import {restartEmulatorRom, safeWithGopher2600} from './hooks/emulator';
 import {useLastLoadedRomBytes} from './hooks/rom-status';
@@ -1639,6 +1648,9 @@ export default {
     // toolchain, run through an in-browser WASI shim - see hooks/bb-compiler.js),
     // but the button's progress state still needs a paint before that starts,
     // hence the same setTimeout(...,0) wrapper as when this was synchronous.
+    handleRomCancel() {
+      cancelBuild();
+    },
     handleRomUpdate() {
       if (this.building) return;
       this.building = true;

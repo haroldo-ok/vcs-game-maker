@@ -6,13 +6,16 @@
 
 export const MEMORY_SUBROUTINE_NAME = '_avox_mem';
 
+// The PXE kernel's save data (`set save_data`, `writesavedata`): two slots of up to 128 bytes in a row, so the memory blocks have 256 bytes.
+export const PXE_SAVE_STATEMENT = ' set save_data 128 128 $0300 $0380';
+
 // The subroutine that saves a byte, loads one or looks for the memory. In: temp3 the job (1 save, 2 load, 3 look for the memory), temp4 the
 // slot, temp5 the byte to save, temp6 the save file (the high byte of the address); out: temp5 the byte loaded, temp6 1 when the memory answered. A line is released by making it an input (the port pulls it up), a low is an output of 0.
 // The speech line (bit 0) is kept high all the time. Saving waits for the memory to finish writing (a few milliseconds).
 // The jobs of the subroutine's code (see its comment): the bus is set up, the job is picked, and the result is a flag in temp6 (the high
 // scores' jobs give the place there instead). The memory is read and written by two small routines that take the address in temp6 (high) and
 // temp4 (low), and give 0 in A when the memory answered.
-const memoryCode = (hs, hsFile = 65) => {
+const memoryCode = (hs, hsFile = 65, pxe = false) => {
   let counter = 0;
   const lines = [];
   const asm = (...l) => lines.push(...l);
@@ -25,11 +28,13 @@ const memoryCode = (hs, hsFile = 65) => {
   };
   mainAsm(
       '@_i2c_code',
-      'lda #$0D',
-      'sta temp1',
-      'lda #$09',
-      'sta temp2',
-      'jsr _i2c_apply',
+      ...(pxe ? [] : [
+        'lda #$0D',
+        'sta temp1',
+        'lda #$09',
+        'sta temp2',
+        'jsr _i2c_apply',
+      ]),
       'lda temp3',
       'cmp #1',
       'bne _job_load',
@@ -71,81 +76,121 @@ const memoryCode = (hs, hsFile = 65) => {
       'lda #0',
       'sta temp6',
       '@_i2c_done',
-      // the speech line idles high and nothing else is driven
-      'lda #1',
-      'sta SWCHA',
-      'sta SWACNT',
+      ...(pxe ? [
+        // the jobs that change the memory (save, the high score table's add and wipe) write it to the cartridge's save area
+        'lda temp3',
+        'cmp #1',
+        'beq _pxe_write',
+        'cmp #4',
+        'beq _pxe_write',
+        'cmp #6',
+        'bne _pxe_written',
+        '@_pxe_write',
+        'jsr write_savedata_0',
+        'jsr write_savedata_1',
+        '@_pxe_written',
+      ] : [
+        // the speech line idles high and nothing else is driven
+        'lda #1',
+        'sta SWCHA',
+        'sta SWACNT',
+      ]),
   );
-  asm(
-      // nothing answered
-      '@_mem_nack',
-      'jsr _i2c_stop',
-      'lda #1',
-      'rts',
-      // save: start, device, address (high, low), byte, stop, then wait for the memory to finish (a few milliseconds)
-      '@_mem_save',
-      'jsr _i2c_start',
-      'ldy #$A0',
-      'jsr _i2c_send',
-      'beq _ms_ack',
-      'jmp _mem_nack',
-      '@_ms_ack',
-      'ldy temp6',
-      'jsr _i2c_send',
-      'ldy temp4',
-      'jsr _i2c_send',
-      'ldy temp5',
-      'jsr _i2c_send',
-      'jsr _i2c_stop',
-      'lda #255',
-      'pha',
-      '@_ms_poll',
-      'jsr _i2c_start',
-      'ldy #$A0',
-      'jsr _i2c_send',
-      'tax',
-      'jsr _i2c_stop',
-      'cpx #0',
-      'beq _ms_done',
-      'pla',
-      'sec',
-      'sbc #1',
-      'pha',
-      'bne _ms_poll',
-      '@_ms_done',
-      'pla',
-      'lda #0',
-      'rts',
-      // load: start, device (write), address, start again, device (read), the byte (in temp5), stop
-      '@_mem_load',
-      'jsr _i2c_start',
-      'ldy #$A0',
-      'jsr _i2c_send',
-      'beq _ml_ack',
-      'jmp _mem_nack',
-      '@_ml_ack',
-      'ldy temp6',
-      'jsr _i2c_send',
-      'ldy temp4',
-      'jsr _i2c_send',
-      'jsr _i2c_start',
-      'ldy #$A1',
-      'jsr _i2c_send',
-      'jsr _i2c_recv',
-      'sty temp5',
-      'jsr _i2c_stop',
-      'lda #0',
-      'rts',
-      // looking for the memory: it answers when it is there
-      '@_mem_probe',
-      'jsr _i2c_start',
-      'ldy #$A0',
-      'jsr _i2c_send',
-      'tax',
-      'jsr _i2c_stop',
-      'txa',
-      'rts',
-  );
+  if (pxe) {
+    // The PXE kernel keeps the memory in 256 bytes of its extended RAM ($0300, see PXE_SAVE_ADDRESS), which its save data gives back at the start
+    // and writes to the cartridge when told: a byte is in the slot (temp4) whatever the save file, and the memory is always there.
+    asm(
+        // (Kept with every bit flipped: RAM that was never saved reads as 255, as the blank memory of an AtariVox does.)
+        '@_mem_save',
+        'ldx temp4',
+        'lda temp5',
+        'eor #$FF',
+        'sta $0300,x',
+        'lda #0',
+        'rts',
+        '@_mem_load',
+        'ldx temp4',
+        'lda $0300,x',
+        'eor #$FF',
+        'sta temp5',
+        'lda #0',
+        'rts',
+        '@_mem_probe',
+        'lda #0',
+        'rts',
+    );
+  } else {
+    asm(
+        // nothing answered
+        '@_mem_nack',
+        'jsr _i2c_stop',
+        'lda #1',
+        'rts',
+        // save: start, device, address (high, low), byte, stop, then wait for the memory to finish (a few milliseconds)
+        '@_mem_save',
+        'jsr _i2c_start',
+        'ldy #$A0',
+        'jsr _i2c_send',
+        'beq _ms_ack',
+        'jmp _mem_nack',
+        '@_ms_ack',
+        'ldy temp6',
+        'jsr _i2c_send',
+        'ldy temp4',
+        'jsr _i2c_send',
+        'ldy temp5',
+        'jsr _i2c_send',
+        'jsr _i2c_stop',
+        'lda #255',
+        'pha',
+        '@_ms_poll',
+        'jsr _i2c_start',
+        'ldy #$A0',
+        'jsr _i2c_send',
+        'tax',
+        'jsr _i2c_stop',
+        'cpx #0',
+        'beq _ms_done',
+        'pla',
+        'sec',
+        'sbc #1',
+        'pha',
+        'bne _ms_poll',
+        '@_ms_done',
+        'pla',
+        'lda #0',
+        'rts',
+        // load: start, device (write), address, start again, device (read), the byte (in temp5), stop
+        '@_mem_load',
+        'jsr _i2c_start',
+        'ldy #$A0',
+        'jsr _i2c_send',
+        'beq _ml_ack',
+        'jmp _mem_nack',
+        '@_ml_ack',
+        'ldy temp6',
+        'jsr _i2c_send',
+        'ldy temp4',
+        'jsr _i2c_send',
+        'jsr _i2c_start',
+        'ldy #$A1',
+        'jsr _i2c_send',
+        'jsr _i2c_recv',
+        'sty temp5',
+        'jsr _i2c_stop',
+        'lda #0',
+        'rts',
+        // looking for the memory: it answers when it is there
+        '@_mem_probe',
+        'jsr _i2c_start',
+        'ldy #$A0',
+        'jsr _i2c_send',
+        'tax',
+        'jsr _i2c_stop',
+        'txa',
+        'rts',
+    );
+  }
   if (hs) {
     const [a, b, c] = hs;
     // The table of the high scores is in the last save file of the range (set on the Vox tab): the slot 0 holds $A5 once the table is made, then 10 places of 3 bytes (the
@@ -357,8 +402,13 @@ const memoryCode = (hs, hsFile = 65) => {
 };
 
 // hsVars: the three variables of the high score table (the blocks of the table are used), or null.
-export const registerMemorySubroutine = (Blockly, hsVars = null) => {
-  Blockly.BBasic.subroutines[MEMORY_SUBROUTINE_NAME] = [
+export const registerMemorySubroutine = (Blockly, hsVars = null, pxe = false) => {
+  Blockly.BBasic.subroutines[MEMORY_SUBROUTINE_NAME] = pxe ? [
+    'asm',
+    'jmp _i2c_code',
+    ...memoryCode(hsVars, 0, true),
+    '@end',
+  ].join('\n') : [
     'asm',
     'jmp _i2c_code',
     // temp1 is what SWCHA is made, temp2 SWACNT: SDA released or low, SCL high or low. SWACNT is written first: writing SWCHA last leaves

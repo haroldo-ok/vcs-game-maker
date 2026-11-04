@@ -15,14 +15,13 @@
 
 package hardware
 
-func nullCallback(_ bool) error {
-	return nil
-}
-
 // Step the emulator state one CPU instruction
 func (vcs *VCS) Step(colorClockCallback func(isCycle bool) error) error {
-	if colorClockCallback == nil {
-		colorClockCallback = nullCallback
+	// a nil callback is simply not called (it used to be replaced with a function that
+	// did nothing, which was still called three times every CPU cycle)
+	vcs.stepCallback = colorClockCallback
+	if vcs.stepCycle == nil {
+		vcs.stepCycle = vcs.cycle
 	}
 
 	// the cycle function defines the order of operation for the rest of
@@ -56,45 +55,52 @@ func (vcs *VCS) Step(colorClockCallback func(isCycle bool) error) error {
 	// I don't believe any visual or audible artefacts of the VCS (undocumented
 	// or not) rely on the details of the CPU-TIA relationship.
 	//
-	// at the end of the cycle() function the cycleCallback() function is called
-	cycle := func() error {
-		if err := vcs.Input.Handle(); err != nil {
-			return err
-		}
-
-		vcs.TIA.QuickStep(1)
-		if err := colorClockCallback(false); err != nil {
-			return err
-		}
-
-		vcs.TIA.QuickStep(2)
-		if err := colorClockCallback(false); err != nil {
-			return err
-		}
-
-		if reg, ok := vcs.Mem.TIA.ChipHasChanged(); ok {
-			vcs.TIA.Step(reg, 3)
-		} else {
-			vcs.TIA.QuickStep(3)
-		}
-		if reg, ok := vcs.Mem.RIOT.ChipHasChanged(); ok {
-			vcs.RIOT.Step(reg)
-		} else {
-			vcs.RIOT.QuickStep()
-		}
-
-		vcs.Mem.Cart.Step(vcs.Clock)
-
-		if err := colorClockCallback(true); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	err := vcs.CPU.ExecuteInstruction(cycle)
+	err := vcs.CPU.ExecuteInstruction(vcs.stepCycle)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// cycle is the function Step() passes to the CPU, described in Step(). It is a method
+// (not a closure built inside Step) so no allocation is needed for each instruction.
+func (vcs *VCS) cycle() error {
+	if err := vcs.Input.Handle(); err != nil {
+		return err
+	}
+
+	vcs.TIA.QuickStep(1)
+	if callback := vcs.stepCallback; callback != nil {
+		if err := callback(false); err != nil {
+			return err
+		}
+	}
+
+	vcs.TIA.QuickStep(2)
+	if callback := vcs.stepCallback; callback != nil {
+		if err := callback(false); err != nil {
+			return err
+		}
+	}
+
+	if reg, ok := vcs.Mem.TIA.ChipHasChanged(); ok {
+		vcs.TIA.Step(reg, 3)
+	} else {
+		vcs.TIA.QuickStep(3)
+	}
+	if reg, ok := vcs.Mem.RIOT.ChipHasChanged(); ok {
+		vcs.RIOT.Step(reg)
+	} else {
+		vcs.RIOT.QuickStep()
+	}
+
+	vcs.Mem.Cart.Step(vcs.Clock)
+
+	if callback := vcs.stepCallback; callback != nil {
+		if err := callback(true); err != nil {
+			return err
+		}
 	}
 
 	return nil

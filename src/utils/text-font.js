@@ -349,19 +349,23 @@ export const buildTextRow2ColorOverride = (text12b, {colorVarName}) => {
   // all), including tracking any later change to TextColor (a fade, or
   // another row-1/both color set) automatically, the way a real single
   // shared color would.
-  const asm = [
-    '',
-    '        pha',
+  // The kernel loads TextColor into the sprites' color on every line of a row, so setting the color once per row did nothing: row 2's color is put in
+  // TextColor itself while row 2 is drawn (the two bytes are swapped, and swapped back where the rows are done), unless it is the sentinel.
+  const swap = [
     `        lda ${colorVarName}`,
     '        cmp #$01',
-    '        bne _tr2_use_own',
+    '        beq _tr2_same_@',
+    '        tay',
     '        lda TextColor',
-    '_tr2_use_own',
-    '        sta COLUP0',
-    '        sta COLUP1',
-    '        pla',
-  ].join('\n');
-  return text12b.slice(0, insertAt) + asm + text12b.slice(insertAt);
+    '        sty TextColor',
+    `        sta ${colorVarName}`,
+    '_tr2_same_@',
+  ];
+  const asm = ['', '        pha', ...swap.map((line) => line.replace('@', 'a')), '        pla'].join(String.fromCharCode(10));
+  const back = ['', ...swap.map((line) => line.replace('@', 'b'))].join(String.fromCharCode(10));
+  const withHook = text12b.slice(0, insertAt) + asm + text12b.slice(insertAt);
+  // Swapped back where the rows are done.
+  return withHook.replace(/^textrowsdone[ ]*$/m, (label) => label + back);
 };
 
 /**

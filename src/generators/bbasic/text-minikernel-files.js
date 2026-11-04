@@ -12,7 +12,7 @@
 // relationship they'd have as real files next to a .bas file on disk -
 // confirmed against the real local toolchain to be exactly what "inline
 // text12a.asm"/"inline text12b.asm" need.
-import {WORKING_KERNEL_TIMERS, squishKernelTimer, withDpcPlusSquishKernel} from '../../utils/dpc-squish';
+import {WORKING_KERNEL_TIMERS, SQUISH_LINES_SAVED, withDpcPlusSquishKernel} from '../../utils/dpc-squish';
 
 const fetchText = (path) => fetch(path).then((r) => r.text());
 
@@ -81,8 +81,9 @@ const DPC_PLUS_TEXT_HOOK = [
   '    endif',
   '',
 ];
-// waits: lines to wait out after the score (a Squish font's, see dpc-squish.js).
-const withDpcPlusTextHook = (kernel, waits = 0) => {
+// waits: lines to wait out after the score; afterWaits: lines to wait out after the text (a Squish font's, see dpc-squish.js: the lines its
+// shorter digits save go below the text, which so starts that much higher).
+const withDpcPlusTextHook = (kernel, waits = 0, afterWaits = 0) => {
   const lines = kernel.split('\n');
   const at = lines.findIndex((line) => /^\s*bpl scoreloop/.test(line));
   if (at < 0) throw new Error('The DPC+ kernel has no score loop to add the Text Minikernel to');
@@ -92,7 +93,7 @@ const withDpcPlusTextHook = (kernel, waits = 0) => {
   lines.splice(at + 1, 0, '     ldx #0', '     stx GRP0', '     stx GRP1', '     stx GRP0', '    ifconst pfscore', '     stx PF1', '    endif',
       ...Array(waits).fill('     sta WSYNC'),
       'dpchiddentext', '    ifconst dpchidescore',
-      '     sta WSYNC', '    endif', ...DPC_PLUS_TEXT_HOOK);
+      '     sta WSYNC', '    endif', ...DPC_PLUS_TEXT_HOOK, ...Array(afterWaits).fill('     sta WSYNC'));
   // A project that hides the score under the text skips the score's loop (its digits are not drawn at all, so
   // none show over the picture) and jumps to the text kernel, with the wait above in the line the loop would take.
   const loopAt = lines.findIndex((line) => /^scoreloop\s*$/.test(line));
@@ -111,8 +112,14 @@ const withDpcPlusTextHook = (kernel, waits = 0) => {
 // shorter by what it takes: 14 lines for the one row, 17 more for the second row (measured by the length of the frame) and 6 for the scroll
 // cursor's extra scanlines.
 const DPC_PLUS_KERNEL_LINES = 178;
-const DPC_PLUS_TEXT_ROW_LINES = 14;
+// The text kernel reads the first row straight from the message table now (2 lines less than it took), and the text sits TEXT_UP lines higher: the picture
+// is made that much shorter and the lines are waited out below the text (see DPC_PLUS_TEXT_WAITS), so the frame keeps its length.
+const DPC_PLUS_TEXT_UP = 2;
+const DPC_PLUS_TEXT_ROW_LINES = 14 + DPC_PLUS_TEXT_UP;
 const DPC_PLUS_TEXT_ROW2_LINES = 17;
+// The lines waited out below the text so that the frame is 262 lines (measured on the length of the frame, by the number of rows and whether the score shows: the
+// timers of the picture only come in steps, which is what these make up for).
+const dpcPlusTextWaits = (withRow2, hideScore) => (hideScore ? (withRow2 ? 6 : 2) : (withRow2 ? 3 : 1));
 const DPC_PLUS_TEXT_CURSOR_LINES = 6;
 // The kernel ends its picture by checking the timer it started, and only some starting values end it right (192, 178
 // and 173 were measured to work, 194 and 168 do not; the stock 211 works too), so the screen height is the tallest
@@ -134,14 +141,13 @@ const dpcPlusTextKernelTimer = (withRow2, withCursor, hideScore) => {
 export const dpcPlusTextScreenLines = (withRow2, withCursor, hideScore = false) =>
   dpcPlusTextKernelTimer(withRow2, withCursor, hideScore) * 64 / 76;
 
-const squishTimerOf = (withRow2, withCursor, hideScore, squish) => {
-  const timer = dpcPlusTextKernelTimer(withRow2, withCursor, hideScore);
-  return squish && !hideScore ? squishKernelTimer(timer) : {timer, waits: 0};
-};
+// With the Text Minikernel a Squish score font does not give its 3 saved lines to the picture: the text starts those lines higher and the
+// lines are waited out below it, so the frame keeps its length.
+const squishTimerOf = (withRow2, withCursor, hideScore) => ({timer: dpcPlusTextKernelTimer(withRow2, withCursor, hideScore), waits: 0});
 
 const withDpcPlusTextScreenHeight = (header, withRow2, withCursor, hideScore, squish) => {
   const patched = header.replace(/KERNEL_LINES = 178\*76\/64/,
-      `KERNEL_LINES = ${squishTimerOf(withRow2, withCursor, hideScore, squish).timer}`);
+      `KERNEL_LINES = ${squishTimerOf(withRow2, withCursor, hideScore).timer}`);
   if (patched === header) throw new Error('The DPC+ header has no screen height to shorten for the Text Minikernel');
   return patched;
 };
@@ -157,8 +163,8 @@ export const getDpcPlusTextMinikernelSiblingFiles = (withRow2 = false, withCurso
     ]).then(([text, kernel, header]) => ({
       'text12DPCplus.asm': text,
       'DPCplus_kernel.asm': squish && !hideScore ?
-        withDpcPlusSquishKernel(withDpcPlusTextHook(kernel, squishTimerOf(withRow2, withCursor, hideScore, squish).waits), 0, true) :
-        withDpcPlusTextHook(kernel),
+        withDpcPlusSquishKernel(withDpcPlusTextHook(kernel, 0, SQUISH_LINES_SAVED + dpcPlusTextWaits(withRow2, hideScore)), 0, true) :
+        withDpcPlusTextHook(kernel, 0, dpcPlusTextWaits(withRow2, hideScore)),
       'DPCplusbB.h': withDpcPlusTextScreenHeight(header, withRow2, withCursor, hideScore, squish),
     }));
   }

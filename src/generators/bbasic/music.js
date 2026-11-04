@@ -1,5 +1,6 @@
 'use strict';
 
+import {isPxe} from '../../utils/pxe';
 import {chunk} from 'lodash';
 
 import {findSongById, processSongsStorageDefaults, DEFAULT_PATTERN_STEPS, LENGTH_UNITS_PER_STEP} from '../../blocks/music';
@@ -501,7 +502,7 @@ export const resolveNotePlayedInstruments = (workspace) => {
   });
   // The AtariVox instruments (sound effects of the SpeakJet chip) that a note of any song uses are watched too: the music is silent for the
   // console at their notes and the program says the effect (see generateAvoxInstrumentChecks in speech.js), when the AtariVox is on.
-  if (((configurationStorage && configurationStorage.value) || {}).enableAtariVox) {
+  if (((configurationStorage && configurationStorage.value) || {}).enableAtariVox && !isPxe((configurationStorage && configurationStorage.value) || {})) {
     const avoxIds = new Set(processSoundEffectsStorageDefaults(useSoundEffectsStorage()).soundEffects
         .filter((soundEffect) => soundEffect.isAtariVox).map((soundEffect) => `${soundEffect.id}`));
     if (avoxIds.size) {

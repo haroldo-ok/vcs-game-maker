@@ -515,9 +515,10 @@ import {beginCardDelete, recordCardDelete} from '../hooks/delete-history';
 import {REDO_TITLE, UNDO_TITLE, undoRedoKind} from '../utils/undo-hotkey';
 import {colorByteToCss} from '../utils/palette';
 import {pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords';
+import {pfIsWide} from '../utils/pxe';
 import {
   SCENE_FLAG_ANIMATION, SCENE_FLAG_COLOR, SCENE_FLAG_FLIPPED, SCENE_FLAG_HEIGHT, SCENE_FLAG_HIDDEN, SCENE_FLAG_SIZE, SCENE_NO_ANIMATION,
-  MISSILE_WIDTHS, SCENE_TRIGGER_LOAD, SCENE_TRIGGER_MOVE, SCENE_SCREEN_LINES, SCENE_SCREEN_WIDTH, availableSceneObjects, decodeScene,
+  MISSILE_WIDTHS, SCENE_TRIGGER_OBJECT_LIMIT, SCENE_TRIGGER_LOAD, SCENE_TRIGGER_MOVE, SCENE_SCREEN_LINES, SCENE_SCREEN_WIDTH, availableSceneObjects, decodeScene,
   SCENE_OFFSET_MASKS, encodeScene, isScenePlayer, isSceneTable, newSceneObject, newSceneOffset, newSceneTrigger, sceneObjectLabel, sceneValueFormats,
   sceneValueNotes, triggerNamesOf,
 } from '../utils/scene';
@@ -564,6 +565,8 @@ const SCREEN_LINES = 192;
 const OFFSET_ARROWS = {alternate: '⇄', alternate_rl: '⇄', left: '←', right: '→', alternate_ud: '⇅', alternate_du: '⇅', up: '↑', down: '↓'};
 // The playfield is 128 pixels wide, centered on the 160 pixel screen.
 const PLAYFIELD_LEFT = 16;
+// Where the playfield starts on the screen: the PXE kernel's 40 column one fills it (see pfWidthOf).
+const playfieldLeftOf = (config) => (pfIsWide(config) ? 0 : PLAYFIELD_LEFT);
 // Where each copy of a player is, in pixels from the first (the number of the width/quantity option is the index).
 const COPY_OFFSETS = [[0], [0, 16], [0, 32], [0, 16, 32], [0, 64], [0], [0, 32, 64], [0]];
 const COPY_STRETCH = [1, 1, 1, 1, 1, 2, 1, 4];
@@ -863,7 +866,7 @@ export default defineComponent({
     };
     const triggerKindItems = [{text: 'Move the sprite to X and Y', value: SCENE_TRIGGER_MOVE}, {text: 'Set up a scene', value: SCENE_TRIGGER_LOAD}];
     const triggerSceneItems = computed(() => scenes.value.map(({table}) => ({text: table.name || `Scene ${table.id}`, value: table.id})));
-    const triggerObjects = () => availableSceneObjects(config());
+    const triggerObjects = () => availableSceneObjects(config()).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT);
     // Whether the sprites that set the selected trigger off are listed (a line of them, short, when they are not).
     const triggerByOpen = ref(false);
     // The playfield offset areas: rectangles of playfield cells whose pixels move while the scene is showing. Selected as {scene, offset: place in the list}.
@@ -888,7 +891,7 @@ export default defineComponent({
       const right = offset.whole ? grid.columns - 1 : Math.max(offset.left, offset.right);
       const top = offset.whole ? 0 : Math.min(offset.top, offset.bottom);
       const bottom = offset.whole ? grid.rows - 1 : Math.max(offset.top, offset.bottom);
-      return {x: PLAYFIELD_LEFT + 4 * left, y: grid.rowLines * top, width: 4 * (right - left + 1), height: grid.rowLines * (bottom - top + 1)};
+      return {x: playfieldLeftOf(config()) + 4 * left, y: grid.rowLines * top, width: 4 * (right - left + 1), height: grid.rowLines * (bottom - top + 1)};
     };
     const handleAddOffset = (scene) => {
       const index = (scene.offsets || []).length;
@@ -1068,6 +1071,9 @@ export default defineComponent({
       withScene(scene, (next) => {
         const sprite = newSceneObject(object);
         if (!isScenePlayer(object)) sprite.flags |= SCENE_FLAG_HEIGHT;
+        // Under DPC+ a player's Y is 2 * Y minus the tallest picture of the project in lines, so a project with a tall picture puts a new sprite above the
+        // picture: its Y starts low enough for the sprite to show (the middle of the picture at most).
+        if (isScenePlayer(object) && dpcPlus()) sprite.y = Math.min(150, Math.max(sprite.y, Math.ceil(tallestPicture() / 2) + 16));
         next.objects.push(sprite);
       });
       select(scene, object);
@@ -1124,7 +1130,8 @@ export default defineComponent({
     // BOTTOM edge is, in steps of two lines from the top of the playfield. A DPC+ missile or ball is the exception: its Y is its top edge in lines.
     const dpcPlus = () => config().kernel === 'dpcplus';
     const spriteLeft = (sprite) => {
-      if (!isScenePlayer(sprite.object)) return PLAYFIELD_LEFT + sprite.x - (dpcPlus() ? 14 : 18);
+      // (A DPC+ ball is 17 to the left of its X, a missile 14: measured with the ball, Missile 0 and Missile 1 of a scene on both kernels.)
+      if (!isScenePlayer(sprite.object)) return PLAYFIELD_LEFT + sprite.x - (dpcPlus() ? (sprite.object === 12 ? 17 : 14) : 18);
       // (Under DPC+ Player 0 is 13 and the players after it 16 in the measurements.)
       return PLAYFIELD_LEFT + sprite.x - (dpcPlus() ? (sprite.object === 0 ? 13 : 16) : 17);
     };
@@ -1155,11 +1162,17 @@ export default defineComponent({
         const rows = frame ? frame.pixels.length : 8;
         const size = hasFlag(sprite, SCENE_FLAG_SIZE) ? Math.min(7, sprite.size) : 0;
         const top = 2 * sprite.y - (dpcPlus() ? tallestPicture() : rows * 2);
-        return COPY_OFFSETS[size].map((offset) => ({left: left + offset, top, width: width * COPY_STRETCH[size], height: rows * 2}));
+        // (A player drawn double or quad wide starts a pixel to the right of where a normal one does, as on the TIA: measured on both kernels.)
+        return COPY_OFFSETS[size].map((offset) => ({left: left + offset + (COPY_STRETCH[size] > 1 ? 1 : 0), top, width: width * COPY_STRETCH[size], height: rows * 2}));
       }
       const size = hasFlag(sprite, SCENE_FLAG_SIZE) ? Math.min(3, sprite.size) : 0;
-      const height = Math.max(2, linesPerY(sprite) * sprite.height);
-      return [{left, top: dpcPlus() ? sprite.y : 2 * sprite.y - height, width: MISSILE_WIDTHS[size], height}];
+      // Measured on both kernels: the standard kernel draws a missile or ball a row (2 lines) taller than its height says and starts it at 2 * Y - 2 * its
+      // height (a line higher for Missile 0 and two for Missile 1); a DPC+ one is as many lines as its height, Missile 1 a line higher.
+      const lines = dpcPlus() ? sprite.height : 2 * sprite.height + 2;
+      const height = Math.max(2, lines);
+      const top = dpcPlus() ? sprite.y - (sprite.object === 11 ? 1 : 0) :
+        2 * sprite.y - 2 * sprite.height - (sprite.object === 10 ? 1 : sprite.object === 11 ? 2 : 0);
+      return [{left, top, width: MISSILE_WIDTHS[size], height}];
     };
 
     const drawScene = (scene) => {
@@ -1196,7 +1209,7 @@ export default defineComponent({
             } else {
               return;
             }
-            context.fillRect(PLAYFIELD_LEFT + 4 * x, line, 4, 1);
+            context.fillRect(playfieldLeftOf(config()) + 4 * x, line, 4, 1);
           });
         }
       }
@@ -1302,7 +1315,7 @@ export default defineComponent({
       const scaleY = height / SCREEN_LINES;
       const cellWidth = 4 * scaleX;
       const cellHeight = rowLines * scaleY;
-      const left = PLAYFIELD_LEFT * scaleX;
+      const left = playfieldLeftOf(cfg) * scaleX;
       context.strokeStyle = 'rgba(170, 170, 170, 0.5)';
       context.lineWidth = 1;
       context.beginPath();

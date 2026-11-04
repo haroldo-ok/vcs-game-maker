@@ -14,6 +14,33 @@ export default (Blockly) => {
     return [`${randCode}`, Blockly.BBasic.ORDER_ATOMIC];
   };
 
+  // A random number from MIN to MAX, both included and each as likely as the others: the span (MAX less MIN) is masked up to all ones (the next 2^n - 1) and
+  // rand is masked with it, tried again when it is more than the span (about 1.5 tries on average and never more than 2 on average even for the worst span).
+  // The steps before the last line go in front of the statement that uses the value (see scrub_ in generators/bbasic.js); the value is left in temp1.
+  Blockly.BBasic[`random_between_get`] = function(block) {
+    const min = Blockly.BBasic.valueToCode(block, 'MIN', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const max = Blockly.BBasic.valueToCode(block, 'MAX', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const retry = `_randombetween_${Blockly.BBasic.blockNumbers.next('randombetween')}_retry`;
+    const lines = [
+      `temp1 = ${min}`,
+      `temp2 = ${max}`,
+      'if temp1 <= temp2 then goto ' + retry + 'swapped',
+      'temp3 = temp1 : temp1 = temp2 : temp2 = temp3',
+      '@ ' + retry + 'swapped',
+      'temp3 = temp2 - temp1',
+      'temp4 = temp3',
+      'temp4 = temp4 | (temp4 / 2)',
+      'temp4 = temp4 | (temp4 / 4)',
+      'temp4 = temp4 | (temp4 / 16)',
+      '@ ' + retry,
+      'temp5 = rand & temp4',
+      'if temp5 > temp3 then goto ' + retry,
+      'temp1 = temp1 + temp5',
+      'temp1',
+    ];
+    return [lines.join('\n'), Blockly.BBasic.ORDER_ATOMIC];
+  };
+
   // Writes a seed into "rand" (and "rand16", when the latter is on - see
   // blocks/random.js's  comment on why an unseeded rand16 would
   // otherwise still leave the combined sequence deterministic) - a single

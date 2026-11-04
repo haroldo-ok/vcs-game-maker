@@ -2,7 +2,6 @@
 
  SEG.U vars
  org $30
-player0x ds 1
 topP1x ds 1
 missile0x ds 1
 missile1x ds 1
@@ -13,8 +12,8 @@ SpriteGfxIndex ds 9
 spritedisplay ds 1
 
 player0xcoll ds 1; to detect p0x colls
-NewSpriteX ds 1	;		X position
-player1x = NewSpriteX
+player0x ds 1
+player1x ds 1
 player2x ds 1
 player3x ds 1
 player4x ds 1
@@ -32,8 +31,7 @@ player15x ds 1
 player16x ds 1
 
 player0y ds 1
-NewSpriteY ds 1			;		Y position
-player1y = NewSpriteY
+player1y ds 1
 player2y ds 1
 player3y ds 1
 player4y ds 1
@@ -54,7 +52,9 @@ player0color
 player0colorlo ds 1
 player0colorhi ds 1
 
+CEL_BOT_OFFSET_0
 player0height ds 1
+CEL_BOT_OFFSET_1
 player1height ds 1
 player2height ds 1
 player3height ds 1
@@ -247,9 +247,27 @@ var58 ds 1
 var59 ds 1
 var60 ds 1
 
-stack_reserved ds 10
-; echo "free ZP ram:",($100-*)d
- 
+SIMPLE_48_START ds 1
+SIMPLE_48_END ds 1
+
+ echo "Available ZP ram:",($100-*)d
+
+ SEG.U stack_vars
+ org $0100
+
+
+; Variables for Sprites mode
+SPRITE_0 ds 1
+SPRITE_1 ds 16
+CEL_0 ds 1
+CEL_1 ds 16
+INK_0 ds 1
+INK_1 ds 16
+CEL_TOP_OFFSET_0 ds 1
+CEL_TOP_OFFSET_1 ds 16
+
+ echo "Available Stack ram:",($200-*)d
+
  SEG.U vars
  org $0300
  

@@ -100,6 +100,24 @@ ROM_START = .
     .byte >miniKernel0type
     .byte <miniKernelCount
     .byte >miniKernelCount
+    .byte save_data0_size
+    .byte save_data1_size
+    .byte <save_data0_var
+    .byte >save_data0_var
+    .byte <save_data1_var
+    .byte >save_data1_var
+    .byte <SPRITE_0
+    .byte >SPRITE_0
+ ifconst ___SPRITE_DATA
+    .byte <___SPRITE_DATA
+    .byte >___SPRITE_DATA
+ else
+    .byte 0
+    .byte 0
+ endif
+    .byte <SIMPLE_48_START
+    .byte >SIMPLE_48_START
+
 
     ; Initial NTSC Palette
      ORG $0600 + ROM_START
@@ -172,7 +190,7 @@ PALETTE ; the Initial NTSC or PAL palette is copied to this RAM location at boot
     ; ww: PF width. How many PF columns wide to scroll through horizontally. Each PF column is 8 PF pixels wide (32 pixels)
     ;   0: 4 columns with sides set to PF0. No horizontal scrolling. Primarily for backwards compatability with DPC+ kernel.
     ;   1: 5 columns. 160 (40 PF) Pixels wide. 
-    ;   2: 10 columns. 320 (80 PF) Pixels wide.
+    ;   2: 8 columns. 256 (64 PF) Pixels wide.
     ;   3: 15 columns. 480 (120 PF) Pixels wide.
 PF_MODE ; cbfo vpww
     .byte $00
@@ -345,11 +363,12 @@ PF_VER_SCROLL_LO_BKCOL
 PF_VER_SCROLL_HI_BKCOL
     .byte $00
 
-; Simple 48 Pixel Mode
+; Graphics modes
+GFX_MODE
 simple48 .byte 0 ; 0-Normal Multisprite kernel lines 0-179, 1-48 Pixel Sprite using backgroundcolor, playfieldcolor, and playfield data
-
+                 ; 2 - no score shown at bottom. top kernel fills all 188 lines
+                 
 ; PaddleRange set to 0 to disable, paddle value will be converted into a number between 0 and range inclusive.
-; Only 0 and 1 currently supported
 PaddleRange0:
     .byte 00
 PaddleRange1:

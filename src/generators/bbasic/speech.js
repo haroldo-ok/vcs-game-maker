@@ -7,6 +7,7 @@ import {speechWordsFor, textToSpeakJetWords} from '../../utils/speakjet-text';
 import {processTextStringsStorageDefaults} from '../../blocks/text-strings';
 import {processSoundEffectsStorageDefaults} from '../../blocks/soundfx';
 import {registerMemorySubroutine} from './avox-memory';
+import {isPxe} from '../../utils/pxe';
 import {isVoiceInstrument, noteSpeechBytes} from '../../utils/note-speech';
 import {musicSongIndexVarName} from './music';
 
@@ -68,14 +69,22 @@ const speechKey = (block) => {
 export const prepareSpeech = (Blockly, workspace) => {
   const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
   // The AtariVox is a project option (Options tab, ROM Options): off, its blocks build to nothing.
-  Blockly.BBasic.avoxEnabled = !!config.enableAtariVox;
+  // The PXE kernel's ARM program can only write to the TIA (its bus library has no write to the controller ports of the RIOT), so nothing can be sent to an AtariVox
+  // from it: the speech and the sound effects of the AtariVox are left out there (its memory blocks use the save data of PXE instead).
+  Blockly.BBasic.avoxEnabled = !!config.enableAtariVox && !isPxe(config);
+  // The PXE kernel keeps the memory blocks' bytes in its save data, so they work without the AtariVox (the speech blocks still need one).
+  Blockly.BBasic.pxeMemory = isPxe(config);
   const speechTypes = ['speech_say', 'speech_use_voice', 'speech_use_voice_id', 'speech_effect', 'speech_say_text', 'speech_say_card', 'speech_say_number', 'speech_voice', 'speech_stop', 'speech_busy'];
-  const avoxBlockTypes = (block) => speechTypes.includes(block.type) || block.type.startsWith('avox_');
+  const avoxBlockTypes = (block) => speechTypes.includes(block.type) ||
+    (block.type.startsWith('avox_') && !(Blockly.BBasic.pxeMemory && /^avox_(memory|highscore)_/.test(block.type)));
   const allBlocks = workspace.getAllBlocks(false).filter((block) => block.isEnabled());
-  if (!Blockly.BBasic.avoxEnabled && allBlocks.some(avoxBlockTypes)) {
+  if (config.enableAtariVox && isPxe(config) && allBlocks.some(avoxBlockTypes)) {
+    appendCompileLog('The AtariVox blocks are left out: the PXE kernel can not write to the controller ports the AtariVox is on.', 'info');
+  } else if (!Blockly.BBasic.avoxEnabled && allBlocks.some(avoxBlockTypes)) {
     appendCompileLog('The AtariVox blocks are left out: the AtariVox is off (Options tab, ROM Options).', 'info');
   }
   const blocks = Blockly.BBasic.avoxEnabled ? allBlocks : [];
+  const memoryBlocks = Blockly.BBasic.avoxEnabled || Blockly.BBasic.pxeMemory ? allBlocks : [];
   // The AtariVox instruments of the music (see resolveNotePlayedInstruments in music.js: a note of one sets the watch of its instrument): each
   // has a phrase, the sound effect of its card, that the program says when the watch is set.
   const soundEffects = Blockly.BBasic.avoxEnabled ? processSoundEffectsStorageDefaults(useSoundEffectsStorage()).soundEffects : [];
@@ -89,16 +98,24 @@ export const prepareSpeech = (Blockly, workspace) => {
   const avoxCards = [...new Map([...avoxInstruments.map(({soundEffect}) => soundEffect), ...playedAvoxCards].map((card) => [card.id, card])).values()];
   const used = blocks.some((block) => speechTypes.includes(block.type)) || avoxCards.length > 0;
   // The AtariVox's memory (a 32 KB EEPROM on the same port): blocks that save and load a byte (see avox-memory.js).
-  Blockly.BBasic.avoxHighScoresUsed = blocks.some((block) => block.type.startsWith('avox_highscore_'));
+  Blockly.BBasic.avoxHighScoresUsed = memoryBlocks.some((block) => block.type.startsWith('avox_highscore_'));
   // The save files the project keeps its data in (the two fields of the Vox tab, in the project's options): the data files count from the first,
   // and the table of the high scores is the last. Without them it is the single file 65, the first file nobody has reserved (see
   // src/data/savekey-allocations.js).
   const avoxConfig = config;
-  const rangeStart = Math.max(0, Math.min(127, Math.round(Number(avoxConfig.avoxFileStart ?? 65))));
-  const rangeEnd = Math.max(rangeStart, Math.min(127, Math.round(Number(avoxConfig.avoxFileEnd ?? 65))));
+  // (The save data of PXE is one file: 256 bytes.)
+  const rangeStart = Blockly.BBasic.pxeMemory ? 0 : Math.max(0, Math.min(127, Math.round(Number(avoxConfig.avoxFileStart ?? 65))));
+  const rangeEnd = Blockly.BBasic.pxeMemory ? 0 : Math.max(rangeStart, Math.min(127, Math.round(Number(avoxConfig.avoxFileEnd ?? 65))));
   Blockly.BBasic.avoxFileRange = {start: rangeStart, end: rangeEnd};
   Blockly.BBasic.avoxMemoryUsed = Blockly.BBasic.avoxHighScoresUsed ||
-    blocks.some((block) => block.type === 'avox_memory_save' || block.type === 'avox_memory_load' || block.type === 'avox_memory_check');
+    memoryBlocks.some((block) => block.type === 'avox_memory_save' || block.type === 'avox_memory_load' || block.type === 'avox_memory_check');
+  // (The save data of PXE is one file, so the file number of a block means nothing there.)
+  if (Blockly.BBasic.pxeMemory && memoryBlocks.some((block) => {
+    const fileBlock = block.type.startsWith('avox_memory_') && block.getInput && block.getInput('FILE') && block.getInputTargetBlock('FILE');
+    return fileBlock && fileBlock.type === 'math_number' && Number(fileBlock.getFieldValue('NUM')) !== 0;
+  })) {
+    appendCompileLog('The save file of a Memory block is not used on the PXE kernel: its save data is one file of 256 bytes, so the same slot of two files is one byte.', 'info');
+  }
   // The voices (the Voice tab): each phrase of speech starts by putting the chip in the controls of its voice, for the controls that any voice
   // changes from the start values or that an AtariVox instrument changes (an effect leaves its volume and bend as they are). A control that a "set voice"
   // block of the project sets is left to the blocks.
@@ -402,14 +419,20 @@ const resolve = (Blockly, name) => Blockly.BBasic.nameDB_.getName(name, Blockly.
 // Once a frame, in the main loop: sends the next byte of a phrase that is still being sent (or takes the next one of the queue).
 export const generateSpeechChecks = (Blockly) => {
   if (Blockly.BBasic.avoxMemoryUsed) {
-    registerMemorySubroutine(Blockly, Blockly.BBasic.avoxHighScoresUsed ? HIGH_SCORE_VARS.map((name) => resolve(Blockly, name)) : null);
+    registerMemorySubroutine(Blockly, Blockly.BBasic.avoxHighScoresUsed ? HIGH_SCORE_VARS.map((name) => resolve(Blockly, name)) : null,
+        Blockly.BBasic.pxeMemory);
   }
   if (!Blockly.BBasic.speechUsed) return '';
-  registerSpeechSubroutine(Blockly);
-  registerVoiceNoteSubroutine(Blockly);
   const low = resolve(Blockly, SPEECH_POSITION_VAR);
   const high = resolve(Blockly, SPEECH_POSITION_HIGH_VAR);
   const [q1, q2] = SPEECH_QUEUE_VARS.map((name) => resolve(Blockly, name));
+  // "Mute in-game audio" silences the AtariVox too: nothing is sent to the chip (the subroutine that sends is left out) and what the blocks queued is dropped
+  // each frame, so a block that waits for the speech to end does not wait for ever. (The memory chip, for high scores, is not a sound: it works.)
+  if (((useConfigurationStorage() && useConfigurationStorage().value) || {}).muteAllAudio) {
+    return [` ${low} = 0`, ` ${high} = 0`, ` ${q1} = 0`, ` ${q2} = 0`].join(String.fromCharCode(10)) + String.fromCharCode(10);
+  }
+  registerSpeechSubroutine(Blockly);
+  registerVoiceNoteSubroutine(Blockly);
   const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(SPEECH_SUBROUTINE_NAME));
   const number = Blockly.BBasic.blockNumbers.next('avox');
   const active = `_avox_active_${number}`;

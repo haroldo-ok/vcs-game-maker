@@ -14,18 +14,14 @@ DIGITHMP0 = $E0
 DIGITHMP1 = $F0
   endif
  else
-TEXTHMP0 = $D0
-TEXTHMP1 = $E0
-DIGITHMP0 = $90
-DIGITHMP1 = $A0
+; vcs-game-maker: 5 clocks further left than the stock values ($D0/$E0 and $90/$A0), which drew the digits and the text from x 62 to 108 (center 85)
+; instead of the middle of the picture (measured with a 12 letter message and 6 digits on the emulator).
+TEXTHMP0 = $20
+TEXTHMP1 = $30
+DIGITHMP0 = $E0
+DIGITHMP1 = $F0
  endif
- ifconst noscoretxt
 textfastrow1 = 1
- else
-  ifconst score5digits
-textfastrow1 = 1
-  endif
- endif
 
     ifconst bs_mask
         ifconst FASTFETCH ; using DPC+

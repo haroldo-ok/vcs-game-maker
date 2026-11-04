@@ -2,8 +2,9 @@
 
 import {sameColumnsLines} from './box-columns';
 
-import {PF_BOX_X, PF_BOX_Y, PF_BOX_HIT, PF_BOX_EXT, pfHitVarName, callPfBox, callPfBoxQuick} from './pf-box-sub';
+import {PF_BOX_X, PF_BOX_Y, PF_BOX_HIT, PF_BOX_EXT, pfHitVarName, callPfBox, callPfBoxQuick, boxModeLines} from './pf-box-sub';
 import {useConfigurationStorage} from '../../hooks/project';
+import {EXTRA_PLAYER_NAME} from '../../utils/pxe';
 import {pairKey, boxHitRef, isPlayerName} from './sprite-box-width';
 
 // Names of the hidden bytes each player's collision-check block backs up its
@@ -31,7 +32,6 @@ export const platformerSpeedVar = (playerNum) => `platSpeed${playerNum}`;
 export const platformerFracVar = (playerNum) => `platFrac${playerNum}`;
 export const platformerStateVar = (playerNum) => `platState${playerNum}`;
 // For the players a "moving" check asks about: whether the player moved in the last frame, and where it was a frame before.
-export const platformerMovedVar = (playerNum) => `platMoved${playerNum}`;
 export const platformerPrevXVar = (playerNum) => `platPrevX${playerNum}`;
 export const platformerPrevYVar = (playerNum) => `platPrevY${playerNum}`;
 // For the players a "landed" check asks about: bit 0 is 1 for the one frame in which the player came down onto the ground, bit 1 says it
@@ -107,13 +107,12 @@ export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers =
     if (wallsPlayers.has(playerNum)) {
       reserveDevVar(platformerLastXVar(playerNum), undefined, `player ${playerNum}'s x at the end of the last frame (for the walls to the left and right)`);
     }
-    if (landedPlayers.has(playerNum)) {
+    if (landedPlayers.has(playerNum) || movingPlayers.has(playerNum)) {
       reserveDevVar(platformerLandedVar(playerNum), undefined,
-          `bit 0: 1 for the frame player ${playerNum} landed on the ground; bit 1: it was on the ground at the end of the last frame`);
+          `bit 0: 1 for the frame player ${playerNum} landed on the ground; bit 1: it was on the ground at the end of the last frame; bit 2: it moved in the last frame`);
     }
     if (movingPlayers.has(playerNum)) {
-      reserveDevVar(platformerMovedVar(playerNum), undefined, `1 while player ${playerNum} moved in the last frame`);
-      reserveDevVar(platformerPrevXVar(playerNum), undefined, `player ${playerNum}'s x a frame ago`);
+      if (!wallsPlayers.has(playerNum)) reserveDevVar(platformerPrevXVar(playerNum), undefined, `player ${playerNum}'s x a frame ago`);
       reserveDevVar(platformerPrevYVar(playerNum), undefined, `player ${playerNum}'s y a frame ago`);
     }
   });
@@ -144,7 +143,7 @@ export const reservePlatformerDevVars = (reserveDevVar, players, movingPlayers =
 // A 16 pixel wide player is two sprites, the second one (a virtual sprite, or Player 1 on the standard kernel) no block names. The
 // hardware flags see it only as that sprite, so a wide player is compared by its box, which is as wide as both halves (see
 // sprite-box-width.js), and for the playfield it is the player's flag or the answer for the other half.
-const isExtraPlayer = (name) => /^player[2-9]$/.test(name);
+const isExtraPlayer = (name) => EXTRA_PLAYER_NAME.test(name);
 // With virtual sprites in the project Player 1's hardware flags are shared by all of them, so Player 1 is compared by its box as well.
 const isBoxedPlayer = (Blockly, name) => isExtraPlayer(name) || (name === 'player1' && !!Blockly.BBasic.player1Shared);
 const widePartnerOf = (Blockly, name) => (Blockly.BBasic.widePartners || {})[name];
@@ -166,7 +165,7 @@ export default (Blockly) => {
       const owner = var0 === 'playfield' ? var1 : var0;
       if (/^player\d$/.test(owner)) {
         const partner = widePartnerOf(Blockly, owner);
-        const feet = block.getFieldValue('BOXMODE') === 'feet';
+        const feet = boxModeLines(block.getFieldValue('BOXMODE'));
         return partner ? [`${hitVar(owner, feet)} || ${hitVar(partner, feet)}`, Blockly.BBasic.ORDER_LOGICAL_OR] : [hitVar(owner, feet), Blockly.BBasic.ORDER_ATOMIC];
       }
     }
@@ -287,11 +286,9 @@ export default (Blockly) => {
       const px = `${player}x`;
       const py = `${player}y`;
       const moving = (Blockly.BBasic.platformerMovingPlayers || new Set()).has(playerNum);
-      const movedVar = moving ? resolveVar(platformerMovedVar(playerNum)) : '';
-      const prevX = moving ? resolveVar(platformerPrevXVar(playerNum)) : '';
-      const prevY = moving ? resolveVar(platformerPrevYVar(playerNum)) : '';
       const landed = (Blockly.BBasic.platformerLandedPlayers || new Set()).has(playerNum);
-      const landedVar = landed ? resolveVar(platformerLandedVar(playerNum)) : '';
+      const landedVar = landed || moving ? resolveVar(platformerLandedVar(playerNum)) : '';
+      const prevY = moving ? resolveVar(platformerPrevYVar(playerNum)) : '';
       const starts = (Blockly.BBasic.platformerStarts || {})[playerNum] || platformerStartsOf(null);
       const lab = (name) => `_plh${playerNum}_${name}`;
       // The asm that leaves a number, less one, in A: from its nibble (XOR what it starts as), or the constant if it never changes.
@@ -315,6 +312,7 @@ export default (Blockly) => {
       const sameColumnsOk = /^\d+$/.test(playerNum) && !(Blockly.BBasic.widePartners || {})[player];
       const boxOffset = dpcPlus ? 16 : 17;
       const lastX = walls ? resolveVar(platformerLastXVar(playerNum)) : '';
+      const prevX = moving ? (walls ? lastX : resolveVar(platformerPrevXVar(playerNum))) : '';
       if (walls) {
         // The box is only looked at when the player has moved into other playfield columns than it was in (the check is done here, in
         // assembly, so a move that keeps the columns costs next to nothing).
@@ -457,17 +455,6 @@ export default (Blockly) => {
               'lda #0', 'sta ' + spd,
               'lda ' + st, 'and #$F7', 'ora #$10', 'sta ' + st,
               '@' + lab('end'),
-              ...(walls ? ['lda ' + px, 'sta ' + lastX] : []),
-              // A "moving" check asks about this player: did x or y change since the end of the last frame?
-              ...(moving ? [
-                'lda ' + px, 'cmp ' + prevX, 'bne ' + lab('did'),
-                'lda ' + py, 'cmp ' + prevY, 'bne ' + lab('did'),
-                'lda #0', 'beq ' + lab('moved'),
-                '@' + lab('did'),
-                'lda #1',
-                '@' + lab('moved'),
-                'sta ' + movedVar, 'lda ' + px, 'sta ' + prevX, 'lda ' + py, 'sta ' + prevY,
-              ] : []),
               // A "landed" check asks about this player: on the ground now, and not at the end of the last frame (bit 0 the landing, bit 1 the ground).
               ...(landed ? [
                 'lda ' + st, 'and #' + (1 << PLATFORMER_GROUND_BIT), 'beq ' + lab('air'),
@@ -479,7 +466,19 @@ export default (Blockly) => {
                 'lda #0',
                 '@' + lab('landedset'),
                 'sta ' + landedVar,
+              ] : (moving ? ['lda #0', 'sta ' + landedVar] : [])),
+              // A "moving" check asks about this player: did x or y change since the end of the last frame? Bit 2 of the same byte (x is kept
+              // by the walls, when there are any, and so is not kept again).
+              ...(moving ? [
+                'lda ' + px, 'cmp ' + prevX, 'bne ' + lab('did'),
+                'lda ' + py, 'cmp ' + prevY, 'beq ' + lab('moved'),
+                '@' + lab('did'),
+                'lda ' + landedVar, 'ora #4', 'sta ' + landedVar,
+                '@' + lab('moved'),
+                ...(walls ? [] : ['lda ' + px, 'sta ' + prevX]),
+                'lda ' + py, 'sta ' + prevY,
               ] : []),
+              ...(walls ? ['lda ' + px, 'sta ' + lastX] : []),
           ),
       );
     });
@@ -490,7 +489,7 @@ export default (Blockly) => {
   Blockly.BBasic['sprite_platformer_state'] = function(block) {
     const playerNum = block.getFieldValue('PLAYER');
     if (block.getFieldValue('STATE') === 'moving') {
-      return [Blockly.BBasic.nameDB_.getName(platformerMovedVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE), Blockly.BBasic.ORDER_ATOMIC];
+      return [`${Blockly.BBasic.nameDB_.getName(platformerLandedVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{2}`, Blockly.BBasic.ORDER_ATOMIC];
     }
     if (block.getFieldValue('STATE') === 'landed') {
       return [`${Blockly.BBasic.nameDB_.getName(platformerLandedVar(playerNum), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}{0}`, Blockly.BBasic.ORDER_ATOMIC];
@@ -543,8 +542,8 @@ export default (Blockly) => {
       const lastX = lastXPair.read;
       const lastY = Blockly.BBasic.superchipRwPairs[collisionMoveOldYVar(playerNum)].read;
       const lab = (suffix) => `_undo_end_${playerNum}_${suffix}`;
-      // The bottom 8 lines only when every Undo block of the player says so.
-      const feet = Blockly.BBasic.collisionMoveFeetPlayers.has(playerNum);
+      // The lowest lines only when every Undo block of the player says so.
+      const feet = Blockly.BBasic.collisionMoveFeetPlayers.get(playerNum) || 0;
       const box = callPfBox(Blockly, player, feet);
       const firstBox = callPfBoxQuick(Blockly, player, feet);
       const boxOffset = ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus' ? 16 : 17;

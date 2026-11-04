@@ -19,6 +19,7 @@ import './label';
 import './loops';
 import './math';
 import './music';
+import './palette';
 import './random';
 import './scene';
 import './score';

@@ -197,9 +197,25 @@ const prepareException = (mainMessage, errors, joinedOverride) => {
   return err;
 };
 
+// The PXE kernel's newer compiler, preprocessor and postprocessor (from the PXE batari Basic fork; they know the PXE statements and symbols
+// of its includes, and reject some code the other kernels' generator makes, so the other kernels keep the stock ones). Chosen by the
+// `set kernel PXE` line when the code is preprocessed, the first stage.
+let pxeToolchain = false;
+// A DPC+ ROM gets a shorter way to jump to another bank when no register has to survive (see cheapBankJumps in rom.js), and the room in
+// every bank for it: 4 more bytes of the bank switching code that sits at the same place in every bank.
+let dpcPlusBankJump = false;
+export const BANK_GOTO_LABEL = 'BS_goto';
+const withBankGoto = (text) => text
+    .replace(';size=32', ';size=36')
+    .replace(/(\r?\n)( if \(\(\* & \$1FFF\) > )/, (all, eol, rest) =>
+      `${eol}${BANK_GOTO_LABEL}${eol} lda bankswitch_hotspot-1,x${eol} rts${eol}${rest}`);
+const toolchainPath = (name) => `bb19/${pxeToolchain ? 'pxe/' : ''}${name}.wasm`;
+
 export const preprocessBatariBasic = async (code, log) => {
+  pxeToolchain = /^\s*set\s+kernel\s+PXE/mi.test(code);
+  dpcPlusBankJump = /^\s*set\s+kernel\s+DPC\+/mi.test(code);
   // A 64k ROM needs its gosubs and returns rewritten for bankswitching (see utils/bank64-returns.js).
-  const r = await runWasi('bb19/preprocess.wasm', [], adaptFor64k(code), {}, log);
+  const r = await runWasi(toolchainPath('preprocess'), [], adaptFor64k(code), {}, log);
   const errors = parseParenErrors(r.stderr);
   if (errors.length || r.exitCode !== 0) {
     throw prepareException('Errors while preprocessing.', errors.length ? errors : [{line: 0, msg: r.stderr}]);
@@ -209,11 +225,13 @@ export const preprocessBatariBasic = async (code, log) => {
 };
 
 let includesManifestPromise = null;
-const getIncludesManifest = () => {
+const getIncludesManifest = async () => {
   if (!includesManifestPromise) {
     includesManifestPromise = fetch('bb19/includes-manifest.json').then((r) => r.json());
   }
-  return includesManifestPromise;
+  const includes = await includesManifestPromise;
+  const banksw = includes['includes/banksw.asm'];
+  return dpcPlusBankJump && banksw ? {...includes, 'includes/banksw.asm': withBankGoto(banksw)} : includes;
 };
 
 // `siblingFiles` are placed in the same directory as the compiled source
@@ -223,7 +241,7 @@ const getIncludesManifest = () => {
 // real local compile.
 const compile = async (preprocessedCode, siblingFiles, log) => {
   const includes = await getIncludesManifest();
-  const r = await runWasi('bb19/2600basic.wasm', ['-i', '/bbinc'], preprocessedCode, {
+  const r = await runWasi(toolchainPath('2600basic'), ['-i', '/bbinc'], preprocessedCode, {
     '.': {...(siblingFiles || {})},
     '/bbinc': includes,
   }, log);
@@ -240,7 +258,7 @@ const postprocess = async (bBAsmContent, workDir, log) => {
   // 2600basic.sh writes 2600basic.wasm's stdout to a "bB.asm" *file* rather
   // than piping it - postprocess.wasm then opens "bB.asm" by name from ".",
   // the same way it opens every other include, rather than reading stdin.
-  const r = await runWasi('bb19/postprocess.wasm', ['-i', '/bbinc'], '', {
+  const r = await runWasi(toolchainPath('postprocess'), ['-i', '/bbinc'], '', {
     '.': {...workDir, 'bB.asm': bBAsmContent},
     '/bbinc': includes,
   }, log);

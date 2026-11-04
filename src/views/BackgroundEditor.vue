@@ -447,7 +447,8 @@
                     <pixel-editor
                       v-else
                       :ref="pixelEditorRefKey(background)"
-                      :width="32"
+                      :width="pfWidth"
+                      :guide-columns="pfWidth > 40 ? 40 : 0"
                       :height="background.pixels.length"
                       :aspectRatio="backgroundAspectRatio(background)"
                       :name="background.name || 'background'"
@@ -563,6 +564,7 @@ import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor, dpcPlusRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
+import {pfWidthOf} from '../utils/pxe';
 import {rowColorsForMove} from '../utils/row-color-move';
 import {CLOCK_ASPECT_PER_LINE_PAIR} from '../utils/pixel-aspect';
 import {backgroundColorRows, backgroundHasColorRows, colorsAtRows, DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
@@ -600,6 +602,8 @@ export default defineComponent({
     const backgroundsStorage = useBackgroundsStorage();
     const configurationStorage = useConfigurationStorage();
     const zoom = useEditorZoom('background');
+    // How many pixels across the playfield is (40 on PXE when the project asks for the whole screen).
+    const pfWidth = computed(() => pfWidthOf(configurationStorage.value));
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
     // See the template's comment on where this background pixel editor's
     // aspectRatio comes from - real playfield width (always 128px) over THIS
@@ -610,7 +614,7 @@ export default defineComponent({
     const backgroundAspectRatio = (background) => {
       const config = configurationStorage.value;
       const rowHeight = (config && config.kernel === 'dpcplus') ? backgroundRowLinesFor(background, config) / 2 : pfRowDivisorFor(config);
-      return (32 * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (background.pixels.length * rowHeight);
+      return (pfWidth.value * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (background.pixels.length * rowHeight);
     };
     // Shared with PlayerEditor.vue's  Player 0/1 tabs (see
     // PixelGridToggle.vue's  comment).
@@ -812,7 +816,7 @@ export default defineComponent({
         // The picture is as tall as the groups.
         if (background.pixels.length !== rows) {
           background.customHeight = true;
-          background.pixels = resizePixelMatrixHeight(background.pixels, rows, 32, false);
+          background.pixels = resizePixelMatrixHeight(background.pixels, rows, pfWidth.value, false);
           ensureRowColors(background, rows);
         }
       }
@@ -859,7 +863,7 @@ export default defineComponent({
       const tallest = Math.max(...background.groupPfres);
       if (tallest > background.pixels.length) {
         background.customHeight = true;
-        background.pixels = resizePixelMatrixHeight(background.pixels, tallest, 32, false);
+        background.pixels = resizePixelMatrixHeight(background.pixels, tallest, pfWidth.value, false);
         ensureRowColors(background, tallest);
       }
       background.pixels.forEach((row, y) => row.forEach((cell, x) => {
@@ -954,7 +958,7 @@ export default defineComponent({
               background.bkRowColors, background.pixels.length, heightMenuValue.value);
         }
         background.pixels = resizePixelMatrixHeight(
-            background.pixels, heightMenuValue.value, 32, heightMenuScaleContents.value);
+            background.pixels, heightMenuValue.value, pfWidth.value, heightMenuScaleContents.value);
         const after = heightSnapshot(background);
         const id = background.id;
         recordReorder({
@@ -1244,7 +1248,7 @@ export default defineComponent({
         id: maxId + 1,
         ...newCardFolder(),
         name: 'Background',
-        pixels: buildDefaultBackgroundPixels(backgroundRows.value),
+        pixels: buildDefaultBackgroundPixels(backgroundRows.value, pfWidth.value),
       };
 
       state.value.backgrounds.push(newBackground);
@@ -1293,7 +1297,7 @@ export default defineComponent({
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
-      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
+      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
       folderToolbar, folderToolbarHeight, folderToolbarPinned,

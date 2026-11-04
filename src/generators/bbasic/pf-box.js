@@ -1,6 +1,8 @@
 'use strict';
 
 import {sameColumnsLines} from './box-columns';
+import {useConfigurationStorage} from '../../hooks/project';
+import {pfWidthOf, pfMaxScrollOf, PF_NARROW_WIDTH} from '../../utils/pxe';
 
 // utils/playfield-coords.js has PLAYER_PF_X_OFFSET (17); it is a parameter here so this file needs nothing else.
 const DEFAULT_PF_X_OFFSET = 17;
@@ -43,16 +45,22 @@ const DEFAULT_PF_X_OFFSET = 17;
 // armRows: DPC+ only, with rows whose height is only known when the program runs (backgrounds with different numbers of rows): the rows of a line
 // and the first line of a row are worked out by the coprocessor (functions 56 and 60 of custom/main.c, built with DPC_ROWS) where the 6502
 // would need a loop of multiplications or divisions for each.
-// feetOf: {realHeightVar}: the box is only the bottom 8 lines of the sprite (its full width): heightVar is a byte the test sets from the
+// feetOf: {realHeightVar, lines}: the box is only the lowest lines (8 when not said, or 4 or 2) of the sprite (its full width): heightVar is a byte the test sets from the
 // player's height (realHeightVar), 8 lines tall at most, and under DPC+ (y is the top line) y is put down to the top of those 8 lines
 // while the test runs, then back.
 // partnerFrameVar: for a 16 pixel wide player, the frame byte of the sprite that shows its right half (255 while it is not shown);
 // the box is twice as wide while it is shown. partnerHiddenVar: a bit that also hides it.
 export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: baseHeightVar, resultVar, maxRow, rowDivisor, dpcPlusRows, dpcPlusRowSets, rowFracVar, maxRowVar,
-  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0, extVar, dpcPlusScan = false, armRows = false, quickLastXVar, armBox = false, armGroups = false, feetOf}) => {
+  blankLines = true, pfXOffset = DEFAULT_PF_X_OFFSET, partnerFrameVar, partnerHiddenVar, directRead = false, objectWidth, yShift = 0, extraHeight = 0, extVar, dpcPlusScan = false, pxeRead = false, armRows = false, quickLastXVar, armBox = false, armGroups = false, feetOf}) => {
   const heightVar = extraHeight ? `(${baseHeightVar} ${extraHeight < 0 ? '-' : '+'} ${Math.abs(extraHeight)})` : baseHeightVar;
   const lab = (name) => `${label}_${name}`;
   const at = (name) => `@ ${lab(name)}`;
+  // The playfield is 32 columns, or (PXE) 40 that start 16 pixels further left: the columns are worked out as if it were 32 wide from an x 16 more.
+  const pfWidth = pfWidthOf((useConfigurationStorage() || {}).value);
+  const wideShift = pfWidth === PF_NARROW_WIDTH ? [] : ['clc', 'adc #16'];
+  const scrolls = pfMaxScrollOf((useConfigurationStorage() || {}).value) > 0;
+  // A (with the carry of the last add) divided by 4, then the scroll's columns added.
+  const overFour = scrolls ? ['clc', 'adc temp2', 'ror', 'lsr', 'clc', 'adc temp1'] : ['lsr', 'lsr'];
   const rowOf = (expr, divisor) => (divisor === 1 ? `(${expr})` : `(${expr}) / ${divisor}`);
   // maxRowVar: a variable holding the last row less one that the showing background has (the backgrounds do not all have the same
   // number of rows); the last row itself is worked out into temp1 ahead of the clamps.
@@ -445,6 +453,21 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     'lda DF0DATA',
     'and temp2',
   ];
+  // (The cell in column temp1, row Y: A is 0 when it is lit, as the answer of pfread is.)
+  const pxeReadCell = [
+    'lda #<C_function',
+    'sta DF0LOW',
+    'lda #(>C_function)',
+    'sta DF0HI',
+    'lda #24',
+    'sta DF0WRITE',
+    'lda temp1',
+    'sta DF0WRITE',
+    'sty DF0WRITE',
+    'lda #255',
+    'sta CALLFUNCTION',
+    'lda DF0DATA',
+  ];
   const dpcPlusScanLines = [
     'asm',
     'lda #0',
@@ -551,6 +574,47 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     '@end',
     `if temp4 then goto ${lab('hit')}`,
   ];
+  // PXE: the playfield columns are not in memory the 6502 can read (a data fetcher reads nothing there), so every cell is asked of the ARM
+  // program's pfread (function 24), one cell at a time: the columns temp6 to temp5 and the rows resultVar to temp3 in the direction wanted,
+  // the same answers (temp4, and Y the row of the cell found) as the scan above.
+  const pxeScanLines = [
+    'asm',
+    'lda #0',
+    'sta temp4',
+    'lda temp6',
+    'sta temp1',
+    `@${lab('sc_byte')}`,
+    ...(extVar ? [`lda ${extVar}`, `bmi ${lab('sc_up')}`] : []),
+    `ldy ${resultVar}`,
+    `@${lab('sc_down')}`,
+    ...pxeReadCell,
+    `beq ${lab('sc_found')}`,
+    'cpy temp3',
+    `beq ${lab('sc_next')}`,
+    'iny',
+    `jmp ${lab('sc_down')}`,
+    ...(extVar ? [
+      `@${lab('sc_up')}`,
+      'ldy temp3',
+      `@${lab('sc_upl')}`,
+      ...pxeReadCell,
+      `beq ${lab('sc_found')}`,
+      `cpy ${resultVar}`,
+      `beq ${lab('sc_next')}`,
+      'dey',
+      `jmp ${lab('sc_upl')}`,
+    ] : []),
+    ...dpcPlusScanLines.slice(dpcPlusScanLines.indexOf(`@${lab('sc_found')}`), dpcPlusScanLines.indexOf(`@${lab('sc_next')}`)),
+    `@${lab('sc_next')}`,
+    'lda temp1',
+    'cmp temp5',
+    `beq ${lab('sc_done')}`,
+    'inc temp1',
+    `jmp ${lab('sc_byte')}`,
+    `@${lab('sc_done')}`,
+    '@end',
+    `if temp4 then goto ${lab('hit')}`,
+  ];
   // The end of the test of one box: nothing hit, or a hit (a sweep also works out where the sprite stops).
   const oneTail = [
     at('clear'),
@@ -598,7 +662,14 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     // Right edge column, left edge column (x + width fits a byte for every x on the screen, the widest box being 63 pixels). Nothing of the
     // box on the screen to the left: nothing to hit. temp5 = right column, temp6 = left column from here on.
     'asm',
+    // A playfield that scrolls sideways: the scroll's extra pixels (temp2) are added before the division by 4 and its whole columns (temp1) after it.
+    ...(scrolls ? [
+      'lda PF_HOR_SCROLL_LO', 'and #3', 'sta temp2',
+      'lda PF_HOR_SCROLL_LO', 'lsr', 'lsr', 'sta temp1',
+      'lda PF_HOR_SCROLL_HI', 'asl', 'asl', 'asl', 'asl', 'asl', 'asl', 'ora temp1', 'sta temp1',
+    ] : []),
     `lda ${xVar}`,
+    ...wideShift,
     'clc',
     'adc temp5',
     'sec',
@@ -606,22 +677,21 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     `bcs ${lab('colsr')}`,
     `jmp .${lab('clear')}`,
     `@${lab('colsr')}`,
-    'lsr',
-    'lsr',
-    'cmp #32',
+    ...overFour,
+    `cmp #${pfWidth}`,
     `bcc ${lab('colsr2')}`,
-    'lda #31',
+    `lda #${pfWidth - 1}`,
     `@${lab('colsr2')}`,
     'tay',
     `lda ${xVar}`,
+    ...wideShift,
     'sec',
     'sbc temp6',
     `bcs ${lab('colsl')}`,
     'lda #0',
     `@${lab('colsl')}`,
-    'lsr',
-    'lsr',
-    'cmp #32',
+    ...overFour,
+    `cmp #${pfWidth}`,
     `bcc ${lab('colsl2')}`,
     `jmp .${lab('clear')}`,
     `@${lab('colsl2')}`,
@@ -630,7 +700,7 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
     '@end',
     ...rowLines,
     `if ${resultVar} > temp3 then goto ${lab('clear')}`,
-    ...(dpcPlusScan ? dpcPlusScanLines : directRead ? directReadLines : [
+    ...(dpcPlusScan ? (pxeRead ? pxeScanLines : dpcPlusScanLines) : directRead ? directReadLines : [
       `for temp6 = temp6 to temp5`,
       `  for temp4 = ${resultVar} to temp3`,
       `    if pfread(temp6, temp4) then goto ${lab('hit')}`,
@@ -682,6 +752,7 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
       // The width code 0 to 3 as the width less one (0, 1, 3, 7), in the fifth byte.
       'lda #0', 'ldx temp1', `beq ${lab('armo')}`, 'lda #1', 'cpx #2', `bcc ${lab('armo')}`, 'lda #3', 'cpx #3', `bcc ${lab('armo')}`, 'lda #7',
       `@${lab('armo')}`, 'sta DF0WRITE',
+      `lda #${pfXOffset}`, 'sta DF0WRITE',
     ] : [
       // Normal width 0, double 1, quad 2 (bits 5 and 6 of the last byte), in temp1; the x in temp2.
       `lda ${sizeVar}`, 'and #7', 'ldx #0', 'cmp #5', `bne ${lab('armw5')}`, 'ldx #$20', `@${lab('armw5')}`, 'cmp #7', `bne ${lab('armw7')}`, 'ldx #$40', `@${lab('armw7')}`,
@@ -707,19 +778,20 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
   ] : [];
   // The bottom 8 lines of the sprite: the standard kernel's y is the bottom line and its height variable one less than the lines, so 7 is 8 lines;
   // under DPC+ y is the top line and the height counts the lines.
+  const feetLines = feetOf ? feetOf.lines || 8 : 8;
   const feetPrelude = feetOf ? (dpcPlusScan ? [
     `${baseHeightVar} = ${feetOf.realHeightVar}`,
-    `if ${baseHeightVar} <= 8 then goto ${lab('feetok')}`,
-    `${yVar} = ${yVar} + ${feetOf.realHeightVar} - 8`,
-    `${baseHeightVar} = 8`,
+    `if ${baseHeightVar} <= ${feetLines} then goto ${lab('feetok')}`,
+    `${yVar} = ${yVar} + ${feetOf.realHeightVar} - ${feetLines}`,
+    `${baseHeightVar} = ${feetLines}`,
     at('feetok'),
   ] : [
     `${baseHeightVar} = ${feetOf.realHeightVar}`,
-    `if ${baseHeightVar} > 7 then ${baseHeightVar} = 7`,
+    `if ${baseHeightVar} > ${feetLines - 1} then ${baseHeightVar} = ${feetLines - 1}`,
   ]) : [];
   const feetPostlude = feetOf && dpcPlusScan ? [
-    `if ${feetOf.realHeightVar} <= 8 then goto ${lab('feetback')}`,
-    `${yVar} = ${yVar} - ${feetOf.realHeightVar} + 8`,
+    `if ${feetOf.realHeightVar} <= ${feetLines} then goto ${lab('feetback')}`,
+    `${yVar} = ${yVar} - ${feetOf.realHeightVar} + ${feetLines}`,
     at('feetback'),
   ] : [];
   const start = [

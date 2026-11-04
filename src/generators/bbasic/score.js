@@ -2,7 +2,8 @@
 
 import {superchipOn} from '../../utils/superchip';
 import {dpcPlusScoreFontPointerLines} from '../../utils/score-font';
-import {useConfigurationStorage} from '../../hooks/project';
+import {useConfigurationStorage, appendCompileLog} from '../../hooks/project';
+import {isPxe} from '../../utils/pxe';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
 import {effectiveBackgroundRows} from '../../blocks/background';
@@ -226,8 +227,13 @@ export default (Blockly) => {
   // Points the score code at the table of the chosen font: both tables are in one page of ROM (see
   // buildScoreFontOverride), so only the low byte of the address changes.
   Blockly.BBasic[`score_font_set`] = function(block) {
-    const label = block.getFieldValue('FONT') === 'secondary' ? 'scorefontsecondary' : 'scoretable';
+    const label = block.getFieldValue('FONT') === 'secondary' ? 'scorefontsecondary' : (Blockly.BBasic.dpcPlusMovedScoreFont ? 'scorefontprimary' : 'scoretable');
     if (Blockly.BBasic.dpcPlusScoreFonts) return ['asm', ...dpcPlusScoreFontPointerLines(label), '@end'].join('\n') + '\n';
+    // (PXE reads the digits from the table its ROM header names and keeps no pointer to change: the score keeps the primary font.)
+    if (isPxe(((useConfigurationStorage() && useConfigurationStorage().value) || {}))) {
+      appendCompileLog('The Score set font block does nothing on the PXE kernel: its score table is fixed by the ROM.', 'info');
+      return '';
+    }
     if (!Blockly.BBasic.scoreFontsEnabled) return 'rem No secondary score font chosen on the Score tab\n';
     const fontLow = Blockly.BBasic.nameDB_.getName('scorefontlow', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     return ['asm', `lda #<${label}`, `sta ${fontLow}`, '@end'].join('\n') + '\n';

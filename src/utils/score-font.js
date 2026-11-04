@@ -443,7 +443,7 @@ const buildSquishScoreFontOverride = async (digits) => {
 // bytes instead.
 const dpcPlusSquishDigits = (font) => {
   const padded = font === SQUISH_CUSTOM_SCORE_FONT ? customSquishFontBytes() :
-    (editedFontBytes(font) || padSquishDigitBytes(SQUISH_DEFAULT_SCORE_FONT));
+    (editedFontBytes(font) || trimUnusedExtraGlyphs(padSquishDigitBytes(SQUISH_DEFAULT_SCORE_FONT)));
   if (!padded) return null;
   const digits = [];
   for (let at = 0; at + DIGIT_HEIGHT <= padded.length; at += DIGIT_HEIGHT) {
@@ -463,10 +463,11 @@ const dpcPlusSquishDigits = (font) => {
  * @param {string=} secondaryFont The stored secondary font choice (see secondaryScoreFontName), whose ten
  *     digits are written right below the primary table so the two share one page.
  * @param {boolean=} dpcPlus Whether the DPC+ kernel draws the score, which writes the Squish fonts as a plain table.
+ * @param {boolean=} digitsMoved Whether the digits of the primary font are data in another bank (DPC+), so the file keeps only the label.
  * @return {!Promise<?string>} The override content, or null to use the
  *     stock score_graphics.asm unmodified.
  */
-export const buildScoreFontOverride = async (font, secondaryFont, dpcPlus = false) => {
+export const buildScoreFontOverride = async (font, secondaryFont, dpcPlus = false, digitsMoved = false) => {
   const secondary = secondaryScoreFontName(font, secondaryFont);
   let squishDigits = null;
   const isSquish = font === SQUISH_CUSTOM_SCORE_FONT || font === SQUISH_SCORE_FONT;
@@ -483,6 +484,20 @@ export const buildScoreFontOverride = async (font, secondaryFont, dpcPlus = fals
   if (font === SQUISH_SCORE_FONT && !dpcPlus) {
     const edited = editedFontBytes(font);
     return edited ? buildSquishScoreFontOverride(edited) : null;
+  }
+
+  // The digits of the primary font are data in another bank (see dpcPlusPrimaryScoreFontBytes): the kernel's bank keeps the label and none of the table, and
+  // the room it held goes to the code behind it.
+  if (digitsMoved) {
+    const stock = await getPristineScoreGraphics();
+    const start = stock.indexOf(DIGITS_START);
+    const end = stock.indexOf(DIGITS_END, start);
+    if (start < 0 || end < 0) return null;
+    // (The stock file moves the table 48 bytes earlier for the hex font; with no table there is nothing to move.)
+    const header = stock.slice(0, start).replace(/\r?\n ifconst font\r?\n\s+if font == hex\r?\n\s+ORG \. - 48\r?\n\s+endif\r?\n\s+endif/, '');
+    // The 8 blank bytes the stock table ends with stay: taking all 88 bytes away made the ROM reset in the emulator, while 80 (or 48) bytes
+    // given back runs as before. The code in front of the kernel's fixed addresses gets the room.
+    return header + DIGITS_START + '\n' + '       .byte 0\n'.repeat(8) + '\n' + stock.slice(stock.lastIndexOf('\n', end));
   }
 
   // With a secondary font the table is always written out, also for the default font.
@@ -593,6 +608,16 @@ export const dpcPlusSecondaryScoreFontBytes = (primary, stored) => {
 };
 
 export const DPC_PLUS_SECONDARY_FONT_LABEL = 'scorefontsecondary';
+export const DPC_PLUS_PRIMARY_FONT_LABEL = 'scorefontprimary';
+
+// The digits of the primary font as the DPC+ coprocessor reads them from a table in any bank: the ten digits, or all 16 glyphs of a Custom font
+// with extra glyphs. A Squish font is a plain table too (3 blank bytes, then 5 rows of each digit; the score loop of the kernel is shortened for it).
+export const dpcPlusPrimaryScoreFontBytes = (font) => {
+  if (font === SQUISH_SCORE_FONT || font === SQUISH_CUSTOM_SCORE_FONT) return dpcPlusSquishDigits(font);
+  const bytes = font === CUSTOM_SCORE_FONT ? customFontBytes() : (editedFontBytes(font) || (font && SCORE_FONTS[font]) || DEFAULT_SCORE_FONT);
+  const decimalByteCount = DECIMAL_DIGIT_COUNT * DIGIT_HEIGHT;
+  return bytes && (bytes.length === decimalByteCount || bytes.length === DIGIT_BYTES) ? bytes : DEFAULT_SCORE_FONT;
+};
 
 // The lines (of an asm block) that give the coprocessor the table at the label: the address as the coprocessor sees the ROM, the way the
 // kernel gives it the primary one (scorepointer in DPCplus_kernel.asm).

@@ -245,6 +245,12 @@ func (ms *MissileSprite) tickHMOVE() bool {
 
 // returns true if pixel has changed.
 func (ms *MissileSprite) tick() bool {
+	// VCS GAME MAKER: report a change only when the sprite's pixel can differ from the one
+	// Video.Pixel() last worked out. An idle sprite (nothing drawing, latching or scheduled)
+	// always outputs "off", so returning true for it made every color clock look changed and
+	// Video.Pixel() never took its early return. Register writes set tiaHasChanged themselves.
+	busy := ms.Enclockifier.Active || ms.futureStart.IsActive()
+
 	// reset-to-player placement note: we don't do the missile-to-player reset
 	// unless we're hmoving or ticking. if we place this block before the "early return
 	// if nothing to do" block (in the tickHBLANK() and tickHMOVE() blocks), then it will
@@ -309,7 +315,8 @@ func (ms *MissileSprite) tick() bool {
 	ms.futureReset.Tick(ms._futureResetPosition)
 	ms.futureStart.Tick(ms._futureStartDrawingEvent)
 
-	return true
+	return busy || ms.Enclockifier.Active || ms.futureStart.IsActive() || ms.futureReset.IsActive() ||
+		ms.ResetToPlayer || ms.lastTickFromHmove
 }
 
 func (ms *MissileSprite) _futureStartDrawingEvent(v uint8) {

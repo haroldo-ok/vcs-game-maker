@@ -1247,7 +1247,7 @@ export default defineComponent({
     const soundFxColumns = useSoundFxColumnsStorage();
     const soundFilter = ref('all');
     // The AtariVox is a project option (Options tab): the AtariVox kind of card is offered while it is on.
-    const avoxOn = computed(() => !!(configurationStorage.value || {}).enableAtariVox);
+    const avoxOn = computed(() => !!(configurationStorage.value || {}).enableAtariVox && !(configurationStorage.value || {}).pxe);
     const soundFilterItems = computed(() => [
       {text: 'All', value: 'all'},
       {text: 'Instruments', value: 'instrument'},

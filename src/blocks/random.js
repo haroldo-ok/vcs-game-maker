@@ -86,3 +86,22 @@ Blockly.defineBlocksWithJsonArray([
       `frames the title screen has been showing when the player presses Fire.`,
   },
 ]);
+
+Blockly.defineBlocksWithJsonArray([
+  // A random number between a minimum and a maximum the user chooses.
+  {
+    'type': `random_between_get`,
+    'message0': `Random from %1 to %2`,
+    'args0': [
+      {'type': 'input_value', 'name': 'MIN', 'check': 'Number'},
+      {'type': 'input_value', 'name': 'MAX', 'check': 'Number'},
+    ],
+    'inputsInline': true,
+    'output': 'Number',
+    'icon': DICE_ICON,
+    'colour': 'purple',
+    'tooltip': `A random number from the first number to the second, both included, each equally likely (numbers up to 255; if the ` +
+      `first is bigger than the second they swap places). It takes a few steps to work out, so a block that runs every frame is ` +
+      `better off with one of the quicker "Random" blocks when a power of two range is enough.`,
+  },
+]);
