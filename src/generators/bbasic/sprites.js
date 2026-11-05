@@ -543,6 +543,8 @@ export const objectGravityConstant = (Blockly, name, field) => {
 };
 // One shared byte for the fired objects that check the playfield: the cell the object being moved started its frame in (see buildPlayfieldCheckedMovement).
 export const fireCellVarName = () => 'fireCell';
+// And one for the cell the last playfield look of the movement was at (see buildPlayfieldCheckedMovement): a step that ends in the same cell is not looked at again.
+export const fireLastVarName = () => 'fireLast';
 export const inertiaVelocityXVarName = (name) => `${name}VelocityX`;
 export const inertiaVelocityYVarName = (name) => `${name}VelocityY`;
 // Only reserved for a sprite with an actual "Accelerate" block targeting
@@ -768,6 +770,11 @@ export const reserveMissileFireDevVars = (reserveDevVar, reserveDevVarRW, usedFo
   if (!usedFor || !usedFor.size) return;
   reserveDevVar(missileFireFlagsVarName(), undefined, 'shared active-bit byte for fired missiles');
   if (usedPfCheck && usedPfCheck.size) reserveDevVarRW(fireCellVarName(), 'playfield cell a fired object started its frame in (while it moves)');
+  // (The standard kernel only: on DPC+ the playfield read is cheap, and skipping it saved 2 cycles a frame in a measurement, for a byte of memory.)
+  const fireConfig = useConfigurationStorage().value || {};
+  if (usedPfCheck && usedPfCheck.size && fireConfig.kernel !== 'dpcplus') {
+    reserveDevVarRW(fireLastVarName(), 'playfield cell the last look of a fired object movement was at');
+  }
   usedFor.forEach((name) => {
     reserveDevVar(missileFireDirVarName(name), undefined, 'this missile\'s fired direction (0-7, or 255 for none)');
     const speedIsConst = !!(constSpeed && constSpeed.has(name));
@@ -1371,6 +1378,10 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   // time; temp7 is not safe across the playfield read in a bankswitched ROM) holds 1 + a number of the cell it started in
   // (its column xor 8 times its row, different for neighbouring cells), or 0 when it started in a clear cell.
   const cellPair = Blockly.BBasic.superchipRwPairs[fireCellVarName()];
+  // The cell the movement looked at last (the same number as the cell byte: column xor 8 times row, plus 1; 0 for none, and for a start in a lit cell, which has
+  // to go through the rules of the walls): a step that stays in that cell is not looked at again, which saves the playfield read (a call into another bank in a
+  // ROM of more than 4k) on three steps in four.
+  const lastPair = Blockly.BBasic.superchipRwPairs[fireLastVarName()];
   const stagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
   const litEnd = stagePair ? 'endlit' : 'end';
   const cellRead = (target) => [
@@ -1379,8 +1390,15 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
     ` if temp1 > ${pfMaxColumn(config)} then goto ${target}`,
     ` if temp2 > ${maxRow} then goto ${target}`,
   ];
+  const sameCell = (tag) => {
+    if (!lastPair) return [];
+    const stay = label(`stay${tag}`);
+    return [' asm', '  lda temp2', '  asl', '  asl', '  asl', '  eor temp1', '  clc', '  adc #1', `  cmp ${lastPair.read}`, `  bne ${stay}`,
+      `  jmp .${label(`skip${tag}`)}`, stay, `  sta ${lastPair.write}`, 'end'];
+  };
   const cellCheck = (tag) => [
     ...cellRead(label(`skip${tag}`)),
+    ...sameCell(tag),
     ` if pfread(temp1, temp2) then goto ${label(`lit${tag}`)}`,
     ` goto ${label(`skip${tag}`)}`,
     label(`lit${tag}`),
@@ -1409,13 +1427,17 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   // set at endlit) was tried and lost an object pinned against a wall (it ran on through the wall a pixel a frame), for a reason that was not found.
   const lines = [
     ` ${cellPair.write} = 0`,
+    ...(lastPair ? [` ${lastPair.write} = 0`] : []),
     ...Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor),
     ` temp1 = ${pfColumnOf(`${name}x`, missileBallPfXOffset(config, name), config)}`,
     ` if temp1 > ${pfMaxColumn(config)} then goto ${label('probed')}`,
     ` if temp2 > ${maxRow} then goto ${label('probed')}`,
+    // (The cell of the start is the last one looked at; a lit one is put back to 0 below.)
+    ...(lastPair ? [' asm', '  lda temp2', '  asl', '  asl', '  asl', '  eor temp1', '  clc', '  adc #1', `  sta ${lastPair.write}`, 'end'] : []),
     ` if pfread(temp1, temp2) then goto ${label('inside')}`,
     ` goto ${label('probed')}`,
     label('inside'),
+    ...(lastPair ? [` ${lastPair.write} = 0`] : []),
     ...cellRead(label('probed')),
     ' temp2 = temp2 * 8',
     ` ${cellPair.write} = temp1 ^ temp2`,

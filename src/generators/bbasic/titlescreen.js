@@ -1708,6 +1708,15 @@ export default (Blockly) => {
       (Blockly.BBasic.titleEndResets || []).map((line) => `${line}\n`).join('');
   };
 
+  // Starts the title screen over: the "Title screen start" event sets the title state back (and turns the kernel on again, see the
+  // kernel-ended bit there) and carries on into "Title screen update". Inside "Title screen start" itself that would start over forever.
+  Blockly.BBasic['titlescreen_start'] = function(block) {
+    const eventName = Blockly.BBasic.currentEventName;
+    if (eventName === 'title_start') return 'rem "Start title screen" is not needed inside "Title screen start"\n';
+    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getEventBank('title_start'));
+    return `goto title_start_begin${suffix}\n`;
+  };
+
   Blockly.BBasic['titlescreen_scroll_set'] = function(block) {
     const ref = block.getFieldValue('CARD');
     const key = Blockly.BBasic.titleScreenCardSlots && Blockly.BBasic.titleScreenCardSlots[ref];
@@ -1858,8 +1867,18 @@ export default (Blockly) => {
   Object.keys(Blockly.BBasic).filter((key) => key.startsWith('titlescreen_')).forEach((key) => {
     const generate = Blockly.BBasic[key];
     Blockly.BBasic[key] = function(block, ...rest) {
-      if (!isPxe(useConfigurationStorage().value)) return generate.call(this, block, ...rest);
-      return block.outputConnection ? ['0', Blockly.BBasic.ORDER_ATOMIC] : '';
+      if (isPxe(useConfigurationStorage().value)) return block.outputConnection ? ['0', Blockly.BBasic.ORDER_ATOMIC] : '';
+      const code = generate.call(this, block, ...rest);
+      // Once "End title screen" has run, "Title screen update" goes on without the kernel and the title graphics are over: the blocks that
+      // work on them do nothing, so the Title Screen's variables and flag bits can be used by the game (see flagOverlay in bbasic.js).
+      if (!Blockly.BBasic.titleEndUsed || Blockly.BBasic.currentEventName !== 'title_update' || key === 'titlescreen_end' ||
+          key === 'titlescreen_draw' || key === 'titlescreen_start' || typeof code !== 'string' || !code.trim() || block.outputConnection) return code;
+      const labelEnd = `_titleafterend_${Blockly.BBasic.blockNumbers.next()}_end`;
+      return `
+if ${titleKernelEndedVar()}{${titleKernelEndedBit()}} then goto ${labelEnd}
+${code}
+@ ${labelEnd}
+`;
     };
   });
 };

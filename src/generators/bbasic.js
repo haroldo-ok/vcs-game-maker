@@ -2493,7 +2493,7 @@ Blockly.BBasic.init = function(workspace) {
 
   // Title Screen flags and game flags share bits when the Title Screen loop and the game never run together (see flagPoolPhaseMasks); a pass that
   // found the code of one phase using the bits of the other turns it off (see flagOverlayConflict).
-  this.flagOverlay = !!this.titleScreenDrawUsed && !this.titleEndUsed && !this.flagOverlayOff;
+  this.flagOverlay = !!this.titleScreenDrawUsed && !this.flagOverlayOff;
   planFlagPool([
     {family: BG_COLOR_FLAGS_FAMILY, bits: this.bgColorFlagBits},
     {family: BG_RAINBOW_ID_FAMILY, bits: this.bgRainbowIdBits},

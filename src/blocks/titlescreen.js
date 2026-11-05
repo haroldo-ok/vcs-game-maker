@@ -501,6 +501,21 @@ Blockly.Blocks['titlescreen_end'] = {
   },
 };
 
+// The other way round: starts the title screen again, so the Title Screen Kernel draws once more after "End title screen".
+Blockly.Blocks['titlescreen_start'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${TITLE_ICON} Start title screen`);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(TITLESCREEN_COLOR);
+    this.setTooltip('Starts the title screen over, the way a change of game state to the title screen does: the ' +
+      'Title Screen Kernel draws again (after "End title screen" stopped it), the variables and flags of the title screen ' +
+      'are set back, and the blocks of "Title screen start" run again before "Title screen update" ' +
+      'carries on. The blocks after this one do not run. Does nothing inside "Title screen start".');
+  },
+};
+
 // The graphics (cards with pictures) of every title screen that pass the test, as dropdown
 // options valued "screenId:cardId" (a card's id is only unique within its screen).
 const buildCardOptions = (isWanted, emptyLabel) => () => {
