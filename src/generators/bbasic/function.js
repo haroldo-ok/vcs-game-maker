@@ -2,7 +2,6 @@
 
 import {MAX_FUNCTION_ARGS, functionCallDiscardVarName, functionCallArgVarName,
   functionParamVarName} from '../../blocks/function';
-import {isInsideFunctionBody} from '../../blocks/score';
 import {useConfigurationStorage} from '../../hooks/project';
 
 export default (Blockly) => {
@@ -91,16 +90,21 @@ export default (Blockly) => {
     // again would find the argument of the one it called. On DPC+ a function that reads arguments puts the old values of the snapshot bytes it is about to
     // overwrite on the stack when it starts, and takes them off again before each return, when some function body anywhere calls a function.
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
-    const callsInsideFunctions = config.kernel === 'dpcplus' && usedIndices.length > 0 && block.workspace.getAllBlocks(false)
-        .some((b) => (b.type === 'function_call' || b.type === 'function_call_statement') && b.isEnabled() && isInsideFunctionBody(b));
+    const callsInsideFunctions = config.kernel === 'dpcplus' && usedIndices.length > 0 && !!Blockly.BBasic.functionCallsInsideFunctions;
     Blockly.BBasic.functionParamSaves = Blockly.BBasic.functionParamSaves || {};
     Blockly.BBasic.functionParamSaves[name] = callsInsideFunctions ? usedIndices : [];
     const saveLines = callsInsideFunctions ? usedIndices.map((i) => `push ${resolveRW(functionParamVarName(i)).read}`).join('\n') : '';
     const snapshot = [saveLines, ...usedIndices.map((i) => `${resolveRW(functionParamVarName(i)).write} = temp${i}`)]
         .filter(Boolean).join('\n');
 
-    const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
+    let code = Blockly.BBasic.statementToCode(block, 'DO').trim();
     Blockly.BBasic.currentEventName = previousEventName;
+    // A way out of the function that has no Return block would leave what it put on the stack there: they are taken off at the end of the body too, unless the body
+    // ends in a Return, which takes them off itself.
+    const lastLine = code.split('\n').filter((line) => line.trim() !== '').pop() || '';
+    if (callsInsideFunctions && !/^\s*return\b/.test(lastLine)) {
+      code += '\n' + usedIndices.slice().reverse().map((i) => `pull ${resolveRW(functionParamVarName(i)).write}`).join('\n');
+    }
     Blockly.BBasic.functions[name] = snapshot ? `${snapshot}\n${code}` : code;
     return '';
   };

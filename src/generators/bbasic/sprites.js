@@ -643,7 +643,7 @@ export const missileBounceOrigVelocityFracYVarName = (name) => `${name}BounceOri
 
 // Compile-time lookup, not a runtime one: walks up from the trigger block
 // through its  enclosing STATEMENT blocks (getSurroundParent, not the
-// getParent()-loop background.js's  isInsideFunctionDefine uses - that
+// getParent()-loop isInsideFunctionBody in utils/function-body.js uses - that
 // one also has to follow value-input connections since it's checking a
 // block that sits in an "if" condition socket, this one only ever needs
 // statement nesting, since a trigger block is always a plain statement)

@@ -7,7 +7,8 @@ import {isPxe} from '../../utils/pxe';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
 import {effectiveBackgroundRows} from '../../blocks/background';
-import {scoreBarUnitsVarName, isInsideFunctionBody} from '../../blocks/score';
+import {scoreBarUnitsVarName, scoreLineHueVarName} from '../../blocks/score';
+import {isInsideFunctionBody} from '../../utils/function-body';
 
 // The literal bB identifier itself (not an internal "_xyz" bookkeeping
 // name), reserved directly through the normal dev var pool when the Text
@@ -249,8 +250,9 @@ export default (Blockly) => {
   // DPC+ draws the digits of the score in the colors of a table of 8 bytes in the display memory (one for each line of the digits: the
   // "scorecolors:" statement the project starts with), not in scorecolor (which is only the color of what follows the score row), so
   // a new score color has to be written to the table too: the 8 bytes at scoredata.
+  // (Each color is rounded the way generateDpcPlusColorTables rounds it, so two bytes that come out the same in the table are not different here.)
   const dpcPlusScoreColorsDiffer = (config) => Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 &&
-    new Set(config.dpcPlusScoreColors).size > 1;
+    new Set(config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08))).size > 1;
   const dpcPlusScoreColorTableLines = () => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
@@ -277,8 +279,12 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const colors = Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ? config.dpcPlusScoreColors : Array(8).fill(0x08);
-    return `temp1 = (${argument0}) & $F0\n` + ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI',
-      ...colors.flatMap((byte) => ['lda temp1', `ora #${Number(byte) & 15}`, 'sta DF0WRITE']), '@end'].join('\n') + '\n';
+    // (temp1 to temp6 hold the arguments inside a custom function: the hue is kept in a byte reserved for it there.)
+    const pair = isInsideFunctionBody(block) ? Blockly.BBasic.superchipRwPairs[scoreLineHueVarName()] : null;
+    const write = pair ? pair.write : 'temp1';
+    const read = pair ? pair.read : 'temp1';
+    return `${write} = (${argument0}) & $F0\n` + ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI',
+      ...colors.flatMap((byte) => [`lda ${read}`, `ora #${Number(byte) & 15}`, 'sta DF0WRITE']), '@end'].join('\n') + '\n';
   };
 
   Blockly.BBasic[`score_fade_to`] = function(block) {

@@ -77,7 +77,8 @@ import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveSwitchEdgeDevVars, generateSwitchEdgeChecks} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOlderXVar, collisionMoveOlderYVar, reservePlatformerDevVars, platformerStartsOf, platformerPlanOf} from './bbasic/collision';
 import {scoreBkColorVarName, generateScanlinesDebugScoreCode} from './bbasic/score';
-import {scoreBarUnitsVarName, isInsideFunctionBody} from '../blocks/score';
+import {scoreBarUnitsVarName, scoreLineHueVarName} from '../blocks/score';
+import {isInsideFunctionBody} from '../utils/function-body';
 import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generatePlayerHeightLimitChecks,
   reservePlayerHeightLimitDevVars, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
@@ -2247,8 +2248,14 @@ Blockly.BBasic.init = function(workspace) {
   // (background_change_pixel, the sibling setter block, uses temp1/temp2
   // instead, never these).
   // "Score Bar units" counts the bits of a bar into temp1, or into a byte kept for it inside a custom function.
-  if (workspace.getAllBlocks(false).some((block) => block.type === 'score_bar_units' && isInsideFunctionBody(block))) {
+  // (One pass over the blocks that are inside a custom function: what they need, and whether a function body calls a function, which function_define reads.)
+  const blocksInFunctions = workspace.getAllBlocks(false).filter((block) => isInsideFunctionBody(block));
+  this.functionCallsInsideFunctions = blocksInFunctions.some((block) => (block.type === 'function_call' || block.type === 'function_call_statement') && block.isEnabled());
+  if (blocksInFunctions.some((block) => block.type === 'score_bar_units')) {
     reserveDevVarRW(scoreBarUnitsVarName(), 'the count of "Score Bar units", when read inside a Function');
+  }
+  if (blocksInFunctions.some((block) => block.type === 'score_line_hue_set')) {
+    reserveDevVarRW(scoreLineHueVarName(), 'the hue of "Score line colors: set hue", when used inside a Function');
   }
   if (this.backgroundGetPixelUsed) {
     reserveDevVarRW(backgroundGetPixelXVarName(), '"get pixel" X arg, when used inside a Function');
@@ -3526,7 +3533,8 @@ Blockly.BBasic.init = function(workspace) {
     for (let i = 0; i < runOnceDefvarsStart; i++) {
       const name = defvars[i];
       if (hostedTitleNames.has(name)) continue;
-      if (gameplayOnlyUserNames.has(name) || (hints && hints.names.has(name))) {
+      // (Only variables of the project: the others may be read by hand-written assembly, by name, while the title screen runs.)
+      if (this.userVarNames.has(name) && (gameplayOnlyUserNames.has(name) || (hints && hints.names.has(name)))) {
         candidates.push({name, uses: (this.userVarUseCounts && this.userVarUseCounts.get(name)) || 0, index: i});
       }
     }

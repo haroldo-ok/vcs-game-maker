@@ -515,7 +515,7 @@ const parseOverflowingBank = (stdout) => {
   if (over.length) return parseInt(over[over.length - 1][2], 10);
   // A bank that overflows far enough runs into the next one's origin, and the assembler stops there without saying how much room the bank had:
   // it is the one after the last bank that was reported.
-  if (left.length) {
+  if (left.length && /origin reverse-indexed|segment overflow/i.test(stdout || '')) {
     return Math.max(...left.map((match) => parseInt(match[2], 10))) + 1;
   }
   return null;
@@ -572,7 +572,7 @@ const learnSizeScale = (bank, free) => {
   delete pendingAdds[bank];
   if (!pending || pending.estimated < 150) return;
   const ratio = (pending.freeBefore - free) / pending.estimated;
-  if (Number.isFinite(ratio) && ratio > 0.3) sizeScale = Math.min(8, Math.max(1, ratio));
+  if (Number.isFinite(ratio) && ratio > 0.3) sizeScale = Math.min(8, Math.max(0.5, ratio));
 };
 // A bank that overflowed far enough to run into the next one is not told how much it is over: the units that come out of it are then 300 bytes, 600,
 // 1,200... more for each time in a row it overflows again.

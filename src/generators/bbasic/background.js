@@ -1,5 +1,6 @@
 'use strict';
 
+import {isInsideFunctionBody} from '../../utils/function-body';
 import {useConfigurationStorage} from '../../hooks/project';
 import {buildPxeOffsetBody, PXE_OFFSET_VARS, PXE_OFFSET_ROUTINE} from './offset-pxe';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
@@ -52,14 +53,6 @@ const DPC_PLUS_SCROLL_LINES = {up: 1, down: 1, upup: 2, downdown: 2};
 export const dpcPlusScrollDivider = (direction, fine) =>
   Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, fine / ((DPC_PLUS_SCROLL_LINES[direction] || 1) * 2)))));
 
-const isInsideFunctionDefine = (block) => {
-  let ancestor = block.getParent();
-  while (ancestor) {
-    if (ancestor.type === 'function_define') return true;
-    ancestor = ancestor.getParent();
-  }
-  return false;
-};
 
 // Whether a background_get_pixel block's  X or Y argument is a bare,
 // always-space-free value once generated - an unplugged socket falls back
@@ -85,7 +78,7 @@ const argumentIsSimple = (block, inputName) => {
 // isSimple checks) rather than the coarser "inside a function at all" check
 // generators/bbasic.js's  pre-scan used to make do with.
 export const backgroundGetPixelDevVarsNeeded = (block) =>
-  isInsideFunctionDefine(block) && (!argumentIsSimple(block, 'X') || !argumentIsSimple(block, 'Y'));
+  isInsideFunctionBody(block) && (!argumentIsSimple(block, 'X') || !argumentIsSimple(block, 'Y'));
 
 // Per-register label tag for generateBackgroundFadeChecks below - has to be
 // distinct per register (unlike a shared "bg" for everything) now that
@@ -2434,7 +2427,7 @@ export default (Blockly) => {
     // sibling in bbasic.js) only for a project that actually has this
     // block nested inside a function at all, so the common case (used
     // directly in a plain "if", not inside a function) costs nothing extra.
-    const useDevVars = isInsideFunctionDefine(block);
+    const useDevVars = isInsideFunctionBody(block);
     const isSimple = (code) => !/\s/.test(code);
     const preamble = [];
     let readX = argumentX;

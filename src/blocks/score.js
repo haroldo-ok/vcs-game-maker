@@ -9,15 +9,8 @@ const SCORE_DIGIT_OPTIONS = [...Array(6).keys()].map((n) => [`${n + 1}`, `${n + 
 
 // The byte "Score Bar units" counts the bits of when it is inside a custom function (temp1 to temp6 hold the arguments there).
 export const scoreBarUnitsVarName = () => 'scoreBarUnits';
-// Whether a block is inside the body of a custom function.
-export const isInsideFunctionBody = (block) => {
-  let ancestor = block.getParent();
-  while (ancestor) {
-    if (ancestor.type === 'function_define') return true;
-    ancestor = ancestor.getParent();
-  }
-  return false;
-};
+// The same for "Score line colors: set hue", which holds the hue it works out there.
+export const scoreLineHueVarName = () => 'scoreLineHue';
 
 const SCORE_BAR_OPTIONS = [
   ['1', 'pfscore1'],

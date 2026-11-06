@@ -528,6 +528,8 @@ export default {
       }
       const tool = TOOL_HOTKEYS[key.toLowerCase()];
       if (!tool) return;
+      // (No eyedropper button on a tab that leaves the color swatch out: its key does nothing either.)
+      if (tool === 'eyedropper' && !this.showColorSwatch) return;
       event.preventDefault();
       // The key of the tool that is on turns it off, like clicking its button again.
       this.toggleTool(tool);
