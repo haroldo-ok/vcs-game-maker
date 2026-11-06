@@ -14,7 +14,7 @@
       <p class="v-messages theme--light v-messages__message">
         Edit the Text Minikernel's character set below. Each character is a fixed 4x5 pixel shape.
       </p>
-      <graphic-editor-toolbar class="text-font-controls-row" :active-editor="activeEditor" :bleed="16">
+      <graphic-editor-toolbar class="text-font-controls-row" :active-editor="activeEditor" :bleed="16" :show-color-swatch="false">
         <template v-slot:before-tools>
           <editor-zoom v-model="zoom" :levels="textFontZoomLevels" class="text-font-zoom" />
           <pixel-grid-toggle v-model="showPixelGrid" />

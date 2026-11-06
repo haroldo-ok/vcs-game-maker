@@ -62,21 +62,14 @@
           hide-details
           class="score-fade-switch"
         />
-      </div>
-      <div v-if="isDpcPlus" class="score-bkcolor-row">
-        <color-swatch-picker
-          v-for="(rowColor, rowIndex) in dpcPlusScoreRowColors"
-          :key="rowIndex"
-          :value="rowColor"
-          square
-          :allow-clear="false"
-          :title="`Click to set the color of line ${rowIndex + 1} of the score digits (the top line is 1)`"
-          @input="(byte) => setScoreRowColor(rowIndex, byte)"
+        <v-checkbox
+          v-model="extraGlyphsEnabled"
+          label="Use extra glyphs (10-15)"
+          :title="secondaryActive ? 'Not available while a secondary score font is set.' : 'Costs 48 extra bytes of ROM space.'"
+          :disabled="secondaryActive"
+          hide-details
+          class="score-fade-switch"
         />
-        <span class="score-bkcolor-label">Score line colors (DPC+)</span>
-        <v-btn small text title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
-          One color
-        </v-btn>
       </div>
       <p class="v-messages theme--light v-messages__message">
         Draw the score digits below. Every font can be redrawn: what you draw is kept for the
@@ -84,21 +77,27 @@
         brings back its original digits.
       </p>
       <template>
-        <div class="score-extras-row">
-          <v-checkbox
-            v-model="extraGlyphsEnabled"
-            label="Use extra glyphs (10-15)"
-            :hint="secondaryActive ? 'Not available while a secondary score font is set.' :
-              'Costs 48 extra bytes of ROM space.'"
-            :disabled="secondaryActive"
-            persistent-hint
-            class="option-switch"
-          />
-        </div>
-        <graphic-editor-toolbar class="score-editor-toolbar-row" :active-editor="activeEditor">
+        <graphic-editor-toolbar class="score-editor-toolbar-row" :active-editor="activeEditor" :show-color-swatch="false">
           <template v-slot:before-tools>
             <editor-zoom v-model="zoom" class="score-editor-zoom" />
             <pixel-grid-toggle v-model="showPixelGrid" />
+          </template>
+          <template v-slot:below-tools>
+            <div v-if="isDpcPlus" class="score-bkcolor-row score-line-colors-row">
+              <span class="score-bkcolor-label">Score line colors (DPC+)</span>
+              <color-swatch-picker
+                v-for="(rowColor, rowIndex) in dpcPlusScoreRowColors"
+                :key="rowIndex"
+                :value="rowColor"
+                square
+                :allow-clear="false"
+                :title="`Click to set the color of line ${rowIndex + 1} of the score digits (the top line is 1)`"
+                @input="(byte) => setScoreRowColor(rowIndex, byte)"
+              />
+              <v-btn icon small class="line-colors-reset-btn" title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
+                <v-icon>mdi-restore</v-icon>
+              </v-btn>
+            </div>
           </template>
         </graphic-editor-toolbar>
         <div class="digit-list" :class="{'digit-list-tools-hidden': zoom <= 0.5}">
@@ -121,6 +120,7 @@
                 :aspectRatio="PIXEL_ASPECT"
                 v-model="state.digits[index]"
                 fgColor="orange"
+                :rowColors="digitRowColors"
                 :showClearButton="true"
                 :name="'score-font-digit-' + index"
                 :allowChangingHeight="false"
@@ -333,6 +333,13 @@ export default defineComponent({
     const dpcPlusScoreRowColors = computed(() => {
       const colors = (configurationStorage.value || {}).dpcPlusScoreColors;
       return Array.isArray(colors) && colors.length === 8 ? colors : Array(8).fill(0x08);
+    });
+    // The glyphs are drawn in the colors of the score lines on DPC+ (a glyph that is not 8 rows tall takes the color of the line each of its rows falls on),
+    // and in one color on the other kernels, and on DPC+ too when all the lines have the same color.
+    const digitRowColors = computed(() => {
+      if (!isDpcPlus.value || new Set(dpcPlusScoreRowColors.value).size < 2) return null;
+      const height = Math.max(1, activeDigitHeight.value);
+      return Array.from({length: height}, (unused, row) => colorByteToCss(dpcPlusScoreRowColors.value[Math.min(7, Math.floor(row * 8 / height))]));
     });
     const setScoreRowColor = (rowIndex, byte) => {
       if (byte === null || byte === undefined) return;
@@ -611,6 +618,7 @@ export default defineComponent({
       isDpcPlus,
       dpcPlusScoreColorsSet,
       dpcPlusScoreRowColors,
+      digitRowColors,
       setScoreRowColor,
       resetScoreRowColors,
       scoreFadeEnabled,
@@ -659,14 +667,6 @@ export default defineComponent({
 
 .score-font-role-row {
   margin: 4px 0 28px;
-}
-
-.score-extras-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  /* Closer to the text above it. */
-  margin-top: -10px;
 }
 
 .score-padding-field {
@@ -742,6 +742,23 @@ export default defineComponent({
    smaller/larger than the plain-text label sharing this same row. */
 .score-fade-switch >>> .v-label {
   font-size: 1rem;
+}
+
+/* The row of line colors pinned under the toolbar: the space under the swatches is the same as the space above them (the toolbar keeps 4px of padding under it). */
+.score-line-colors-row {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+/* The reset button of a row of line colors: the same look and size as the buttons of the graphic editor toolbar (see .get-tools in GraphicEditorToolbar.vue). */
+.line-colors-reset-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+  margin: 0;
 }
 
 .score-bkcolor-label {

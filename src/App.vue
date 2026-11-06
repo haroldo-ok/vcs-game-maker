@@ -423,7 +423,7 @@
             title="Restart the ROM from the beginning, without building it"
             @click="handleRestartRom"
           >
-            <v-icon small>mdi-restart</v-icon>
+            <v-icon small>mdi-restore</v-icon>
           </v-btn>
           <v-btn
             small

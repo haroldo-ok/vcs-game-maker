@@ -152,16 +152,43 @@ const withDpcPlusTextScreenHeight = (header, withRow2, withCursor, hideScore, sq
   return patched;
 };
 
+// The colors of the 5 glyph rows of a line of text (the Text tab), or null for one color on all of them (TextColor): only when they are not all the same.
+export const textLineColorsOf = (config) => {
+  const colors = config && config.textLineColors;
+  if (!Array.isArray(colors) || colors.length !== 5 || new Set(colors).size < 2) return null;
+  return colors.map((byte) => Math.min(254, Math.max(0, Math.round(Number(byte) || 0) & 254)));
+};
+
+// The same for the standard kernel's text12b.asm: each of its 5 glyph rows loads TextColor (3 cycles, at cycle 56 to 62 of the line before the one it colors) and
+// puts it in COLUP1, then COLUP0 on the next line; an absolute load of 4 cycles from a table in the ROM takes the 1 cycle more the line has room for.
+export const withTextLineColors12b = (text, colors) => {
+  let row = 0;
+  const patched = text.replace(/^    ldy TextColor( +;.*)?$/gm, () => `    ldy.w TextLineColors+${row++}   ; 4   the color of this glyph row`);
+  if (row !== 5) throw new Error('The text kernel does not have the 5 places that set the color of a line of text');
+  return `${patched}\nTextLineColors\n    .byte ${colors.join(',')}\n`;
+};
+
+// Each of the 5 glyph rows of the DPC+ text kernel sets the color of its second scanline from TextColor (a zero page load of 3 cycles, at cycle 56 of the
+// line before): with line colors it reads a byte of a table in the ROM instead, an absolute load of 4 cycles, which the line has room for.
+const withDpcPlusTextLineColors = (text, colors) => {
+  let row = 0;
+  const patched = text.replace(/    ldy TextColor           ; 3     \(56\) line 2 shows the text in its color/g,
+      () => `    ldy.w TextLineColors+${row++}   ; 4     (56) line 2 shows the text in the color of this glyph row`);
+  if (row !== 5) throw new Error('The DPC+ text kernel does not have the 5 places that set the color of a line of text');
+  return `${patched}\nTextLineColors\n    .byte ${colors.join(',')}\n`;
+};
+
 const dpcPlusFilesPromises = {};
-export const getDpcPlusTextMinikernelSiblingFiles = (withRow2 = false, withCursor = false, hideScore = false, squish = false) => {
-  const key = `${withRow2 ? 'row2' : 'row1'}${withCursor ? 'cursor' : ''}${hideScore ? 'hidden' : ''}${squish && !hideScore ? 'squish' : ''}`;
+export const getDpcPlusTextMinikernelSiblingFiles = (withRow2 = false, withCursor = false, hideScore = false, squish = false, lineColors = null) => {
+  const key = `${withRow2 ? 'row2' : 'row1'}${withCursor ? 'cursor' : ''}${hideScore ? 'hidden' : ''}${squish && !hideScore ? 'squish' : ''}` +
+    `${lineColors ? 'lines' + lineColors.join('_') : ''}`;
   if (!dpcPlusFilesPromises[key]) {
     dpcPlusFilesPromises[key] = Promise.all([
       fetchText('bb19/text-minikernel/text12DPCplus.asm'),
       fetchText('bb19/includes/DPCplus_kernel.asm'),
       fetchText('bb19/includes/DPCplusbB.h'),
     ]).then(([text, kernel, header]) => ({
-      'text12DPCplus.asm': text,
+      'text12DPCplus.asm': lineColors ? withDpcPlusTextLineColors(text, lineColors) : text,
       'DPCplus_kernel.asm': squish && !hideScore ?
         withDpcPlusSquishKernel(withDpcPlusTextHook(kernel, 0, SQUISH_LINES_SAVED + dpcPlusTextWaits(withRow2, hideScore)), 0, true) :
         withDpcPlusTextHook(kernel, 0, dpcPlusTextWaits(withRow2, hideScore)),

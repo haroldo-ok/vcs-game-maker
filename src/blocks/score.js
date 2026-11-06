@@ -81,6 +81,23 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': `Switches the score digits to the primary or the secondary font chosen on the Score tab, at once. ` +
       `Does nothing without a secondary font.`,
   },
+  // Block that changes the hue of the DPC+ score lines.
+  {
+    'type': `score_line_hue_set`,
+    'message0': `${SCORE_ICON} Score line colors: set hue ${COLOR_ICON} to %1`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `DPC+ only: changes the hue of the lines of the score and keeps the brightness each line has on the Score tab, so a gradient can be recolored ` +
+      `while the game runs. Only the hue of the color given is used (its top 4 bits). Use it when the Score tab gives the lines different colors: ` +
+      `then "Score set color" no longer changes the lines of the score.`,
+  },
   // Block for the color getter.
   {
     'type': `score_color_get`,

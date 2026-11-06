@@ -249,10 +249,14 @@ export default (Blockly) => {
   // DPC+ draws the digits of the score in the colors of a table of 8 bytes in the display memory (one for each line of the digits: the
   // "scorecolors:" statement the project starts with), not in scorecolor (which is only the color of what follows the score row), so
   // a new score color has to be written to the table too: the 8 bytes at scoredata.
+  const dpcPlusScoreColorsDiffer = (config) => Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 &&
+    new Set(config.dpcPlusScoreColors).size > 1;
   const dpcPlusScoreColorTableLines = () => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     if (config.kernel !== 'dpcplus') return '';
+    // The colors of the Score tab win when the lines have different ones: the "Score line colors hue" block recolors them (see score_line_hue_set).
+    if (dpcPlusScoreColorsDiffer(config)) return '';
     return ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI', 'lda scorecolor',
       ...Array(8).fill('sta DF0WRITE'), '@end'].join('\n') + '\n';
   };
@@ -262,6 +266,19 @@ export default (Blockly) => {
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     return 'scorecolor = ' + argument0 + '\n' + dpcPlusScoreColorTableLines();
+  };
+
+  // DPC+: changes the hue of the 8 lines of the score and keeps the brightness each line has on the Score tab: the hue (the top 4 bits of the color) is taken
+  // from the value, and each line gets it with the brightness it has (the low bits of its Score tab color, or the score's brightness when the lines have one color).
+  Blockly.BBasic[`score_line_hue_set`] = function(block) {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    if (config.kernel !== 'dpcplus') return ' rem Score line colors hue: the score lines need the DPC+ kernel\n';
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
+        Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const colors = Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ? config.dpcPlusScoreColors : Array(8).fill(0x08);
+    return `temp1 = (${argument0}) & $F0\n` + ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI',
+      ...colors.flatMap((byte) => ['lda temp1', `ora #${Number(byte) & 15}`, 'sta DF0WRITE']), '@end'].join('\n') + '\n';
   };
 
   Blockly.BBasic[`score_fade_to`] = function(block) {

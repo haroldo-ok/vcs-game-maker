@@ -32,7 +32,7 @@
           <v-icon>mdi-redo</v-icon>
         </v-btn>
         <v-divider class="get-inner-divider" vertical />
-        <v-menu offset-y :close-on-content-click="true">
+        <v-menu v-if="showColorSwatch" offset-y :close-on-content-click="true">
           <template v-slot:activator="{on, attrs}">
             <div
               class="get-color-swatch"
@@ -99,6 +99,7 @@
             <v-icon>mdi-format-color-fill</v-icon>
           </v-btn>
           <v-btn
+            v-if="showColorSwatch"
             icon
             small
             title="Eyedropper (I) - click a row of the graphic to take its color for the swatch"
@@ -286,6 +287,8 @@ export default {
     // (the caller keeps it; use .sync), or null for a tab with no such toggle, and what the cards are called, for the tooltip.
     cardColumns: {type: Boolean, default: null},
     cardColumnsWhat: {type: String, default: 'cards'},
+    // False for a tab whose graphics have no row colors to paint (the Score tab): the color swatch and the eyedropper that goes with it are left out.
+    showColorSwatch: {type: Boolean, default: true},
     // The PixelEditor.vue instance the toolbar currently acts on - null
     // (every button disabled, no tool highlighted) until a caller resolves
     // one, however it chooses to (an explicit frame click, a $ref fallback

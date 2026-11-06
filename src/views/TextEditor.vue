@@ -40,6 +40,22 @@
           />
         </div>
 
+        <div class="text-bkcolor-row">
+          <color-swatch-picker
+            v-for="(lineColor, lineIndex) in textLineColorList"
+            :key="lineIndex"
+            :value="lineColor"
+            :allow-clear="false"
+            square
+            :title="`Click to set the color of glyph row ${lineIndex + 1} of the text (the top row is 1)`"
+            @input="(byte) => setTextLineColor(lineIndex, byte)"
+          />
+          <span class="text-bkcolor-label">Text line colors</span>
+          <v-btn icon small class="line-colors-reset-btn" title="Give every line of the text the same color again (the one the Text color blocks set)" :disabled="!textLineColorsSet" @click="resetTextLineColors">
+            <v-icon>mdi-restore</v-icon>
+          </v-btn>
+        </div>
+
         <!-- The folders for the messages below, pinned to the top of the tab as the toolbars of the other tabs are, with a line above and one under. -->
         <div ref="folderToolbar" class="text-folder-toolbar">
           <v-divider class="text-folder-divider" />
@@ -293,6 +309,25 @@ export default defineComponent({
         };
       },
     });
+
+    // DPC+: the 5 glyph rows of a line of text can each have a color (textLineColors in the configuration: 5 color bytes, or none for the one color
+    // the Text color blocks set); the Text color blocks do not change the rows while they differ.
+    const textLineColorsSet = computed(() => Array.isArray((configurationStorage.value || {}).textLineColors));
+    const textLineColorList = computed(() => {
+      const colors = (configurationStorage.value || {}).textLineColors;
+      return Array.isArray(colors) && colors.length === 5 ? colors : Array(5).fill(0x0E);
+    });
+    const setTextLineColor = (lineIndex, byte) => {
+      if (byte === null || byte === undefined) return;
+      const colors = textLineColorList.value.slice();
+      colors[lineIndex] = byte;
+      configurationStorage.value = {...(configurationStorage.value || {}), textLineColors: colors};
+    };
+    const resetTextLineColors = () => {
+      const state = {...(configurationStorage.value || {})};
+      delete state.textLineColors;
+      configurationStorage.value = state;
+    };
 
     // Whether text12b.asm's "more below" scroll cursor is compiled in at
     // all (see generators/bbasic.js's  buildRom-time
@@ -572,6 +607,7 @@ export default defineComponent({
       selectedCardId, selectedCardIds, selectCard, deselectCard, deleteQuestion,
       state, handleChildChange, handleAddEntry, handleDeleteEntry, handleTextChange,
       isCollapsed, toggleCollapsed, textBkColor, enableTextScrollCursor,
+      textLineColorsSet, textLineColorList, setTextLineColor, resetTextLineColors,
       textScrollCursorBlinkSpeed, BLINK_SPEED_OPTIONS, textMaxDisplayWidth,
       TEXT_MAX_DISPLAY_WIDTH_OPTIONS, TEXT_CARD_MAX_LENGTH, textColumns,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
@@ -624,6 +660,17 @@ export default defineComponent({
 
 .desaturate-app-colors .text-folder-toolbar {
   background-color: #e1e1e1;
+}
+
+/* The reset button of a row of line colors: the same look and size as the buttons of the graphic editor toolbar (see .get-tools in GraphicEditorToolbar.vue). */
+.line-colors-reset-btn {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  min-width: 0;
+  height: 26px;
+  width: 26px;
+  margin: 0;
 }
 
 .text-bkcolor-row {

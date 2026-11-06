@@ -23,7 +23,7 @@ import {patchArmProgramAddress, fillArmProgram} from '../generators/bbasic/offse
 import {getDpcPlusNoScoreSiblingFiles} from '../utils/dpc-noscore';
 import {getDpcPlusSquishSiblingFiles} from '../utils/dpc-squish';
 import {getDpcPlusAudioSiblingFiles} from '../generators/bbasic/dpcplus-audio';
-import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles, getDpcPlusTextMinikernelSiblingFiles,
+import {getExtendedScoreGraphics, getTextMinikernelSiblingFiles, getDpcPlusTextMinikernelSiblingFiles, textLineColorsOf, withTextLineColors12b,
   dpcPlusTextScreenLines} from '../generators/bbasic/text-minikernel-files';
 import {getTitleScreenSiblingFiles} from '../generators/bbasic/titlescreen-files';
 import {TITLE_SCREEN_SUBROUTINE_NAME, estimateTitleScreenGraphicsBytes} from '../generators/bbasic/titlescreen';
@@ -1660,7 +1660,11 @@ const buildRomInner = async () => {
         !config.enableCycleScore && !config.enableScanlinesDebug && ((configurationStorage.value || {}).showScore ?? true) !== false;
       const siblingFiles = textMinikernelActive ?
         {...(config.kernel === 'dpcplus' ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed,
-            ((configurationStorage.value || {}).showScore ?? true) === false, dpcPlusSquish) : await getTextMinikernelSiblingFiles())} : {};
+            ((configurationStorage.value || {}).showScore ?? true) === false, dpcPlusSquish, textLineColorsOf(config)) : await getTextMinikernelSiblingFiles())} : {};
+      // (The standard kernel's text kernel gets the colors of the lines of text from a table too, see withTextLineColors12b.)
+      if (textMinikernelActive && config.kernel !== 'dpcplus' && textLineColorsOf(config) && siblingFiles['text12b.asm']) {
+        siblingFiles['text12b.asm'] = withTextLineColors12b(siblingFiles['text12b.asm'], textLineColorsOf(config));
+      }
       // Hand-written .asm content generated during this same attempt's
       // regenerateCode() call above (player animation frame pointers, see
       // generateAnimations in generators/bbasic.js), added as sibling files
@@ -2749,7 +2753,10 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         (configurationStorage.value || {}).showScore;
       const siblingFiles = BlocklyBB.isTextMinikernelActive() ?
         {...(previewDpcPlus ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed,
-            (previewShowScore ?? true) === false) : await getTextMinikernelSiblingFiles())} : {};
+            (previewShowScore ?? true) === false, false, textLineColorsOf(configurationStorage.value)) : await getTextMinikernelSiblingFiles())} : {};
+      if (BlocklyBB.isTextMinikernelActive() && !previewDpcPlus && textLineColorsOf(configurationStorage.value) && siblingFiles['text12b.asm']) {
+        siblingFiles['text12b.asm'] = withTextLineColors12b(siblingFiles['text12b.asm'], textLineColorsOf(configurationStorage.value));
+      }
       Object.assign(siblingFiles, BlocklyBB.playerAnimAsmFiles || {});
       if (BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})) {
         Object.assign(siblingFiles, await getFastMathSiblingFiles((configurationStorage.value || {}).kernel));
