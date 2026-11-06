@@ -5,23 +5,22 @@ import {
   JOYSTICK_ICON, FIRE_ICON, DIFFICULTY_BEGINNER_ICON, DIFFICULTY_ADVANCED_ICON,
   CONSOLE_SWITCH_ICON, CONSOLE_SWITCH_RESET_ICON, CONSOLE_SWITCH_SELECT_ICON,
   CONSOLE_SWITCH_COLOR_ICON, CONSOLE_SWITCH_BW_ICON,
-  PLAYER_ICON, MISSILE_ICON, BALL_ICON,
+  MISSILE_ICON, BALL_ICON,
   HORIZONTAL_ICON, VERTICAL_ICON, KEYPAD_ICON,
 } from './icon';
 import {registerDropdownFieldSyncExtension} from './sprites';
+import {spriteOptionsWithPool} from './sprite-pool';
 import {useConfigurationStorage} from '../hooks/project';
 import {joystickNameOf, joystickCount} from '../utils/pxe';
 
 // Every object that has an X/Y position to measure a distance between -
 // unlike collision.js's  options, Playfield is left out since it has no
 // single coordinate.
-const DISTANCE_OBJECT_OPTIONS = [
-  [PLAYER_ICON + ' Player 0', 'player0'],
-  [PLAYER_ICON + ' Player 1', 'player1'],
+const DISTANCE_OBJECT_OPTIONS = spriteOptionsWithPool([
   [MISSILE_ICON + ' Missile 0', 'missile0'],
   [MISSILE_ICON + ' Missile 1', 'missile1'],
   [BALL_ICON + ' Ball', 'ball'],
-];
+]);
 
 const buildDistanceBlock = (axis, icon) => ({
   'type': `distance_${axis}_get`,

@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayerAnimationsStorage, useConfigurationStorage} from '../hooks/project';
-import {playerCount, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
+import {playerCount, isPxe, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
 import {SPRITE_POOL_COLOUR} from './sprite-pool';
 import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, LOCK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
 
@@ -338,19 +338,18 @@ const setupFireDefaultAngleSync = (block) => {
 // Player block's  message0 already has a static "Player" word right
 // before this dropdown (see buildCombinedPlayerVarBlocks etc. below), so
 // full labels here would read as a doubled "Player Player 0" once placed.
-const PLAYER_OPTIONS = [['0', '0'], ['1', '1']];
 
 // The DPC+ kernel has eight more sprites (Player 2 to 9), offered by the blocks that can drive them.
 // (And the PXE kernel eight more, Player 10 to 16.)
 // "pool sprite" stands for the sprite a Sprite pool block is working on (see blocks/sprite-pool.js); it is only offered where a virtual sprite exists.
 const PLAYER_DROPDOWN_OPTIONS = function() {
   const count = playerCount(((useConfigurationStorage() || {}).value || {}));
-  return [...Array.from({length: count}, (_, i) => [String(i), String(i)]), ...(count > 2 ? [['pool sprite', 'pool']] : [])];
+  return [...Array.from({length: count}, (_, i) => [String(i), String(i)]), ...(count > 2 ? [['pool sprite', 'pool'], ['all pool sprites', 'poolall']] : [])];
 };
 
 const playerNameFromField = (block) => {
   const value = block && block.getFieldValue('PLAYER');
-  return value === 'pool' ? 'playerpool' : `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`;
+  return /^pool(all)?$/.test(value) ? `player${value}` : `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`;
 };
 
 // Same reasoning as PLAYER_OPTIONS above, for Missile 0/1 - genuinely
@@ -368,7 +367,7 @@ const FIRE_OBJECT_OPTIONS = [['Missile 0', '0'], ['Missile 1', '1'], ['Ball', 'b
 // Fire also launches the players (all ten on DPC+, two otherwise), as a Fire object like the missiles.
 const FIRE_OBJECT_DROPDOWN_OPTIONS = function() {
   const players = Array.from({length: playerCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => ['Player ' + i, 'player' + i]);
-  return [...FIRE_OBJECT_OPTIONS, ...players, ...(players.length > 2 ? [['pool sprite', 'playerpool']] : [])];
+  return [...FIRE_OBJECT_OPTIONS, ...players, ...(players.length > 2 ? [['pool sprite', 'playerpool'], ['all pool sprites', 'playerpoolall']] : [])];
 };
 // Players 2 to 9 (DPC+ virtual sprites) each get a different color on the blocks that pick one, Player 0 is red and Player 1 blue.
 const EXTRA_PLAYER_COLOURS = {
@@ -483,7 +482,7 @@ const buildMissileVarOptionsFn = (extraOptionsFor) => function() {
 // directly (same "dropdown drives colour + optional VAR-prefix translate"
 // shape) rather than duplicating it.
 export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldName, namePrefixFor) => {
-  const colourFor = (value) => (value === 'pool' ? SPRITE_POOL_COLOUR : value === '1' ? 'blue' : EXTRA_PLAYER_NUMBER.test(value) ? extraPlayerColour(value) : 'red');
+  const colourFor = (value) => (/^pool(all)?$/.test(value) ? SPRITE_POOL_COLOUR : value === '1' ? 'blue' : EXTRA_PLAYER_NUMBER.test(value) ? extraPlayerColour(value) : 'red');
   Blockly.Extensions.register(extensionName, function() {
     // eslint-disable-next-line no-invalid-this
     const block = this;
@@ -557,7 +556,7 @@ export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldN
 };
 
 registerDropdownFieldSyncExtension('sprite_player_field_sync', 'PLAYER',
-    (value) => (value === 'pool' ? 'playerpool' : `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`));
+    (value) => (/^pool(all)?$/.test(value) ? `player${value}` : `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`));
 registerDropdownFieldSyncExtension('sprite_missile_field_sync', 'MISSILE',
     (value) => `missile${value === '1' ? '1' : '0'}`);
 
@@ -990,7 +989,14 @@ const buildSpriteBlocks = ({name, description, icon, options=[], writeOnlyOption
 // The players the PXE kernel can mask at the screen edges: every one but Player 0.
 const MASK_PLAYER_OPTIONS = function() {
   const count = Math.max(2, playerCount(((useConfigurationStorage() || {}).value || {})));
-  return Array.from({length: count - 1}, (_, i) => [String(i + 1), String(i + 1)]);
+  return [...Array.from({length: count - 1}, (_, i) => [String(i + 1), String(i + 1)]), ...(count > 2 ? [['pool sprite', 'pool'], ['all pool sprites', 'poolall']] : [])];
+};
+
+// The players the rainbow colors blocks can color: Player 0 and 1, and under DPC+ the virtual sprites too (and the pool sprite).
+const RAINBOW_PLAYER_OPTIONS = function() {
+  const config = ((useConfigurationStorage() || {}).value || {});
+  const count = config.kernel === 'dpcplus' && !isPxe(config) ? Math.min(10, playerCount(config)) : 2;
+  return [...Array.from({length: count}, (_, i) => [String(i), String(i)]), ...(count > 2 ? [['pool sprite', 'pool'], ['all pool sprites', 'poolall']] : [])];
 };
 
 const buildPlayerBlocks = ({icon, colour}) => {
@@ -1166,7 +1172,7 @@ const buildPlayerBlocks = ({icon, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'PLAYER',
-          'options': PLAYER_OPTIONS,
+          'options': RAINBOW_PLAYER_OPTIONS,
         },
         {
           'type': 'input_value',
@@ -1211,7 +1217,7 @@ const buildPlayerBlocks = ({icon, colour}) => {
         {
           'type': 'field_dropdown',
           'name': 'PLAYER',
-          'options': PLAYER_OPTIONS,
+          'options': RAINBOW_PLAYER_OPTIONS,
         },
       ],
       'previousStatement': null,
@@ -1249,7 +1255,7 @@ const SEEK_OBJECT_DROPDOWN_OPTIONS = function() {
   const count = playerCount(((useConfigurationStorage() || {}).value || {}));
   if (count <= 2) return SEEK_OBJECT_OPTIONS;
   const extra = Array.from({length: count - 2}, (_, i) => [PLAYER_ICON + ' Player ' + (i + 2), 'player' + (i + 2)]);
-  return [...SEEK_OBJECT_OPTIONS.slice(0, 2), ...extra, ...SEEK_OBJECT_OPTIONS.slice(2)];
+  return [...SEEK_OBJECT_OPTIONS.slice(0, 2), ...extra, [PLAYER_ICON + ' Pool sprite', 'playerpool'], [PLAYER_ICON + ' All pool sprites', 'playerpoolall'], ...SEEK_OBJECT_OPTIONS.slice(2)];
 };
 
 // Same colour-per-choice treatment as sprite_player_fade_colour_sync above,
@@ -1259,7 +1265,7 @@ const SEEK_OBJECT_DROPDOWN_OPTIONS = function() {
 // matching PLAYER_ICON/MISSILE_ICON/BALL_ICON's  call sites further down
 // this file) rather than inventing a new palette just for this dropdown.
 const SEEK_OBJECT_COLOURS = {
-  player0: 'red', player1: 'blue', missile0: 'red', missile1: 'blue', ball: '#ff8800',
+  player0: 'red', player1: 'blue', missile0: 'red', missile1: 'blue', ball: '#ff8800', playerpool: SPRITE_POOL_COLOUR, playerpoolall: SPRITE_POOL_COLOUR,
   ...Object.fromEntries([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((n) => [`player${n}`, extraPlayerColour(n)])),
 };
 // Validator-based, not setOnChange - see registerDropdownFieldSyncExtension's
@@ -1862,7 +1868,7 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'field_dropdown',
         'name': 'OBJECT',
-        'options': SEEK_OBJECT_OPTIONS,
+        'options': SEEK_OBJECT_DROPDOWN_OPTIONS,
       },
     ],
     'previousStatement': null,

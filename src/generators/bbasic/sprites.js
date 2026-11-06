@@ -333,7 +333,11 @@ export const romNoiseActiveBit = (name) => isRomNoiseExtra(name) ?
 export const romNoiseOffsetVarName = (name) => `${name}RomNoiseOffset`;
 export const romNoiseHeightVarName = (name) => `${name}RomNoiseHeight`;
 export const rainbowColorOwnBit = (name) => name === 'player1' ? 3 : 2;
-export const rainbowColorActiveBit = (name) => flagPoolBit(ROM_NOISE_FLAGS_FAMILY, rainbowColorOwnBit(name));
+// Players 2 to 9 (DPC+) have a separate byte for the rainbow colors too, one bit each.
+export const RAINBOW_EXTRA_FAMILY = 'rainbowExtraFlags';
+export const rainbowColorFlagsVarName = (name) => flagPoolVar(name && isRomNoiseExtra(name) ? RAINBOW_EXTRA_FAMILY : ROM_NOISE_FLAGS_FAMILY);
+export const rainbowColorActiveBit = (name) => (isRomNoiseExtra(name) ? flagPoolBit(RAINBOW_EXTRA_FAMILY, romNoiseExtraOwnBit(name)) :
+  flagPoolBit(ROM_NOISE_FLAGS_FAMILY, rainbowColorOwnBit(name)));
 export const rainbowColorOffsetVarName = (name) => `${name}RainbowColorOffset`;
 // The playfield twin of the player rainbow colors: the same shared flags byte
 // (bit 4) and a separate offset var.
@@ -765,7 +769,8 @@ export const reserveBackgroundRainbowDevVars = (reserveDevVar, reserveDevVarRW, 
 
 export const reserveRainbowColorDevVars = (reserveDevVar, reserveDevVarRW, usedFor, simpleOffsets) => {
   if (!usedFor || !usedFor.size) return;
-  reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
+  if ([...usedFor].some((name) => !isRomNoiseExtra(name))) reserveDevVar(romNoiseFlagsVarName(), undefined, 'shared active-bit byte (ROM noise + rainbow colors)');
+  if ([...usedFor].some(isRomNoiseExtra)) reserveDevVar(rainbowColorFlagsVarName('player2'), undefined, 'active bit of the rainbow colors of each of Player 2 to 9');
   usedFor.forEach((name) => {
     if (!(simpleOffsets && simpleOffsets[name])) {
       reserveDevVarRW(rainbowColorOffsetVarName(name), 'rainbow colors: cycle offset');
@@ -1121,7 +1126,7 @@ export const generateRomNoiseChecks = (Blockly) => {
 // whenever player0 is in use, even if player1 itself never asked for
 // rainbow colors.
 export const rainbowColorNeedsPlayerColors = (usedFor) => !!(usedFor && usedFor.has('player0'));
-export const rainbowColorNeedsPlayer1Colors = (usedFor) => !!(usedFor && usedFor.size);
+export const rainbowColorNeedsPlayer1Colors = (usedFor) => !!(usedFor && (usedFor.has('player0') || usedFor.has('player1')));
 
 // Real batari Basic graphic-literal declarations (player0color:/
 // player1color:, confirmed syntax from a real working example program) -
@@ -1211,10 +1216,12 @@ const generateDpcPlusBackgroundRainbowChecks = (Blockly) => {
 const generateDpcPlusRainbowColorChecks = (Blockly) => {
   const used = Blockly.BBasic.rainbowColorUsedFor;
   if (!used || !used.size) return generateDpcPlusBackgroundRainbowChecks(Blockly);
-  const flagsVar = Blockly.BBasic.nameDB_.getName(romNoiseFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const lines = [];
-  ['player0', 'player1'].forEach((name) => {
+  // (Player 2 to 9: virtual sprites like Player 1, whose color pointers follow Player 1's in the same table.)
+  ['player0', 'player1', ...[...used].filter(isRomNoiseExtra).sort()].forEach((name) => {
     if (!used.has(name)) return;
+    const flagsVar = Blockly.BBasic.nameDB_.getName(rainbowColorFlagsVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const pointerAt = playerColorPointerBase(useConfigurationStorage().value) + (name === 'player0' ? 0 : 2 * (Number(name.slice(6)) - 1));
     const doneLabel = `_rainbowcolor_${name}_done`;
     const offset = rainbowOffsetExpression(Blockly, (Blockly.BBasic.rainbowSimpleOffset || {})[name],
         rainbowColorOffsetVarName(name));
@@ -1230,9 +1237,9 @@ const generateDpcPlusRainbowColorChecks = (Blockly) => {
           `       lda #${noiseHighByte(useConfigurationStorage().value)}`,
           '       sta player0color+1',
         ] : [
-          `       lda #<(playerpointers+${playerColorPointerBase(useConfigurationStorage().value)})`,
+          `       lda #<(playerpointers+${pointerAt})`,
           '       sta DF0LOW',
-          `       lda #(>(playerpointers+${playerColorPointerBase(useConfigurationStorage().value)})) & $0F`,
+          `       lda #(>(playerpointers+${pointerAt})) & $0F`,
           '       sta DF0HI',
           '       lda temp1',
           '       sta DF0WRITE',
@@ -2796,7 +2803,7 @@ export default (Blockly) => {
       const resolveVar = (canonicalName) =>
         Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const offsetPair = Blockly.BBasic.superchipRwPairs[rainbowColorOffsetVarName(name)];
-      const flagsVar = resolveVar(romNoiseFlagsVarName());
+      const flagsVar = resolveVar(rainbowColorFlagsVarName(name));
       const offset = Blockly.BBasic.valueToCode(block, 'OFFSET', Blockly.BBasic.ORDER_ASSIGNMENT) ||
         'framecounter';
       const simple = !!(Blockly.BBasic.rainbowSimpleOffset || {})[name];
@@ -2816,7 +2823,7 @@ export default (Blockly) => {
       const name = resolvePlayerName(block);
       const resolveVar = (canonicalName) =>
         Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-      const flagsVar = resolveVar(romNoiseFlagsVarName());
+      const flagsVar = resolveVar(rainbowColorFlagsVarName(name));
       // On DPC+ the colors are only loaded when the animation frame changes (until bit 7 of the size variable is clear), so they
       // have to be told to load again.
       const dpcPlus = (useConfigurationStorage().value || {}).kernel === 'dpcplus';

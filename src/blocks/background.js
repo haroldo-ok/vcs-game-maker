@@ -7,9 +7,16 @@ import {useBackgroundsStorage, useConfigurationStorage} from '../hooks/project';
 import {cardOptions} from '../utils/card-refs';
 import {pfWidthOf, pfIsWide, resizePixelColumns} from '../utils/pxe';
 import {playfieldToMatrix} from '../utils/pixels';
-import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON, PLAYER_ICON, MISSILE_ICON, BALL_ICON} from './icon';
+import {spriteOptionsWithPool} from './sprite-pool';
+import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON, MISSILE_ICON, BALL_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
+// The sprites a "Find playfield pixel collided with" block can look at: the players (under DPC+ the virtual sprites and the pool sprite too), the missiles, the ball.
+const COLLISION_PIXEL_SPRITE_OPTIONS = spriteOptionsWithPool([
+  [MISSILE_ICON + ' Missile 0', 'missile0'],
+  [MISSILE_ICON + ' Missile 1', 'missile1'],
+  [BALL_ICON + ' Ball', 'ball'],
+]);
 
 // background_fade_to (see generators/bbasic/background.js) is a fire-and-
 // forget TRIGGER, not a "call every frame yourself" block - it writes its
@@ -1530,13 +1537,7 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'field_dropdown',
         'name': 'SPRITE',
-        'options': [
-          [PLAYER_ICON + ' Player 0', 'player0'],
-          [PLAYER_ICON + ' Player 1', 'player1'],
-          [MISSILE_ICON + ' Missile 0', 'missile0'],
-          [MISSILE_ICON + ' Missile 1', 'missile1'],
-          [BALL_ICON + ' Ball', 'ball'],
-        ],
+        'options': COLLISION_PIXEL_SPRITE_OPTIONS,
       },
     ],
     'args1': [
@@ -1577,13 +1578,7 @@ Blockly.defineBlocksWithJsonArray([
       {
         'type': 'field_dropdown',
         'name': 'SPRITE',
-        'options': [
-          [PLAYER_ICON + ' Player 0', 'player0'],
-          [PLAYER_ICON + ' Player 1', 'player1'],
-          [MISSILE_ICON + ' Missile 0', 'missile0'],
-          [MISSILE_ICON + ' Missile 1', 'missile1'],
-          [BALL_ICON + ' Ball', 'ball'],
-        ],
+        'options': COLLISION_PIXEL_SPRITE_OPTIONS,
       },
     ],
     'args1': [

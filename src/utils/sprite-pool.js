@@ -64,7 +64,7 @@ export const expandSpritePools = (dom, Blockly) => {
     copy.querySelectorAll('field').forEach((field) => {
       const text = field.textContent;
       if (field.getAttribute('name') === 'PLAYER' && text === 'pool') field.textContent = String(n);
-      else if (text.includes('playerpool')) field.textContent = text.replace(/playerpool/g, `player${n}`);
+      else if (/playerpool(?!all|any)/.test(text)) field.textContent = text.replace(/playerpool(?!all|any)/g, `player${n}`);
     });
     return serialize(copy);
   };
@@ -97,6 +97,41 @@ export const expandSpritePools = (dom, Blockly) => {
           `${rest ? `<statement name="ELSE">${rest}</statement>` : ''}</block>`;
       });
       replace(node, rest);
+    }
+  }
+  // "All pool sprites" / "any pool sprite" on a block: a copy of the block for each sprite of the range the block shows (the blocks that do something one after
+  // the other, the Collided block joined with "or" for any and "and" for all).
+  const MULTI = /^(player)?pool(all|any)$/;
+  const multiFields = (block) => children(block, 'field').filter((field) => MULTI.test(field.textContent));
+  for (;;) {
+    const node = [...dom.querySelectorAll('block')].find((candidate) => multiFields(candidate).length && ![...candidate.querySelectorAll('block')].some((inner) => multiFields(inner).length));
+    if (!node) break;
+    const fromField = fieldOf(node, 'POOLFROM');
+    const toField = fieldOf(node, 'POOLTO');
+    const from = Number(fromField ? fromField.textContent : 1);
+    const to = Number(toField ? toField.textContent : from);
+    const low = Math.min(MAX_PLAYER, Math.max(1, Math.min(from, to)));
+    const high = Math.min(MAX_PLAYER, Math.max(1, Math.max(from, to)));
+    const any = multiFields(node).some((field) => /any$/.test(field.textContent));
+    const copies = Array.from({length: high - low + 1}, (_, i) => low + i).map((n) => {
+      const copy = node.cloneNode(true);
+      [copy, ...copy.querySelectorAll('[id]')].forEach((element) => element.removeAttribute('id'));
+      children(copy, 'next').forEach((next) => copy.removeChild(next));
+      ['POOLFROM', 'POOLTO'].forEach((name) => {
+        const field = fieldOf(copy, name); if (field) copy.removeChild(field);
+      });
+      copy.querySelectorAll('field').forEach((field) => {
+        const text = field.textContent;
+        if (MULTI.test(text)) field.textContent = /^player/.test(text) ? `player${n}` : String(n);
+        else if (/playerpool(all|any)/.test(text)) field.textContent = text.replace(/playerpool(all|any)/g, `player${n}`);
+      });
+      return serialize(copy);
+    });
+    const isValue = ['value', 'shadow'].includes(node.parentNode.tagName);
+    if (isValue) {
+      replace(node, copies.reduceRight((rest, copy) => (rest ? `<block type="logic_operation"><field name="OP">${any ? 'OR' : 'AND'}</field><value name="A">${copy}</value><value name="B">${rest}</value></block>` : copy), ''));
+    } else {
+      replace(node, stack(copies));
     }
   }
   // A pool sprite outside a pool block names no sprite: the blocks that use it are left out.

@@ -608,14 +608,17 @@ export default (Blockly) => {
   // event_frame_even_odd) - nothing needs them to persist past this block.
   // A for loop in batari Basic runs its body once before it looks at the end value, so "for temp2 = 1 to 0" still runs once and
   // would leave one unit in a bar that was set to 0: a count of 0 jumps over the loop instead.
-  const buildBarFillLoop = (varName, targetCode, stepExpression) => {
+  // A health bar holds 8 units and a lives bar 4 dots: a count above that is limited to it (the bar could not show more).
+  const HEALTH_MAX = 8;
+  const LIVES_MAX = 4;
+  const buildBarFillLoop = (varName, targetCode, stepExpression, max) => {
     const doneLabel = `_score_bar_${Blockly.BBasic.blockNumbers.next('score_bar')}_done`;
     return [
       `${varName} = 0`,
       `temp1 = ${targetCode}`,
       `if temp1 = 0 then goto ${doneLabel}`,
-      // A bar byte has 8 bits, so steps past 8 change nothing; a count out of range (a lives variable below 0 reads as 255) would otherwise run the loop for about 5,000 cycles.
-      'if temp1 > 8 then temp1 = 8',
+      // Steps past the most the bar holds change nothing; a count out of range (a lives variable below 0 reads as 255) would otherwise run the loop for about 5,000 cycles.
+      `if temp1 > ${max} then temp1 = ${max}`,
       'for temp2 = 1 to temp1',
       `${varName} = ${stepExpression}`,
       'next',
@@ -630,7 +633,7 @@ export default (Blockly) => {
         Blockly.VARIABLE_CATEGORY_NAME);
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return buildBarFillLoop(varName, argument0, `${varName}*2+1`);
+    return buildBarFillLoop(varName, argument0, `${varName}*2+1`, HEALTH_MAX);
   };
 
   Blockly.BBasic[`score_bar_set_lives`] = function(block) {
@@ -640,7 +643,7 @@ export default (Blockly) => {
         Blockly.VARIABLE_CATEGORY_NAME);
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return buildBarFillLoop(varName, argument0, `${varName}*4+2`);
+    return buildBarFillLoop(varName, argument0, `${varName}*4+2`, LIVES_MAX);
   };
 
   // Grows or shrinks a score bar by repeating its one-step doubling/halving
@@ -661,14 +664,14 @@ export default (Blockly) => {
   // one (two's complement wraparound), not something "temp < 0" can detect
   // - so that case only supports growing the bar; shrinking always needs a
   // literal negative number. Documented on the block's  tooltip.
-  const buildBarChangeLoop = (varName, deltaCode, growStep, shrinkStep) => {
+  const buildBarChangeLoop = (varName, deltaCode, growStep, shrinkStep, max) => {
     const literalMatch = /^\s*(-?\d+)\s*$/.exec(deltaCode);
     if (literalMatch) {
       const n = parseInt(literalMatch[1], 10);
       if (n === 0) return '';
       const step = n > 0 ? growStep : shrinkStep;
       return [
-        `for temp2 = 1 to ${Math.abs(n)}`,
+        `for temp2 = 1 to ${Math.min(Math.abs(n), max)}`,
         `${varName} = ${step}`,
         'next',
       ].join('\n') + '\n';
@@ -677,8 +680,8 @@ export default (Blockly) => {
     return [
       `temp1 = ${deltaCode}`,
       `if temp1 = 0 then goto ${doneLabel}`,
-      // A bar byte has 8 bits, so steps past 8 change nothing; a count out of range (a lives variable below 0 reads as 255) would otherwise run the loop for about 5,000 cycles.
-      'if temp1 > 8 then temp1 = 8',
+      // (A count of steps above the most the bar holds is limited to it; a negative one is only a literal, see above.)
+      `if temp1 > ${max} then temp1 = ${max}`,
       'for temp2 = 1 to temp1',
       `${varName} = ${growStep}`,
       'next',
@@ -693,7 +696,7 @@ export default (Blockly) => {
         Blockly.VARIABLE_CATEGORY_NAME);
     const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return buildBarChangeLoop(varName, argument0, `${varName}*2+1`, `${varName}/2`);
+    return buildBarChangeLoop(varName, argument0, `${varName}*2+1`, `${varName}/2`, HEALTH_MAX);
   };
 
   Blockly.BBasic[`score_bar_change_lives`] = function(block) {
@@ -703,6 +706,6 @@ export default (Blockly) => {
         Blockly.VARIABLE_CATEGORY_NAME);
     const argument0 = Blockly.BBasic.valueToCode(block, 'DELTA',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    return buildBarChangeLoop(varName, argument0, `${varName}*4+2`, `${varName}/4`);
+    return buildBarChangeLoop(varName, argument0, `${varName}*4+2`, `${varName}/4`, LIVES_MAX);
   };
 };

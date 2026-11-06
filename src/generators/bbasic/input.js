@@ -191,7 +191,7 @@ export const registerKeypadPollSubroutine = (Blockly, {useLeft, useRight, leftVa
 // version, which computes that same answer twice (once as its  explicit
 // "if", a second time implicitly inside whichever subtraction it picked).
 const DISTANCE_ABS_DIFF_NAME = '_distance_abs_diff';
-const registerDistanceAbsDiffSubroutine = (Blockly) => {
+export const registerDistanceAbsDiffSubroutine = (Blockly) => {
   Blockly.BBasic.subroutines[DISTANCE_ABS_DIFF_NAME] = [
     'asm',
     'LDA temp1',

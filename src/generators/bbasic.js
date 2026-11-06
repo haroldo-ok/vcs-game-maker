@@ -70,7 +70,7 @@ import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resol
   titleScrollEdgeFlagSlots, planTitleRowFade, setTitleRowFadePlans, padTitleCardFrames, TITLE_SCREEN_KERNEL_TYPES, titleCardColorVarName, titleCardFadeTargetVarName, titleCardFadeTimerVarName, titleCardFadePaceVarName,
   TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName} from '../blocks/titlescreen';
-import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
+import {registerDistanceAbsDiffSubroutine, registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickDirection8DevVars, generateJoystickDirection8Checks,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
   generateJoystickButtonChecks, generateJoystickDoubleTapChecks, SWITCH_EDGE_FAMILY, switchEdgeOwnBits, JOY_TAP_FAMILY, joyTapOwnBits, reserveJoyTapDevVars,
@@ -85,7 +85,7 @@ import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generate
   reserveRomNoiseDevVars, reserveRainbowColorDevVars, reserveBackgroundRainbowDevVars,
   ROM_NOISE_FLAGS_FAMILY, MISSILE_FIRE_FLAGS_FAMILY, FIRE_OFFSCREEN_FLAGS_FAMILY, fireOffscreenFlagsVarName, SEEK_FLAGS_FAMILY, SEEK_AXIS_FAMILY, SEEK_ARRIVED_FLAGS_FAMILY,
   SPRITE_SCROLL_FLAGS_FAMILY, SPRITE_HIDDEN_FLAGS_FAMILY, hasHiddenFlag, hiddenFlagRef, INERTIA_ACCEL_FLAGS_FAMILY, INERTIA_DECEL_FLAGS_FAMILY, OBJECT_GRAVITY_FLAGS_FAMILY,
-  romNoiseOwnBit, rainbowColorOwnBit, BACKGROUND_RAINBOW_OWN_BIT, BACKGROUND_RAINBOW_LOADED_BIT, backgroundRainbowLoadedBit, romNoiseFlagsVarName, missileFireOwnBit, spriteOwnBit,
+  romNoiseOwnBit, rainbowColorOwnBit, BACKGROUND_RAINBOW_OWN_BIT, BACKGROUND_RAINBOW_LOADED_BIT, backgroundRainbowLoadedBit, romNoiseFlagsVarName, RAINBOW_EXTRA_FAMILY, missileFireOwnBit, spriteOwnBit,
   backgroundColorTableLoVarName, backgroundColorTableHiVarName, BACKGROUND_RAINBOW_RESTORE_NAME,
   missileFireDirVarName, generateMissileFireChecks, generateBounceStageChecks, reserveMissileFireDevVars, reserveMissileBounceDevVars,
   generateSeekChecks, reserveSeekDevVars, reserveSeekArrivedDevVars,
@@ -722,6 +722,13 @@ Blockly.BBasic.init = function(workspace) {
     if ((block.type === 'sprite_player_rom_noise' || block.type === 'sprite_player_rom_noise_stop') && block.isEnabled() &&
       (useConfigurationStorage().value || {}).kernel === 'dpcplus' && EXTRA_PLAYER_NUMBER.test(block.getFieldValue('PLAYER'))) {
       this.romNoiseUsedFor.add(`player${block.getFieldValue('PLAYER')}`);
+    }
+  });
+  // The rainbow colors of Player 2 to 9 (DPC+ only).
+  workspace.getAllBlocks(false).forEach((block) => {
+    if ((block.type === 'sprite_player_rainbow_colors' || block.type === 'sprite_player_rainbow_colors_stop') && block.isEnabled() &&
+      (useConfigurationStorage().value || {}).kernel === 'dpcplus' && EXTRA_PLAYER_NUMBER.test(block.getFieldValue('PLAYER'))) {
+      this.rainbowColorUsedFor.add(`player${block.getFieldValue('PLAYER')}`);
     }
   });
   ['player0', 'player1'].forEach((name) => {
@@ -2527,12 +2534,13 @@ Blockly.BBasic.init = function(workspace) {
     {family: BG_COLOR_STEP_FAMILY, bits: this.bgColorStepBits},
     {family: ROM_NOISE_FLAGS_FAMILY, bits: [
       ...ownBits([...this.romNoiseUsedFor].filter((name) => !isRomNoiseExtra(name)), romNoiseOwnBit),
-      ...ownBits(this.rainbowColorUsedFor, rainbowColorOwnBit),
+      ...ownBits([...this.rainbowColorUsedFor].filter((name) => !isRomNoiseExtra(name)), rainbowColorOwnBit),
       ...(this.backgroundRainbowUsed ? [BACKGROUND_RAINBOW_OWN_BIT] : []),
       ...(this.backgroundRainbowUsed && (useConfigurationStorage().value || {}).kernel === 'dpcplus' ?
         [BACKGROUND_RAINBOW_LOADED_BIT] : []),
     ]},
     {family: ROM_NOISE_EXTRA_FAMILY, bits: ownBits([...this.romNoiseUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit)},
+    {family: RAINBOW_EXTRA_FAMILY, bits: ownBits([...this.rainbowColorUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit)},
     {family: MISSILE_FIRE_FLAGS_FAMILY, bits: ownBits(this.missileFireUsedFor, missileFireOwnBit), phase: 'game'},
     {family: FIRE_OFFSCREEN_FLAGS_FAMILY, bits: ownBits(this.fireOffscreenUsedFor, missileFireOwnBit), phase: 'game'},
     {family: SEEK_FLAGS_FAMILY, bits: ownBits(this.seekUsedFor, spriteOwnBit), phase: 'game'},
@@ -4692,6 +4700,8 @@ Blockly.BBasic.finish = function(code) {
         Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(DPC_AUDIO_SUBROUTINE_NAME))}
 `;
   }
+  // The shared routine of the Distance blocks has to be there before the subroutines are written out (the checks that call it are made later).
+  if ((this.distanceChecks && this.distanceChecks.size) || (this.distancePointChecks && this.distancePointChecks.size)) registerDistanceAbsDiffSubroutine(Blockly);
   const generatedSubroutines = Blockly.BBasic.generateSubroutines();
   const generatedFunctions = Blockly.BBasic.generateFunctions();
 

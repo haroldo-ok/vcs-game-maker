@@ -18,7 +18,7 @@ const collisionOptions = function() {
   const count = playerCount(((useConfigurationStorage() || {}).value || {}));
   if (count <= 2) return options;
   const extra = Array.from({length: count - 2}, (_, i) => [PLAYER_ICON + ' Player ' + (i + 2), 'player' + (i + 2)]);
-  return [...options.slice(0, 2), ...extra, [PLAYER_ICON + ' Pool sprite', 'playerpool'], ...options.slice(2)];
+  return [...options.slice(0, 2), ...extra, [PLAYER_ICON + ' Pool sprite', 'playerpool'], [PLAYER_ICON + ' Any pool sprite', 'playerpoolany'], [PLAYER_ICON + ' All pool sprites', 'playerpoolall'], ...options.slice(2)];
 };
 
 // The part of a sprite the playfield box test looks at: all of it, or only its bottom 8 lines (as wide as the sprite, double and quad wide included).
@@ -70,7 +70,8 @@ const jumpSpriteOptions = function() {
 };
 
 const playerOptions = function() {
-  return Array.from({length: playerCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => [PLAYER_ICON + ' Player ' + i, String(i)]);
+  const count = playerCount(((useConfigurationStorage() || {}).value || {}));
+  return [...Array.from({length: count}, (_, i) => [PLAYER_ICON + ' Player ' + i, String(i)]), ...(count > 2 ? [[PLAYER_ICON + ' Pool sprite', 'pool'], [PLAYER_ICON + ' All pool sprites', 'poolall']] : [])];
 };
 
 // Undo last move: place it ahead of the blocks that move the player in an event. It saves where the player is; once the blocks have run
@@ -187,7 +188,8 @@ Blockly.defineBlocksWithJsonArray([
 
 // "Sprite overlap starts / stops": true for the one frame in which two sprites begin to overlap, or stop overlapping (see
 // generators/bbasic/sprite-overlap.js).
-const overlapOptions = () => collisionOptions().filter((option) => option[1] !== 'playfield');
+// (An event is not inside a pool block, so it has no pool sprite to name.)
+const overlapOptions = () => collisionOptions().filter((option) => option[1] !== 'playfield' && !/^playerpool/.test(option[1]));
 Blockly.defineBlocksWithJsonArray([
   {
     'type': 'sprite_overlap_event',
