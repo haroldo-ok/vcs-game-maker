@@ -864,6 +864,16 @@ Blockly.BBasic.init = function(workspace) {
     }
   });
 
+  // Which objects have a Fire block with "same speed at every angle" ticked.
+  this.missileFireEvenUsedFor = new Set();
+  fireObjectNames.forEach((name) => {
+    if (workspace.getAllBlocks(false).some((block) =>
+      block.type === 'sprite_missile_fire' && block.isEnabled() && block.getFieldValue('EVENSPEED') === 'TRUE' &&
+      block.getFieldValue('MISSILE') === fireObjectFieldValue(name))) {
+      this.missileFireEvenUsedFor.add(name);
+    }
+  });
+
   // Which objects have a Fire block with "check playfield while moving" on:
   // that object's per-frame movement is built as one-pixel sub-steps with a
   // playfield check after each (see generateMissileFireChecks).
@@ -2591,7 +2601,7 @@ Blockly.BBasic.init = function(workspace) {
   // bbasic/sprites.js) - a no-op unless missileFireUsedFor's  early
   // pre-scan (above) found it used.
   reserveMissileFireDevVars(reserveDevVar, reserveDevVarRW, this.missileFireUsedFor, this.missileFire16UsedFor,
-      this.missileFirePfCheckUsedFor, this.missileFireThrottleUsedFor, this.missileFireConstSpeed);
+      this.missileFirePfCheckUsedFor, this.missileFireThrottleUsedFor, this.missileFireConstSpeed, this.missileFireEvenUsedFor);
   if (this.fireOffscreenUsedFor.size) {
     reserveDevVar(fireOffscreenFlagsVarName(), undefined, 'shared byte of the fired objects that went off the screen (a bit each)');
   }

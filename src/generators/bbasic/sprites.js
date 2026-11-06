@@ -515,6 +515,8 @@ export const seekThrottleVarName = (name) => `${name}SeekThrottle`;
 export const seekThrottleResetVarName = (name) => `${name}SeekThrottleReset`;
 export const missileFireThrottleVarName = (name) => `${name}FireThrottle`;
 export const missileFireThrottleResetVarName = (name) => `${name}FireThrottleReset`;
+// The leftover of the frames a diagonal skips to move at the speed of a straight shot ("same speed at every angle").
+export const missileFireEvenVarName = (name) => `${name}FireEven`;
 
 // sprite_inertia_accelerate/sprite_inertia_decelerate's  dev vars (see
 // their  trigger generators and generateInertiaChecks below) - same
@@ -786,7 +788,7 @@ export const reserveRainbowColorDevVars = (reserveDevVar, reserveDevVarRW, usedF
 // automatically whenever Superchip is off, pfres is too high, or the r/w
 // pool is already full, so this is free real-var savings on Superchip
 // builds with no fallback risk.
-export const reserveMissileFireDevVars = (reserveDevVar, reserveDevVarRW, usedFor, used16, usedPfCheck, usedThrottle, constSpeed) => {
+export const reserveMissileFireDevVars = (reserveDevVar, reserveDevVarRW, usedFor, used16, usedPfCheck, usedThrottle, constSpeed, usedEven) => {
   if (!usedFor || !usedFor.size) return;
   reserveDevVar(missileFireFlagsVarName(), undefined, 'shared active-bit byte for fired missiles');
   if (usedPfCheck && usedPfCheck.size) reserveDevVarRW(fireCellVarName(), 'playfield cell a fired object started its frame in (while it moves)');
@@ -800,6 +802,9 @@ export const reserveMissileFireDevVars = (reserveDevVar, reserveDevVarRW, usedFo
     const speedIsConst = !!(constSpeed && constSpeed.has(name));
     if (!speedIsConst) {
       reserveDevVarRW(missileFireSpeedVarName(name), 'fired speed (pixels/frame)');
+    }
+    if (usedEven && usedEven.has(name)) {
+      reserveDevVarRW(missileFireEvenVarName(name), 'the count of frames skipped to move at the same speed at every angle');
     }
     if (usedThrottle && usedThrottle.has(name)) {
       reserveDevVarRW(missileFireThrottleVarName(name), 'this missile\'s "throttle movement" countdown');
@@ -1676,6 +1681,7 @@ export const generateMissileFireChecks = (Blockly) => {
     const armStagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
     const armFracPair = is16 ? resolveRW(missileFireFracVarName(fracSlots.get(name))) : null;
     const plainName = (text) => /^[A-Za-z_]\w*$/.test(String(text));
+    const evenPair = (Blockly.BBasic.missileFireEvenUsedFor || new Set()).has(name) ? resolveRW(missileFireEvenVarName(name)) : null;
     const fireArm = pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
       (constSpeed !== undefined || plainName(speedVar)) && (!armStagePair || (plainName(armStagePair.read) && plainName(armStagePair.write))) &&
       (!armFracPair || (plainName(armFracPair.read) && plainName(armFracPair.write))) && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(armConfig) &&
@@ -1724,6 +1730,11 @@ export const generateMissileFireChecks = (Blockly) => {
         // 1, or the pixel-step counter) may run for it.
         ...(constSpeed === undefined ? [` if ${speedVar} = 0 then goto ${doneLabel}`] :
           constSpeed === 0 ? [` goto ${doneLabel}`] : []),
+        // Same speed at every angle: a heading that is not straight (up, down, left, right) moves on 181 frames in 256 (the square root of a half), the
+        // other frames are skipped.
+        ...(evenPair ? [' asm', `       lda ${dirVar}`, `       and #${is16 ? 3 : 1}`, `       beq _missilefire_${name}_evengo`,
+          `       lda ${evenPair.read}`, '       clc', '       adc #181', `       sta ${evenPair.write}`, `       bcs _missilefire_${name}_evengo`,
+          `       jmp .${doneLabel}`, `_missilefire_${name}_evengo`, 'end'] : []),
         ...(fireArm ? fireArmLines : [
           ...(is16 ? leanLines : []),
           ...(pfChecked ?
@@ -3290,6 +3301,31 @@ ${flagsVar}{${bit}} = 1
   // 8 + 23 * 4 = 100 for pfres 24 (with Superchip the last of pfres rows is
   // not drawn). A fixed 96 bounced objects too early on Superchip builds with
   // taller playfields, before they reached the bottom playfield pixels.
+  // The lines of the Bounce block's random angle spread (none while its checkbox is off or the object has no Fire heading): the heading is turned
+  // by 0 to N steps either way, wrapping.
+  const spreadTurnLines = (block, name, resolveVar, hasFire) => {
+    if (!hasFire || block.getFieldValue('SPREAD') !== 'TRUE') return [];
+    const dirVar = resolveVar(missileFireDirVarName(name));
+    const maxAngle = (Blockly.BBasic.missileFire16UsedFor || new Set()).has(name) ? 15 : 7;
+    // Never ends straight up, down, left or right (a multiple of a quarter turn): a heading like that can bounce between two walls for ever.
+    // It is turned one step either way instead.
+    const skip = `_bouncespread_${name}_${Blockly.BBasic.blockNumbers.next(`bouncespreadfix_${name}`)}_ok`;
+    const notStraight = [` if (${dirVar} & ${(maxAngle + 1) / 4 - 1}) <> 0 then goto ${skip}`, ' temp1 = rand & 2',
+      ` ${dirVar} = (${dirVar} + ${maxAngle} + temp1) & ${maxAngle}`, `@ ${skip}`];
+    const stepsCode = Blockly.BBasic.valueToCode(block, 'SPREAD_STEPS', Blockly.BBasic.ORDER_NONE) || '1';
+    const stepsNumber = literalNumber(stepsCode);
+    if (stepsNumber !== null) {
+      const steps = Math.min(4, Math.max(1, Math.round(stepsNumber)));
+      const divisor = Math.ceil(256 / (2 * steps + 1));
+      return [` temp1 = rand / ${divisor}`, ` ${dirVar} = (${dirVar} + temp1 + ${maxAngle + 1 - steps}) & ${maxAngle}`, ...notStraight];
+    }
+    // A value worked out when the program runs: clamped to 1-4, then a random 0 to 2N from 16 steps scaled to 2N+1 values.
+    Blockly.BBasic.usesDivMul = true;
+    return [` temp2 = ${stepsCode}`, ' if temp2 = 0 then temp2 = 1', ' if temp2 > 4 then temp2 = 4',
+      ' temp1 = temp2 * 2 + 1', ' temp1 = (rand & 15) * temp1', ' temp1 = temp1 / 16',
+      ` ${dirVar} = (${dirVar} + temp1 + 16 - temp2) & ${maxAngle}`, ...notStraight];
+  };
+
   const buildEdgeBounce = (block, name, resolveVar, hasFire, hasInertia) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
@@ -3310,14 +3346,16 @@ ${flagsVar}{${bit}} = 1
       const half = steps / 2;
       flipX.push(
           ` ${dirVar} = ${steps} - ${dirVar}`,
-          ` if ${dirVar} = ${steps} then ${dirVar} = 0`);
+          ` if ${dirVar} = ${steps} then ${dirVar} = 0`,
+          ...spreadTurnLines(block, name, resolveVar, hasFire));
       flipY.push(
           ` if ${dirVar} > ${half} then goto ${label('dirhigh')}`,
           ` ${dirVar} = ${half} - ${dirVar}`,
           ` goto ${label('dirdone')}`,
           `@ ${label('dirhigh')}`,
           ` ${dirVar} = ${steps + half} - ${dirVar}`,
-          `@ ${label('dirdone')}`);
+          `@ ${label('dirdone')}`,
+          ...spreadTurnLines(block, name, resolveVar, hasFire));
     }
     if (hasInertia) {
       const velocityXVar = resolveVar(inertiaVelocityXVarName(name));
@@ -3846,6 +3884,19 @@ ${flagsVar}{${bit}} = 1
       }
     }
 
+    // Optional random spread: turns the heading by 0 to N steps either way. Not worked out at all while its checkbox is off. With a manual angle it
+    // follows that angle on every call (which sets it again each time); otherwise it runs on the first frame of the bounce only, so a bounce that
+    // lasts a few frames is not turned again each frame.
+    const spreadLines = [];
+    const turn = spreadTurnLines(block, name, resolveVar, hasFire);
+    if (turn.length) {
+      if (manualAngleLines.length) spreadLines.push(...turn);
+      else {
+        const skip = `_bouncespread_${name}_${Blockly.BBasic.blockNumbers.next(`bouncespread_${name}`)}_skip`;
+        spreadLines.push(` if (${stagePair.read} & 48) <> 16 then goto ${skip}`, ...turn, `@ ${skip}`);
+      }
+    }
+
     // Reached by every Bounce block through a gosub, not repeated in each one.
     if (bounceArm && !Blockly.BBasic.subroutines[stageName]) {
       const topText = pfTopY(bounceConfig, name);
@@ -3909,6 +3960,7 @@ ${flagsVar}{${bit}} = 1
       // touching what it hit, the give-up stage above would otherwise turn it
       // back around and replace this angle.
       ...manualAngleLines,
+      ...spreadLines,
     ].join('\n') + '\n';
   };
 

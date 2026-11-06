@@ -519,6 +519,7 @@ export default {
       workspaceSearch: null,
       multiselect: null,
       stopClipboardSync: null,
+      stopDoubleClickCollapse: null,
       lastSavedWorkspace: null,
       codeMayHaveChanged: true,
     };
@@ -614,12 +615,28 @@ export default {
     // Copy/paste of blocks between browser windows, through the system clipboard.
     this.stopClipboardSync = installBlocklyClipboardSync();
 
+    // Double-clicking a block collapses it, or expands it when it is collapsed. A double-click on an editable field (a number, a dropdown, a
+    // checkbox) is left to the field, and a block that is a shadow counts as the block it sits in.
+    const blocklyDiv = this.$refs['blocklyDiv'];
+    const onDoubleClick = (event) => {
+      const target = event.target;
+      if (!this.workspace || !target || !target.closest) return;
+      if (target.closest('.blocklyEditableText, .blocklyEditableField, .blocklyHtmlInput, .blocklyWidgetDiv, .blocklyDropDownDiv')) return;
+      const group = target.closest('.blocklyDraggable[data-id]');
+      let block = group && this.workspace.getBlockById(group.getAttribute('data-id'));
+      while (block && block.isShadow() && block.getParent()) block = block.getParent();
+      if (!block || block.isShadow() || !block.isEditable() || (block.isInsertionMarker && block.isInsertionMarker())) return;
+      block.setCollapsed(!block.isCollapsed());
+    };
+    blocklyDiv.addEventListener('dblclick', onDoubleClick);
+    this.stopDoubleClickCollapse = () => blocklyDiv.removeEventListener('dblclick', onDoubleClick);
+
     // Lets the user drag a rubber-band selection box (or ctrl/shift-click)
     // over several blocks and move/delete/duplicate them as one group -
     // same "rebuild every mount, since it registers against the workspace
     // instance mounted() just created" reasoning as workspaceSearch above.
-    // No double-click-to-collapse behavior, and neighbour-bumping on drop
-    // is left at Blockly's stock behavior (not suppressed).
+    // Neighbour-bumping on drop is left at Blockly's stock behavior (not
+    // suppressed). Double-click-to-collapse is the listener above.
     this.multiselect = new Multiselect(this.workspace);
     this.multiselect.init({
       multiselectIcon: {disabledIcon: MULTISELECT_ICON_INACTIVE, enabledIcon: MULTISELECT_ICON_ACTIVE},
@@ -820,6 +837,10 @@ export default {
     if (this.stopClipboardSync) {
       this.stopClipboardSync();
       this.stopClipboardSync = null;
+    }
+    if (this.stopDoubleClickCollapse) {
+      this.stopDoubleClickCollapse();
+      this.stopDoubleClickCollapse = null;
     }
     if (this.multiselect) {
       // Unlike workspaceSearch above, this plugin's dispose() DOES

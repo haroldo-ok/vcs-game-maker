@@ -784,6 +784,25 @@ Blockly.Extensions.register('sprite_player_set_loop_visibility_sync', function()
   });
 });
 
+// Bounce's spread input starts with a number block (a shadow, so it can be replaced), also on a block made without one (an older project).
+Blockly.Extensions.register('object_bounce_spread_prefill', function() {
+  // eslint-disable-next-line no-invalid-this
+  const block = this;
+  setTimeout(() => {
+    if (!block.workspace || !block.workspace.rendered || (typeof block.isDeadOrDying === 'function' && block.isDeadOrDying())) return;
+    if (typeof block.isInsertionMarker === 'function' && block.isInsertionMarker()) return;
+    const input = block.getInput('SPREAD_STEPS');
+    if (!input || !input.connection || input.connection.targetBlock()) return;
+    const shadow = block.workspace.newBlock('math_number');
+    shadow.setShadow(true);
+    shadow.setFieldValue(1, 'NUM');
+    shadow.initSvg();
+    input.connection.connect(shadow.outputConnection);
+    if (typeof shadow.render === 'function') shadow.render();
+    if (typeof block.queueRender === 'function') block.queueRender();
+  }, 0);
+});
+
 // Bounce's angle number is only shown while "set angle manually" is ticked.
 // Same deferred-render reasoning as the extension above.
 Blockly.Extensions.register('object_bounce_manual_angle_sync', function() {
@@ -1752,7 +1771,7 @@ Blockly.defineBlocksWithJsonArray([
   // block's  generator for exactly how.
   {
     'type': 'object_bounce',
-    'message0': `${INERTIA_ICON} Bounce %1 %2 %3 off screen edges %4 %5 set angle manually %6 %7`,
+    'message0': `${INERTIA_ICON} Bounce %1 %2 %3 off screen edges %4 %5 set angle manually %6 %7 random angle spread ± %8 steps %9 %10`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1778,6 +1797,22 @@ Blockly.defineBlocksWithJsonArray([
         'name': 'MANUAL',
         'checked': false,
       },
+      // Extra gap between the two options.
+      {
+        'type': 'field_label',
+        'text': ' ',
+      },
+      // Off: no spread is worked out at all (no code, no random number).
+      {
+        'type': 'field_checkbox',
+        'name': 'SPREAD',
+        'checked': false,
+      },
+      {
+        'type': 'input_value',
+        'name': 'SPREAD_STEPS',
+        'check': 'Number',
+      },
       // Holds the fields above, so hiding ANGLE does not hide them.
       {
         'type': 'input_dummy',
@@ -1792,7 +1827,7 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': 'purple',
-    'extensions': ['object_seek_colour_sync', 'object_bounce_manual_angle_sync'],
+    'extensions': ['object_seek_colour_sync', 'object_bounce_manual_angle_sync', 'object_bounce_spread_prefill'],
     'tooltip': 'Reflects the chosen player/missile/ball off of whatever it just collided with, ' +
       'guessing which kind of surface was hit the same way Combat (1977) does: the first frame ' +
       'it\'s stuck, mirrors as if a vertical wall was hit; if still stuck the next frame, tries a ' +
@@ -1811,7 +1846,9 @@ Blockly.defineBlocksWithJsonArray([
       'it stop off-screen. With "set angle manually" unticked the ' +
       'reflection is automatic. Ticked, a fired missile or ball leaves the surface at the angle ' +
       'you give (0-7, or 0-15 when the Fire block uses 16 directions, clockwise from up) instead. It applies to ' +
-      'collision bounces only, not to "off screen edges".',
+      'collision bounces only, not to "off screen edges". "random angle spread" (missile/ball with Fire only): ticked, ' +
+      'the angle it leaves at is also turned by a random amount of 0 to the chosen number of direction steps (1-4, a value above 4 counts as 4) either way, ' +
+      'around the reflected angle (or the manual angle). It also applies to "off screen edges" bounces. Unticked, nothing is worked out for it.',
   },
   // Cancels what a Fire block started: the object stops moving where it is.
   // Same OBJECT dropdown and colour sync as object_bounce above.
@@ -1949,6 +1986,13 @@ const buildCombinedMissileFireBlock = ({icon, colour}) => {
           .appendField(' ')
           .appendField(new Blockly.FieldCheckbox('FALSE'), 'DIRECTIONS16')
           .appendField('16 directions');
+      const evenSpeedField = new Blockly.FieldCheckbox('FALSE');
+      evenSpeedField.setTooltip('Every direction moves at the same speed. Without it a diagonal (and a halfway angle) moves about 1.4 times faster ' +
+        'than straight up, down, left or right. Ticked, the diagonals skip about 3 frames in 10 to match. Costs one byte of memory for the object.');
+      this.appendDummyInput()
+          .appendField(' ')
+          .appendField(evenSpeedField, 'EVENSPEED')
+          .appendField('same speed at every angle');
       const playfieldCheckField = new Blockly.FieldCheckbox('FALSE');
       playfieldCheckField.setTooltip('Moves the object one pixel at a time and checks the playfield after ' +
         'each one, stopping on the first lit playfield pixel it reaches. Without it a fast object can ' +
