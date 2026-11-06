@@ -31,6 +31,23 @@ Blockly.Blocks['variables_pull'] = {
   },
 };
 
+Blockly.Blocks['variables_keep_safe'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField('keep')
+        .appendField(new Blockly.FieldVariable('item'), 'VAR')
+        .appendField('safe on the stack while');
+    this.appendStatementInput('DO');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setStyle('variable_blocks');
+    this.setTooltip('DPC+ only: puts the variable\'s value on the stack, runs the blocks inside, then puts the value back, so the blocks inside can use the ' +
+      'variable for something else. Put one of these inside another to keep several variables safe (the last one pushed is the first one pulled). ' +
+      'A block inside that leaves the blocks early (Return, a jump to a label) skips the pull and leaves the stack out of step. On other kernels the blocks ' +
+      'inside just run.');
+  },
+};
+
 Blockly.Blocks['variables_stack_position'] = {
   init: function() {
     this.appendDummyInput()

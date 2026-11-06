@@ -2,6 +2,8 @@
 
 import {MAX_FUNCTION_ARGS, functionCallDiscardVarName, functionCallArgVarName,
   functionParamVarName} from '../../blocks/function';
+import {isInsideFunctionBody} from '../../blocks/score';
+import {useConfigurationStorage} from '../../hooks/project';
 
 export default (Blockly) => {
   // functionCallDiscardVarName/functionCallArgVarName/functionParamVarName
@@ -85,9 +87,17 @@ export default (Blockly) => {
           .filter((b) => b.type === 'function_param_get')
           .map((b) => Number(b.getFieldValue('INDEX'))))].sort((a, b) => a - b) :
       [];
-    const snapshot = usedIndices
-        .map((i) => `${resolveRW(functionParamVarName(i)).write} = temp${i}`)
-        .join('\n');
+    // The snapshot variables are the same bytes for every function, so a function that calls another one (or itself) and then reads its argument
+    // again would find the argument of the one it called. On DPC+ a function that reads arguments puts the old values of the snapshot bytes it is about to
+    // overwrite on the stack when it starts, and takes them off again before each return, when some function body anywhere calls a function.
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    const callsInsideFunctions = config.kernel === 'dpcplus' && usedIndices.length > 0 && block.workspace.getAllBlocks(false)
+        .some((b) => (b.type === 'function_call' || b.type === 'function_call_statement') && b.isEnabled() && isInsideFunctionBody(b));
+    Blockly.BBasic.functionParamSaves = Blockly.BBasic.functionParamSaves || {};
+    Blockly.BBasic.functionParamSaves[name] = callsInsideFunctions ? usedIndices : [];
+    const saveLines = callsInsideFunctions ? usedIndices.map((i) => `push ${resolveRW(functionParamVarName(i)).read}`).join('\n') : '';
+    const snapshot = [saveLines, ...usedIndices.map((i) => `${resolveRW(functionParamVarName(i)).write} = temp${i}`)]
+        .filter(Boolean).join('\n');
 
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
     Blockly.BBasic.currentEventName = previousEventName;
@@ -121,7 +131,13 @@ export default (Blockly) => {
   // ever needs temp6's PRE-return-statement value again either way.
   Blockly.BBasic['function_return'] = function(block) {
     const value = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE) || '0';
-    return `temp6 = ${value}\nreturn temp6\n`;
+    // The snapshot bytes the function put on the stack when it started go back before it returns (see function_define; the value is in temp6 by then).
+    let owner = block.getParent();
+    while (owner && owner.type !== 'function_define') owner = owner.getParent();
+    const ownerName = owner ? Blockly.BBasic.nameDB_.getName(owner.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME) : null;
+    const saved = (ownerName && Blockly.BBasic.functionParamSaves && Blockly.BBasic.functionParamSaves[ownerName]) || [];
+    const restore = saved.slice().reverse().map((i) => `pull ${resolveRW(functionParamVarName(i)).write}\n`).join('');
+    return `temp6 = ${value}\n${restore}return temp6\n`;
   };
 
   // Shared by function_call and function_call_statement below - resolves

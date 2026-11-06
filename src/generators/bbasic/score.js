@@ -7,6 +7,7 @@ import {isPxe} from '../../utils/pxe';
 import {colorByteToBuildBBasic} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
 import {effectiveBackgroundRows} from '../../blocks/background';
+import {scoreBarUnitsVarName, isInsideFunctionBody} from '../../blocks/score';
 
 // The literal bB identifier itself (not an internal "_xyz" bookkeeping
 // name), reserved directly through the normal dev var pool when the Text
@@ -507,6 +508,34 @@ export default (Blockly) => {
     const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
         Blockly.VARIABLE_CATEGORY_NAME);
     return [varName, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
+  // The number of units a score bar shows: the bits set in its byte (a health bar of N units is N bits in a row, N lives are N dots). The count is worked
+  // out by a few lines ahead of the statement that uses it (the value block's lines before the last one are moved there, see scrub_), into temp1,
+  // or into a variable kept for it inside a custom function, where temp1 to temp6 hold the arguments.
+  Blockly.BBasic[`score_bar_units`] = function(block) {
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'),
+        Blockly.VARIABLE_CATEGORY_NAME);
+    const id = Blockly.BBasic.blockNumbers.next('score_bar_units');
+    const pair = isInsideFunctionBody(block) ? Blockly.BBasic.superchipRwPairs[scoreBarUnitsVarName()] : null;
+    const write = pair ? pair.write : 'temp1';
+    const read = pair ? pair.read : 'temp1';
+    return [[
+      'asm',
+      `lda ${varName}`,
+      'ldx #8',
+      'ldy #0',
+      `@_scorebarunits_${id}_loop`,
+      'lsr',
+      `bcc _scorebarunits_${id}_skip`,
+      'iny',
+      `@_scorebarunits_${id}_skip`,
+      'dex',
+      `bne _scorebarunits_${id}_loop`,
+      `sty ${write}`,
+      '@end',
+      read,
+    ].join('\n'), Blockly.BBasic.ORDER_ATOMIC];
   };
 
   Blockly.BBasic[`score_bar_set`] = function(block) {

@@ -65,6 +65,14 @@ export default (Blockly) => {
     }
     return ` ${command} ${varName}\n`;
   };
+  // Keeps a variable safe on the stack around the blocks inside: push, the blocks, pull.
+  Blockly.BBasic['variables_keep_safe'] = function(block) {
+    const varName = Blockly.BBasic.nameDB_.getName(block.getFieldValue('VAR'), Blockly.VARIABLE_CATEGORY_NAME);
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    const inside = Blockly.BBasic.statementToCode(block, 'DO');
+    if (config.kernel !== 'dpcplus') return ` rem keep ${varName} safe: the variable stack needs the DPC+ kernel\n${inside}`;
+    return ` push ${varName}\n${inside} pull ${varName}\n`;
+  };
   Blockly.BBasic['variables_push'] = stackStatement('push');
   Blockly.BBasic['variables_pull'] = stackStatement('pull');
   Blockly.BBasic['variables_stack_position'] = function(block) {

@@ -7,6 +7,18 @@ const SCORE_COLOR = '#f2691e';
 // The score is six digits, numbered left to right.
 const SCORE_DIGIT_OPTIONS = [...Array(6).keys()].map((n) => [`${n + 1}`, `${n + 1}`]);
 
+// The byte "Score Bar units" counts the bits of when it is inside a custom function (temp1 to temp6 hold the arguments there).
+export const scoreBarUnitsVarName = () => 'scoreBarUnits';
+// Whether a block is inside the body of a custom function.
+export const isInsideFunctionBody = (block) => {
+  let ancestor = block.getParent();
+  while (ancestor) {
+    if (ancestor.type === 'function_define') return true;
+    ancestor = ancestor.getParent();
+  }
+  return false;
+};
+
 const SCORE_BAR_OPTIONS = [
   ['1', 'pfscore1'],
   ['2', 'pfscore2'],
@@ -235,6 +247,23 @@ Blockly.defineBlocksWithJsonArray([
     'output': 'Number',
     'colour': SCORE_COLOR,
     'tooltip': `Reads the binary pattern (style) of a playfield score bar`,
+  },
+  // Block for the number of units a score bar shows.
+  {
+    'type': `score_bar_units`,
+    'message0': `${SCORE_ICON} Score Bar %1 units`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'VAR',
+        'options': SCORE_BAR_OPTIONS,
+      },
+    ],
+    'output': 'Number',
+    'colour': SCORE_COLOR,
+    'tooltip': `Reads how many units a playfield score bar shows: the number of bits that are set in the bar's pattern (0 to 8). A bar filled by "set health to" ` +
+      `or "change health by" counts the width of its solid block, and a bar filled by "set lives to" or "change lives by" counts its dots. A bar set with a ` +
+      `raw pattern counts the bits of that pattern. (Score Bar reads the pattern itself.)`,
   },
   // Block for the score bar setter.
   {

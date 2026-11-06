@@ -77,6 +77,7 @@ import {registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveSwitchEdgeDevVars, generateSwitchEdgeChecks} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOlderXVar, collisionMoveOlderYVar, reservePlatformerDevVars, platformerStartsOf, platformerPlanOf} from './bbasic/collision';
 import {scoreBkColorVarName, generateScanlinesDebugScoreCode} from './bbasic/score';
+import {scoreBarUnitsVarName, isInsideFunctionBody} from '../blocks/score';
 import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generatePlayerHeightLimitChecks,
   reservePlayerHeightLimitDevVars, generateRainbowColorChecks,
   generateRainbowColorGraphics, rainbowColorNeedsPlayerColors, rainbowColorNeedsPlayer1Colors,
@@ -2245,6 +2246,10 @@ Blockly.BBasic.init = function(workspace) {
   // against the actual generator, no other use site touches either var
   // (background_change_pixel, the sibling setter block, uses temp1/temp2
   // instead, never these).
+  // "Score Bar units" counts the bits of a bar into temp1, or into a byte kept for it inside a custom function.
+  if (workspace.getAllBlocks(false).some((block) => block.type === 'score_bar_units' && isInsideFunctionBody(block))) {
+    reserveDevVarRW(scoreBarUnitsVarName(), 'the count of "Score Bar units", when read inside a Function');
+  }
   if (this.backgroundGetPixelUsed) {
     reserveDevVarRW(backgroundGetPixelXVarName(), '"get pixel" X arg, when used inside a Function');
     reserveDevVarRW(backgroundGetPixelYVarName(), '"get pixel" Y arg, when used inside a Function');
@@ -3413,6 +3418,7 @@ Blockly.BBasic.init = function(workspace) {
   this.titleSharedSlots = [];
   const gameplayOnlyIds = findGameplayOnlyVariables(workspace, variables);
   const shareable = gameplayOnlyIds.map((id) => userVarNameById[id]);
+  const gameplayOnlyUserNames = new Set(shareable);
   const afterEndNames = new Set((gameplayOnlyIds.afterEnd || []).map((id) => userVarNameById[id]));
   if (pendingTitleVars.length > shareable.length) {
     // Past the user variables: the hidden direction byte of every fired object that only gameplay fires. Only
@@ -3496,13 +3502,43 @@ Blockly.BBasic.init = function(workspace) {
   const textFixedSlots = !this.isTextMinikernelActive() ? false : [DPCPLUS_FIXED_VARIABLE_SLOTS[0],
     ...(this.needsTextRow2ActiveDim() ? [DPCPLUS_FIXED_VARIABLE_SLOTS[1]] : []),
     ...(this.scoreBarBlocksUsed ? DPCPLUS_FIXED_VARIABLE_SLOTS.slice(2) : [])];
-  const freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, textFixedSlots, this.titleScreenDrawUsed, isPxe(config));
+  let freedSpriteRam = dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, textFixedSlots, this.titleScreenDrawUsed, isPxe(config));
+  // The Title Screen Kernel works in some of those bytes, but only while the title screen runs (the DPC+ kernel does not draw those sprites at all while the game
+  // does): a variable that only gameplay uses can live in one of them, and is set back to zero as gameplay starts (see generateGameEvent).
+  const titleScratchSlots = this.titleScreenDrawUsed ?
+    dpcPlusFreedSpriteRam(this.dpcPlusSpriteMax || 1, textFixedSlots, false, isPxe(config)).filter((slot) => !freedSpriteRam.includes(slot)) : [];
+  this.titleScratchPossible = config.kernel === 'dpcplus' && !isPxe(config) && titleScratchSlots.length > 0;
+  this.titleScratchHosted = [];
   this.dpcPlusSpriteVars = [];
   // They are used before the letters, not after: the first variables take them (not the run-once bytes at the end, which keep their order).
   if (config.kernel === 'dpcplus' && freedSpriteRam.length) {
     const movable = Math.min(freedSpriteRam.length, runOnceDefvarsStart);
     this.dpcPlusSpriteVars = defvars.splice(0, movable);
     runOnceDefvarsStart -= movable;
+  }
+  // Only when there are more variables than the fast places (the letters, var0 to var8 and the freed sprite bytes) hold: the ones that would go to the display memory,
+  // which takes a pointer to be set for every use, take these bytes instead. The ones used most go there (the least used are left to go to the display memory).
+  const tooManyForFastRam = defvars.length - availableLetters.length;
+  if (this.titleScratchPossible && tooManyForFastRam > 0 && titlePhaseBlocks(workspace) && this.dpcPlusSpriteVars.length === freedSpriteRam.length) {
+    const hostedTitleNames = new Set([...pendingTitleVars, ...this.titleSharedSlots.map(({target}) => target)]);
+    const hints = this.gameplayOnlyHints;
+    const candidates = [];
+    for (let i = 0; i < runOnceDefvarsStart; i++) {
+      const name = defvars[i];
+      if (hostedTitleNames.has(name)) continue;
+      if (gameplayOnlyUserNames.has(name) || (hints && hints.names.has(name))) {
+        candidates.push({name, uses: (this.userVarUseCounts && this.userVarUseCounts.get(name)) || 0, index: i});
+      }
+    }
+    candidates.sort((a, b) => (b.uses - a.uses) || (a.index - b.index));
+    const chosen = candidates.slice(0, Math.min(tooManyForFastRam, titleScratchSlots.length)).sort((a, b) => b.index - a.index);
+    chosen.forEach(({name, index}) => {
+      defvars.splice(index, 1);
+      this.titleScratchHosted.unshift(name);
+      runOnceDefvarsStart--;
+    });
+    this.dpcPlusSpriteVars.push(...this.titleScratchHosted);
+    freedSpriteRam = freedSpriteRam.concat(titleScratchSlots.slice(0, this.titleScratchHosted.length));
   }
   this.dpcPlusSpriteVarSlot = (name) => freedSpriteRam[this.dpcPlusSpriteVars.indexOf(name)];
   // Still more variables than there is room for: some user variables go in the display memory instead (DPC+ only), when it has the
@@ -5420,6 +5456,11 @@ Blockly.BBasic.generateGameEvent = function(eventName,
       `if !${titleKernelEndedVar()}{${titleKernelEndedBit()}} then ${name} = ${startValue(name)}` : `${name} = ${startValue(name)}`)).join('\n') +
       '\n' + eventCode;
   }
+  // The variables that live in the bytes the Title Screen Kernel works in start gameplay from zero (it left whatever it likes in them).
+  if (eventName === 'gameplay_start' && this.titleScratchHosted && this.titleScratchHosted.length) {
+    const startOf = (name) => (this.gameplayOnlyHints && this.gameplayOnlyHints.initValues.get(name)) || 0;
+    eventCode = this.titleScratchHosted.map((name) => `${name} = ${startOf(name)}`).join('\n') + '\n' + eventCode;
+  }
   // The run-once bit pairs both sides use: the other side's fired bit would still be set from its last frame.
   if (this.runOnceSharedPairs && ['title_start', 'gameplay_start', 'gameover_start'].includes(eventName)) {
     const clears = [];
@@ -5958,7 +5999,11 @@ Blockly.BBasic.generateDpcPlusColorTables = function() {
   const out = [];
   if (!dpcPlusPfColorsOn(config)) out.push(` pfcolors:\n  ${colorByteToBuildBBasic(0x0E)}\nend`);
   if (!config.enableDpcPlusBkColors) out.push(` bkcolors:\n  ${colorByteToBuildBBasic(0xC4)}\nend`);
-  out.push(` scorecolors:\n${Array(8).fill('  ' + colorByteToBuildBBasic(0x08)).join('\n')}\nend`);
+  // One color for each of the 8 lines of the score digits (set on the Score tab), or the same one on all of them.
+  const rowColors = Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ?
+    config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08)) :
+    Array(8).fill(0x08);
+  out.push(` scorecolors:\n${rowColors.map((byte) => '  ' + colorByteToBuildBBasic(byte)).join('\n')}\nend`);
   return out.join('\n') + '\n';
 };
 
@@ -9004,7 +9049,7 @@ Blockly.BBasic.workspaceToCodeOnce = function(workspace) {
   if (this.pxeScratch) code = this.finishForPxe(code);
   // Title Screen variables still taking a slot for themselves: the generated code shows which other variables only gameplay
   // touches, and those can take the title variables' place (see the hints in init).
-  const hints = (this.titleUnhostedCount > 0) ? findGameplayOnlyNames(code) : null;
+  const hints = (this.titleUnhostedCount > 0 || this.titleScratchPossible) ? findGameplayOnlyNames(code) : null;
   const unused = code.includes(SYSTEM_DEFAULT_MARKER) ? findUnusedSystemVars(code) : new Set();
   // The Text Minikernel's score row follows the background color through the very byte this variable lives in.
   if (this.isTextMinikernelActive() && this.scoreBkColorIsBackground((useConfigurationStorage().value || {}).scoreBkColor)) {

@@ -63,6 +63,21 @@
           class="score-fade-switch"
         />
       </div>
+      <div v-if="isDpcPlus" class="score-bkcolor-row">
+        <color-swatch-picker
+          v-for="(rowColor, rowIndex) in dpcPlusScoreRowColors"
+          :key="rowIndex"
+          :value="rowColor"
+          square
+          :allow-clear="false"
+          :title="`Click to set the color of line ${rowIndex + 1} of the score digits (the top line is 1)`"
+          @input="(byte) => setScoreRowColor(rowIndex, byte)"
+        />
+        <span class="score-bkcolor-label">Score line colors (DPC+)</span>
+        <v-btn small text title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
+          One color
+        </v-btn>
+      </div>
       <p class="v-messages theme--light v-messages__message">
         Draw the score digits below. Every font can be redrawn: what you draw is kept for the
         selected font only{{ fontIsEdited ? ' (this one has been edited)' : '' }}, and "{{ resetLabel }}"
@@ -310,6 +325,26 @@ export default defineComponent({
         };
       },
     });
+
+    // DPC+ draws the 8 lines of the score digits in the 8 colors of its scorecolors: table (see generateDpcPlusColorTables in generators/bbasic.js): a
+    // list of 8 color bytes in the configuration, or none, which is the same color (white) on every line.
+    const isDpcPlus = computed(() => ((configurationStorage.value || {}).kernel === 'dpcplus'));
+    const dpcPlusScoreColorsSet = computed(() => Array.isArray((configurationStorage.value || {}).dpcPlusScoreColors));
+    const dpcPlusScoreRowColors = computed(() => {
+      const colors = (configurationStorage.value || {}).dpcPlusScoreColors;
+      return Array.isArray(colors) && colors.length === 8 ? colors : Array(8).fill(0x08);
+    });
+    const setScoreRowColor = (rowIndex, byte) => {
+      if (byte === null || byte === undefined) return;
+      const colors = dpcPlusScoreRowColors.value.slice();
+      colors[rowIndex] = byte;
+      configurationStorage.value = {...(configurationStorage.value || {}), dpcPlusScoreColors: colors};
+    };
+    const resetScoreRowColors = () => {
+      const state = {...(configurationStorage.value || {})};
+      delete state.dpcPlusScoreColors;
+      configurationStorage.value = state;
+    };
 
     // Adds shading to the score digits (const scorefade = 1 - see
     // generateConfiguration in generators/bbasic.js) - a plain boolean
@@ -573,6 +608,11 @@ export default defineComponent({
       editingRole,
       scoreBkColor,
       scoreBkColorSwatchValue,
+      isDpcPlus,
+      dpcPlusScoreColorsSet,
+      dpcPlusScoreRowColors,
+      setScoreRowColor,
+      resetScoreRowColors,
       scoreFadeEnabled,
       backgroundPreviewColor,
       scoreFontOptions,
