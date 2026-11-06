@@ -863,6 +863,36 @@ Blockly.Blocks['background_fill_circle'] = {
 };
 
 // Shows the padding input(s) of the mode picked and hides the others: applied at once and when the mode changes (a validator of the field, as
+
+// The column input of the two "Convert" blocks only means something under DPC+ when a background gives the four groups of columns separate rows (a row then
+// depends on the group the column is in): it is shown then, and hidden otherwise (a value in it stays where it is). Looked at when the block is made and
+// after every change of the workspace, since the backgrounds and the options are set on other tabs.
+Blockly.Extensions.register('background_convert_column_sync', function() {
+  // eslint-disable-next-line no-invalid-this
+  const block = this;
+  const separateRows = () => {
+    try {
+      const config = (useConfigurationStorage() || {}).value || {};
+      if (config.kernel !== 'dpcplus') return false;
+      const data = processBackgroundStorageDefaults(useBackgroundsStorage());
+      return !!data && (data.backgrounds || []).some((background) => backgroundHasGroups(background, config));
+    } catch (e) {
+      return true;
+    }
+  };
+  const apply = () => {
+    const input = block.getInput('COLUMN');
+    if (!input || block.disposed || !block.workspace || !block.workspace.rendered) return;
+    const wanted = separateRows();
+    if (input.isVisible() === wanted) return;
+    input.setVisible(wanted);
+    if (typeof block.queueRender === 'function') block.queueRender();
+    else if (typeof block.render === 'function') block.render();
+  };
+  block.setOnChange(apply);
+  setTimeout(apply, 0);
+});
+
 // 'input_fire_pattern_frames_sync' in blocks/input.js: it also runs for a block built from the toolbox).
 Blockly.Extensions.register('background_circle_padding_sync', function() {
   // eslint-disable-next-line no-invalid-this
@@ -1368,6 +1398,7 @@ Blockly.defineBlocksWithJsonArray([
     'inputsInline': true,
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
+    'extensions': ['background_convert_column_sync'],
     'tooltip': `Converts a playfield pixel column (0-31, 0-39, 0-63 or 0-119 with a wider PXE playfield) or row to the matching Player/Missile/Ball X or ` +
       `Y coordinate. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
       `that the column (0-31, the empty one is the first column) is in.`,
@@ -1402,6 +1433,7 @@ Blockly.defineBlocksWithJsonArray([
     'inputsInline': true,
     'output': 'Number',
     'colour': BACKGROUND_COLOR,
+    'extensions': ['background_convert_column_sync'],
     'tooltip': `Converts a Player/Missile/Ball X or Y coordinate to the matching playfield pixel column ` +
       `(0-31) or row. Under DPC+, when the four playfield columns of a background have separate rows, a row means the rows of the playfield column ` +
       `that the column (0-31, the empty one is the first column) is in.`,
