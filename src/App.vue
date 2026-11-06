@@ -3583,6 +3583,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* Icon buttons: dim at rest, bright on hover, dimmer still when disabled. */
 .dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn .v-icon,
 .dark-mode.v-application .get-tools .v-btn .v-icon,
+.dark-mode.v-application .line-colors-reset-btn .v-icon,
 .dark-mode.v-application .scene-tools .v-btn .v-icon,
 .dark-mode.v-application .pixel-editor-tools .v-btn .v-icon,
 .dark-mode.v-application .pixel-grid-toggle-btn .v-icon,
@@ -3608,6 +3609,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .dark-mode.v-application .emulator-toolbar-row .emulator-flat-icon-btn.v-btn:hover .v-icon,
 .dark-mode.v-application .get-tools .v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .line-colors-reset-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .scene-tools .v-btn:not(.v-btn--disabled):hover .v-icon,
 .dark-mode.v-application .pixel-editor-tools .v-btn:hover .v-icon,
 .dark-mode.v-application .pixel-grid-toggle-btn:not(.v-btn--disabled):hover .v-icon,
@@ -3633,6 +3635,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .dark-mode.v-application .get-tools .v-btn--disabled .v-icon,
+.dark-mode.v-application .line-colors-reset-btn.v-btn--disabled .v-icon,
 .dark-mode.v-application .scene-tools .v-btn--disabled .v-icon,
 .dark-mode.v-application .data-toolbar-row .v-btn--disabled:not(.pixel-grid-toggle-btn) .v-icon,
 .dark-mode.v-application .sound-bank-preview-btn .v-btn--disabled .v-icon,

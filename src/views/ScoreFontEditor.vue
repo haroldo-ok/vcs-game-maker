@@ -85,15 +85,17 @@
           <template v-slot:below-tools>
             <div v-if="isDpcPlus" class="score-bkcolor-row score-line-colors-row">
               <span class="score-bkcolor-label">Score line colors (DPC+)</span>
-              <color-swatch-picker
-                v-for="(rowColor, rowIndex) in dpcPlusScoreRowColors"
-                :key="rowIndex"
-                :value="rowColor"
-                square
-                :allow-clear="false"
-                :title="`Click to set the color of line ${rowIndex + 1} of the score digits (the top line is 1)`"
-                @input="(byte) => setScoreRowColor(rowIndex, byte)"
-              />
+              <div class="line-color-swatches">
+                <color-swatch-picker
+                  v-for="(rowColor, rowIndex) in dpcPlusScoreRowColors"
+                  :key="rowIndex"
+                  :value="rowColor"
+                  square
+                  :allow-clear="false"
+                  :title="`Click to set the color of line ${rowIndex + 1} of the score digits (the top line is 1)`"
+                  @input="(byte) => setScoreRowColor(rowIndex, byte)"
+                />
+              </div>
               <v-btn icon small class="line-colors-reset-btn" title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
                 <v-icon>mdi-restore</v-icon>
               </v-btn>
@@ -745,6 +747,13 @@ export default defineComponent({
 }
 
 /* The row of line colors pinned under the toolbar: the space under the swatches is the same as the space above them (the toolbar keeps 4px of padding under it). */
+/* The swatches of a row of line colors: the size, border and spacing of the Quick colors bar (see .quick-color-swatch in QuickColorPalette.vue). */
+.line-color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .score-line-colors-row {
   margin-top: 4px;
   margin-bottom: 0;
@@ -756,9 +765,32 @@ export default defineComponent({
   box-shadow: none !important;
   border: none !important;
   min-width: 0;
-  height: 26px;
-  width: 26px;
+  height: 28px;
+  width: 28px;
   margin: 0;
+  align-self: center;
+}
+
+.line-colors-reset-btn::before {
+  display: none;
+}
+
+.line-colors-reset-btn .v-icon {
+  font-size: 22px;
+  color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+
+.line-colors-reset-btn.v-btn--disabled .v-icon {
+  color: rgba(0, 0, 0, 0.18) !important;
+}
+
+.line-colors-reset-btn:not(.v-btn--disabled):hover .v-icon {
+  color: rgba(0, 0, 0, 0.87) !important;
+}
+
+.line-colors-reset-btn:not(.v-btn--disabled):active .v-icon {
+  transform: scale(0.82);
 }
 
 .score-bkcolor-label {
