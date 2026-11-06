@@ -287,6 +287,16 @@ export default (Blockly) => {
       ...colors.flatMap((byte) => [`lda ${read}`, `ora #${Number(byte) & 15}`, 'sta DF0WRITE']), '@end'].join('\n') + '\n';
   };
 
+  // Gives the score bars one color. Without this block in the project the bars follow the score (see scoreBarColorFollow in bbasic.js).
+  Blockly.BBasic[`score_bar_color_set`] = function(block) {
+    if (isPxe(((useConfigurationStorage() && useConfigurationStorage().value) || {}))) {
+      appendCompileLog('The Score bars set color block does nothing on the PXE kernel: its bars follow the score.', 'info');
+      return '';
+    }
+    const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    return `pfscorecolor = ${argument0}\n`;
+  };
+
   Blockly.BBasic[`score_fade_to`] = function(block) {
     // Score's color fade trigger - same shared mechanism as Background's
     // "Fade color to" (see emitColorFadeTrigger in

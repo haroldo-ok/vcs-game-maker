@@ -91,6 +91,22 @@ Blockly.defineBlocksWithJsonArray([
       `while the game runs. Only the hue of the color given is used (its top 4 bits). Use it when the Score tab gives the lines different colors: ` +
       `then "Score set color" no longer changes the lines of the score.`,
   },
+  // Block that gives the score bars one flat color.
+  {
+    'type': `score_bar_color_set`,
+    'message0': `${SCORE_ICON} Score bars: set ${COLOR_ICON} color to %1`,
+    'args0': [
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': `Gives the score bars one flat color. Without this block the bars take the color of the score (on DPC+, the color of each line of the score). ` +
+      `Not for the PXE kernel.`,
+  },
   // Block for the color getter.
   {
     'type': `score_color_get`,

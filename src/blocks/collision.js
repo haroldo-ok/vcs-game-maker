@@ -18,7 +18,7 @@ const collisionOptions = function() {
   const count = playerCount(((useConfigurationStorage() || {}).value || {}));
   if (count <= 2) return options;
   const extra = Array.from({length: count - 2}, (_, i) => [PLAYER_ICON + ' Player ' + (i + 2), 'player' + (i + 2)]);
-  return [...options.slice(0, 2), ...extra, ...options.slice(2)];
+  return [...options.slice(0, 2), ...extra, [PLAYER_ICON + ' Pool sprite', 'playerpool'], ...options.slice(2)];
 };
 
 // The part of a sprite the playfield box test looks at: all of it, or only its bottom 8 lines (as wide as the sprite, double and quad wide included).

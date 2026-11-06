@@ -283,6 +283,23 @@
                 </shadow>
             </value>
         </block>
+        <block type="sprite_pool_spawn">
+            <field name="FROM">1</field>
+            <field name="TO">3</field>
+        </block>
+        <block type="sprite_pool_each">
+            <field name="FROM">1</field>
+            <field name="TO">3</field>
+        </block>
+        <block type="sprite_pool_release"></block>
+        <block type="sprite_pool_release_all">
+            <field name="FROM">1</field>
+            <field name="TO">3</field>
+        </block>
+        <block type="sprite_pool_full">
+            <field name="FROM">1</field>
+            <field name="TO">3</field>
+        </block>
         <block type="sprite_player_size" />
         {{#if paletteOn}}
         <block type="sprite_player_mask" />
@@ -1014,6 +1031,13 @@
             </value>
         </block>
         <block type="score_line_hue_set">
+            <value name="VALUE">
+                <shadow type="color_get">
+                    <field name="COLOR">146</field>
+                </shadow>
+            </value>
+        </block>
+        <block type="score_bar_color_set">
             <value name="VALUE">
                 <shadow type="color_get">
                     <field name="COLOR">146</field>

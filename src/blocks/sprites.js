@@ -3,6 +3,7 @@ import * as Blockly from 'blockly/core';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayerAnimationsStorage, useConfigurationStorage} from '../hooks/project';
 import {playerCount, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
+import {SPRITE_POOL_COLOUR} from './sprite-pool';
 import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, LOCK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
@@ -341,13 +342,15 @@ const PLAYER_OPTIONS = [['0', '0'], ['1', '1']];
 
 // The DPC+ kernel has eight more sprites (Player 2 to 9), offered by the blocks that can drive them.
 // (And the PXE kernel eight more, Player 10 to 16.)
+// "pool sprite" stands for the sprite a Sprite pool block is working on (see blocks/sprite-pool.js); it is only offered where a virtual sprite exists.
 const PLAYER_DROPDOWN_OPTIONS = function() {
-  return Array.from({length: playerCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => [String(i), String(i)]);
+  const count = playerCount(((useConfigurationStorage() || {}).value || {}));
+  return [...Array.from({length: count}, (_, i) => [String(i), String(i)]), ...(count > 2 ? [['pool sprite', 'pool']] : [])];
 };
 
 const playerNameFromField = (block) => {
   const value = block && block.getFieldValue('PLAYER');
-  return `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`;
+  return value === 'pool' ? 'playerpool' : `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`;
 };
 
 // Same reasoning as PLAYER_OPTIONS above, for Missile 0/1 - genuinely
@@ -365,7 +368,7 @@ const FIRE_OBJECT_OPTIONS = [['Missile 0', '0'], ['Missile 1', '1'], ['Ball', 'b
 // Fire also launches the players (all ten on DPC+, two otherwise), as a Fire object like the missiles.
 const FIRE_OBJECT_DROPDOWN_OPTIONS = function() {
   const players = Array.from({length: playerCount(((useConfigurationStorage() || {}).value || {}))}, (_, i) => ['Player ' + i, 'player' + i]);
-  return [...FIRE_OBJECT_OPTIONS, ...players];
+  return [...FIRE_OBJECT_OPTIONS, ...players, ...(players.length > 2 ? [['pool sprite', 'playerpool']] : [])];
 };
 // Players 2 to 9 (DPC+ virtual sprites) each get a different color on the blocks that pick one, Player 0 is red and Player 1 blue.
 const EXTRA_PLAYER_COLOURS = {
@@ -480,7 +483,7 @@ const buildMissileVarOptionsFn = (extraOptionsFor) => function() {
 // directly (same "dropdown drives colour + optional VAR-prefix translate"
 // shape) rather than duplicating it.
 export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldName, namePrefixFor) => {
-  const colourFor = (value) => (value === '1' ? 'blue' : EXTRA_PLAYER_NUMBER.test(value) ? extraPlayerColour(value) : 'red');
+  const colourFor = (value) => (value === 'pool' ? SPRITE_POOL_COLOUR : value === '1' ? 'blue' : EXTRA_PLAYER_NUMBER.test(value) ? extraPlayerColour(value) : 'red');
   Blockly.Extensions.register(extensionName, function() {
     // eslint-disable-next-line no-invalid-this
     const block = this;
@@ -554,7 +557,7 @@ export const registerDropdownFieldSyncExtension = (extensionName, dropdownFieldN
 };
 
 registerDropdownFieldSyncExtension('sprite_player_field_sync', 'PLAYER',
-    (value) => `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`);
+    (value) => (value === 'pool' ? 'playerpool' : `player${/^([0-9]|1[0-6])$/.test(value) ? value : '0'}`));
 registerDropdownFieldSyncExtension('sprite_missile_field_sync', 'MISSILE',
     (value) => `missile${value === '1' ? '1' : '0'}`);
 
@@ -1988,7 +1991,8 @@ const buildCombinedMissileFireBlock = ({icon, colour}) => {
           .appendField('16 directions');
       const evenSpeedField = new Blockly.FieldCheckbox('FALSE');
       evenSpeedField.setTooltip('Every direction moves at the same speed. Without it a diagonal (and a halfway angle) moves about 1.4 times faster ' +
-        'than straight up, down, left or right. Ticked, the diagonals skip about 3 frames in 10 to match. Costs one byte of memory for the object.');
+        'than straight up, down, left or right. Ticked, a straight shot takes an extra pixel now and then to match (about 1.4 times the speed). ' +
+        'Costs one byte of memory for the object, and its speed is kept in a variable.');
       this.appendDummyInput()
           .appendField(' ')
           .appendField(evenSpeedField, 'EVENSPEED')

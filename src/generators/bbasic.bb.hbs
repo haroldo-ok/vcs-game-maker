@@ -16,7 +16,7 @@
  rem - set initial values
  rem **************************************************************************
  COLUBK = {{{ defaultInitialBackgroundColor }}}
- score = 00000 :  scorecolor = {{{ defaultScoreColor }}}
+ score = 00000 :  scorecolor = {{{ defaultScoreColor }}}{{{ scoreBarColorInit }}}
 
  const true = 1
  const false = 0
@@ -137,7 +137,7 @@ commongamelogic
  COLUP0 = player0realcolor
  COLUPF = playfieldrealcolor
  COLUBK = backgroundrealcolor
- pfscorecolor = scorecolor
+ {{{ scoreBarColorFollow }}}
 {{{ nusiz0Line }}}
 {{{ player1NusizLine }}}
  REFP0 = player0size & 8

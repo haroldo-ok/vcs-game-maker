@@ -1730,11 +1730,12 @@ export const generateMissileFireChecks = (Blockly) => {
         // 1, or the pixel-step counter) may run for it.
         ...(constSpeed === undefined ? [` if ${speedVar} = 0 then goto ${doneLabel}`] :
           constSpeed === 0 ? [` goto ${doneLabel}`] : []),
-        // Same speed at every angle: a heading that is not straight (up, down, left, right) moves on 181 frames in 256 (the square root of a half), the
-        // other frames are skipped.
-        ...(evenPair ? [' asm', `       lda ${dirVar}`, `       and #${is16 ? 3 : 1}`, `       beq _missilefire_${name}_evengo`,
-          `       lda ${evenPair.read}`, '       clc', '       adc #181', `       sta ${evenPair.write}`, `       bcs _missilefire_${name}_evengo`,
-          `       jmp .${doneLabel}`, `_missilefire_${name}_evengo`, 'end'] : []),
+        // Same speed at every angle: a straight shot (up, down, left, right) goes about 1.41 times as fast, as a diagonal does, by taking extra
+        // pixels now and then (7/16 of the speed a frame, kept in sixteenths: the low half of the object's byte; the high half holds the pixels added to
+        // the speed for this frame, which are taken off again after the movement).
+        ...(evenPair ? [` if (${dirVar} & ${is16 ? 3 : 1}) <> 0 then goto _missilefire_${name}_evengo`,
+          ` temp1 = ${speedVar} * 7`, ` temp2 = ${evenPair.read} & 15`, ' temp1 = temp1 + temp2', ' temp2 = temp1 / 16', ' temp1 = temp1 & 15',
+          ' temp3 = temp2 * 16', ` ${evenPair.write} = temp1 | temp3`, ` ${speedVar} = ${speedVar} + temp2`, `_missilefire_${name}_evengo`] : []),
         ...(fireArm ? fireArmLines : [
           ...(is16 ? leanLines : []),
           ...(pfChecked ?
@@ -1746,6 +1747,7 @@ export const generateMissileFireChecks = (Blockly) => {
             }) :
             dispatch),
         ]),
+        ...(evenPair ? [` temp1 = ${evenPair.read} / 16`, ` ${speedVar} = ${speedVar} - temp1`, ` ${evenPair.write} = ${evenPair.read} & 15`] : []),
         // Off-screen (standard NTSC playfield bounds) stops the movement -
         // clears the active bit so this missile's  dispatch above is
         // skipped every frame from here on - WITHOUT touching its

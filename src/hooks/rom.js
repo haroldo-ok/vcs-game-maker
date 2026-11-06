@@ -38,6 +38,7 @@ import {textLinesMaxVarName, textLinesBaseVarName, textRow2ColorVarName, textBkC
   textScrollCursorColorVarName, textEndIconColorVarName, titleTextFlagVar} from '../generators/bbasic/text-minikernel';
 import {showError} from '../utils/build-error';
 import {removeUnusedDefinitions} from '../utils/unused-definitions';
+import {expandSpritePools} from '../utils/sprite-pool';
 import {expandSceneBlocks, sceneBlocksXml, sceneTablesHaveOffsets, triggerEventXml} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
@@ -104,6 +105,8 @@ const withHeadlessWorkspace = (callback, xmlOverride) => {
     if (xmlOverride === undefined) {
       const tables = useDataTablesStorage().value;
       expandSceneBlocks(dom, tables && tables.dataTables, Blockly, (useConfigurationStorage() || {}).value || {});
+      // The Sprite pool blocks become the blocks of a copy for each sprite of the pool.
+      expandSpritePools(dom, Blockly).forEach((note) => appendCompileLog(note, 'info'));
       // A Subroutine or Function that nothing calls is left out of the build, with the variables only it uses.
       removeUnusedDefinitions(dom);
     }

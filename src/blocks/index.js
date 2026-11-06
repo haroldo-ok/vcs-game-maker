@@ -27,6 +27,7 @@ import './sound';
 import './soundfx';
 import './speech';
 import './stack';
+import './sprite-pool';
 import './sprites';
 import './subroutine';
 import './text-minikernel';

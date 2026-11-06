@@ -1001,6 +1001,13 @@ scoreloop
      lda #<DF6DATA ;59
      sta COLUP0 ;62
      sta COLUP1 ;65
+     ; vcs-game-maker: the score bars (pfscore) take the color of each line of the score too: kept here, written to COLUPF at the end of the line (the bars
+     ; of the next line are drawn after it). With "const scorebarflat = 1" (a Score bars set color block) the bars keep the color of pfscorecolor instead. Cycle neutral: the 3 cycles are taken from the first sleep below and the 6 of the last sleep are the load and store.
+     ifconst pfscore
+     ifnconst scorebarflat
+         sta temp2
+     endif
+     endif
      lda #<DF1DATA;75
      sta GRP0 ;2
      lda #<DF0DATA ;4
@@ -1015,7 +1022,15 @@ scoreloop
      else
          sleep 6
      endif
-     sleep 5 
+     ifconst pfscore
+     ifnconst scorebarflat
+         sleep 2
+     else
+         sleep 5
+     endif
+     else
+         sleep 5
+     endif
      ldx DF2DATA;16
      ldy DF5DATA;20
      lda #<DF4DATA;22 
@@ -1031,7 +1046,16 @@ scoreloop
          sleep 6
      endif
      ; sleep 2 ;57
-     sleep 6
+     ifconst pfscore
+     ifnconst scorebarflat
+         lda temp2
+         sta COLUPF
+     else
+         sleep 6
+     endif
+     else
+         sleep 6
+     endif
      dec temp1;70
      bpl scoreloop;72/73
      LDx #0 

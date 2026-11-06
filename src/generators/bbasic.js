@@ -874,6 +874,9 @@ Blockly.BBasic.init = function(workspace) {
     }
   });
 
+  // (An object that gets extra pixels on a straight shot works with its speed in a variable.)
+  this.missileFireEvenUsedFor.forEach((name) => this.missileFireConstSpeed.delete(name));
+
   // Which objects have a Fire block with "check playfield while moving" on:
   // that object's per-frame movement is built as one-pixel sub-steps with a
   // playfield check after each (see generateMissileFireChecks).
@@ -2257,6 +2260,8 @@ Blockly.BBasic.init = function(workspace) {
   // against the actual generator, no other use site touches either var
   // (background_change_pixel, the sibling setter block, uses temp1/temp2
   // instead, never these).
+  // A "Score bars: set color" block gives the bars one flat color, which they then keep (see scoreBarColorFollow).
+  this.scoreBarColorFlat = !isPxe(useConfigurationStorage().value || {}) && workspace.getAllBlocks(false).some((block) => block.type === 'score_bar_color_set' && block.isEnabled());
   // "Score Bar units" counts the bits of a bar into temp1, or into a byte kept for it inside a custom function.
   // (One pass over the blocks that are inside a custom function: what they need, and whether a function body calls a function, which function_define reads.)
   const blocksInFunctions = workspace.getAllBlocks(false).filter((block) => isInsideFunctionBody(block));
@@ -4583,6 +4588,10 @@ Blockly.BBasic.finish = function(code) {
   const hiddenDpcPlusTextScore = (useConfigurationStorage().value || {}).kernel === 'dpcplus' &&
     ((useConfigurationStorage().value || {}).showScore ?? true) === false && this.isTextMinikernelActive();
   const defaultScoreColor = colorByteToBuildBBasic(hiddenDpcPlusTextScore ? 0 : 0x08);
+  // The score bars are drawn in the score's color, copied to them every frame, until a block gives them a color: then they start out
+  // in the score's color and keep what the block sets (and on DPC+ the kernel stops giving them the color of each line of the score).
+  const scoreBarColorInit = this.scoreBarColorFlat ? ` : pfscorecolor = ${defaultScoreColor}` : '';
+  const scoreBarColorFollow = this.scoreBarColorFlat ? 'rem The score bars keep the color a block gave them' : 'pfscorecolor = scorecolor';
   // DPC+ counts a sprite's y in scanlines down to its top edge, the standard kernel in 2-scanline units down to
   // its bottom edge (line 2 * y + 4), and the DPC+ picture starts 4 lines higher, so the same spot is 2 * y minus
   // the sprite's height in lines.
@@ -4819,7 +4828,7 @@ Blockly.BBasic.finish = function(code) {
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
     gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize, generatedTv, generatedScrollDefaults, generatedPlayerColorDefaults, generatedPlayerAnimationDefaults,
-    generatedFrameCounterTick, generatedBackdropDefaults, defaultPlayfieldColor, defaultBackgroundColor, defaultInitialBackgroundColor, defaultScoreColor,
+    generatedFrameCounterTick, generatedBackdropDefaults, defaultPlayfieldColor, defaultBackgroundColor, defaultInitialBackgroundColor, defaultScoreColor, scoreBarColorInit, scoreBarColorFollow,
     defaultPlayer0Y, defaultPlayer1Y,
     generatedSystemDims,
     generatedTextMinikernelDefaults, generatedDivMul, generatedMuteAudio, generatedChannelDurationChecks,
@@ -6474,8 +6483,9 @@ Blockly.BBasic.generateConfiguration = function() {
   // The DPC+ text row is called from inside the score code, so with text the score is always assembled (a
   // project that hides it just draws it in a color nobody sees).
   const dpcPlusHiddenTextScore = !(showScore ?? true) && this.isTextMinikernelActive() && config.kernel === 'dpcplus';
-  const scoreConfigurationCode = (showScore ?? true) ? '' : dpcPlusHiddenTextScore ? 'const dpchidescore = 1' :
-    `const ${this.isTextMinikernelActive() ? 'noscoretxt' : 'noscore'} = 1`;
+  const scoreBarFlatCode = this.scoreBarColorFlat && config.kernel === 'dpcplus' ? 'const scorebarflat = 1' : '';
+  const scoreConfigurationCode = scoreBarFlatCode + (scoreBarFlatCode && !(showScore ?? true) ? '\n' : '') + ((showScore ?? true) ? '' : dpcPlusHiddenTextScore ? 'const dpchidescore = 1' :
+    `const ${this.isTextMinikernelActive() ? 'noscoretxt' : 'noscore'} = 1`);
   // "scorefade" - a standard-kernel-only compile-time gate that adds shading
   // to the score digits based on the live scorecolor value (see the Score
   // category's  color get/set/change blocks on the Actions tab, which
@@ -8935,6 +8945,7 @@ import speech, {prepareSpeech, generateSpeechChecks, SPEECH_POSITION_VAR, SPEECH
 import soundfx, {envelopeFlatOn, envelopeFlatOverflowed, setEnvelopeFlatDisabled, soundEffectChannelHasEnvelope, resetEnvelopeConfigs, resetSoundDescriptions, getSoundDescriptions, resetPitchTables,
   soundPitchChannels} from './bbasic/soundfx';
 import sprites from './bbasic/sprites';
+import spritePool from './bbasic/sprite-pool';
 import triggers from './bbasic/triggers';
 import spriteOverlap from './bbasic/sprite-overlap-block';
 import subroutine from './bbasic/subroutine';
@@ -8948,7 +8959,7 @@ import {runOnceResetLines, runOnceClearLines, runOnceStartupLines} from '../util
 import {collectChipChannels, createDpcPlusAudioPlan, DPC_AUDIO_SUBROUTINE_NAME, dpcAudioVars, redirectSoundRegisters} from './bbasic/dpcplus-audio';
 
 [background, bit, collision, color, colour, data, event, functionGenerators, input, logic, loops, math, music,
-  palette, random, score, sound, soundfx, speech, avoxMemory, sprites, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, triggers, variables]
+  palette, random, score, sound, soundfx, speech, avoxMemory, sprites, spritePool, spriteLock, spriteOverlap, subroutine, text, textMinikernel, titlescreen, triggers, variables]
     .forEach((init) => init(Blockly));
 
 // With the AtariVox off (Options tab, ROM Options) its blocks build to nothing (a value block says 0): see prepareSpeech.
