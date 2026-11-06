@@ -303,6 +303,15 @@
         />
         <v-checkbox
           v-if="configurationState.kernel === 'dpcplus' && !configurationState.pxe"
+          v-model="configurationState.enableHarmonyCartFix"
+          @change="handleChangeConfiguration"
+          label="Harmony cart fix (DPC+)"
+          hint="Puts temp1=temp1 right after each bank declaration, as the batari Basic documentation asks for a DPC+ program: without it the Harmony cartridge's bank switch detection can misfire on real hardware. It costs a few bytes in each bank. On by default; turn it off only to save those bytes in a game that is not played on a Harmony cartridge."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-checkbox
+          v-if="configurationState.kernel === 'dpcplus' && !configurationState.pxe"
           v-model="configurationState.enableFireCoprocessor"
           @change="handleChangeConfiguration"
           label="Move fired objects with the coprocessor (DPC+)"
@@ -524,6 +533,7 @@ const DEFAULT_CONFIGURATION = {
   enableOptimizationSpeed: false,
   enableFastMath: false,
   enableFireCoprocessor: false,
+  enableHarmonyCartFix: true,
   enableInlineRand: true,
   enableRand16: true,
   enableCycleScore: false,
@@ -932,6 +942,7 @@ export default defineComponent({
       state.enableOptimizationSpeed = DEFAULT_CONFIGURATION.enableOptimizationSpeed;
       state.enableFastMath = DEFAULT_CONFIGURATION.enableFastMath;
       state.enableFireCoprocessor = DEFAULT_CONFIGURATION.enableFireCoprocessor;
+      state.enableHarmonyCartFix = DEFAULT_CONFIGURATION.enableHarmonyCartFix;
       state.enableInlineRand = DEFAULT_CONFIGURATION.enableInlineRand;
       state.enableRand16 = DEFAULT_CONFIGURATION.enableRand16;
       state.enableCycleScore = DEFAULT_CONFIGURATION.enableCycleScore;

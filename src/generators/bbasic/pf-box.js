@@ -169,10 +169,14 @@ export const buildPlayfieldBoxLines = ({label, xVar, yVar, sizeVar, heightVar: b
   // by 256, which takes far longer than a lookup): 192 lines are enough, rows go no further.
   const rowTableLines = (dpcPlusScan && !(rowFracVar && (dpcPlusRowSets || []).length > 1) && dpcPlusRows && stepsOf(256 / dpcPlusRows.frac) < 0) ? [
     'asm',
-    // The DPC+ cartridge answers reads of the first 128 bytes of a page 0 of a bank as its registers, and an indexed read that crosses a page
-    // does an extra read at the address before the page is corrected, so a table that straddles a page, or sits in the first one, can
-    // trigger them (a write of the byte to a fetcher). Aligned on a page, the table is never in the first page and never crosses one.
+    // The DPC+ cartridge answers reads of the first 128 bytes of page 0 of a bank as its registers, and an indexed read that crosses a page
+    // does an extra read at the address before the page is corrected (still in the page the table starts in), so a table in the first page
+    // of a bank can trigger them (a write of the byte to a fetcher). Any other place is safe, except over the bank switch addresses
+    // (the last six bytes before $FFB of the bank are read as switches): the table (192 bytes) is only moved on to the next page when it
+    // starts in the first page or would reach those, not always to the start of a page, which left up to 255 bytes of padding.
+    'if (((* & $0FFF) < $0100) || ((* & $0FFF) > $0F35))',
     'align 256',
+    'endif',
     `@${lab('rowtab')}`,
     ...Array.from({length: 12}, (_, i) => `.byte ${Array.from({length: 16}, (__, j) => Math.floor((i * 16 + j) * dpcPlusRows.frac / 256)).join(',')}`),
     '@end',

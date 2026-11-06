@@ -666,8 +666,11 @@ export default (Blockly) => {
     // Under DPC+ the coprocessor finds it (function 99 of armprog.c, the same cells in the same order; about 350 cycles less): the numbers go to it and the column
     // and the row come back.
     const config = useConfigurationStorage().value || {};
+    // (The row increment it is given: see bounceFracInc in generators/bbasic/sprites.js.)
+    const fracInc = Blockly.BBasic.exactRowIncrement(config, 1);
+    const findPixelRowInc = /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 ? 256 / Number(rowDivisor) : (typeof fracInc === 'number' ? fracInc : null);
     if (config.kernel === 'dpcplus' && !config.pxe && !groupRows && !pfScrollColumns(config) && coords.heightVar && coords.sizeBits &&
-        /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 && /^\d+$/.test(String(maxRow))) {
+        findPixelRowInc !== null && /^\d+$/.test(String(maxRow))) {
       ensureArmProgram(Blockly, undefined, 'p');
       Blockly.BBasic.pfBoxArm = true;
       const lda = (operand) => [`lda ${operand}`];
@@ -678,7 +681,7 @@ export default (Blockly) => {
           // (The lines it covers are the height less one for missile 0 and one more for missile 1: measured against the hardware flag.)
           coords.extraHeight < 0 ? [`lda ${coords.heightVar}`, `beq _fp_${sprite}_hz`, 'sec', 'sbc #1', `_fp_${sprite}_hz`] :
             coords.extraHeight > 0 ? [`lda ${coords.heightVar}`, 'clc', 'adc #1'] : lda(coords.heightVar), lda(coords.sizeBits), lda('temp5'), lda(`#${is16 ? 16 : 8}`), lda(`#${maxRow}`), lda(`#${coords.pfXOffset}`),
-          lda(`#${256 / Number(rowDivisor)}`)]}),
+          lda(`#${findPixelRowInc}`)]}),
         `${col.write} = temp3`,
         `${row.write} = temp4`,
       ].join('\n');
@@ -1659,6 +1662,7 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic['background_fill_area'] = function(block) {
+    if (block.getFieldValue('MODE') === 'CENTER') return fillCenteredArea(block);
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
@@ -1677,6 +1681,73 @@ export default (Blockly) => {
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     // The corners (x1, y1, x2, y2) become temp4, temp5, temp6 and the second row.
     return `temp4 = ${x1}\ntemp5 = ${y1}\ntemp6 = ${x2}\n${last.write} = ${y2}\ngosub ${name}${suffix}\n`;
+  };
+
+  // "Playfield set/clear/flip area centered at X Y width height": the corners are worked out from the center (the width and the height halved, the extra
+  // pixel of an even one to the right or below), held to the padding and to the playfield, and the area routine of the area block draws it. Only the
+  // scratch bytes and the area block's last row are used: the numbers of the block are worked out again where they are wanted (a number or a
+  // variable, not a block that picks a random one).
+  const fillCenteredArea = (block) => {
+    const configurationStorage = useConfigurationStorage();
+    const config = (configurationStorage && configurationStorage.value) || {};
+    const maxRow = Blockly.BBasic.maxRowText(config);
+    const maxColumn = pfMaxColumn(config);
+    const last = Blockly.BBasic.superchipRwPairs[areaClearLeftVarName()];
+    if (!last) return '';
+    const operation = block.getFieldValue('OPERATION');
+    const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const separate = block.getFieldValue('PADMODE') === 'EACH';
+    const [padLeft, padRight, padTop, padBottom] = separate ? ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].map(arg) : Array(4).fill(arg('PADDING'));
+    const cx = arg('X1');
+    const cy = arg('Y1');
+    const fillName = AREA_FILL_SUBROUTINES[operation];
+    if (!Blockly.BBasic.subroutines[fillName]) {
+      Blockly.BBasic.subroutines[fillName] = buildAreaFillBody(operation, maxRow, last, !!config.pxe);
+    }
+    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(fillName));
+    const id = Blockly.BBasic.blockNumbers.next('rect');
+    const skip = `_rect_${id}_skip`;
+    return [
+      // The rows: the first (temp5) and the last (the area block's last row); the center row is in temp4.
+      `temp4 = ${cy}`,
+      `temp1 = ${arg('HEIGHT')}`,
+      `if temp1 = 0 then goto ${skip}`,
+      'temp2 = temp1 / 2',
+      'temp5 = 0',
+      'if temp4 >= temp2 then temp5 = temp4 - temp2',
+      'temp3 = temp1 - 1',
+      'temp3 = temp3 - temp2',
+      'temp3 = temp4 + temp3',
+      'if temp3 < temp4 then temp3 = 255',
+      `temp1 = ${padTop}`,
+      'if temp5 < temp1 then temp5 = temp1',
+      `temp1 = ${padBottom}`,
+      `if temp1 > ${maxRow} then goto ${skip}`,
+      `temp1 = ${maxRow} - temp1`,
+      'if temp3 > temp1 then temp3 = temp1',
+      `if temp5 > temp3 then goto ${skip}`,
+      `${last.write} = temp3`,
+      // The columns: the first (temp4) and the last (temp6); the center column is in temp3 (free now).
+      `temp3 = ${cx}`,
+      `temp1 = ${arg('WIDTH')}`,
+      `if temp1 = 0 then goto ${skip}`,
+      'temp2 = temp1 / 2',
+      'temp4 = 0',
+      'if temp3 >= temp2 then temp4 = temp3 - temp2',
+      'temp6 = temp1 - 1',
+      'temp6 = temp6 - temp2',
+      'temp6 = temp3 + temp6',
+      'if temp6 < temp3 then temp6 = 255',
+      `temp1 = ${padLeft}`,
+      'if temp4 < temp1 then temp4 = temp1',
+      `temp1 = ${padRight}`,
+      `if temp1 > ${maxColumn} then goto ${skip}`,
+      `temp1 = ${maxColumn} - temp1`,
+      'if temp6 > temp1 then temp6 = temp1',
+      `if temp4 > temp6 then goto ${skip}`,
+      `gosub ${fillName}${suffix}`,
+      `@ ${skip}`,
+    ].join('\n') + '\n';
   };
 
   // "Playfield set/clear/flip circle": the rows of the circle from the center row outwards, each drawn by the area fill routine (the same one the area block

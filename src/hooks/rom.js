@@ -510,14 +510,82 @@ const parseBank1FreeBytesEcho = (stdout) => {
 // The bank the assembler reported as too full, from the "bytes of ROM space left in bank N" lines (the last negative one: the
 // assembly stops at the first bank that does not fit). Null when no bank is reported over.
 const parseOverflowingBank = (stdout) => {
-  const over = [...((stdout || '').matchAll(/(-?\d+) bytes of ROM space left in bank (\d+)/g))]
-      .filter((match) => parseInt(match[1], 10) < 0);
-  return over.length ? parseInt(over[over.length - 1][2], 10) : null;
+  const left = [...((stdout || '').matchAll(/(-?\d+) bytes of ROM space left in bank (\d+)/g))];
+  const over = left.filter((match) => parseInt(match[1], 10) < 0);
+  if (over.length) return parseInt(over[over.length - 1][2], 10);
+  // A bank that overflows far enough runs into the next one's origin, and the assembler stops there without saying how much room the bank had:
+  // it is the one after the last bank that was reported.
+  if (left.length) {
+    return Math.max(...left.map((match) => parseInt(match[2], 10))) + 1;
+  }
+  return null;
 };
 
 // The bank the Title Screen Kernel is in, as a list to spread into a set of banks other units must not be moved to (empty for the kernel
 // itself, and before it has a bank): the kernel takes about 3,300 bytes of its bank, and the units that were moved there with it made it overflow.
+// After a number of attempts without a layout that fits, the bank the Title Screen Kernel is in may take other units too, when the assembler says it has room
+// (the room each bank had at the last attempt: the banks before the one that overflowed are reported).
+let titleBankLastResort = false;
+let lastSpaceLeft = {};
+// What each bank has left, as far as is known: what the assembler reported (the banks before the one that overflowed, and the overflowed one by how
+// much it is over), then moved by the units that were put in or taken out since, so a unit is only sent to a bank it fits in.
+let knownFree = {};
+// The sizes of the units are estimates from the amount of code the blocks make, and come out too small: how many times too small is found out from
+// the banks that took units and were reported after (sizeScale), and every size is multiplied by it.
+const INITIAL_SIZE_SCALE = 2.5;
+let sizeScale = INITIAL_SIZE_SCALE;
+let pendingAdds = {};
+// The exact size of a unit, when it was the only one that moved between two attempts and both banks were reported before and after (unit key -> bytes).
+const measuredSize = new Map();
+let attemptMoves = [];
+let reportedFree = {};
+// The size of a unit in bytes: the measured one, else its estimate (in bytes of the blocks' code) times the scale.
+const sizeOf = (key, estimate) => (measuredSize.has(key) ? measuredSize.get(key) : estimate * sizeScale);
+// bytes: the size the unit is taken to have (see sizeOf); estimate: the estimate the scale is learned from.
+const noteMove = (bytes, fromBank, toBank, key, estimate) => {
+  if (!bytes) return;
+  if (key) attemptMoves.push({key, from: fromBank, to: toBank});
+  if (knownFree[fromBank] !== undefined) knownFree[fromBank] += bytes;
+  if (knownFree[toBank] !== undefined) {
+    if (!pendingAdds[toBank]) pendingAdds[toBank] = {estimated: 0, freeBefore: knownFree[toBank]};
+    pendingAdds[toBank].estimated += estimate === undefined ? bytes / sizeScale : estimate;
+    knownFree[toBank] -= bytes;
+  }
+};
+// The assembler reported the banks: a lone unit that moved shows its size in what the two banks gained and lost.
+const learnMeasuredSize = (reported) => {
+  if (attemptMoves.length === 1) {
+    const move = attemptMoves[0];
+    const before = reportedFree;
+    if ([move.from, move.to].every((bank) => before[bank] !== undefined && reported[bank] !== undefined)) {
+      const gained = reported[move.from] - before[move.from];
+      const lost = before[move.to] - reported[move.to];
+      if (gained > 50 && lost > 50 && Math.abs(gained - lost) <= 0.2 * Math.max(gained, lost)) measuredSize.set(move.key, Math.round((gained + lost) / 2));
+    }
+  }
+  attemptMoves = [];
+  reportedFree = {...reportedFree, ...reported};
+};
+// A bank was reported: the units that went in since it was last reported took (room before - room now) bytes, against the estimate of their sizes.
+const learnSizeScale = (bank, free) => {
+  const pending = pendingAdds[bank];
+  delete pendingAdds[bank];
+  if (!pending || pending.estimated < 150) return;
+  const ratio = (pending.freeBefore - free) / pending.estimated;
+  if (Number.isFinite(ratio) && ratio > 0.3) sizeScale = Math.min(8, Math.max(1, ratio));
+};
+// A bank that overflowed far enough to run into the next one is not told how much it is over: the units that come out of it are then 300 bytes, 600,
+// 1,200... more for each time in a row it overflows again.
+const OVER_UNKNOWN_BYTES = 300;
+let overBank = null;
+let overStreak = 0;
+const FIT_MARGIN_RATIO = 1.1;
+const FIT_MARGIN_BYTES = 64;
+const TITLE_BANK_LAST_RESORT_ATTEMPT = 8;
+const TITLE_BANK_MIN_ROOM = 300;
+
 const titleKernelBankFor = (unit) => {
+  if (titleBankLastResort) return [];
   if (unit && unit.kind === 'subroutineBanks' && unit.name === TITLE_SCREEN_SUBROUTINE_NAME) return [];
   const bank = (getRelocationBanks().subroutineBanks || {})[TITLE_SCREEN_SUBROUTINE_NAME];
   return bank ? [bank] : [];
@@ -1273,12 +1341,34 @@ const estimateBankBytes = (banks) => {
 // case is instead handled at the stuckBank fallback's  call site by
 // clearing that one unit's  tried-set and giving it a fresh attempt,
 // rather than by softening the exclusion here.
-const pickNextBank = (banks, maxBanks, textMinikernelActive, excludeBanks, minBank, unitKinds, primaryBank) => {
+const pickNextBank = (banks, maxBanks, textMinikernelActive, excludeBanks, minBank, unitKinds, primaryBank, unitBytes) => {
   const lowestBank = minBank || 2;
+  // A unit of a known size goes to a bank that is known to have room for it (the one with the most room), before the estimates of how full the banks are
+  // are looked at.
+  if (unitBytes && Object.keys(knownFree).length) {
+    const top = textMinikernelActive ? maxBanks - 1 : maxBanks;
+    const titleBank = (banks.subroutineBanks || {})[TITLE_SCREEN_SUBROUTINE_NAME];
+    const fitting = [];
+    for (let bank = lowestBank; bank <= top; bank++) {
+      if ((excludeBanks && excludeBanks.has(bank)) || (bank === titleBank && !titleBankLastResort)) continue;
+      if (knownFree[bank] !== undefined && knownFree[bank] >= unitBytes * FIT_MARGIN_RATIO + FIT_MARGIN_BYTES) fitting.push(bank);
+    }
+    if (fitting.length) return fitting.reduce((best, bank) => (knownFree[bank] > knownFree[best] ? bank : best));
+    // None of the banks with a known room has enough: only the banks that are not known (not reported yet) are left to try.
+    const tooSmall = Object.keys(knownFree).map(Number).filter((bank) => knownFree[bank] < unitBytes * FIT_MARGIN_RATIO + FIT_MARGIN_BYTES);
+    excludeBanks = new Set([...(excludeBanks || []), ...tooSmall]);
+  }
   // Nothing else goes in the bank the Title Screen Kernel is in (its documentation asks for a bank to itself, and the title screen's
   // graphics take most of it) - unless that leaves no bank at all.
   const titleKernelBank = (banks.subroutineBanks || {})[TITLE_SCREEN_SUBROUTINE_NAME];
-  if (titleKernelBank >= lowestBank && !(excludeBanks && excludeBanks.has(titleKernelBank))) {
+  if (titleBankLastResort && titleKernelBank >= lowestBank && !(excludeBanks && excludeBanks.has(titleKernelBank))) {
+    // The bank that has the most room, by what the assembler reported (the kernel's bank included).
+    const roomiest = Object.keys(lastSpaceLeft).map(Number)
+        .filter((bank) => bank >= lowestBank && bank <= (textMinikernelActive ? maxBanks - 1 : maxBanks) && !(excludeBanks && excludeBanks.has(bank)))
+        .reduce((best, bank) => (best === null || lastSpaceLeft[bank] > lastSpaceLeft[best] ? bank : best), null);
+    if (roomiest !== null && lastSpaceLeft[roomiest] >= TITLE_BANK_MIN_ROOM) return roomiest;
+  }
+  if (!titleBankLastResort && titleKernelBank >= lowestBank && !(excludeBanks && excludeBanks.has(titleKernelBank))) {
     const avoided = pickNextBank(banks, maxBanks, textMinikernelActive,
         new Set([...(excludeBanks || []), titleKernelBank]), minBank, null, primaryBank);
     if (avoided) return avoided;
@@ -1418,6 +1508,16 @@ const buildRomInner = async () => {
   const errorStorage = useErrorStorage();
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
+  titleBankLastResort = false;
+  lastSpaceLeft = {};
+  knownFree = {};
+  measuredSize.clear();
+  attemptMoves = [];
+  reportedFree = {};
+  overBank = null;
+  overStreak = 0;
+  sizeScale = INITIAL_SIZE_SCALE;
+  pendingAdds = {};
   // How many bytes over a bank the Titlescreen Kernel was when it was moved by itself (0 when it never overflowed one).
   let titleOverBytes = 0;
   BlocklyBB.displayRamExcludedSeed = null;
@@ -1884,6 +1984,24 @@ const buildRomInner = async () => {
         // The bank that is too full is not the one the units start in: moving more out of that one does not help, the bank that
         // is over has to give up some of its units (the fallback just below does that).
         const overflowingBank = parseOverflowingBank(e.dasmStdout);
+        const bank1Echo = parseBank1FreeBytesEcho(e.dasmStdout);
+        const spaceMatches = [...((e.dasmStdout || '').matchAll(/(-?\d+) bytes of ROM space left in bank (\d+)/g))];
+        lastSpaceLeft = {};
+        const reportedNow = {};
+        spaceMatches.forEach((match) => {
+          lastSpaceLeft[Number(match[2])] = Number(match[1]);
+          reportedNow[Number(match[2])] = Number(match[1]);
+          learnSizeScale(Number(match[2]), Number(match[1]));
+          knownFree[Number(match[2])] = Number(match[1]);
+        });
+        learnMeasuredSize(reportedNow);
+        if (attempt >= TITLE_BANK_LAST_RESORT_ATTEMPT && !titleBankLastResort) {
+          titleBankLastResort = true;
+          appendCompileLog('No layout fits yet: the bank of the Title Screen Kernel may now take other units too, where the assembler says it has room.');
+        }
+        const spaceLeft = spaceMatches.map((match) => `bank ${match[2]}: ${match[1]}`);
+        appendCompileLog(`Bank ${overflowingBank === null ? '?' : overflowingBank} is over capacity; bank 1 has ${bank1Echo === null ? 'an unknown number of' : bank1Echo} bytes free.` +
+          (spaceLeft.length ? ` Space left by bank: ${spaceLeft.join(', ')}.` : ''));
         const emptyThisBank = overflowingBank !== null && overflowingBank !== primaryBankFor(config) && overflowingBank !== 1 &&
           overflowingBank >= minRelocationBankFor(config) && relocatedThisBuild.length ? overflowingBank : null;
         if (emptyThisBank !== null) {
@@ -2038,7 +2156,11 @@ const buildRomInner = async () => {
             // The Title Screen Kernel is the biggest unit by far, and moving it first just made the next bank too full for it (it went round
             // the banks): it is left where it is, and the other units go.
             const isTitleKernel = (unit) => unit.kind === 'subroutineBanks' && unit.name === TITLE_SCREEN_SUBROUTINE_NAME;
-            coResidents.sort((a, b) => (isTitleKernel(a) - isTitleKernel(b)) || (b.size - a.size));
+            // (A unit that no bank is known to have room for goes after the ones that fit somewhere.)
+            const roomiest = Math.max(-1, ...Object.keys(knownFree).map(Number).filter((b) => b !== stuckBank && b >= minRelocationBankFor(config) &&
+              b !== reservedMusicBank).map((b) => knownFree[b]));
+            const fitsSomewhere = (unit) => roomiest < 0 || Object.keys(knownFree).length === 0 || sizeOf(unit.unitKey, unit.size) * FIT_MARGIN_RATIO + FIT_MARGIN_BYTES <= roomiest;
+            coResidents.sort((a, b) => (isTitleKernel(a) - isTitleKernel(b)) || (!fitsSomewhere(a) - !fitsSomewhere(b)) || (b.size - a.size));
             const next = coResidents[0];
             if (!next) {
               // Every occupant of this bank has already been tried
@@ -2087,7 +2209,7 @@ const buildRomInner = async () => {
               // between the same two equally-penalized banks.
               const excludeBanks = new Set([reservedMusicBank, ...triedBanks, ...titleKernelBankFor(next)].filter(Boolean));
               let nextBank = pickNextBank(banks, maxBanks, textMinikernelActive, excludeBanks,
-                  minRelocationBankFor(config), [next.kind], primaryBankFor(config));
+                  minRelocationBankFor(config), [next.kind], primaryBankFor(config), sizeOf(next.unitKey, next.size));
               // Every available bank has now been tried for this ONE unit
               // (not the whole build - see the outer stuckBank exhaustion
               // check above, a separate case) - rather than give up on it
@@ -2108,6 +2230,7 @@ const buildRomInner = async () => {
               if (nextBank) {
                 candidate = {kind: next.kind, name: next.name, members: next.members};
                 bank = nextBank;
+                noteMove(sizeOf(next.unitKey, next.size), stuckBank, nextBank, next.unitKey, next.size);
               }
             }
           }
@@ -2159,40 +2282,62 @@ const buildRomInner = async () => {
           // The same for a bank other than the one the units start in: the unit just moved came out of the bank the assembler says is
           // over, so more of the biggest units in that bank follow it until about the overflow is out. Families and music stay
           // for the one-at-a-time path above.
-          if (emptyThisBank !== null && candidate.kind !== 'musicBanks') {
+          // The biggest units of a bank that is over go to the banks they fit in, until about `over` bytes are out (skip: a unit already moved).
+          const evictFromBank = (fromBank, overBytes, skip) => {
             const unitBytes = (kind, name) => (
               kind === 'eventBanks' ? BlocklyBB.estimateEventSize(name) * COMPILED_BYTES_PER_EVENT_CHAR :
               kind === 'graphicsBanks' ? BlocklyBB.estimateGraphicsUnitSize(name) * COMPILED_BYTES_PER_GRAPHICS_CHAR :
               BlocklyBB.estimateSubroutineSize(name) * COMPILED_BYTES_PER_SUBROUTINE_CHAR);
-            let over = parseBankOverflowBytes(e.dasmStdout, emptyThisBank) -
-              (candidate.kind === 'family' ? estimateFamilySize(candidate.members) : unitBytes(candidate.kind, candidate.name));
+            let over = overBytes;
             const wrapperNames = BlocklyBB.functionCallWrapperNames || new Set();
             const occupants = [];
             const banksNow = getRelocationBanks();
             ['eventBanks', 'graphicsBanks', 'subroutineBanks'].forEach((kind) => {
               Object.entries(banksNow[kind] || {}).forEach(([name, unitBank]) => {
-                if (unitBank !== emptyThisBank || (kind === 'subroutineBanks' && wrapperNames.has(name)) ||
-                  (candidate.kind === kind && candidate.name === name)) return;
-                occupants.push({kind, name, size: unitBytes(kind, name)});
+                if (unitBank !== fromBank || (kind === 'subroutineBanks' && wrapperNames.has(name)) ||
+                  (skip && skip.kind === kind && skip.name === name) || (kind === 'subroutineBanks' && name === TITLE_SCREEN_SUBROUTINE_NAME)) return;
+                occupants.push({kind, name, size: unitBytes(kind, name), key: `${kind}:${name}`});
               });
             });
-            occupants.sort((a, b) => b.size - a.size);
+            occupants.sort((a, b) => sizeOf(b.key, b.size) - sizeOf(a.key, a.size));
             for (const unit of occupants) {
               if (over <= 0) break;
-              const unitKey = `${unit.kind}:${unit.name}`;
+              const unitKey = unit.key;
               if (!retriedBanksByUnit.has(unitKey)) retriedBanksByUnit.set(unitKey, new Set());
               const triedBanks = retriedBanksByUnit.get(unitKey);
-              triedBanks.add(emptyThisBank);
+              triedBanks.add(fromBank);
               const toBank = pickNextBank(getRelocationBanks(), maxBanks, textMinikernelActive,
                   new Set([reservedMusicBank, ...triedBanks, ...titleKernelBankFor(unit)].filter(Boolean)), minRelocationBankFor(config),
-                  [unit.kind], primaryBankFor(config));
+                  [unit.kind], primaryBankFor(config), sizeOf(unitKey, unit.size));
               if (!toBank) continue;
+              noteMove(sizeOf(unitKey, unit.size), fromBank, toBank, unitKey, unit.size);
               setRelocationBank(unit.kind, unit.name, toBank);
               stuckBankTriedUnits.add(unitKey);
               relocatedThisBuild.push({kind: unit.kind, name: unit.name, bank: toBank});
               appendCompileLog(`Also relocating ${unit.kind.replace('Banks', '')} "${unit.name}" to bank ${toBank}.`);
-              over -= unit.size;
+              over -= sizeOf(unitKey, unit.size);
             }
+          };
+          // The same for a bank other than the one the units start in: the unit just moved came out of the bank the assembler says is
+          // over, so more of the biggest units in that bank follow it until about the overflow is out. Families and music stay
+          // for the one-at-a-time path above.
+          if (emptyThisBank !== null && candidate.kind !== 'musicBanks') {
+            if (overBank === emptyThisBank) overStreak++;
+            else {
+              overBank = emptyThisBank;
+              overStreak = 0;
+            }
+            const reportedOver = parseBankOverflowBytes(e.dasmStdout, emptyThisBank);
+            const unitEstimate = (kind, name) => (
+              kind === 'eventBanks' ? BlocklyBB.estimateEventSize(name) * COMPILED_BYTES_PER_EVENT_CHAR :
+              kind === 'graphicsBanks' ? BlocklyBB.estimateGraphicsUnitSize(name) * COMPILED_BYTES_PER_GRAPHICS_CHAR :
+              BlocklyBB.estimateSubroutineSize(name) * COMPILED_BYTES_PER_SUBROUTINE_CHAR);
+            evictFromBank(emptyThisBank, (reportedOver > 0 ? reportedOver : OVER_UNKNOWN_BYTES * (2 ** Math.min(overStreak, 4))) -
+              sizeScale * (candidate.kind === 'family' ? estimateFamilySize(candidate.members) : unitEstimate(candidate.kind, candidate.name)),
+            candidate);
+            // Other banks the assembler also reported as over (it says how much each is over): they give up units too.
+            Object.keys(lastSpaceLeft).map(Number).filter((b) => b !== emptyThisBank && lastSpaceLeft[b] < 0 && b > 1 && b !== primaryBankFor(config) &&
+              b >= minRelocationBankFor(config) && b !== reservedMusicBank).forEach((b) => evictFromBank(b, -lastSpaceLeft[b] * 1.05, null));
           }
           continue;
         }
@@ -2248,10 +2393,12 @@ const buildRomInner = async () => {
   appendCompileLog('Build failed.', 'error');
   const titleScreenHint = titleScreenOverflowHint(lastFailure);
   showError(errorStorage, 'Error while compiling bBasic code', lastCode,
-      new Error(`${(lastFailure && lastFailure.message) || 'Ran out of relocation attempts.'}\n\n` +
-        `Gave up after trying ${MAX_RELOCATION_ATTEMPTS} different bank combinations without finding one ` +
-        `that compiles.${titleScreenHint.text}${romSizeOverflowHint(lastFailure, configurationStorage.value)}\n\n` +
-        `Bank assignments at failure:\n${JSON.stringify(diagnostics, null, 2)}`), titleScreenHint.highlight);
+      new Error(`The code and data do not fit in the banks: gave up after trying ${MAX_RELOCATION_ATTEMPTS} different bank combinations ` +
+        'without finding one that compiles (the banks the main game loop and the kernel use cannot give anything up).' +
+        `${titleScreenHint.text}${romSizeOverflowHint(lastFailure, configurationStorage.value)}\n\n` +
+        `Bank assignments at failure:\n${JSON.stringify(diagnostics, null, 2)}\n\n` +
+        'The last assembler messages (a bank that is over capacity makes the assembler report many lines that are not the cause):\n' +
+        `${(lastFailure && lastFailure.message) || 'Ran out of relocation attempts.'}`), titleScreenHint.highlight);
   return false;
 };
 

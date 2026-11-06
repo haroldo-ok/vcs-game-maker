@@ -1474,7 +1474,7 @@ export default (Blockly) => {
     // DPC+ only (primaryBank is 2 only for DPC+, 1 for every other kernel) -
     // see generateRelocatedSections' own identical "Harmony cart fix"
     // comment in bbasic.js for the real docs citation.
-    const harmonyCartFix = primaryBank === 2 ? '\n temp1=temp1' : '';
+    const harmonyCartFix = primaryBank === 2 && Blockly.BBasic.harmonyCartFixOn() ? '\n temp1=temp1' : '';
     const skippedBankPlaceholders = [];
     // Closing tag is always a literal "bank 1", never primaryBank() - see
     // generateRelocatedSections' identical comment (statements.c's

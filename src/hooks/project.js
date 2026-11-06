@@ -1,4 +1,4 @@
-import {computed, ref} from '@vue/composition-api';
+import {computed, getCurrentInstance, ref} from '@vue/composition-api';
 import {useJsonLocalStorage, useLocalStorage} from '../hooks/storage';
 import {markRomOutdated} from '../hooks/rom-status';
 
@@ -7,7 +7,14 @@ const keyOf = (type) =>`vcs-game-maker.${type}`;
 // The graphics, score font and options are compiled into the ROM, but unlike
 // the action blocks nothing regenerates the code when they change. Flag the ROM
 // stale whenever one is written so the "Update ROM" button reflects the edit.
-const withRomInvalidation = (storage) => computed({
+// (Outside a component the same storage always gets the same wrapper: see detachedFor in hooks/storage.js.)
+const detachedWrappers = new WeakMap();
+const withRomInvalidation = (storage) => {
+  if (getCurrentInstance()) return makeRomInvalidation(storage);
+  if (!detachedWrappers.has(storage)) detachedWrappers.set(storage, makeRomInvalidation(storage));
+  return detachedWrappers.get(storage);
+};
+const makeRomInvalidation = (storage) => computed({
   get() {
     return storage.value;
   },

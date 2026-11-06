@@ -738,6 +738,28 @@
         title="Drag to resize the error pane"
         @mousedown.prevent="startResizeError"
       ></div>
+      <div class="console-log-tools">
+        <v-btn
+          icon
+          small
+          class="console-log-btn"
+          title="Clear the log"
+          :disabled="!compileLog.length && !errorStorage"
+          @click="handleClearConsoleLog"
+        >
+          <v-icon>mdi-eraser</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          small
+          class="console-log-btn"
+          title="Save the log to a text file"
+          :disabled="!compileLog.length && !errorStorage"
+          @click="handleSaveConsoleLog"
+        >
+          <v-icon>mdi-export</v-icon>
+        </v-btn>
+      </div>
       <div class="error-scroll-wrapper" ref="errorScrollWrapper">
         <div class="error-console-content">
           <div
@@ -756,7 +778,7 @@
 </template>
 
 <script>
-import {useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
+import {clearCompileLog, useColorblindModeStorage, useCompileLog, useConfigurationStorage, useDarkModeStorage, useDesaturateBlocklyColorsStorage, useErrorBannerHighlight, useErrorStorage,
   useAdaptiveFrameSkipStorage, useHideDescriptionTextStorage, useHideToolbarLabelsStorage, useHideSidebarStorage, useHideTopToolbarStorage, useShowStartupTipsStorage, useCheckForUpdatesStorage, useSkippedUpdateStorage, useStellaPathStorage, useSoundEffectsStorage,
   markSkipLoadLastProjectCheckOnce} from './hooks/project';
 import {buildRom, cancelBuild, useRomCapacity, useRomOutdated, useHasCompiledRom, useCompiledRomBytes,
@@ -1745,6 +1767,42 @@ export default {
     handleRestartRom() {
       restartEmulatorRom();
     },
+    // The two buttons in the top right corner of the console: empty the log (and the error under it), or save what it shows as a text file.
+    handleClearConsoleLog() {
+      clearCompileLog();
+      this.errorStorage = '';
+      this.errorBannerHighlight = '';
+    },
+    async handleSaveConsoleLog() {
+      const wrapper = this.$refs.errorScrollWrapper;
+      const text = ((wrapper && wrapper.innerText) || '').trim();
+      if (!text) return;
+      const blob = new Blob([text + '\n'], {type: 'text/plain'});
+      const name = `${this.romBaseName()}-log.txt`;
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: name,
+            types: [{description: 'Text file (.txt)', accept: {'text/plain': ['.txt']}}],
+            excludeAcceptAllOption: true,
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (e) {
+          if (e && e.name === 'AbortError') return;
+          if (!(e && (e.name === 'SecurityError' || e.name === 'NotAllowedError'))) {
+            this.errorStorage = `Could not save the log: ${e.message}`;
+            return;
+          }
+        }
+      }
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = name;
+      link.click();
+    },
     handleSaveRomClick() {
       this.romSaveMenuOpen = !this.romSaveMenuOpen;
     },
@@ -2305,7 +2363,8 @@ export default {
   color: rgba(255, 255, 255, 0.7);
 }
 
-.tip-arrow-btn.v-btn {
+.tip-arrow-btn.v-btn,
+.console-log-btn.v-btn {
   background-color: transparent !important;
   box-shadow: none !important;
   border: none !important;
@@ -2315,26 +2374,62 @@ export default {
   margin: 0;
 }
 
-.tip-arrow-btn.v-btn::before {
+.tip-arrow-btn.v-btn::before,
+.console-log-btn.v-btn::before {
   display: none;
 }
 
-.tip-arrow-btn.v-btn .v-icon {
+.tip-arrow-btn.v-btn .v-icon,
+.console-log-btn.v-btn .v-icon {
   font-size: 19px;
   color: var(--editor-icon-rest-color, rgba(0, 0, 0, 0.38)) !important;
   transition: color 0.15s ease, transform 0.08s ease;
 }
 
-.tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+.tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon,
+.console-log-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
   color: rgba(0, 0, 0, 0.87) !important;
 }
 
-.tip-arrow-btn.v-btn:not(.v-btn--disabled):active .v-icon {
+.tip-arrow-btn.v-btn:not(.v-btn--disabled):active .v-icon,
+.console-log-btn.v-btn:not(.v-btn--disabled):active .v-icon {
   transform: scale(0.82);
 }
 
-.dark-mode.v-application .tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+/* Disabled (nothing in the log): dimmer than the buttons at rest, as the graphic editor's toolbar buttons are. */
+.console-log-btn.v-btn.v-btn--disabled .v-icon {
+  color: rgba(0, 0, 0, 0.18) !important;
+}
+
+/* The two buttons in the top right corner of the console, to the left of the scroll bar. The footer has a text color (the red of
+   an error), which the icons do not use: they have the toolbar buttons' colors in every theme (Soft Colors and Dark Mode below). */
+.console-log-tools {
+  position: absolute;
+  top: 10px;
+  right: 22px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dark-mode.v-application .tip-arrow-btn.v-btn:not(.v-btn--disabled):hover .v-icon,
+.dark-mode.v-application .console-log-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
   color: #fff !important;
+}
+
+/* At rest in Dark Mode: set outright, as the toolbar buttons' are (the variable above is the one Soft Colors sets again, and with both on it left
+   the icons black on the black console). */
+.dark-mode.v-application .console-log-btn.v-btn .v-icon {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.dark-mode.v-application .console-log-btn.v-btn:not(.v-btn--disabled):hover .v-icon {
+  color: #fff !important;
+}
+
+.dark-mode.v-application .console-log-btn.v-btn.v-btn--disabled .v-icon {
+  color: rgba(255, 255, 255, 0.2) !important;
 }
 
 /* The icon in the tip popup's title is the icon of the tab the tip is about, in that tab's color. The tab classes (.actions-item

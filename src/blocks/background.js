@@ -862,6 +862,100 @@ Blockly.Blocks['background_fill_circle'] = {
   },
 };
 
+// Set, clear or flip every playfield pixel in a rectangle: between two corners (MODE CORNERS, the block it always was), or around a center with a width
+// and a height (CENTER, with the circle's padding). The inputs of the other mode are hidden.
+const AREA_MODES = [['from', 'CORNERS'], ['centered at', 'CENTER']];
+Blockly.Blocks['background_fill_area'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField(`${BACKGROUND_ICON} Playfield`)
+        .appendField(new Blockly.FieldDropdown(BACKGROUND_PFPIXEL_OPTIONS), 'OPERATION')
+        .appendField('area')
+        .appendField(new Blockly.FieldDropdown(AREA_MODES), 'MODE');
+    this.appendValueInput('X1').setCheck('Number').appendField('X');
+    this.appendValueInput('Y1').setCheck('Number').appendField('Y');
+    this.appendValueInput('X2').setCheck('Number').appendField('to X');
+    this.appendValueInput('Y2').setCheck('Number').appendField('Y');
+    this.appendValueInput('WIDTH').setCheck('Number').appendField('width');
+    this.appendValueInput('HEIGHT').setCheck('Number').appendField('height');
+    this.appendDummyInput('PADDING_MODE')
+        .appendField('padding')
+        .appendField(new Blockly.FieldDropdown(CIRCLE_PADDING_MODES), 'PADMODE');
+    this.appendValueInput('PADDING').setCheck('Number');
+    this.appendValueInput('PAD_LEFT').setCheck('Number').appendField('left');
+    this.appendValueInput('PAD_RIGHT').setCheck('Number').appendField('right');
+    this.appendValueInput('PAD_TOP').setCheck('Number').appendField('top');
+    this.appendValueInput('PAD_BOTTOM').setCheck('Number').appendField('bottom');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(BACKGROUND_COLOR);
+    Blockly.Extensions.apply('background_area_mode_sync', this, false);
+    this.setTooltip(`Sets, clears or flips every playfield pixel in a rectangle (columns 0-31, 0-39, 0-63 or 0-119 with a wider PXE playfield, and rows from 0, ` +
+      `the same numbers as "Playfield get pixel"). "from": the rectangle between the two corners, which can be given in either order. "centered at": ` +
+      `a rectangle of the width and height (in playfield pixels) with the column and row in the middle of it, an even width or height having the extra ` +
+      `pixel to the right or below; its padding is how many columns at the left and at the right of the playfield, and how many rows at the top and ` +
+      `at the bottom, it leaves alone (0 draws to the edges), one number for all the sides or one for each. Any part of the rectangle outside the ` +
+      `playfield is ignored. It draws a row at a time, so a big area takes a while. Can't be used inside a custom function.`);
+  },
+};
+
+// Shows the inputs of the mode picked (the second corner, or the width, the height and the padding) and hides the others, and the padding input(s) of
+// the padding mode picked: applied at once and whenever either field changes (a validator of the field, as the circle's padding is, below).
+Blockly.Extensions.register('background_area_mode_sync', function() {
+  // eslint-disable-next-line no-invalid-this
+  const block = this;
+  const modeField = block.getField('MODE');
+  const padField = block.getField('PADMODE');
+  if (!modeField || !padField) return;
+  const apply = () => {
+    if (block.disposed || !block.workspace || !block.workspace.rendered) return;
+    const centered = block.getFieldValue('MODE') === 'CENTER';
+    const each = block.getFieldValue('PADMODE') === 'EACH';
+    const wanted = {X2: !centered, Y2: !centered, WIDTH: centered, HEIGHT: centered, PADDING_MODE: centered, PADDING: centered && !each,
+      PAD_LEFT: centered && each, PAD_RIGHT: centered && each, PAD_TOP: centered && each, PAD_BOTTOM: centered && each};
+    Object.entries(wanted).forEach(([name, visible]) => {
+      const input = block.getInput(name);
+      if (input && input.isVisible() !== visible) input.setVisible(visible);
+    });
+    if (typeof block.queueRender === 'function') block.queueRender();
+    else if (typeof block.render === 'function') block.render();
+    if (block.workspace.resizeContents) block.workspace.resizeContents();
+  };
+  // Every input holds a number block (a shadow) when the block was not built from the toolbox, or by an older version of the block.
+  const fillWithNumbers = () => {
+    if (!block.workspace || block.disposed || !block.workspace.rendered || block.isInsertionMarker()) return;
+    const eventsWereOn = Blockly.Events.isEnabled();
+    Blockly.Events.disable();
+    try {
+      const defaults = {X1: 0, Y1: 0, X2: 3, Y2: 3, WIDTH: 6, HEIGHT: 3};
+      ['X1', 'Y1', 'X2', 'Y2', 'WIDTH', 'HEIGHT', 'PADDING', 'PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].forEach((name) => {
+        const input = block.getInput(name);
+        if (!input || !input.connection || input.connection.targetBlock()) return;
+        const shadow = block.workspace.newBlock('math_number');
+        shadow.setShadow(true);
+        shadow.setFieldValue(defaults[name] || 0, 'NUM');
+        shadow.initSvg();
+        shadow.render();
+        input.connection.connect(shadow.outputConnection);
+      });
+    } finally {
+      if (eventsWereOn) Blockly.Events.enable();
+    }
+  };
+  const changed = (value) => {
+    setTimeout(() => {
+      apply();
+      fillWithNumbers();
+    }, 0);
+    return value;
+  };
+  modeField.setValidator(changed);
+  padField.setValidator(changed);
+  apply();
+  setTimeout(fillWithNumbers, 0);
+});
+
 // Shows the padding input(s) of the mode picked and hides the others: applied at once and when the mode changes (a validator of the field, as
 
 // The column input of the two "Convert" blocks only means something under DPC+ when a background gives the four groups of columns separate rows (a row then
@@ -1216,26 +1310,6 @@ Blockly.defineBlocksWithJsonArray([
       `either order, and any part of the rectangle outside the playfield is ignored. It reads the pixels ` +
       `one by one, so a big area takes a while: use it now and then (for example when a brick is cleared), ` +
       `not on every frame. Can't be used inside a custom function.`,
-  },
-  // Block for setting, clearing or flipping a whole rectangle of playfield pixels
-  {
-    'type': `background_fill_area`,
-    'message0': `${BACKGROUND_ICON} Playfield %1 area from X %2 Y %3 to X %4 Y %5`,
-    'args0': [
-      {'type': 'field_dropdown', 'name': 'OPERATION', 'options': BACKGROUND_PFPIXEL_OPTIONS},
-      {'type': 'input_value', 'name': 'X1', 'check': 'Number'},
-      {'type': 'input_value', 'name': 'Y1', 'check': 'Number'},
-      {'type': 'input_value', 'name': 'X2', 'check': 'Number'},
-      {'type': 'input_value', 'name': 'Y2', 'check': 'Number'},
-    ],
-    'inputsInline': true,
-    'previousStatement': null,
-    'nextStatement': null,
-    'colour': BACKGROUND_COLOR,
-    'tooltip': `Sets, clears or flips every playfield pixel in the rectangle between the two corners (columns ` +
-      `0-31 (0-39, 0-63 or 0-119 with a wider PXE playfield) and rows from 0, the same numbers as "Playfield get pixel"). The corners can be given in either ` +
-      `order, and any part of the rectangle outside the playfield is ignored. It draws a row at a time, so ` +
-      `a big area takes a while. Can't be used inside a custom function.`,
   },
   // Block for setting a playfield pixel
   {

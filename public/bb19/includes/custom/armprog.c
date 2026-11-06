@@ -281,13 +281,15 @@ static void circle(volatile b8 *p)
 // A playfield pixel as the 6502's pfread has it: column c is in byte c / 8 of its row, the odd bytes with their columns the other way round.
 static u pixel(volatile b8 *p,u c,u r)
 {
-  u bi=c>>3;
-  u m=(bi&1)?(1u<<(c&7)):(0x80u>>(c&7));
-  return (p[bi*256+r]&m)!=0;
+  return (p[((c>>3)<<8)+r]>>((c^(((c>>3)&1)?0:7))&7))&1;
 }
 #endif
 
 #ifndef NOPIX
+// The column of an x (held to the playfield's 32) and the row of a line (held to the last row).
+static u cellcol(u x,u off) { u c=((x-off)&255)>>2; return c>31?31:c; }
+static u cellrow(u y,u inc,u maxrow) { u r=((y&255)*inc)>>8; return r>maxrow?maxrow:r; }
+
 // The playfield pixel the ball or a missile has touched (the "Find playfield pixel collided with" block's routine of generators/bbasic/background.js) and
 // the direction it turns to on a bounce (the shared reflect routine of object_bounce in generators/bbasic/sprites.js), worked out here instead of
 // by the 6502 (about 350 and 900 cycles). The playfield is read the way the 6502's pfread does: column c is in byte c / 8 of its row, the odd bytes
@@ -296,11 +298,9 @@ static u pixel(volatile b8 *p,u c,u r)
 // The horizontal (1 right, 2 left) and the vertical (1 down, 2 up) step of each of the 16 directions, and of the 8 of a Fire block without 16 directions.
 static const b8 XSTEP16[16]={0,1,1,1,1,1,1,1,0,2,2,2,2,2,2,2};
 static const b8 YSTEP16[16]={2,2,2,2,0,1,1,1,1,1,1,1,0,2,2,2};
-static const b8 XSTEP8[8]={0,1,1,1,0,2,2,2};
-static const b8 YSTEP8[8]={2,2,0,1,1,1,0,2};
 
-static u xstep(u dir,u steps) { return dir>=steps?0:(steps==16?XSTEP16[dir]:XSTEP8[dir]); }
-static u ystep(u dir,u steps) { return dir>=steps?0:(steps==16?YSTEP16[dir]:YSTEP8[dir]); }
+static u xstep(u dir,u steps) { return dir>=steps?0:XSTEP16[steps==16?dir:dir<<1]; }
+static u ystep(u dir,u steps) { return dir>=steps?0:YSTEP16[steps==16?dir:dir<<1]; }
 static u more(u v,u last) { return v<last?v+1:v; }
 static u less(u v) { return v>0?v-1:v; }
 
@@ -311,13 +311,10 @@ static void findpixel(volatile b8 *p)
   u x=CF[1],top=CF[2],height=CF[3],size=CF[4]&0x30,dir=CF[5],steps=CF[6],maxrow=CF[7],off=CF[8],inc=CF[9];
   u xs=xstep(dir,steps),ys=ystep(dir,steps);
   u col,right,row,bottom,cb,rb,w,t;
-  col=((x-off)&255)>>2;
-  if (col>31) col=31;
+  col=cellcol(x,off);
   w=size==0?0:(size==0x10?1:(size==0x20?3:7));
-  right=(((x-off)+w)&255)>>2;
-  if (right>31) right=31;
-  row=((top&255)*inc)>>8;
-  if (row>maxrow) row=maxrow;
+  right=cellcol(x+w,off);
+  row=cellrow(top,inc,maxrow);
   bottom=row;
   if (height)
   {
@@ -378,10 +375,8 @@ static void bouncepix(volatile b8 *p)
   else
   {
     mostly_y=steps==16 && (dir==1||dir==7||dir==9||dir==15);
-    col=((x-off)&255)>>2;
-    if (col>31) col=31;
-    row=((top&255)*inc)>>8;
-    if (row>maxrow) row=maxrow;
+    col=cellcol(x,off);
+    row=cellrow(top,inc,maxrow);
     if (pixel(p,col,row))
     {
       // Inside a wall: the base is the cell just outside it, found by stepping back along the axis the object came in on.
@@ -392,24 +387,21 @@ static void bouncepix(volatile b8 *p)
         u cx=(((x-off)&3)==(left?3:0));
         if (cx) mostly_y=0;
       }
-      if (mostly_y)
       {
-        if (!pixel(p,col,brow)) row=brow;
-        else if (!pixel(p,bcol,row)) col=bcol;
-        else { col=bcol; row=brow; }
-      }
-      else
-      {
-        if (!pixel(p,bcol,row)) col=bcol;
-        else if (!pixel(p,col,brow)) row=brow;
+        // (The cell with the row stepped back is tried first for a mostly vertical heading, the one with the column stepped back first otherwise.)
+        u c1=mostly_y?col:bcol,r1=mostly_y?brow:row,c2=mostly_y?bcol:col,r2=mostly_y?row:brow;
+        if (!pixel(p,c1,r1)) { col=c1; row=r1; }
+        else if (!pixel(p,c2,r2)) { col=c2; row=r2; }
         else { col=bcol; row=brow; }
       }
     }
     // The pixel beside the base cell along x (A) and the one beside it along y (B) say what was hit.
     bcol=left?less(col):more(col,31);
     brow=up?less(row):more(row,maxrow);
-    if (pixel(p,bcol,row)) flip=pixel(p,col,brow)?3:1;
-    else flip=pixel(p,col,brow)?2:3;
+    {
+      u pa=pixel(p,bcol,row),pb=pixel(p,col,brow);
+      flip=pa?(pb?3:1):(pb?2:3);
+    }
   }
   if (flip==1) { t=steps-dir; dir=t==steps?0:t; }
   else if (flip==2) dir=dir>half?steps+half-dir:half-dir;
@@ -429,8 +421,6 @@ static void bouncepix(volatile b8 *p)
 // (Each step plus 2, for the tables are bytes: the coprocessor emulators have no signed loads.)
 static const b8 DX16[16]={2,3,3,4,3,4,3,3,2,1,1,0,1,0,1,1};
 static const b8 DY16[16]={1,0,1,1,2,3,3,4,3,4,3,3,2,1,1,0};
-static const b8 DX8[8]={2,3,3,3,2,1,1,1};
-static const b8 DY8[8]={1,1,2,3,3,3,2,1};
 
 // Whether the cell an object at x, y is in is lit (the numbers of the call are in the bytes of the call).
 // 0 for a clear cell (or none), else 1 + a number of the lit cell: its column xor 8 times its row (different for neighbouring cells).
@@ -446,7 +436,7 @@ static void firemove(volatile b8 *p)
   u x=CF[1],y=CF[2],dir=CF[3],speed=CF[4],frac=CF[5],fl=CF[6],stage=CF[7],steps=(fl&1)?16:8;
   u t3=speed,t4=speed,t5=0,n,start=0,cell;
   int dx=0,dy=0,ax,ay,sx,sy,px,py,mx,my;
-  if (dir<steps) { dx=(int)((fl&1)?DX16[dir]:DX8[dir])-2; dy=(int)((fl&1)?DY16[dir]:DY8[dir])-2; }
+  if (dir<steps) { dx=(int)DX16[(fl&1)?dir:dir<<1]-2; dy=(int)DY16[(fl&1)?dir:dir<<1]-2; }
   ax=dx<0?-dx:dx;
   ay=dy<0?-dy:dy;
   sx=dx>0?1:(dx<0?-1:0);
@@ -481,23 +471,24 @@ static void firemove(volatile b8 *p)
       u moved=0;
       x+=px;
       y+=py;
-      if ((fl&1) && (dir&1))
+      for (;;)
       {
-        // (A step into another lit cell than the one the object started in is taken back: it stays where it was.)
-        if ((cell=lit(p,x,y)) && (!start || (cell!=start && !((stage&0x30)==0x30 && (dir&15)!=(stage&15))) || (cell==start && !(stage&0x30)))) { if (!start) stage&=207; if (start && cell!=start) { x-=px; y-=py; } break; }
+        // A lit cell stops the object (see start above); the step into it is taken back, as far as it was taken.
+        if ((cell=lit(p,x,y)) && (!start || (cell!=start && !((stage&0x30)==0x30 && (dir&15)!=(stage&15))) || (cell==start && !(stage&0x30))))
+        {
+          if (!start) stage&=207;
+          if (start && cell!=start) { if (moved) { x-=mx; y-=my; } else { x-=px; y-=py; } }
+          goto done;
+        }
+        // (A halfway direction looks again after its other axis moved: t4 pixels in t3 steps.)
+        if (moved || !((fl&1) && (dir&1))) break;
         t5+=t4;
-        if (t5>=t3) { t5-=t3; x+=mx; y+=my; moved=1; }
-        else goto next;
+        if (t5<t3) break;
+        t5-=t3; x+=mx; y+=my; moved=1;
       }
-      if ((cell=lit(p,x,y)) && (!start || (cell!=start && !((stage&0x30)==0x30 && (dir&15)!=(stage&15))) || (cell==start && !(stage&0x30))))
-      {
-        if (!start) stage&=207;
-        if (start && cell!=start) { if (moved) { x-=mx; y-=my; } else { x-=px; y-=py; } }
-        break;
-      }
-next:
       n--;
     } while (n>0);
+    done:;
   }
   CF[1]=x;
   CF[2]=y;

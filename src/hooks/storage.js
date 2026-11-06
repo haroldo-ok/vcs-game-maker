@@ -1,5 +1,5 @@
 import Vue from 'vue';
-import VueCompositionApi, {computed, ref} from '@vue/composition-api';
+import VueCompositionApi, {computed, getCurrentInstance, ref} from '@vue/composition-api';
 
 Vue.use(VueCompositionApi);
 
@@ -56,7 +56,19 @@ export const storageKeysMatch = (snapshot) => {
   return Object.keys(snapshot).every((key) => now[key] === snapshot[key]);
 };
 
-export const useLocalStorage = (key) => {
+// Each computed is a whole Vue instance that stays subscribed to the shared value for good, so the code generator (which asks for the
+// project's storage over and over, outside any component) would pile up thousands of them: outside a component the one for a key is kept.
+const detachedComputeds = new Map();
+const detachedFor = (kind, key, make) => {
+  if (getCurrentInstance()) return make();
+  const id = `${kind}:${key}`;
+  if (!detachedComputeds.has(id)) detachedComputeds.set(id, make());
+  return detachedComputeds.get(id);
+};
+
+export const useLocalStorage = (key) => detachedFor('text', key, () => makeLocalStorage(key));
+
+const makeLocalStorage = (key) => {
   const state = getSharedRef(key, () => localStorage.getItem(key));
   return computed({
     get() {
@@ -69,7 +81,9 @@ export const useLocalStorage = (key) => {
   });
 };
 
-export const useJsonLocalStorage = (key) => {
+export const useJsonLocalStorage = (key) => detachedFor('json', key, () => makeJsonLocalStorage(key));
+
+const makeJsonLocalStorage = (key) => {
   const state = getSharedRef(key, () => {
     const jsonText = localStorage.getItem(key);
     return jsonText ? JSON.parse(jsonText) : null;

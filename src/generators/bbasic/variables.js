@@ -37,6 +37,9 @@ export default (Blockly) => {
 
   Blockly.BBasic['variables_set'] = function(block) {
   // Variable setter.
+    if ((Blockly.BBasic.writeOnlyVariableIds || new Set()).has(block.getFieldValue('VAR'))) {
+      return ' rem a variable that is only set and never read: left out\n';
+    }
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const varName = Blockly.BBasic.nameDB_.getName(

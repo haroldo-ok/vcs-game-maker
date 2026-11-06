@@ -37,17 +37,21 @@ const JUMP = /^(goto|gosub)\s+[A-Za-z_]\w*(\s+bank\d+)?$/;
 // What each line of the code is: inside an asm, data or function block (left alone), a comment or definition (ignored), or a statement.
 const classifyLines = (code) => {
   let inBlock = false;
+  let blockId = 0;
+  let blockIsAsm = false;
   // (The templates the code comes from may have Windows line ends.)
   return code.split(/\r?\n/).map((line) => {
     const text = line.trim();
     if (inBlock) {
       if (text === 'end') inBlock = false;
-      return {line, kind: 'block'};
+      return {line, kind: 'block', asm: blockIsAsm, block: blockId};
     }
     if (text === '' || /^rem\b/.test(text) || /^dim\s/.test(text) || text.startsWith(';')) return {line, kind: 'ignored'};
     if (/^(asm|data\s|function\s)/.test(text) || (/:$/.test(text) && !/^if\b/.test(text))) {
       inBlock = true;
-      return {line, kind: 'block'};
+      blockId++;
+      blockIsAsm = /^asm\b/.test(text);
+      return {line, kind: 'block', asm: blockIsAsm, block: blockId};
     }
     return {line, kind: 'statement'};
   });
@@ -59,7 +63,7 @@ let parsedCode = null;
 let parsedEntries = null;
 const entriesOf = (code) => {
   if (parsedCode === code) return parsedEntries;
-  parsedEntries = classifyLines(code).map(({line, kind}) => ({line, kind, shape: kind === 'statement' ? shapeOf(line) : null,
+  parsedEntries = classifyLines(code).map(({line, kind, asm, block}) => ({line, kind, asm, block, shape: kind === 'statement' ? shapeOf(line) : null,
     words: new Set(line.match(WORD) || [])}));
   parsedCode = code;
   return parsedEntries;
@@ -79,9 +83,10 @@ const parseSimple = (text) => {
 // A line of the code as a statement, or null when it is not in a shape that can be rewritten: the plain statements, and an if that
 // jumps or does one plain statement (and another after else).
 const shapeOf = (line) => {
-  // (Statements after an else are part of it: a colon is allowed there only.)
-  const elseAt = line.search(/\s+else\s+/);
-  if (line.includes(' : ') && !(elseAt !== -1 && line.indexOf(' : ') > elseAt && /^\s*if\s/.test(line))) return null;
+  // (Statements after an else, or after the then of an if, are part of it: a colon is allowed there only.)
+  const thenAt = line.search(/\s+then\s+/);
+  // (After an else, or after the then of an if: the statements that go with it.)
+  if (line.includes(' : ') && !(/^\s*if\s/.test(line) && thenAt !== -1 && line.indexOf(' : ') > thenAt)) return null;
   const indent = /^\s*/.exec(line)[0];
   const body = line.trim();
   const conditional = /^if\s+(.+?)\s+then\s+(.+)$/.exec(body);
@@ -91,11 +96,15 @@ const shapeOf = (line) => {
     const split = rest.search(/\s+else\s+/);
     const thenText = split === -1 ? rest : rest.slice(0, split);
     const elseText = split === -1 ? null : rest.slice(split).replace(/^\s+else\s+/, '');
-    const whenTrue = parseSimple(thenText);
+    const trueParts = thenText.split(' : ').map(parseSimple);
+    const whenTrue = trueParts[0];
+    const thenMore = trueParts.slice(1);
     const whenFalse = elseText === null ? null : elseText.split(' : ').map(parseSimple);
-    if (!whenTrue || (whenFalse && whenFalse.some((simple) => !simple))) return null;
-    if (whenTrue.type === 'jump' && !whenFalse) return {type: 'if', indent, cond, jump: whenTrue.text};
-    return {type: 'ifthen', indent, cond, whenTrue, whenFalse};
+    if (!whenTrue || thenMore.some((simple) => !simple) || (whenFalse && whenFalse.some((simple) => !simple))) return null;
+    if (whenTrue.type === 'jump' && !whenFalse && !thenMore.length) return {type: 'if', indent, cond, jump: whenTrue.text};
+    // (A jump is the last statement: the ones after it would not run.)
+    if ((whenTrue.type === 'jump' && thenMore.length) || thenMore.slice(0, -1).some((simple) => simple.type === 'jump')) return null;
+    return {type: 'ifthen', indent, cond, whenTrue, thenMore, whenFalse};
   }
   if (/\bthen\b/.test(body)) return null;
   const simple = parseSimple(body);
@@ -107,14 +116,77 @@ const shapeOf = (line) => {
 const readTexts = (shape) => {
   if (shape.type === 'if') return [shape.cond];
   if (shape.type === 'ifthen') {
-    return [shape.cond, ...[shape.whenTrue, ...(shape.whenFalse || [])].map((simple) => (simple.type === 'set' ? simple.rhs : ''))];
+    return [shape.cond, ...[shape.whenTrue, ...(shape.thenMore || []), ...(shape.whenFalse || [])].map((simple) => (simple.type === 'set' ? simple.rhs : ''))];
   }
   return shape.type === 'set' ? [shape.rhs] : [];
 };
 const writtenNames = (shape) => {
-  const simples = shape.type === 'ifthen' ? [shape.whenTrue, ...(shape.whenFalse || [])] : [shape];
+  const simples = shape.type === 'ifthen' ? [shape.whenTrue, ...(shape.thenMore || []), ...(shape.whenFalse || [])] : [shape];
   return simples.filter((simple) => simple && (simple.type === 'set' || simple.type === 'setbit')).map((simple) => simple.target);
 };
+
+// A name that is only loaded (lda, ldx or ldy NAME) or stored (sta, stx or sty NAME) in an assembly block can be spilled too: a load sets the pointer of the
+// data fetcher with the register it loads (the others are not touched) and reads it, a store writes it there with the accumulator and the flags kept. Not in a block that is timed (it writes the TIA, or waits for a line), that uses the same data
+// fetcher itself, or where a branch could be pushed out of its reach by the lines added (a branch reaches 127 bytes, a spilled access is about 28).
+const ASM_ACCESS = /^\s*(lda|ldx|ldy|sta|stx|sty)\s+([A-Za-z_]\w*)\s*(;.*)?$/;
+const ASM_TIMED = /\b(WSYNC|RESP[01MB]|RESM[01]|RESBL|HMOVE|HMCLR|HMP[01]|HMM[01]|HMBL|VSYNC|VBLANK|TIM64T|TIM8T|INTIM|DF6\w*)\b/;
+const ASM_IMPLIED = new Set(['rts', 'rti', 'pha', 'pla', 'php', 'plp', 'tax', 'txa', 'tay', 'tya', 'tsx', 'txs', 'inx', 'iny', 'dex', 'dey', 'asl', 'lsr', 'rol',
+  'ror', 'clc', 'sec', 'cli', 'sei', 'cld', 'sed', 'clv', 'nop', 'brk', 'end']);
+const ASM_BRANCH = /^(bcc|bcs|beq|bne|bmi|bpl|bvc|bvs)\s+([.@]?[A-Za-z_]\w*)/i;
+const SPILL_ACCESS_BYTES = 28;
+// A load or store of one of the names that may be spilled (only those get the lines added).
+const accessOf = (text, names) => {
+  const access = ASM_ACCESS.exec(text);
+  return access && names.includes(access[2]) ? access : null;
+};
+const asmLabelOf = (text) => {
+  const m = /^[.@]?([A-Za-z_]\w*):?$/.exec(text);
+  return m && !ASM_IMPLIED.has(m[1].toLowerCase()) ? m[1] : null;
+};
+const asmBytesOf = (text) => {
+  if (!text || text.startsWith(';')) return 0;
+  const word = text.split(/\s+/)[0].toLowerCase();
+  if (asmLabelOf(text)) return 0;
+  if (ASM_IMPLIED.has(word)) return 1;
+  if (ASM_BRANCH.test(text)) return 2;
+  if (word === '.byte') return text.split(',').length;
+  if (word === 'jmp' || word === 'jsr') return 3;
+  return /^\S+\s+#/.test(text) ? 2 : 3;
+};
+// For each asm block: whether it can be rewritten, and which of its lines are out of the reach of a branch with the lines a spill adds.
+const asmBlocks = (entries, names) => {
+  const blocks = new Map();
+  entries.forEach((entry, i) => {
+    if (entry.kind !== 'block' || !entry.asm) return;
+    if (!blocks.has(entry.block)) blocks.set(entry.block, {lines: [], timed: false, tight: new Set()});
+    const block = blocks.get(entry.block);
+    block.lines.push(i);
+    if (ASM_TIMED.test(entry.line.replace(/;.*$/, ''))) block.timed = true;
+  });
+  blocks.forEach((block) => {
+    const texts = block.lines.map((i) => entries[i].line.replace(/;.*$/, '').trim());
+    const labelAt = new Map();
+    texts.forEach((text, k) => {
+      const label = asmLabelOf(text);
+      if (label) labelAt.set(label, k);
+    });
+    texts.forEach((text, k) => {
+      const branch = ASM_BRANCH.exec(text);
+      if (!branch || !labelAt.has(branch[2].replace(/^[.@]/, ''))) return;
+      const target = labelAt.get(branch[2].replace(/^[.@]/, ''));
+      const [from, to] = k < target ? [k, target] : [target, k];
+      let bytes = 0;
+      for (let j = from; j <= to; j++) bytes += asmBytesOf(texts[j]) + (accessOf(texts[j], names) ? SPILL_ACCESS_BYTES : 0);
+      if (bytes > 110) for (let j = from; j <= to; j++) block.tight.add(block.lines[j]);
+    });
+  });
+  return blocks;
+};
+
+// A plain "tempN = expression" (N of a scratch byte) whose expression does not read the other scratch byte or itself: a name in the expression can be
+// read into that byte, since the statement overwrites it.
+const selfScratch = (shape) => !!shape && shape.type === 'set' && SCRATCH.includes(shape.target) &&
+  !SCRATCH.some((scratch) => wordRegex(scratch, '').test(shape.rhs));
 
 // Which of the names can be spilled, and how many lines each is used in.
 const analyze = (code, names) => {
@@ -128,7 +200,8 @@ const analyze = (code, names) => {
     if (words.has('temp6')) lines6.add(i);
   });
   const near = (list, i, includeSame) => [i - 1, i + 1, ...(includeSame ? [i] : [])].some((j) => list.has(j));
-  lines.forEach(({line, kind, shape, words}, i) => {
+  const blocks = asmBlocks(lines, names);
+  lines.forEach(({line, kind, shape, words, asm, block}, i) => {
     if (kind === 'ignored') return;
     names.filter((name) => words.has(name)).forEach((name) => {
       if (!wordRegex(name, '').test(line) && !arrayRegex(name).test(line)) return;
@@ -137,13 +210,23 @@ const analyze = (code, names) => {
         entry.ok = false;
         if (entry.why.length < 3) entry.why.push(`${why}: ${line.trim().slice(0, 60)}`);
       };
+      if (kind === 'block' && asm && !arrayRegex(name).test(line)) {
+        const access = ASM_ACCESS.exec(line);
+        const info = blocks.get(block);
+        if (!access || access[2] !== name) return fail('block');
+        if (info.timed) return fail('timed block');
+        if (info.tight.has(i)) return fail('branch range');
+        entry.uses++;
+        return;
+      }
       if (kind === 'block' || arrayRegex(name).test(line)) return fail(kind);
       entry.uses++;
       if (!shape) return fail('shape');
       const writes = writtenNames(shape).includes(name);
       const reads = readTexts(shape).some((text) => wordRegex(name, '').test(text));
-      // Next to a line that keeps something in the bytes the rewritten line leaves its values in.
-      if (reads && (near(lines5, i, true) || near(lines6, i, true))) fail('scratch');
+      // Next to a line that keeps something in the bytes the rewritten line leaves its values in. (Not a plain statement that sets one of those
+      // bytes itself from the name and no other scratch byte: the name is read into that byte, which the statement sets anyway.)
+      if (reads && !selfScratch(shape) && (near(lines5, i, true) || near(lines6, i, true))) fail('scratch');
       else if (writes && near(lines6, i, false)) fail('scratch');
     });
   });
@@ -154,6 +237,7 @@ const analyze = (code, names) => {
 const readsOk = (code, chosen) => entriesOf(code).every(({kind, shape, words}) => {
   if (kind !== 'statement' || !shape) return true;
   const here = chosen.filter((name) => words.has(name));
+  if (selfScratch(shape) && here.filter((name) => wordRegex(name, '').test(shape.rhs)).length > 1) return false;
   if (here.length <= SCRATCH.length) return true;
   return readTexts(shape).every((text) => here.filter((name) => wordRegex(name, '').test(text)).length <= SCRATCH.length);
 });
@@ -202,12 +286,14 @@ export const applySpill = (code, slots) => {
   const out = [];
   let labelCount = 0;
   // The lines that bring the names `text` reads into the scratch bytes, and the text with them put in place of the names.
-  const readsIn = (text, indent) => {
+  const readsIn = (text, indent, preferred = null) => {
     const pre = [];
     let replaced = text;
+    // (A statement that sets a scratch byte is read into that one.)
+    const order = preferred ? [preferred, ...SCRATCH.filter((scratch) => scratch !== preferred)] : SCRATCH;
     names.filter((name) => wordRegex(name, '').test(text)).forEach((name, index) => {
-      pre.push(`${indent}asm`, ...pointerLines(indent, slots.get(name)), `${indent}lda DF6DATA`, `${indent}sta ${SCRATCH[index]}`, 'end');
-      replaced = replaced.replace(wordRegex(name), SCRATCH[index]);
+      pre.push(`${indent}asm`, ...pointerLines(indent, slots.get(name)), `${indent}lda DF6DATA`, `${indent}sta ${order[index]}`, 'end');
+      replaced = replaced.replace(wordRegex(name), order[index]);
     });
     return {pre, text: replaced};
   };
@@ -232,7 +318,7 @@ export const applySpill = (code, slots) => {
         `${indent}${step[1] === '+' ? 'clc' : 'sec'}`, `${indent}${step[1] === '+' ? 'adc' : 'sbc'} #${step[2]}`,
         ...resetLines(indent, slots.get(simple.target)), `${indent}sta DF6WRITE`, 'end'];
     }
-    const {pre, text} = readsIn(simple.rhs, indent);
+    const {pre, text} = readsIn(simple.rhs, indent, selfScratch(simple) ? simple.target : null);
     if (!slots.has(simple.target)) return [...pre, `${indent}${simple.target} = ${text}`];
     return [...pre, `${indent}${WRITE_SCRATCH} = ${text}`, `${indent}asm`, ...pointerLines(indent, slots.get(simple.target)),
       `${indent}lda ${WRITE_SCRATCH}`, `${indent}sta DF6WRITE`, 'end'];
@@ -259,6 +345,34 @@ export const applySpill = (code, slots) => {
     if (entries[at].kind === 'ignored') {
       out.push(line);
       continue;
+    }
+    if (entries[at].kind === 'block' && entries[at].asm) {
+      const access = ASM_ACCESS.exec(line);
+      if (access && slots.has(access[2])) {
+        const indent = /^\s*/.exec(line)[0];
+        // A load: the pointer is put where the name is and the value read (the accumulator is the destination anyway). A store: the
+        // accumulator and the flags are kept on the stack while the pointer is set, and the flags come back after the write.
+        const op = access[1].toLowerCase();
+        const slot = slots.get(access[2]);
+        if (op === 'lda') {
+          out.push(...pointerLines(indent, slot), `${indent}lda DF6DATA`);
+        } else if (op === 'ldx' || op === 'ldy') {
+          // (The register that is loaded sets the pointer: A, the other register and the carry are as they were.)
+          const r = op.slice(2);
+          const address = `${TABLES[slot.area]}+${128 + slot.byte}`;
+          const loadLines = [`${indent}ld${r} #<(${address})`, `${indent}st${r} DF6LOW`, `${indent}ld${r} #(>(${address})) & $0F`, `${indent}st${r} DF6HI`];
+          out.push(...loadLines, `${indent}ld${r} DF6DATA`);
+        } else if (op === 'sta') {
+          out.push(`${indent}php`, `${indent}pha`, ...pointerLines(indent, slot), `${indent}pla`, `${indent}sta DF6WRITE`, `${indent}plp`);
+        } else {
+          // (stx and sty: the register is not touched by the pointer lines, which use A, kept on the stack with the flags.)
+          out.push(`${indent}php`, `${indent}pha`, ...pointerLines(indent, slot), `${indent}${op} DF6WRITE`, `${indent}pla`, `${indent}plp`);
+        }
+
+        held = null;
+        previous = entries[at];
+        continue;
+      }
     }
     const label = labelOf(entries[at]);
     const reached = held;
@@ -327,7 +441,8 @@ export const applySpill = (code, slots) => {
       const id = labelCount++;
       out.push(...pre, `${shape.indent}if ${text} then goto _spl_${id}_a`);
       (shape.whenFalse || []).forEach((simple) => out.push(...simpleLines(simple, shape.indent)));
-      out.push(`${shape.indent}goto _spl_${id}_e`, `_spl_${id}_a`, ...simpleLines(shape.whenTrue, shape.indent), `_spl_${id}_e`);
+      const trueLines = [...simpleLines(shape.whenTrue, shape.indent), ...(shape.thenMore || []).flatMap((simple) => simpleLines(simple, shape.indent))];
+      out.push(`${shape.indent}goto _spl_${id}_e`, `_spl_${id}_a`, ...trueLines, `_spl_${id}_e`);
     } else {
       out.push(...simpleLines(shape, shape.indent));
     }

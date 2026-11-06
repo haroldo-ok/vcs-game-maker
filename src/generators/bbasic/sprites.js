@@ -11,6 +11,26 @@ import {ensureArmProgram, buildPixArmCall, ARM_FIND_PIXEL_FUNCTION} from './offs
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps, so the nearest whole number of steps is used.
+
+// The lines of an assembly block as the code that is not given to normalizeIndents wants them (the missile and ball fire code is put in the program as it is):
+// a block that starts with "asm" and ends with "@end", labels written "@name" and the instructions with no indent (the form every generator that is normalized
+// uses), become " asm", the instructions indented, the labels in the first column, and "end".
+const rawAsmLines = (lines) => {
+  let inAsm = false;
+  return lines.map((line) => {
+    if (line === 'asm') {
+      inAsm = true;
+      return ' asm';
+    }
+    if (line === '@end') {
+      inAsm = false;
+      return 'end';
+    }
+    if (!inAsm) return line;
+    return line.startsWith('@') ? line.slice(1) : `  ${line}`;
+  });
+};
+
 const pfRowDivisorFor = (config) => Math.max(1, Math.round(exactRowDivisorFor(config)));
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {fadeFlagsVarName, fadeActiveBit, effectiveBackgroundRows} from '../../blocks/background';
@@ -1385,7 +1405,7 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   const stagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
   const litEnd = stagePair ? 'endlit' : 'end';
   const cellRead = (target) => [
-    ...Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor),
+    ...rawAsmLines(Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor)),
     ` temp1 = ${pfColumnOf(`${name}x`, missileBallPfXOffset(config, name), config)}`,
     ` if temp1 > ${pfMaxColumn(config)} then goto ${target}`,
     ` if temp2 > ${maxRow} then goto ${target}`,
@@ -1428,7 +1448,7 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
   const lines = [
     ` ${cellPair.write} = 0`,
     ...(lastPair ? [` ${lastPair.write} = 0`] : []),
-    ...Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor),
+    ...rawAsmLines(Blockly.BBasic.rowOfLineCode(config, 'temp2', pfTopY(config, name), rowDivisor)),
     ` temp1 = ${pfColumnOf(`${name}x`, missileBallPfXOffset(config, name), config)}`,
     ` if temp1 > ${pfMaxColumn(config)} then goto ${label('probed')}`,
     ` if temp2 > ${maxRow} then goto ${label('probed')}`,
@@ -2571,7 +2591,9 @@ export default (Blockly) => {
         if (/\b(player\d|missile[01]|ball)y\b/.test(argument0)) {
           return `${varName} = ${argument0.trim()}\n`;
         }
-        const lines = Blockly.BBasic.dpcPlusSpriteLines(varName.slice(0, 7));
+        // (A y worked out by a "Convert playfield row to sprite" block is meant for the sprite that is set: the height of that sprite, not the tallest's.)
+        const fromRow = (block.getInputTargetBlock('VALUE') || {}).type === 'background_pixel_to_sprite' && block.getInputTargetBlock('VALUE').getFieldValue('AXIS') === 'Y';
+        const lines = Blockly.BBasic.dpcPlusSpriteLines(varName.slice(0, 7), fromRow);
         const literal = /^\s*(\d+)\s*$/.exec(argument0);
         if (literal) return `${varName} = ${Math.min(255, Math.max(0, 2 * Number(literal[1]) - lines))}\n`;
         return `temp1 = (${argument0}) * 2\n${varName} = temp1 - ${lines}\n`;
@@ -3781,8 +3803,13 @@ ${flagsVar}{${bit}} = 1
     const bounceRowDivisor = Blockly.BBasic.rowDivisorText(bounceConfig, true);
     const bounceMaxRow = Blockly.BBasic.maxRowText(bounceConfig);
     const bounceDirVar = hasFire ? resolveVar(missileFireDirVarName(name)) : null;
+    // The row increment the coprocessor is given (a line * it / 256 is the row): 256 / the lines of a row when that is a whole number, else the one the
+    // kernel and the 6502's conversions use for rows of a number of lines that is not a whole number (null when there is none: rows that differ by background).
+    const bounceFracInc = Blockly.BBasic.exactRowIncrement(bounceConfig, 1);
+    const bounceRowInc = /^\d+$/.test(String(bounceRowDivisor)) && 256 % Number(bounceRowDivisor) === 0 ? 256 / Number(bounceRowDivisor) :
+      (typeof bounceFracInc === 'number' ? bounceFracInc : null);
     const bounceArm = hasFire && !hasInertia && bounceConfig.kernel === 'dpcplus' && !bounceConfig.pxe && !Blockly.BBasic.dpcPlusGroupFracVars &&
-      !pfScrollColumns(bounceConfig) && /^(ball|missile)/.test(name) && /^\d+$/.test(String(bounceRowDivisor)) && 256 % Number(bounceRowDivisor) === 0 &&
+      !pfScrollColumns(bounceConfig) && /^(ball|missile)/.test(name) && bounceRowInc !== null &&
       /^\d+$/.test(String(bounceMaxRow)) && /^[A-Za-z_]\w*$/.test(String(bounceDirVar)) && /^[A-Za-z_]\w*$/.test(String(stagePair.read)) &&
       /^[A-Za-z_]\w*$/.test(String(stagePair.write));
     const armGravity = bounceArm && (Blockly.BBasic.objectGravityUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)] : null;
@@ -3826,7 +3853,7 @@ ${flagsVar}{${bit}} = 1
       Blockly.BBasic.subroutines[stageName] = [
         ...buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.bounce, read: 2, args: [[`lda ${name}x`], topLines, [`lda ${bounceDirVar}`],
           [`lda #${(Blockly.BBasic.missileFire16UsedFor || new Set()).has(name) ? 16 : 8}`], [`lda #${bounceMaxRow}`],
-          [`lda #${missileBallPfXOffset(bounceConfig, name)}`], [`lda #${256 / Number(bounceRowDivisor)}`], [`lda ${stagePair.read}`],
+          [`lda #${missileBallPfXOffset(bounceConfig, name)}`], [`lda #${bounceRowInc}`], [`lda ${stagePair.read}`],
           ...(armGravity ? [['lda #1'], [`lda ${armGravity.read}`]] : [['lda #0']])]}).split('\n'),
         `${bounceDirVar} = temp3`,
         `${stagePair.write} = temp4`,

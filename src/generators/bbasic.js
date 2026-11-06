@@ -3318,7 +3318,22 @@ Blockly.BBasic.init = function(workspace) {
   // apart from every OTHER entry in that exact same pool - a dev var some
   // block quietly needs (rand16, collision-move's  backtrack bytes, etc.),
   // not something the user themselves created on the Variables tab.
-  const variables = Blockly.Variables.allUsedVarModels(workspace);
+  // A variable the blocks only ever set to a plain number, and never read, change or pass on, is not kept: its setters make no code (see variables_set).
+  const allUsedVariables = Blockly.Variables.allUsedVarModels(workspace);
+  const readIds = new Set();
+  workspace.getAllBlocks(false).forEach((block) => {
+    const literalSet = block.type === 'variables_set' && (() => {
+      const target = block.getInputTargetBlock('VALUE');
+      const shadow = block.getInput('VALUE') && block.getInput('VALUE').connection && block.getInput('VALUE').connection.targetBlock();
+      return !!(target || shadow) && (target || shadow).type === 'math_number';
+    })();
+    block.inputList.forEach((input) => input.fieldRow.forEach((field) => {
+      if (field.referencesVariables && field.referencesVariables() && !literalSet) readIds.add(field.getValue());
+    }));
+  });
+  const writeOnlyIds = new Set(allUsedVariables.map((model) => model.getId()).filter((id) => !readIds.has(id)));
+  Blockly.BBasic.writeOnlyVariableIds = writeOnlyIds;
+  const variables = allUsedVariables.filter((model) => !writeOnlyIds.has(model.getId()));
   this.userVarNames = new Set();
   const userVarNameById = {};
   for (let i = 0; i < variables.length; i++) {
@@ -3592,8 +3607,13 @@ Blockly.BBasic.init = function(workspace) {
       // standard kernel with Superchip still off.
       const hint = (!superchipOn(config) && config.kernel !== 'dpcplus') ?
         ' (enable Superchip RAM on the Options tab to unlock more)' : '';
+      const inLetters = defvars.map((name) => `${name}${this.userVarNames.has(name) ? '' : ' (' + (this.devVarDescriptions[name] || 'used by a block') + ')'}`);
+      // DPC+: backgrounds with different numbers of rows need variables for the row size of the one showing (2 or more of them).
+      const rowVars = [this.dpcPlusRowFracVar, this.dpcPlusRowDivVar, this.dpcPlusRowLinesVar, this.dpcPlusRowMaxVar].filter(Boolean).length;
+      const rowHint = rowVars ? ` The backgrounds do not all have the same number of rows (${[...new Set((this.dpcPlusGeometries || []).map((geometry) => geometry.rows + 1))].join(', ')}), ` +
+        `which takes ${rowVars} variable${rowVars === 1 ? '' : 's'}: with the same number of rows in all of them it takes none.` : '';
       throw new Error(`Too many variables: this project defines ${totalDefined}, ` +
-        `but only ${totalAvailable} are available${hint}.`);
+        `but only ${totalAvailable} are available${hint}.${rowHint} The ${defvars.length} that wait for a letter: ${inLetters.join('; ')}.`);
     }
     // Configuration.vue's "Show reserved variable comments" toggle
     // (default on) - devVarDescriptions itself is always populated
@@ -4387,7 +4407,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     // build emits - which only ever happens here, for relocated content -
     // needs the same fix, or the Harmony cart's own bankswitch-detection can
     // misfire on real hardware.
-    const harmonyCartFix = isDpcPlus ? '\n temp1=temp1' : '';
+    const harmonyCartFix = isDpcPlus && Blockly.BBasic.harmonyCartFixOn() ? '\n temp1=temp1' : '';
     return [
       ` bank ${bank}${harmonyCartFix}`,
       ...eventBodies,
@@ -5581,10 +5601,15 @@ Blockly.BBasic.backgroundRealColorRawTarget = function() {
 // standard kernel keeps its row colors when the kernel is switched).
 // DPC+ only: how many scanlines tall the sprites are (the tallest animation frame, each row drawn two lines
 // tall), which the y conversion needs: the standard kernel's y marks a sprite's bottom edge, DPC+'s its top.
-Blockly.BBasic.dpcPlusSpriteLines = function(player) {
+Blockly.BBasic.dpcPlusSpriteLines = function(player, ownHeight = false) {
   const noiseLines = 2 * ((this.dpcPlusNoiseRows || {})[player] || 0);
   try {
-    const animations = processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage()).animations || [];
+    const allAnimations = processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage()).animations || [];
+    // ownHeight: for one player, the animations it can show, not the tallest of the project (a sprite put at a playfield row by a Convert block
+    // was 2 times the height of the tallest sprite of some other player too high). The others keep the tallest, as the positions of
+    // the projects made with it are set by it.
+    const reachable = ownHeight && player && this.usedPlayerAnimations ? this.usedPlayerAnimations[player] : null;
+    const animations = reachable && reachable.size ? allAnimations.filter((animation, index) => reachable.has(index)) : allAnimations;
     const rows = Math.max(0, ...animations.map((animation) =>
       Math.max(0, ...((animation && animation.frames) || []).map((frame) => frame.pixels.length))));
     return Math.max((rows || 8) * 2, noiseLines);
@@ -5761,7 +5786,7 @@ Blockly.BBasic.rowOfLineCode = function(config, dest, source, divisor, unitLines
   if (increment === null) return [` ${dest} = (${source}) / ${divisor}`];
   const id = this.blockNumbers.next('rowsconv');
   const lab = (name) => `_rowsconv_${id}_${name}`;
-  return [`temp2 = ${source}`, 'asm', ...(unitLines === 2 ? ['lda temp2', 'sec', 'sbc #1', `bcs ${lab('a')}`, 'lda #0', `@${lab('a')}`,
+  return [` temp2 = ${source}`, 'asm', ...(unitLines === 2 ? ['lda temp2', 'sec', 'sbc #1', `bcs ${lab('a')}`, 'lda #0', `@${lab('a')}`,
     'asl', `bcc ${lab('b')}`, 'lda #255', `@${lab('b')}`, 'sta temp2'] : []),
   ...(Array.isArray(incrementVar) ? incrementVar : [incrementVar ? `lda ${incrementVar}` : typeof increment === 'string' ? `lda ${increment}` : `lda #${increment}`]), 'sta temp1', 'lda #0', 'ldx #8', 'lsr temp1',
   `@${lab('m')}`, `bcc ${lab('s')}`, 'clc', 'adc temp2', `@${lab('s')}`, 'ror', 'ror temp1', 'dex', `bne ${lab('m')}`,
@@ -5958,6 +5983,13 @@ Blockly.BBasic.generateDpcPlusColorTables = function() {
 // match (see its own bankSizeKeyFor-gated minRelocationBank), since bank 2
 // is now permanently spoken for by this, not part of the shared pool
 // individual events/graphics compete for.
+// The "Harmony cart fix" option of the compiler options (on unless the project turned it off): temp1=temp1 after each bank declaration of a DPC+ program, which
+// keeps the Harmony cartridge from missing a bank switch (see the bB documentation, "DPC+ Harmony fix").
+Blockly.BBasic.harmonyCartFixOn = function() {
+  const configurationStorage = useConfigurationStorage();
+  return ((configurationStorage && configurationStorage.value) || {}).enableHarmonyCartFix !== false;
+};
+
 Blockly.BBasic.generateDpcPlusBankPreamble = function() {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
@@ -5967,7 +5999,7 @@ Blockly.BBasic.generateDpcPlusBankPreamble = function() {
     // The compiler calls the multiply and divide routine in bank 1, whichever bank the call is in.
     (this.usesDivMul ? ' inline div_mul.asm\n\n' : '') +
     ' bank 2\n' +
-    ' temp1=temp1\n\n' +
+    (this.harmonyCartFixOn() ? ' temp1=temp1\n' : '') + '\n' +
     '__dpcplus_mainbody_entry\n' +
     // The variables and the coprocessor's display memory power up with random contents (the standard
     // kernel's startup clears them, DPC+ does not), so every batari Basic DPC+ program clears them first.
