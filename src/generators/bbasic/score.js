@@ -4,7 +4,7 @@ import {superchipOn} from '../../utils/superchip';
 import {dpcPlusScoreFontPointerLines} from '../../utils/score-font';
 import {useConfigurationStorage, appendCompileLog} from '../../hooks/project';
 import {isPxe} from '../../utils/pxe';
-import {colorByteToBuildBBasic} from '../../utils/palette';
+import {colorByteToBuildBBasic, scoreColorByteOf} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
 import {effectiveBackgroundRows} from '../../blocks/background';
 import {scoreBarUnitsVarName, scoreLineHueVarName} from '../../blocks/score';
@@ -19,6 +19,20 @@ import {isInsideFunctionBody} from '../../utils/function-body';
 // declares it automatically, with no aliasing/chaining needed -
 // see generateScoreBkColorRuntimeDims below for why that matters.
 export const scoreBkColorVarName = () => 'scorebkcolor';
+
+// "Flash Score color": the bytes of the flash of the digits and of the bars (kind 'Digits' or 'Bars'): the phases left (twice the flashes: the color given, the old
+// color, the color given ...), the frames left in the phase, the frames of a phase, the color the score had, and the color to flash.
+export const SCORE_FLASH_PARTS = [['Phases', 'the phases left (twice the number of flashes)'], ['Timer', 'the frames left in this phase'],
+  ['Period', 'the frames of a phase'], ['Orig', 'the color to go back to'], ['Flash', 'the color of the flash']];
+export const scoreFlashVarName = (kind, part) => `scoreFlash${kind}${part}`;
+// What a Flash Score color block flashes ('Digits', 'Bars'): on DPC+ with "Score bars use the line colors" on and no Score bars set color block, the bars are drawn in
+// the colors of the score lines, which are the digits' colors, so they cannot flash alone: they flash with the digits.
+export const scoreFlashKinds = (target, config, barsFlat) => {
+  const barsWithDigits = config.kernel === 'dpcplus' && !!config.dpcPlusScoreBarColors && !barsFlat;
+  if (target === 'digits') return ['Digits'];
+  if (barsWithDigits) return ['Digits'];
+  return target === 'bars' ? ['Bars'] : ['Digits', 'Bars'];
+};
 
 const PFSCORE_ENABLE_CODE = '  const pfscore = 1';
 
@@ -263,6 +277,100 @@ export default (Blockly) => {
       ...Array(8).fill('sta DF0WRITE'), '@end'].join('\n') + '\n';
   };
 
+  // Flash Score color (see score_flash in blocks/score.js): the block starts it (or starts it over), generateScoreFlashChecks does it a frame at a time.
+  // The digits are scorecolor (and on DPC+ the table of the lines too); the bars are pfscorecolor, put over the color they follow every frame the flash color shows.
+  const NL = String.fromCharCode(10);
+  const flashVar = (kind, part) => Blockly.BBasic.nameDB_.getName(scoreFlashVarName(kind, part), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+  // The lines that give the digits a color: scorecolor, and on DPC+ the 8 bytes of the lines. Back to the old color, the lines the Score tab gave different colors
+  // get those back.
+  const digitsColorLines = (colorVar, original, raw = false) => {
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    const lines = [` scorecolor = ${colorVar}`];
+    if (config.kernel !== 'dpcplus') return lines;
+    // (Spliced in the loop as it is, an asm block is written the way the other asm blocks of the loop are: indented lines, and "end".)
+    const table = (loads) => (raw ?
+      [' asm', ...['lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI', ...loads].map((line) => '       ' + line), 'end'] :
+      ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI', ...loads, '@end']);
+    if (original && dpcPlusScoreColorsDiffer(config)) {
+      const bytes = config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08));
+      return [...lines, ...table(bytes.flatMap((byte) => [`lda #${byte}`, 'sta DF0WRITE']))];
+    }
+    return [...lines, ...table(['lda scorecolor', ...Array(8).fill('sta DF0WRITE')])];
+  };
+  Blockly.BBasic[`score_flash`] = function(block) {
+    if (isPxe(((useConfigurationStorage() && useConfigurationStorage().value) || {}))) {
+      appendCompileLog('The Flash Score color block does nothing on the PXE kernel.', 'info');
+      return '';
+    }
+    const target = block.getFieldValue('TARGET');
+    const color = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const frames = Blockly.BBasic.valueToCode(block, 'FRAMES', Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
+    const times = Blockly.BBasic.valueToCode(block, 'TIMES', Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
+    const lines = [];
+    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    if (target === 'bars' && config.kernel === 'dpcplus' && config.dpcPlusScoreBarColors && !Blockly.BBasic.scoreBarColorFlat) {
+      appendCompileLog('Flash Score color on the bars: they use the line colors of the score (Score tab), so they flash with the digits.', 'info');
+    }
+    scoreFlashKinds(target, config, Blockly.BBasic.scoreBarColorFlat).forEach((kind) => {
+      const v = (part) => flashVar(kind, part);
+      const skip = `_scoreflash_${kind.toLowerCase()}_${Blockly.BBasic.blockNumbers.next()}_skip`;
+      // (What the score had is kept only when no flash is running: a flash started over keeps it.)
+      lines.push(` if ${v('Phases')} = 0 then ${v('Orig')} = ${kind === 'Digits' ? 'scorecolor' : 'pfscorecolor'}`,
+          ` ${v('Flash')} = ${color}`,
+          ` ${v('Period')} = ${frames}`,
+          ` if ${v('Period')} = 0 then ${v('Period')} = 1`,
+          ` ${v('Phases')} = ${times}`,
+          ` if ${v('Phases')} > 127 then ${v('Phases')} = 127`,
+          ` ${v('Phases')} = ${v('Phases')} * 2`,
+          ` if ${v('Phases')} = 0 then goto ${skip}`,
+          ` ${v('Timer')} = ${v('Period')}`,
+          ...(kind === 'Digits' ? digitsColorLines(v('Flash'), false) : [` pfscorecolor = ${v('Flash')}`]),
+          `@ ${skip}`);
+    });
+    return lines.join(NL) + NL;
+  };
+
+  // The frame by frame part: the flash of the digits changes the color on the frames a phase ends; the flash of the bars shows its color every frame it is on (the
+  // bars may follow the digits, which puts their color back every frame).
+  Blockly.BBasic.generateScoreFlashChecks = function() {
+    const used = this.scoreFlashUsed || {};
+    const lines = [];
+    if (used.Digits) {
+      const v = (part) => flashVar('Digits', part);
+      lines.push(` if ${v('Phases')} = 0 then goto _scoreflash_digits_done`,
+          ` ${v('Timer')} = ${v('Timer')} - 1`,
+          ` if ${v('Timer')} > 0 then goto _scoreflash_digits_done`,
+          ` ${v('Timer')} = ${v('Period')}`,
+          ` ${v('Phases')} = ${v('Phases')} - 1`,
+          ` if ${v('Phases')} = 0 then goto _scoreflash_digits_done`,
+          ` temp1 = ${v('Phases')} & 1`,
+          ' if temp1 then goto _scoreflash_digits_old',
+          ...digitsColorLines(v('Flash'), false, true),
+          ' goto _scoreflash_digits_done',
+          '_scoreflash_digits_old',
+          ...digitsColorLines(v('Orig'), true, true),
+          '_scoreflash_digits_done');
+    }
+    if (used.Bars) {
+      const v = (part) => flashVar('Bars', part);
+      lines.push(` if ${v('Phases')} = 0 then goto _scoreflash_bars_done`,
+          ` ${v('Timer')} = ${v('Timer')} - 1`,
+          ` if ${v('Timer')} > 0 then goto _scoreflash_bars_hold`,
+          ` ${v('Timer')} = ${v('Period')}`,
+          ` ${v('Phases')} = ${v('Phases')} - 1`,
+          ` temp1 = ${v('Phases')} & 1`,
+          // (Bars that follow the digits go back to the color of the digits, not to one that was kept: the bars may not have followed yet when the flash started.)
+          ` if temp1 then pfscorecolor = ${this.scoreBarColorFlat ? v('Orig') : 'scorecolor'}`,
+          '_scoreflash_bars_hold',
+          ` if ${v('Phases')} = 0 then goto _scoreflash_bars_done`,
+          ` temp1 = ${v('Phases')} & 1`,
+          ' if temp1 then goto _scoreflash_bars_done',
+          ` pfscorecolor = ${v('Flash')}`,
+          '_scoreflash_bars_done');
+    }
+    return lines.length ? lines.join(NL) + NL : '';
+  };
+
   Blockly.BBasic[`score_color_set`] = function(block) {
     // Score's color setter.
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
@@ -278,7 +386,7 @@ export default (Blockly) => {
     if (config.kernel !== 'dpcplus') return ' rem Score line colors hue: the score lines need the DPC+ kernel\n';
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    const colors = !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ? config.dpcPlusScoreColors : Array(8).fill(0x08);
+    const colors = !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ? config.dpcPlusScoreColors : Array(8).fill(scoreColorByteOf(config));
     // (temp1 to temp6 hold the arguments inside a custom function: the hue is kept in a byte reserved for it there.)
     const pair = isInsideFunctionBody(block) ? Blockly.BBasic.superchipRwPairs[scoreLineHueVarName()] : null;
     const write = pair ? pair.write : 'temp1';

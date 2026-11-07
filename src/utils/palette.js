@@ -119,3 +119,10 @@ export const colorByteToBBasic = (byte) =>
 // colorByteToBBasic for a color going into the generated program - see
 // tvColorByte.
 export const colorByteToBuildBBasic = (byte) => colorByteToBBasic(tvColorByte(byte));
+
+// The color the score starts in (the swatch on the Score tab; white-grey, $08, until one is picked), as the byte the TV colors use.
+export const DEFAULT_SCORE_COLOR_BYTE = 0x08;
+export const scoreColorByteOf = (config) => {
+  const byte = Number(config && config.scoreColor);
+  return Number.isFinite(byte) && config.scoreColor !== null && config.scoreColor !== '' ? Math.min(254, Math.max(0, Math.round(byte) & 254)) : DEFAULT_SCORE_COLOR_BYTE;
+};

@@ -39,6 +39,14 @@
       </div>
       <div class="score-bkcolor-row">
         <color-swatch-picker
+          :value="scoreColor"
+          :allow-clear="false"
+          square
+          title="Click to set the color the score starts in (a Score color block changes it while the game runs; the bars follow it)"
+          @input="(byte) => byte !== null && (scoreColor = byte)"
+        />
+        <span class="score-bkcolor-label">Score color</span>
+        <color-swatch-picker
           :value="scoreBkColorSwatchValue"
           :fallback-color="backgroundPreviewColor"
           clear-label="Use background color"
@@ -99,11 +107,11 @@
               <v-checkbox
                 v-model="scoreLineColorsOn"
                 label="Use the line colors"
-                title="Off: every line of the score has the same color (the one the Score color blocks set, white to start with); the line colors below are kept for when it is turned on again."
+                title="Off: every line of the score has the same color (the Score color); the line colors below are kept for when it is turned on again."
                 hide-details
                 class="score-fade-switch"
               />
-              <v-btn icon small class="line-colors-reset-btn" title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
+              <v-btn icon small class="line-colors-reset-btn" title="Give every line of the score the same color again: the Score color" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
                 <v-icon>mdi-restore</v-icon>
               </v-btn>
               <v-checkbox
@@ -190,7 +198,7 @@ import {useConfigurationStorage, usePixelGridOverlayStorage, useScoreFontEditsSt
   useSquishCustomScoreFontStorage} from '../hooks/project';
 import {useEditorZoom} from '../hooks/zoom';
 import {recordReorder} from '../hooks/reorder-history';
-import {colorByteToCss} from '../utils/palette';
+import {colorByteToCss, scoreColorByteOf} from '../utils/palette';
 import {SCORE_FONT_NAMES} from '../generators/score-fonts';
 import {
   CUSTOM_SCORE_FONT,
@@ -323,6 +331,15 @@ export default defineComponent({
     // normalized to the literal string here too, so the swatch always shows
     // a real, concrete selection (the "Use background color" one) instead
     // of looking unset.
+    // The color the score starts in (the Score color blocks change it while the game runs).
+    const scoreColor = computed({
+      get() {
+        return scoreColorByteOf(configurationStorage.value || {});
+      },
+      set(value) {
+        configurationStorage.value = {...(configurationStorage.value || {}), scoreColor: value};
+      },
+    });
     const scoreBkColor = computed({
       get() {
         try {
@@ -348,7 +365,7 @@ export default defineComponent({
     const dpcPlusScoreColorsSet = computed(() => Array.isArray((configurationStorage.value || {}).dpcPlusScoreColors));
     const dpcPlusScoreRowColors = computed(() => {
       const colors = (configurationStorage.value || {}).dpcPlusScoreColors;
-      return Array.isArray(colors) && colors.length === 8 ? colors : Array(8).fill(0x08);
+      return Array.isArray(colors) && colors.length === 8 ? colors : Array(8).fill(scoreColor.value);
     });
     // The glyphs are drawn in the colors of the score lines on DPC+ (a glyph that is not 8 rows tall takes the color of the line each of its rows falls on),
     // and in one color on the other kernels, and on DPC+ too when all the lines have the same color.
@@ -648,6 +665,7 @@ export default defineComponent({
       secondaryActive,
       editingRole,
       scoreBkColor,
+      scoreColor,
       scoreBkColorSwatchValue,
       isDpcPlus,
       dpcPlusScoreColorsSet,

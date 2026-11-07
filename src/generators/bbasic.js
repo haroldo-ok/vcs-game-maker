@@ -44,7 +44,7 @@ import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName
   MAX_FUNCTION_ARGS} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
-import {colorByteToBuildBBasic} from '../utils/palette';
+import {colorByteToBuildBBasic, scoreColorByteOf} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
   customScoreFontUsesExtraGlyphs, secondaryScoreFontName, dpcPlusSecondaryScoreFontBytes, dpcPlusScoreFontPointerLines,
   DPC_PLUS_SECONDARY_FONT_LABEL, DPC_PLUS_PRIMARY_FONT_LABEL, dpcPlusPrimaryScoreFontBytes} from '../utils/score-font';
@@ -76,7 +76,7 @@ import {registerDistanceAbsDiffSubroutine, registerKeypadPollSubroutine, generat
   generateJoystickButtonChecks, generateJoystickDoubleTapChecks, SWITCH_EDGE_FAMILY, switchEdgeOwnBits, JOY_TAP_FAMILY, joyTapOwnBits, reserveJoyTapDevVars,
   reserveSwitchEdgeDevVars, generateSwitchEdgeChecks} from './bbasic/input';
 import {collisionMoveOldXVar, collisionMoveOldYVar, collisionMoveOlderXVar, collisionMoveOlderYVar, reservePlatformerDevVars, platformerStartsOf, platformerPlanOf} from './bbasic/collision';
-import {scoreBkColorVarName, generateScanlinesDebugScoreCode} from './bbasic/score';
+import {scoreBkColorVarName, generateScanlinesDebugScoreCode, scoreFlashVarName, SCORE_FLASH_PARTS, scoreFlashKinds} from './bbasic/score';
 import {scoreBarUnitsVarName, scoreLineHueVarName} from '../blocks/score';
 import {isInsideFunctionBody} from '../utils/function-body';
 import {processPlayerAnimationsStorageDefaults, generateRomNoiseChecks, generatePlayerHeightLimitChecks,
@@ -2286,6 +2286,10 @@ Blockly.BBasic.init = function(workspace) {
   // instead, never these).
   // A "Score bars: set color" block gives the bars one flat color, which they then keep (see scoreBarColorFollow).
   this.scoreBarColorFlat = !isPxe(useConfigurationStorage().value || {}) && workspace.getAllBlocks(false).some((block) => block.type === 'score_bar_color_set' && block.isEnabled());
+  // "Flash Score color" keeps its state in bytes, for the digits and for the bars when a block names them.
+  const scoreFlashBlocks = isPxe(useConfigurationStorage().value || {}) ? [] : workspace.getAllBlocks(false).filter((block) => block.type === 'score_flash' && block.isEnabled());
+  const scoreFlashKindsUsed = new Set(scoreFlashBlocks.flatMap((block) => scoreFlashKinds(block.getFieldValue('TARGET'), useConfigurationStorage().value || {}, this.scoreBarColorFlat)));
+  this.scoreFlashUsed = {Digits: scoreFlashKindsUsed.has('Digits'), Bars: scoreFlashKindsUsed.has('Bars')};
   // "Score Bar units" counts the bits of a bar into temp1, or into a byte kept for it inside a custom function.
   // (One pass over the blocks that are inside a custom function: what they need, and whether a function body calls a function, which function_define reads.)
   const blocksInFunctions = workspace.getAllBlocks(false).filter((block) => isInsideFunctionBody(block));
@@ -2661,6 +2665,8 @@ Blockly.BBasic.init = function(workspace) {
   // background.js) - a no-op unless screenShakeUsed's  early pre-scan
   // (above) found it used.
   reserveShakeScreenDevVar(reserveDevVar, this.screenShakeUsed);
+  ['Digits', 'Bars'].filter((kind) => this.scoreFlashUsed[kind]).forEach((kind) => SCORE_FLASH_PARTS.forEach(([part, description]) =>
+    reserveDevVar(scoreFlashVarName(kind, part), undefined, `Score flash of the ${kind.toLowerCase()}: ${description}`)));
   // The area form of "Playfield offset" keeps its edges and masks in bytes reserved for it (see buildAreaOffsetBody in generators/bbasic/background.js).
   // Under DPC+ every Playfield offset block is done by the coprocessor (a program placed in the ROM as data, see generators/bbasic/offset-arm.js).
   this.offsetPxeUsed = isPxe(useConfigurationStorage().value) && workspace.getAllBlocks(false).some((block) =>
@@ -4617,7 +4623,7 @@ Blockly.BBasic.finish = function(code) {
   // digits start out black.
   const hiddenDpcPlusTextScore = (useConfigurationStorage().value || {}).kernel === 'dpcplus' &&
     ((useConfigurationStorage().value || {}).showScore ?? true) === false && this.isTextMinikernelActive();
-  const defaultScoreColor = colorByteToBuildBBasic(hiddenDpcPlusTextScore ? 0 : 0x08);
+  const defaultScoreColor = colorByteToBuildBBasic(hiddenDpcPlusTextScore ? 0 : scoreColorByteOf(useConfigurationStorage().value || {}));
   // The score bars are drawn in the score's color, copied to them every frame, until a block gives them a color: then they start out
   // in the score's color and keep what the block sets (and on DPC+ the kernel stops giving them the color of each line of the score).
   const scoreBarColorInit = this.scoreBarColorFlat ? ` : pfscorecolor = ${defaultScoreColor}` : '';
@@ -4674,6 +4680,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedInertiaChecks = wrapChecks(this, 'inertia', () => generateInertiaChecks(Blockly) + generateGravityChecks(Blockly));
   const generatedPlatformerChecks = wrapChecks(this, 'platformer', () => Blockly.BBasic.generateCollisionMoveChecks() + Blockly.BBasic.generatePlatformerChecks());
   const generatedShakeScreenChecks = generateShakeScreenChecks(Blockly);
+  const generatedScoreFlashChecks = Blockly.BBasic.generateScoreFlashChecks();
   const generatedSpeechChecks = generateSpeechChecks(Blockly);
   const generatedDpcPlusColorPriming = Blockly.BBasic.generateDpcPlusColorPriming();
   const generatedDpcPlusColorTables = Blockly.BBasic.generateDpcPlusColorTables();
@@ -4852,7 +4859,7 @@ Blockly.BBasic.finish = function(code) {
   const generated = handlebarsTemplate({generatedDpcPlusAudio, generatedBody, generatedBackgrounds, generatedBackgroundColorOverride,
     generatedAnimations, generatedDataTables, generatedRomNoiseChecks, generatedPlayerHeightLimitChecks, generatedTitleScreenAnimationChecks,
     generatedRainbowColorGraphics, generatedRainbowColorChecks, generatedMissileFireChecks,
-    generatedSeekChecks, generatedLockChecks, generatedWidePartnerSync, generatedPfHitChecks, generatedInertiaChecks, generatedPlatformerChecks, generatedShakeScreenChecks, generatedSpeechChecks, generatedDpcPlusColorPriming, generatedDpcPlusColorTables, generatedDpcPlusInitialDrawscreen,
+    generatedSeekChecks, generatedLockChecks, generatedWidePartnerSync, generatedPfHitChecks, generatedInertiaChecks, generatedPlatformerChecks, generatedShakeScreenChecks, generatedScoreFlashChecks, generatedSpeechChecks, generatedDpcPlusColorPriming, generatedDpcPlusColorTables, generatedDpcPlusInitialDrawscreen,
     generatedDpcPlusSpriteDefaults,
     generatedDpcPlusBankPreamble,
     generatedTextOffsetTables, generatedTextStaticOffsetTables, generatedTextRow2OffsetsTable, generatedJoyDir8Table,
@@ -6061,7 +6068,7 @@ Blockly.BBasic.generateDpcPlusColorTables = function() {
   // One color for each of the 8 lines of the score digits (set on the Score tab), or the same one on all of them.
   const rowColors = !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ?
     config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08)) :
-    Array(8).fill(0x08);
+    Array(8).fill(scoreColorByteOf(config));
   out.push(` scorecolors:\n${rowColors.map((byte) => '  ' + colorByteToBuildBBasic(byte)).join('\n')}\nend`);
   return out.join('\n') + '\n';
 };

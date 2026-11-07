@@ -161,6 +161,40 @@ Blockly.defineBlocksWithJsonArray([
       'is. Only needs to be triggered once - the fade keeps running by itself every frame afterward, ' +
       'even from inside an "if" block that only briefly becomes true, until it reaches the target and stops.',
   },
+  // Block for flashing the score's color: the color alternates with the one the score had, every so many frames, a number of times.
+  {
+    'type': `score_flash`,
+    'message0': `${SCORE_ICON} Flash Score %1 ${COLOR_ICON} color to %2 every %3 frames, %4 times`,
+    'args0': [
+      {
+        'type': 'field_dropdown',
+        'name': 'TARGET',
+        'options': [['digits', 'digits'], ['bars', 'bars'], ['digits and bars', 'both']],
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+      {
+        'type': 'input_value',
+        'name': 'FRAMES',
+        'check': 'Number',
+      },
+      {
+        'type': 'input_value',
+        'name': 'TIMES',
+        'check': 'Number',
+      },
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SCORE_COLOR,
+    'tooltip': 'Flashes the color of the score digits, of the score bars, or of both: the color given shows for this many frames, then the color the score had for the same ' +
+      'number of frames, and so on, so many times (a flash is one of each), and the score ends in the color it had. Runs by itself after it is started; started again ' +
+      'while it runs, it starts over with the new color. The bars follow the digits unless a "Score bars set color" block gives them a color: flash the digits alone ' +
+      'in a project that has that block, or flash the bars alone. On DPC+ with "Score bars use the line colors" on (Score tab), the bars are drawn in the colors of the score lines, so they flash with the digits. Not for the PXE kernel.',
+  },
   // Block for the background color setter - only takes effect when the
   // project also uses the Text Minikernel (see generators/bbasic/score.js's
   // generator): the standard score bar has no runtime-settable
