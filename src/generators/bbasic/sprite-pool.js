@@ -70,15 +70,18 @@ export default (Blockly) => {
     // Every variable reserved for the first sprite that is reserved for the second one too. One that only one of them has was asked for by a block that
     // names that sprite alone, outside the pool: the two sprites are not built the same way, and what that variable holds is not carried over.
     const unpaired = [];
-    registry.filter((entry) => new RegExp(`^${b}(?!\d)`).test(entry.canonical)).forEach((entry) => {
+    // (The variables named for a sprite, and the ones that say whether it is in the playfield, pfhit<sprite>: the flag of the Collided block, worked out
+    // every frame for each sprite, so a pool body that tests it for the sprite it is running with has to see that sprite's.)
+    const prefixes = ['', 'pfhit'];
+    prefixes.forEach((prefix) => registry.filter((entry) => new RegExp(`^${prefix}${b}(?!\\d)`).test(entry.canonical)).forEach((entry) => {
       // (The variables of Player 1 are the compiler's, not reserved by name.)
-      if (first === 1 && /^(frame|animation|realcolor|size)$/.test(entry.canonical.slice(b.length))) return;
-      if (!known.has(`${entry.rw ? 'rw' : 'v'}:${a}${entry.canonical.slice(b.length)}`)) unpaired.push(entry.canonical);
-    });
-    registry.filter((entry) => new RegExp(`^${a}(?!\\d)`).test(entry.canonical)).forEach((entry) => {
+      if (first === 1 && /^(frame|animation|realcolor|size)$/.test(entry.canonical.slice(prefix.length + b.length))) return;
+      if (!known.has(`${entry.rw ? 'rw' : 'v'}:${prefix}${a}${entry.canonical.slice(prefix.length + b.length)}`)) unpaired.push(entry.canonical);
+    }));
+    prefixes.forEach((prefix) => registry.filter((entry) => new RegExp(`^${prefix}${a}(?!\\d)`).test(entry.canonical)).forEach((entry) => {
       if (done.has(entry.canonical)) return;
       done.add(entry.canonical);
-      const other = `${b}${entry.canonical.slice(a.length)}`;
+      const other = `${prefix}${b}${entry.canonical.slice(prefix.length + a.length)}`;
       if (!known.has(`${entry.rw ? 'rw' : 'v'}:${other}`)) {
         unpaired.push(entry.canonical);
         return;
@@ -91,7 +94,7 @@ export default (Blockly) => {
         const symbol = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         plain(symbol(entry.canonical), symbol(other));
       }
-    });
+    }));
     if (unpaired.length) {
       appendCompileLog(`Sprite pool: players ${first} and ${second} do not have the same state (${[...new Set(unpaired)].join(', ')}): a block outside the pool names only one of them, so the sprites are built differently and the blocks of the pool may not work on both. Use "all pool sprites" for the blocks outside the pool.`, 'info');
     }

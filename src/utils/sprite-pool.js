@@ -101,7 +101,9 @@ export const expandSpritePools = (dom, Blockly) => {
         `<block type="sprite_pool_body_call"><field name="NAME">${name}</field></block>`,
         n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field></block>`]);
       const definition = parse(`<block type="sprite_pool_body"><field name="NAME">${name}</field><statement name="DO">${bodyFor(node, 'DO', first)}</statement></block>`);
-      dom.insertBefore(definition, dom.firstChild);
+      // (After the variables list, which has to come before the blocks in the workspace XML.)
+      const variablesList = Array.from(dom.children).find((child) => child.tagName.toLowerCase() === 'variables');
+      dom.insertBefore(definition, variablesList ? variablesList.nextSibling : dom.firstChild);
       const shadows = (sprites.slice(1).map((n) => `<block type="sprite_pool_shadow"><statement name="DO">${bodyFor(node, 'DO', n)}</statement></block>`));
       let replacement;
       if (type === 'sprite_pool_each') {
