@@ -134,6 +134,8 @@ const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors, k
     saveLoadOn: !!atariVoxOn || isPxe((useConfigurationStorage() || {}).value),
     // The color table of the PXE kernel.
     paletteOn: isPxe((useConfigurationStorage() || {}).value),
+    // The Sprite pool blocks share the virtual sprites, which only the DPC+ and PXE kernels have.
+    spritePoolOn: !!kernelIsDpcPlus || isPxe((useConfigurationStorage() || {}).value),
   });
 
 export default {

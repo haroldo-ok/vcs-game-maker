@@ -9,6 +9,8 @@ const STATEMENTS = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_releas
 const VALUES = ['sprite_pool_full'];
 const SELECTOR = [...STATEMENTS, ...VALUES].map((type) => `block[type="${type}"]`).join(',');
 const MAX_PLAYER = 16;
+// Blocks that jump out of the blocks they are in: a pool with one of them in it is built as a copy of the blocks for each sprite instead.
+const NON_LOCAL = ['function_return', 'subroutine_return', 'label_goto', 'event_change_state'];
 
 const children = (node, tag) => [...node.children].filter((child) => child.tagName === tag);
 const fieldOf = (block, name) => children(block, 'field').find((field) => field.getAttribute('name') === name);
@@ -25,6 +27,7 @@ const setVisible = (n, shown) => `<block type="sprite_player_set"><field name="P
 // Returns the notes to show in the compile log.
 export const expandSpritePools = (dom, Blockly) => {
   const warnings = [];
+  let poolCount = 0;
   const parse = (xml) => Blockly.utils.xml.textToDom(`<xml xmlns="https://developers.google.com/blockly/xml">${xml}</xml>`).firstElementChild;
   // Puts the XML in place of a block, followed by the blocks that followed that block.
   const replace = (node, xml) => {
@@ -79,6 +82,41 @@ export const expandSpritePools = (dom, Blockly) => {
     const [from, to] = rangeOf(node);
     const sprites = Array.from({length: to - from + 1}, (_, i) => from + i);
     const type = node.getAttribute('type');
+    const inFunction = (() => {
+      for (let up = node.parentNode; up && up.tagName; up = up.parentNode) {
+        if (up.tagName === 'block' && up.getAttribute('type') === 'function_define') return true;
+      }
+      return false;
+    })();
+    const bodyKind = type === 'sprite_pool_each' || type === 'sprite_pool_spawn';
+    // Blocks that leave the blocks of the pool for somewhere else cannot be in a subroutine. In a function the stack is too small for one more
+    // level of calls (the DPC+ stack shares its bytes with variables: a project that called a function from an event in another bank and ran a
+    // pool in it had the variables at the top of the page overwritten), so there the blocks are copied for each sprite.
+    const leaves = [...node.querySelectorAll('block')].some((inner) => NON_LOCAL.includes(inner.getAttribute('type')));
+    if (bodyKind && !leaves && !inFunction && sprites.length > 1) {
+      // One copy of the blocks, for the first sprite, as a subroutine; the other sprites swap what they have with the first sprite's around a call of it.
+      const first = sprites[0];
+      const name = `poolbody${(poolCount += 1)}`;
+      const callBlocks = (n) => ([n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field></block>`,
+        `<block type="sprite_pool_body_call"><field name="NAME">${name}</field></block>`,
+        n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field></block>`]);
+      const definition = parse(`<block type="sprite_pool_body"><field name="NAME">${name}</field><statement name="DO">${bodyFor(node, 'DO', first)}</statement></block>`);
+      dom.insertBefore(definition, dom.firstChild);
+      const shadows = (sprites.slice(1).map((n) => `<block type="sprite_pool_shadow"><statement name="DO">${bodyFor(node, 'DO', n)}</statement></block>`));
+      let replacement;
+      if (type === 'sprite_pool_each') {
+        replacement = stack([...shadows, ...sprites.map((n) => `<block type="controls_if"><value name="IF0">${visibleIs(n, 1)}</value><statement name="DO0">${stack(callBlocks(n))}</statement></block>`)]);
+      } else {
+        let rest = bodyFor(node, 'FULL', 0);
+        [...sprites].reverse().forEach((n) => {
+          rest = `<block type="controls_if">${rest ? '<mutation else="1"></mutation>' : ''}<value name="IF0">${visibleIs(n, 0)}</value>` +
+            `<statement name="DO0">${stack([setVisible(n, true), ...callBlocks(n)])}</statement>${rest ? `<statement name="ELSE">${rest}</statement>` : ''}</block>`;
+        });
+        replacement = stack([...shadows, rest]);
+      }
+      replace(node, replacement);
+      continue;
+    }
     if (type === 'sprite_pool_each') {
       replace(node, stack(sprites.map((n) => `<block type="controls_if"><value name="IF0">${visibleIs(n, 1)}</value>` +
         `<statement name="DO0">${bodyFor(node, 'DO', n)}</statement></block>`)));

@@ -857,6 +857,17 @@ pfsetupp
      RETURN
 
 
+     ; vcs-game-maker: the score loop must not cross a page: its branch back to scoreloop takes one cycle more when it does, and every line of the score
+     ; is then drawn one cycle late, which scrambles the digits. Where the code before it (the size of the coprocessor program, the options) puts
+     ; the loop across a page boundary, the loop is moved to the start of the next page: the padding is here, before the routine, where nothing runs.
+     ifnconst noscore
+SCOREKERNELSTART = *
+SCOREKERNELLOOP = SCOREKERNELSTART + (scoreloop - scorekernel)
+SCOREKERNELEND = SCOREKERNELSTART + (scoreloopbpl - scorekernel) + 2
+         if (SCOREKERNELLOOP / 256) != (SCOREKERNELEND / 256)
+             ds (((SCOREKERNELLOOP / 256) + 1) * 256) - SCOREKERNELLOOP, 0
+         endif
+     endif
 scorekernel
      ; vcs-game-maker: the picture is left partway into its last line, and the score setup below would cut that line short and draw the rest of it
      ; in the score's colors. The minikernel (if any) only gives the score row's background color, in Y (it is called here, where it takes
@@ -1001,11 +1012,12 @@ scoreloop
      lda #<DF6DATA ;59
      sta COLUP0 ;62
      sta COLUP1 ;65
-     ; vcs-game-maker: the score bars (pfscore) take the color of each line of the score too: kept here, written to COLUPF at the end of the line (the bars
-     ; of the next line are drawn after it). With "const scorebarflat = 1" (a Score bars set color block) the bars keep the color of pfscorecolor instead. Cycle neutral: the 3 cycles are taken from the first sleep below and the 6 of the last sleep are the load and store.
+     ; vcs-game-maker: the score bars (pfscore) take the color of each line of the score too: the color is written to COLUPF with the digits' (here, after the
+     ; last bar pixels of the line that is ending, so the bars of the next line, which are drawn along with its digits, have that line's color). With "const
+     ; scorebarflat = 1" (a Score bars set color block) the bars keep the color of pfscorecolor instead. Cycle neutral: the 3 cycles are taken from the first sleep below.
      ifconst pfscore
      ifnconst scorebarflat
-         sta temp2
+         sta COLUPF
      endif
      endif
      lda #<DF1DATA;75
@@ -1046,17 +1058,18 @@ scoreloop
          sleep 6
      endif
      ; sleep 2 ;57
+     ; vcs-game-maker: the left bar's value is put in PF1 here too, after the right bar's last pixel of this line (the dots of a bar with a bit 7 or 6 set,
+     ; the 4 lives, lit the first pixels of the left bar of the next line, because its early write below comes after those pixels are drawn).
+     ; The load and the store take the 6 cycles the sleep did; the store is after the dec, which the branch needs the flags of (a store changes none).
      ifconst pfscore
-     ifnconst scorebarflat
-         lda temp2
-         sta COLUPF
+         lda pfscore1
+         dec temp1;70
+         sta PF1
      else
          sleep 6
+         dec temp1;70
      endif
-     else
-         sleep 6
-     endif
-     dec temp1;70
+scoreloopbpl
      bpl scoreloop;72/73
      LDx #0 
      stx PF1

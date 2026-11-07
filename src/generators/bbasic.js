@@ -1944,8 +1944,12 @@ Blockly.BBasic.init = function(workspace) {
     }
     return name;
   };
-  const reserveDevVar = (canonicalName, type = Blockly.Names.DEVELOPER_VARIABLE_TYPE, description) =>
-    routeDevVar(this.nameDB_.getName(canonicalName, type), description);
+  // (The names reserved, for the Sprite pool blocks: the state a sprite has is found by its name, see generators/bbasic/sprite-pool.js.)
+  this.devVarRegistry = [];
+  const reserveDevVar = (canonicalName, type = Blockly.Names.DEVELOPER_VARIABLE_TYPE, description) => {
+    this.devVarRegistry.push({canonical: canonicalName, rw: false});
+    return routeDevVar(this.nameDB_.getName(canonicalName, type), description);
+  };
 
   // The Title Screen's variables (see the reservations further down) only matter while the title
   // screen runs, which never overlaps the gameplay loop, so each one shares the slot of a variable
@@ -2005,6 +2009,7 @@ Blockly.BBasic.init = function(workspace) {
   // reserveDevVar/nameDB_ pool, there's no lazy/on-demand path.
   this.superchipRwPairs = routedRwPairs;
   const reserveDevVarRW = (canonicalName, description) => {
+    this.devVarRegistry.push({canonical: canonicalName, rw: true});
     if (description && !(canonicalName in this.devVarDescriptions)) {
       this.devVarDescriptions[canonicalName] = description;
     }
@@ -2472,7 +2477,12 @@ Blockly.BBasic.init = function(workspace) {
   // actually uses, and gets a run of bits inside one of a few pooled bytes
   // instead of a separate byte. The fade, music and scroll-edge flags (read as
   // whole bytes by assembly) and Run once are not part of this.
-  const ownBits = (set, bitOf) => [...(set || [])].map(bitOf).filter((bit) => bit !== undefined);
+  // (Each use also notes which family and feature the bits are of, for the Sprite pool blocks: the bits of a sprite are found by its name.)
+  this.spriteFlagBits = [];
+  const ownBits = (set, bitOf, family, feature) => {
+    if (family) this.spriteFlagBits.push({family, feature, owners: new Set(set || []), bitOf});
+    return [...(set || [])].map(bitOf).filter((bit) => bit !== undefined);
+  };
   // The DPC+ players with row colors in their animations that a block sets or fades the color of: that color then wins over the row colors.
   this.colorOverridePlayers = new Set();
   if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
@@ -2533,25 +2543,25 @@ Blockly.BBasic.init = function(workspace) {
     {family: BG_RAINBOW_ID_FAMILY, bits: this.bgRainbowIdBits},
     {family: BG_COLOR_STEP_FAMILY, bits: this.bgColorStepBits},
     {family: ROM_NOISE_FLAGS_FAMILY, bits: [
-      ...ownBits([...this.romNoiseUsedFor].filter((name) => !isRomNoiseExtra(name)), romNoiseOwnBit),
-      ...ownBits([...this.rainbowColorUsedFor].filter((name) => !isRomNoiseExtra(name)), rainbowColorOwnBit),
+      ...ownBits([...this.romNoiseUsedFor].filter((name) => !isRomNoiseExtra(name)), romNoiseOwnBit, ROM_NOISE_FLAGS_FAMILY, 'this.romNoiseUsedFor'),
+      ...ownBits([...this.rainbowColorUsedFor].filter((name) => !isRomNoiseExtra(name)), rainbowColorOwnBit, ROM_NOISE_FLAGS_FAMILY, 'this.rainbowColorUsedFor'),
       ...(this.backgroundRainbowUsed ? [BACKGROUND_RAINBOW_OWN_BIT] : []),
       ...(this.backgroundRainbowUsed && (useConfigurationStorage().value || {}).kernel === 'dpcplus' ?
         [BACKGROUND_RAINBOW_LOADED_BIT] : []),
     ]},
-    {family: ROM_NOISE_EXTRA_FAMILY, bits: ownBits([...this.romNoiseUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit)},
-    {family: RAINBOW_EXTRA_FAMILY, bits: ownBits([...this.rainbowColorUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit)},
-    {family: MISSILE_FIRE_FLAGS_FAMILY, bits: ownBits(this.missileFireUsedFor, missileFireOwnBit), phase: 'game'},
-    {family: FIRE_OFFSCREEN_FLAGS_FAMILY, bits: ownBits(this.fireOffscreenUsedFor, missileFireOwnBit), phase: 'game'},
-    {family: SEEK_FLAGS_FAMILY, bits: ownBits(this.seekUsedFor, spriteOwnBit), phase: 'game'},
-    {family: SEEK_AXIS_FAMILY, bits: ownBits(this.seekAxisUsedFor, spriteOwnBit), phase: 'game'},
-    {family: SEEK_ARRIVED_FLAGS_FAMILY, bits: ownBits(this.seekArrivedWatches, spriteOwnBit), phase: 'game'},
-    {family: SPRITE_SCROLL_FLAGS_FAMILY, bits: ownBits(this.spriteScrollUsedFor, spriteOwnBit), phase: 'game'},
-    {family: SPRITE_HIDDEN_FLAGS_FAMILY, bits: ownBits(this.spriteHiddenUsedFor, spriteOwnBit), phase: 'game'},
-    {family: ANIM_FINISHED_DONE_FAMILY, bits: ownBits(this.playerAnimationFinishedWatches, spriteOwnBit)},
-    {family: INERTIA_ACCEL_FLAGS_FAMILY, bits: ownBits(this.inertiaAccelUsedFor, spriteOwnBit), phase: 'game'},
-    {family: INERTIA_DECEL_FLAGS_FAMILY, bits: ownBits(this.inertiaDecelUsedFor, spriteOwnBit), phase: 'game'},
-    {family: OBJECT_GRAVITY_FLAGS_FAMILY, bits: ownBits(this.objectGravityUsedFor, spriteOwnBit), phase: 'game'},
+    {family: ROM_NOISE_EXTRA_FAMILY, bits: ownBits([...this.romNoiseUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit, ROM_NOISE_EXTRA_FAMILY, 'this.romNoiseUsedFor')},
+    {family: RAINBOW_EXTRA_FAMILY, bits: ownBits([...this.rainbowColorUsedFor].filter(isRomNoiseExtra), romNoiseExtraOwnBit, RAINBOW_EXTRA_FAMILY, 'this.rainbowColorUsedFor')},
+    {family: MISSILE_FIRE_FLAGS_FAMILY, bits: ownBits(this.missileFireUsedFor, missileFireOwnBit, MISSILE_FIRE_FLAGS_FAMILY, 'this.missileFireUsedFor'), phase: 'game'},
+    {family: FIRE_OFFSCREEN_FLAGS_FAMILY, bits: ownBits(this.fireOffscreenUsedFor, missileFireOwnBit, FIRE_OFFSCREEN_FLAGS_FAMILY, 'this.fireOffscreenUsedFor'), phase: 'game'},
+    {family: SEEK_FLAGS_FAMILY, bits: ownBits(this.seekUsedFor, spriteOwnBit, SEEK_FLAGS_FAMILY, 'this.seekUsedFor'), phase: 'game'},
+    {family: SEEK_AXIS_FAMILY, bits: ownBits(this.seekAxisUsedFor, spriteOwnBit, SEEK_AXIS_FAMILY, 'this.seekAxisUsedFor'), phase: 'game'},
+    {family: SEEK_ARRIVED_FLAGS_FAMILY, bits: ownBits(this.seekArrivedWatches, spriteOwnBit, SEEK_ARRIVED_FLAGS_FAMILY, 'this.seekArrivedWatches'), phase: 'game'},
+    {family: SPRITE_SCROLL_FLAGS_FAMILY, bits: ownBits(this.spriteScrollUsedFor, spriteOwnBit, SPRITE_SCROLL_FLAGS_FAMILY, 'this.spriteScrollUsedFor'), phase: 'game'},
+    {family: SPRITE_HIDDEN_FLAGS_FAMILY, bits: ownBits(this.spriteHiddenUsedFor, spriteOwnBit, SPRITE_HIDDEN_FLAGS_FAMILY, 'this.spriteHiddenUsedFor'), phase: 'game'},
+    {family: ANIM_FINISHED_DONE_FAMILY, bits: ownBits(this.playerAnimationFinishedWatches, spriteOwnBit, ANIM_FINISHED_DONE_FAMILY, 'this.playerAnimationFinishedWatches')},
+    {family: INERTIA_ACCEL_FLAGS_FAMILY, bits: ownBits(this.inertiaAccelUsedFor, spriteOwnBit, INERTIA_ACCEL_FLAGS_FAMILY, 'this.inertiaAccelUsedFor'), phase: 'game'},
+    {family: INERTIA_DECEL_FLAGS_FAMILY, bits: ownBits(this.inertiaDecelUsedFor, spriteOwnBit, INERTIA_DECEL_FLAGS_FAMILY, 'this.inertiaDecelUsedFor'), phase: 'game'},
+    {family: OBJECT_GRAVITY_FLAGS_FAMILY, bits: ownBits(this.objectGravityUsedFor, spriteOwnBit, OBJECT_GRAVITY_FLAGS_FAMILY, 'this.objectGravityUsedFor'), phase: 'game'},
     {family: TITLE_TEXT_FLAG_FAMILY, bits: this.isTitleTextUsed() ? [0] : [], first: true},
     {family: TITLE_KERNEL_ENDED_FAMILY, bits: this.titleEndUsed ? [0] : []},
     {family: TITLE_KERNEL_LOOP_FAMILY, bits: this.titleScreenDrawUsed ? [0] : []},

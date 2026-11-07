@@ -434,12 +434,15 @@ export const missileFireFracVarName = (index) => `missileFireFrac${index}`;
 // number or movement that is throttled), in the order missile0, missile1, ball. Each takes a
 // byte: the low nibble is the main axis's leftover and the high nibble the other axis's, and the
 // slot is the index of the byte (missileFireFracVarName).
-export const missileFireFracSlots = (usedFor, used16) => {
+// DPC+ (not PXE): every object keeps them, for the stretch of its vertical movement (see stretchRow).
+export const fireStretches = (config) => config.kernel === 'dpcplus' && !config.pxe;
+export const missileFireFracSlots = (usedFor, used16, usedPfCheck) => {
+  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
   // Every object that fires in 16 directions keeps its leftover sixteenths in a separate byte. That makes the movement smooth
   // for any speed and however often the object moves; working them out from the frame counter made the halfway directions
   // slower and jerky when the movement is throttled (it only runs on some frames of the counter).
   const slots = new Map();
-  [...(usedFor || [])].filter((name) => used16 && used16.has(name)).forEach((name) => slots.set(name, slots.size));
+  [...(usedFor || [])].filter((name) => (used16 && used16.has(name)) || fireStretches(config)).forEach((name) => slots.set(name, slots.size));
   return slots;
 };
 
@@ -1363,11 +1366,24 @@ const pfTopY = (config, name) => (config.kernel === 'dpcplus' && /^(missile|ball
 // when the object is not stepped a pixel at a time (bit 0: x takes temp3, the main amount; bit 1: y does; a halfway direction has the other axis take temp4).
 const FIRE_TABLES = {
   mainx: '_fire_tab_mainx', mainy: '_fire_tab_mainy', minx: '_fire_tab_minx', miny: '_fire_tab_miny', sx: '_fire_tab_sx', sy: '_fire_tab_sy', big: '_fire_tab_big',
+  stretchbig: '_fire_tab_sbig', stretchmain: '_fire_tab_smm', stretchminor: '_fire_tab_snm',
+  smainx: '_fire_tab_smainx', smainy: '_fire_tab_smainy', sminx: '_fire_tab_sminx', sminy: '_fire_tab_sminy',
 };
-const fireTables = () => {
+// The stretch of the vertical movement on DPC+: a pixel is about 1.6 lines wide on a TV, so a step of a line moves an object less on the screen than a step of a
+// pixel. Every heading moves its vertical part 1.6 times as far, in two amounts a frame (in sixteenths of the speed): the main one (the axis that moves pixel by
+// pixel: the vertical axis for an up or down heading and for a diagonal, the dominant axis of a halfway heading) and the minor one. Sideways goes at the speed, up
+// and down 1.625 times, a diagonal 1.625 vertically and 1 sideways, a halfway heading is the 22.5 degrees heading of leanSixteenths with its vertical part
+// 1.6 times.
+const stretchRow = (i) => {
+  const [, y] = DIRECTION16_STEPS[i];
+  if (i % 4 === 0) return y !== 0 ? {big: 2, main: 26, minor: 0} : {big: 1, main: 16, minor: 0};
+  if (i % 4 === 2) return {big: 2, main: 26, minor: 16};
+  return Math.abs(y) === 2 ? {big: 2, main: 33, minor: 9} : {big: 1, main: 21, minor: 14};
+};
+const fireTables = (Blockly) => {
   const sign = (v) => (v > 0 ? 1 : v < 0 ? 255 : 0);
   const minorOf = (step, other) => Math.abs(step) === 1 && Math.abs(other) === 2;
-  const row = (fn) => '       .byte ' + DIRECTION16_STEPS.map(([x, y]) => fn(x, y)).join(',');
+  const row = (fn) => '       .byte ' + DIRECTION16_STEPS.map(([x, y], i) => fn(x, y, i)).join(',');
   return [
     ' asm',
     '       jmp _fire_tables_end',
@@ -1378,6 +1394,16 @@ const fireTables = () => {
     FIRE_TABLES.sx, row((x) => sign(x)),
     FIRE_TABLES.sy, row((x, y) => sign(y)),
     FIRE_TABLES.big, row((x, y) => (Math.abs(x) === 2 ? 1 : 0) | (Math.abs(y) === 2 ? 2 : 0)),
+    ...(Blockly.BBasic.fireStretchTablesUsed ? [
+      FIRE_TABLES.stretchbig, '       .byte ' + DIRECTION16_STEPS.map((_, i) => stretchRow(i).big).join(','),
+      FIRE_TABLES.stretchmain, '       .byte ' + DIRECTION16_STEPS.map((_, i) => stretchRow(i).main).join(','),
+      FIRE_TABLES.stretchminor, '       .byte ' + DIRECTION16_STEPS.map((_, i) => stretchRow(i).minor).join(','),
+      // The step of the main axis and of the minor axis of each heading, for the movement a pixel at a time (the minor one only where the heading has a minor amount).
+      FIRE_TABLES.smainx, row((x, y, i) => (stretchRow(i).big === 1 ? sign(x) : 0)),
+      FIRE_TABLES.smainy, row((x, y, i) => (stretchRow(i).big === 2 ? sign(y) : 0)),
+      FIRE_TABLES.sminx, row((x, y, i) => (stretchRow(i).big === 2 && stretchRow(i).minor ? sign(x) : 0)),
+      FIRE_TABLES.sminy, row((x, y, i) => (stretchRow(i).big === 1 && stretchRow(i).minor ? sign(y) : 0)),
+    ] : []),
     '_fire_tables_end',
     'end',
   ];
@@ -1393,7 +1419,7 @@ const fireTables = () => {
 // over those steps (temp5 collects the share of a pixel, against temp6, the number of steps). The
 // caller works temp3 and temp4 out first (the "lean lines" in generateMissileFireChecks): temp3
 // is the speed for every other direction.
-const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, stepsVar}) => {
+const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, stepsVar, stretch}) => {
   const configurationStorage = useConfigurationStorage();
   const config = (configurationStorage && configurationStorage.value) || {};
   const maxRow = Blockly.BBasic.maxRowText(config);
@@ -1487,24 +1513,27 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
       `       cpx #${count}`,
       `       bcs ${skip}`,
       ...(count === 8 ? ['       txa', '       asl', '       tax'] : []),
-      `       lda ${name}x`, undo ? '       sec' : '       clc', `       ${undo ? 'sbc' : 'adc'} ${FIRE_TABLES[kind + 'x']},x`, `       sta ${name}x`,
-      `       lda ${name}y`, undo ? '       sec' : '       clc', `       ${undo ? 'sbc' : 'adc'} ${FIRE_TABLES[kind + 'y']},x`, `       sta ${name}y`,
+      `       lda ${name}x`, undo ? '       sec' : '       clc', `       ${undo ? 'sbc' : 'adc'} ${FIRE_TABLES[(stretch ? 's' : '') + kind + 'x']},x`, `       sta ${name}x`,
+      `       lda ${name}y`, undo ? '       sec' : '       clc', `       ${undo ? 'sbc' : 'adc'} ${FIRE_TABLES[(stretch ? 's' : '') + kind + 'y']},x`, `       sta ${name}y`,
       skip,
       'end',
     ];
   };
-  if (is16) {
-    lines.push(' temp6 = temp3', ' temp5 = 0', label('sub'), ...stepCode('main', 16, 'm'));
+  // (With the stretch every heading has a main axis and, where its minor amount is not 0, another that moves on some of the steps: the amounts are in temp3 and temp4.)
+  const minorKind = is16 || stretch;
+  const count = is16 ? 16 : 8;
+  if (minorKind) {
+    lines.push(' temp6 = temp3', ' temp5 = 0', label('sub'), ...stepCode('main', count, 'm'));
     // The other axis of a halfway direction moves on some of the steps. The cell is looked at after the main axis moved and again
     // after the other one did: with both axes moving at once the object could slip through the corner between two lit cells that
     // touch diagonally.
     lines.push(
-        ` if !${dirVar}{0} then goto ${label('final')}`,
+        ...(stretch ? [' if temp4 = 0 then goto ' + label('final')] : [` if !${dirVar}{0} then goto ${label('final')}`]),
         ...cellCheck('a'),
         ' temp5 = temp5 + temp4',
         ` if temp5 < temp6 then goto ${label('next')}`,
         ' temp5 = temp5 - temp6',
-        ...stepCode('min', 16, 'n'),
+        ...stepCode('min', count, 'n'),
         label('final'));
   } else {
     lines.push(` ${stepsVar} = ${speedVar}`, label('sub'), ...stepCode('main', 8, 'm'));
@@ -1517,10 +1546,10 @@ const buildPlayfieldCheckedMovement = ({Blockly, name, is16, dirVar, speedVar, s
       ...(stagePair ? [` if ${cellPair.read} = 0 then goto ${label('end')}`, ` goto ${label('endlit')}`] : [` goto ${label('end')}`]),
       // An object that started in a lit cell does not go into another one: the step that did is taken back (the main axis' step after the first look, and
       // after the second look the other axis' step when there was one).
-      ...(is16 ? [label('undoa'), ...stepCode('main', 16, 'ua', true), ` goto ${label(litEnd)}`] : []),
+      ...(minorKind ? [label('undoa'), ...stepCode('main', count, 'ua', true), ` goto ${label(litEnd)}`] : []),
       label('undob'),
-      ...(is16 ? [` if ${dirVar}{0} then goto ${label('undon')}`, ` goto ${label('undoa')}`,
-        label('undon'), ...stepCode('min', 16, 'un', true)] : [...stepCode('main', 8, 'ub', true)]),
+      ...(minorKind ? [stretch ? ' if temp4 = 0 then goto ' + label('undoa') : ` if !${dirVar}{0} then goto ${label('undoa')}`, ' goto ' + label('undon'),
+        label('undon'), ...stepCode('min', count, 'un', true)] : [...stepCode('main', 8, 'ub', true)]),
       // Ended the frame in a lit cell: next frame looks at the cell it starts in.
       ...(stagePair ? [label('endlit')] : []),
       label('end'),
@@ -1567,9 +1596,11 @@ export const generateMissileFireChecks = (Blockly) => {
   // The first y below the picture: the standard kernel draws 192 lines, DPC+ 212.
   const bottomY = (useConfigurationStorage().value || {}).kernel === 'dpcplus' ? 212 : 192;
   const offscreenVar = offscreenUsed.size ? resolveVar(fireOffscreenFlagsVarName()) : null;
-  const fracSlots = missileFireFracSlots(used, used16);
+  const fracSlots = missileFireFracSlots(used, used16, usedPfCheck);
+  const fireConfig = (useConfigurationStorage() && useConfigurationStorage().value) || {};
   const lines = [];
   Blockly.BBasic.fireTablesUsed = false;
+  Blockly.BBasic.fireStretchTablesUsed = false;
   ['missile0', 'missile1', 'ball', ...[...used].filter((name) => /^player([0-9]|1[0-6])$/.test(name))].forEach((name) => {
     if (!used.has(name)) return;
     const doneLabel = `_missilefire_${name}_done`;
@@ -1584,6 +1615,7 @@ export const generateMissileFireChecks = (Blockly) => {
     const throttled = !!throttlePair;
     const is16 = used16 && used16.has(name);
     const pfChecked = usedPfCheck.has(name);
+    const stretch = fireStretches(fireConfig);
     // Every "if dirVar = N then ..." line only ever conditions the ONE
     // statement right after "then" (see this function's long-standing
     // comment further down) - a step whose (x, y) pair has BOTH a nonzero x
@@ -1607,19 +1639,21 @@ export const generateMissileFireChecks = (Blockly) => {
     // One step along each axis from the tables of the direction (see fireTables): the sign of the axis and which amount it takes (the speed, or temp3 and temp4
     // for the two axes of a halfway direction, worked out by the lines before this): about 90 bytes for every direction, where a handler for each took 300.
     Blockly.BBasic.fireTablesUsed = true;
+    if (stretch) Blockly.BBasic.fireStretchTablesUsed = true;
+    const bigTable = stretch ? FIRE_TABLES.stretchbig : FIRE_TABLES.big;
     const axisAsm = (axis) => {
       const lab = (part) => `_missilefire_${name}_${axis}${part}`;
       return [
         `       lda ${FIRE_TABLES['s' + axis]},x`,
         `       beq ${lab('skip')}`,
         '       sta temp7',
-        `       lda ${FIRE_TABLES.big},x`,
+        `       lda ${bigTable},x`,
         `       and #${axis === 'x' ? 1 : 2}`,
         `       beq ${lab('nb')}`,
         '       lda temp3',
         `       jmp ${lab('have')}`,
         lab('nb'),
-        `       lda ${FIRE_TABLES.big},x`,
+        `       lda ${bigTable},x`,
         `       and #${axis === 'x' ? 2 : 1}`,
         `       beq ${lab('speed')}`,
         '       lda temp4',
@@ -1678,6 +1712,28 @@ export const generateMissileFireChecks = (Blockly) => {
           ' temp4 = temp4 / 16');
       leanLines.push(leanDone);
     }
+    // The stretch (see stretchRow): temp3 is the amount of the main axis and temp4 the minor one for this frame (the speed times the sixteenths of the heading in the
+    // tables, with the leftover sixteenths of each kept in the object's byte: the low nibble the main amount's, the high one the minor's).
+    const stretchLines = [];
+    if (stretch) {
+      const fracPair = resolveRW(missileFireFracVarName(fracSlots.get(name)));
+      const speedOperand = /^\d+$/.test(String(speedVar)) ? `#${speedVar}` : speedVar;
+      const skip = `_missilefire_${name}_stretchskip`;
+      const mulLoop = (tag, table, adjust) => [
+        `       lda ${table},x`, ...adjust, '       sta temp6', '       lda #0', `       ldy ${speedOperand}`, `       beq ${skip}${tag}1`, `${skip}${tag}0`,
+        '       clc', '       adc temp6', '       dey', `       bne ${skip}${tag}0`, `${skip}${tag}1`];
+      stretchLines.push(' asm',
+          `       ldx ${dirVar}`, `       cpx #${is16 ? 16 : 8}`, `       bcs ${skip}`,
+          ...(is16 ? [] : ['       txa', '       asl', '       tax']),
+          ...mulLoop('m', FIRE_TABLES.stretchmain, ['       sec', '       sbc #16']),
+          '       sta temp3', `       lda ${fracPair.read}`, '       and #15', '       clc', '       adc temp3', '       sta temp3',
+          ...mulLoop('n', FIRE_TABLES.stretchminor, []),
+          '       sta temp4', `       lda ${fracPair.read}`, '       lsr', '       lsr', '       lsr', '       lsr', '       clc', '       adc temp4', '       sta temp4',
+          '       lda temp3', '       and #15', '       sta temp5', '       lda temp4', '       and #15', '       asl', '       asl', '       asl', '       asl', '       ora temp5', `       sta ${fracPair.write}`,
+          '       lda temp3', '       lsr', '       lsr', '       lsr', '       lsr', '       clc', `       adc ${speedOperand}`, '       sta temp3',
+          '       lda temp4', '       lsr', '       lsr', '       lsr', '       lsr', '       sta temp4',
+          skip, 'end');
+    }
     // Under DPC+ the coprocessor does the movement of an object that checks the playfield when the option for it is on (function 101 of armprog.c, the same steps and
     // checks: the 6502 hands it the object's numbers and takes them back, about 85 bytes less for each object and some 150 to 300 cycles a frame less at a speed of 2 or
     // 3 pixels, but the program is 720 to 840 bytes and a speed of 1 takes more cycles than the 6502 code; an object that does not check the playfield has about
@@ -1689,7 +1745,7 @@ export const generateMissileFireChecks = (Blockly) => {
     const armFracPair = is16 ? resolveRW(missileFireFracVarName(fracSlots.get(name))) : null;
     const plainName = (text) => /^[A-Za-z_]\w*$/.test(String(text));
     const evenPair = (Blockly.BBasic.missileFireEvenUsedFor || new Set()).has(name) ? resolveRW(missileFireEvenVarName(name)) : null;
-    const fireArm = pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
+    const fireArm = !stretch && pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
       (constSpeed !== undefined || plainName(speedVar)) && (!armStagePair || (plainName(armStagePair.read) && plainName(armStagePair.write))) &&
       (!armFracPair || (plainName(armFracPair.read) && plainName(armFracPair.write))) && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(armConfig) &&
       /^\d+$/.test(String(armRowDivisor)) && 256 % Number(armRowDivisor) === 0 && /^\d+$/.test(String(armMaxRow));
@@ -1744,13 +1800,14 @@ export const generateMissileFireChecks = (Blockly) => {
           ` temp1 = ${speedVar} * 7`, ` temp2 = ${evenPair.read} & 15`, ' temp1 = temp1 + temp2', ' temp2 = temp1 / 16', ' temp1 = temp1 & 15',
           ' temp3 = temp2 * 16', ` ${evenPair.write} = temp1 | temp3`, ` ${speedVar} = ${speedVar} + temp2`, `_missilefire_${name}_evengo`] : []),
         ...(fireArm ? fireArmLines : [
-          ...(is16 ? leanLines : []),
+          ...(stretch ? stretchLines : is16 ? leanLines : []),
           ...(pfChecked ?
             buildPlayfieldCheckedMovement({
               Blockly, name, is16, dirVar, speedVar,
               // temp3 survives the playfield reads (only temp1/temp2 are overwritten),
               // so the sub-step counter needs no variable.
               stepsVar: 'temp3',
+              stretch,
             }) :
             dispatch),
         ]),
@@ -1780,7 +1837,7 @@ export const generateMissileFireChecks = (Blockly) => {
         `${doneLabel}`,
     );
   });
-  return [...(Blockly.BBasic.fireTablesUsed ? fireTables() : []), ...lines].join('\n') + '\n';
+  return [...(Blockly.BBasic.fireTablesUsed ? fireTables(Blockly) : []), ...lines].join('\n') + '\n';
 };
 
 // Spliced into commongamelogic right alongside generateMissileFireChecks

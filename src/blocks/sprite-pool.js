@@ -177,3 +177,39 @@ Blockly.FieldDropdown.prototype.doValueUpdate_ = function(newValue) {
   const block = this.getSourceBlock();
   if (block && block.inputList && block.inputList.length && (isMultiValue(newValue) || block.getInput('POOLRANGE'))) syncPoolRange(block);
 };
+
+// The blocks the build puts in place of a pool (see utils/sprite-pool.js); they are never in the toolbox.
+Blockly.defineBlocksWithJsonArray([
+  {
+    'type': 'sprite_pool_body',
+    'message0': 'Sprite pool blocks %1 %2',
+    'args0': [{'type': 'field_input', 'name': 'NAME', 'text': 'poolbody'}, {'type': 'input_statement', 'name': 'DO'}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_body_call',
+    'message0': 'Run sprite pool blocks %1',
+    'args0': [{'type': 'field_input', 'name': 'NAME', 'text': 'poolbody'}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_swap',
+    'message0': 'Swap sprites %1 and %2',
+    'args0': [{'type': 'field_input', 'name': 'FROM', 'text': '1'}, {'type': 'field_input', 'name': 'TO', 'text': '2'}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_shadow',
+    'message0': 'Sprite pool copy %1',
+    'args0': [{'type': 'input_statement', 'name': 'DO'}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+]);

@@ -283,6 +283,7 @@
                 </shadow>
             </value>
         </block>
+        {{#if spritePoolOn}}
         <block type="sprite_pool_spawn">
             <field name="FROM">1</field>
             <field name="TO">3</field>
@@ -300,6 +301,7 @@
             <field name="FROM">1</field>
             <field name="TO">3</field>
         </block>
+        {{/if}}
         <block type="sprite_player_size" />
         {{#if paletteOn}}
         <block type="sprite_player_mask" />
