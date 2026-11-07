@@ -99,6 +99,13 @@
               <v-btn icon small class="line-colors-reset-btn" title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
                 <v-icon>mdi-restore</v-icon>
               </v-btn>
+              <v-checkbox
+                v-model="scoreBarLineColors"
+                label="Score bars use the line colors"
+                title="The score bars (the health block and the lives dots of the Score bar blocks) are drawn in the color of the score line they are on, so they match the digits. Off: the bars are in the score color (or the color of a Score bars set color block)."
+                hide-details
+                class="score-fade-switch"
+              />
             </div>
           </template>
         </graphic-editor-toolbar>
@@ -342,6 +349,15 @@ export default defineComponent({
       if (!isDpcPlus.value || new Set(dpcPlusScoreRowColors.value).size < 2) return null;
       const height = Math.max(1, activeDigitHeight.value);
       return Array.from({length: height}, (unused, row) => colorByteToCss(dpcPlusScoreRowColors.value[Math.min(7, Math.floor(row * 8 / height))]));
+    });
+    // DPC+: the score bars take the color of each line of the score (off: the score color, as before).
+    const scoreBarLineColors = computed({
+      get() {
+        return !!(configurationStorage.value || {}).dpcPlusScoreBarColors;
+      },
+      set(value) {
+        configurationStorage.value = {...(configurationStorage.value || {}), dpcPlusScoreBarColors: value};
+      },
     });
     const setScoreRowColor = (rowIndex, byte) => {
       if (byte === null || byte === undefined) return;
@@ -619,6 +635,7 @@ export default defineComponent({
       scoreBkColorSwatchValue,
       isDpcPlus,
       dpcPlusScoreColorsSet,
+      scoreBarLineColors,
       dpcPlusScoreRowColors,
       digitRowColors,
       setScoreRowColor,

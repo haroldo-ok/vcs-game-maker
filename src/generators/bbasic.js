@@ -6503,7 +6503,8 @@ Blockly.BBasic.generateConfiguration = function() {
   // The DPC+ text row is called from inside the score code, so with text the score is always assembled (a
   // project that hides it just draws it in a color nobody sees).
   const dpcPlusHiddenTextScore = !(showScore ?? true) && this.isTextMinikernelActive() && config.kernel === 'dpcplus';
-  const scoreBarFlatCode = this.scoreBarColorFlat && config.kernel === 'dpcplus' ? 'const scorebarflat = 1' : '';
+  // (The bars keep one color unless the Score tab's "Score bars use the line colors" is ticked, and a Score bars set color block gives them one in any case.)
+  const scoreBarFlatCode = (this.scoreBarColorFlat || !config.dpcPlusScoreBarColors) && config.kernel === 'dpcplus' ? 'const scorebarflat = 1' : '';
   const scoreConfigurationCode = scoreBarFlatCode + (scoreBarFlatCode && !(showScore ?? true) ? '\n' : '') + ((showScore ?? true) ? '' : dpcPlusHiddenTextScore ? 'const dpchidescore = 1' :
     `const ${this.isTextMinikernelActive() ? 'noscoretxt' : 'noscore'} = 1`);
   // "scorefade" - a standard-kernel-only compile-time gate that adds shading
