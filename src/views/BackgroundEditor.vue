@@ -1657,7 +1657,9 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 8px;
-  align-self: center;
+  /* Down to the line of the fields beside it: their text sits low in the box (the label and the strip for hints are above and below it). */
+  align-self: flex-start;
+  margin-top: 38px;
 }
 
 .background-solid-color-label {

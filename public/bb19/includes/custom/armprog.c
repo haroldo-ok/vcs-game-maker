@@ -434,62 +434,54 @@ static u lit(volatile b8 *p,u x,u y)
 static void firemove(volatile b8 *p)
 {
   u x=CF[1],y=CF[2],dir=CF[3],speed=CF[4],frac=CF[5],fl=CF[6],stage=CF[7],steps=(fl&1)?16:8;
-  u t3=speed,t4=speed,t5=0,n,start=0,cell;
-  int dx=0,dy=0,ax,ay,sx,sy,px,py,mx,my;
-  if (dir<steps) { dx=(int)DX16[(fl&1)?dir:dir<<1]-2; dy=(int)DY16[(fl&1)?dir:dir<<1]-2; }
-  ax=dx<0?-dx:dx;
-  ay=dy<0?-dy:dy;
+  u t3,t4,t5=0,n,start,cell,i=(fl&1)?dir:dir<<1,big=2,mv=26,nv=0;
+  int dx=0,dy=0,sx,sy,px,py,mx,my;
+  if (dir<steps) { dx=(int)DX16[i]-2; dy=(int)DY16[i]-2; }
   sx=dx>0?1:(dx<0?-1:0);
   sy=dy>0?1:(dy<0?-1:0);
-  if ((fl&1) && (dir&1))
+  // The stretch of the vertical movement (stretchRow in generators/bbasic/sprites.js): the main axis (big: 1 sideways, 2 vertical) takes mv sixteenths of the speed a
+  // frame (16 of them are the speed itself, added after), the other axis nv sixteenths: a pixel is about 1.6 lines wide on a TV. The leftover sixteenths of each
+  // are kept in frac (low nibble: the main axis, high nibble: the other).
+  if (i&1) { if (dy==2||dy==-2) { mv=33; nv=9; } else { big=1; mv=21; nv=14; } }
+  else if (i&2) nv=16;
+  else if (dy==0) { big=1; mv=16; }
+  t3=speed*(mv-16)+(frac&15);
+  t4=speed*nv+(frac>>4);
+  frac=(t3&15)|((t4&15)<<4);
+  t3=(t3>>4)+speed;
+  t4=t4>>4;
+  // A step at a time: the main axis one pixel, and the other axis now and then (t4 pixels in t3 steps).
+  px=big==1?sx:0;
+  py=big==2?sy:0;
+  mx=(big==2&&nv)?sx:0;
+  my=(big==1&&nv)?sy:0;
+  stage&=127;
+  // An object that starts inside a lit cell is stopped by any other lit cell it comes to, not by the one it is in.
+  start=lit(p,x,y);
+  n=t3;
+  do
   {
-    t3=speed*5+(frac&15);
-    t4=speed*9+(frac>>4);
-    frac=(t3&15)|((t4&15)<<4);
-    t3=(t3>>4)+speed;
-    t4=t4>>4;
-  }
-  if (!(fl&2))
-  {
-    // One move along each axis: the main axis of a halfway direction by t3, its other by t4, the others by the speed.
-    x+=sx*(ax==2?t3:(((fl&1)&&ay==2)?t4:speed));
-    y+=sy*(ay==2?t3:(((fl&1)&&ax==2)?t4:speed));
-  }
-  else
-  {
-    // A step at a time: the main axis (or both) one pixel, and on a halfway direction the other axis now and then (t4 pixels in t3 steps).
-    mx=(ax==1&&ay==2)?sx:0;
-    my=(ay==1&&ax==2)?sy:0;
-    px=mx?0:sx;
-    py=my?0:sy;
-    stage&=127;
-    // An object that starts inside a lit cell is stopped by any other lit cell it comes to, not by the one it is in.
-    start=lit(p,x,y);
-    n=t3;
-    do
+    u moved=0;
+    x+=px;
+    y+=py;
+    for (;;)
     {
-      u moved=0;
-      x+=px;
-      y+=py;
-      for (;;)
+      // A lit cell stops the object (see start above); the step into it is taken back, as far as it was taken.
+      if ((cell=lit(p,x,y)) && (!start || (cell!=start && !((stage&0x30)==0x30 && (dir&15)!=(stage&15))) || (cell==start && !(stage&0x30))))
       {
-        // A lit cell stops the object (see start above); the step into it is taken back, as far as it was taken.
-        if ((cell=lit(p,x,y)) && (!start || (cell!=start && !((stage&0x30)==0x30 && (dir&15)!=(stage&15))) || (cell==start && !(stage&0x30))))
-        {
-          if (!start) stage&=207;
-          if (start && cell!=start) { if (moved) { x-=mx; y-=my; } else { x-=px; y-=py; } }
-          goto done;
-        }
-        // (A halfway direction looks again after its other axis moved: t4 pixels in t3 steps.)
-        if (moved || !((fl&1) && (dir&1))) break;
-        t5+=t4;
-        if (t5<t3) break;
-        t5-=t3; x+=mx; y+=my; moved=1;
+        if (!start) stage&=207;
+        if (start && cell!=start) { if (moved) { x-=mx; y-=my; } else { x-=px; y-=py; } }
+        goto done;
       }
-      n--;
-    } while (n>0);
-    done:;
-  }
+      // (The other axis moves after the main one: t4 pixels in t3 steps.)
+      if (moved || !t4) break;
+      t5+=t4;
+      if (t5<t3) break;
+      t5-=t3; x+=mx; y+=my; moved=1;
+    }
+    n--;
+  } while (n>0);
+  done:;
   CF[1]=x;
   CF[2]=y;
   CF[3]=frac;

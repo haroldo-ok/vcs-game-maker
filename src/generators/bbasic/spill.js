@@ -458,3 +458,41 @@ export const remainingUses = (code, names) => {
   const lines = entriesOf(code).filter(({kind}) => kind !== 'ignored');
   return names.filter((name) => lines.some(({line, words}) => words.has(name) && (wordRegex(name, '').test(line) || arrayRegex(name).test(line))));
 };
+
+// Two reads of the display memory one after the other, the second of the byte after the first: reading a byte moves the data fetcher on by one, so the pointer
+// is where the second read wants it and its four lines that set it are left out (12 cycles and 10 bytes each). Only a read right after a read: a label between
+// them (somewhere a jump can come in), a statement, or anything else on the way leaves the pointer to be set. Variables the project reads together are best
+// kept in neighbouring bytes (the dev variables of a feature are made one after the other, so they usually are).
+const READ_START = /^\s*asm\s*$/;
+const READ_ADDRESS = /^\s*lda #<\((\w+)\+(\d+)\)\s*$/;
+const READ_BLOCK = [READ_START, READ_ADDRESS, /^\s*sta DF6LOW\s*$/, /^\s*lda #\(>\((\w+)\+(\d+)\)\) & \$0F\s*$/, /^\s*sta DF6HI\s*$/, /^\s*lda DF6DATA\s*$/,
+  /^\s*sta \w+\s*$/, /^\s*end\s*$/];
+// The table and byte a read block at line `at` reads, or null when it is not one.
+const readBlockAt = (lines, at) => {
+  if (at + READ_BLOCK.length > lines.length) return null;
+  const parts = READ_BLOCK.map((pattern, k) => pattern.exec(lines[at + k]));
+  if (parts.some((part) => !part)) return null;
+  const [, table, offset] = parts[1];
+  if (parts[3][1] !== table || parts[3][2] !== offset) return null;
+  return {table, offset: Number(offset)};
+};
+export const mergeAdjacentReads = (code) => {
+  const lines = code.split(/\r?\n/);
+  const drop = new Set();
+  let previous = null;
+  for (let at = 0; at < lines.length; at++) {
+    if (lines[at].trim() === '') continue;
+    const block = readBlockAt(lines, at);
+    if (!block) {
+      previous = null;
+      continue;
+    }
+    // (Not over a page: the high byte of the pointer would change, and the last byte of a table is the byte before the next one's.)
+    if (previous && previous.table === block.table && block.offset === previous.offset + 1 && previous.offset < 255) {
+      [1, 2, 3, 4].forEach((k) => drop.add(at + k));
+    }
+    previous = block;
+    at += READ_BLOCK.length - 1;
+  }
+  return drop.size ? lines.filter((line, i) => !drop.has(i)).join('\n') : code;
+};

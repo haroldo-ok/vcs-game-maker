@@ -96,6 +96,13 @@
                   @input="(byte) => setScoreRowColor(rowIndex, byte)"
                 />
               </div>
+              <v-checkbox
+                v-model="scoreLineColorsOn"
+                label="Use the line colors"
+                title="Off: every line of the score has the same color (the one the Score color blocks set, white to start with); the line colors below are kept for when it is turned on again."
+                hide-details
+                class="score-fade-switch"
+              />
               <v-btn icon small class="line-colors-reset-btn" title="Give every line of the score the same color again: the one the Score color blocks set, white to start with" :disabled="!dpcPlusScoreColorsSet" @click="resetScoreRowColors">
                 <v-icon>mdi-restore</v-icon>
               </v-btn>
@@ -346,9 +353,18 @@ export default defineComponent({
     // The glyphs are drawn in the colors of the score lines on DPC+ (a glyph that is not 8 rows tall takes the color of the line each of its rows falls on),
     // and in one color on the other kernels, and on DPC+ too when all the lines have the same color.
     const digitRowColors = computed(() => {
-      if (!isDpcPlus.value || new Set(dpcPlusScoreRowColors.value).size < 2) return null;
+      if (!isDpcPlus.value || !scoreLineColorsOn.value || new Set(dpcPlusScoreRowColors.value).size < 2) return null;
       const height = Math.max(1, activeDigitHeight.value);
       return Array.from({length: height}, (unused, row) => colorByteToCss(dpcPlusScoreRowColors.value[Math.min(7, Math.floor(row * 8 / height))]));
+    });
+    // The score line colors can be switched off without losing them (dpcPlusScoreLineColorsOff).
+    const scoreLineColorsOn = computed({
+      get() {
+        return !(configurationStorage.value || {}).dpcPlusScoreLineColorsOff;
+      },
+      set(value) {
+        configurationStorage.value = {...(configurationStorage.value || {}), dpcPlusScoreLineColorsOff: !value};
+      },
     });
     // DPC+: the score bars take the color of each line of the score (off: the score color, as before).
     const scoreBarLineColors = computed({
@@ -636,6 +652,7 @@ export default defineComponent({
       isDpcPlus,
       dpcPlusScoreColorsSet,
       scoreBarLineColors,
+      scoreLineColorsOn,
       dpcPlusScoreRowColors,
       digitRowColors,
       setScoreRowColor,

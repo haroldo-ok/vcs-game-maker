@@ -3,6 +3,7 @@
 import {useConfigurationStorage, appendCompileLog} from '../../hooks/project';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {colorOverrideRef} from './sprites';
+import {isPxe} from '../../utils/pxe';
 
 // The sprite pool blocks are replaced by other blocks before the code is made (see utils/sprite-pool.js): the blocks inside a pool block are built once,
 // for the first sprite of the pool, as a subroutine ("sprite_pool_body"). For each sprite of the pool the build swaps what the sprite has (its
@@ -12,7 +13,10 @@ import {colorOverrideRef} from './sprites';
 
 
 // The 6502 lines that exchange two bytes (each one may be a variable with a read and a write address).
-const exchange = (a, b) => [`lda ${a.read}`, `ldx ${b.read}`, `sta ${b.write}`, `stx ${a.write}`];
+// (On PXE, whose 6502 does not have LDX with an absolute address, CPX, CPY and TYA, the first one goes through the stack.)
+const exchange = (a, b, pxe = false) => (pxe ?
+  [`lda ${a.read}`, 'pha', `lda ${b.read}`, `sta ${a.write}`, 'pla', `sta ${b.write}`] :
+  [`lda ${a.read}`, `ldx ${b.read}`, `sta ${b.write}`, `stx ${a.write}`]);
 
 export default (Blockly) => {
   // The subroutine that holds the blocks of a pool: what a subroutine block does.
@@ -47,7 +51,8 @@ export default (Blockly) => {
     const a = `player${first}`;
     const b = `player${second}`;
     const lines = [];
-    const plain = (symbolA, symbolB) => lines.push(...exchange({read: symbolA, write: symbolA}, {read: symbolB, write: symbolB}));
+    const pxe = isPxe(config);
+    const plain = (symbolA, symbolB) => lines.push(...exchange({read: symbolA, write: symbolA}, {read: symbolB, write: symbolB}, pxe));
     // The kernel's arrays.
     ['x', 'y', ...(config.kernel === 'dpcplus' ? ['height'] : [])].forEach((role) => plain(`${a}${role}`, `${b}${role}`));
     const registry = Blockly.BBasic.devVarRegistry || [];
@@ -81,7 +86,7 @@ export default (Blockly) => {
       if (entry.rw) {
         const pairs = Blockly.BBasic.superchipRwPairs;
         if (!pairs[entry.canonical] || !pairs[other]) return;
-        lines.push(...exchange(pairs[entry.canonical], pairs[other]));
+        lines.push(...exchange(pairs[entry.canonical], pairs[other], pxe));
       } else {
         const symbol = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         plain(symbol(entry.canonical), symbol(other));
@@ -123,6 +128,17 @@ export default (Blockly) => {
     bitPairs.forEach(([x, y], index) => {
       const label = (part) => `_poolswap_${first}_${second}_${index}_${part}`;
       // (Only the registers: the scratch bytes can hold the arguments of a function.)
+      // (On PXE the two bits wait on the stack: no CPX, CPY, TAY.)
+      if (pxe) {
+        lines.push(
+            `lda ${x.byte}`, `and #${x.mask}`, 'pha',
+            `lda ${y.byte}`, `and #${y.mask}`, 'pha',
+            `lda ${x.byte}`, `and #${(~x.mask) & 255}`, `sta ${x.byte}`,
+            `lda ${y.byte}`, `and #${(~y.mask) & 255}`, `sta ${y.byte}`,
+            'pla', 'cmp #0', `beq ${label('a')}`, `lda ${x.byte}`, `ora #${x.mask}`, `sta ${x.byte}`, `@${label('a')}`,
+            'pla', 'cmp #0', `beq ${label('b')}`, `lda ${y.byte}`, `ora #${y.mask}`, `sta ${y.byte}`, `@${label('b')}`);
+        return;
+      }
       lines.push(
           `lda ${x.byte}`, `and #${x.mask}`, 'tax',
           `lda ${y.byte}`, `and #${y.mask}`, 'tay',

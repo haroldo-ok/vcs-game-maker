@@ -38,7 +38,7 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, resolveUsedBackgroundIds,
   ROW_FADE_IDLE_STEP, rowFadeStartColor, multicolorFadeVarName,
   backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME, FADE_STEPS} from '../blocks/background';
-import {chooseSpill, applySpill, remainingUses} from './bbasic/spill';
+import {chooseSpill, applySpill, remainingUses, mergeAdjacentReads} from './bbasic/spill';
 import {buildGroupRowsLoad, GROUP_ROWS_TABLE, ensureArmProgram} from './bbasic/offset-arm';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS} from '../blocks/function';
@@ -306,9 +306,21 @@ const asSubroutineBody = (code) => code.split('\n').map((line) => {
   if (text === 'end') return '@end';
   return /^[ ]/.test(line) ? text : '@' + text;
 }).join('\n');
-const wrapChecks = (generator, key, code) => {
-  if (!code || code.length < WRAPPED_CHECKS_MIN_LENGTH) return code;
+// The code is made inside the subroutine (makeCode is a function), so that the calls in it to code in other banks are tagged for the bank the subroutine is in, which a
+// build that is over capacity moves it to: made in the main loop, a call to the box test of a sprite was left without a tag and crossed into the wrong bank.
+const inSubroutineContext = (generator, name, makeCode) => {
+  const before = generator.currentEventName;
+  generator.currentEventName = SUBROUTINE_EVENT_NAME_PREFIX + name;
+  try {
+    return makeCode();
+  } finally {
+    generator.currentEventName = before;
+  }
+};
+const wrapChecks = (generator, key, makeCode) => {
   const name = WRAPPED_CHECKS_NAMES[key];
+  const code = inSubroutineContext(generator, name, makeCode);
+  if (!code || code.length < WRAPPED_CHECKS_MIN_LENGTH) return code;
   const newline = String.fromCharCode(10);
   generator.subroutines[name] = asSubroutineBody(code + ' return' + newline);
   return ` gosub ${name}${generator.bankJumpSuffix(generator.primaryBank(), generator.getSubroutineBank(name))}` + newline;
@@ -4649,18 +4661,18 @@ Blockly.BBasic.finish = function(code) {
     ` if !${titleKernelLoopFlag()} then goto commongamelogicdraw\n return\ncommongamelogicdraw\n` : '';
   const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
-  const generatedMissileFireChecks = wrapChecks(this, 'fire', generateMissileFireChecks(Blockly) + generateBounceStageChecks(Blockly));
-  const generatedSeekChecks = wrapChecks(this, 'seek', generateSeekChecks(Blockly));
-  const generatedLockChecks = wrapChecks(this, 'lock', generateLockChecks(Blockly));
+  const generatedMissileFireChecks = wrapChecks(this, 'fire', () => generateMissileFireChecks(Blockly) + generateBounceStageChecks(Blockly));
+  const generatedSeekChecks = wrapChecks(this, 'seek', () => generateSeekChecks(Blockly));
+  const generatedLockChecks = wrapChecks(this, 'lock', () => generateLockChecks(Blockly));
   const generatedWidePartnerSync = Blockly.BBasic.generateWidePartnerSync();
   // The boxes of the sprites and the pairs that overlap are in a subroutine, that can be moved to another bank (it is long, with several pairs).
-  const boxChecks = generateBoxChecks(Blockly) + generateOverlapChecks(Blockly);
+  const boxChecks = inSubroutineContext(this, SPRITE_BOX_CHECKS_NAME, () => generateBoxChecks(Blockly) + generateOverlapChecks(Blockly));
   if (boxChecks) this.subroutines[SPRITE_BOX_CHECKS_NAME] = asSubroutineBody(boxChecks + ' return\n');
   const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + Blockly.BBasic.generateTextBlinkChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(SPRITE_BOX_CHECKS_NAME))}
 ` : '');
-  const generatedInertiaChecks = wrapChecks(this, 'inertia', generateInertiaChecks(Blockly) + generateGravityChecks(Blockly));
-  const generatedPlatformerChecks = wrapChecks(this, 'platformer', Blockly.BBasic.generateCollisionMoveChecks() + Blockly.BBasic.generatePlatformerChecks());
+  const generatedInertiaChecks = wrapChecks(this, 'inertia', () => generateInertiaChecks(Blockly) + generateGravityChecks(Blockly));
+  const generatedPlatformerChecks = wrapChecks(this, 'platformer', () => Blockly.BBasic.generateCollisionMoveChecks() + Blockly.BBasic.generatePlatformerChecks());
   const generatedShakeScreenChecks = generateShakeScreenChecks(Blockly);
   const generatedSpeechChecks = generateSpeechChecks(Blockly);
   const generatedDpcPlusColorPriming = Blockly.BBasic.generateDpcPlusColorPriming();
@@ -6047,7 +6059,7 @@ Blockly.BBasic.generateDpcPlusColorTables = function() {
   if (!dpcPlusPfColorsOn(config)) out.push(` pfcolors:\n  ${colorByteToBuildBBasic(0x0E)}\nend`);
   if (!config.enableDpcPlusBkColors) out.push(` bkcolors:\n  ${colorByteToBuildBBasic(0xC4)}\nend`);
   // One color for each of the 8 lines of the score digits (set on the Score tab), or the same one on all of them.
-  const rowColors = Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ?
+  const rowColors = !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ?
     config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08)) :
     Array(8).fill(0x08);
   out.push(` scorecolors:\n${rowColors.map((byte) => '  ' + colorByteToBuildBBasic(byte)).join('\n')}\nend`);
@@ -6505,7 +6517,7 @@ Blockly.BBasic.generateConfiguration = function() {
   const dpcPlusHiddenTextScore = !(showScore ?? true) && this.isTextMinikernelActive() && config.kernel === 'dpcplus';
   // (The bars keep one color unless the Score tab's "Score bars use the line colors" is ticked, and a Score bars set color block gives them one in any case.)
   const scoreBarFlatCode = (this.scoreBarColorFlat || !config.dpcPlusScoreBarColors) && config.kernel === 'dpcplus' ? 'const scorebarflat = 1' : '';
-  const scoreConfigurationCode = scoreBarFlatCode + (scoreBarFlatCode && !(showScore ?? true) ? '\n' : '') + ((showScore ?? true) ? '' : dpcPlusHiddenTextScore ? 'const dpchidescore = 1' :
+  const scoreConfigurationCode = scoreBarFlatCode + (scoreBarFlatCode && !(showScore ?? true) ? '\n ' : '') + ((showScore ?? true) ? '' : dpcPlusHiddenTextScore ? 'const dpchidescore = 1' :
     `const ${this.isTextMinikernelActive() ? 'noscoretxt' : 'noscore'} = 1`);
   // "scorefade" - a standard-kernel-only compile-time gate that adds shading
   // to the score digits based on the live scorecolor value (see the Score
@@ -9077,7 +9089,7 @@ Blockly.BBasic.workspaceToCodeAllPasses = function(workspace) {
       continue;
     }
     const left = (typeof code === 'string' && this.displayRamVars) ? remainingUses(code, [...this.displayRamVars.keys()]) : [];
-    if (!left.length) return code;
+    if (!left.length) return typeof code === 'string' && !isPxe(useConfigurationStorage().value || {}) ? mergeAdjacentReads(code) : code;
     left.forEach((name) => this.displayRamExcluded.add(name));
   }
   return this.workspaceToCodeOnce(workspace);

@@ -251,7 +251,7 @@ export default (Blockly) => {
   // "scorecolors:" statement the project starts with), not in scorecolor (which is only the color of what follows the score row), so
   // a new score color has to be written to the table too: the 8 bytes at scoredata.
   // (Each color is rounded the way generateDpcPlusColorTables rounds it, so two bytes that come out the same in the table are not different here.)
-  const dpcPlusScoreColorsDiffer = (config) => Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 &&
+  const dpcPlusScoreColorsDiffer = (config) => !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 &&
     new Set(config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08))).size > 1;
   const dpcPlusScoreColorTableLines = () => {
     const configurationStorage = useConfigurationStorage();
@@ -278,7 +278,7 @@ export default (Blockly) => {
     if (config.kernel !== 'dpcplus') return ' rem Score line colors hue: the score lines need the DPC+ kernel\n';
     const argument0 = Blockly.BBasic.valueToCode(block, 'VALUE',
         Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    const colors = Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ? config.dpcPlusScoreColors : Array(8).fill(0x08);
+    const colors = !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 ? config.dpcPlusScoreColors : Array(8).fill(0x08);
     // (temp1 to temp6 hold the arguments inside a custom function: the hue is kept in a byte reserved for it there.)
     const pair = isInsideFunctionBody(block) ? Blockly.BBasic.superchipRwPairs[scoreLineHueVarName()] : null;
     const write = pair ? pair.write : 'temp1';

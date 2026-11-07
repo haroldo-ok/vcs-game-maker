@@ -434,15 +434,18 @@ export const missileFireFracVarName = (index) => `missileFireFrac${index}`;
 // number or movement that is throttled), in the order missile0, missile1, ball. Each takes a
 // byte: the low nibble is the main axis's leftover and the high nibble the other axis's, and the
 // slot is the index of the byte (missileFireFracVarName).
-// DPC+ (not PXE): every object keeps them, for the stretch of its vertical movement (see stretchRow).
-export const fireStretches = (config) => config.kernel === 'dpcplus' && !config.pxe;
+// DPC+ (not PXE): every object keeps them, for the stretch of its vertical movement (see stretchRow). An object that checks the playfield is stretched
+// only where the coprocessor moves it (the Enable coprocessor option, see firemove in armprog.c): the 6502 way of checking the playfield pixel by pixel
+// took too long for the extra pixels and rolled the screen in Bricks.
+export const fireStretches = (config, name, usedPfCheck) => config.kernel === 'dpcplus' && !config.pxe &&
+  (!(usedPfCheck && usedPfCheck.has(name)) || !!config.enableFireCoprocessor);
 export const missileFireFracSlots = (usedFor, used16, usedPfCheck) => {
   const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
   // Every object that fires in 16 directions keeps its leftover sixteenths in a separate byte. That makes the movement smooth
   // for any speed and however often the object moves; working them out from the frame counter made the halfway directions
   // slower and jerky when the movement is throttled (it only runs on some frames of the counter).
   const slots = new Map();
-  [...(usedFor || [])].filter((name) => (used16 && used16.has(name)) || fireStretches(config)).forEach((name) => slots.set(name, slots.size));
+  [...(usedFor || [])].filter((name) => (used16 && used16.has(name)) || fireStretches(config, name, usedPfCheck)).forEach((name) => slots.set(name, slots.size));
   return slots;
 };
 
@@ -1615,7 +1618,19 @@ export const generateMissileFireChecks = (Blockly) => {
     const throttled = !!throttlePair;
     const is16 = used16 && used16.has(name);
     const pfChecked = usedPfCheck.has(name);
-    const stretch = fireStretches(fireConfig);
+    const armConfig = (useConfigurationStorage().value || {});
+    const armRowDivisor = Blockly.BBasic.rowDivisorText(armConfig, true);
+    const armMaxRow = Blockly.BBasic.maxRowText(armConfig);
+    const armStagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
+    const armFracPair = fracSlots.has(name) ? resolveRW(missileFireFracVarName(fracSlots.get(name))) : null;
+    const plainName = (text) => /^[A-Za-z_]\w*$/.test(String(text));
+    const evenPair = (Blockly.BBasic.missileFireEvenUsedFor || new Set()).has(name) ? resolveRW(missileFireEvenVarName(name)) : null;
+    const fireArm = pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
+      (constSpeed !== undefined || plainName(speedVar)) && (!armStagePair || (plainName(armStagePair.read) && plainName(armStagePair.write))) &&
+      (!armFracPair || (plainName(armFracPair.read) && plainName(armFracPair.write))) && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(armConfig) &&
+      /^\d+$/.test(String(armRowDivisor)) && 256 % Number(armRowDivisor) === 0 && /^\d+$/.test(String(armMaxRow));
+    const stretch = fireStretches(fireConfig, name, usedPfCheck) && (!pfChecked || fireArm);
+
     // Every "if dirVar = N then ..." line only ever conditions the ONE
     // statement right after "then" (see this function's long-standing
     // comment further down) - a step whose (x, y) pair has BOTH a nonzero x
@@ -1639,7 +1654,7 @@ export const generateMissileFireChecks = (Blockly) => {
     // One step along each axis from the tables of the direction (see fireTables): the sign of the axis and which amount it takes (the speed, or temp3 and temp4
     // for the two axes of a halfway direction, worked out by the lines before this): about 90 bytes for every direction, where a handler for each took 300.
     Blockly.BBasic.fireTablesUsed = true;
-    if (stretch) Blockly.BBasic.fireStretchTablesUsed = true;
+    if (stretch && !fireArm) Blockly.BBasic.fireStretchTablesUsed = true;
     const bigTable = stretch ? FIRE_TABLES.stretchbig : FIRE_TABLES.big;
     const axisAsm = (axis) => {
       const lab = (part) => `_missilefire_${name}_${axis}${part}`;
@@ -1738,17 +1753,6 @@ export const generateMissileFireChecks = (Blockly) => {
     // checks: the 6502 hands it the object's numbers and takes them back, about 85 bytes less for each object and some 150 to 300 cycles a frame less at a speed of 2 or
     // 3 pixels, but the program is 720 to 840 bytes and a speed of 1 takes more cycles than the 6502 code; an object that does not check the playfield has about
     // 100 cycles of 6502 code, less than the call, so it is never moved this way). One row height and no scrolling, as for the pixel finding.
-    const armConfig = (useConfigurationStorage().value || {});
-    const armRowDivisor = Blockly.BBasic.rowDivisorText(armConfig, true);
-    const armMaxRow = Blockly.BBasic.maxRowText(armConfig);
-    const armStagePair = (Blockly.BBasic.missileBounceUsedFor || new Set()).has(name) ? Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)] : null;
-    const armFracPair = is16 ? resolveRW(missileFireFracVarName(fracSlots.get(name))) : null;
-    const plainName = (text) => /^[A-Za-z_]\w*$/.test(String(text));
-    const evenPair = (Blockly.BBasic.missileFireEvenUsedFor || new Set()).has(name) ? resolveRW(missileFireEvenVarName(name)) : null;
-    const fireArm = !stretch && pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
-      (constSpeed !== undefined || plainName(speedVar)) && (!armStagePair || (plainName(armStagePair.read) && plainName(armStagePair.write))) &&
-      (!armFracPair || (plainName(armFracPair.read) && plainName(armFracPair.write))) && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(armConfig) &&
-      /^\d+$/.test(String(armRowDivisor)) && 256 % Number(armRowDivisor) === 0 && /^\d+$/.test(String(armMaxRow));
     let fireArmLines = [];
     if (fireArm) {
       ensureArmProgram(Blockly, undefined, 'f');

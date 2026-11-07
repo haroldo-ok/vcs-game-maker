@@ -2820,6 +2820,22 @@ export default {
   fill: rgba(0, 0, 0, 0.25);
 }
 
+/* The handle the size of the thumb of the other scrollbars: 6px across inside the 10px track (a 2px margin each side) with a round end. Blockly gives it the
+   width and position of a 15px scrollbar when it makes it (geometry properties of an SVG rect are CSS properties too, and these win). */
+.blocklyScrollbarVertical .blocklyScrollbarHandle {
+  width: 6px;
+  x: 2px;
+  rx: 3px;
+  ry: 3px;
+}
+
+.blocklyScrollbarHorizontal .blocklyScrollbarHandle {
+  height: 6px;
+  y: 2px;
+  rx: 3px;
+  ry: 3px;
+}
+
 .blocklyScrollbarBackground:hover + .blocklyScrollbarHandle,
 .blocklyScrollbarHandle:hover,
 .blocklyFlyout .blocklyScrollbarBackground:hover + .blocklyScrollbarHandle,

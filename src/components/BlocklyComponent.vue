@@ -280,60 +280,9 @@ if (!Blockly.WorkspaceSvg.prototype.setScale.isKeepFlyoutOpenPatch) {
   Blockly.WorkspaceSvg.prototype.setScale.isKeepFlyoutOpenPatch = true;
 }
 
-// The same width as App.vue's global ::-webkit-scrollbar (10px), so the editor's scrollbars match the rest of the app.
-
-// The handle's cross-axis size/offset (normally (thickness - 5) wide with a
-// fixed 2.5px offset from each edge) doesn't land on the app's 12px thumb
-// width no matter what scrollbarThickness is set to - and can't be fixed by
-// overriding Scrollbar's internal DOM-building step (tried first): the
-// Scrollbar CONSTRUCTOR itself re-sets svgHandle's width/x (and height/y
-// for horizontal) right after building that DOM, clobbering anything set
-// there. Wrapping the whole constructor instead, so this runs after ALL of
-// the original construction logic. Static properties (scrollbarThickness,
-// DEFAULT_SCROLLBAR_MARGIN) are copied across since other Blockly modules
-// read them off Blockly.Scrollbar directly.
-// Blockly 8 rewrote Scrollbar as a real ES6 class (node_modules/blockly/
-// core/scrollbar.js) - a plain function body calling it via
-// OriginalScrollbar.apply(this, args) (Blockly 6's shape, which this used
-// to be) throws "Class constructor Scrollbar cannot be invoked without
-// 'new'" in v8+, since a class constructor can only ever be called through
-// `new`/`super(...)`, never .apply()/.call(). A real `class ... extends`
-// with `super(...args)` is the only way to both still run the original
-// constructor AND run this patch's code right after it. svgHandle (below)
-// is still named without a trailing underscore the same way in Blockly 10
-// (TypeScript's `private` keyword replaced the old Closure-style `_`
-// suffix convention somewhere between 8 and 10 - confirmed directly against
-// the installed package's scrollbar.d.ts).
-const OriginalScrollbar = Blockly.Scrollbar;
-// eslint-disable-next-line require-jsdoc
-class PatchedScrollbar extends OriginalScrollbar {
-  // eslint-disable-next-line require-jsdoc
-  constructor(...args) {
-    super(...args);
-    const horizontal = args[1];
-    const inset = 2;
-    const handleSize = Blockly.Scrollbar.scrollbarThickness - inset * 2;
-    const radius = handleSize / 2;
-    if (horizontal) {
-      this.svgHandle.setAttribute('height', handleSize);
-      this.svgHandle.setAttribute('y', inset);
-    } else {
-      this.svgHandle.setAttribute('width', handleSize);
-      this.svgHandle.setAttribute('x', inset);
-    }
-    this.svgHandle.setAttribute('rx', radius);
-    this.svgHandle.setAttribute('ry', radius);
-  }
-}
-// scrollbarThickness/DEFAULT_SCROLLBAR_MARGIN are real static properties on
-// the Scrollbar class itself (Scrollbar.scrollbarThickness = 15, set right
-// after the class body - node_modules/blockly/core/scrollbar.js), not
-// instance properties - `class ... extends` already inherits a parent
-// class's static properties through its prototype chain, so
-// PatchedScrollbar.scrollbarThickness already resolves correctly with no
-// separate Object.assign needed (unlike the old plain-function version,
-// which had no prototype chain to inherit through).
-Blockly.Scrollbar = PatchedScrollbar;
+// The same width as App.vue's global ::-webkit-scrollbar (10px), so the editor's scrollbars match the rest of the app. It is set on the class Blockly itself uses: Blockly 10's
+// workspace code uses the class it was built with, so a subclass put in the namespace (which this had been) is never made. The handle is drawn as 6px inside the 10px
+// (a 2px margin each side, a round end) by the rules for .blocklyScrollbarHandle in App.vue.
 Blockly.Scrollbar.scrollbarThickness = 10;
 
 // The drawer the toolbox opens with a category's blocks is drawn with rounded corners (an 8px arc at the top and bottom of the
