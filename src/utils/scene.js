@@ -64,8 +64,11 @@ export const sceneObjectLabel = (object) => SCENE_OBJECT_LABELS[object] || 'Play
 export const isScenePlayer = (object) => (object >= 0 && object <= 9) || (object >= 13 && object <= 19);
 // The number of the player a scene sprite is.
 export const scenePlayerNumber = (object) => (object >= 13 ? object - 3 : object);
-// The sprites a trigger can be set off by: the ones its record has room for (the players 10 to 16 of PXE are left out).
-export const SCENE_TRIGGER_OBJECT_LIMIT = 12;
+// The sprites a trigger can be set off by: every object, a bit of the mask each (bit n for object n). The record of a trigger has room for the bits of players 0 to
+// 9, the missiles and the ball (13 bits: the 8 of its seventh value and bits 1 to 5 of its eighth); the players 10 to 16 of PXE are bits 13 to 19, kept in a second
+// row of the trigger after the offset areas (header value 6 is 1 when those rows are there).
+export const SCENE_TRIGGER_OBJECT_LIMIT = 19;
+export const SCENE_TRIGGER_EXTRA_BIT = 13;
 export const MISSILE_WIDTHS = [1, 2, 4, 8];
 
 // The sprites a scene can hold under the kernel and options of the project: Player 0 and the missiles and the ball on the standard kernel; with
@@ -111,8 +114,15 @@ export const newSceneTrigger = (name, config) => ({
   targetX: 80,
   targetY: 50,
   targetScene: 0,
-  mask: availableSceneObjects(config).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT).reduce((mask, object) => mask | (1 << object), 0),
+  mask: triggerObjectsOf(config).reduce((mask, object) => mask | (1 << object), 0),
 });
+
+// The objects a trigger's list of sprites offers: every sprite the project has.
+export const triggerObjectsOf = (config) => availableSceneObjects(config).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT);
+// The sprites a trigger with this mask is set off by, as objects.
+export const triggerSpritesOf = (config, mask) => triggerObjectsOf(config).filter((object) => mask & (1 << object));
+// Whether the second rows (players 10 to 16) are needed for these triggers.
+export const sceneHasTriggerExtra = (triggers) => (triggers || []).some((trigger) => (trigger.mask >> SCENE_TRIGGER_EXTRA_BIT) & 127);
 
 export const isSceneTable = (table) => !!(table && table.scene);
 
@@ -156,6 +166,13 @@ export const decodeScene = (values, names = []) => {
       delta: clampByte(list[at + 7]),
     });
   }
+  // The second rows of the triggers (after the offset areas): the players 10 to 16.
+  if (clampByte(list[5]) === 1) {
+    triggers.forEach((trigger, i) => {
+      const at = SCENE_RECORD_SIZE * (1 + count + triggerCount + offsetCount + i);
+      if (at < list.length) trigger.mask |= (clampByte(list[at]) & 127) << SCENE_TRIGGER_EXTRA_BIT;
+    });
+  }
   const objects = [];
   for (let i = 0; i < count; i++) {
     const at = SCENE_RECORD_SIZE * (i + 1);
@@ -175,7 +192,8 @@ export const decodeScene = (values, names = []) => {
 
 // The values of a Data table for a scene.
 export const encodeScene = ({background, objects, triggers = [], offsets = []}) => {
-  const values = [SCENE_FORMAT, clampByte(background), objects.length, triggers.length, offsets.length, 0, 0, 0];
+  const extra = sceneHasTriggerExtra(triggers);
+  const values = [SCENE_FORMAT, clampByte(background), objects.length, triggers.length, offsets.length, extra ? 1 : 0, 0, 0];
   objects.forEach((sprite) => {
     values.push(clampByte(sprite.object), clampByte(sprite.x), clampByte(sprite.y), clampByte(sprite.color), clampByte(sprite.size),
         clampByte(sprite.animation, SCENE_NO_ANIMATION), clampByte(sprite.flags), clampByte(sprite.height));
@@ -190,6 +208,7 @@ export const encodeScene = ({background, objects, triggers = [], offsets = []}) 
     values.push(clampByte(offset.left), clampByte(offset.top), clampByte(offset.right), clampByte(offset.bottom),
         Math.max(0, SCENE_OFFSET_DIRECTIONS.indexOf(offset.direction)), offset.whole ? 1 : 0, clampByte(offset.mask), clampByte(offset.delta));
   });
+  if (extra) triggers.forEach((trigger) => values.push((trigger.mask >> SCENE_TRIGGER_EXTRA_BIT) & 127, 0, 0, 0, 0, 0, 0, 0));
   return values;
 };
 
@@ -277,7 +296,7 @@ export const triggerEventXml = (tables, config = {}, withTriggers = true) => {
     if (areas.length) offsetBlocks.push(`<block type="scene_active_if"><field name="SCENE">${table.id}</field><statement name="DO">${chain(areas)}</statement></block>`);
     if (!withTriggers) return;
     scene.triggers.forEach((trigger, index) => {
-      const sprites = availableSceneObjects(config).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT && trigger.mask & (1 << object)).map(sceneObjectName);
+      const sprites = triggerSpritesOf(config, trigger.mask).map(sceneObjectName);
       if (!sprites.length) return;
       checks.push(`<block type="trigger_check"><field name="KEY">${table.id}:${index}</field><field name="NAME">${xmlText(trigger.name)}</field>` +
         `<field name="SCENE">${table.id}</field><field name="SPRITES">${sprites.join(',')}</field><field name="LEFT">${trigger.left}</field>` +
@@ -359,7 +378,7 @@ export const expandSceneBlocks = (dom, tables, Blockly, config = {}) => {
 
 // How the cells of a scene show in the Data tab: the background and the animations as their pickers, the colors as color swatches. The
 // tab renumbers these when a background or an animation is moved or deleted, so a scene follows them.
-export const sceneValueFormats = (objectCount, triggerCount = 0, offsetCount = 0) => {
+export const sceneValueFormats = (objectCount, triggerCount = 0, offsetCount = 0, extraRows = 0) => {
   const formats = [];
   formats[1] = 'background';
   for (let i = 0; i < objectCount; i++) {
@@ -367,7 +386,7 @@ export const sceneValueFormats = (objectCount, triggerCount = 0, offsetCount = 0
     formats[at + 3] = 'color';
     formats[at + 5] = 'player0';
   }
-  const length = SCENE_RECORD_SIZE * (1 + objectCount + triggerCount + offsetCount);
+  const length = SCENE_RECORD_SIZE * (1 + objectCount + triggerCount + offsetCount + extraRows);
   return Array.from({length: Math.max(formats.length, length)}, (_, i) => formats[i] || 'dec');
 };
 
@@ -377,11 +396,12 @@ const HEADER_NOTES = [
   'Header: how many sprites follow (8 values each)',
   'Header: how many triggers follow the sprites (8 values each)',
   'Header: how many playfield offset areas follow the triggers (8 values each)',
-  'Header: not used (keep 0)', 'Header: not used (keep 0)', 'Header: not used (keep 0)',
+  'Header: 1 when each trigger has a second row after the offset areas, with the players 10 to 16 that trigger it (PXE); 0 when not',
+  'Header: not used (keep 0)', 'Header: not used (keep 0)',
 ];
 
 // What each value means, to show as the note of its cell in the Data tab.
-export const sceneValueNotes = (objects, triggers = [], offsets = []) => {
+export const sceneValueNotes = (objects, triggers = [], offsets = [], extra = false) => {
   const notes = HEADER_NOTES.slice();
   objects.forEach((sprite, i) => {
     const label = `Sprite ${i + 1} (${sceneObjectLabel(sprite.object)})`;
@@ -422,5 +442,12 @@ export const sceneValueNotes = (objects, triggers = [], offsets = []) => {
         `${label}: plus this many frames (0 to 255) on top of how often, so areas can step on different frames`,
     );
   });
+  if (extra) {
+    triggers.forEach((trigger, i) => {
+      const label = `Trigger ${i + 1} (${trigger.name}), second row`;
+      notes.push(`${label}: the players 10 to 16 that trigger it, added together: 1 Player 10, 2 Player 11, 4 Player 12, 8 Player 13, 16 Player 14, 32 Player 15, 64 Player 16`,
+          ...Array.from({length: 7}, () => `${label}: not used (keep 0)`));
+    });
+  }
   return notes;
 };

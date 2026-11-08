@@ -34,7 +34,7 @@ export const PF_BOX_SIZE = 'pfboxsize';
 export const PF_BOX_HEIGHT = 'pfboxh';
 export const PF_BOX_LAST_X = 'pfboxlastx';
 const NL = String.fromCharCode(10) + ' ';
-const sharesBoxTest = (generator, player) => /^player\d$/.test(player) && !(generator.widePartners || {})[player];
+const sharesBoxTest = (generator, player) => /^player\d+$/.test(player) && !(generator.widePartners || {})[player];
 // Returns null for a project that is better off with a subroutine per player, else {quick: whether the quick way in is needed}.
 export const pfBoxSharingOf = (generator, boxPlayers, undoPlayers = new Set()) => {
   const players = [...(boxPlayers || [])].filter((player) => sharesBoxTest(generator, player));
@@ -147,8 +147,8 @@ export const callPfBox = (Blockly, player, feet = false, quick = false) => {
     // (With groups of columns that have separate rows it is the coprocessor that knows the rows of each group, from the table the load of a
     // background puts in the display memory, see buildGroupRowsLoad in offset-arm.js; a missile, the ball or a wide player's partner are not.)
     const groupRows = dpcPlus && !pxe && !!Blockly.BBasic.dpcPlusGroupFracVars;
-    const armPlayer = dpcPlus && !pxe && (!varying || groupRows) && (groupRows ? (!!objectBox || /^player\d$/.test(player)) :
-      !objectBox && /^player\d$/.test(player) && !(Blockly.BBasic.widePartners || {})[player]);
+    const armPlayer = dpcPlus && !pxe && (!varying || groupRows) && (groupRows ? (!!objectBox || /^player\d+$/.test(player)) :
+      !objectBox && /^player\d+$/.test(player) && !(Blockly.BBasic.widePartners || {})[player]);
     const frac = geometry.dpcPlusRows ? geometry.dpcPlusRows.frac : 0;
     const shiftRows = frac > 0 && Number.isInteger(256 / frac) && ((256 / frac) & (256 / frac - 1)) === 0;
     let armBox = false;

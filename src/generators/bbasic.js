@@ -1082,7 +1082,7 @@ Blockly.BBasic.init = function(workspace) {
   this.hideablePlayers = new Set();
   if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
     workspace.getAllBlocks(false).forEach((block) => {
-      const named = block.type === 'sprite_player_set' ? /^(player\d)visibility$/.exec(block.getFieldValue('VAR') || '') : null;
+      const named = block.type === 'sprite_player_set' ? /^(player\d+)visibility$/.exec(block.getFieldValue('VAR') || '') : null;
       if (named) this.hideablePlayers.add(named[1]);
     });
   }
@@ -2540,7 +2540,7 @@ Blockly.BBasic.init = function(workspace) {
   if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') {
     workspace.getAllBlocks(false).forEach((block) => {
       if (!block.isEnabled() || (block.type !== 'sprite_player_set' && block.type !== 'sprite_player_fade_to')) return;
-      const owner = /^(player\d)realcolor$/.exec(block.getFieldValue('VAR') || '');
+      const owner = /^(player\d+)realcolor$/.exec(block.getFieldValue('VAR') || '');
       if (owner && this.useAnimationRowColors(owner[1])) this.colorOverridePlayers.add(owner[1]);
     });
   }

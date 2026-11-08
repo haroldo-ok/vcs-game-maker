@@ -163,7 +163,7 @@ export default (Blockly) => {
     if (block.getFieldValue('BOX') === 'TRUE' && var0 !== var1 && (var0 === 'playfield' || var1 === 'playfield')) {
       // The box test of the player (and of the other half of a wide player), as of the end of the last frame.
       const owner = var0 === 'playfield' ? var1 : var0;
-      if (/^player\d$/.test(owner)) {
+      if (/^player\d+$/.test(owner)) {
         const partner = widePartnerOf(Blockly, owner);
         const feet = boxModeLines(block.getFieldValue('BOXMODE'));
         return partner ? [`${hitVar(owner, feet)} || ${hitVar(partner, feet)}`, Blockly.BBasic.ORDER_LOGICAL_OR] : [hitVar(owner, feet), Blockly.BBasic.ORDER_ATOMIC];

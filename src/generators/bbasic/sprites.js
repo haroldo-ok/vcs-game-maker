@@ -180,7 +180,7 @@ export const resolveUsedPlayerAnimations = (workspace) => {
     }
   };
   const animationOf = (varField) => {
-    const match = /^(player\d)animation$/.exec(varField || '');
+    const match = /^(player\d+)animation$/.exec(varField || '');
     return match ? match[1] : null;
   };
   const selectedIndex = (valueBlock) => valueBlock && valueBlock.type === 'sprite_player_animation_select' ?
@@ -2552,7 +2552,7 @@ export default (Blockly) => {
     Blockly.BBasic[`sprite_${name}_get`] = function(block) {
       // Variable getter.
       // The width/quantity option reads the low 3 bits of the size variable.
-      const widthOf = /^__(player\d)size_w_$/.exec(block.getFieldValue('VAR') || '');
+      const widthOf = /^__(player\d+)size_w_$/.exec(block.getFieldValue('VAR') || '');
       if (widthOf) return [`(${widthOf[1]}size & 7)`, Blockly.BBasic.ORDER_ATOMIC];
       // A missile's color under DPC+ is the kernel's COLUM0/COLUM1 register.
       const missileColor = /^missile([01])color$/.exec(block.getFieldValue('VAR') || '');
@@ -2560,7 +2560,7 @@ export default (Blockly) => {
       // Visibility: a hidden player is on frame 255, which is the one frame with every bit set. Anding the frame with itself
       // shifted right by each of the 7 places leaves bit 0 set only then, and that is worked out with shifts alone, with no
       // call to the divide routine.
-      const visibleOf = /^__(player\d)visible_$/.exec(block.getFieldValue('VAR') || '');
+      const visibleOf = /^__(player\d+)visible_$/.exec(block.getFieldValue('VAR') || '');
       if (visibleOf && hasHiddenFlag(Blockly, visibleOf[1])) {
         // (A bit read inside a sum is not understood by batari Basic, so the bit is picked out with a shift and a mask.)
         const flagByte = Blockly.BBasic.nameDB_.getName(flagPoolVar(SPRITE_HIDDEN_FLAGS_FAMILY), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
@@ -2573,7 +2573,7 @@ export default (Blockly) => {
         return [`(1 - (${frame} & ${shifted} & 1))`, Blockly.BBasic.ORDER_ATOMIC];
       }
       // Horizontal flip is bit 3 of the size variable.
-      const flipOf = /^__(player\d)size_3_$/.exec(block.getFieldValue('VAR') || '');
+      const flipOf = /^__(player\d+)size_3_$/.exec(block.getFieldValue('VAR') || '');
       if (flipOf) return [`((${flipOf[1]}size & 8) / 8)`, Blockly.BBasic.ORDER_ATOMIC];
       const code = spriteVarName(block.getFieldValue('VAR'));
       return [code, Blockly.BBasic.ORDER_ATOMIC];
@@ -2642,7 +2642,7 @@ export default (Blockly) => {
             `if temp1 = 8 then temp2 = 3\n` +
             `temp2 = temp2 * ${secondMissile ? 64 : 16}\n` +
             `${widthsVar} = (${widthsVar} & ${secondMissile ? '$3F' : '$CF'}) + temp2\n`;
-      } else if (/^player\dheight$/.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
+      } else if (/^player\d+height$/.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
         const limit = Blockly.BBasic.nameDB_.getName(playerHeightLimitVarName(varName.replace('height', '')),
             Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         return `${limit} = ${argument0} + 1
@@ -2682,7 +2682,7 @@ export default (Blockly) => {
       }
       // Players 2 to 9 are colored by a table in ROM per color, so each fixed color a block gives one is noted
       // (see generateAnimations); a color worked out while the game runs can not be shown on them.
-      const extraColor = /^(player\d)realcolor$/.exec(varName);
+      const extraColor = /^(player\d+)realcolor$/.exec(varName);
       if (extraColor) {
         const literal = /^\s*(?:\$([0-9a-fA-F]{1,2})|(\d+))\s*$/.exec(argument0);
         if (literal) {
@@ -2697,15 +2697,15 @@ export default (Blockly) => {
       // DPC+ counts a player's y in scanlines down to the sprite's top edge, the standard kernel in units of two
       // scanlines down to the sprite's bottom edge (line 2 * y + 4), and the DPC+ picture starts 4 lines higher, so
       // the same spot is 2 * y minus the sprite's height in lines.
-      if (/^player\dy$/.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
+      if (/^player\d+y$/.test(varName) && (useConfigurationStorage().value || {}).kernel === 'dpcplus') {
         // A value worked out from the y of a player, a missile or the ball (put a player where another one is, a few lines lower...) is
         // already in lines, the unit the y of those is read in: it is set as it is.
-        if (/\b(player\d|missile[01]|ball)y\b/.test(argument0)) {
+        if (/\b(player\d+|missile[01]|ball)y\b/.test(argument0)) {
           return `${varName} = ${argument0.trim()}\n`;
         }
         // (A y worked out by a "Convert playfield row to sprite" block is meant for the sprite that is set: the height of that sprite, not the tallest's.)
         const fromRow = (block.getInputTargetBlock('VALUE') || {}).type === 'background_pixel_to_sprite' && block.getInputTargetBlock('VALUE').getFieldValue('AXIS') === 'Y';
-        const lines = Blockly.BBasic.dpcPlusSpriteLines(varName.slice(0, 7), fromRow);
+        const lines = Blockly.BBasic.dpcPlusSpriteLines(/^player\d+/.exec(varName)[0], fromRow);
         const literal = /^\s*(\d+)\s*$/.exec(argument0);
         if (literal) return `${varName} = ${Math.min(255, Math.max(0, 2 * Number(literal[1]) - lines))}\n`;
         return `temp1 = (${argument0}) * 2\n${varName} = temp1 - ${lines}\n`;

@@ -6,7 +6,7 @@ import {BIT_OPTIONS} from './bit';
 import {useDataTablesStorage} from '../hooks/project';
 import {cardOptions} from '../utils/card-refs';
 import {BIT_ICON, DATA_ICON} from './icon';
-import {decodeScene, sceneValueNotes} from '../utils/scene';
+import {decodeScene, sceneValueNotes, sceneHasTriggerExtra} from '../utils/scene';
 
 const DATA_COLOR = 'rgb(121, 85, 72)';
 
@@ -41,7 +41,7 @@ export const processDataTablesStorageDefaults = (dataTablesStorage) => {
   dataTables.dataTables.forEach((table) => {
     if (table.scene && (!table.valueNotes || !table.valueNotes.some(Boolean))) {
       const scene = decodeScene(table.values, table.triggerNames);
-      table.valueNotes = sceneValueNotes(scene.objects, scene.triggers, scene.offsets);
+      table.valueNotes = sceneValueNotes(scene.objects, scene.triggers, scene.offsets, sceneHasTriggerExtra(scene.triggers));
     }
   });
   return dataTables;

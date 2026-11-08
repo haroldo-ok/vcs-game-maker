@@ -518,7 +518,7 @@ import {pfRowDivisorFor, backgroundRowLinesFor} from '../utils/playfield-coords'
 import {pfIsWide} from '../utils/pxe';
 import {
   SCENE_FLAG_ANIMATION, SCENE_FLAG_COLOR, SCENE_FLAG_FLIPPED, SCENE_FLAG_HEIGHT, SCENE_FLAG_HIDDEN, SCENE_FLAG_SIZE, SCENE_NO_ANIMATION,
-  MISSILE_WIDTHS, SCENE_TRIGGER_OBJECT_LIMIT, SCENE_TRIGGER_LOAD, SCENE_TRIGGER_MOVE, SCENE_SCREEN_LINES, SCENE_SCREEN_WIDTH, availableSceneObjects, decodeScene,
+  MISSILE_WIDTHS, sceneHasTriggerExtra, triggerObjectsOf, SCENE_TRIGGER_LOAD, SCENE_TRIGGER_MOVE, SCENE_SCREEN_LINES, SCENE_SCREEN_WIDTH, availableSceneObjects, decodeScene,
   SCENE_OFFSET_MASKS, encodeScene, isScenePlayer, isSceneTable, newSceneObject, newSceneOffset, newSceneTrigger, sceneObjectLabel, sceneValueFormats,
   sceneValueNotes, triggerNamesOf,
 } from '../utils/scene';
@@ -827,8 +827,9 @@ export default defineComponent({
         const table = data.dataTables.find((candidate) => candidate.id === id);
         if (!table) return;
         table.values = encodeScene(scene);
-        table.valueFormats = sceneValueFormats(scene.objects.length, (scene.triggers || []).length, (scene.offsets || []).length);
-        table.valueNotes = sceneValueNotes(scene.objects, scene.triggers || [], scene.offsets || []);
+        table.valueFormats = sceneValueFormats(scene.objects.length, (scene.triggers || []).length, (scene.offsets || []).length,
+            sceneHasTriggerExtra(scene.triggers) ? (scene.triggers || []).length : 0);
+        table.valueNotes = sceneValueNotes(scene.objects, scene.triggers || [], scene.offsets || [], sceneHasTriggerExtra(scene.triggers));
         table.triggerNames = triggerNamesOf(scene.triggers || []);
       });
     };
@@ -866,7 +867,7 @@ export default defineComponent({
     };
     const triggerKindItems = [{text: 'Move the sprite to X and Y', value: SCENE_TRIGGER_MOVE}, {text: 'Set up a scene', value: SCENE_TRIGGER_LOAD}];
     const triggerSceneItems = computed(() => scenes.value.map(({table}) => ({text: table.name || `Scene ${table.id}`, value: table.id})));
-    const triggerObjects = () => availableSceneObjects(config()).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT);
+    const triggerObjects = () => triggerObjectsOf(config());
     // Whether the sprites that set the selected trigger off are listed (a line of them, short, when they are not).
     const triggerByOpen = ref(false);
     // The playfield offset areas: rectangles of playfield cells whose pixels move while the scene is showing. Selected as {scene, offset: place in the list}.

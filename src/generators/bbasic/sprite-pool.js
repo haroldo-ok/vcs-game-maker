@@ -19,6 +19,10 @@ const exchange = (a, b, pxe = false) => (pxe ?
   [`lda ${a.read}`, 'pha', `lda ${b.read}`, `sta ${a.write}`, 'pla', `sta ${b.write}`] :
   [`lda ${a.read}`, `ldx ${b.read}`, `sta ${b.write}`, `stx ${a.write}`]);
 
+// The variables of the blocks that name them for a sprite by its number (not by "player<N>"), the name before the number.
+const NUMBERED_STATE_PREFIXES = ['platSpeed', 'platFrac', 'platState', 'platPrevX', 'platPrevY', 'platLanded', 'platLastX', 'platLimit', 'platParams',
+  'collisionOldX', 'collisionOldY', 'collisionOlderX', 'collisionOlderY'];
+
 export default (Blockly) => {
   // The subroutine that holds the blocks of a pool: what a subroutine block does.
   Blockly.BBasic['sprite_pool_body'] = function(block) {
@@ -118,6 +122,27 @@ export default (Blockly) => {
         plain(symbol(entry.canonical), symbol(other));
       }
     }));
+    // The variables that are named for a sprite by its number after a fixed name (the state of the Platform block, the places the Undo block keeps): the ones
+    // of the first sprite are exchanged with the ones of the other.
+    NUMBERED_STATE_PREFIXES.forEach((numbered) => {
+      const nameA = `${numbered}${first}`;
+      const nameB = `${numbered}${second}`;
+      ['v', 'rw'].forEach((kind) => {
+        const hasA = known.has(`${kind}:${nameA}`);
+        const hasB = known.has(`${kind}:${nameB}`);
+        if (hasA && hasB) {
+          if (kind === 'rw') {
+            const pairs = Blockly.BBasic.superchipRwPairs;
+            if (pairs[nameA] && pairs[nameB]) lines.push(...exchange(pairs[nameA], pairs[nameB], pxe));
+          } else {
+            const symbol = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+            plain(symbol(nameA), symbol(nameB));
+          }
+        } else if (hasA || hasB) {
+          unpaired.push(hasA ? nameA : nameB);
+        }
+      });
+    });
     if (unpaired.length) {
       appendCompileLog(`Sprite pool: players ${first} and ${second} do not have the same state (${[...new Set(unpaired)].join(', ')}): a block outside the pool names only one of them, so the sprites are built differently and the blocks of the pool may not work on both. Use "all pool sprites" for the blocks outside the pool.`, 'info');
     }

@@ -131,7 +131,7 @@ const sceneBit = (Blockly, scene) => {
 const leftOffset = (name, dpcPlus) => (dpcPlus ? (/^player0$/.test(name) ? 13 : /^player/.test(name) ? 16 : 14) : (/^player/.test(name) ? 17 : 18));
 
 const boxWidthOf = (Blockly, name) => {
-  if (!/^player\d$/.test(name)) return {fixed: 2};
+  if (!/^player\d+$/.test(name)) return {fixed: 2};
   if ((Blockly.BBasic.boxFixedPlayers || new Set()).has(name)) return {fixed: 8};
   return {variable: resolve(Blockly, boxWidthVarName(name))};
 };

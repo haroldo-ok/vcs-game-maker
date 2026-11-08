@@ -19,7 +19,7 @@ export const lockYVarName = (child) => `${child}locky`;
 
 const xVarOf = (name) => `${name}x`;
 const yVarOf = (name) => (name === 'ball' ? 'bally' : `${name}y`);
-const isPlayer = (name) => /^player\d$/.test(name);
+const isPlayer = (name) => /^player\d+$/.test(name);
 
 // The three bytes of each child any Lock or Unlock block names (children: a Set of sprite names).
 export const reserveLockDevVars = (reserveDevVar, children) => {
