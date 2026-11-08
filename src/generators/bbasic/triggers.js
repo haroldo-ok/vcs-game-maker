@@ -30,6 +30,8 @@ const PICTURE_LEFT = 16;
 const SCENE_FAMILY = 'triggerScene';
 const wasFamily = (index) => `triggerWas${Math.floor(index / BITS_PER_BYTE)}`;
 const firedFamily = (index) => `triggerFired${Math.floor(index / BITS_PER_BYTE)}`;
+const byWasFamily = (index) => `triggerByWas${Math.floor(index / BITS_PER_BYTE)}`;
+const byFiredFamily = (index) => `triggerByFired${Math.floor(index / BITS_PER_BYTE)}`;
 
 const resolve = (Blockly, name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
 
@@ -51,8 +53,22 @@ export const prepareTriggers = (Blockly, workspace) => {
   Blockly.BBasic.triggerSceneUsed = Blockly.BBasic.triggerScenes.length > 0;
   Blockly.BBasic.triggerSceneBits = Blockly.BBasic.triggerScenes.length <= MAX_SCENE_BITS;
   const names = new Set();
-  Blockly.BBasic.triggerChecks.forEach((block) => block.getFieldValue('SPRITES').split(',').filter((name) => /^player\d$/.test(name))
+  Blockly.BBasic.triggerChecks.forEach((block) => block.getFieldValue('SPRITES').split(',').filter((name) => /^player\d+$/.test(name))
       .forEach((name) => names.add(name)));
+  // The blocks that ask for the trigger set off by one sprite ("by pool sprite", which the build has turned into the sprite by now): each trigger they mean
+  // keeps two bits for that sprite, in the order of the pairs: the sprite was in it at the end of the last frame, and it fired for that sprite.
+  const bySprites = (name) => blocks.filter((block) => (block.type === 'trigger_on' || block.type === 'trigger_fired') && /^player\d+$/.test(block.getFieldValue('BY') || '') &&
+    (block.getFieldValue('TRIGGER') === '*' || block.getFieldValue('TRIGGER') === name)).map((block) => block.getFieldValue('BY'));
+  Blockly.BBasic.triggerBy = [];
+  Blockly.BBasic.triggerChecks.forEach((check, index) => [...new Set(bySprites(check.getFieldValue('NAME')))].sort().forEach((sprite) => {
+    Blockly.BBasic.triggerBy.push({check, index, sprite});
+    names.add(sprite);
+  }));
+  // (The bits of the sprites of a Sprite pool go with the sprite when the pool exchanges two of them: see generators/bbasic/sprite-pool.js.)
+  Blockly.BBasic.spriteFlagBits.push(...Blockly.BBasic.triggerBy.flatMap(({index, sprite}, pair) => [
+    {family: byWasFamily(pair), feature: `triggerByWas:${index}`, owners: new Set([sprite]), bitOf: () => pair % BITS_PER_BYTE},
+    {family: byFiredFamily(pair), feature: `triggerByFired:${index}`, owners: new Set([sprite]), bitOf: () => pair % BITS_PER_BYTE},
+  ]));
   return names;
 };
 
@@ -74,6 +90,8 @@ export const triggerFamilies = (Blockly) => {
     ...(Blockly.BBasic.triggerSceneUsed && Blockly.BBasic.triggerSceneBits ? [{family: SCENE_FAMILY, bits: Blockly.BBasic.triggerScenes.map((_, i) => i)}] : []),
     ...familiesFor(checks, wasFamily),
     ...familiesFor(checks, firedFamily),
+    ...familiesFor((Blockly.BBasic.triggerBy || []).length, byWasFamily),
+    ...familiesFor((Blockly.BBasic.triggerBy || []).length, byFiredFamily),
   ];
 };
 
@@ -91,10 +109,18 @@ export const reserveTriggerDevVars = (reserveDevVar, Blockly) => {
   familiesFor(checks, firedFamily).forEach(({family}) => {
     reserveDevVar(flagPoolVar(family), undefined, 'a bit for each trigger of a scene: it acted in the last frame (what the trigger blocks read)');
   });
+  familiesFor((Blockly.BBasic.triggerBy || []).length, byWasFamily).forEach(({family}) => {
+    reserveDevVar(flagPoolVar(family), undefined, 'a bit for each trigger and sprite a trigger block asks about: the sprite was in the trigger at the end of the last frame');
+  });
+  familiesFor((Blockly.BBasic.triggerBy || []).length, byFiredFamily).forEach(({family}) => {
+    reserveDevVar(flagPoolVar(family), undefined, 'a bit for each trigger and sprite a trigger block asks about: the trigger acted for that sprite in the last frame');
+  });
 };
 
 const bit = (Blockly, family, index) =>
   `${resolve(Blockly, flagPoolVar(family(index)))}{${flagPoolBit(family(index), index % BITS_PER_BYTE)}}`;
+const byBit = (Blockly, family, pair) =>
+  `${resolve(Blockly, flagPoolVar(family(pair)))}{${flagPoolBit(family(pair), pair % BITS_PER_BYTE)}}`;
 const sceneBit = (Blockly, scene) => {
   const index = Blockly.BBasic.triggerScenes.indexOf(scene);
   return `${resolve(Blockly, flagPoolVar(SCENE_FAMILY))}{${flagPoolBit(SCENE_FAMILY, index)}}`;
@@ -122,8 +148,15 @@ export default (Blockly) => {
   Blockly.BBasic['trigger_clear'] = function() {
     if (!Blockly.BBasic.triggerSceneUsed) return '';
     // (A bit at a time: the byte is shared with other bits.)
-    return checks().map((_, index) => ` ${bit(Blockly, firedFamily, index)} = 0`).join('\n') + '\n';
+    return [...checks().map((_, index) => ` ${bit(Blockly, firedFamily, index)} = 0`),
+      ...(Blockly.BBasic.triggerBy || []).map((_, pair) => ` ${byBit(Blockly, byFiredFamily, pair)} = 0`)].join('\n') + '\n';
   };
+  // The "fired for the sprite" bits of the triggers a block means that are asked about for the sprite (every trigger for "any trigger").
+  const firedByRefs = (name, sprite) => (Blockly.BBasic.triggerBy || []).map((pair, index) => ({pair, index}))
+      .filter(({pair}) => pair.sprite === sprite && (name === '*' || pair.check.getFieldValue('NAME') === name))
+      .map(({index}) => byBit(Blockly, byFiredFamily, index));
+  const firedRefsFor = (block) => (/^player\d+$/.test(block.getFieldValue('BY') || '') ?
+    firedByRefs(block.getFieldValue('TRIGGER'), block.getFieldValue('BY')) : firedRefsByName(block.getFieldValue('TRIGGER')));
 
   // The scene that is showing, and its triggers counted as having a sprite in them (see the top of this file).
   Blockly.BBasic['scene_mark'] = function(block) {
@@ -137,6 +170,9 @@ export default (Blockly) => {
     }
     checks().forEach((check, index) => {
       if (check.getFieldValue('SCENE') === id) lines.push(` ${bit(Blockly, wasFamily, index)} = 1`);
+    });
+    (Blockly.BBasic.triggerBy || []).forEach(({check}, pair) => {
+      if (check.getFieldValue('SCENE') === id) lines.push(` ${byBit(Blockly, byWasFamily, pair)} = 1`);
     });
     return lines.length ? `${lines.join('\n')}\n` : '';
   };
@@ -153,7 +189,7 @@ export default (Blockly) => {
   // "On trigger": the blocks inside run when the "fired" bit of a trigger with the name is set (the frame a sprite came into it, for as long as the
   // frame goes on: the bit is put back to 0 at the start of the check of the next frame).
   Blockly.BBasic['trigger_on'] = function(block) {
-    const refs = firedRefsByName(block.getFieldValue('TRIGGER'));
+    const refs = firedRefsFor(block);
     if (!refs.length) return '';
     const id = Blockly.BBasic.blockNumbers.next('trigger_on');
     return [...refs.map((ref) => ` if ${ref} then goto _trigger_on_${id}_hit`), ` goto _trigger_on_${id}_done`, `@ _trigger_on_${id}_hit`].join('\n') +
@@ -161,7 +197,7 @@ export default (Blockly) => {
   };
 
   Blockly.BBasic['trigger_fired'] = function(block) {
-    const refs = firedRefsByName(block.getFieldValue('TRIGGER'));
+    const refs = firedRefsFor(block);
     return [refs.length ? refs.join(' || ') : '0', Blockly.BBasic.ORDER_LOGICAL_OR];
   };
 
@@ -221,37 +257,52 @@ export default (Blockly) => {
     const lines = [` rem trigger ${block.getFieldValue('NAME')} of scene ${scene}:`,
       Blockly.BBasic.triggerSceneBits ? ` if !${sceneBit(Blockly, scene)} then goto _trigger_${id}_done` :
         ` if ${resolve(Blockly, TRIGGER_SCENE_VAR)} <> ${Number(scene) || 0} then goto _trigger_${id}_done`];
-    sprites.forEach((name, i) => {
-      const miss = `_trigger_${id}_miss${i}`;
+    // The lines that jump to `miss` when the sprite is not in the rectangle of the trigger.
+    const geometry = (name, miss) => {
+      const out = [];
       const x = `${name}x`;
       const y = `${name}y`;
       const heightVar = `${name}height`;
-      const isPlayer = /^player\d$/.test(name);
+      const isPlayer = /^player\d+$/.test(name);
       const box = boxWidthOf(Blockly, name);
       const dx = leftOffset(name, dpcPlus) - PICTURE_LEFT;
       // A sprite that is hidden is not in any trigger.
-      if ((Blockly.BBasic.hideablePlayers || new Set()).has(name)) lines.push(` if ${name}frame = 255 then goto ${miss}`);
-      if (!isPlayer) lines.push(` if ${heightVar} = 0 then goto ${miss}`);
+      if ((Blockly.BBasic.hideablePlayers || new Set()).has(name)) out.push(` if ${name}frame = 255 then goto ${miss}`);
+      if (!isPlayer) out.push(` if ${heightVar} = 0 then goto ${miss}`);
       // Across: the sprite's box is x - dx to x - dx + its width of the picture; the trigger is left to right.
-      if (isPlayer) lines.push(` if ${x} >= ${RIGHT_EDGE_X} then goto ${miss}`);
-      if (right + dx <= 255) lines.push(` if ${x} >= ${right + dx} then goto ${miss}`);
+      if (isPlayer) out.push(` if ${x} >= ${RIGHT_EDGE_X} then goto ${miss}`);
+      if (right + dx <= 255) out.push(` if ${x} >= ${right + dx} then goto ${miss}`);
       if (box.fixed !== undefined) {
-        lines.push(` if (${x} + ${box.fixed}) <= ${left + dx} then goto ${miss}`);
+        out.push(` if (${x} + ${box.fixed}) <= ${left + dx} then goto ${miss}`);
       } else {
-        lines.push(` temp1 = ${x} + ${box.variable}`, ` if temp1 <= ${left + dx} then goto ${miss}`);
+        out.push(` temp1 = ${x} + ${box.variable}`, ` if temp1 <= ${left + dx} then goto ${miss}`);
       }
       // Down: standard kernel, the y of a sprite is its bottom edge in steps of two lines; DPC+, the line of its top edge.
       if (!dpcPlus) {
-        lines.push(` if ${y} <= ${Math.floor(top / 2)} then goto ${miss}`, ` temp1 = ${Math.ceil(bottom / 2) + (isPlayer ? 1 : 0)} + ${heightVar}`,
+        out.push(` if ${y} <= ${Math.floor(top / 2)} then goto ${miss}`, ` temp1 = ${Math.ceil(bottom / 2) + (isPlayer ? 1 : 0)} + ${heightVar}`,
             ` if ${y} >= temp1 then goto ${miss}`);
       } else {
-        lines.push(` if ${y} >= ${bottom} then goto ${miss}`, ` temp1 = ${y} + ${heightVar}`, ` if temp1 <= ${top} then goto ${miss}`);
+        out.push(` if ${y} >= ${bottom} then goto ${miss}`, ` temp1 = ${y} + ${heightVar}`, ` if temp1 <= ${top} then goto ${miss}`);
       }
-      lines.push(` goto _trigger_${id}_in`, `@ ${miss}`);
+      return out;
+    };
+    sprites.forEach((name, i) => {
+      const miss = `_trigger_${id}_miss${i}`;
+      lines.push(...geometry(name, miss), ` goto _trigger_${id}_in`, `@ ${miss}`);
     });
     // No sprite is in it: it can fire again. A sprite is in it: it fires if none was.
-    lines.push(` ${was} = 0`, ` goto _trigger_${id}_done`, `@ _trigger_${id}_in`, ` if ${was} then goto _trigger_${id}_done`,
-        ` ${was} = 1`, ` ${fired} = 1`, `@ _trigger_${id}_done`);
+    lines.push(` ${was} = 0`, ` goto _trigger_${id}_main_done`, `@ _trigger_${id}_in`, ` if ${was} then goto _trigger_${id}_main_done`,
+        ` ${was} = 1`, ` ${fired} = 1`, `@ _trigger_${id}_main_done`);
+    // The same for each sprite a block asks about by itself (a pool sprite): it fires for that sprite when the sprite comes into the rectangle.
+    (Blockly.BBasic.triggerBy || []).forEach(({check, sprite}, pair) => {
+      if (check.id !== block.id) return;
+      const miss = `_trigger_${id}_by${pair}_miss`;
+      const wasBy = byBit(Blockly, byWasFamily, pair);
+      const firedBy = byBit(Blockly, byFiredFamily, pair);
+      lines.push(...geometry(sprite, miss), ` if ${wasBy} then goto _trigger_${id}_by${pair}_done`, ` ${wasBy} = 1`, ` ${firedBy} = 1`, ` goto _trigger_${id}_by${pair}_done`,
+          `@ ${miss}`, ` ${wasBy} = 0`, `@ _trigger_${id}_by${pair}_done`);
+    });
+    lines.push(`@ _trigger_${id}_done`);
     return `${lines.join('\n')}\n`;
   };
 };

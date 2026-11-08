@@ -8,6 +8,7 @@ import {cardOptions} from '../utils/card-refs';
 import {pfWidthOf, pfIsWide, resizePixelColumns} from '../utils/pxe';
 import {playfieldToMatrix} from '../utils/pixels';
 import {spriteOptionsWithPool} from './sprite-pool';
+import {hueOptions} from '../generators/bbasic/rainbow-range';
 import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON, MISSILE_ICON, BALL_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
@@ -1622,13 +1623,15 @@ Blockly.defineBlocksWithJsonArray([
   // "rainbow colors" block.
   {
     'type': `background_rainbow_colors`,
-    'message0': `${BACKGROUND_ICON} Playfield rainbow colors, offset %1`,
+    'message0': `${BACKGROUND_ICON} Playfield rainbow colors, offset %1 hues from %2 to %3`,
     'args0': [
       {
         'type': 'input_value',
         'name': 'OFFSET',
         'check': 'Number',
       },
+      {'type': 'field_dropdown', 'name': 'HUEFROM', 'options': hueOptions},
+      {'type': 'field_dropdown', 'name': 'HUETO', 'options': hueOptions},
     ],
     'inputsInline': true,
     'previousStatement': null,
@@ -1637,7 +1640,8 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': `Gives every playfield row a different color, reading real ROM bytes the same way ` +
       `the player "rainbow colors" block does. Leave "offset" unplugged for an automatically ` +
       `shimmering pattern (it defaults to the frame counter), or plug in a number to hold or ` +
-      `scroll the pattern yourself. Needs "Playfield row colors" turned on in Options; with it ` +
+      `scroll the pattern yourself. "Hues from ... to" keeps the colors to a span of hues (it can go round the color wheel); "any hue" ` +
+      `leaves them as they are. Needs "Playfield row colors" turned on in Options; with it ` +
       `off this block does nothing. Loading a background restores that background's row colors ` +
       `only until the next frame, so use "Stop background rainbow colors" to go back to its row colors.`,
   },

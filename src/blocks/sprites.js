@@ -2,8 +2,9 @@ import * as Blockly from 'blockly/core';
 
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {usePlayerAnimationsStorage, useConfigurationStorage} from '../hooks/project';
-import {playerCount, isPxe, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
+import {playerCount, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
 import {SPRITE_POOL_COLOUR} from './sprite-pool';
+import {hueOptions} from '../generators/bbasic/rainbow-range';
 import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, LOCK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
@@ -995,7 +996,7 @@ const MASK_PLAYER_OPTIONS = function() {
 // The players the rainbow colors blocks can color: Player 0 and 1, and under DPC+ the virtual sprites too (and the pool sprite).
 const RAINBOW_PLAYER_OPTIONS = function() {
   const config = ((useConfigurationStorage() || {}).value || {});
-  const count = config.kernel === 'dpcplus' && !isPxe(config) ? Math.min(10, playerCount(config)) : 2;
+  const count = config.kernel === 'dpcplus' ? playerCount(config) : 2;
   return [...Array.from({length: count}, (_, i) => [String(i), String(i)]), ...(count > 2 ? [['pool sprite', 'pool'], ['all pool sprites', 'poolall']] : [])];
 };
 
@@ -1167,7 +1168,7 @@ const buildPlayerBlocks = ({icon, colour}) => {
     // separate lets either be used without the other.
     {
       'type': 'sprite_player_rainbow_colors',
-      'message0': `${icon} Player %1 rainbow colors, offset %2`,
+      'message0': `${icon} Player %1 rainbow colors, offset %2 hues from %3 to %4`,
       'args0': [
         {
           'type': 'field_dropdown',
@@ -1179,6 +1180,8 @@ const buildPlayerBlocks = ({icon, colour}) => {
           'name': 'OFFSET',
           'check': 'Number',
         },
+        {'type': 'field_dropdown', 'name': 'HUEFROM', 'options': hueOptions},
+        {'type': 'field_dropdown', 'name': 'HUETO', 'options': hueOptions},
       ],
       'inputsInline': true,
       'previousStatement': null,
@@ -1188,7 +1191,9 @@ const buildPlayerBlocks = ({icon, colour}) => {
       'tooltip': 'Gives the chosen player a different color on every one of its rows, reading ' +
         'real ROM bytes the same way the "display ROM noise" block does - works with any graphic, ' +
         'a normal animation frame or ROM noise. Leave "offset" unplugged for an automatically ' +
-        'shimmering pattern (it defaults to the frame counter). Turns on a real batari Basic ' +
+        'shimmering pattern (it defaults to the frame counter). "Hues from ... to" keeps the colors to ' +
+        'a span of hues (it can go round the color wheel, 14 to 2 is 14, 15, 0, 1, 2): the rows then show a ramp of those hues; "any hue" ' +
+        'leaves the colors as they are. Turns on a real batari Basic ' +
         'kernel feature that repurposes the matching missile\'s (Missile 0 for Player 0, Missile 1 ' +
         'for Player 1) hardware circuitry to do this, so that missile can no longer be used as a ' +
         'sprite anywhere in the project while this block is used (same tradeoff as the "blank ' +

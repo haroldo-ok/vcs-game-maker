@@ -1020,6 +1020,13 @@ const computeFunctionFamilies = () => {
     if (rootA !== rootB) parent.set(rootA, rootB);
   };
 
+  // A subroutine that a function gosubs and has to share a bank with it (a sprite pool's blocks inside a function): the function's family.
+  Object.entries(BlocklyBB.functionHostedSubroutines || {}).forEach(([subroutine, host]) => {
+    if (nodeKind.has(subroutine) || !BlocklyBB.subroutines[subroutine] || !nodeKind.has(host)) return;
+    nodeKind.set(subroutine, 'subroutineBanks');
+    parent.set(subroutine, subroutine);
+    union(subroutine, host);
+  });
   nodeKind.forEach((kind, name) => {
     const code = codeOf(name);
     functionNames.forEach((otherName) => {
@@ -1164,6 +1171,7 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
     ...BlocklyBB.getSubroutineNames()
         .filter((name) => (subroutineBanks[name] || primary) === primary)
         .filter((name) => !BlocklyBB.codeReferencesAnyFunction(BlocklyBB.subroutines[name] || ''))
+        .filter((name) => !(BlocklyBB.functionHostedSubroutines || {})[name])
         .map((name) => ({kind: 'subroutineBanks', name, size: BlocklyBB.estimateSubroutineSize(name)})),
     // Every function/wrapper "family" still entirely at bank 1 - relocated
     // as one atomic unit (see setRelocationBank's  call sites in

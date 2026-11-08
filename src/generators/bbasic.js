@@ -98,7 +98,8 @@ import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprit
 import {reservePfBoxDevVars, pfBoxSharingOf, generatePfHitChecks, boxModeLines} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool, flagPoolVar, flagPoolBit, flagPoolPhaseMasks, flagPoolPhaseConflict, setFlagPhaseSource} from './bbasic/flag-pool';
-import {overlapTargetsOf, overlapPairsOf, overlapFamilies, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
+import {rainbowRangeOf, rainbowDataTables, RAINBOW_PLAYFIELD_ROWS, RAINBOW_MIN_ROWS} from './bbasic/rainbow-range';
+import {overlapTargetsOf, overlapPairsOf, overlapFamilies, overlapSpriteFlagBits, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
 import {prepareTriggers, triggerFamilies, reserveTriggerDevVars} from './bbasic/triggers';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
   musicPlayByIdArgVarName, musicPlaySongResetName,
@@ -712,6 +713,41 @@ Blockly.BBasic.init = function(workspace) {
     player1: simpleOffset(workspace.getAllBlocks(false).filter((block) =>
       block.type === 'sprite_player_rainbow_colors' && block.isEnabled() && block.getFieldValue('PLAYER') === '1')),
   };
+  // The span of hues of each rainbow (a player, or the playfield): the one the first enabled "rainbow colors" block of it asks for (a later block asking for
+  // another span is told in the compile log).
+  this.rainbowRanges = {};
+  {
+    // How many rows a sprite with a span of hues can have: the tallest picture of any animation, the numbers the ROM noise blocks give as heights (255 for a
+    // height that is not a plain number), and at least 64: the table is that long, so the rows of the tallest sprite keep to the span.
+    const noiseRows = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && block.type === 'sprite_player_rom_noise').map((block) => {
+      const heightBlock = block.getInputTargetBlock('HEIGHT');
+      return !heightBlock ? 8 : heightBlock.type === 'math_number' ? Number(heightBlock.getFieldValue('NUM')) || 0 : 255;
+    });
+    let pictureRows = 0;
+    try {
+      (processPlayerAnimationsStorageDefaults(usePlayerAnimationsStorage()).animations || []).forEach((animation) => (animation.frames || []).forEach((frame) => {
+        pictureRows = Math.max(pictureRows, Array.isArray(frame.pixels) ? frame.pixels.length : 0);
+      }));
+    } catch (e) {
+      pictureRows = 255;
+    }
+    const tallestRainbowRows = Math.min(255, Math.max(RAINBOW_MIN_ROWS, pictureRows, ...noiseRows));
+    const pxeConfig = (useConfigurationStorage().value || {});
+    workspace.getAllBlocks(false).filter((block) => block.isEnabled() && (block.type === 'sprite_player_rainbow_colors' || block.type === 'background_rainbow_colors'))
+        .forEach((block) => {
+          const name = block.type === 'background_rainbow_colors' ? 'background' : `player${block.getFieldValue('PLAYER')}`;
+          const range = rainbowRangeOf(block);
+          if (!range) return;
+          if (name !== 'background') range.rows = tallestRainbowRows;
+          if (name === 'background' && pxeConfig.kernel !== 'dpcplus') Object.assign(range, {rows: RAINBOW_PLAYFIELD_ROWS, stride: 4});
+          const known = this.rainbowRanges[name];
+          if (known && (known.first !== range.first || known.span !== range.span)) {
+            appendCompileLog(`${name === 'background' ? 'The playfield' : name.replace('player', 'Player ')} has rainbow colors blocks with different spans of hues: the first one is used.`, 'warning');
+          } else if (!known) {
+            this.rainbowRanges[name] = range;
+          }
+        });
+  }
   this.backgroundRainbowUsed = workspace.getAllBlocks(false).some((block) =>
     (block.type === 'background_rainbow_colors' || block.type === 'background_rainbow_colors_stop') &&
     block.isEnabled());
@@ -2522,6 +2558,7 @@ Blockly.BBasic.init = function(workspace) {
   this.overlapBlocks = workspace.getAllBlocks(false).filter((block) =>
     block.isEnabled() && block.type === 'sprite_overlap_event' && overlapTargetsOf(block).length > 0);
   overlapPairsOf(this.overlapBlocks).pairs.forEach((key) => boxPairKeys.add(key));
+  this.spriteFlagBits.push(...overlapSpriteFlagBits(this.overlapBlocks));
   // The triggers of the scenes (see generators/bbasic/triggers.js): their sprites' boxes are worked out each frame too.
   this.triggerPlayers = prepareTriggers(Blockly, workspace);
   this.boxPairOrder = [...boxPairKeys].sort();
@@ -3879,6 +3916,8 @@ Blockly.BBasic.init = function(workspace) {
   // unlike whatever calls the WRAPPER, which does so via a bank-taggable
   // "gosub" and is free to relocate independently).
   this.functionCallWrapperNames = new Set();
+  // Subroutines kept with the custom function that calls them (a sprite pool's blocks and its exchange code), name -> function: they move banks with it.
+  this.functionHostedSubroutines = {};
 
   // See RUN_ONCE_EDGE_RESET_NAME's  comment - registered as an ordinary
   // subroutine (rather than left as a separately-templated, always-bank-1
@@ -4646,7 +4685,8 @@ Blockly.BBasic.finish = function(code) {
   // extra trackDataTableBank entries those calls read from.
   Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
-  const generatedDataTables = Blockly.BBasic.generateDataTables(Blockly.BBasic.primaryBank());
+  const generatedDataTables = [Blockly.BBasic.generateDataTables(Blockly.BBasic.primaryBank()), rainbowDataTables(((useConfigurationStorage().value || {}).kernel === 'dpcplus') ? [] : Object.values(Blockly.BBasic.rainbowRanges || {}))]
+      .filter(Boolean).join('\n\n');
   const generatedRomNoiseChecks = generateRomNoiseChecks(Blockly);
   const generatedPlayerHeightLimitChecks = generatePlayerHeightLimitChecks(Blockly);
   // Built earlier, during init() (see registerTitleScreenSubroutine in

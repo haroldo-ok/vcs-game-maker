@@ -4,6 +4,7 @@ import {useConfigurationStorage, appendCompileLog} from '../../hooks/project';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {colorOverrideRef} from './sprites';
 import {isPxe} from '../../utils/pxe';
+import {pairKey, boxHitRef} from './sprite-box-width';
 
 // The sprite pool blocks are replaced by other blocks before the code is made (see utils/sprite-pool.js): the blocks inside a pool block are built once,
 // for the first sprite of the pool, as a subroutine ("sprite_pool_body"). For each sprite of the pool the build swaps what the sprite has (its
@@ -30,11 +31,33 @@ export default (Blockly) => {
     return '';
   };
 
+  // Tells the build that a subroutine is kept with the custom function it is called from (same bank, moved with the function: see computeFunctionFamilies
+  // in hooks/rom.js), so the call is a plain gosub that costs no more stack than any other.
+  const keepWithFunction = (subroutineName, block) => {
+    const host = block.getFieldValue('HOST');
+    if (!host) return;
+    const hostName = Blockly.BBasic.nameDB_.getName(host, Blockly.PROCEDURE_CATEGORY_NAME);
+    Blockly.BBasic.functionHostedSubroutines[subroutineName] = hostName;
+    Blockly.BBasic.functionCallWrapperNames.add(subroutineName);
+  };
+
   Blockly.BBasic['sprite_pool_body_call'] = function(block) {
     const name = Blockly.BBasic.nameDB_.getName(block.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME);
+    keepWithFunction(name, block);
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     return `gosub ${name}${suffix}\n`;
   };
+
+  // A block of a pool that leaves the pool (Return, Go to label, Change state) cannot do it from inside the pool's subroutine: it leaves its number in temp1
+  // (the value of a Return in temp6, which the exchange of sprites does not touch either) and returns; the blocks run after the call (see utils/sprite-pool.js).
+  Blockly.BBasic['sprite_pool_exit_set'] = function(block) {
+    const value = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_NONE);
+    return `${value ? `temp6 = ${value}\n` : ''}temp1 = ${Number(block.getFieldValue('CODE')) || 0}\n`;
+  };
+  Blockly.BBasic['sprite_pool_exit_get'] = () => ['temp1', Blockly.BBasic.ORDER_ATOMIC];
+  Blockly.BBasic['sprite_pool_exit_value'] = () => ['temp6', Blockly.BBasic.ORDER_ATOMIC];
+  Blockly.BBasic['sprite_pool_label'] = (block) => `@ ${block.getFieldValue('NAME')}\n`;
+  Blockly.BBasic['sprite_pool_goto'] = (block) => `goto ${block.getFieldValue('NAME')}\n`;
 
   // The blocks inside are made and left out: what making them sets up for the sprite (colors, the animations it shows) is wanted, the code is not
   // (nor the subroutines they ask for that only the sprite would call).
@@ -46,7 +69,7 @@ export default (Blockly) => {
   };
 
   // Everything one sprite has that the other has too, as pairs of (what the first has, what the second has): the lines of 6502 code to exchange them.
-  const swapLines = (first, second) => {
+  const swapLines = (first, second, tag = '') => {
     const config = (useConfigurationStorage() || {}).value || {};
     const a = `player${first}`;
     const b = `player${second}`;
@@ -119,6 +142,21 @@ export default (Blockly) => {
         // (A bit that was not planned is not in use.)
       }
     });
+    // The answers of the box tests of the sprite against each other sprite (the Collided block, the Sprite overlap blocks): one bit for each pair, so the
+    // sprite's pairs are exchanged with the other sprite's pairs with the same partners. (The pair of the two sprites themselves is the same one for both.)
+    const pairOrder = Blockly.BBasic.boxPairOrder || [];
+    const parseRef = (ref) => {
+      const match = /^(.+)\{(\d+)\}$/.exec(ref);
+      return {byte: match[1], mask: 1 << Number(match[2])};
+    };
+    pairOrder.forEach((key) => {
+      const [p, q] = key.split('|');
+      if (p !== a && q !== a) return;
+      const partner = p === a ? q : p;
+      if (partner === b) return;
+      const twin = pairKey(b, partner);
+      if (pairOrder.includes(twin)) bitPairs.push([parseRef(boxHitRef(Blockly, key)), parseRef(boxHitRef(Blockly, twin))]);
+    });
     // The mark that a color set by a block wins over the row colors.
     const overrides = Blockly.BBasic.colorOverridePlayers;
     if (overrides && overrides.has(a) && overrides.has(b)) {
@@ -129,7 +167,7 @@ export default (Blockly) => {
       bitPairs.push([parse(colorOverrideRef(Blockly, a)), parse(colorOverrideRef(Blockly, b))]);
     }
     bitPairs.forEach(([x, y], index) => {
-      const label = (part) => `_poolswap_${first}_${second}_${index}_${part}`;
+      const label = (part) => `_poolswap_${first}_${second}${tag}_${index}_${part}`;
       // (Only the registers: the scratch bytes can hold the arguments of a function.)
       // (On PXE the two bits wait on the stack: no CPX, CPY, TAY.)
       if (pxe) {
@@ -157,10 +195,13 @@ export default (Blockly) => {
   Blockly.BBasic['sprite_pool_swap'] = function(block) {
     const first = Number(block.getFieldValue('FROM'));
     const second = Number(block.getFieldValue('TO'));
-    const name = `_poolswap_${first}_${second}`;
+    // (One exchange subroutine for each custom function that has a pool, kept in the function's bank.)
+    const host = block.getFieldValue('HOST');
+    const tag = host ? `_in_${Blockly.BBasic.nameDB_.getName(host, Blockly.PROCEDURE_CATEGORY_NAME)}` : '';
+    const name = `_poolswap_${first}_${second}${tag}`;
     // (No RTS: the subroutine may be in another bank, where the return that is added after the code is the one that works.)
     if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = ['asm', ...swapLines(first, second), '@end'].join('\n');
+      Blockly.BBasic.subroutines[name] = ['asm', ...swapLines(first, second, tag), '@end'].join('\n');
     }
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     return `gosub ${name}${suffix}\n`;

@@ -2,7 +2,8 @@
 
 import * as Blockly from 'blockly/core';
 
-import {useDataTablesStorage} from '../hooks/project';
+import {useDataTablesStorage, useConfigurationStorage} from '../hooks/project';
+import {playerCount} from '../utils/pxe';
 import {processDataTablesStorageDefaults} from './data';
 import {decodeScene, isSceneTable} from '../utils/scene';
 import {SCENE_ICON} from './icon';
@@ -97,6 +98,15 @@ Blockly.Blocks['trigger_check'] = {
 };
 
 // The dropdowns list the names that the triggers of the scenes have (a name that several scenes use is listed once), and "any trigger".
+// Which sprite set the trigger off: any of them (as the block always was), or, inside a Sprite pool block, the pool sprite the pool is working on (see
+// blocks/sprite-pool.js: the pool choices only show inside a pool, and "any pool sprite" is for the value block).
+// (A project can name the sprite itself as well: that is what the pool choices become when the project is built.)
+const TRIGGER_BY_OPTIONS = function() {
+  const count = playerCount(((useConfigurationStorage() || {}).value || {}));
+  return [['by any sprite', 'any'], ...Array.from({length: count}, (_, i) => ['by Player ' + i, 'player' + i]),
+    ...(count > 2 ? [['by pool sprite', 'playerpool'], ['by any pool sprite', 'playerpoolany']] : [])];
+};
+
 export const buildTriggerOptions = () => {
   try {
     const data = processDataTablesStorageDefaults(useDataTablesStorage());
@@ -118,7 +128,8 @@ Blockly.Blocks['trigger_on'] = {
   init: function() {
     this.appendDummyInput()
         .appendField(`${SCENE_ICON} On trigger`)
-        .appendField(new Blockly.FieldDropdown(buildTriggerOptions), 'TRIGGER');
+        .appendField(new Blockly.FieldDropdown(buildTriggerOptions), 'TRIGGER')
+        .appendField(new Blockly.FieldDropdown(TRIGGER_BY_OPTIONS), 'BY');
     this.appendStatementInput('DO');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
@@ -154,6 +165,7 @@ Blockly.Blocks['trigger_fired'] = {
     this.appendDummyInput()
         .appendField(`${SCENE_ICON} Trigger`)
         .appendField(new Blockly.FieldDropdown(buildTriggerOptions), 'TRIGGER')
+        .appendField(new Blockly.FieldDropdown(TRIGGER_BY_OPTIONS), 'BY')
         .appendField('fired');
     this.setOutput(true, 'Boolean');
     this.setColour(SCENE_COLOR);

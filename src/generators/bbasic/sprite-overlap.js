@@ -40,6 +40,15 @@ export const overlapFamilies = (blockIds) => blockIds.reduce((families, _, index
   return families;
 }, []);
 
+// The bits of the blocks that are one block inside a Sprite pool (copied for each sprite: they carry the same tag in their data), as the sprite pool exchange
+// wants them (see spriteFlagBits in bbasic.js): the bits of the block of one sprite are exchanged with those of the same block of another.
+export const overlapSpriteFlagBits = (blocks) => blocks.reduce((entries, block, index) => {
+  if (!block.data || !/^pool\d+:/.test(block.data)) return entries;
+  const owners = new Set([block.getFieldValue('VAR0'), block.getFieldValue('VAR1')].filter((name) => /^player\d+$/.test(name)));
+  [WAS_BIT, ANSWER_BIT].forEach((bit) => entries.push({family: overlapFamily(index), feature: `overlap${bit}:${block.data}`, owners, bitOf: () => (index % BLOCKS_PER_BYTE) * 2 + bit}));
+  return entries;
+}, []);
+
 const bitRef = (Blockly, index, bit) => {
   const family = overlapFamily(index);
   const name = Blockly.BBasic.nameDB_.getName(flagPoolVar(family), Blockly.Names.DEVELOPER_VARIABLE_TYPE);

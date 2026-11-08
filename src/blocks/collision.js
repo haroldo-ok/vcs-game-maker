@@ -188,8 +188,8 @@ Blockly.defineBlocksWithJsonArray([
 
 // "Sprite overlap starts / stops": true for the one frame in which two sprites begin to overlap, or stop overlapping (see
 // generators/bbasic/sprite-overlap.js).
-// (An event is not inside a pool block, so it has no pool sprite to name.)
-const overlapOptions = () => collisionOptions().filter((option) => option[1] !== 'playfield' && !/^playerpool/.test(option[1]));
+// (The pool sprite, and all / any of the pool sprites, are offered like in the Collided block: see blocks/sprite-pool.js.)
+const overlapOptions = () => collisionOptions().filter((option) => option[1] !== 'playfield');
 Blockly.defineBlocksWithJsonArray([
   {
     'type': 'sprite_overlap_event',

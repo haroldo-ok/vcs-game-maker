@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 
 import {PLAYER_ICON} from './icon';
 import {useConfigurationStorage} from '../hooks/project';
-import {playerCount, isPxe} from '../utils/pxe';
+import {playerCount} from '../utils/pxe';
 
 // The sprite pool blocks share a range of the virtual sprites (Player 1 and up) out among the things a game makes while it runs, such as
 // the powerups of Bricks: the blocks inside a pool block say what to do with "pool sprite", and the build makes a copy of them for each sprite
@@ -16,11 +16,11 @@ const poolSpriteOptions = function() {
   return Array.from({length: count - 1}, (_, i) => [String(i + 1), String(i + 1)]);
 };
 
-// The sprites a block that is not made for the extra players can offer: Player 0 and 1, and under DPC+ the virtual sprites (Player 2 to 9) and the
-// pool sprite. (Not PXE, whose sprites those blocks do not handle.) The missiles and the ball come after.
+// The sprites a block that is not made for the extra players can offer: Player 0 and 1, and under DPC+ and PXE the virtual sprites (Player 2 to 9, and up to
+// 16 on PXE) and the pool sprite. The missiles and the ball come after.
 export const spriteOptionsWithPool = (extraOptions) => function() {
   const config = ((useConfigurationStorage() || {}).value || {});
-  const count = isPxe(config) ? 2 : Math.min(10, playerCount(config));
+  const count = playerCount(config);
   return [...Array.from({length: count}, (_, i) => [PLAYER_ICON + ' Player ' + i, 'player' + i]),
     ...(count > 2 ? [[PLAYER_ICON + ' Pool sprite', 'playerpool']] : []), ...extraOptions];
 };
@@ -29,6 +29,22 @@ const poolRange = (block) => {
   const from = Number(block.getFieldValue('FROM'));
   const to = Number(block.getFieldValue('TO'));
   return [Math.min(from, to), Math.max(from, to)];
+};
+
+// The sprites of the pool (players from to to) that the blocks inside a "spawn" or "for each" block name: the pool works on one sprite at a time through the
+// exchange of the sprites' state, so a block naming one of them cannot be built (see utils/sprite-pool.js).
+const namedPoolMembers = (block, from, to) => {
+  if (from === to || !['sprite_pool_spawn', 'sprite_pool_each'].includes(block.type)) return [];
+  const input = block.getInput('DO');
+  const first = input && input.connection && input.connection.targetBlock();
+  if (!first) return [];
+  const names = new Set();
+  first.getDescendants(false).forEach((inner) => inner.inputList.forEach((row) => row.fieldRow.forEach((field) => {
+    const value = String(field.getValue());
+    const match = field.name === 'PLAYER' ? /^(\d+)$/.exec(value) : /^player(\d+)(?!\d)/.exec(value);
+    if (match && Number(match[1]) >= from && Number(match[1]) <= to) names.add(Number(match[1]));
+  })));
+  return [...names].sort((a, b) => a - b);
 };
 
 // Two pools that are not the same range but share a sprite would hand the same sprite out twice.
@@ -40,6 +56,8 @@ const poolWarning = (block) => {
   const clash = block.workspace.getAllBlocks(false).filter((other) => other !== block && SPRITE_POOL_TYPES.includes(other.type) && !other.isInsertionMarker())
       .map(poolRange).find(([otherFrom, otherTo]) => (otherFrom !== from || otherTo !== to) && otherFrom <= to && otherTo >= from);
   if (clash) text.push(`Another pool (players ${clash[0]} to ${clash[1]}) shares a sprite with this one (players ${from} to ${to}): it could hand out the same sprite twice.`);
+  const named = namedPoolMembers(block, from, to);
+  if (named.length) text.push(`Blocks inside name ${named.map((n) => `Player ${n}`).join(' and ')}, a sprite of this pool: they are left out of the build. Use "pool sprite" in them, or put them outside the pool.`);
   block.setWarningText(text.length ? text.join(' ') : null);
 };
 
@@ -140,8 +158,8 @@ const insidePoolBody = (block) => {
 };
 const poolValueOffered = (value, block) => {
   if (!block) return false;
-  if (/any$/.test(value)) return block.type === 'collision_get';
-  if (/all$/.test(value)) return !!block.previousConnection || block.type === 'collision_get';
+  if (/any$/.test(value)) return block.type === 'collision_get' || block.type === 'sprite_overlap_event' || block.type === 'trigger_fired';
+  if (/all$/.test(value)) return !!block.previousConnection || block.type === 'collision_get' || block.type === 'sprite_overlap_event';
   return insidePoolBody(block);
 };
 const rawGetOptions = Blockly.FieldDropdown.prototype.getOptions;
@@ -190,16 +208,52 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': 'sprite_pool_body_call',
-    'message0': 'Run sprite pool blocks %1',
-    'args0': [{'type': 'field_input', 'name': 'NAME', 'text': 'poolbody'}],
+    'message0': 'Run sprite pool blocks %1 in %2',
+    'args0': [{'type': 'field_input', 'name': 'NAME', 'text': 'poolbody'}, {'type': 'field_input', 'name': 'HOST', 'text': ''}],
     'previousStatement': null,
     'nextStatement': null,
     'colour': SPRITE_POOL_COLOUR,
   },
   {
     'type': 'sprite_pool_swap',
-    'message0': 'Swap sprites %1 and %2',
-    'args0': [{'type': 'field_input', 'name': 'FROM', 'text': '1'}, {'type': 'field_input', 'name': 'TO', 'text': '2'}],
+    'message0': 'Swap sprites %1 and %2 in %3',
+    'args0': [{'type': 'field_input', 'name': 'FROM', 'text': '1'}, {'type': 'field_input', 'name': 'TO', 'text': '2'}, {'type': 'field_input', 'name': 'HOST', 'text': ''}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_exit_set',
+    'message0': 'Pool exit %1 value %2',
+    'args0': [{'type': 'field_input', 'name': 'CODE', 'text': '0'}, {'type': 'input_value', 'name': 'VALUE'}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_exit_get',
+    'message0': 'Pool exit',
+    'output': 'Number',
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_exit_value',
+    'message0': 'Pool exit value',
+    'output': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_label',
+    'message0': 'Pool label %1',
+    'args0': [{'type': 'field_input', 'name': 'NAME', 'text': ''}],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_goto',
+    'message0': 'Pool go to %1',
+    'args0': [{'type': 'field_input', 'name': 'NAME', 'text': ''}],
     'previousStatement': null,
     'nextStatement': null,
     'colour': SPRITE_POOL_COLOUR,

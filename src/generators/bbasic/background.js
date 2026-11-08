@@ -6,6 +6,7 @@ import {buildPxeOffsetBody, PXE_OFFSET_VARS, PXE_OFFSET_ROUTINE} from './offset-
 import {flagPoolVar, flagPoolBit} from './flag-pool';
 import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, buildCircleArmCall, ensureArmProgram, ARM_FIND_PIXEL_FUNCTION, buildPixArmCall} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
+import {EXTRA_PLAYER_NAME} from '../../utils/pxe';
 import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName, backgroundFadePaceVarName,
   backgroundFadeTargetVarName, fadeFlagsVarName, FADE_STEPS, rowFadeStartColor, multicolorFadeVarName,
   backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey,
@@ -527,8 +528,8 @@ export default (Blockly) => {
       missile1: {x: 'missile1x', y: 'missile1y', stretched: 'player1size & $30 <> 0', sizeBits: 'player1size',
         heightVar: 'missile1height', pfXOffset: missileOffsetOf('missile1'), ...(dpcPlus && !(pfConfig && pfConfig.pxe) ? {topY: 'missile1y - 1', extraHeight: 1} : {})},
     };
-    // The virtual sprites (Player 2 to 9) of DPC+ are the same as Player 1, each with its variables.
-    if (dpcPlus && /^player[2-9]$/.test(sprite)) {
+    // The virtual sprites (Player 2 to 9 of DPC+, up to 16 on PXE) are the same as Player 1, each with its variables.
+    if (dpcPlus && EXTRA_PLAYER_NAME.test(sprite)) {
       return {x: `${sprite}x`, y: `${sprite}y`, stretched: `${sprite}size & $05 = $05`, pfXOffset: playerOffset, heightVar: `${sprite}height`};
     }
     return byName[sprite];

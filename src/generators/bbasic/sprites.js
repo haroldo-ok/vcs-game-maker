@@ -8,6 +8,7 @@ import {clampFrameDuration} from '../../utils/duration';
 import {fireObjectName} from '../../utils/fire-object';
 import {pfRowDivisorFor as exactRowDivisorFor, missileBallPfXOffset, pfColumnOf, pfMaxColumn, pfScrollColumns} from '../../utils/playfield-coords';
 import {ensureArmProgram, buildPixArmCall, ARM_FIND_PIXEL_FUNCTION} from './offset-arm';
+import {rainbowTableName, rainbowTableValues, rainbowColor, rainbowPhaseLines} from './rainbow-range';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps, so the nearest whole number of steps is used.
@@ -1200,7 +1201,8 @@ const generateDpcPlusBackgroundRainbowChecks = (Blockly) => {
   // The playfield color rows: a rainbow, one hue per row, 15 hues so the 255 rows join up seamlessly. The kernel's
   // color queue holds 256 rows: the last one is filled in after moving the queue back one row (the trick the
   // batari Basic DPC+ color scrolling examples use).
-  const rainbowRow = (r) => '  $' + ((r % 15) * 16 + 10).toString(16).toUpperCase().padStart(2, '0');
+  const range = (Blockly.BBasic.rainbowRanges || {}).background;
+  const rainbowRow = (r) => '  $' + (range ? rainbowColor(range, r) : (r % 15) * 16 + 10).toString(16).toUpperCase().padStart(2, '0');
   const rows = Array.from({length: 255}, (_, r) => rainbowRow(r));
   return [
     ` if !${flagsVar}{${backgroundRainbowActiveBit()}} then goto ${doneLabel}`,
@@ -1223,6 +1225,7 @@ const generateDpcPlusRainbowColorChecks = (Blockly) => {
   const used = Blockly.BBasic.rainbowColorUsedFor;
   if (!used || !used.size) return generateDpcPlusBackgroundRainbowChecks(Blockly);
   const lines = [];
+  const ranges = Blockly.BBasic.rainbowRanges || {};
   // (Player 2 to 9: virtual sprites like Player 1, whose color pointers follow Player 1's in the same table.)
   ['player0', 'player1', ...[...used].filter(isRomNoiseExtra).sort()].forEach((name) => {
     if (!used.has(name)) return;
@@ -1231,6 +1234,28 @@ const generateDpcPlusRainbowColorChecks = (Blockly) => {
     const doneLabel = `_rainbowcolor_${name}_done`;
     const offset = rainbowOffsetExpression(Blockly, (Blockly.BBasic.rainbowSimpleOffset || {})[name],
         rainbowColorOffsetVarName(name));
+    // With a span of hues the pointer is aimed into a table of the colors of the span. The drawing routine (the coprocessor) reads the colors from the cartridge's
+    // data, not from RAM, so the table is declared the way a color table of an animation is ("player1color:", which puts its rows in the data and sets the
+    // pointer of the player to the first of them) and the start row is added to the pointer after that: the offset modulo the span.
+    const range = ranges[name];
+    if (range) {
+      const at = playerColorPointerBase(useConfigurationStorage().value) + (name === 'player0' ? 0 : 2 * (Number(name.slice(6)) - 1));
+      lines.push(
+          ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
+          ...rainbowPhaseLines(offset, range.span),
+          `  ${name}color:`, ...rainbowTableValues(range).map((value) => `  $${value.toString(16).toUpperCase().padStart(2, '0')}`), 'end',
+          ' asm', '       clc',
+          ...(name === 'player0' ? [
+            '       lda player0color', '       adc temp1', '       sta player0color', '       lda player0color+1', '       adc #0', '       sta player0color+1',
+          ] : [
+            `       lda #<(playerpointers+${at})`, '       sta DF0LOW', '       sta DF1LOW',
+            `       lda #(>(playerpointers+${at})) & $0F`, '       sta DF0HI', '       sta DF1HI',
+            '       lda DF0DATA', '       adc temp1', '       sta DF1WRITE', '       lda DF0DATA', '       adc #0', '       sta DF1WRITE',
+          ]),
+          'end',
+          doneLabel);
+      return;
+    }
     lines.push(
         ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
         ` temp1 = ${offset}`,
@@ -1271,10 +1296,13 @@ export const generateRainbowColorChecks = (Blockly) => {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
     // The kernel reads each row's color through the pfcolortable pointer
     // (low byte pfcolortable, high byte aux2): aim it at ROM bytes.
+    const backgroundRange = (Blockly.BBasic.rainbowRanges || {}).background;
     backgroundLines.push(
         ` if !${flags}{${backgroundRainbowActiveBit()}} then goto _rainbowcolor_background_done`,
-        ` pfcolortable = ${offset}`,
-        ` aux2 = ${romNoiseBaseHighByteHex(config)}`,
+        ...(backgroundRange ? [...rainbowPhaseLines(offset, backgroundRange.span, 'temp1', backgroundRange.stride), ' asm', `       lda #<${rainbowTableName(backgroundRange)}`, '       clc', '       adc temp1',
+          '       sta pfcolortable', `       lda #>${rainbowTableName(backgroundRange)}`, '       adc #0', '       sta aux2', 'end'] : [
+            ` pfcolortable = ${offset}`,
+            ` aux2 = ${romNoiseBaseHighByteHex(config)}`]),
         // The top row's color is not in that table: it is whatever COLUPF holds at the
         // start of the frame, so it gets one of the same ROM bytes too. Written to
         // COLUPF itself, not the playfield color variable: the next frame's
@@ -1300,10 +1328,13 @@ export const generateRainbowColorChecks = (Blockly) => {
     const offsetVar = rainbowOffsetExpression(Blockly, (Blockly.BBasic.rainbowSimpleOffset || {})[name],
         rainbowColorOffsetVarName(name));
     const registers = ROM_NOISE_COLOR_REGISTERS[name];
+    const range = (Blockly.BBasic.rainbowRanges || {})[name];
     lines.push(
         ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
-        ` ${registers.low} = ${offsetVar}`,
-        ` ${registers.high} = ${baseHigh}`,
+        ...(range ? [...rainbowPhaseLines(offsetVar, range.span), ' asm', `       lda #<${rainbowTableName(range)}`, '       clc', '       adc temp1', `       sta ${registers.low}`,
+          `       lda #>${rainbowTableName(range)}`, '       adc #0', `       sta ${registers.high}`, 'end'] : [
+            ` ${registers.low} = ${offsetVar}`,
+            ` ${registers.high} = ${baseHigh}`]),
         `${doneLabel}`,
     );
   });
