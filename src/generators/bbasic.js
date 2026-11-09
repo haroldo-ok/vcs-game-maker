@@ -98,7 +98,7 @@ import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprit
 import {reservePfBoxDevVars, pfBoxSharingOf, generatePfHitChecks, boxModeLines} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool, flagPoolVar, flagPoolBit, flagPoolPhaseMasks, flagPoolPhaseConflict, setFlagPhaseSource} from './bbasic/flag-pool';
-import {rainbowRangeOf, rainbowTableItems, RAINBOW_PLAYFIELD_ROWS} from './bbasic/rainbow-range';
+import {rainbowRangeOf, rainbowTableItems, sameRainbowRange, RAINBOW_PLAYFIELD_ROWS} from './bbasic/rainbow-range';
 import {placeKernelTables} from '../utils/bank-tables';
 import {overlapTargetsOf, overlapPairsOf, overlapFamilies, overlapSpriteFlagBits, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
 import {prepareTriggers, triggerFamilies, reserveTriggerDevVars} from './bbasic/triggers';
@@ -781,8 +781,8 @@ Blockly.BBasic.init = function(workspace) {
             Object.assign(range, {rows: RAINBOW_PLAYFIELD_ROWS - skip, stride: 4, skip});
           }
           const known = this.rainbowRanges[name];
-          if (known && (known.first !== range.first || known.span !== range.span)) {
-            appendCompileLog(`${name === 'background' ? 'The playfield' : name.replace('player', 'Player ')} has rainbow colors blocks with different spans of hues: the first one is used.`, 'warning');
+          if (known && !sameRainbowRange(known, range)) {
+            appendCompileLog(`${name === 'background' ? 'The playfield' : name.replace('player', 'Player ')} has rainbow colors blocks with different ranges of colors: the first one is used.`, 'warning');
           } else if (!known) {
             this.rainbowRanges[name] = range;
           }

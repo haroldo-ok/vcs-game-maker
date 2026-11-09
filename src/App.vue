@@ -2905,7 +2905,7 @@ export default {
   opacity: .75 !important;
 }
 
-/* The trash can is the same grey raster as the zoom buttons (media/sprites.png), so it gets the same black icon and the same three opacity steps: rest .25 and
+/* The trash can is the same gray raster as the zoom buttons (media/sprites.png), so it gets the same black icon and the same three opacity steps: rest .25 and
    lid open .5 (the mouse over it or a block dragged over it) are set by the lid animation in blocks/trashcan-size.js, the press .75 here (!important, because
    the opacity of the group is set inline). */
 .blocklyTrash > image {

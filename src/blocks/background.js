@@ -8,7 +8,7 @@ import {cardOptions} from '../utils/card-refs';
 import {pfWidthOf, pfIsWide, resizePixelColumns} from '../utils/pxe';
 import {playfieldToMatrix} from '../utils/pixels';
 import {spriteOptionsWithPool} from './sprite-pool';
-import {hueOptions} from '../generators/bbasic/rainbow-range';
+import {rainbowRangeArgs} from './rainbow-colors';
 import {BACKGROUND_ICON, COLOR_ICON, CHECKBOX_CHECKED_ICON, CHECKBOX_CLEAR_ICON, FLIP_ICON, BACKGROUND_PFSCROLL_LEFT_ICON, BACKGROUND_PFSCROLL_RIGHT_ICON, BACKGROUND_PFSCROLL_UP_ICON, BACKGROUND_PFSCROLL_DOWN_ICON, BACKGROUND_PFSCROLL_DOWN2X_ICON, BACKGROUND_PFSCROLL_UP2X_ICON, MISSILE_ICON, BALL_ICON} from './icon';
 
 const BACKGROUND_COLOR = '#ffa500';
@@ -1623,25 +1623,26 @@ Blockly.defineBlocksWithJsonArray([
   // "rainbow colors" block.
   {
     'type': `background_rainbow_colors`,
-    'message0': `${BACKGROUND_ICON} Playfield rainbow colors, offset %1 hues from %2 to %3`,
+    'message0': `${BACKGROUND_ICON} Playfield rainbow colors, offset %1 colors from %2 to %3 %4 %5 %6`,
     'args0': [
       {
         'type': 'input_value',
         'name': 'OFFSET',
         'check': 'Number',
       },
-      {'type': 'field_dropdown', 'name': 'HUEFROM', 'options': hueOptions},
-      {'type': 'field_dropdown', 'name': 'HUETO', 'options': hueOptions},
+      ...rainbowRangeArgs(),
     ],
     'inputsInline': true,
     'previousStatement': null,
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
+    'extensions': ['rainbow_legacy_hues'],
     'tooltip': `Gives every playfield row a different color, reading real ROM bytes the same way ` +
       `the player "rainbow colors" block does. Leave "offset" unplugged for an automatically ` +
       `shimmering pattern (it defaults to the frame counter), or plug in a number to hold or ` +
-      `scroll the pattern yourself. "Hues from ... to" keeps the colors to a span of hues (it can go round the color wheel); "any hue" ` +
-      `leaves them as they are. Needs "Playfield row colors" turned on in Options; with it ` +
+      `scroll the pattern yourself. "Colors from ... to" keeps the colors to a range of color values (0 to 255, it can go round; 0 to 15 is the shades of gray, ` +
+      `16 to 31 the shades of gold, and so on; a range of more than 64 values is sampled); 0 to 255 leaves them as they are. A block saved with a span of hues keeps it ` +
+      `(shown after the numbers; the numbers do not apply while it is set) until one of its hues is set to "any hue". Needs "Playfield row colors" turned on in Options; with it ` +
       `off this block does nothing. Loading a background restores that background's row colors ` +
       `only until the next frame, so use "Stop background rainbow colors" to go back to its row colors.`,
   },

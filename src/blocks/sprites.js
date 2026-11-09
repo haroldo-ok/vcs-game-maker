@@ -4,7 +4,7 @@ import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprit
 import {usePlayerAnimationsStorage, useConfigurationStorage} from '../hooks/project';
 import {playerCount, EXTRA_PLAYER_NUMBER, EXTRA_PLAYER_NAME} from '../utils/pxe';
 import {SPRITE_POOL_COLOUR} from './sprite-pool';
-import {hueOptions} from '../generators/bbasic/rainbow-range';
+import {rainbowRangeArgs} from './rainbow-colors';
 import {PLAYER_ICON, MISSILE_ICON, BALL_ICON, COLOR_ICON, HEIGHT_ICON, ANIMATION_ICON, VISIBILITY_ICON, HORIZONTAL_ICON, VERTICAL_ICON, MIRROR_ICON, FRAME_ICON, PLAY_ICON, PAUSE_ICON, PRIORITY_ICON, DATA_ICON, SEEK_ICON, LOCK_ICON, INERTIA_ICON, STOP_ICON} from './icon';
 
 const PRIORITY_COLOUR = '#009688';
@@ -1191,7 +1191,7 @@ const buildPlayerBlocks = ({icon, colour}) => {
     // separate lets either be used without the other.
     {
       'type': 'sprite_player_rainbow_colors',
-      'message0': `${icon} Player %1 rainbow colors, offset %2 hues from %3 to %4`,
+      'message0': `${icon} Player %1 rainbow colors, offset %2 colors from %3 to %4 %5 %6 %7`,
       'args0': [
         {
           'type': 'field_dropdown',
@@ -1203,20 +1203,21 @@ const buildPlayerBlocks = ({icon, colour}) => {
           'name': 'OFFSET',
           'check': 'Number',
         },
-        {'type': 'field_dropdown', 'name': 'HUEFROM', 'options': hueOptions},
-        {'type': 'field_dropdown', 'name': 'HUETO', 'options': hueOptions},
+        ...rainbowRangeArgs(),
       ],
       'inputsInline': true,
       'previousStatement': null,
       'nextStatement': null,
       colour,
-      'extensions': ['sprite_player_field_sync'],
+      'extensions': ['sprite_player_field_sync', 'rainbow_legacy_hues'],
       'tooltip': 'Gives the chosen player a different color on every one of its rows, reading ' +
         'real ROM bytes the same way the "display ROM noise" block does - works with any graphic, ' +
         'a normal animation frame or ROM noise. Leave "offset" unplugged for an automatically ' +
-        'shimmering pattern (it defaults to the frame counter). "Hues from ... to" keeps the colors to ' +
-        'a span of hues (it can go round the color wheel, 14 to 2 is 14, 15, 0, 1, 2): the rows then show a ramp of those hues; "any hue" ' +
-        'leaves the colors as they are. Turns on a real batari Basic ' +
+        'shimmering pattern (it defaults to the frame counter). "Colors from ... to" keeps the colors to ' +
+        'a range of color values (0 to 255, it can go round: 240 to 16 is 240 up to 255, then 0 up to 16): the rows then show a ramp of the colors in it, ' +
+        'one color value after the other. 0 to 15 is the shades of gray, 16 to 31 the shades of gold, 32 to 47 orange, and so on (a hue each 16 values, ' +
+        'the first one the darkest); a range of more than 64 values is sampled. 0 to 255 leaves the colors as they are. A block saved with a span of hues ' +
+        'keeps it (shown after the numbers; the numbers do not apply while it is set) until one of its hues is set to "any hue". Turns on a real batari Basic ' +
         'kernel feature that repurposes the matching missile\'s (Missile 0 for Player 0, Missile 1 ' +
         'for Player 1) hardware circuitry to do this, so that missile can no longer be used as a ' +
         'sprite anywhere in the project while this block is used (same tradeoff as the "blank ' +
@@ -1808,7 +1809,7 @@ Blockly.defineBlocksWithJsonArray([
   // block's  generator for exactly how.
   {
     'type': 'object_bounce',
-    'message0': `${INERTIA_ICON} Bounce %1 %2 %3 off screen edges %4 %5 set angle manually %6 %7 random angle spread ± %8 steps %9 %10`,
+    'message0': `${INERTIA_ICON} Bounce %1 %2 %3 off screen edges %4 %5 set angle manually %6 %7 random angle spread ± %8 steps in %9 %10 %11`,
     'args0': [
       {
         'type': 'field_dropdown',
@@ -1850,6 +1851,18 @@ Blockly.defineBlocksWithJsonArray([
         'name': 'SPREAD_STEPS',
         'check': 'Number',
       },
+      // The half of the circle the angle the spread ends at is kept in (an angle in the other half is mirrored over the line between the halves).
+      {
+        'type': 'field_dropdown',
+        'name': 'HEMISPHERE',
+        'options': [
+          ['any direction', 'ANY'],
+          ['the top half', 'TOP'],
+          ['the bottom half', 'BOTTOM'],
+          ['the left half', 'LEFT'],
+          ['the right half', 'RIGHT'],
+        ],
+      },
       // Holds the fields above, so hiding ANGLE does not hide them.
       {
         'type': 'input_dummy',
@@ -1885,7 +1898,10 @@ Blockly.defineBlocksWithJsonArray([
       'you give (0-7, or 0-15 when the Fire block uses 16 directions, clockwise from up) instead. It applies to ' +
       'collision bounces only, not to "off screen edges". "random angle spread" (missile/ball with Fire only): ticked, ' +
       'the angle it leaves at is also turned by a random amount of 0 to the chosen number of direction steps (1-4, a value above 4 counts as 4) either way, ' +
-      'around the reflected angle (or the manual angle). It also applies to "off screen edges" bounces. Unticked, nothing is worked out for it.',
+      'around the reflected angle (or the manual angle). It also applies to "off screen edges" bounces. Unticked, nothing is worked out for it. ' +
+      'The choice after "steps" keeps the angle it leaves at in one half of the circle (the top, bottom, left or right half, which is up, down, left or right of ' +
+      'the object): an angle the spread puts in the other half is mirrored over the line between the halves, so it leaves at the matching angle in the allowed ' +
+      'half. A bounce off a wall that faces away from the chosen half sends the object back into that wall, then the usual stuck-frame guesses apply.',
   },
   // Cancels what a Fire block started: the object stops moving where it is.
   // Same OBJECT dropdown and colour sync as object_bounce above.

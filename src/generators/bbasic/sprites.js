@@ -3481,18 +3481,33 @@ ${flagsVar}{${bit}} = 1
     const skip = `_bouncespread_${name}_${Blockly.BBasic.blockNumbers.next(`bouncespreadfix_${name}`)}_ok`;
     const notStraight = [` if (${dirVar} & ${(maxAngle + 1) / 4 - 1}) <> 0 then goto ${skip}`, ' temp1 = rand & 2',
       ` ${dirVar} = (${dirVar} + ${maxAngle} + temp1) & ${maxAngle}`, `@ ${skip}`];
+    // The half of the circle the heading is kept in, if one is chosen: a heading in the other half is mirrored over the line between the halves (a quarter turn is
+    // never left by now, so no heading is on that line). The directions go clockwise from up, 0 to maxAngle.
+    const turns = maxAngle + 1;
+    const quarter = turns / 4;
+    const hemisphere = block.getFieldValue('HEMISPHERE');
+    const hemisphereSkip = `_bouncespread_${name}_${Blockly.BBasic.blockNumbers.next(`bouncehemi_${name}`)}_half`;
+    const hemisphereLines = {
+      // Up: a heading a quarter turn either side of up, which is the same as the first half of the directions moved on by a quarter turn.
+      TOP: [` temp1 = (${dirVar} + ${quarter}) & ${maxAngle}`, ` if temp1 < ${turns / 2} then goto ${hemisphereSkip}`,
+        ` ${dirVar} = (${turns / 2 + turns} - ${dirVar}) & ${maxAngle}`, `@ ${hemisphereSkip}`],
+      BOTTOM: [` temp1 = (${dirVar} + ${quarter}) & ${maxAngle}`, ` if temp1 >= ${turns / 2} then goto ${hemisphereSkip}`,
+        ` ${dirVar} = (${turns / 2 + turns} - ${dirVar}) & ${maxAngle}`, `@ ${hemisphereSkip}`],
+      LEFT: [` if ${dirVar} > ${turns / 2} then goto ${hemisphereSkip}`, ` ${dirVar} = (${turns} - ${dirVar}) & ${maxAngle}`, `@ ${hemisphereSkip}`],
+      RIGHT: [` if ${dirVar} < ${turns / 2} then goto ${hemisphereSkip}`, ` ${dirVar} = (${turns} - ${dirVar}) & ${maxAngle}`, `@ ${hemisphereSkip}`],
+    }[hemisphere] || [];
     const stepsCode = Blockly.BBasic.valueToCode(block, 'SPREAD_STEPS', Blockly.BBasic.ORDER_NONE) || '1';
     const stepsNumber = literalNumber(stepsCode);
     if (stepsNumber !== null) {
       const steps = Math.min(4, Math.max(1, Math.round(stepsNumber)));
       const divisor = Math.ceil(256 / (2 * steps + 1));
-      return [` temp1 = rand / ${divisor}`, ` ${dirVar} = (${dirVar} + temp1 + ${maxAngle + 1 - steps}) & ${maxAngle}`, ...notStraight];
+      return [` temp1 = rand / ${divisor}`, ` ${dirVar} = (${dirVar} + temp1 + ${maxAngle + 1 - steps}) & ${maxAngle}`, ...notStraight, ...hemisphereLines];
     }
     // A value worked out when the program runs: clamped to 1-4, then a random 0 to 2N from 16 steps scaled to 2N+1 values.
     Blockly.BBasic.usesDivMul = true;
     return [` temp2 = ${stepsCode}`, ' if temp2 = 0 then temp2 = 1', ' if temp2 > 4 then temp2 = 4',
       ' temp1 = temp2 * 2 + 1', ' temp1 = (rand & 15) * temp1', ' temp1 = temp1 / 16',
-      ` ${dirVar} = (${dirVar} + temp1 + 16 - temp2) & ${maxAngle}`, ...notStraight];
+      ` ${dirVar} = (${dirVar} + temp1 + 16 - temp2) & ${maxAngle}`, ...notStraight, ...hemisphereLines];
   };
 
   const buildEdgeBounce = (block, name, resolveVar, hasFire, hasInertia) => {
