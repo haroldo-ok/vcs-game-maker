@@ -163,9 +163,9 @@ export const expandSpritePools = (dom, Blockly) => {
       // One copy of the blocks, for the first sprite, as a subroutine; the other sprites swap what they have with the first sprite's around a call of it.
       const first = sprites[0];
       const name = `poolbody${(poolCount += 1)}`;
-      const callBlocks = (n) => ([n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}<field name="BODY">${name}</field></block>`,
-        `<block type="sprite_pool_body_call"><field name="NAME">${name}</field>${hostField}</block>`,
-        n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}<field name="BODY">${name}</field></block>`, checkExit]);
+      const callBlocks = (n) => ([n === first ?
+        `<block type="sprite_pool_body_call"><field name="NAME">${name}</field>${hostField}</block>` :
+        `<block type="sprite_pool_step"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}<field name="BODY">${name}</field></block>`, checkExit]);
       // Blocks of the pool that leave it for somewhere else (Return, Go to label, Change state, Return from a subroutine) cannot jump out of a subroutine: in the
       // subroutine each one leaves its number in temp1 (and the value of a Return in temp6) and returns, and after the call (and the exchange back) the blocks
       // themselves run where the pool block was, when temp1 holds their number. The subroutine ends with temp1 at 0.

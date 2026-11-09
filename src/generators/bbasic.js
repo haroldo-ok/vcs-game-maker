@@ -750,7 +750,7 @@ Blockly.BBasic.init = function(workspace) {
   // The span of hues of each rainbow (a player, or the playfield): the one the first enabled "rainbow colors" block of it asks for (a later block asking for
   // another span is told in the compile log).
   // The pairs of sprites a Sprite pool exchanges (see generators/bbasic/sprite-pool.js and poolAnimationGroups).
-  this.poolSwapPairs = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && block.type === 'sprite_pool_swap')
+  this.poolSwapPairs = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && ['sprite_pool_swap', 'sprite_pool_step'].includes(block.type))
       .map((block) => ({first: Number(block.getFieldValue('FROM')), second: Number(block.getFieldValue('TO'))}));
   this.rainbowRanges = {};
   {
@@ -3961,6 +3961,7 @@ Blockly.BBasic.init = function(workspace) {
   this.functionCallWrapperNames = new Set();
   // Subroutines kept with the custom function that calls them (a sprite pool's blocks and its exchange code), name -> function: they move banks with it.
   this.functionHostedSubroutines = {};
+  this.poolStepsUsed = false;
   // Subroutines that stay in the main bank (the animation code the sprites of a Sprite pool share).
   this.pinnedSubroutines = new Set();
 

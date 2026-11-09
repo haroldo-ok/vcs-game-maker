@@ -1630,6 +1630,15 @@ export const buildRom = async () => {
         BlocklyBB.combineChecksOff = false;
       }
     }
+    // (The routines that run a Sprite pool for each of its sprites, in one family with the pool's blocks, did not fit the banks: the three calls are made one by one.)
+    if (!built && !buildCancelRequested && BlocklyBB.poolStepsUsed && !BlocklyBB.poolStepsOff) {
+      BlocklyBB.poolStepsOff = true;
+      try {
+        built = await buildRomInner();
+      } finally {
+        BlocklyBB.poolStepsOff = false;
+      }
+    }
     // Grabbed once the game has been running a moment, so the picture shows
     // the game rather than a blank first frame.
     if (built) {
