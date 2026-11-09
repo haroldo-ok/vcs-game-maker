@@ -208,7 +208,7 @@ export const titleCardColorPageVarName = (ref) => `titleCardColorPage_${sanitize
 
 // Every card whose color lists are stacked a page at a time, as "screenId:cardId" refs.
 export const resolveColorPageCardRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
@@ -220,7 +220,7 @@ export const resolveColorPageCardRefs = () => {
 
 // Every card that keeps its colors apart, as "screenId:cardId" refs.
 export const resolveColorSplitCardRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
@@ -285,14 +285,14 @@ export const titleScreenPageWeightedRows = (screen) =>
 // need far more than "85 rows" of stored graphics data (many frames, many
 // pages) while every individual page still draws well within budget.
 export const titleScreenAnyPageOverRowBudget = (storage) => {
-  const {screens} = processTitleScreenStorageDefaults(storage);
+  const {screens} = processTitleScreenStorageForBuild(storage);
   return screens.some((screen) => titleScreenPageWeightedRows(screen) > TITLE_SCREEN_PAGE_ROW_BUDGET);
 };
 
 // Every card that exists, of any type, across every screen, as "screenId:cardId" refs: what a block's
 // graphic choice has to match for it to still refer to something (a deleted graphic leaves its blocks behind).
 export const resolveAllTitleScreenCardRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   return screens.flatMap((screen) => (screen.cards || []).map((card) => `${screen.id}:${card.id}`));
 };
 
@@ -300,7 +300,7 @@ export const resolveAllTitleScreenCardRefs = () => {
 // titleCardFrameCounterVarName's comment for why this is resolved by
 // ref rather than waiting for kernel slot assignment.
 export const resolveAnimatedTitleScreenCardRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
@@ -323,7 +323,7 @@ export const titleFrameBox = (card, frame, pageColor) => ({
 // Every animated 48-wide graphic whose frames do not all have the same picture background, as
 // "screenId:cardId" refs: those need the background written as the animation moves from frame to frame.
 export const resolveFrameBoxCardRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
   screens.forEach((screen) => {
     const pageColor = Number(screen.backgroundColor) || 0;
@@ -340,7 +340,7 @@ export const resolveFrameBoxCardRefs = () => {
 
 // The animated graphics whose "Play animation once" switch is on (see TitleScreenEditor.vue).
 export const resolvePlayOnceCardRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
@@ -355,7 +355,7 @@ export const resolvePlayOnceCardRefs = () => {
 // titleCardIndexVarName's comment for why this has to be a real dev var
 // reserved by ref, same timing as the two resolvers/vars above.
 export const resolveTitleScreenCardsNeedingIndexRefs = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
@@ -441,6 +441,13 @@ export const processTitleScreenStorageDefaults = (storage) => {
     screen.cards = (screen.cards || []).map(migrateCardFrames);
   });
   return data;
+};
+
+// The title screens as they are compiled: the cards a card's eye button has hidden (card.hidden) are left out, so that they take no ROM, no kernel copy and no
+// variables, and a block that names one does nothing (as with a deleted one). The Title tab and the dropdowns of the blocks still see every card.
+export const processTitleScreenStorageForBuild = (storage) => {
+  const data = processTitleScreenStorageDefaults(storage);
+  return {...data, screens: data.screens.map((screen) => ({...screen, cards: (screen.cards || []).filter((card) => !card.hidden)}))};
 };
 
 // Every screen's  id/name, for the "Draw title screen" block's

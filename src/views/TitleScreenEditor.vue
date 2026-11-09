@@ -277,7 +277,7 @@
                           outlined
                           :ripple="false"
                           class="titlescreen-card"
-                          :class="[cardDragCardClass(screen, index), {'titlescreen-card-selected': isCardSelected(screen, card)}]"
+                          :class="[cardDragCardClass(screen, index), {'titlescreen-card-selected': isCardSelected(screen, card), 'titlescreen-card-hidden': card.hidden}]"
                           v-on="cardDragTargetListeners(screen, index)"
                           @click.stop="selectCard(card.id, screen.id, $event)"
                         >
@@ -311,6 +311,16 @@
                                 icon-btn-class="titlescreen-icon-btn-size"
                                 @confirm="handleDeleteCard(screen, card)"
                               />
+                              <v-btn
+                                :title="card.hidden ? 'This card is hidden: it is left out when the ROM is built. Click to show it again' :
+                                  'Hide this card when the ROM is built (it stays here)'"
+                                icon
+                                small
+                                class="import-icon-btn titlescreen-icon-btn-size"
+                                @click.stop="() => handleToggleCardHidden(card)"
+                              >
+                                <v-icon>{{ card.hidden ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+                              </v-btn>
                               <v-menu
                                   v-if="card.frames"
                                   top
@@ -466,13 +476,13 @@
                                   @change="handlePlayerStartChange(card, 'player0Y')"
                                 />
                                 <v-select
-                                  label="Width"
-                                  title="How wide Player 0 is drawn on the title screen: 1x, 2x or 4x (the TIA can only stretch a sprite to these). Set after the blocks of Title screen start."
-                                  :items="TITLE_PLAYER_WIDTH_OPTIONS"
-                                  :value="card.player0Width || 1"
+                                  label="Size"
+                                  title="How Player 0 is drawn on the title screen: one copy, two or three copies of the sprite side by side (close, medium or wide apart; the copies are the same picture and color), or stretched to double or quad size. Set after the blocks of Title screen start."
+                                  :items="TITLE_PLAYER_SIZE_OPTIONS"
+                                  :value="titlePlayerSizeCode(card, 0)"
                                   hide-details
                                   class="titlescreen-player-width-field"
-                                  @change="(value) => handlePlayerWidthChange(card, 'player0Width', value)"
+                                  @change="(value) => handlePlayerSizeChange(card, 0, value)"
                                 />
                                 <playfield-color-strip
                                   class="titlescreen-player-color"
@@ -519,13 +529,13 @@
                                   @change="handlePlayerStartChange(card, 'player1Y')"
                                 />
                                 <v-select
-                                  label="Width"
-                                  title="How wide Player 1 is drawn on the title screen: 1x, 2x or 4x (the TIA can only stretch a sprite to these). Set after the blocks of Title screen start."
-                                  :items="TITLE_PLAYER_WIDTH_OPTIONS"
-                                  :value="card.player1Width || 1"
+                                  label="Size"
+                                  title="How Player 1 is drawn on the title screen: one copy, two or three copies of the sprite side by side (close, medium or wide apart; the copies are the same picture and color), or stretched to double or quad size. Set after the blocks of Title screen start."
+                                  :items="TITLE_PLAYER_SIZE_OPTIONS"
+                                  :value="titlePlayerSizeCode(card, 1)"
                                   hide-details
                                   class="titlescreen-player-width-field"
-                                  @change="(value) => handlePlayerWidthChange(card, 'player1Width', value)"
+                                  @change="(value) => handlePlayerSizeChange(card, 1, value)"
                                 />
                                 <playfield-color-strip
                                   class="titlescreen-player-color"
@@ -865,6 +875,7 @@ import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE, MAX_PLAYER_CARDS,
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {listTextStrings} from '../blocks/text-strings';
 import {appVersionField} from '../utils/app-version';
+import {TITLE_PLAYER_SIZE_OPTIONS, titlePlayerSizeCode} from '../utils/title-player-size';
 import {CLOCK_ASPECT} from '../utils/pixel-aspect';
 
 // Same "module-scope ref, not per-instance state" reasoning as
@@ -1143,6 +1154,12 @@ export default defineComponent({
       const count = cardIdsToDelete(screen, card).length;
       return count > 1 ? `Delete these ${count} cards?` : 'Delete this card?';
     };
+    // A hidden card stays in the list but is left out of the build (see processTitleScreenStorageForBuild); the key is removed when it is shown again.
+    const handleToggleCardHidden = (card) => {
+      if (card.hidden) instance.proxy.$delete(card, 'hidden');
+      else instance.proxy.$set(card, 'hidden', true);
+      handleChildChange();
+    };
     const handleDeleteCard = (screen, card) => {
       const doomed = cardIdsToDelete(screen, card);
       const original = screen.cards.slice();
@@ -1263,11 +1280,11 @@ export default defineComponent({
       }, {key: changeKeyOf(card, 'color'), afterChange: saveAndRedraw});
     };
     // The color of the Player 0 or Player 1 sprite of a Player card.
-    const TITLE_PLAYER_WIDTH_OPTIONS = [{text: '1x', value: 1}, {text: '2x', value: 2}, {text: '4x', value: 4}];
-    // 1x is what a player is without a setting, so the key is removed for it.
-    const handlePlayerWidthChange = (card, key, value) => {
-      if (value === 2 || value === 4) instance.proxy.$set(card, key, value);
-      else instance.proxy.$delete(card, key);
+    // One copy is what a player is without a setting, so the key is removed for it; the width of an older file (player0Width) is replaced by the size.
+    const handlePlayerSizeChange = (card, player, value) => {
+      if (value > 0) instance.proxy.$set(card, `player${player}Size`, value);
+      else instance.proxy.$delete(card, `player${player}Size`);
+      instance.proxy.$delete(card, `player${player}Width`);
       handleChildChange();
     };
     // The starting position of a Player card's sprite: empty (or not a number) means none is set, and the key is removed.
@@ -2032,12 +2049,12 @@ export default defineComponent({
       screenDragAttrs, screenDragCardClass, screenDragHandleListeners, screenDragTargetListeners,
       cardWidth, editorWidth, cardAspectRatio, cardHasRowColors, editorRowColors, editorFgColor, cardTypeLabel,
       addCardOptions, canAddCardType, maxCopies, maxCopiesForType, playerAnimationOptions, textCardOptions,
-      handleAddCard, handleDeleteCard, handleDuplicateCard,
+      handleAddCard, handleDeleteCard, handleToggleCardHidden, handleDuplicateCard,
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,
       handleClearBox,
       exportableScreen, handleExportTitleScreen, handleImportTitleScreen,
       handleSetBackgroundColor, handleSetCardColor, handleSetPlayerColor, handlePlayerStartChange, handleClearCardColors,
-      TITLE_PLAYER_WIDTH_OPTIONS, handlePlayerWidthChange,
+      TITLE_PLAYER_SIZE_OPTIONS, titlePlayerSizeCode, handlePlayerSizeChange,
       handleFramePixelsInput, handleRowColorsInput, handleMoveRows, handleFlipRowColors, cardFrameHeight,
       handleAddFrame, handleDeleteFrame,
       frameDrag, armedFrameKey, frameKey, armFrameDrag, frameHandleListeners,
@@ -2184,6 +2201,11 @@ export default defineComponent({
    so it doesn't get this rule - it was making that card too tall. */
 .titlescreen-card {
   min-height: 44px;
+}
+
+/* A card hidden by its eye button is left out of the build: the body is dimmed, the buttons at the top keep their look. */
+.titlescreen-card-hidden .titlescreen-card-body {
+  opacity: 0.45;
 }
 
 /* A top strip, not a left one - matches BackgroundEditor.vue's
@@ -2488,8 +2510,8 @@ export default defineComponent({
   max-width: 72px;
 }
 .titlescreen-player-width-field {
-  flex: 0 0 72px;
-  max-width: 72px;
+  flex: 0 0 104px;
+  max-width: 104px;
 }
 
 .titlescreen-player-color {

@@ -1623,7 +1623,7 @@ const setTitleCompact = (on) => {
 };
 const titleScreenHas48x2Graphic = () => {
   try {
-    return (useTitleScreenStorage().value.screens || []).some((screen) => (screen.cards || []).some((card) => card.type === '48x2'));
+    return (useTitleScreenStorage().value.screens || []).some((screen) => (screen.cards || []).some((card) => card.type === '48x2' && !card.hidden));
   } catch (e) {
     return false;
   }

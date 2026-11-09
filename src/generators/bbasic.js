@@ -63,7 +63,7 @@ import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStart
   TITLE_ANIMATE_FAMILY, titleAnimateVar,
   TITLE_CARD_FINISHED_FAMILY, titleCardFinishedVar, titleCardFinishedBit, titleCardFinishedLatchBit,
   titleCardOnceBit, TITLE_PLAYER_ONCE_FAMILY, titlePlayerOnceVar, titlePlayerOnceBit, titleScreensHaveTextCard} from './bbasic/titlescreen';
-import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageDefaults,
+import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageDefaults, processTitleScreenStorageForBuild,
   titleCardScrollOffsetVarName, resolveTitleScreenCardsNeedingIndexRefs,
   titleCardIndexVarName, titleCardColorIndexVarName, resolveColorSplitCardRefs,
   titleCardColorPageVarName, resolveColorPageCardRefs,
@@ -1387,7 +1387,7 @@ Blockly.BBasic.init = function(workspace) {
   const fadeBlocks = enabledBlocks('titlescreen_card_color_fade').filter((block) => !block.getInheritedDisabled() &&
     GENERATED_ROOTS.includes(block.getRootBlock().type) && existingCards.has(block.getFieldValue('CARD')));
   const fadedRefs = this.titleScreenDrawUsed ? [...new Set(fadeBlocks.map((block) => block.getFieldValue('CARD')))] : [];
-  const cardOf = (ref) => processTitleScreenStorageDefaults(useTitleScreenStorage()).screens.flatMap((screen) =>
+  const cardOf = (ref) => processTitleScreenStorageForBuild(useTitleScreenStorage()).screens.flatMap((screen) =>
     (screen.cards || []).map((card) => ({card, ref: `${screen.id}:${card.id}`}))).find((entry) => entry.ref === ref);
   // A multicolor (48x2) graphic fades through color lists made ahead of time toward a color picked on the block, so that has to
   // be a color from the color picker and the frames a number typed in: its plan (see planTitleRowFade) has the lists.

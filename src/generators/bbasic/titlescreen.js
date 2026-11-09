@@ -2,8 +2,9 @@
 
 import {isPxe} from '../../utils/pxe';
 import {packTitleData} from '../../utils/title-data-pack';
+import {titlePlayerSizeCode} from '../../utils/title-player-size';
 import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
-  processTitleScreenStorageDefaults, isCardAnimated, cardFrameHeight,
+  processTitleScreenStorageDefaults, processTitleScreenStorageForBuild, isCardAnimated, cardFrameHeight,
   titleCardFrameCounterVarName, titleCardScrollOffsetVarName,
   titleCardIndexVarName, titleCardColorIndexVarName, titleCardColorPageVarName, padTitleCardFrames, titleCardColorSplit,
   titleCardUniformAllowed, isUniformColorList,
@@ -325,10 +326,10 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
 };
 
 // The lines that put the Player 0 and Player 1 sprites where the Player card of a title screen says they start (its Start X and
-// Start Y fields; one that is empty is left alone) and how wide they are drawn (its Width: 2x or 4x; 1x is left alone). Run last
+// Start Y fields; one that is empty is left alone) and how wide they are drawn and how many copies (its Size; one copy is left alone). Run last
 // in "Title screen start", so the card has the say over the blocks there.
 export const titlePlayerStartLines = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const lines = [];
   screens.forEach((screen) => (screen.cards || []).filter((card) => card.type === 'player').forEach((card) => {
     [0, 1].forEach((player) => ['x', 'y'].forEach((axis) => {
@@ -338,12 +339,13 @@ export const titlePlayerStartLines = () => {
       if (!lines.includes(line)) lines.push(line);
     }));
   }));
-  // The TIA stretches a sprite to 2x (NUSIZ 5) or 4x (NUSIZ 7); the other bits of the size byte (a flag of the title screen loop,
-  // the pause bit) stay as they are.
+  // The TIA draws a sprite in two or three copies, or stretched to 2x (NUSIZ 5) or 4x (NUSIZ 7); the other bits of the size byte (the flip bit, a flag of the title
+  // screen loop, the pause bit) stay as they are.
   screens.forEach((screen) => (screen.cards || []).filter((card) => card.type === 'player').forEach((card) => {
     [0, 1].forEach((player) => {
-      const nusiz = {2: '$05', 4: '$07'}[Number(card[`player${player}Width`])];
-      if (!nusiz) return;
+      const code = titlePlayerSizeCode(card, player);
+      if (!code) return;
+      const nusiz = `$0${code}`;
       const first = `player${player}size = player${player}size & $F8`;
       if (!lines.includes(first)) lines.push(first, `player${player}size = player${player}size | ${nusiz}`);
     });
@@ -392,7 +394,7 @@ const resolvePlayerSlotFrames = (animationIndex) => {
 // chosen animation has and how long each lasts, or null for a project with no Player sprites card. An
 // animation with several frames plays by itself (see generateTitlePlayerChecks).
 export const resolveTitlePlayerSlots = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const card = screens.flatMap((screen) => screen.cards || []).find((c) => c.type === 'player');
   if (!card) return null;
   const slots = {};
@@ -508,12 +510,12 @@ const buildScoreDataAsm = () => {
 // and both small next to what many animation frames add up to.
 // Whether any page has a text card that names a Text tab entry.
 export const titleScreensHaveTextCard = () => {
-  const {screens} = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   return screens.some((screen) => (screen.cards || []).some((card) => card.type === 'text' && card.textId !== undefined && card.textId !== ''));
 };
 
 export const estimateTitleScreenGraphicsBytes = (storage) => {
-  const {screens} = processTitleScreenStorageDefaults(storage);
+  const {screens} = processTitleScreenStorageForBuild(storage);
   let bytes = 0;
   let countedPlayerCard = false;
   let countedScoreCard = false;
@@ -1411,7 +1413,7 @@ export const titleBgOverrideBit = () => flagPoolBit(TITLE_BG_OVERRIDE_FAMILY, 0)
 // compile every entry, not just referenced ones" convention Backgrounds/
 // Player animations already use.
 export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
-  const titleScreen = processTitleScreenStorageDefaults(useTitleScreenStorage());
+  const titleScreen = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const {usedKernelKeys, dataBlocks, screenPlans, cardSlotsByRef, cardAnimationByRef,
     hasPlayerCard, playerHeights, hasScoreCard} = assignKernelSlots(titleScreen.screens, Blockly);
 
@@ -1776,7 +1778,7 @@ export default (Blockly) => {
     // Largest offset = one frame's height minus the window height. The same
     // for every frame of an animated card, so it holds for whichever frame
     // is currently showing.
-    const card = processTitleScreenStorageDefaults(useTitleScreenStorage()).screens
+    const card = processTitleScreenStorageForBuild(useTitleScreenStorage()).screens
         .reduce((found, screen) => found || (screen.cards || [])
             .find((candidate) => `${screen.id}:${candidate.id}` === ref), null);
     if (!card) return 'rem No scrolling title screen graphic selected\n';
