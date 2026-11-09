@@ -45,6 +45,7 @@ import {expandSceneBlocks, sceneBlocksXml, sceneTablesHaveOffsets, triggerEventX
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
 import {parseBankFree, measureUnitSizes, planBankPacking} from '../utils/bank-packer';
+import {calledNames} from '../utils/call-scan';
 import {useGeneratedBasic, markGeneratedFresh, setGeneratedCodeBuilder} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   useDataTablesStorage, usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
@@ -1139,6 +1140,40 @@ const familyHasExternalBareCaller = (members) => {
 // the event names.
 // (A unit that runs on every frame is not moved to free room in the main bank, only when the main bank has no other way to fit.)
 const EVERY_FRAME = 3;
+// The code that the main loop runs on every pass whatever the project has: the checks the sprites and the background ask for, and the animation code of the
+// sprites of a pool.
+const PER_PASS_NAMES = /^_(pass_checks|fire_checks|seek_checks|lock_checks|inertia_checks|platformer_checks|bg_fade_checks|poolanim)/;
+// Who calls whom, made once for the code of a build (a build makes new tables, and the count of the entries is checked in case one is changed in place):
+// calls: for each subroutine and function the names it calls (see calledNames); eventCalls: the same for each event; reached: the subroutines and functions that
+// the main loop runs on every pass, the ones its events call except under a rare condition (an input, a collision, a random number, a block that runs once or every
+// few frames), the ones those call in the same way in turn, and the per pass ones above. A call under a rare condition does not make its callee run on every pass,
+// and weighs less in the layout (see planLayoutFromMeasurement).
+let callCache = null;
+const callGraph = () => {
+  const subroutines = BlocklyBB.subroutines || {};
+  const functions = BlocklyBB.functions || {};
+  const events = BlocklyBB.gameEvents || {};
+  const stamp = [subroutines, functions, events].map((table) => Object.keys(table).length).join('|');
+  if (callCache && callCache.subroutines === subroutines && callCache.functions === functions && callCache.events === events && callCache.stamp === stamp) return callCache;
+  const known = new Set([...Object.keys(subroutines), ...Object.keys(functions)]);
+  const calls = new Map([...known].map((name) => [name, calledNames(subroutines[name] !== undefined ? subroutines[name] : functions[name], known)]));
+  const eventCalls = new Map(Object.entries(events).map(([eventName, code]) => [eventName, calledNames(code.join('\n'), known)]));
+  const reached = new Set();
+  const queue = [];
+  const add = (name) => {
+    if (!reached.has(name)) {
+      reached.add(name);
+      queue.push(name);
+    }
+  };
+  eventCalls.forEach((called, eventName) => {
+    if (!RELOCATABLE_EVENT_NAMES.includes(eventName)) called.forEach((always, name) => always && add(name));
+  });
+  known.forEach((name) => PER_PASS_NAMES.test(name) && add(name));
+  while (queue.length) calls.get(queue.pop()).forEach((always, name) => always && add(name));
+  callCache = {subroutines, functions, events, stamp, calls, eventCalls, reached};
+  return callCache;
+};
 // How often a unit runs, from 0 (a screen or a load that comes seldom) to EVERY_FRAME.
 const unitRunFrequency = (kind, name) => {
   if (kind === 'eventBanks') return 0;
@@ -1151,6 +1186,13 @@ const unitRunFrequency = (kind, name) => {
     return /^_background_load/.test(name) ? 0 : 2;
   }
   return 2;
+};
+// How often a unit is called on a pass, for the planner of the layout (which keeps what the main loop runs on every pass near the code that calls it): EVERY_FRAME
+// for a unit with a part the main loop reaches by calls that are not under a condition (see callGraph), else what unitRunFrequency says. The moves of single units use unitRunFrequency.
+const unitPassFrequency = (unit) => {
+  if (unit.frequency === EVERY_FRAME || unit.kind === 'eventBanks' || unit.kind === 'graphicsBanks' || /^_background_load/.test(unit.name)) return unit.frequency;
+  const {reached} = callGraph();
+  return (unit.members || [{name: unit.name}]).some((member) => reached.has(member.name)) ? EVERY_FRAME : unit.frequency;
 };
 // (`anywhere`: every unit that can move, wherever it is now and music too, for the planner of the bank layout.)
 const relocationCandidates = (banks, hasReservedMusicBank, primaryBank, anywhere = false) => {
@@ -1228,7 +1270,10 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank, anywhere
   // title and game over screens, the loads of a background, and the pictures that are only loaded when an animation changes go first;
   // an animation's code, which the main bank steps past on most frames, and the other subroutines next; the subroutines that run on
   // every frame (the box checks, the edge reset) last. Within a group the largest goes first, to need the fewest rebuilds.
-  candidates.forEach((unit) => (unit.frequency = unitRunFrequency(unit.kind, unit.name)));
+  candidates.forEach((unit) => {
+    unit.frequency = unitRunFrequency(unit.kind, unit.name);
+    unit.passFrequency = unitPassFrequency(unit);
+  });
   return candidates.sort((a, b) => a.frequency - b.frequency || b.size - a.size);
 };
 
@@ -1305,11 +1350,29 @@ const planLayoutFromMeasurement = (measured, config, reservedMusicBank, maxBanks
     });
     if (bank === null) bank = (banksNow[members[0].kind] || {})[members[0].name] || primary;
     if (!bins.includes(bank)) return;
-    units.push({key: `${unit.kind}:${unit.name}`, unit, bank, size, settled, weight: PLAN_WEIGHTS[unitRunFrequency(unit.kind, unit.name)] || 1});
+    units.push({key: `${unit.kind}:${unit.name}`, unit, bank, size, settled, frequency: unit.passFrequency, weight: PLAN_WEIGHTS[unit.passFrequency] || 1});
   });
+  // Which units call which (by the names of their parts in the code), each call with what it costs across banks: how often the less frequent of the two runs.
+  const unitOfName = new Map();
+  units.forEach(({key, unit}) => memberOf(unit).forEach(({kind, name}) => {
+    if (kind === 'subroutineBanks' || kind === 'functionBanks') unitOfName.set(name, key);
+  }));
+  const frequencyOf = new Map(units.map(({key, frequency}) => [key, frequency]));
+  const graph = callGraph();
+  const edges = new Map();
+  units.forEach(({key, unit}) => memberOf(unit).forEach(({kind, name}) => {
+    (kind === 'eventBanks' ? graph.eventCalls : graph.calls).get(name)?.forEach((always, calledName) => {
+      const callee = unitOfName.get(calledName);
+      if (!callee || callee === key) return;
+      // A call under a rare condition is made less often than the code that makes it runs.
+      const weight = PLAN_WEIGHTS[Math.min(frequencyOf.get(key), frequencyOf.get(callee), always ? EVERY_FRAME : EVERY_FRAME - 1)] || 1;
+      const pair = [key, callee].sort().join('|');
+      if (!edges.has(pair) || edges.get(pair).weight < weight) edges.set(pair, {a: key, b: callee, weight});
+    });
+  }));
   let result = null;
   for (const margin of PLAN_MARGINS) {
-    result = planBankPacking({units, banks: bins, free, primary, margin: margin + extraMargin, enterBytes: PLAN_ENTER_BYTES});
+    result = planBankPacking({units, banks: bins, free, primary, margin: margin + extraMargin, enterBytes: PLAN_ENTER_BYTES, edges: [...edges.values()]});
     if (result.feasible) break;
   }
   const moves = [];
@@ -1621,23 +1684,22 @@ export const buildRom = async () => {
       built = await buildRomInner();
       if (built) compactTitleSignature = signature;
     }
-    // (The checks of the main loop called through one family did not fit the banks: they are called one by one.)
-    if (!built && !buildCancelRequested && BlocklyBB.combinedChecksUsed && !BlocklyBB.combineChecksOff) {
-      BlocklyBB.combineChecksOff = true;
-      try {
+    // (Code made as one family of subroutines did not fit the banks: it is made again with its parts called one by one, the main loop's checks first, then the
+    // routines that run a Sprite pool for each of its sprites too. A build that failed for another reason is not made again.)
+    const familyKnobs = [];
+    try {
+      for (const [used, off] of [['combinedChecksUsed', 'combineChecksOff'], ['poolStepsUsed', 'poolStepsOff']]) {
+        if (built || buildCancelRequested || !lastBuildFailedForFit || !BlocklyBB[used]) continue;
+        familyKnobs.push(off);
+        familyKnobs.forEach((knob) => {
+          BlocklyBB[knob] = true;
+        });
         built = await buildRomInner();
-      } finally {
-        BlocklyBB.combineChecksOff = false;
       }
-    }
-    // (The routines that run a Sprite pool for each of its sprites, in one family with the pool's blocks, did not fit the banks: the three calls are made one by one.)
-    if (!built && !buildCancelRequested && BlocklyBB.poolStepsUsed && !BlocklyBB.poolStepsOff) {
-      BlocklyBB.poolStepsOff = true;
-      try {
-        built = await buildRomInner();
-      } finally {
-        BlocklyBB.poolStepsOff = false;
-      }
+    } finally {
+      familyKnobs.forEach((knob) => {
+        BlocklyBB[knob] = false;
+      });
     }
     // Grabbed once the game has been running a moment, so the picture shows
     // the game rather than a blank first frame.
@@ -1655,7 +1717,10 @@ export const buildRom = async () => {
   }
 };
 
+// Whether the last build failed because the code does not fit the banks (the one failure a different way of making the code can put right).
+let lastBuildFailedForFit = false;
 const buildRomInner = async () => {
+  lastBuildFailedForFit = false;
   const errorStorage = useErrorStorage();
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
@@ -2218,6 +2283,7 @@ const buildRomInner = async () => {
           const freeBytes = parseBank1FreeBytesEcho(e.dasmStdout);
           if (freeBytes != null && freeBytes < 0 && titleOverBytes > 0) {
             // The Titlescreen Kernel was too big for every bank it was tried in, and ended in bank 1 with the others.
+            lastBuildFailedForFit = true;
             appendCompileLog('Build failed.', 'error');
             const titleHint = titleScreenOverflowHint(e);
             showError(errorStorage, 'Error while compiling bBasic code', code, new Error(
@@ -2228,6 +2294,7 @@ const buildRomInner = async () => {
           }
           if (freeBytes != null && freeBytes < 0) {
             appendCompileLog('Build failed.', 'error');
+            lastBuildFailedForFit = true;
             const bank1Error = new Error(
                 `Bank 1 is ${-freeBytes} bytes over capacity, and every relocatable unit is already ` +
                 'in another bank - nothing left to move out of bank 1 to fix this. Reduce bank 1\'s ' +
@@ -2560,6 +2627,7 @@ const buildRomInner = async () => {
       const annotatedError = new Error(
           `${e.message}${titleScreenHint.text}${romSizeOverflowHint(e, config)}\n\n` +
           `Bank assignments at failure:\n${JSON.stringify(diagnostics, null, 2)}`);
+      lastBuildFailedForFit = isOverflowError(e);
       showError(errorStorage, 'Error while compiling bBasic code', code, annotatedError, titleScreenHint.highlight);
       return false;
     }
@@ -2582,6 +2650,7 @@ const buildRomInner = async () => {
       subroutines: BlocklyBB.getSubroutineNames(),
     },
   };
+  lastBuildFailedForFit = isOverflowError(lastFailure);
   appendCompileLog('Build failed.', 'error');
   const titleScreenHint = titleScreenOverflowHint(lastFailure);
   showError(errorStorage, 'Error while compiling bBasic code', lastCode,

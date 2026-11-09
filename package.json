@@ -12,6 +12,7 @@
     "prebuild": "node tools/samplefit/build.js",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
+    "check:packer": "node --test tools/bank-packer-check.mjs",
     "site:edit": "node tools/site-editor/server.js",
     "build:stellerator": "node tools/stellerator/build.js",
     "build:samplefit": "node tools/samplefit/build.js",

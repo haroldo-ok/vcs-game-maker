@@ -44,17 +44,20 @@ export default (Blockly) => {
   const keepWithFunction = (subroutineName, block) => {
     const host = block.getFieldValue('HOST');
     if (!host) return;
-    const hostName = Blockly.BBasic.nameDB_.getName(host, Blockly.PROCEDURE_CATEGORY_NAME);
-    Blockly.BBasic.functionHostedSubroutines[subroutineName] = hostName;
-    Blockly.BBasic.functionCallWrapperNames.add(subroutineName);
+    Blockly.BBasic.hostSubroutine(subroutineName, Blockly.BBasic.nameDB_.getName(host, Blockly.PROCEDURE_CATEGORY_NAME));
   };
 
-  Blockly.BBasic['sprite_pool_body_call'] = function(block) {
-    const name = Blockly.BBasic.nameDB_.getName(block.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME);
+  // The call of a subroutine, with the bank tag when it is in another bank than the code that calls it.
+  const callSub = (name) => `gosub ${name}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name))}\n`;
+
+  // The call of the subroutine of a pool (its name in bodyField, and the custom function the pool is in, if any, in the HOST field of the block).
+  const bodyCall = (bodyField, block) => {
+    const name = Blockly.BBasic.nameDB_.getName(bodyField, Blockly.PROCEDURE_CATEGORY_NAME);
     keepWithFunction(name, block);
-    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
-    return `gosub ${name}${suffix}\n`;
+    return callSub(name);
   };
+
+  Blockly.BBasic['sprite_pool_body_call'] = (block) => bodyCall(block.getFieldValue('NAME'), block);
 
   // A block of a pool that leaves the pool (Return, Go to label, Change state) cannot do it from inside the pool's subroutine: it leaves its number in temp1
   // (the value of a Return in temp6, which the exchange of sprites does not touch either) and returns; the blocks run after the call (see utils/sprite-pool.js).
@@ -318,21 +321,14 @@ export default (Blockly) => {
     return name;
   };
 
-  Blockly.BBasic['sprite_pool_swap'] = function(block) {
-    const name = registerSwap(block);
-    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
-    return `gosub ${name}${suffix}\n`;
-  };
-
   // One call for a sprite other than the first: a subroutine that exchanges the sprite with the first, runs the pool's subroutine and exchanges back. The three
   // are one family (see computeFunctionFamilies in hooks/rom.js: they move to a bank together, so the calls between them are plain ones) and the code that
   // runs the pool makes one call for each sprite, which crosses a bank once at most (three calls that could each cross one, before). A build that does not fit
   // that way is made again with the three calls one by one (buildRom).
   Blockly.BBasic['sprite_pool_step'] = function(block) {
     if (Blockly.BBasic.poolStepsOff) {
-      const swap = Blockly.BBasic['sprite_pool_swap'](block);
-      const call = Blockly.BBasic['sprite_pool_body_call']({getFieldValue: (field) => (field === 'NAME' ? block.getFieldValue('BODY') : block.getFieldValue(field))});
-      return swap + call + swap;
+      const swap = callSub(registerSwap(block));
+      return swap + bodyCall(block.getFieldValue('BODY'), block) + swap;
     }
     Blockly.BBasic.poolStepsUsed = true;
     const bodyField = block.getFieldValue('BODY');
@@ -340,15 +336,12 @@ export default (Blockly) => {
     const swapName = registerSwap(block);
     keepWithFunction(bodyName, block);
     const name = `_poolstep_${block.getFieldValue('FROM')}_${block.getFieldValue('TO')}_for_${bodyName}`;
-    if (!Blockly.BBasic.subroutines[name]) Blockly.BBasic.subroutines[name] = [swapName, bodyName, swapName].map((callee) => `  gosub ${callee}`).join('\n');
+    // (The second exchange is a jump, not a call: its return is the return of the step.)
+    if (!Blockly.BBasic.subroutines[name]) Blockly.BBasic.subroutines[name] = `  gosub ${swapName}\n  gosub ${bodyName}\n  goto ${swapName}`;
     // (The subroutine of the pool is the member the others are hosted by: it is one of the family whether the pool is in a function or not.)
     Blockly.BBasic.functionCallWrapperNames.add(bodyName);
-    [name, swapName].forEach((member) => {
-      Blockly.BBasic.functionHostedSubroutines[member] = bodyName;
-      Blockly.BBasic.functionCallWrapperNames.add(member);
-    });
-    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
-    return `gosub ${name}${suffix}\n`;
+    [name, swapName].forEach((member) => Blockly.BBasic.hostSubroutine(member, bodyName));
+    return callSub(name);
   };
 
   // The blocks that are only a way to ask for a pool, still there when the code is made from a workspace that was not expanded.

@@ -91,19 +91,32 @@ const makeRandom = (seed) => {
  * Chooses a bank for every unit so that each bank keeps `margin` bytes free, moving as little as possible and keeping what runs often in the main
  * bank (a call into another bank takes 35 to 50 cycles).
  * @param {{units: !Array<{key: string, bank: number, size: number, weight: number}>, banks: !Array<number>, free: !Object<number, number>,
- *   primary: number, margin: number, enterBytes: number}} problem
+ *   primary: number, margin: number, enterBytes: number, edges: (!Array<{a: string, b: string, weight: number}>|undefined)}} problem
  *   units: where each is now (bank) and what it costs to run away from the main bank (weight); banks: the banks they can go in; free: the room
- *   each of those has now; enterBytes: the code a unit adds to a bank it was not in (the bank switching calls to it).
- * @return {{assignment: !Map<string, number>, deficit: number, feasible: boolean}} deficit: the bytes by which the banks fall short of the margin.
+ *   each of those has now; enterBytes: the code a unit adds to a bank it was not in (the bank switching calls to it); edges: pairs of units where
+ *   one calls the other, with what each call costs when the two are in different banks (how often it is made): a unit called every pass goes in the
+ *   bank of the one that calls it, not in a bank by itself.
+ * @return {{assignment: !Map<string, number>, deficit: number, feasible: boolean, cost: number}} deficit: the bytes by which the banks fall short of the margin;
+ *   cost: what the layout costs (the weights of the units away from the main bank, the moves, and the calls across banks).
  */
-export const planBankPacking = ({units, banks, free, primary, margin, enterBytes}) => {
+export const planBankPacking = ({units, banks, free, primary, margin, enterBytes, edges = []}) => {
   const count = units.length;
+  const indexOfKey = new Map(units.map((unit, i) => [unit.key, i]));
+  // For each unit, the units it calls or is called by, with what it costs when they are in different banks.
+  const links = units.map(() => []);
+  edges.forEach(({a, b, weight}) => {
+    if (!indexOfKey.has(a) || !indexOfKey.has(b) || a === b) return;
+    links[indexOfKey.get(a)].push({other: indexOfKey.get(b), weight});
+    links[indexOfKey.get(b)].push({other: indexOfKey.get(a), weight});
+  });
   const binIndex = new Map(banks.map((bank, i) => [bank, i]));
   const original = units.map((unit) => (binIndex.has(unit.bank) ? binIndex.get(unit.bank) : -1));
   const baseFree = banks.map((bank) => (free[bank] === undefined ? 0 : free[bank]));
   // (A unit whose size is known is where an earlier layout put it for a reason: moving it again costs more than moving one that was only guessed at.)
   const costOf = (i, bin) => (banks[bin] === primary ? 0 : units[i].weight) + (bin !== original[i] ? (units[i].settled ? 3 : 0.5) : 0);
   const state = original.map((bin, i) => (bin >= 0 ? bin : 0));
+  // What the calls of unit i cost with the unit in bank bin (the others where they are now).
+  const linkCost = (i, bin) => links[i].reduce((sum, {other, weight}) => sum + (state[other] === bin ? 0 : weight), 0);
   const room = baseFree.slice();
   // Room left in each bank for a layout, as the sum of what units entering and leaving it do.
   units.forEach((unit, i) => {
@@ -114,7 +127,7 @@ export const planBankPacking = ({units, banks, free, primary, margin, enterBytes
   let deficit = 0;
   let cost = 0;
   banks.forEach((bank, bin) => (deficit += deficitOf(bin)));
-  units.forEach((unit, i) => (cost += costOf(i, state[i])));
+  units.forEach((unit, i) => (cost += costOf(i, state[i]) + linkCost(i, state[i]) / 2));
   const PENALTY = 4;
   const energy = () => cost + PENALTY * deficit;
   const move = (i, to) => {
@@ -134,11 +147,11 @@ export const planBankPacking = ({units, banks, free, primary, margin, enterBytes
       else room[bin] -= unit.size + enterBytes;
       deficit += deficitOf(bin);
     };
-    cost -= costOf(i, from);
+    cost -= costOf(i, from) + linkCost(i, from);
     leave(from);
     state[i] = to;
     enter(to);
-    cost += costOf(i, to);
+    cost += costOf(i, to) + linkCost(i, to);
   };
   // A unit that is back in its original bank does not take room twice: the room sums above are relative to the layout as it started, so the
   // original bank counts the unit as already there (leave() and enter() are written so that going out and coming back cancel).
@@ -187,5 +200,5 @@ export const planBankPacking = ({units, banks, free, primary, margin, enterBytes
   }
   const assignment = new Map();
   units.forEach((unit, i) => assignment.set(unit.key, banks[best.state[i]]));
-  return {assignment, deficit: best.deficit, feasible: best.deficit <= 0};
+  return {assignment, deficit: best.deficit, feasible: best.deficit <= 0, cost: best.cost};
 };

@@ -346,10 +346,7 @@ const combineWrappedChecks = (generator, entries) => {
       const names = calls.map(([key]) => WRAPPED_CHECKS_NAMES[key]);
       generator.subroutines[COMBINED_CHECKS_NAME] = names.map((name) => `  gosub ${name}`).join('\n');
       generator.functionCallWrapperNames.add(COMBINED_CHECKS_NAME);
-      names.forEach((name) => {
-        generator.functionHostedSubroutines[name] = COMBINED_CHECKS_NAME;
-        generator.functionCallWrapperNames.add(name);
-      });
+      names.forEach((name) => generator.hostSubroutine(name, COMBINED_CHECKS_NAME));
       const first = entries.findIndex(isCall);
       for (let i = from; i < to; i++) texts[i] = '';
       texts[first >= from ? first : from] = ` gosub ${COMBINED_CHECKS_NAME}${generator.bankJumpSuffix(generator.primaryBank(), generator.getSubroutineBank(COMBINED_CHECKS_NAME))}\n`;
@@ -750,7 +747,7 @@ Blockly.BBasic.init = function(workspace) {
   // The span of hues of each rainbow (a player, or the playfield): the one the first enabled "rainbow colors" block of it asks for (a later block asking for
   // another span is told in the compile log).
   // The pairs of sprites a Sprite pool exchanges (see generators/bbasic/sprite-pool.js and poolAnimationGroups).
-  this.poolSwapPairs = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && ['sprite_pool_swap', 'sprite_pool_step'].includes(block.type))
+  this.poolSwapPairs = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && block.type === 'sprite_pool_step')
       .map((block) => ({first: Number(block.getFieldValue('FROM')), second: Number(block.getFieldValue('TO'))}));
   this.rainbowRanges = {};
   {
@@ -3962,6 +3959,12 @@ Blockly.BBasic.init = function(workspace) {
   // Subroutines kept with the custom function that calls them (a sprite pool's blocks and its exchange code), name -> function: they move banks with it.
   this.functionHostedSubroutines = {};
   this.poolStepsUsed = false;
+  // Keeps a subroutine with the one that hosts it (a custom function, or a subroutine that is a wrapper): the two move to a bank together (see computeFunctionFamilies
+  // in hooks/rom.js), and the calls between them are plain ones.
+  this.hostSubroutine = (member, host) => {
+    this.functionHostedSubroutines[member] = host;
+    this.functionCallWrapperNames.add(member);
+  };
   // Subroutines that stay in the main bank (the animation code the sprites of a Sprite pool share).
   this.pinnedSubroutines = new Set();
 
@@ -9087,10 +9090,7 @@ Blockly.BBasic.generateAnimations = function() {
     const bank = (subroutine) => Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(subroutine));
     // (A subroutine's lines are indented again when it is put in the code: a line that starts in the first column (a label, an "end") is kept there with an "@".)
     const asSubroutine = (text) => text.split('\n').map((line) => (line !== '' && !/^[\t ]/.test(line) ? `@${line}` : line));
-    const hostedBy = (member) => {
-      Blockly.BBasic.functionHostedSubroutines[member] = subName;
-      Blockly.BBasic.functionCallWrapperNames.add(member);
-    };
+    const hostedBy = (member) => Blockly.BBasic.hostSubroutine(member, subName);
     if (share.role === 'first') {
       // The sprites of the pool run this code for their state in temp bytes (see POOL_REFS) that a short routine of each sprite fills and empties, and with the pointers
       // of the sprite moved on by the bytes in temp6 (see utils/pool-pointer-retarget.js): no exchange of what the sprites have, except for what the code names that
