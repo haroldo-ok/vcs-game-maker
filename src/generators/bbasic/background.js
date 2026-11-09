@@ -1437,11 +1437,121 @@ export default (Blockly) => {
 
   Blockly.BBasic.buildFadeCheckAsm = buildFadeCheckAsm;
 
+  // The step of a fade shared by every register: with two or more registers faded the state machine above (about 150 bytes each) is one subroutine and each
+  // register keeps only the active test, the timer and the stores.
+  //   in: A = the color, X = the target color, Y = the timer; out: A = the new color, X = 0 (the timer is still running: nothing changed), 1 (a step: the
+  //   timer starts over) or 2 (landed on the target: the fade is over).
+  // Same steps as buildFadeCheckAsm: a brightness already the target's lands at once (even with the timer running), else the timer is waited out and then
+  // the brightness moves FADE_INCREMENT toward the target (the hue of the color stays until it lands, the landed color is the target's: target & $FE).
+  const FADE_STEP_LABEL = '_fadestep';
+  const fadeStepRoutineLines = () => [
+    ' asm',
+    `       jmp ${FADE_STEP_LABEL}_end`,
+    FADE_STEP_LABEL,
+    '       sta temp2',
+    '       stx temp3',
+    '       txa',
+    '       and #$0E',
+    '       sta temp4',
+    '       lda temp2',
+    '       and #$0E',
+    '       cmp temp4',
+    `       beq ${FADE_STEP_LABEL}_land`,
+    '       cpy #0',
+    `       bne ${FADE_STEP_LABEL}_wait`,
+    '       cmp temp4',
+    `       bcc ${FADE_STEP_LABEL}_up`,
+    '       sec',
+    `       sbc #${FADE_INCREMENT}`,
+    `       bcs ${FADE_STEP_LABEL}_down2`,
+    '       lda #0',
+    `${FADE_STEP_LABEL}_down2`,
+    '       cmp temp4',
+    `       bcs ${FADE_STEP_LABEL}_moved`,
+    '       lda temp4',
+    `       jmp ${FADE_STEP_LABEL}_moved`,
+    `${FADE_STEP_LABEL}_up`,
+    '       clc',
+    `       adc #${FADE_INCREMENT}`,
+    '       cmp temp4',
+    `       beq ${FADE_STEP_LABEL}_moved`,
+    `       bcc ${FADE_STEP_LABEL}_moved`,
+    '       lda temp4',
+    `${FADE_STEP_LABEL}_moved`,
+    '       cmp temp4',
+    `       beq ${FADE_STEP_LABEL}_land`,
+    '       sta temp4',
+    '       lda temp2',
+    '       and #$F0',
+    '       ora temp4',
+    '       ldx #1',
+    '       rts',
+    `${FADE_STEP_LABEL}_land`,
+    '       lda temp3',
+    '       and #$FE',
+    '       ldx #2',
+    '       rts',
+    `${FADE_STEP_LABEL}_wait`,
+    '       ldx #0',
+    '       rts',
+    `${FADE_STEP_LABEL}_end`,
+    'end',
+  ];
+
+  // One register's check when the step is shared (see fadeStepRoutineLines).
+  const buildSharedFadeCheckAsm = ({colorVar, targetVar, timerVar, paceVar, flagsVar, activeBit, finishedBit, tag, isWatched}) => {
+    const activeMask = 1 << activeBit;
+    const finishedMask = isWatched ? (1 << finishedBit) : 0;
+    const label = (part) => `_bgfadeasm_${tag}_${part}`;
+    return [
+      ' asm',
+      ...(isWatched ? [
+        '       lda ' + flagsVar,
+        '       and #' + (255 - finishedMask),
+        '       sta ' + flagsVar,
+        '       and #' + activeMask,
+      ] : [
+        '       lda ' + flagsVar,
+        '       and #' + activeMask,
+      ]),
+      `       bne ${label('on')}`,
+      `       jmp ${label('skip')}`,
+      label('on'),
+      '       lda ' + targetVar,
+      '       tax',
+      '       lda ' + timerVar,
+      '       tay',
+      '       lda ' + colorVar,
+      `       jsr ${FADE_STEP_LABEL}`,
+      '       cpx #1',
+      `       bcc ${label('wait')}`,
+      '       sta ' + colorVar,
+      // (Only the carry of a compare survives on PXE, where CPX is rewritten: a second compare, not a BEQ on the first one.)
+      '       cpx #2',
+      `       bcs ${label('landed')}`,
+      '       lda ' + paceVar,
+      '       sta ' + timerVar,
+      `       jmp ${label('skip')}`,
+      label('landed'),
+      '       lda ' + flagsVar,
+      '       and #' + (255 - activeMask),
+      ...(isWatched ? ['       ora #' + finishedMask] : []),
+      '       sta ' + flagsVar,
+      `       jmp ${label('skip')}`,
+      label('wait'),
+      '       dec ' + timerVar,
+      label('skip'),
+      'end',
+    ].join('\n');
+  };
+
   Blockly.BBasic.generateBackgroundFadeChecks = function() {
     const fadeVarsUsed = this.backgroundFadeVarsUsed || new Set();
     if (!fadeVarsUsed.size) return '';
     const watches = this.backgroundFadeFinishedWatches || new Set();
 
+    // Two registers or more share one routine for the step (one register keeps the state machine in line: the routine would cost more than it saves).
+    const sharedStep = fadeVarsUsed.size >= 2;
     const checksForVar = (rawVar) => {
       const colorVarName = resolveFadeColorVar(rawVar);
       const timerVar = resolveVar(backgroundFadeTimerVarName(rawVar));
@@ -1459,7 +1569,7 @@ export default (Blockly) => {
       // player1's  shadow vars) or a bare literal identifier (scorecolor/
       // TextColor) - either way it's already just a plain string by the time
       // it gets here.
-      const fadeAsm = buildFadeCheckAsm({
+      const fadeAsm = (sharedStep ? buildSharedFadeCheckAsm : buildFadeCheckAsm)({
         colorVar: colorVarName,
         targetVar,
         timerVar,
@@ -1483,7 +1593,7 @@ export default (Blockly) => {
         ` ${sizeVar}{7} = 0`, ` ${missileColor} = ${colorVarName}`, same];
     };
 
-    return [...fadeVarsUsed].map(checksForVar).flat().join('\n');
+    return [...(sharedStep ? [fadeStepRoutineLines().join('\n')] : []), ...[...fadeVarsUsed].map(checksForVar).flat()].join('\n');
   };
 
   // One-time Setup-section initialization (see bbasic.bb.hbs's

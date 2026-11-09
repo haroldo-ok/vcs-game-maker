@@ -8,7 +8,7 @@ import {clampFrameDuration} from '../../utils/duration';
 import {fireObjectName} from '../../utils/fire-object';
 import {pfRowDivisorFor as exactRowDivisorFor, missileBallPfXOffset, pfColumnOf, pfMaxColumn, pfScrollColumns} from '../../utils/playfield-coords';
 import {ensureArmProgram, buildPixArmCall, ARM_FIND_PIXEL_FUNCTION} from './offset-arm';
-import {rainbowTableName, rainbowTableValues, rainbowColor, rainbowPhaseLines} from './rainbow-range';
+import {rainbowTableName, rainbowTableAddress, rainbowTableValues, rainbowColor, rainbowPhaseLines, rainbowPhaseAsm} from './rainbow-range';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps, so the nearest whole number of steps is used.
@@ -1190,6 +1190,10 @@ const rainbowOffsetExpression = (Blockly, plan, varName) => {
 
 // The playfield rainbow on DPC+: the playfield color rows hold a rainbow (loaded when the block first runs), and
 // each frame they are scrolled by however far the offset has moved since the frame before.
+// An offset (a number, or the name of a variable) as a load. (The variables of the app have a name in the assembly on every kernel, Superchip RAM included: the ones
+// that are in the Superchip RAM itself are the read/write pairs, which already come as the names of their read and write addresses.)
+const asmLoad = (Blockly, offset) => (/^\d+$/.test(String(offset)) ? `lda #${offset}` : `lda ${offset}`);
+
 const generateDpcPlusBackgroundRainbowChecks = (Blockly) => {
   if (!Blockly.BBasic.backgroundRainbowUsed) return '';
   const flagsVar = Blockly.BBasic.nameDB_.getName(romNoiseFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
@@ -1204,18 +1208,42 @@ const generateDpcPlusBackgroundRainbowChecks = (Blockly) => {
   const range = (Blockly.BBasic.rainbowRanges || {}).background;
   const rainbowRow = (r) => '  $' + (range ? rainbowColor(range, r) : (r % 15) * 16 + 10).toString(16).toUpperCase().padStart(2, '0');
   const rows = Array.from({length: 255}, (_, r) => rainbowRow(r));
+  // The tests and the work out of how far the offset moved each frame are assembly (the loading of the rows, which needs the compiler's labels for the rows, and the
+  // scroll, which is the call the compiler of the kernel in use makes, stay as statements): the flag byte is read once and the last offset is only written when it moved.
+  const activeMask = 1 << backgroundRainbowActiveBit();
+  const loadedMask = 1 << backgroundRainbowLoadedBit();
   return [
-    ` if !${flagsVar}{${backgroundRainbowActiveBit()}} then goto ${doneLabel}`,
-    ` if ${flagsVar}{${backgroundRainbowLoadedBit()}} then goto ${loadedLabel}`,
+    ' asm',
+    `  lda ${flagsVar}`,
+    '  tax',
+    `  and #${activeMask}`,
+    '  bne .rbbg_active',
+    `  jmp .${doneLabel}`,
+    '.rbbg_active',
+    '  txa',
+    `  and #${loadedMask}`,
+    '  beq .rbbg_load',
+    `  jmp .${loadedLabel}`,
+    '.rbbg_load',
+    'end',
     '  pfcolors:', ...rows, 'end',
     ' pfscroll 255 4 4',
     '  pfcolors:', rainbowRow(255), 'end',
     ` ${flagsVar}{${backgroundRainbowLoadedBit()}} = 1`,
     loadedLabel,
-    ` temp1 = ${offset}`,
-    ` temp2 = temp1 - ${lastPair.read}`,
-    ` ${lastPair.write} = temp1`,
-    ` if temp2 = 0 then goto ${doneLabel}`,
+    // (How far the offset moved since the frame before goes in temp2; the scroll is the statement, which is the call the compiler of the kernel in use makes.)
+    ' asm',
+    `  ${asmLoad(Blockly, offset)}`,
+    '  sta temp6',
+    '  sec',
+    `  sbc ${lastPair.read}`,
+    '  bne .rbbg_move',
+    `  jmp .${doneLabel}`,
+    '.rbbg_move',
+    '  sta temp2',
+    '  lda temp6',
+    `  sta ${lastPair.write}`,
+    'end',
     ' pfscroll temp2 4 4',
     doneLabel,
   ].join('\n') + '\n';
@@ -1240,9 +1268,18 @@ const generateDpcPlusRainbowColorChecks = (Blockly) => {
     const range = ranges[name];
     if (range) {
       const at = playerColorPointerBase(useConfigurationStorage().value) + (name === 'player0' ? 0 : 2 * (Number(name.slice(6)) - 1));
+      // The test of the flag and the start row of the ramp are assembly (the table is a statement: it puts its rows in the data and sets the pointer to the first).
+      const phase = rainbowPhaseAsm(asmLoad(Blockly, offset), range.span, 1, `rbp_${name}`);
       lines.push(
-          ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
-          ...rainbowPhaseLines(offset, range.span),
+          ' asm',
+          `  lda ${flagsVar}`,
+          `  and #${1 << rainbowColorActiveBit(name)}`,
+          `  bne .rbp_${name}_go`,
+          `  jmp .${doneLabel}`,
+          `.rbp_${name}_go`,
+          ...phase,
+          '  sta temp1',
+          'end',
           `  ${name}color:`, ...rainbowTableValues(range).map((value) => `  $${value.toString(16).toUpperCase().padStart(2, '0')}`), 'end',
           ' asm', '       clc',
           ...(name === 'player0' ? [
@@ -1256,27 +1293,30 @@ const generateDpcPlusRainbowColorChecks = (Blockly) => {
           doneLabel);
       return;
     }
+    // All in assembly: the flag byte is tested, the offset loaded once (into X for Player 1, whose pointer is written through data fetcher 0) and the pointer set.
     lines.push(
-        ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
-        ` temp1 = ${offset}`,
         ' asm',
+        `  lda ${flagsVar}`,
+        `  and #${1 << rainbowColorActiveBit(name)}`,
+        `  beq .rbcolor_${name}_done`,
+        `  ${asmLoad(Blockly, offset)}`,
         // Player 0's color pointer is a pair of variables; Player 1's is two bytes of display memory, written
         // through data fetcher 0 (the way a "player1color:" statement does).
         ...(name === 'player0' ? [
-          '       lda temp1',
-          '       sta player0color',
-          `       lda #${noiseHighByte(useConfigurationStorage().value)}`,
-          '       sta player0color+1',
+          '  sta player0color',
+          `  lda #${noiseHighByte(useConfigurationStorage().value)}`,
+          '  sta player0color+1',
         ] : [
-          `       lda #<(playerpointers+${pointerAt})`,
-          '       sta DF0LOW',
-          `       lda #(>(playerpointers+${pointerAt})) & $0F`,
-          '       sta DF0HI',
-          '       lda temp1',
-          '       sta DF0WRITE',
-          `       lda #${noiseHighByte(useConfigurationStorage().value)}`,
-          '       sta DF0WRITE',
+          '  tax',
+          `  lda #<(playerpointers+${pointerAt})`,
+          '  sta DF0LOW',
+          `  lda #(>(playerpointers+${pointerAt})) & $0F`,
+          '  sta DF0HI',
+          '  stx DF0WRITE',
+          `  lda #${noiseHighByte(useConfigurationStorage().value)}`,
+          '  sta DF0WRITE',
         ]),
+        `.rbcolor_${name}_done`,
         'end',
         doneLabel);
   });
@@ -1288,38 +1328,49 @@ export const generateRainbowColorChecks = (Blockly) => {
   // so the rainbow aims that at ROM bytes the same way. The other players' pointers are not variables.
   if ((useConfigurationStorage().value || {}).kernel === 'dpcplus') return generateDpcPlusRainbowColorChecks(Blockly);
   const used = Blockly.BBasic.rainbowColorUsedFor;
+  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
   const backgroundLines = [];
   if (Blockly.BBasic.backgroundRainbowUsed && Blockly.BBasic.usePlayfieldRowColors()) {
     const flags = Blockly.BBasic.nameDB_.getName(romNoiseFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const offset = rainbowOffsetExpression(Blockly,
         (Blockly.BBasic.rainbowSimpleOffset || {}).background, backgroundRainbowOffsetVarName());
-    const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
     // The kernel reads each row's color through the pfcolortable pointer
     // (low byte pfcolortable, high byte aux2): aim it at ROM bytes.
     const backgroundRange = (Blockly.BBasic.rainbowRanges || {}).background;
-    backgroundLines.push(
-        ` if !${flags}{${backgroundRainbowActiveBit()}} then goto _rainbowcolor_background_done`,
-        ...(backgroundRange ? [...rainbowPhaseLines(offset, backgroundRange.span, 'temp1', backgroundRange.stride), ' asm', `       lda #<${rainbowTableName(backgroundRange)}`, '       clc', '       adc temp1',
-          '       sta pfcolortable', `       lda #>${rainbowTableName(backgroundRange)}`, '       adc #0', '       sta aux2', 'end'] : [
-            ` pfcolortable = ${offset}`,
-            ` aux2 = ${romNoiseBaseHighByteHex(config)}`]),
-        // The top row's color is not in that table: it is whatever COLUPF holds at the
-        // start of the frame, so it gets one of the same ROM bytes too. Written to
-        // COLUPF itself, not the playfield color variable: the next frame's
-        // "COLUPF = playfieldrealcolor" puts the real color back without any saving.
-        ' asm',
-        '       ldy #0',
-        '       lda (pfcolortable),y',
-        '       sta COLUPF',
-        'end',
-        '_rainbowcolor_background_done');
+    const stridePhase = backgroundRange ? rainbowPhaseAsm(asmLoad(Blockly, offset), backgroundRange.span, backgroundRange.stride, 'rbbg') : null;
+    if (!backgroundRange || stridePhase) {
+      // Everything in one block: the flag, the pointer and the top row's color.
+      backgroundLines.push(
+          ' asm',
+          `  lda ${flags}`,
+          `  and #${1 << backgroundRainbowActiveBit()}`,
+          '  beq .rbbg_done',
+          ...(backgroundRange ? [...stridePhase, '  clc', `  adc #<${rainbowTableAddress(backgroundRange)}`, '  sta pfcolortable', `  lda #>${rainbowTableAddress(backgroundRange)}`, '  adc #0', '  sta aux2'] : [
+            `  ${asmLoad(Blockly, offset)}`, '  sta pfcolortable', `  lda #${romNoiseBaseHighByteHex(config)}`, '  sta aux2']),
+          // The top row's color is not in that table: it is whatever COLUPF holds at the start of the frame, so it gets one of the same ROM bytes too. Written to
+          // COLUPF itself, not the playfield color variable: the next frame's "COLUPF = playfieldrealcolor" puts the real color back without any saving.
+          '  ldy #0',
+          '  lda (pfcolortable),y',
+          '  sta COLUPF',
+          '.rbbg_done',
+          'end',
+          '_rainbowcolor_background_done');
+    } else {
+      // (A stride that is not a power of two: the start row is worked out with statements.)
+      backgroundLines.push(
+          ` if !${flags}{${backgroundRainbowActiveBit()}} then goto _rainbowcolor_background_done`,
+          ...rainbowPhaseLines(offset, backgroundRange.span, 'temp1', backgroundRange.stride),
+          ' asm', `       lda #<${rainbowTableAddress(backgroundRange)}`, '       clc', '       adc temp1',
+          '       sta pfcolortable', `       lda #>${rainbowTableAddress(backgroundRange)}`, '       adc #0', '       sta aux2',
+          '       ldy #0',
+          '       lda (pfcolortable),y',
+          '       sta COLUPF',
+          'end',
+          '_rainbowcolor_background_done');
+    }
   }
   if (!used || !used.size) return backgroundLines.length ? backgroundLines.join('\n') + '\n' : '';
-  const resolveVar = (canonicalName) =>
-    Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-  const flagsVar = resolveVar(romNoiseFlagsVarName());
-  const configurationStorage = useConfigurationStorage();
-  const config = (configurationStorage && configurationStorage.value) || {};
+  const flagsVar = Blockly.BBasic.nameDB_.getName(romNoiseFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
   const baseHigh = romNoiseBaseHighByteHex(config);
   const lines = [];
   ['player0', 'player1'].forEach((name) => {
@@ -1329,14 +1380,17 @@ export const generateRainbowColorChecks = (Blockly) => {
         rainbowColorOffsetVarName(name));
     const registers = ROM_NOISE_COLOR_REGISTERS[name];
     const range = (Blockly.BBasic.rainbowRanges || {})[name];
+    const phase = range ? rainbowPhaseAsm(asmLoad(Blockly, offsetVar), range.span, 1, `rbp_${name}`) : null;
     lines.push(
-        ` if !${flagsVar}{${rainbowColorActiveBit(name)}} then goto ${doneLabel}`,
-        ...(range ? [...rainbowPhaseLines(offsetVar, range.span), ' asm', `       lda #<${rainbowTableName(range)}`, '       clc', '       adc temp1', `       sta ${registers.low}`,
-          `       lda #>${rainbowTableName(range)}`, '       adc #0', `       sta ${registers.high}`, 'end'] : [
-            ` ${registers.low} = ${offsetVar}`,
-            ` ${registers.high} = ${baseHigh}`]),
-        `${doneLabel}`,
-    );
+        ' asm',
+        `  lda ${flagsVar}`,
+        `  and #${1 << rainbowColorActiveBit(name)}`,
+        `  beq .rbp_${name}_done`,
+        ...(range ? [...phase, '  clc', `  adc #<${rainbowTableName(range)}`, `  sta ${registers.low}`, `  lda #>${rainbowTableName(range)}`, '  adc #0', `  sta ${registers.high}`] : [
+          `  ${asmLoad(Blockly, offsetVar)}`, `  sta ${registers.low}`, `  lda #${baseHigh}`, `  sta ${registers.high}`]),
+        `.rbp_${name}_done`,
+        'end',
+        doneLabel);
   });
   return [...lines, ...backgroundLines].join('\n') + '\n';
 };
@@ -1418,15 +1472,18 @@ const fireTables = (Blockly) => {
   const sign = (v) => (v > 0 ? 1 : v < 0 ? 255 : 0);
   const minorOf = (step, other) => Math.abs(step) === 1 && Math.abs(other) === 2;
   const row = (fn) => '       .byte ' + DIRECTION16_STEPS.map(([x, y], i) => fn(x, y, i)).join(',');
+  // The 16 headings turn a quarter (4 places) a quarter turn, which swaps the axes, so what the y axis does for a heading is what the x axis does for the heading 4
+  // places before it (checked for these tables: y(i) = x(i - 4)): one table of 20 bytes serves both, the y table starting 4 bytes before the x one.
+  const pair = (xName, yName, fn) => {
+    const at = (i) => fn(...DIRECTION16_STEPS[i]);
+    return [yName, '       .byte ' + [12, 13, 14, 15].map(at).join(','), xName, row((x, y) => fn(x, y))];
+  };
   return [
     ' asm',
     '       jmp _fire_tables_end',
-    FIRE_TABLES.mainx, row((x, y) => (x && !minorOf(x, y) ? sign(x) : 0)),
-    FIRE_TABLES.mainy, row((x, y) => (y && !minorOf(y, x) ? sign(y) : 0)),
-    FIRE_TABLES.minx, row((x, y) => (x && minorOf(x, y) ? sign(x) : 0)),
-    FIRE_TABLES.miny, row((x, y) => (y && minorOf(y, x) ? sign(y) : 0)),
-    FIRE_TABLES.sx, row((x) => sign(x)),
-    FIRE_TABLES.sy, row((x, y) => sign(y)),
+    ...pair(FIRE_TABLES.mainx, FIRE_TABLES.mainy, (x, y) => (x && !minorOf(x, y) ? sign(x) : 0)),
+    ...pair(FIRE_TABLES.minx, FIRE_TABLES.miny, (x, y) => (x && minorOf(x, y) ? sign(x) : 0)),
+    ...pair(FIRE_TABLES.sx, FIRE_TABLES.sy, (x) => sign(x)),
     FIRE_TABLES.big, row((x, y) => (Math.abs(x) === 2 ? 1 : 0) | (Math.abs(y) === 2 ? 2 : 0)),
     ...(Blockly.BBasic.fireStretchTablesUsed ? [
       FIRE_TABLES.stretchbig, '       .byte ' + DIRECTION16_STEPS.map((_, i) => stretchRow(i).big).join(','),
@@ -2275,10 +2332,11 @@ const inertiaActionTables = () => {
   return [
     ' asm',
     '       jmp _inertia_tables_end',
+    // (The y table is the x one turned a quarter, the same as the fire tables: y(i) = x(i - 4), so it starts 4 bytes before the x table.)
+    INERTIA_TABLE_Y,
+    '       .byte ' + [12, 13, 14, 15].map((i) => entry(DIRECTION16_STEPS[i][0], DIRECTION16_STEPS[i][1])).join(','),
     INERTIA_TABLE_X,
     '       .byte ' + DIRECTION16_STEPS.map(([x, y]) => entry(x, y)).join(','),
-    INERTIA_TABLE_Y,
-    '       .byte ' + DIRECTION16_STEPS.map(([x, y]) => entry(y, x)).join(','),
     '_inertia_tables_end',
     'end',
   ];
@@ -2652,26 +2710,36 @@ export default (Blockly) => {
         const baseLabel = `_visibility_${blockNumber}`;
 
         const frameVarName = varName.replace('visibility', 'frame');
+        // The "also set x and y to 0 when hidden" checkbox: the hidden sprite is moved to the corner.
+        const spriteName = varName.replace('visibility', '');
+        const origin = block.getFieldValue('ORIGIN') === 'TRUE';
+        const toOrigin = origin ? ` : ${spriteName}x = 0 : ${spriteName}y = 0` : '';
+        const originLines = origin ? `${spriteName}x = 0\n${spriteName}y = 0\n` : '';
         // The standard kernel's players: a flag, so a hidden player's animation goes on.
         if (hasHiddenFlag(Blockly, varName.replace('visibility', ''))) {
           const hidden = hiddenFlagRef(Blockly, varName.replace('visibility', ''));
           if (argument0.trim() === 'true') return `${hidden} = 0\n`;
-          if (argument0.trim() === 'false') return `${hidden} = 1\n`;
-          return `if ${argument0} then ${hidden} = 0 else ${hidden} = 1\n`;
+          if (argument0.trim() === 'false') return `${hidden} = 1\n${originLines}`;
+          return `if ${argument0} then ${hidden} = 0 else ${hidden} = 1${toOrigin}\n`;
         }
         // A constant Visible/Hidden needs no test at all.
+        // (The players 2 and up that the NUSIZ line leaves out while they are hidden get theirs as they are shown: see extraPlayerNusizLines in bbasic.js.)
+        const extraNumber = /^player(\d+)$/.test(spriteName) ? Number(spriteName.slice(6)) : -1;
+        const nusizOnShow = (Blockly.BBasic.dpcPlusExtraPlayers || []).includes(extraNumber) && (Blockly.BBasic.hideablePlayers || new Set()).has(spriteName) ?
+          `${Blockly.BBasic.extraPlayerNusizLine(extraNumber)}\n` : '';
+        const showLines = (label) => (nusizOnShow ? `if ${frameVarName} <> 255 then goto ${label}\n${frameVarName} = 0\n${nusizOnShow}@ ${label}\n` :
+          `if ${frameVarName} = 255 then ${frameVarName} = 0\n`);
         if (argument0.trim() === 'true') {
-          return `if ${frameVarName} = 255 then ${frameVarName} = 0
-`;
+          return showLines(`${baseLabel}_shown`);
         }
         if (argument0.trim() === 'false') {
           return `${frameVarName} = 255
-`;
+${originLines}`;
         }
         return [
-          `if ${argument0} then goto ${baseLabel}_visible else ${frameVarName} = 255 : goto ${baseLabel}_end`,
+          `if ${argument0} then goto ${baseLabel}_visible else ${frameVarName} = 255${toOrigin} : goto ${baseLabel}_end`,
           `@ ${baseLabel}_visible`,
-          `if ${frameVarName} = 255 then ${frameVarName} = 0`,
+          showLines(`${baseLabel}_shown`).trimEnd(),
           `@ ${baseLabel}_end`,
         ].join('\n') + '\n\n';
       } else if (varName.endsWith('size_3_')) {

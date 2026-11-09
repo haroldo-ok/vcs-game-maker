@@ -671,11 +671,28 @@ const buildCombinedPlayerVarBlocks = ({icon, colour}) => {
           'name': 'LOOP_INPUT',
         },
       ],
+      // A third row, for the "x, y to 0" checkbox: only shown once VAR is "Visibility" (see the extension below).
+      'message2': '%1 %2 x, y to 0 when hidden %3',
+      'args2': [
+        {'type': 'field_label', 'text': ' '},
+        {
+          'type': 'field_checkbox',
+          'name': 'ORIGIN',
+          'checked': false,
+        },
+        {
+          'type': 'input_dummy',
+          'name': 'ORIGIN_INPUT',
+        },
+      ],
+      // The "loop" and "x, y to 0" checkboxes come after the value on the same line, not on a separate line.
+      'inputsInline': true,
       'previousStatement': null,
       'nextStatement': null,
       colour,
       'extensions': ['sprite_player_field_sync', 'sprite_player_set_loop_visibility_sync'],
-      'tooltip': 'Updates information about whichever player is selected. Setting Animation ' +
+      'tooltip': 'Updates information about whichever player is selected. Setting Visibility to hidden can also move the player to x 0, y 0 ' +
+        '(the checkbox): a hidden sprite that is left on the rows of a shown one can make the shown one drop out on every other frame. Setting Animation ' +
         'shows a "loop" checkbox - on (the default) replays it from the start every time it ' +
         'ends; off plays it once and leaves it on its last frame (see "Player animation has ' +
         'finished" to react to that moment).',
@@ -715,6 +732,7 @@ const buildCombinedPlayerVarBlocks = ({icon, colour}) => {
           'name': 'LOOP_INPUT',
         },
       ],
+      'inputsInline': true,
       'previousStatement': null,
       'nextStatement': null,
       colour,
@@ -747,8 +765,13 @@ Blockly.Extensions.register('sprite_player_set_loop_visibility_sync', function()
     if (!block.workspace || !block.workspace.rendered) return;
     const shouldBeVisible = typeof value === 'string' && value.endsWith('animation');
     const input = block.getInput('LOOP_INPUT');
-    if (!input || input.isVisible() === shouldBeVisible) return;
-    input.setVisible(shouldBeVisible);
+    // (The "x, y to 0" row of Player set: only for Visibility. The Player change block has no such row.)
+    const originInput = block.getInput('ORIGIN_INPUT');
+    const originVisible = typeof value === 'string' && value.endsWith('visibility');
+    const originChanged = !!originInput && originInput.isVisible() !== originVisible;
+    if (originChanged) originInput.setVisible(originVisible);
+    if ((!input || input.isVisible() === shouldBeVisible) && !originChanged) return;
+    if (input && input.isVisible() !== shouldBeVisible) input.setVisible(shouldBeVisible);
     // Deferred, not called synchronously here - same "run after the
     // current Blockly field-update cascade finishes" reasoning
     // registerDropdownFieldSyncExtension's comment documents in detail.

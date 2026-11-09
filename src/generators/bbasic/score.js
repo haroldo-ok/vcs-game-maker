@@ -267,6 +267,8 @@ export default (Blockly) => {
   // (Each color is rounded the way generateDpcPlusColorTables rounds it, so two bytes that come out the same in the table are not different here.)
   const dpcPlusScoreColorsDiffer = (config) => !config.dpcPlusScoreLineColorsOff && Array.isArray(config.dpcPlusScoreColors) && config.dpcPlusScoreColors.length === 8 &&
     new Set(config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08))).size > 1;
+  // The 8 bytes written with one color: a loop of 8 bytes of code where eight stores take 24 (the registers are free between statements).
+  const SCORE_COLOR_FILL = ['ldx #8', 'sta DF0WRITE', 'dex', 'bne *-4'];
   const dpcPlusScoreColorTableLines = () => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
@@ -274,7 +276,7 @@ export default (Blockly) => {
     // The colors of the Score tab win when the lines have different ones: the "Score line colors hue" block recolors them (see score_line_hue_set).
     if (dpcPlusScoreColorsDiffer(config)) return '';
     return ['asm', 'lda #<scoredata', 'sta DF0LOW', 'lda #((>scoredata) & $0f)', 'sta DF0HI', 'lda scorecolor',
-      ...Array(8).fill('sta DF0WRITE'), '@end'].join('\n') + '\n';
+      ...SCORE_COLOR_FILL, '@end'].join('\n') + '\n';
   };
 
   // Flash Score color (see score_flash in blocks/score.js): the block starts it (or starts it over), generateScoreFlashChecks does it a frame at a time.
@@ -295,7 +297,7 @@ export default (Blockly) => {
       const bytes = config.dpcPlusScoreColors.map((byte) => (Number.isFinite(Number(byte)) ? Math.min(254, Math.max(0, Math.round(Number(byte)) & 254)) : 0x08));
       return [...lines, ...table(bytes.flatMap((byte) => [`lda #${byte}`, 'sta DF0WRITE']))];
     }
-    return [...lines, ...table(['lda scorecolor', ...Array(8).fill('sta DF0WRITE')])];
+    return [...lines, ...table(['lda scorecolor', ...SCORE_COLOR_FILL])];
   };
   Blockly.BBasic[`score_flash`] = function(block) {
     if (isPxe(((useConfigurationStorage() && useConfigurationStorage().value) || {}))) {

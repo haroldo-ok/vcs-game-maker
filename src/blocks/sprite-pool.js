@@ -8,7 +8,7 @@ import {playerCount} from '../utils/pxe';
 // the powerups of Bricks: the blocks inside a pool block say what to do with "pool sprite", and the build makes a copy of them for each sprite
 // of the pool (see utils/sprite-pool.js). A sprite is free while it is hidden.
 export const SPRITE_POOL_COLOUR = '#3f7f93';
-export const SPRITE_POOL_TYPES = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all', 'sprite_pool_full'];
+export const SPRITE_POOL_TYPES = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all', 'sprite_pool_full', 'sprite_pool_free'];
 
 // The sprites a pool can span: Player 1 up to the last one the kernel has.
 const poolSpriteOptions = function() {
@@ -99,7 +99,8 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': 'sprite_pool_release',
-    'message0': `${PLAYER_ICON} Release the pool sprite`,
+    'message0': `${PLAYER_ICON} Release the pool sprite, set x and y to 0 %1`,
+    'args0': [{'type': 'field_checkbox', 'name': 'ORIGIN', 'checked': false}],
     'previousStatement': null,
     'nextStatement': null,
     'colour': SPRITE_POOL_COLOUR,
@@ -107,10 +108,11 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': 'sprite_pool_release_all',
-    'message0': `${PLAYER_ICON} Release all sprites in pool: players %1 to %2`,
+    'message0': `${PLAYER_ICON} Release all sprites in pool: players %1 to %2, set x and y to 0 %3`,
     'args0': [
       {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
       {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+      {'type': 'field_checkbox', 'name': 'ORIGIN', 'checked': false},
     ],
     'previousStatement': null,
     'nextStatement': null,
@@ -130,6 +132,18 @@ Blockly.defineBlocksWithJsonArray([
     'extensions': ['sprite_pool_warning'],
     'tooltip': 'True while every sprite of the pool is shown (none is free to spawn in).',
   },
+  {
+    'type': 'sprite_pool_free',
+    'message0': `${PLAYER_ICON} Sprite pool: players %1 to %2 has a free sprite`,
+    'args0': [
+      {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
+      {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+    ],
+    'output': 'Boolean',
+    'colour': SPRITE_POOL_COLOUR,
+    'extensions': ['sprite_pool_warning'],
+    'tooltip': 'True while at least one sprite of the pool is hidden, free to spawn in. Plug it into an If block to spawn only when there is room.',
+  },
 ]);
 
 Blockly.Extensions.register('sprite_pool_warning', function() {
@@ -141,8 +155,8 @@ Blockly.Extensions.register('sprite_pool_warning', function() {
 // "Pool sprite" means the sprite a Sprite pool block is working on, so the lists that offer it (the Player blocks' player lists and the
 // others that name a sprite) only show it for a block that is inside the blocks of a "spawn" or "for each" pool block. A block that already has it
 // keeps showing it (a block taken out of a pool, or one a project was saved with), and the build leaves such a block out.
-// "All pool sprites" (blocks that do something) and "any pool sprite" (the Collided block) work anywhere: the block shows a range of the pool to
-// use, and the build makes a copy of it for each sprite of the range (see utils/sprite-pool.js).
+// "All pool sprites" (blocks that do something, in a project that has a pool block) and "any pool sprite" (the Collided block) work anywhere in a block that
+// takes them: the block shows a range of the pool to use, and the build makes a copy of it for each sprite of the range (see utils/sprite-pool.js).
 const isPoolValue = (value) => typeof value === 'string' && /^(player)?pool(all|any)?$/.test(value);
 const isMultiValue = (value) => typeof value === 'string' && /^(player)?pool(all|any)$/.test(value);
 const insidePoolBody = (block) => {
@@ -156,10 +170,16 @@ const insidePoolBody = (block) => {
   }
   return false;
 };
+// Whether the project has a block of the Sprite pool (the workspace the block is in, or the one a toolbox flyout is for).
+const projectUsesPool = (block) => {
+  const workspace = block.workspace && (block.workspace.targetWorkspace || block.workspace);
+  return !!workspace && workspace.getAllBlocks(false).some((other) => SPRITE_POOL_TYPES.includes(other.type) && !other.isInsertionMarker());
+};
 const poolValueOffered = (value, block) => {
   if (!block) return false;
   if (/any$/.test(value)) return block.type === 'collision_get' || block.type === 'sprite_overlap_event' || block.type === 'trigger_fired';
-  if (/all$/.test(value)) return !!block.previousConnection || block.type === 'collision_get' || block.type === 'sprite_overlap_event';
+  // "All pool sprites" only shows in a project that has a pool block: without one there is no pool for it to mean.
+  if (/all$/.test(value)) return (!!block.previousConnection || block.type === 'collision_get' || block.type === 'sprite_overlap_event') && projectUsesPool(block);
   return insidePoolBody(block);
 };
 const rawGetOptions = Blockly.FieldDropdown.prototype.getOptions;
@@ -216,10 +236,18 @@ Blockly.defineBlocksWithJsonArray([
   },
   {
     'type': 'sprite_pool_swap',
-    'message0': 'Swap sprites %1 and %2 in %3',
-    'args0': [{'type': 'field_input', 'name': 'FROM', 'text': '1'}, {'type': 'field_input', 'name': 'TO', 'text': '2'}, {'type': 'field_input', 'name': 'HOST', 'text': ''}],
+    'message0': 'Swap sprites %1 and %2 in %3 for %4',
+    'args0': [{'type': 'field_input', 'name': 'FROM', 'text': '1'}, {'type': 'field_input', 'name': 'TO', 'text': '2'}, {'type': 'field_input', 'name': 'HOST', 'text': ''},
+      {'type': 'field_input', 'name': 'BODY', 'text': ''}],
     'previousStatement': null,
     'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+  },
+  {
+    'type': 'sprite_pool_visible',
+    'message0': 'Sprite %1 is shown (%2)',
+    'args0': [{'type': 'field_input', 'name': 'PLAYER', 'text': '2'}, {'type': 'field_input', 'name': 'VISIBLE', 'text': '1'}],
+    'output': 'Boolean',
     'colour': SPRITE_POOL_COLOUR,
   },
   {

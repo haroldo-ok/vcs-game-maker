@@ -47,10 +47,11 @@ const classifyLines = (code) => {
       return {line, kind: 'block', asm: blockIsAsm, block: blockId};
     }
     if (text === '' || /^rem\b/.test(text) || /^dim\s/.test(text) || text.startsWith(';')) return {line, kind: 'ignored'};
-    if (/^(asm|data\s|function\s)/.test(text) || (/:$/.test(text) && !/^if\b/.test(text))) {
+    if (/^(asm|data\s|function\s)/.test(text) || /^[A-Za-z_]\w*\s+asm$/.test(text) || (/:$/.test(text) && !/^if\b/.test(text))) {
       inBlock = true;
       blockId++;
-      blockIsAsm = /^asm\b/.test(text);
+      // (A label with the asm after it on the same line, as the animation code of a sprite starts, is a block too.)
+      blockIsAsm = /^asm\b/.test(text) || /^[A-Za-z_]\w*\s+asm$/.test(text);
       return {line, kind: 'block', asm: blockIsAsm, block: blockId};
     }
     return {line, kind: 'statement'};
@@ -128,12 +129,22 @@ const writtenNames = (shape) => {
 // A name that is only loaded (lda, ldx or ldy NAME) or stored (sta, stx or sty NAME) in an assembly block can be spilled too: a load sets the pointer of the
 // data fetcher with the register it loads (the others are not touched) and reads it, a store writes it there with the accumulator and the flags kept. Not in a block that is timed (it writes the TIA, or waits for a line), that uses the same data
 // fetcher itself, or where a branch could be pushed out of its reach by the lines added (a branch reaches 127 bytes, a spilled access is about 28).
-const ASM_ACCESS = /^\s*(lda|ldx|ldy|sta|stx|sty)\s+([A-Za-z_]\w*)\s*(;.*)?$/;
+const ASM_ACCESS = /^\s*(lda|ldx|ldy|sta|stx|sty|bit|cmp|cpx|cpy|adc|sbc|and|ora|eor)\s+([A-Za-z_]\w*)\s*(;.*)?$/;
+// The ones that only read the byte for a calculation or a test (the byte is read into a scratch byte, with the accumulator kept on the stack: the
+// carry and the overflow flag are not touched before the instruction).
+const ASM_READ_OPS = new Set(['bit', 'cmp', 'cpx', 'cpy', 'adc', 'sbc', 'and', 'ora', 'eor']);
 const ASM_TIMED = /\b(WSYNC|RESP[01MB]|RESM[01]|RESBL|HMOVE|HMCLR|HMP[01]|HMM[01]|HMBL|VSYNC|VBLANK|TIM64T|TIM8T|INTIM|DF6\w*)\b/;
 const ASM_IMPLIED = new Set(['rts', 'rti', 'pha', 'pla', 'php', 'plp', 'tax', 'txa', 'tay', 'tya', 'tsx', 'txs', 'inx', 'iny', 'dex', 'dey', 'asl', 'lsr', 'rol',
   'ror', 'clc', 'sec', 'cli', 'sei', 'cld', 'sed', 'clv', 'nop', 'brk', 'end']);
 const ASM_BRANCH = /^(bcc|bcs|beq|bne|bmi|bpl|bvc|bvs)\s+([.@]?[A-Za-z_]\w*)/i;
-const SPILL_ACCESS_BYTES = 28;
+// About how many bytes the lines that replace an access take (a load: the pointer and the read; a store: the flags and the accumulator kept, the pointer and the
+// write; a read for a test or a calculation: the accumulator kept, the pointer, the read into a scratch byte and the instruction), with a margin.
+const spillBytesOf = (op) => {
+  const word = op.toLowerCase();
+  if (word === 'lda' || word === 'ldx' || word === 'ldy') return 14;
+  if (ASM_READ_OPS.has(word)) return 20;
+  return 18;
+};
 // A load or store of one of the names that may be spilled (only those get the lines added).
 const accessOf = (text, names) => {
   const access = ASM_ACCESS.exec(text);
@@ -176,7 +187,10 @@ const asmBlocks = (entries, names) => {
       const target = labelAt.get(branch[2].replace(/^[.@]/, ''));
       const [from, to] = k < target ? [k, target] : [target, k];
       let bytes = 0;
-      for (let j = from; j <= to; j++) bytes += asmBytesOf(texts[j]) + (accessOf(texts[j], names) ? SPILL_ACCESS_BYTES : 0);
+      for (let j = from; j <= to; j++) {
+        const access = accessOf(texts[j], names);
+        bytes += asmBytesOf(texts[j]) + (access ? spillBytesOf(access[1]) : 0);
+      }
       if (bytes > 110) for (let j = from; j <= to; j++) block.tight.add(block.lines[j]);
     });
   });
@@ -189,8 +203,26 @@ const selfScratch = (shape) => !!shape && shape.type === 'set' && SCRATCH.includ
   !SCRATCH.some((scratch) => wordRegex(scratch, '').test(shape.rhs));
 
 // Which of the names can be spilled, and how many lines each is used in.
+// How often a line runs, as a weight for the uses of a name in it: the code of the main loop and of what it calls on every pass counts for more than the code
+// of the events that run once, because a use of a spilled name costs its cycles on each run. The first label of a section decides (the code has no other marks):
+// the labels in the two lists below, the others keep what the section before them had.
+const HOT_WEIGHT = 100;
+const HOT_LABELS = /^(main|commongamelogic|_fire_checks|_seek_checks|_lock_checks|_inertia_checks|_platformer_checks|_sprite_box_checks|_pfbox_|_run_once_edge_reset|_poolanim|_bouncestage|_bouncepix|_missilefire|_gravity_checks)/;
+const COLD_LABELS = /^(system_start|title_|gameover_|gameplay_start|_dpc_score_font|resetGameVars|_background_load|_background_rainbow_restore|__dpcplus|fullgameloop|_titlestep)/;
+const lineWeights = (lines) => {
+  let weight = 1;
+  return lines.map(({line, kind}) => {
+    if (kind === 'statement' && /^[A-Za-z_]\w*$/.test(line) && !/^(end|return|asm|else|endif)$/.test(line)) {
+      if (HOT_LABELS.test(line)) weight = HOT_WEIGHT;
+      else if (COLD_LABELS.test(line)) weight = 1;
+    }
+    return weight;
+  });
+};
+
 const analyze = (code, names) => {
   const lines = entriesOf(code);
+  const weights = lineWeights(lines);
   const usage = new Map(names.map((name) => [name, {uses: 0, ok: true, why: []}]));
   const lines5 = new Set();
   const lines6 = new Set();
@@ -216,11 +248,15 @@ const analyze = (code, names) => {
         if (!access || access[2] !== name) return fail('block');
         if (info.timed) return fail('timed block');
         if (info.tight.has(i)) return fail('branch range');
-        entry.uses++;
+        if (ASM_READ_OPS.has(access[1].toLowerCase())) {
+          // (temp5 takes the byte: it must not be in the block, nor in the statements just before and after it.)
+          if (info.lines.some((j) => /\btemp5\b/.test(lines[j].line)) || lines5.has(info.lines[0] - 1) || lines5.has(info.lines[info.lines.length - 1] + 1)) return fail('scratch');
+        }
+        entry.uses += weights[i];
         return;
       }
       if (kind === 'block' || arrayRegex(name).test(line)) return fail(kind);
-      entry.uses++;
+      entry.uses += weights[i];
       if (!shape) return fail('shape');
       const writes = writtenNames(shape).includes(name);
       const reads = readTexts(shape).some((text) => wordRegex(name, '').test(text));
@@ -278,6 +314,51 @@ const resetLines = (indent, slot) => {
 const pointerLines = (indent, {area, byte}) => {
   const address = `${TABLES[area]}+${128 + byte}`;
   return [`${indent}lda #<(${address})`, `${indent}sta DF6LOW`, `${indent}lda #(>(${address})) & $0F`, `${indent}sta DF6HI`];
+};
+
+// The lines that set two data fetchers (a read one and a write one, so that reading does not move the one that writes) to the byte of a spilled name: the
+// exchange of two bytes (see exchangeLines) reads through the first and writes through the second.
+const fetcherPointerLines = (indent, {area, byte}, readFetcher, writeFetcher) => {
+  const address = `${TABLES[area]}+${128 + byte}`;
+  return [`${indent}lda #<(${address})`, `${indent}sta DF${readFetcher}LOW`, `${indent}sta DF${writeFetcher}LOW`,
+    `${indent}lda #(>(${address})) & $0F`, `${indent}sta DF${readFetcher}HI`, `${indent}sta DF${writeFetcher}HI`];
+};
+
+// The exchange of two bytes the pools make (lda A, ldx B, sta B, stx A), when one of them or both are spilled: the display memory is read and written through
+// the data fetchers 0 to 3, not through the generic rewrite of each access (a load and a store of a spilled name take 13 and 17 bytes). A and X are
+// the registers the four lines use already, and Y is not touched. `a` and `b` are the names; null when neither is spilled.
+const exchangeLines = (indent, a, b, slots) => {
+  const slotA = slots.get(a);
+  const slotB = slots.get(b);
+  if (!slotA && !slotB) return null;
+  if (slotA && slotB) {
+    return [...fetcherPointerLines(indent, slotA, 0, 1), ...fetcherPointerLines(indent, slotB, 2, 3),
+      `${indent}lda DF0DATA`, `${indent}ldx DF2DATA`, `${indent}stx DF1WRITE`, `${indent}sta DF3WRITE`];
+  }
+  if (slotA) {
+    return [...fetcherPointerLines(indent, slotA, 0, 1), `${indent}lda DF0DATA`, `${indent}ldx ${b}`, `${indent}stx DF1WRITE`, `${indent}sta ${b}`];
+  }
+  return [...fetcherPointerLines(indent, slotB, 2, 3), `${indent}lda ${a}`, `${indent}ldx DF2DATA`, `${indent}sta DF3WRITE`, `${indent}stx ${a}`];
+};
+
+// A run of exchanges one after the other (each lda A, ldx B, sta B, stx A: {a, b, original: its four lines}): they do not depend on each other, so the ones with both
+// bytes in the display memory are put in the order of the addresses, and where the next byte of both sides follows the one before (the fetchers move on by one
+// after each read and write) the pointers are not set again: 40 cycles and 16 bytes less for each. Null when no byte of the run is spilled.
+const exchangeRunLines = (indent, run, slots) => {
+  if (!run.some(({a, b}) => slots.has(a) || slots.has(b))) return null;
+  const lines = [];
+  let before = null;
+  run.filter(({a, b}) => slots.has(a) && slots.has(b)).map((exchange) => ({...exchange, slotA: slots.get(exchange.a), slotB: slots.get(exchange.b)}))
+      .sort((x, y) => (x.slotA.area === y.slotA.area ? x.slotA.byte - y.slotA.byte : (x.slotA.area < y.slotA.area ? -1 : 1)))
+      .forEach((exchange) => {
+        const next = before && before.slotA.area === exchange.slotA.area && exchange.slotA.byte === before.slotA.byte + 1 &&
+          before.slotB.area === exchange.slotB.area && exchange.slotB.byte === before.slotB.byte + 1;
+        if (!next) lines.push(...fetcherPointerLines(indent, exchange.slotA, 0, 1), ...fetcherPointerLines(indent, exchange.slotB, 2, 3));
+        lines.push(`${indent}lda DF0DATA`, `${indent}ldx DF2DATA`, `${indent}stx DF1WRITE`, `${indent}sta DF3WRITE`);
+        before = exchange;
+      });
+  run.filter(({a, b}) => !(slots.has(a) && slots.has(b))).forEach(({a, b, original}) => lines.push(...(exchangeLines(indent, a, b, slots) || original)));
+  return lines;
 };
 
 // The code with the names in `slots` (name -> {area, byte}) read and written through the display memory.
@@ -348,6 +429,29 @@ export const applySpill = (code, slots) => {
     }
     if (entries[at].kind === 'block' && entries[at].asm) {
       const access = ASM_ACCESS.exec(line);
+      // An exchange of two bytes with one of them spilled: the four lines together (and the exchanges that follow it one after the other, see exchangeRunLines).
+      const exchangeAt = (from) => {
+        if (from + 3 >= entries.length) return null;
+        const group = [0, 1, 2, 3].map((k) => (entries[from + k].kind === 'block' && entries[from + k].asm && entries[from + k].block === entries[at].block ?
+          ASM_ACCESS.exec(entries[from + k].line) : null));
+        if (group.every(Boolean) && group[0][1].toLowerCase() === 'lda' && group[1][1].toLowerCase() === 'ldx' && group[2][1].toLowerCase() === 'sta' &&
+            group[3][1].toLowerCase() === 'stx' && group[1][2] === group[2][2] && group[0][2] === group[3][2] && group[0][2] !== group[1][2]) {
+          return {a: group[0][2], b: group[1][2], original: [0, 1, 2, 3].map((k) => entries[from + k].line)};
+        }
+        return null;
+      };
+      if (access && access[1].toLowerCase() === 'lda' && exchangeAt(at)) {
+        const run = [];
+        for (let group = exchangeAt(at); group; group = exchangeAt(at + 4 * run.length)) run.push(group);
+        const lines = exchangeRunLines(/^\s*/.exec(line)[0], run, slots);
+        if (lines) {
+          out.push(...lines);
+          at += 4 * run.length - 1;
+          held = null;
+          previous = entries[at];
+          continue;
+        }
+      }
       if (access && slots.has(access[2])) {
         const indent = /^\s*/.exec(line)[0];
         // A load: the pointer is put where the name is and the value read (the accumulator is the destination anyway). A store: the
@@ -362,6 +466,8 @@ export const applySpill = (code, slots) => {
           const address = `${TABLES[slot.area]}+${128 + slot.byte}`;
           const loadLines = [`${indent}ld${r} #<(${address})`, `${indent}st${r} DF6LOW`, `${indent}ld${r} #(>(${address})) & $0F`, `${indent}st${r} DF6HI`];
           out.push(...loadLines, `${indent}ld${r} DF6DATA`);
+        } else if (ASM_READ_OPS.has(op)) {
+          out.push(`${indent}pha`, ...pointerLines(indent, slot), `${indent}lda DF6DATA`, `${indent}sta temp5`, `${indent}pla`, `${indent}${op} temp5`);
         } else if (op === 'sta') {
           out.push(`${indent}php`, `${indent}pha`, ...pointerLines(indent, slot), `${indent}pla`, `${indent}sta DF6WRITE`, `${indent}plp`);
         } else {

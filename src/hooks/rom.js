@@ -4,6 +4,8 @@ import {superchipOn} from '../utils/superchip';
 import {shareIdenticalPlayerData} from '../utils/dpc-share-data';
 import {resolveDpcPictureTables, hasUnresolvedPictureTables, trimRedundantHeightLoads} from '../utils/dpc-picture-tables';
 import {expandDpcPlusTiles} from '../utils/dpc-tile';
+import {compactRainbowRestore} from '../utils/dpc-rainbow-restore';
+import {retargetPoolAnimationPointers} from '../utils/pool-pointer-retarget';
 import {shareDpcPlusPlayerSource, aliasSharedPlayerData} from '../utils/dpc-share-source';
 import {dpcPlusRamUsage} from '../utils/dpc-ram-usage';
 import Vue from 'vue';
@@ -42,6 +44,7 @@ import {expandSpritePools} from '../utils/sprite-pool';
 import {expandSceneBlocks, sceneBlocksXml, sceneTablesHaveOffsets, triggerEventXml} from '../utils/scene';
 import {emulatorTvSpec} from '../utils/tv-standard';
 import {computeRomCapacity} from '../utils/rom-capacity';
+import {parseBankFree, measureUnitSizes, planBankPacking} from '../utils/bank-packer';
 import {useGeneratedBasic, markGeneratedFresh, setGeneratedCodeBuilder} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   useDataTablesStorage, usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
@@ -254,6 +257,27 @@ const moveDivMulOutOfKernelBank = (compiled) => {
 // and BS_jsr gets them back): 49 cycles. The code after a jump starts with statements that load what they use, so nothing has to survive (but for a few
 // routines that read A or X), and the jump only has to read the bank's hotspot and return to the address
 // pushed (BS_goto): 25 cycles. DPC+ only (see withBankGoto in bb-compiler.js, which adds BS_goto to the bank switching code of every bank).
+// The routine that puts the background's rows back when the playfield rainbow stops gets one copy of the code that loads them (see utils/dpc-rainbow-restore.js).
+const compactRainbowRestoreRoutine = (compiled, config) => {
+  if (!config || config.kernel !== 'dpcplus' || isPxe(config)) return;
+  const before = compiled.mainAsm;
+  const after = compactRainbowRestore(before);
+  if (after !== before) {
+    compiled.mainAsm = after;
+    appendCompileLog('The routine that restores the playfield colors after the rainbow loads the rows of all backgrounds with one copy of the code.');
+  }
+};
+
+// The animation code the sprites of a Sprite pool share writes the pointers of the sprite that runs it (see utils/pool-pointer-retarget.js).
+const retargetPoolPointers = (compiled, config) => {
+  if (!config || config.kernel !== 'dpcplus' || isPxe(config)) return;
+  const {asm, count} = retargetPoolAnimationPointers(compiled.mainAsm);
+  if (count) {
+    compiled.mainAsm = asm;
+    appendCompileLog(`The animation code shared by the sprites of a pool writes the pictures and colors of the sprite that runs it (${count} places): they are not exchanged.`);
+  }
+};
+
 const cheapBankJumps = (compiled, config) => {
   if (!config || config.kernel !== 'dpcplus' || isPxe(config)) return;
   let count = 0;
@@ -1022,9 +1046,12 @@ const computeFunctionFamilies = () => {
 
   // A subroutine that a function gosubs and has to share a bank with it (a sprite pool's blocks inside a function): the function's family.
   Object.entries(BlocklyBB.functionHostedSubroutines || {}).forEach(([subroutine, host]) => {
-    if (nodeKind.has(subroutine) || !BlocklyBB.subroutines[subroutine] || !nodeKind.has(host)) return;
-    nodeKind.set(subroutine, 'subroutineBanks');
-    parent.set(subroutine, subroutine);
+    if (!BlocklyBB.subroutines[subroutine] || !nodeKind.has(host)) return;
+    // (One that is a wrapper already is a node of its own: it is joined to the family of its host all the same.)
+    if (!nodeKind.has(subroutine)) {
+      nodeKind.set(subroutine, 'subroutineBanks');
+      parent.set(subroutine, subroutine);
+    }
     union(subroutine, host);
   });
   nodeKind.forEach((kind, name) => {
@@ -1125,14 +1152,16 @@ const unitRunFrequency = (kind, name) => {
   }
   return 2;
 };
-const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
+// (`anywhere`: every unit that can move, wherever it is now and music too, for the planner of the bank layout.)
+const relocationCandidates = (banks, hasReservedMusicBank, primaryBank, anywhere = false) => {
   const primary = primaryBank || 1;
+  const here = (map, name) => anywhere || (map[name] || primary) === primary;
   const eventBanks = banks.eventBanks || {};
   const graphicsBanks = banks.graphicsBanks || {};
   const musicBanks = banks.musicBanks || {};
   const subroutineBanks = banks.subroutineBanks || {};
   const musicCandidates = BlocklyBB.getMusicUnitKeys()
-      .filter((name) => (musicBanks[name] || primary) === primary)
+      .filter((name) => here(musicBanks, name))
       .map((name) => ({kind: 'musicBanks', name, size: BlocklyBB.estimateMusicUnitSize(name)}));
   // Music still sitting in bank 1 jumps the queue whenever it has its
   // reserved bank waiting (see musicReservedBank) - moving it there is a
@@ -1145,7 +1174,7 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
   // (evicting graphics into an already-tight shared pool, sized as if only
   // 6 banks existed) while music's  reserved 7th bank sat completely
   // empty for all 64 relocation attempts, since nothing ever picked it.
-  if (hasReservedMusicBank && musicCandidates.length) {
+  if (!anywhere && hasReservedMusicBank && musicCandidates.length) {
     return musicCandidates.sort((a, b) => b.size - a.size).slice(0, 1);
   }
   const candidates = [
@@ -1161,17 +1190,20 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
     // for a different reason - it's picked up by the family-based
     // candidates below instead, never as an ordinary standalone subroutine.
     ...RELOCATABLE_EVENT_NAMES
-        .filter((name) => (eventBanks[name] || primary) === primary)
+        .filter((name) => here(eventBanks, name))
         .filter((name) => !BlocklyBB.codeReferencesAnyFunction((BlocklyBB.gameEvents[name] || []).join('\n')))
         .map((name) => ({kind: 'eventBanks', name, size: BlocklyBB.estimateEventSize(name)})),
     ...BlocklyBB.getGraphicsUnitKeys()
-        .filter((name) => (graphicsBanks[name] || primary) === primary)
+        .filter((name) => here(graphicsBanks, name))
         .map((name) => ({kind: 'graphicsBanks', name, size: BlocklyBB.estimateGraphicsUnitSize(name)})),
     ...musicCandidates,
     ...BlocklyBB.getSubroutineNames()
-        .filter((name) => (subroutineBanks[name] || primary) === primary)
+        .filter((name) => here(subroutineBanks, name))
         .filter((name) => !BlocklyBB.codeReferencesAnyFunction(BlocklyBB.subroutines[name] || ''))
         .filter((name) => !(BlocklyBB.functionHostedSubroutines || {})[name])
+        // (A wrapper is part of a family, which moves as one: the animation code of a pool has no function call, so the test above does not leave it out.)
+        .filter((name) => !(BlocklyBB.functionCallWrapperNames || new Set()).has(name))
+        .filter((name) => !(BlocklyBB.pinnedSubroutines || new Set()).has(name))
         .map((name) => ({kind: 'subroutineBanks', name, size: BlocklyBB.estimateSubroutineSize(name)})),
     // Every function/wrapper "family" still entirely at bank 1 - relocated
     // as one atomic unit (see setRelocationBank's  call sites in
@@ -1183,7 +1215,7 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
     // not a candidate here any more than an ordinary function-referencing
     // subroutine/event is above.
     ...computeFunctionFamilies()
-        .filter(({members}) => familyStillInBank1(members, banks, primary))
+        .filter(({members}) => anywhere || familyStillInBank1(members, banks, primary))
         .filter(({members}) => !familyHasExternalBareCaller(members))
         .map(({members}) => ({
           kind: 'family',
@@ -1198,6 +1230,96 @@ const relocationCandidates = (banks, hasReservedMusicBank, primaryBank) => {
   // every frame (the box checks, the edge reset) last. Within a group the largest goes first, to need the fewest rebuilds.
   candidates.forEach((unit) => (unit.frequency = unitRunFrequency(unit.kind, unit.name)));
   return candidates.sort((a, b) => a.frequency - b.frequency || b.size - a.size);
+};
+
+// The names the first label of a unit can have in the assembly (a label of code written in a bank has the scope "0." in front of it).
+const unitEndLabels = (kind, name) => {
+  const names = kind === 'eventBanks' ? [`${name}_end`] : kind === 'graphicsBanks' ? [`${name}_reloc_end`] : null;
+  return names && names.flatMap((label) => [`0.${label}`, label]);
+};
+const unitLabels = (kind, name) => {
+  const names = kind === 'eventBanks' ? [`${name}_begin`] : kind === 'graphicsBanks' ? [`${name}_reloc_entry`] : [name];
+  return names.flatMap((label) => [`0.${label}`, label]);
+};
+const PLAN_WEIGHTS = [1, 4, 12, 80];
+const PLAN_MARGINS = [48, 24, 8];
+const PLAN_ENTER_BYTES = 10;
+const MAX_PLAN_ATTEMPTS = 12;
+
+// Plans the whole layout from what the assembler measured (see utils/bank-packer.js): the units go where they fit, the ones that run often stay in
+// the main bank. Applies the moves it makes and returns them; {moves: [], deficit} when it found nothing to change (deficit: bytes short).
+const planLayoutFromMeasurement = (measured, config, reservedMusicBank, maxBanks, textMinikernelActive, extraMargin, memory) => {
+  const free = parseBankFree(measured.stdout);
+  const primary = primaryBankFor(config);
+  const lowest = minRelocationBankFor(config);
+  // (On DPC+ the units of the top bank go in the Text Minikernel's section, after its code: see generateRelocatedSections.)
+  const top = textMinikernelActive && bankSizeKeyFor(config) !== 'dpcplus' ? maxBanks - 1 : maxBanks;
+  const bins = [];
+  // (The main bank is below the lowest bank units are moved to, and takes units too.)
+  for (let bank = Math.min(lowest, primary); bank <= top; bank++) {
+    if (bank !== reservedMusicBank && free[bank] !== undefined) bins.push(bank);
+  }
+  if (!bins.includes(primary)) return null;
+  const banksNow = getRelocationBanks();
+  const candidates = relocationCandidates(banksNow, false, primary, true).filter((unit) => unit.kind !== 'musicBanks');
+  const memberOf = (unit) => unit.members || [{kind: unit.kind, name: unit.name}];
+  const sizes = measureUnitSizes(measured.symbolmap, free, candidates.flatMap((unit) => memberOf(unit)
+      .map((member) => ({key: `${member.kind}:${member.name}`, labels: unitLabels(member.kind, member.name), endLabels: unitEndLabels(member.kind, member.name)}))));
+  const scaleOf = (kind) => (kind === 'eventBanks' ? COMPILED_BYTES_PER_EVENT_CHAR : kind === 'graphicsBanks' ? COMPILED_BYTES_PER_GRAPHICS_CHAR :
+    COMPILED_BYTES_PER_SUBROUTINE_CHAR);
+  const chars = (member) => (member.kind === 'eventBanks' ? BlocklyBB.estimateEventSize(member.name) :
+    member.kind === 'graphicsBanks' ? BlocklyBB.estimateGraphicsUnitSize(member.name) :
+    member.kind === 'functionBanks' ? BlocklyBB.estimateFunctionSize(member.name) : BlocklyBB.estimateSubroutineSize(member.name)) * scaleOf(member.kind);
+  // What is measured now is kept for the next layouts of this build: a unit that is not measured again (it has no label where it is now) keeps its size.
+  // (Not a guess from the distance to the next label in the main bank, which has the code of the program between its units.)
+  sizes.forEach((found, key) => {
+    if (found.exact || found.bank !== primary) memory.set(key, found.size);
+  });
+  // How many times its estimate a kind of unit turns out to be, from the ones measured.
+  const ratios = {};
+  candidates.flatMap((unit) => memberOf(unit)).forEach((member) => {
+    const known = memory.get(`${member.kind}:${member.name}`);
+    if (known === undefined || !chars(member)) return;
+    const entry = (ratios[member.kind] = ratios[member.kind] || {actual: 0, estimated: 0});
+    entry.actual += known;
+    entry.estimated += chars(member);
+  });
+  const ratioOf = (kind) => (ratios[kind] && ratios[kind].estimated > 200 ? ratios[kind].actual / ratios[kind].estimated : 2);
+  let guessed = 0;
+  const units = [];
+  candidates.forEach((unit) => {
+    const members = memberOf(unit);
+    let size = 0;
+    let bank = null;
+    let settled = true;
+    members.forEach((member) => {
+      const key = `${member.kind}:${member.name}`;
+      const found = sizes.get(key);
+      if (found && bank === null) bank = found.bank;
+      if (memory.has(key)) size += memory.get(key);
+      else {
+        size += chars(member) * ratioOf(member.kind);
+        guessed++;
+        settled = false;
+      }
+    });
+    if (bank === null) bank = (banksNow[members[0].kind] || {})[members[0].name] || primary;
+    if (!bins.includes(bank)) return;
+    units.push({key: `${unit.kind}:${unit.name}`, unit, bank, size, settled, weight: PLAN_WEIGHTS[unitRunFrequency(unit.kind, unit.name)] || 1});
+  });
+  let result = null;
+  for (const margin of PLAN_MARGINS) {
+    result = planBankPacking({units, banks: bins, free, primary, margin: margin + extraMargin, enterBytes: PLAN_ENTER_BYTES});
+    if (result.feasible) break;
+  }
+  const moves = [];
+  units.forEach(({key, unit, bank}) => {
+    const target = result.assignment.get(key);
+    if (target === bank) return;
+    memberOf(unit).forEach(({kind, name}) => setRelocationBank(kind, name, target));
+    moves.push({kind: unit.kind, name: unit.name, bank: target, members: unit.members});
+  });
+  return {moves, deficit: result.deficit, feasible: result.feasible, guessed, free, unitCount: units.length};
 };
 
 const pickRelocationCandidate = (banks, hasReservedMusicBank, primaryBank) =>
@@ -1499,6 +1621,15 @@ export const buildRom = async () => {
       built = await buildRomInner();
       if (built) compactTitleSignature = signature;
     }
+    // (The checks of the main loop called through one family did not fit the banks: they are called one by one.)
+    if (!built && !buildCancelRequested && BlocklyBB.combinedChecksUsed && !BlocklyBB.combineChecksOff) {
+      BlocklyBB.combineChecksOff = true;
+      try {
+        built = await buildRomInner();
+      } finally {
+        BlocklyBB.combineChecksOff = false;
+      }
+    }
     // Grabbed once the game has been running a moment, so the picture shows
     // the game rather than a blank first frame.
     if (built) {
@@ -1547,6 +1678,11 @@ const buildRomInner = async () => {
   // working through one bank's real occupants.
   let stuckBank = null;
   const stuckBankTriedUnits = new Set();
+  // The layout planner (see planLayoutFromMeasurement): how many layouts it has made, and the extra room it asks of the banks once a layout it
+  // made did not assemble.
+  let planAttempts = 0;
+  const planSizeMemory = new Map();
+  let planExtraMargin = 0;
 
   // Tracks the most recent failure so the post-loop fallback (see its
   // comment, right after the for loop below) can still report something
@@ -1840,6 +1976,8 @@ const buildRomInner = async () => {
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       cheapBankJumps(compiled, configurationStorage.value);
+      compactRainbowRestoreRoutine(compiled, configurationStorage.value);
+      retargetPoolPointers(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm) patchArmProgramAddress(compiledResult);
@@ -1984,6 +2122,36 @@ const buildRomInner = async () => {
           }
         } else {
           appendCompileLog('[diagnostic] No partial symbol table available on this overflow.');
+        }
+        // The assembler measured every bank (see measureBanks in bb-compiler.js): the whole layout is planned from the sizes of the units, and the
+        // old way of moving one unit at a time by estimates is only left for what the plan cannot do.
+        if (e.measured && bankSizeKeyFor(config) === 'dpcplus' && !isPxe(config) && planAttempts < MAX_PLAN_ATTEMPTS) {
+          const planMusicBank = musicReservedBank(maxBanks, BlocklyBB.isTextMinikernelActive(), minRelocationBankFor(config));
+          let plan = planLayoutFromMeasurement(e.measured, config, planMusicBank, maxBanks, BlocklyBB.isTextMinikernelActive(), planExtraMargin, planSizeMemory);
+          if (plan && !plan.moves.length && planExtraMargin < 120) {
+            planExtraMargin += 40;
+            plan = planLayoutFromMeasurement(e.measured, config, planMusicBank, maxBanks, BlocklyBB.isTextMinikernelActive(), planExtraMargin, planSizeMemory);
+          }
+          if (plan && planMusicBank) {
+            BlocklyBB.getMusicUnitKeys().filter((name) => (getRelocationBanks().musicBanks || {})[name] !== planMusicBank).forEach((name) => {
+              setRelocationBank('musicBanks', name, planMusicBank);
+              plan.moves.push({kind: 'musicBanks', name, bank: planMusicBank});
+            });
+          }
+          if (plan && plan.moves.length) {
+            planAttempts++;
+            const freeNow = parseBankFree(e.measured.stdout);
+            appendCompileLog('Room left in each bank: ' + Object.keys(freeNow).map((bank) => `bank ${bank}: ${freeNow[bank]}`).join(', ') + '.');
+            plan.moves.forEach((move) => relocatedThisBuild.push({...move}));
+            appendCompileLog(`Planned the layout from the measured sizes of ${plan.unitCount} units: ${plan.moves.length} moved` +
+              (plan.feasible ? '.' : `, and the banks are still about ${plan.deficit} bytes short of fitting.`) +
+              (plan.guessed ? ` (${plan.guessed} sizes are estimates.)` : ''));
+            if (!plan.feasible && !BlocklyBB.titleShareSetup && titleScreenHas48x2Graphic()) {
+              appendCompileLog('The title screen does not fit in a bank as it is: trying it with its 48x2 graphics sharing one setup routine.', 'stage');
+              return false;
+            }
+            continue;
+          }
         }
         const textMinikernelActive = BlocklyBB.isTextMinikernelActive();
         const reservedMusicBank = musicReservedBank(maxBanks, textMinikernelActive, minRelocationBankFor(config));
@@ -2809,6 +2977,8 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       cheapBankJumps(compiled, configurationStorage.value);
+      compactRainbowRestoreRoutine(compiled, configurationStorage.value);
+      retargetPoolPointers(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
       if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm) patchArmProgramAddress(compiledResult);

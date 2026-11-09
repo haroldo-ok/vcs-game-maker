@@ -131,3 +131,11 @@ the manifest is regenerated to match. To regenerate it, write out every
 file directly under this directory (excluding the `custom/` subdirectory
 and this file) as `{"includes/<filename>": "<utf8 content>"}`, sorted by
 filename, minified (no indentation, matching the existing format).
+
+## `pf_scrolling.asm`: a direction can be left out
+
+The standard kernel's `pfscroll` routine holds the code of all four directions (left, right, up, down; about 400 bytes). Each direction is now wrapped in
+`ifnconst pfscroll_noleft` / `pfscroll_noright` / `pfscroll_noup` / `pfscroll_nodown`, so a program that defines the constant leaves that direction out. The
+shift of the direction code in A (`lsr` at each step) is kept, so the directions still in the routine decode as before. Without the constants the routine
+assembles to the same bytes as stock. The app sets them from the `pfscroll` statements of the generated program (`standardPfscrollFlags` in
+`src/generators/bbasic.js`); the manifest was updated to match (only the `includes/pf_scrolling.asm` entry changed).

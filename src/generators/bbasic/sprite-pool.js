@@ -2,8 +2,8 @@
 
 import {useConfigurationStorage, appendCompileLog} from '../../hooks/project';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
-import {colorOverrideRef} from './sprites';
-import {isPxe} from '../../utils/pxe';
+import {colorOverrideRef, hasHiddenFlag, spriteHiddenBit, SPRITE_HIDDEN_FLAGS_FAMILY} from './sprites';
+import {isPxe, playerColorPointerBase} from '../../utils/pxe';
 import {pairKey, boxHitRef} from './sprite-box-width';
 
 // The sprite pool blocks are replaced by other blocks before the code is made (see utils/sprite-pool.js): the blocks inside a pool block are built once,
@@ -27,6 +27,10 @@ export default (Blockly) => {
   // The subroutine that holds the blocks of a pool: what a subroutine block does.
   Blockly.BBasic['sprite_pool_body'] = function(block) {
     const name = Blockly.BBasic.nameDB_.getName(block.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME);
+    // (A body is made once: the exchange of sprites asks for it ahead of its turn, see ensureBody.)
+    Blockly.BBasic.poolBodiesMade = Blockly.BBasic.poolBodiesMade || new Set();
+    if (Blockly.BBasic.poolBodiesMade.has(name) && Blockly.BBasic.subroutines[name] !== undefined) return '';
+    Blockly.BBasic.poolBodiesMade.add(name);
     const previousEventName = Blockly.BBasic.currentEventName;
     Blockly.BBasic.currentEventName = `subroutine_${name}`;
     const code = Blockly.BBasic.statementToCode(block, 'DO').trim();
@@ -72,14 +76,68 @@ export default (Blockly) => {
     return '';
   };
 
+  // Whether a pool sprite is shown or hidden, as one test: a hidden player is on frame 255 (or has its bit in the hidden flags, when a project has those).
+  Blockly.BBasic['sprite_pool_visible'] = function(block) {
+    const name = `player${block.getFieldValue('PLAYER')}`;
+    const shown = block.getFieldValue('VISIBLE') === '1';
+    if (hasHiddenFlag(Blockly, name)) {
+      const flagByte = Blockly.BBasic.nameDB_.getName(flagPoolVar(SPRITE_HIDDEN_FLAGS_FAMILY), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return [`${shown ? '!' : ''}${flagByte}{${spriteHiddenBit(name)}}`, Blockly.BBasic.ORDER_ATOMIC];
+    }
+    return [`${name}frame ${shown ? '<>' : '='} 255`, Blockly.BBasic.ORDER_EQUALITY];
+  };
+
+  // The code the subroutine of a pool can run (itself and what it calls, down to the subroutines and functions of the project), as one text, or null when
+  // some of it is not made yet (then everything the sprites have is exchanged). Only what that code names has to be exchanged: the rest stays with its sprite.
+  // The blocks are made in the order of their place on the canvas, and the subroutine of a pool is not at the place of the blocks that call it: it is
+  // made when the first call asks for it.
+  const ensureBody = (block, bodyField) => {
+    const name = Blockly.BBasic.nameDB_.getName(bodyField, Blockly.PROCEDURE_CATEGORY_NAME);
+    if (Blockly.BBasic.subroutines[name] !== undefined || !block.workspace) return;
+    const definition = block.workspace.getBlocksByType('sprite_pool_body', false)
+        .find((candidate) => Blockly.BBasic.nameDB_.getName(candidate.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME) === name);
+    if (definition) Blockly.BBasic['sprite_pool_body'](definition);
+  };
+
+  const reachableCode = (bodyName) => {
+    const seen = new Set();
+    const parts = [];
+    let complete = true;
+    const visit = (name, isFunction) => {
+      if (seen.has(`${isFunction ? 'f' : 's'}:${name}`)) return;
+      seen.add(`${isFunction ? 'f' : 's'}:${name}`);
+      const code = isFunction ? Blockly.BBasic.functions[name] : Blockly.BBasic.subroutines[name];
+      if (code === undefined) {
+        complete = false;
+        return;
+      }
+      parts.push(code);
+      (code.match(/\bgosub\s+[A-Za-z_]\w*/g) || []).forEach((call) => visit(call.replace(/^gosub\s+/, ''), false));
+      Object.keys(Blockly.BBasic.functions || {}).forEach((fn) => {
+        if (code.includes(`${fn}(`)) visit(fn, true);
+      });
+    };
+    visit(bodyName, false);
+    return complete ? parts.join('\n') : null;
+  };
+
   // Everything one sprite has that the other has too, as pairs of (what the first has, what the second has): the lines of 6502 code to exchange them.
-  const swapLines = (first, second, tag = '') => {
+  // `code` is what the pool's subroutine can run (see reachableCode): only a variable or bit it names is exchanged; null for all of them.
+  const swapLines = (first, second, tag = '', code = null) => {
+    const named = (symbol) => code === null || new RegExp(`(^|[^A-Za-z0-9_])${symbol}([^A-Za-z0-9_]|$)`).test(code);
+    const bitNamed = (byte, mask) => {
+      if (code === null) return true;
+      const bit = Math.round(Math.log2(mask));
+      return code.includes(`${byte}{${bit}}`) || new RegExp(`(^|[^A-Za-z0-9_])${byte}(?![A-Za-z0-9_{])`).test(code);
+    };
     const config = (useConfigurationStorage() || {}).value || {};
     const a = `player${first}`;
     const b = `player${second}`;
     const lines = [];
     const pxe = isPxe(config);
-    const plain = (symbolA, symbolB) => lines.push(...exchange({read: symbolA, write: symbolA}, {read: symbolB, write: symbolB}, pxe));
+    const plain = (symbolA, symbolB) => {
+      if (named(symbolA) || named(symbolB)) lines.push(...exchange({read: symbolA, write: symbolA}, {read: symbolB, write: symbolB}, pxe));
+    };
     // The kernel's arrays.
     ['x', 'y', ...(config.kernel === 'dpcplus' ? ['height'] : [])].forEach((role) => plain(`${a}${role}`, `${b}${role}`));
     const registry = Blockly.BBasic.devVarRegistry || [];
@@ -116,7 +174,7 @@ export default (Blockly) => {
       if (entry.rw) {
         const pairs = Blockly.BBasic.superchipRwPairs;
         if (!pairs[entry.canonical] || !pairs[other]) return;
-        lines.push(...exchange(pairs[entry.canonical], pairs[other], pxe));
+        if (named(entry.canonical) || named(other) || named(pairs[entry.canonical].read) || named(pairs[other].read)) lines.push(...exchange(pairs[entry.canonical], pairs[other], pxe));
       } else {
         const symbol = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         plain(symbol(entry.canonical), symbol(other));
@@ -133,7 +191,7 @@ export default (Blockly) => {
         if (hasA && hasB) {
           if (kind === 'rw') {
             const pairs = Blockly.BBasic.superchipRwPairs;
-            if (pairs[nameA] && pairs[nameB]) lines.push(...exchange(pairs[nameA], pairs[nameB], pxe));
+            if (pairs[nameA] && pairs[nameB] && (named(nameA) || named(nameB) || named(pairs[nameA].read) || named(pairs[nameB].read))) lines.push(...exchange(pairs[nameA], pairs[nameB], pxe));
           } else {
             const symbol = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
             plain(symbol(nameA), symbol(nameB));
@@ -191,8 +249,16 @@ export default (Blockly) => {
       };
       bitPairs.push([parse(colorOverrideRef(Blockly, a)), parse(colorOverrideRef(Blockly, b))]);
     }
-    bitPairs.forEach(([x, y], index) => {
+    bitPairs.filter(([x, y]) => bitNamed(x.byte, x.mask) || bitNamed(y.byte, y.mask)).forEach(([x, y], index) => {
       const label = (part) => `_poolswap_${first}_${second}${tag}_${index}_${part}`;
+      // Two bits of the same byte: they only have to be turned over when they differ, one read and one write of the byte.
+      if (x.byte === y.byte) {
+        const both = x.mask | y.mask;
+        lines.push(`lda ${x.byte}`, ...(pxe ? ['pha', `and #${both}`, `beq ${label('s')}`, `cmp #${both}`, `beq ${label('s')}`, 'pla', `eor #${both}`, `sta ${x.byte}`, `jmp ${label('e')}`,
+          `@${label('s')}`, 'pla', `@${label('e')}`] :
+          ['tax', `and #${both}`, `beq ${label('s')}`, `cmp #${both}`, `beq ${label('s')}`, 'txa', `eor #${both}`, `sta ${x.byte}`, `@${label('s')}`]));
+        return;
+      }
       // (Only the registers: the scratch bytes can hold the arguments of a function.)
       // (On PXE the two bits wait on the stack: no CPX, CPY, TAY.)
       if (pxe) {
@@ -216,17 +282,38 @@ export default (Blockly) => {
     return lines;
   };
 
+  // The lines that exchange the pointers to the picture and to the colors of two sprites (DPC+: two bytes each, in the display memory, written through data fetchers 0
+  // to 3: a byte of one is read through one fetcher and the other's written through the next, both pointing at the same byte). Used for the animation code that the
+  // sprites of a pool share (see poolAnimationGroups in bbasic.js): the pointers it sets for the first sprite are the other sprite's afterwards.
+  Blockly.BBasic.poolPointerLines = (first, second) => {
+    const config = (useConfigurationStorage() || {}).value || {};
+    const slots = [0, playerColorPointerBase(config)];
+    const lines = [];
+    slots.forEach((base) => {
+      const a = `playerpointers+${base + 2 * (first - 1)}`;
+      const b = `playerpointers+${base + 2 * (second - 1)}`;
+      lines.push(`lda #<(${a})`, 'sta DF0LOW', 'sta DF1LOW', `lda #(>(${a})) & $0F`, 'sta DF0HI', 'sta DF1HI',
+          `lda #<(${b})`, 'sta DF2LOW', 'sta DF3LOW', `lda #(>(${b})) & $0F`, 'sta DF2HI', 'sta DF3HI');
+      for (let i = 0; i < 2; i++) lines.push('lda DF0DATA', 'ldx DF2DATA', 'stx DF1WRITE', 'sta DF3WRITE');
+    });
+    return lines;
+  };
+
   // Exchanges what two sprites of a pool have (done before the subroutine of the pool runs for the second sprite, and again after it).
+
+  Blockly.BBasic.poolSwapLines = swapLines;
+
   Blockly.BBasic['sprite_pool_swap'] = function(block) {
     const first = Number(block.getFieldValue('FROM'));
     const second = Number(block.getFieldValue('TO'));
-    // (One exchange subroutine for each custom function that has a pool, kept in the function's bank.)
-    const host = block.getFieldValue('HOST');
-    const tag = host ? `_in_${Blockly.BBasic.nameDB_.getName(host, Blockly.PROCEDURE_CATEGORY_NAME)}` : '';
+    // (One exchange subroutine for each pool, with what that pool's blocks use: kept in the bank of the custom function the pool is in, if any.)
+    const body = block.getFieldValue('BODY');
+    const tag = body ? `_for_${Blockly.BBasic.nameDB_.getName(body, Blockly.PROCEDURE_CATEGORY_NAME)}` : '';
     const name = `_poolswap_${first}_${second}${tag}`;
     // (No RTS: the subroutine may be in another bank, where the return that is added after the code is the one that works.)
+    if (body) ensureBody(block, body);
     if (!Blockly.BBasic.subroutines[name]) {
-      Blockly.BBasic.subroutines[name] = ['asm', ...swapLines(first, second, tag), '@end'].join('\n');
+      Blockly.BBasic.subroutines[name] = ['asm', ...swapLines(first, second, tag, body ? reachableCode(Blockly.BBasic.nameDB_.getName(body, Blockly.PROCEDURE_CATEGORY_NAME)) : null), '@end'].join('\n');
     }
     const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(name));
     return `gosub ${name}${suffix}\n`;
@@ -237,4 +324,5 @@ export default (Blockly) => {
     Blockly.BBasic[type] = () => '';
   });
   Blockly.BBasic['sprite_pool_full'] = () => ['0', Blockly.BBasic.ORDER_ATOMIC];
+  Blockly.BBasic['sprite_pool_free'] = () => ['0', Blockly.BBasic.ORDER_ATOMIC];
 };

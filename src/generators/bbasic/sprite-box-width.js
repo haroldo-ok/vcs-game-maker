@@ -122,10 +122,10 @@ export const generateBoxChecks = (Blockly) => {
       lines.push(` rem ${first} and ${second} boxes:`,
           ` ${hit} = 0`,
           ' asm',
+          // (A hidden sprite first: they are the most pairs in a game with a Sprite pool, and the test is a few cycles when the frame is in zero page.)
+          ...hideable.flatMap((name) => [`  lda ${name}frame`, '  cmp #255', `  beq .${done}`]),
           // (a.y + a.height) < b.y: a is above b. b.y + b.height < a.y: a is below b.
           ...over(a.y, a.height, b.y), ...over(b.y, b.height, a.y),
-          // (Looked at after the heights: most pairs are not level with each other, and are done by then.)
-          ...hideable.flatMap((name) => [`  lda ${name}frame`, '  cmp #255', `  beq .${done}`]),
           // (a.x + a width) < b.x: a is to the left of b. b.x + b width < a.x: a is to the right of b.
           ...over(a.xs[0], `#${a.width}`, b.xs[0]), ...over(b.xs[0], `#${b.width}`, a.xs[0]),
           'end',
@@ -135,9 +135,9 @@ export const generateBoxChecks = (Blockly) => {
     }
     lines.push(` rem ${first} and ${second} boxes:`,
         ` ${hit} = 0`,
+        ...hideable.map((name) => ` if ${name}frame = 255 then goto ${done}`),
         ` if (${a.y} + ${a.height}) < ${b.y} then goto ${done}`,
-        ` if ${a.y} > (${b.y} + ${b.height}) then goto ${done}`,
-        ...hideable.map((name) => ` if ${name}frame = 255 then goto ${done}`));
+        ` if ${a.y} > (${b.y} + ${b.height}) then goto ${done}`);
     a.xs.forEach((ax, i) => b.xs.forEach((bx, j) => {
       const skip = `_boxpair_${id}_${i}_${j}`;
       lines.push(...(i && a.count ? [` if ${a.count} < ${i} then goto ${skip}`] : []),

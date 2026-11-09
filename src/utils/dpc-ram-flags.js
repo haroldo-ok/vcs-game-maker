@@ -34,8 +34,13 @@ export const runOnceEnterLines = (offset, touchedBit, firedBit) => [
 export const runOnceResetLines = (count) => [
   'asm',
   ...aim(0),
-  ...Array.from({length: count}).flatMap(() => [
+  // (A byte that is 0, which is the case on most frames, stays 0: it is written back at once.)
+  ...Array.from({length: count}).flatMap((_, index) => [
     'lda DF0DATA',
+    `bne _runonce_reset_${index}_work`,
+    'sta DF1WRITE',
+    `beq _runonce_reset_${index}_done`,
+    `@_runonce_reset_${index}_work`,
     'sta temp2',
     'and #$0F',
     'sta temp1',
@@ -50,6 +55,7 @@ export const runOnceResetLines = (count) => [
     'asl',
     'asl',
     'sta DF1WRITE',
+    `@_runonce_reset_${index}_done`,
   ]),
   '@end',
 ];

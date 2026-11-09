@@ -1425,6 +1425,8 @@ export default (Blockly) => {
       // The playfield color scroll tables go in this bank too (the kernel's):
       // see buildBackgroundColorScroll in generators/bbasic.js.
       ...(Blockly.BBasic.backgroundColorScrollTopBank ? ['', Blockly.BBasic.backgroundColorScrollTablesAsm] : []),
+      // The tables of a span of hues, which the kernel reads too (see rainbowTablesTopBank in generators/bbasic.js).
+      ...(Blockly.BBasic.rainbowTablesTopBank ? ['', Blockly.BBasic.rainbowTablesAsm] : []),
     ].join('\n');
 
     const configurationStorage = useConfigurationStorage();
@@ -1485,7 +1487,9 @@ export default (Blockly) => {
       if (!usedBanks.has(bank)) skippedBankPlaceholders.push(` bank ${bank}${harmonyCartFix}\n bank 1`);
     }
 
-    return `${skippedBankPlaceholders.join('\n')}\n bank ${kernelBank}${harmonyCartFix}\n${block}\n bank 1`;
+    // (The units that were placed in this bank follow the minikernel's code: see generateRelocatedSections.)
+    const topUnits = config.kernel === 'dpcplus' ? `\n${Blockly.BBasic.TOP_BANK_UNITS_MARKER}` : '';
+    return `${skippedBankPlaceholders.join('\n')}\n bank ${kernelBank}${harmonyCartFix}\n${block}${topUnits}\n bank 1`;
   };
 
   // The PXE kernel has no Text Minikernel yet (the one here switches banks): its blocks make no code.

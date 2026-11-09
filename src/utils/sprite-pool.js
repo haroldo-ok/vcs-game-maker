@@ -6,7 +6,7 @@
 // A sprite is free while it is hidden (a hidden player is on frame 255).
 
 const STATEMENTS = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all'];
-const VALUES = ['sprite_pool_full'];
+const VALUES = ['sprite_pool_full', 'sprite_pool_free'];
 const SELECTOR_TYPES = [...STATEMENTS, ...VALUES];
 const SELECTOR = SELECTOR_TYPES.map((type) => `block[type="${type}"]`).join(',');
 const MAX_PLAYER = 16;
@@ -20,9 +20,10 @@ const serialize = (node) => new XMLSerializer().serializeToString(node);
 const num = (value) => `<block type="math_number"><field name="NUM">${value}</field></block>`;
 // Puts blocks (each one block's XML) in a stack.
 const stack = (blocks) => blocks.filter(Boolean).reduceRight((rest, block) => (rest ? `${block.slice(0, -'</block>'.length)}<next>${rest}</next></block>` : block), '');
-const visibleIs = (n, value) => `<block type="logic_compare"><field name="OP">EQ</field><value name="A"><block type="sprite_player_get">` +
-  `<field name="PLAYER">${n}</field><field name="VAR">__player${n}visible_</field></block></value><value name="B">${num(value)}</value></block>`;
-const setVisible = (n, shown) => `<block type="sprite_player_set"><field name="PLAYER">${n}</field><field name="VAR">player${n}visibility</field>` +
+// Whether a sprite is shown (value 1) or hidden (0): one test of its frame (a hidden player is on frame 255) or of its hidden flag, see the generator.
+const visibleIs = (n, value) => `<block type="sprite_pool_visible"><field name="PLAYER">${n}</field><field name="VISIBLE">${value}</field></block>`;
+const setVisible = (n, shown, origin = false) => `<block type="sprite_player_set"><field name="PLAYER">${n}</field><field name="VAR">player${n}visibility</field>` +
+  `<field name="ORIGIN">${origin ? 'TRUE' : 'FALSE'}</field>` +
   `<value name="VALUE"><block type="logic_boolean"><field name="BOOL">${shown ? 'TRUE' : 'FALSE'}</field></block></value></block>`;
 
 // Returns the notes to show in the compile log.
@@ -88,6 +89,7 @@ export const expandSpritePools = (dom, Blockly) => {
   // "Release the pool sprite" is a Player block that hides it.
   [...dom.querySelectorAll('block[type="sprite_pool_release"]')].forEach((node) => replace(node,
       `<block type="sprite_player_set"><field name="PLAYER">pool</field><field name="VAR">playerpoolvisibility</field>` +
+      `<field name="ORIGIN">${fieldOf(node, 'ORIGIN') && fieldOf(node, 'ORIGIN').textContent === 'TRUE' ? 'TRUE' : 'FALSE'}</field>` +
       `<value name="VALUE"><block type="logic_boolean"><field name="BOOL">FALSE</field></block></value></block>`));
   // The sprites of the pools, and the blocks outside every pool that name one of them in a field (a Player block, Stop gravity, and so on):
   // a pool sprite is built like the others of its pool (the exchange of two sprites carries what each has), so such a block gets a copy for each other sprite
@@ -161,9 +163,9 @@ export const expandSpritePools = (dom, Blockly) => {
       // One copy of the blocks, for the first sprite, as a subroutine; the other sprites swap what they have with the first sprite's around a call of it.
       const first = sprites[0];
       const name = `poolbody${(poolCount += 1)}`;
-      const callBlocks = (n) => ([n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}</block>`,
+      const callBlocks = (n) => ([n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}<field name="BODY">${name}</field></block>`,
         `<block type="sprite_pool_body_call"><field name="NAME">${name}</field>${hostField}</block>`,
-        n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}</block>`, checkExit]);
+        n === first ? '' : `<block type="sprite_pool_swap"><field name="FROM">${first}</field><field name="TO">${n}</field>${hostField}<field name="BODY">${name}</field></block>`, checkExit]);
       // Blocks of the pool that leave it for somewhere else (Return, Go to label, Change state, Return from a subroutine) cannot jump out of a subroutine: in the
       // subroutine each one leaves its number in temp1 (and the value of a Return in temp6) and returns, and after the call (and the exchange back) the blocks
       // themselves run where the pool block was, when temp1 holds their number. The subroutine ends with temp1 at 0.
@@ -219,17 +221,18 @@ export const expandSpritePools = (dom, Blockly) => {
       const variablesList = Array.from(dom.children).find((child) => child.tagName.toLowerCase() === 'variables');
       dom.insertBefore(definition, variablesList ? variablesList.nextSibling : dom.firstChild);
       const shadows = (sprites.slice(1).map((n) => `<block type="sprite_pool_shadow"><statement name="DO">${bodyFor(node, 'DO', n)}</statement></block>`));
-      let parts;
+      let chain;
       if (type === 'sprite_pool_each') {
-        parts = ([...shadows, ...sprites.map((n) => `<block type="controls_if"><value name="IF0">${visibleIs(n, 1)}</value><statement name="DO0">${stack(callBlocks(n))}</statement></block>`)]);
+        chain = sprites.map((n) => `<block type="controls_if"><value name="IF0">${visibleIs(n, 1)}</value><statement name="DO0">${stack(callBlocks(n))}</statement></block>`);
       } else {
         let rest = bodyFor(node, 'FULL', 0);
         [...sprites].reverse().forEach((n) => {
           rest = `<block type="controls_if">${rest ? '<mutation else="1"></mutation>' : ''}<value name="IF0">${visibleIs(n, 0)}</value>` +
             `<statement name="DO0">${stack([setVisible(n, true), ...callBlocks(n)])}</statement>${rest ? `<statement name="ELSE">${rest}</statement>` : ''}</block>`;
         });
-        parts = [...shadows, rest];
+        chain = [rest];
       }
+      let parts = [...shadows, ...chain];
       if (exits.length) {
         parts = [...parts, `<block type="sprite_pool_goto"><field name="NAME">_poolend${exitId}</field></block>`,
           `<block type="sprite_pool_label"><field name="NAME">_poolexit${exitId}</field></block>`, ...exitLadder,
@@ -242,7 +245,12 @@ export const expandSpritePools = (dom, Blockly) => {
       replace(node, stack(sprites.map((n) => `<block type="controls_if"><value name="IF0">${visibleIs(n, 1)}</value>` +
         `<statement name="DO0">${bodyFor(node, 'DO', n)}</statement></block>`)));
     } else if (type === 'sprite_pool_release_all') {
-      replace(node, stack(sprites.map((n) => setVisible(n, false))));
+      replace(node, stack(sprites.map((n) => setVisible(n, false, !!fieldOf(node, 'ORIGIN') && fieldOf(node, 'ORIGIN').textContent === 'TRUE'))));
+    } else if (type === 'sprite_pool_free') {
+      // (Some sprite of the range is hidden.)
+      const free = sprites.map((n) => visibleIs(n, 0)).reduceRight((rest, test) => (rest ? `<block type="logic_operation"><field name="OP">OR</field>` +
+        `<value name="A">${test}</value><value name="B">${rest}</value></block>` : test), '');
+      replace(node, free);
     } else if (type === 'sprite_pool_full') {
       const full = sprites.map((n) => visibleIs(n, 1)).reduceRight((rest, test) => (rest ? `<block type="logic_operation"><field name="OP">AND</field>` +
         `<value name="A">${test}</value><value name="B">${rest}</value></block>` : test), '');

@@ -1,6 +1,7 @@
 ; Provided under the CC0 license. See the included LICENSE.txt for details.
 
 pfscroll ;(a=0 left, 1 right, 2 up, 4 down, 6=upup, 12=downdown)
+ ifnconst pfscroll_noleft
  bne notleft
 ;left
  ifconst pfres
@@ -36,9 +37,11 @@ leftloop
  sbx #4
  bne leftloop
  RETURN
+ endif
 
 notleft
  lsr
+ ifnconst pfscroll_noright
  bcc notright
 ;right
 
@@ -73,9 +76,11 @@ rightloop
  sbx #4
  bne rightloop
   RETURN
+ endif
 
 notright
  lsr
+ ifnconst pfscroll_noup
  bcc notup
 ;up
  lsr
@@ -175,10 +180,12 @@ up2
  endif
 noshiftdown2
  RETURN
+ endif
 
 
 notup
 ;down
+ ifnconst pfscroll_nodown
  lsr
  bcs oneincup
  inc playfieldpos
@@ -268,3 +275,4 @@ down2
  endif
 noshiftdown
  RETURN
+ endif

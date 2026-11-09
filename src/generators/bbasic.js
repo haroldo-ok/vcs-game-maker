@@ -38,8 +38,8 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, resolveUsedBackgroundIds,
   ROW_FADE_IDLE_STEP, rowFadeStartColor, multicolorFadeVarName,
   backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME, FADE_STEPS} from '../blocks/background';
-import {chooseSpill, applySpill, remainingUses, mergeAdjacentReads} from './bbasic/spill';
 import {buildGroupRowsLoad, GROUP_ROWS_TABLE, ensureArmProgram} from './bbasic/offset-arm';
+import {chooseSpill, applySpill, remainingUses, mergeAdjacentReads} from './bbasic/spill';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
@@ -98,7 +98,8 @@ import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprit
 import {reservePfBoxDevVars, pfBoxSharingOf, generatePfHitChecks, boxModeLines} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool, flagPoolVar, flagPoolBit, flagPoolPhaseMasks, flagPoolPhaseConflict, setFlagPhaseSource} from './bbasic/flag-pool';
-import {rainbowRangeOf, rainbowDataTables, RAINBOW_PLAYFIELD_ROWS, RAINBOW_MIN_ROWS} from './bbasic/rainbow-range';
+import {rainbowRangeOf, rainbowTableItems, RAINBOW_PLAYFIELD_ROWS} from './bbasic/rainbow-range';
+import {placeKernelTables} from '../utils/bank-tables';
 import {overlapTargetsOf, overlapPairsOf, overlapFamilies, overlapSpriteFlagBits, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
 import {prepareTriggers, triggerFamilies, reserveTriggerDevVars} from './bbasic/triggers';
 import {resolveProjectMusic, MUSIC_PLAY_RESET_NAME, MUSIC_PLAY_BY_ID_NAME,
@@ -325,6 +326,39 @@ const wrapChecks = (generator, key, makeCode) => {
   const newline = String.fromCharCode(10);
   generator.subroutines[name] = asSubroutineBody(code + ' return' + newline);
   return ` gosub ${name}${generator.bankJumpSuffix(generator.primaryBank(), generator.getSubroutineBank(name))}` + newline;
+};
+// The wrapped checks that follow one another in the main loop (Fire, Seek, Inertia, Jump, Lock: see the order in bbasic.bb.hbs) are called through one subroutine when two or more of
+// them are there: a call into another bank costs about 70 cycles on each pass, and the checks are one family that moves to a bank together (see computeFunctionFamilies in
+// hooks/rom.js). A build that does not fit that way is made again with them called one by one (buildRom).
+const COMBINED_CHECKS_NAME = '_pass_checks';
+const combineWrappedChecks = (generator, entries) => {
+  generator.combinedChecksUsed = false;
+  const texts = entries.map(([, text]) => text);
+  if (generator.combineChecksOff) return texts;
+  const isCall = ([key, text]) => text.trim().startsWith(`gosub ${WRAPPED_CHECKS_NAMES[key]}`);
+  const isEmpty = ([, text]) => text.trim() === '';
+  let from = 0;
+  while (from < entries.length) {
+    let to = from;
+    while (to < entries.length && (isCall(entries[to]) || isEmpty(entries[to]))) to++;
+    const calls = entries.slice(from, to).filter(isCall);
+    if (calls.length >= 2) {
+      const names = calls.map(([key]) => WRAPPED_CHECKS_NAMES[key]);
+      generator.subroutines[COMBINED_CHECKS_NAME] = names.map((name) => `  gosub ${name}`).join('\n');
+      generator.functionCallWrapperNames.add(COMBINED_CHECKS_NAME);
+      names.forEach((name) => {
+        generator.functionHostedSubroutines[name] = COMBINED_CHECKS_NAME;
+        generator.functionCallWrapperNames.add(name);
+      });
+      const first = entries.findIndex(isCall);
+      for (let i = from; i < to; i++) texts[i] = '';
+      texts[first >= from ? first : from] = ` gosub ${COMBINED_CHECKS_NAME}${generator.bankJumpSuffix(generator.primaryBank(), generator.getSubroutineBank(COMBINED_CHECKS_NAME))}\n`;
+      generator.combinedChecksUsed = true;
+      return texts;
+    }
+    from = Math.max(to, from) + 1;
+  }
+  return texts;
 };
 // Where the DPC+ kernel keeps the arguments of a Data table lookup by a runtime id (see reserveDevVarRW in init()).
 const DPCPLUS_SCRATCH_ARGS = {tableLookupArg1: 'temp5', tableLookupArg2: 'temp6', tableLookupArg3: 'temp4'};
@@ -715,10 +749,15 @@ Blockly.BBasic.init = function(workspace) {
   };
   // The span of hues of each rainbow (a player, or the playfield): the one the first enabled "rainbow colors" block of it asks for (a later block asking for
   // another span is told in the compile log).
+  // The pairs of sprites a Sprite pool exchanges (see generators/bbasic/sprite-pool.js and poolAnimationGroups).
+  this.poolSwapPairs = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && block.type === 'sprite_pool_swap')
+      .map((block) => ({first: Number(block.getFieldValue('FROM')), second: Number(block.getFieldValue('TO'))}));
   this.rainbowRanges = {};
   {
-    // How many rows a sprite with a span of hues can have: the tallest picture of any animation, the numbers the ROM noise blocks give as heights (255 for a
-    // height that is not a plain number), and at least 64: the table is that long, so the rows of the tallest sprite keep to the span.
+    // How many rows a sprite with a span of hues can have: the tallest picture of any animation and the numbers the ROM noise blocks give as heights (255 for a
+    // height that is not a plain number). The table is that long (plus the span), so the rows of the tallest sprite keep to the span: the standard kernel reads
+    // its color for a row of the picture with the index of the row (std_kernel.asm: ldy player1y after dcp), and under DPC+ (and PXE) a drawn row is 2 lines tall and
+    // the table has a color for each line. (The table is in the top bank on a bankswitched standard ROM, which has little room: a table longer than that is waste.)
     const noiseRows = workspace.getAllBlocks(false).filter((block) => block.isEnabled() && block.type === 'sprite_player_rom_noise').map((block) => {
       const heightBlock = block.getInputTargetBlock('HEIGHT');
       return !heightBlock ? 8 : heightBlock.type === 'math_number' ? Number(heightBlock.getFieldValue('NUM')) || 0 : 255;
@@ -731,15 +770,19 @@ Blockly.BBasic.init = function(workspace) {
     } catch (e) {
       pictureRows = 255;
     }
-    const tallestRainbowRows = Math.min(255, Math.max(RAINBOW_MIN_ROWS, pictureRows, ...noiseRows));
     const pxeConfig = (useConfigurationStorage().value || {});
+    const tallestRainbowRows = Math.min(255, Math.max(1, (pxeConfig.kernel === 'dpcplus' ? 2 : 1) * Math.max(pictureRows, ...noiseRows)));
     workspace.getAllBlocks(false).filter((block) => block.isEnabled() && (block.type === 'sprite_player_rainbow_colors' || block.type === 'background_rainbow_colors'))
         .forEach((block) => {
           const name = block.type === 'background_rainbow_colors' ? 'background' : `player${block.getFieldValue('PLAYER')}`;
           const range = rainbowRangeOf(block);
           if (!range) return;
           if (name !== 'background') range.rows = tallestRainbowRows;
-          if (name === 'background' && pxeConfig.kernel !== 'dpcplus') Object.assign(range, {rows: RAINBOW_PLAYFIELD_ROWS, stride: 4});
+          if (name === 'background' && pxeConfig.kernel !== 'dpcplus') {
+            // The kernel's first read of the color table is at 132 - 4 x (the rows of the playfield data), a row less with the blank lines shown: see buildBackgroundColorScroll.
+            const skip = Math.max(0, 132 - 4 * backgroundDataRows(pxeConfig) - 4);
+            Object.assign(range, {rows: RAINBOW_PLAYFIELD_ROWS - skip, stride: 4, skip});
+          }
           const known = this.rainbowRanges[name];
           if (known && (known.first !== range.first || known.span !== range.span)) {
             appendCompileLog(`${name === 'background' ? 'The playfield' : name.replace('player', 'Player ')} has rainbow colors blocks with different spans of hues: the first one is used.`, 'warning');
@@ -3918,6 +3961,8 @@ Blockly.BBasic.init = function(workspace) {
   this.functionCallWrapperNames = new Set();
   // Subroutines kept with the custom function that calls them (a sprite pool's blocks and its exchange code), name -> function: they move banks with it.
   this.functionHostedSubroutines = {};
+  // Subroutines that stay in the main bank (the animation code the sprites of a Sprite pool share).
+  this.pinnedSubroutines = new Set();
 
   // See RUN_ONCE_EDGE_RESET_NAME's  comment - registered as an ordinary
   // subroutine (rather than left as a separately-templated, always-bank-1
@@ -3955,6 +4000,16 @@ Blockly.BBasic.init = function(workspace) {
 // starts using a bank number below the Text Minikernel's  reserved one -
 // which never happened before relocation-worthy overflow existed at all, so
 // this went unnoticed until now.
+// The top bank of a DPC+ ROM with the Text Minikernel: the minikernel's section ends the sequence of banks, and the units placed in this bank go in
+// that section (see generateRelocatedSections), after its code. 0 for every other build.
+Blockly.BBasic.textTopBank = function() {
+  const configurationStorage = useConfigurationStorage();
+  const config = (configurationStorage && configurationStorage.value) || {};
+  return config.kernel === 'dpcplus' && Blockly.BBasic.isTextMinikernelActive() ? BANK_COUNT_BY_ROMSIZE_MINI.dpcplus : 0;
+};
+// Where the units of the top bank go in the text section (replaced by the code of those units).
+Blockly.BBasic.TOP_BANK_UNITS_MARKER = ';;top bank units;;';
+
 Blockly.BBasic.usedRelocationBankNumbers = function() {
   const banks = getRelocationBanks();
   return new Set([
@@ -3965,7 +4020,7 @@ Blockly.BBasic.usedRelocationBankNumbers = function() {
     ...Object.values(banks.functionBanks || {}),
     ...(Blockly.BBasic.isTextMinikernelActive() && Blockly.BBasic.textKernelBank() ?
       [Blockly.BBasic.textKernelBank()] : []),
-  ].filter((bank) => bank !== Blockly.BBasic.primaryBank()));
+  ].filter((bank) => bank !== Blockly.BBasic.primaryBank() && bank !== Blockly.BBasic.textTopBank()));
 };
 
 // The bank every unrelocated event/graphics/subroutine/function/data-table
@@ -4172,9 +4227,12 @@ Blockly.BBasic.graphicsUnitBank = function(unitKey) {
 // needs sizes for units currently still in bank 1 to decide what to move
 // next (see rom.js's pickRelocationCandidate).
 Blockly.BBasic.wrapRelocatableGraphics = function(unitKey, payload) {
+  // (The shared animation code of a Sprite pool has its pictures and colors in itself: one piece that moves to a bank with its exchanges, see generateAnimations.)
+  if (Blockly.BBasic.inlineGraphicsUnits) return `${unitKey}_reloc_entry\n${payload}\n${unitKey}_reloc_end`;
   const bank = Blockly.BBasic.graphicsUnitBank(unitKey);
   Blockly.BBasic.relocatableGraphicsUnits[unitKey] = {bank, payload};
-  if (bank === Blockly.BBasic.primaryBank()) return payload;
+  // (Labels at both ends of the payload, wherever it is, give its size in the symbol table: see measureUnitSizes in utils/bank-packer.js.)
+  if (bank === Blockly.BBasic.primaryBank()) return `${unitKey}_reloc_entry\n${payload}\n${unitKey}_reloc_end`;
 
   const entryLabel = `${unitKey}_reloc_entry`;
   const returnLabel = `${unitKey}_reloc_return`;
@@ -4437,6 +4495,7 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
   // of that bank instead.
   const colorScrollTopBank = Blockly.BBasic.backgroundColorScrollTopBank || 0;
   const colorScrollTablesInRelocated = colorScrollTopBank && !Blockly.BBasic.isTextMinikernelActive();
+  const rainbowTablesInRelocated = Blockly.BBasic.rainbowTablesTopBank && !Blockly.BBasic.isTextMinikernelActive();
   // DPC+ reserves bank 2 for the whole commongamelogic/main-loop body (see
   // generateDpcPlusBankPreamble's own comment) - it's already declared once
   // there, so treating it as "the primary bank" here too (same role bank 1
@@ -4465,7 +4524,8 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     ...functionEntries.map(([name]) => Blockly.BBasic.getFunctionBank(name)),
     ...everyDeclaredBank,
     ...(textKernelBank ? [textKernelBank] : []),
-  ])].filter((bank) => bank !== primaryBank);
+  ])].filter((bank) => bank !== primaryBank && bank !== Blockly.BBasic.textTopBank());
+  Blockly.BBasic.topBankUnitsBody = '';
 
   // Ascending, CONTIGUOUS order matters, not just ascending - the comment
   // above already covers ordering; this covers gaps. Confirmed directly as
@@ -4496,12 +4556,13 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
   const gapFillBanks = highestBankNeeded >= minGapFillBank ?
     Array.from({length: highestBankNeeded - minGapFillBank + 1}, (_, i) => i + minGapFillBank) : [];
   const banks = [...new Set([...banksBeforeGapFill, ...gapFillBanks])].sort((a, b) => a - b);
+  const topTextBank = Blockly.BBasic.textTopBank();
 
-  return banks.map((bank) => {
+  return (topTextBank ? [...banks, topTextBank] : banks).map((bank) => {
     const eventBodies = eventResults.filter((r) => r.bank === bank).map((r) => r.body).filter(Boolean);
     const graphicsBodies = graphicsEntries
         .filter(([, unit]) => unit.bank === bank)
-        .map(([key, unit]) => `${key}_reloc_entry\n${unit.payload}\n goto ${key}_reloc_return bank${Blockly.BBasic.primaryBank()}`);
+        .map(([key, unit]) => `${key}_reloc_entry\n${unit.payload}\n${key}_reloc_end\n goto ${key}_reloc_return bank${Blockly.BBasic.primaryBank()}`);
     const musicBodies = musicEntries
         .filter(([, unit]) => unit.bank === bank)
         .map(([key, unit]) => `${key}_reloc_entry\n${unit.payload}\n goto ${key}_reloc_return bank${Blockly.BBasic.primaryBank()}`);
@@ -4542,8 +4603,11 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
     // needs the same fix, or the Harmony cart's own bankswitch-detection can
     // misfire on real hardware.
     const harmonyCartFix = isDpcPlus && Blockly.BBasic.harmonyCartFixOn() ? '\n temp1=temp1' : '';
-    return [
-      ` bank ${bank}${harmonyCartFix}`,
+    // The top bank of a DPC+ build with the Text Minikernel: its section is the minikernel's, the units are added there.
+    const sectionHead = bank === topTextBank ? [] : [` bank ${bank}${harmonyCartFix}`];
+    const sectionTail = bank === topTextBank ? [] : [' bank 1'];
+    const section = [
+      ...sectionHead,
       ...eventBodies,
       ...graphicsBodies,
       ...musicBodies,
@@ -4552,13 +4616,39 @@ Blockly.BBasic.generateRelocatedSections = function(eventResults) {
       tablesForBank,
       colorScrollTablesInRelocated && bank === colorScrollTopBank ?
         Blockly.BBasic.backgroundColorScrollTablesAsm : '',
+      rainbowTablesInRelocated && bank === Blockly.BBasic.rainbowTablesTopBank ? Blockly.BBasic.rainbowTablesAsm : '',
       textOffsetTablesForBank,
       textStaticOffsetTablesForBank,
       textRow2OffsetsTableForBank,
       textKernelBank && bank === textKernelBank ? Blockly.BBasic.textBankBody : '',
-      ` bank 1`,
+      ...sectionTail,
     ].filter(Boolean).join('\n\n');
-  }).join('\n\n');
+    if (bank === topTextBank) {
+      Blockly.BBasic.topBankUnitsBody = section;
+      return '';
+    }
+    return section;
+  }).filter(Boolean).join('\n\n');
+};
+
+// The standard kernel's pfscroll routine (public/bb19/includes/pf_scrolling.asm) holds the code of all four directions (about 400 bytes): the include leaves out a
+// direction when its flag constant is set (pfscroll_noleft, _noright, _noup, _nodown). The flags are set here from the pfscroll statements the program has; when a
+// line of the program scrolls with something this does not know (a DPC+ statement, say) nothing is left out.
+const standardPfscrollFlags = (code) => {
+  const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+  if (config.kernel === 'dpcplus') return code;
+  const used = new Set();
+  let unknown = false;
+  code.split('\n').forEach((line) => {
+    const match = /^\s*pfscroll\s+(\S+)/.exec(line);
+    if (!match) return;
+    const direction = {left: 'left', right: 'right', up: 'up', upup: 'up', down: 'down', downdown: 'down'}[match[1]];
+    if (direction) used.add(direction); else unknown = true;
+  });
+  if (!used.size || unknown) return code;
+  const flags = ['left', 'right', 'up', 'down'].filter((direction) => !used.has(direction)).map((direction) => ' const pfscroll_no' + direction + ' = 1');
+  // (The template has CRLF line ends.)
+  return flags.length ? code.replace(/\n const true = 1\r?\n/, (anchor) => anchor + flags.join('\n') + '\n') : code;
 };
 
 /**
@@ -4685,7 +4775,23 @@ Blockly.BBasic.finish = function(code) {
   // extra trackDataTableBank entries those calls read from.
   Blockly.BBasic.linkDataTablesToBackgrounds();
   const generatedAnimations = Blockly.BBasic.generateAnimations();
-  const generatedDataTables = [Blockly.BBasic.generateDataTables(Blockly.BBasic.primaryBank()), rainbowDataTables(((useConfigurationStorage().value || {}).kernel === 'dpcplus') ? [] : Object.values(Blockly.BBasic.rainbowRanges || {}))]
+  // The tables of a span of hues are read by the kernel (the pointer of a player's colors or of the playfield rows is aimed at them), so with bankswitching they have to be in
+  // the bank the kernel runs from (the top one), like the playfield color scroll tables: a table in bank 1 is not what the kernel sees there, and it read whatever the top bank has
+  // at that address (colors outside the span that changed with the layout of the ROM).
+  const rainbowConfig = useConfigurationStorage().value || {};
+  const rainbowItems = rainbowConfig.kernel === 'dpcplus' ? [] : rainbowTableItems(Object.values(Blockly.BBasic.rainbowRanges || {}));
+  const scrollPlan = Blockly.BBasic.backgroundColorScrollPlan;
+  const topBankCount = BANK_COUNT_BY_ROMSIZE_MINI[rainbowConfig.romSize] > 1 ? BANK_COUNT_BY_ROMSIZE_MINI[rainbowConfig.romSize] : 0;
+  if (rainbowItems.length && scrollPlan && Blockly.BBasic.backgroundColorScrollTablesAsm) {
+    // Placed together with the color scroll tables, which are in the same place: the rainbow tables fill what they would leave as gaps.
+    Blockly.BBasic.backgroundColorScrollTablesAsm = placeKernelTables({...scrollPlan, items: rainbowItems});
+    Blockly.BBasic.rainbowTablesAsm = '';
+    Blockly.BBasic.rainbowTablesTopBank = 0;
+  } else {
+    Blockly.BBasic.rainbowTablesAsm = placeKernelTables({groups: [], tableBytes: 0, before: 0, items: rainbowItems});
+    Blockly.BBasic.rainbowTablesTopBank = Blockly.BBasic.rainbowTablesAsm && rainbowConfig.kernel !== 'dpcplus' ? topBankCount : 0;
+  }
+  const generatedDataTables = [Blockly.BBasic.generateDataTables(Blockly.BBasic.primaryBank()), Blockly.BBasic.rainbowTablesTopBank ? '' : Blockly.BBasic.rainbowTablesAsm]
       .filter(Boolean).join('\n\n');
   const generatedRomNoiseChecks = generateRomNoiseChecks(Blockly);
   const generatedPlayerHeightLimitChecks = generatePlayerHeightLimitChecks(Blockly);
@@ -4707,9 +4813,9 @@ Blockly.BBasic.finish = function(code) {
     ` if !${titleKernelLoopFlag()} then goto commongamelogicdraw\n return\ncommongamelogicdraw\n` : '';
   const generatedRainbowColorGraphics = generateRainbowColorGraphics(Blockly);
   const generatedRainbowColorChecks = generateRainbowColorChecks(Blockly);
-  const generatedMissileFireChecks = wrapChecks(this, 'fire', () => generateMissileFireChecks(Blockly) + generateBounceStageChecks(Blockly));
-  const generatedSeekChecks = wrapChecks(this, 'seek', () => generateSeekChecks(Blockly));
-  const generatedLockChecks = wrapChecks(this, 'lock', () => generateLockChecks(Blockly));
+  let generatedMissileFireChecks = wrapChecks(this, 'fire', () => generateMissileFireChecks(Blockly) + generateBounceStageChecks(Blockly));
+  let generatedSeekChecks = wrapChecks(this, 'seek', () => generateSeekChecks(Blockly));
+  let generatedLockChecks = wrapChecks(this, 'lock', () => generateLockChecks(Blockly));
   const generatedWidePartnerSync = Blockly.BBasic.generateWidePartnerSync();
   // The boxes of the sprites and the pairs that overlap are in a subroutine, that can be moved to another bank (it is long, with several pairs).
   const boxChecks = inSubroutineContext(this, SPRITE_BOX_CHECKS_NAME, () => generateBoxChecks(Blockly) + generateOverlapChecks(Blockly));
@@ -4717,8 +4823,10 @@ Blockly.BBasic.finish = function(code) {
   const generatedPfHitChecks = generatePfHitChecks(Blockly) + Blockly.BBasic.generateTextClearTimerChecks() + Blockly.BBasic.generateTextBlinkChecks() + (boxChecks ? ` gosub ${SPRITE_BOX_CHECKS_NAME}${Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(SPRITE_BOX_CHECKS_NAME))}
 ` : '');
-  const generatedInertiaChecks = wrapChecks(this, 'inertia', () => generateInertiaChecks(Blockly) + generateGravityChecks(Blockly));
-  const generatedPlatformerChecks = wrapChecks(this, 'platformer', () => Blockly.BBasic.generateCollisionMoveChecks() + Blockly.BBasic.generatePlatformerChecks());
+  let generatedInertiaChecks = wrapChecks(this, 'inertia', () => generateInertiaChecks(Blockly) + generateGravityChecks(Blockly));
+  let generatedPlatformerChecks = wrapChecks(this, 'platformer', () => Blockly.BBasic.generateCollisionMoveChecks() + Blockly.BBasic.generatePlatformerChecks());
+  [generatedMissileFireChecks, generatedSeekChecks, generatedInertiaChecks, generatedPlatformerChecks, generatedLockChecks] = combineWrappedChecks(this,
+      [['fire', generatedMissileFireChecks], ['seek', generatedSeekChecks], ['inertia', generatedInertiaChecks], ['platformer', generatedPlatformerChecks], ['lock', generatedLockChecks]]);
   const generatedShakeScreenChecks = generateShakeScreenChecks(Blockly);
   const generatedScoreFlashChecks = Blockly.BBasic.generateScoreFlashChecks();
   const generatedSpeechChecks = generateSpeechChecks(Blockly);
@@ -4782,7 +4890,7 @@ Blockly.BBasic.finish = function(code) {
   const gamePlayStartEvent = relocatable.gameplay_start.inlineEvent;
   const gameOverStartEvent = relocatable.gameover_start.inlineEvent;
   const gameOverUpdateEvent = relocatable.gameover_update.inlineEvent;
-  const generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
+  let generatedTextMinikernel = Blockly.BBasic.generateTextMinikernel();
   const generatedTextMinikernelDefaults = Blockly.BBasic.generateTextMinikernelDefaults() + '\n' +
     Blockly.BBasic.generateScoreBkColorDefaults();
   const generatedScoreBkColorAsm = Blockly.BBasic.generateScoreBkColorAsm();
@@ -4820,6 +4928,7 @@ Blockly.BBasic.finish = function(code) {
   const generatedMusicChecks = Blockly.BBasic.generateMusicChecks();
   const generatedRelocatedEvents = Blockly.BBasic.generateRelocatedSections(
       RELOCATABLE_EVENT_NAMES.map((name) => relocatable[name]));
+  generatedTextMinikernel = generatedTextMinikernel.replace(Blockly.BBasic.TOP_BANK_UNITS_MARKER, () => Blockly.BBasic.topBankUnitsBody || '');
   const generatedDistanceChecks = Blockly.BBasic.generateDistanceChecks();
   // Same splice region/reasoning as generatedDistanceChecks just above (see
   // joyDir8ResultVarName's  comment in generators/bbasic/input.js) - has
@@ -4874,8 +4983,10 @@ Blockly.BBasic.finish = function(code) {
     ' if player1size{3} then _NUSIZ1{3} = 1' : ' REFP1 = player1size & 8') +
     (this.maskPlayers.has(1) && isPxe(useConfigurationStorage().value) ? `\n if ${maskRef(Blockly, 1)} then _NUSIZ1{6} = 1` : '');
   // Players 2 to 9 keep their copies (bits 0-2) and flip (bit 3) in NUSIZn itself.
+  // (A player a visibility block can hide is left out while it is hidden: the block that shows it sets them again, see sprite_player_set in generators/bbasic/sprites.js.)
   const extraPlayerNusizLines = (this.dpcPlusExtraPlayers || [])
-      .map((n) => ` NUSIZ${n} = player${n}size & $0F` + (this.maskPlayers.has(n) ? `\n if ${maskRef(Blockly, n)} then NUSIZ${n}{6} = 1` : '')).join('\n');
+      .map((n) => (this.hideablePlayers && this.hideablePlayers.has(`player${n}`) ?
+        ` if player${n}frame = 255 then goto _nusiz_${n}_skip\n${this.extraPlayerNusizLine(n)}\n_nusiz_${n}_skip` : this.extraPlayerNusizLine(n))).join('\n');
   const generatedBackgroundFadeSetup = Blockly.BBasic.generateBackgroundFadeSetup();
 
   this.isInitialized = false;
@@ -4917,7 +5028,8 @@ Blockly.BBasic.finish = function(code) {
     generatedTextScrollAdvance, generatedTitleKernelSkip, generatedScoreBkColorAsm, generatedRunOnceEdgeReset,
     generatedKeypadPollCall, generatedKeypadSetup, generatedCtrlpfShadowSetup, generatedBackgroundFadeSetup,
     nusiz0Line, player1NusizLine, player1FlipLines, extraPlayerNusizLines});
-  return dpcAudioNames ? redirectSoundRegisters(generated, dpcAudioNames) : generated;
+  const withScrollFlags = standardPfscrollFlags(generated);
+  return dpcAudioNames ? redirectSoundRegisters(withScrollFlags, dpcAudioNames) : withScrollFlags;
 };
 
 // Builds the run-once flag bytes' per-frame reset body - registered as the
@@ -4974,6 +5086,11 @@ Blockly.BBasic.generateDisplayRamVarClears = function() {
         ` if temp1 > 0 then goto _displayramclear_${step}`);
   }
   return lines.join('\n') + '\n';
+};
+
+// The NUSIZ line of a player 2 to 9 (16 on PXE): its copies and flip from its size byte, and the edge masking where a block asks for it.
+Blockly.BBasic.extraPlayerNusizLine = function(n) {
+  return ` NUSIZ${n} = player${n}size & $0F` + (this.maskPlayers.has(n) ? `\n if ${maskRef(Blockly, n)} then NUSIZ${n}{6} = 1` : '');
 };
 
 Blockly.BBasic.generateRunOnceEdgeReset = function() {
@@ -7016,6 +7133,7 @@ Blockly.BBasic.generateBackgrounds = function() {
   // separate color table instead of the compiler's "pfcolors:" one (see
   // buildBackgroundColorScroll). (Before the scroll patch, which carries the routine for a tall background.)
   this.backgroundColorScrollTablesAsm = '';
+  this.backgroundColorScrollPlan = null;
   this.backgroundColorScrollTopBank = 0;
   this.backgroundColorScrollCoreLines = null;
   this.backgroundColorScrollSmallTables = null;
@@ -7327,7 +7445,10 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
   const yBase = 132 - 4 * windowRows;
   const before = Math.max(0, yBase - 4 * blankLinesShown);
   const pageRows = 16;
-  const entriesPerPage = pageRows + windowRows + 3;
+  // A page is only read from as many rows into it as the tallest background has (the row offset of the scroll goes up to the rows a background cycles through,
+  // and a page is 16 of them at most), so a table is not made longer than that needs.
+  const maxCycleRows = Math.max(1, ...backgrounds.map(({pixels}) => (overflowMode && pixels.length > windowRows ? pixels.length : windowRows)));
+  const entriesPerPage = Math.min(pageRows, maxCycleRows) + windowRows + 3;
   // The kernel reads a row's color every 4 bytes, so the three bytes between are free: four pages of colors are woven into one table
   // (page n of a table is the bytes 4 * i + n), which the pointer picks by adding n. A table must be in one 256 byte page for the kernel
   // to read it in the same number of cycles, but it need not start on one: the tables follow each other and only a table that would cross
@@ -7377,27 +7498,22 @@ Blockly.BBasic.buildBackgroundColorScroll = function(backgrounds, config) {
   });
   // A list of bytes as ".byte" lines of 16 (one line with a whole list of up to 256 bytes was cut in two by the compiler's line length limit).
   const byteLines = (values) => Array.from({length: Math.ceil(values.length / 16)}, (_, i) => `.byte ${values.slice(i * 16, i * 16 + 16).join(', ')}`);
-  const tableLines = [' asm', ' align 256'];
-  let position = 0;
+  const tableGroups = [];
   const groupCount = Math.ceil(uniquePages.length / 4);
   for (let group = 0; group < groupCount; group++) {
-    if (position % 256 + tableBytes > 256) {
-      tableLines.push(' align 256');
-      position = 0;
-    }
     const bytes = [];
     for (let i = 0; i < entriesPerPage; i++) {
       for (let n = 0; n < 4; n++) bytes.push(uniquePages[group * 4 + n] ? uniquePages[group * 4 + n][i] : '0');
     }
-    tableLines.push(`bgcolortable${group}`, ...byteLines(bytes).map((line) => ' ' + line));
-    position += tableBytes;
+    tableGroups.push([`bgcolortable${group}`, ...byteLines(bytes).map((line) => ' ' + line)]);
   }
-  tableLines.push('end');
   if (rowList.length > 255) {
     appendCompileLog('The backgrounds have more than 255 rows in all: the top row of the scrolling ' +
       'playfield colors can show the wrong color on the later ones.', 'info');
   }
-  this.backgroundColorScrollTablesAsm = tableLines.join('\n') + '\n';
+  // Placed by the assembler (see placeKernelTables in utils/bank-tables.js), with the tables of a span of hues in the gaps when the project has any (below, where they are known).
+  this.backgroundColorScrollPlan = {groups: tableGroups, tableBytes, before};
+  this.backgroundColorScrollTablesAsm = placeKernelTables({...this.backgroundColorScrollPlan, items: []});
   // The kernel reads these tables, so with bankswitching they have to be in the
   // bank the kernel runs from (the top one, see KERNEL_BANK_BY_ROMSIZE in
   // generators/bbasic/text-minikernel.js): a bank 1 table is not what the
@@ -8345,6 +8461,40 @@ Blockly.BBasic.generateWidePartnerSync = function() {
   return lines.length ? lines.join('\n') + '\n' : '';
 };
 
+// The sprites of the Sprite pools that can share one copy of their animation code: the pool sprites that are exchanged with the same first sprite, when every sprite of
+// the group needs the same animations, colors and fades (a pool's blocks are the same for all of its sprites, so this is the usual case) and none of them has a wide
+// partner. A Map from the name of a sprite to {role: 'first' | 'other', firstName}. Not for PXE, whose pointer slots are laid out differently.
+Blockly.BBasic.poolAnimationGroups = function(playerAnimationsStorage) {
+  const sharing = new Map();
+  const config = useConfigurationStorage().value || {};
+  if (config.kernel !== 'dpcplus' || isPxe(config) || !this.poolSwapPairs || !this.poolSwapPairs.length) return sharing;
+  const byFirst = new Map();
+  this.poolSwapPairs.forEach(({first, second}) => {
+    if (first < 2) return;
+    if (!byFirst.has(first)) byFirst.set(first, new Set());
+    byFirst.get(first).add(second);
+  });
+  const partners = new Set([...Object.keys(this.widePartners || {}), ...Object.values(this.widePartners || {})]);
+  const used = this.usedPlayerAnimations || {};
+  const signature = (name) => JSON.stringify([
+    used[name] ? [...used[name]].sort((x, y) => x - y) : null,
+    [...(this.dpcPlusPlayerColors[name] || [])].sort((x, y) => x - y),
+    [...(this.dpcPlusPlayerFades[name] || [])].sort((x, y) => x - y),
+    this.useAnimationRowColors(name), this.colorOverridePlayers.has(name), hasHiddenFlag(Blockly, name),
+    !!(this.animSkipPlayers && this.animSkipPlayers.has(name)), this.animSkipConst.get(name) === undefined ? null : this.animSkipConst.get(name),
+  ]);
+  byFirst.forEach((others, first) => {
+    const names = [`player${first}`, ...[...others].map((n) => `player${n}`)];
+    if (!(this.dpcPlusExtraPlayers || []).includes(first) || names.some((name) => partners.has(name))) return;
+    if (!others.size || [...others].some((n) => !(this.dpcPlusExtraPlayers || []).includes(n))) return;
+    const first0 = signature(names[0]);
+    if (names.some((name) => signature(name) !== first0)) return;
+    sharing.set(names[0], {role: 'first', firstName: names[0]});
+    names.slice(1).forEach((name) => sharing.set(name, {role: 'other', firstName: names[0]}));
+  });
+  return sharing;
+};
+
 Blockly.BBasic.generateAnimations = function() {
   // Reset fresh every generation, same reasoning/mechanism as
   // musicGateAsmFiles in generators/bbasic/music.js - hooks/rom.js merges
@@ -8358,6 +8508,21 @@ Blockly.BBasic.generateAnimations = function() {
   // the color (see assignAndReload in generators/bbasic/sprites.js), and a picture is also loaded again whenever the
   // frame counter reaches the first frame of one.
   const isDpcPlus = (useConfigurationStorage().value || {}).kernel === 'dpcplus';
+  // A hidden player loads the blank picture once, not every pass: the blank has no height (a picture of an animation has at least one row), so a player whose
+  // height is 0 has it loaded already. DPC+ and PXE (the standard kernel hides a player with a flag, never with frame 255, so its handler is never entered).
+  // The lines that come before the load of the blank: nothing to load when the height is 0; the loaded flag of the animation's picture is cleared otherwise (bit 7 is left
+  // clear while the player is hidden, so the picture loads when it is shown).
+  const blankOnce = isDpcPlus;
+  // The bytes the shared animation code of a Sprite pool gets the state of a sprite in (see generateAnimations, processAnimations): the size byte, the frame, the
+  // frame where it runs next (in and out), the color of its rows (read by the color tables), and the color override flag, masked (read once the pictures load).
+  // Set while that code is made, null otherwise.
+  const POOL_REFS = {size: 'temp4', frame: 'temp5', animnext: 'temp3', color: 'temp2', flag: 'temp1'};
+  let poolRefs = null;
+  // How many colors the last color section was made for (a section of one color has no test on the color byte: see the routine of a pool sprite).
+  let lastColorCount = 0;
+  const poolGroups = new Map();
+  const hiddenBlankLines = (name, endLabel) => (blankOnce ? [' asm', `  lda ${name}height`, `  bne ${name}hiddenLoad`, `  jmp .${endLabel}`, `${name}hiddenLoad`, `  lda ${name}size`, '  and #$7F',
+    `  sta ${name}size`, 'end'] : []);
 
   // A solid color table per color the project gives the player (the default one first), the one matching the
   // player's color variable pointed at whenever the loaded flag is clear. The tables are as tall as the tallest
@@ -8365,7 +8530,8 @@ Blockly.BBasic.generateAnimations = function() {
   const colorSectionFor = (name, playerData, slaveOf) => {
     const rows = Math.max(1, ...playerData.animations.flatMap((animation) =>
       (animation ? animation.frames : []).map((frame) => frame.pixels.length))) * 2;
-    const colorVar = `${name}realcolor`;
+    const colorVar = poolRefs ? poolRefs.color : `${name}realcolor`;
+    const sizeRef = poolRefs ? poolRefs.size : `${name}size`;
     // The sprite showing the right half of a wide player is colored like the player is.
     const colorOwner = slaveOf || name;
     const defaultColor = colorOwner === 'player0' ? 0x40 : colorOwner === 'player1' ? 0x80 :
@@ -8382,12 +8548,13 @@ Blockly.BBasic.generateAnimations = function() {
     const hex = (byte) => '$' + byte.toString(16).toUpperCase().padStart(2, '0');
     const label = (i) => `${name}color${i}`;
     const endLabel = `${name}colorEnd`;
+    lastColorCount = colors.length;
     const table = (color, i) => (i ? `${label(i)}\n` : '') +
       Blockly.BBasic.wrapRelocatableGraphics(`${name}colortable${i}`,
           [`  ${name}color:`, ...Array(rows).fill('  ' + hex(color)), 'end'].join('\n')) +
       `\n  goto ${endLabel}`;
     return `\n  rem Color for ${name}:\n` +
-      `  if ${name}size{7} then goto ${endLabel}\n` +
+      `  if ${sizeRef}{7} then goto ${endLabel}\n` +
       colors.slice(1).map((color, i) => `  if ${colorVar} = ${hex(color)} then goto ${label(i + 1)}`).join('\n') +
       '\n' + table(defaultColor, 0) + '\n' +
       colors.slice(1).map((color, i) => table(color, i + 1)).join('\n') +
@@ -8400,6 +8567,10 @@ Blockly.BBasic.generateAnimations = function() {
     if (!animation) {
       return '';
     }
+    // The state the code reads and writes: the sprite's own variables, or the bytes the shared code of a Sprite pool gets them in (see poolRefs).
+    const refSize = poolRefs ? poolRefs.size : `${name}size`;
+    const refFrame = poolRefs ? poolRefs.frame : `${name}frame`;
+    const refHeight = `${name}height`;
     // A wide animation is drawn whole only where a second sprite is there to show its right half.
     const wide = isWideAnimation(animation) && !!(slaveOf || (this.widePartners || {})[name]);
     // The player shows the left half of a picture, the other sprite the right half; a flipped picture swaps them. Without
@@ -8442,8 +8613,8 @@ Blockly.BBasic.generateAnimations = function() {
       const entryLabel = `${animationLabel}frame${frameIndex}Entry`;
       // (DPC+: while the counter is inside this picture's frames the animation code is not entered again, see processAnimations.)
       const nextRef = !slaveOf && this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name) ?
-        this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
-      const skipCondition = `  if ${name}frame > ${frameLimit} then goto ${endLabel}\n` +
+        (poolRefs ? poolRefs.animnext : this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE)) : null;
+      const skipCondition = `  if ${refFrame} > ${frameLimit} then goto ${endLabel}\n` +
         (nextRef ? `  ${nextRef} = ${Math.min(frameLimit + 1, totalDuration)}\n` : '');
       const pixelKey = frame.pixels.map((row) => row.join('')).join('|') + (slaveOf ? '#R' : '');
       // Per-row sprite colors (useSpriteColorsFor, see Configuration.vue's
@@ -8481,9 +8652,9 @@ Blockly.BBasic.generateAnimations = function() {
       const shownGuard = isDpcPlus ? (() => {
         const firstFrame = frameLimit - clampFrameDuration(frame.duration) + (frameIndex ? 1 : 0);
         // An animation of one picture has it loaded already each time the counter comes round to its first frame again.
-        if (animation.frames.length === 1) return `  if ${name}size{7} then goto ${animationLabel}animationEnd\n  ${name}size{7} = 1\n`;
-        return `  if ${name}size{7} && ${name}frame <> ${firstFrame} then goto ${animationLabel}animationEnd\n` +
-          `  ${name}size{7} = 1\n`;
+        if (animation.frames.length === 1) return `  if ${refSize}{7} then goto ${animationLabel}animationEnd\n  ${refSize}{7} = 1\n`;
+        return `  if ${refSize}{7} && ${refFrame} <> ${firstFrame} then goto ${animationLabel}animationEnd\n` +
+          `  ${refSize}{7} = 1\n`;
       })() : '';
 
       const existingEntryLabel = fullKeyToEntryLabel.get(fullKey);
@@ -8498,7 +8669,7 @@ Blockly.BBasic.generateAnimations = function() {
       const existingGraphicLabel = pixelKeyToGraphicLabel.get(pixelKey);
       // A color a block set wins over the row colors: the frame's colors are then not loaded.
       const overrideFlag = this.colorOverridePlayers && this.colorOverridePlayers.has(slaveOf || name) ?
-        colorOverrideRef(Blockly, slaveOf || name) : null;
+        (poolRefs ? poolRefs.flag : colorOverrideRef(Blockly, slaveOf || name)) : null;
       const overrideGuard = (target) => (overrideFlag && colorSource ? `  if ${overrideFlag} then goto ${target}\n` : '');
       if (existingGraphicLabel) {
         return skipCondition +
@@ -8517,7 +8688,7 @@ Blockly.BBasic.generateAnimations = function() {
         '\nend\n' +
         `  goto ${animationLabel}animationEnd\n`;
       // A wide frame's two halves: the flip bit picks which one this sprite shows.
-      const wideTest = wide ? `  if ${name}size{3} then goto ${graphicLabel}Flipped\n` : '';
+      const wideTest = wide ? `  if ${refSize}{3} then goto ${graphicLabel}Flipped\n` : '';
       const flippedBlock = wide ? `${graphicLabel}Flipped\n` + graphicBlock(halfOf(frame.pixels, otherSide)) : '';
       return skipCondition +
         shownGuard +
@@ -8556,7 +8727,7 @@ Blockly.BBasic.generateAnimations = function() {
     // assembly step (see utils/dpc-picture-tables.js) takes their addresses and cuts the statements out.
     const pictureTables = !tableMode ? '' : (() => {
       const nextRef = !slaveOf && this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name) ?
-        this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+        (poolRefs ? poolRefs.animnext : this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE)) : null;
       const at = (suffix) => `.${animationLabel}${suffix}`;
       // The kernel reads the rows of a DPC+ sprite top to bottom, a row for each scanline (so each row is doubled), and the standard
       // kernel from the bottom up.
@@ -8573,7 +8744,7 @@ Blockly.BBasic.generateAnimations = function() {
       const graphicLines = (rows) => [`  ${name}:`, ...orderGraphicRows(rows).map((row) => '  %' + row.join('')), 'end'];
       const rowColored = this.useAnimationRowColors(slaveOf || name);
       const overrideFlag = this.colorOverridePlayers && this.colorOverridePlayers.has(slaveOf || name) ?
-        colorOverrideRef(Blockly, slaveOf || name) : null;
+        (poolRefs ? poolRefs.flag : colorOverrideRef(Blockly, slaveOf || name)) : null;
       let limit = 0;
       const pictures = [];
       animation.frames.forEach((frame) => {
@@ -8611,10 +8782,10 @@ Blockly.BBasic.generateAnimations = function() {
       const colorSlot = slot ? playerColorPointerBase(useConfigurationStorage().value) + 2 * (Number(slot[1]) - 1) : null;
       // (The address of rows is stored on the DPC+ kernel with bits 4 to 6 of its high byte moved down.)
       const highByte = (symbol) => (isDpcPlus && !isPxe(useConfigurationStorage().value) ? `  .byte ((>${symbol}) & $0f) | (((>${symbol}) / 2) & $70)` : `  .byte >${symbol}`);
-      const override = overrideFlag ? /^(.+)\{(\d)\}$/.exec(overrideFlag) : null;
+      const override = overrideFlag && !poolRefs ? /^(.+)\{(\d)\}$/.exec(overrideFlag) : null;
       const code = [
         ' asm',
-        `  lda ${name}frame`,
+        `  lda ${refFrame}`,
         '  ldy #0',
         at('Sel'),
         `  cmp ${at('Ends')},y`,
@@ -8628,19 +8799,19 @@ Blockly.BBasic.generateAnimations = function() {
         // (The DPC+ kernel keeps a loaded picture: bit 7 of the size byte says there is one, and the code is only entered again at the
         // start of a picture.)
         ...(isDpcPlus ? [
-          `  lda ${name}size`,
+          `  lda ${refSize}`,
           `  bpl ${at('Load')}`,
-          `  lda ${name}frame`,
+          `  lda ${refFrame}`,
           `  cmp ${at('Starts')},y`,
           `  beq ${at('Load')}`,
           `  jmp .${animationLabel}animationEnd`,
           at('Load'),
-          `  lda ${name}size`,
+          `  lda ${refSize}`,
           '  ora #$80',
-          `  sta ${name}size`,
+          `  sta ${refSize}`,
         ] : []),
         ...(wide ? [
-          `  lda ${name}size`,
+          `  lda ${refSize}`,
           '  and #8',
           `  beq ${at('Plain')}`,
           '  tya',
@@ -8665,7 +8836,8 @@ Blockly.BBasic.generateAnimations = function() {
           `  sta ${name}pointerhi`,
         ]),
         ...(rowColored ? [
-          ...(override ? [`  lda ${override[1]}`, `  and #${1 << Number(override[2])}`, `  bne ${at('Height')}`] : []),
+          // (The shared code of a pool gets the flag, already masked, in temp1.)
+          ...(override ? [`  lda ${override[1]}`, `  and #${1 << Number(override[2])}`, `  bne ${at('Height')}`] : overrideFlag ? ['  lda temp1', `  bne ${at('Height')}`] : []),
           ...(slot ? [
             `  lda #<(playerpointers+${colorSlot})`,
             '  sta DF0LOW',
@@ -8683,8 +8855,8 @@ Blockly.BBasic.generateAnimations = function() {
           ]),
         ] : []),
         at('Height'),
-        `  lda ${at('Heights')},y`,
-        `  sta ${name}height`,
+        // (The shared code of a pool sets the height of the sprite it runs for: the heights are an array, the number of places after the first sprite is half of temp6.)
+        ...(poolRefs ? ['  lda temp6', '  lsr', '  tax', `  lda ${at('Heights')},y`, `  sta ${name}height,x`] : [`  lda ${at('Heights')},y`, `  sta ${refHeight}`]),
         `  jmp .${animationLabel}animationEnd`,
         at('Starts'),
         '  .byte 0',
@@ -8735,22 +8907,22 @@ Blockly.BBasic.generateAnimations = function() {
     const finishedRef = isFinishedWatched ? /^(.+)\{(\d)\}$/.exec(animFinishedDoneRef(Blockly, name)) : null;
     const lastFrame = Math.min(totalDuration, 255);
     const heldRef = this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name) ?
-      this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+      (poolRefs ? poolRefs.animnext : this.nameDB_.getName(animNextVarName(name), Blockly.Names.DEVELOPER_VARIABLE_TYPE)) : null;
     const counterLines = [
       ' asm',
       ...(sizeSet ? [`  lda ${sizeSet}`, `  bne ${at('sizeSet')}`] : []),
-      `  lda ${name}size`,
+      `  lda ${refSize}`,
       '  and #$F8',
       `  ora #${sizeCode}`,
-      `  sta ${name}size`,
+      `  sta ${refSize}`,
       ...(sizeSet ? [at('sizeSet')] : []),
-      `  bit ${name}size`,
+      `  bit ${refSize}`,
       `  bvs ${at('pauseSkip')}`,
-      `  ldx ${name}frame`,
+      `  ldx ${refFrame}`,
       '  inx',
       `  cpx #${lastFrame}`,
       `  bcc ${at('store')}`,
-      `  lda ${name}size`,
+      `  lda ${refSize}`,
       '  and #$10',
       `  bne ${at('noLoop')}`,
       '  ldx #0',
@@ -8759,7 +8931,7 @@ Blockly.BBasic.generateAnimations = function() {
       `  ldx #${lastFrame - 1}`,
       // (On the DPC+ kernel a picture that is loaded and held on the last frame needs nothing else, so the search below is left out.)
       // (A 1 in the limit of the animation tells the code in the main bank that this one is held, so it is not entered again: see quickPast.)
-      ...(isDpcPlus && !finishedRef ? [`  bit ${name}size`, `  bpl ${at('heldLoad')}`,
+      ...(isDpcPlus && !finishedRef ? [`  bit ${refSize}`, `  bpl ${at('heldLoad')}`,
         ...(heldRef ? ['  lda #1', `  sta ${heldRef}`] : []), `  jmp .${animationLabel}animationEnd`, at('heldLoad')] : []),
       // (Once for the animation: the frame stays on the last one, and this runs on every frame it stays.)
       ...(finishedRef ? [
@@ -8769,12 +8941,12 @@ Blockly.BBasic.generateAnimations = function() {
         `  lda ${finishedRef[1]}`,
         `  ora #${1 << Number(finishedRef[2])}`,
         `  sta ${finishedRef[1]}`,
-        `  lda ${name}size`,
+        `  lda ${refSize}`,
         '  ora #$20',
-        `  sta ${name}size`,
+        `  sta ${refSize}`,
       ] : []),
       at('store'),
-      `  stx ${name}frame`,
+      `  stx ${refFrame}`,
       at('pauseSkip'),
       'end',
     ].join('\n') + '\n\n';
@@ -8785,7 +8957,7 @@ Blockly.BBasic.generateAnimations = function() {
       `\n\n${animationLabel}animationEnd`;
   };
 
-  const processAnimations = (name, playerStorage) => {
+  const processAnimations = (name, playerStorage, share = null) => {
     let playerData = null;
     try {
       playerData = processPlayerAnimationsStorageDefaults(playerStorage);
@@ -8820,14 +8992,21 @@ Blockly.BBasic.generateAnimations = function() {
     const hasFlag = hasHiddenFlag(Blockly, name);
     const hiddenplayerHandler = hasFlag ? '' : [
       `  if ${name}frame <> 255 then goto ${animationsStartLabel}`,
-      ...(isDpcPlus ? [`  ${name}size{7} = 0`] : []),
+      ...hiddenBlankLines(name, animationsEndLabel),
       Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload),
       `  goto ${animationsEndLabel}\n`,
       animationsStartLabel,
     ].join('\n');
 
     // The color tables load first, whenever the picture is about to be loaded again (a hidden player does not).
-    const colorSection = isDpcPlus && (!this.useAnimationRowColors(name) || this.colorOverridePlayers.has(name)) ? colorSectionFor(name, playerData) : '';
+    // (A sprite that runs the code of another one through an exchange has no color tables, pictures or loaders of its kind: see poolAnimationGroups.)
+    const borrows = !!share && share.role === 'other';
+    const inlineUnits = !!(share && share.role === 'first');
+    Blockly.BBasic.inlineGraphicsUnits = inlineUnits;
+    poolRefs = inlineUnits ? POOL_REFS : null;
+    const colorSection = !borrows && isDpcPlus && (!this.useAnimationRowColors(name) || this.colorOverridePlayers.has(name)) ? colorSectionFor(name, playerData) : '';
+    Blockly.BBasic.inlineGraphicsUnits = false;
+    poolRefs = null;
     // DPC+: a picture and its colors that are loaded stay as they are until the frame counter reaches the next picture (or the end of the
     // animation), so on the frames in between the counter is stepped here and the animation code, in another bank, is not entered. It is entered
     // when the picture is not loaded (the animation or color changed, a hidden player came back), and by the frame the counter gets to the
@@ -8838,7 +9017,19 @@ Blockly.BBasic.generateAnimations = function() {
     const enterLabel = `${name}animationsEnter`;
     // (Bit 7 of the size byte, the loaded flag, is the sign and bit 6, paused, the overflow flag of a BIT.)
     const heldCheck = this.animSkipConst.has(name) ? `.${name}animationsEnter` : `${name}animationsHeldCheck`;
-    const quickPast = limitOperand ? [
+    // A player whose animations all have one picture, and that no block waits for the end of an animation of: once its picture is loaded there is nothing to count or
+    // test, whatever the frame counter says (the picture is not entered again), so the code after the loaded flag is left out.
+    const usedAnimations = playerData.animations.filter((animation, animationIndex) => animation && isUsed(animationIndex));
+    const singlePicture = skipping && usedAnimations.length > 0 && usedAnimations.every((animation) => animation.frames.length === 1) &&
+      !(Blockly.BBasic.playerAnimationFinishedWatches && Blockly.BBasic.playerAnimationFinishedWatches.has(name));
+    const quickPast = limitOperand && singlePicture ? [
+      ' asm',
+      `  bit ${name}size`,
+      `  bpl .${enterLabel}`,
+      `  jmp .${animationsEndLabel}`,
+      'end',
+      enterLabel,
+    ].join('\n') + '\n' : limitOperand ? [
       ' asm',
       `  bit ${name}size`,
       `  bpl .${enterLabel}`,
@@ -8861,30 +9052,102 @@ Blockly.BBasic.generateAnimations = function() {
       'end',
       enterLabel,
     ].join('\n') + '\n' : '';
-    return `  rem Animations for ${name}:\n\n` +
-      hiddenplayerHandler +
-      colorSection +
-      quickPast +
-      playerData.animations.map((animation, animationIndex) => {
-        if (!animationIndex || !isUsed(animationIndex)) return '';
-        return `  if ${name}animation = ${animationIndex} then goto ${getAnimationStartLabel(animationIndex)}`;
-      }).join('\n') +
-      '\n\n' +
-      playerData.animations.map((animation, animationIndex) => {
-        if (!isUsed(animationIndex)) return '';
-        const unitKey = `${name}animation${animationIndex}`;
-        const payload = processAnimation(name, animation, animationIndex);
-        // Same rationale as hiddenplayerHandler above: this label stays
-        // inline in bank 1 regardless of where the animation's  frames
-        // end up, so the dispatch conditions above (and this exit) never
-        // need a bank tag.
-        return `${getAnimationStartLabel(animationIndex)}\n\n` +
-          Blockly.BBasic.wrapRelocatableGraphics(unitKey, payload) +
-          `\n  goto ${animationsEndLabel}`;
-      }).join('\n\n') +
-      `\n\n${animationsEndLabel}` +
+    // The animation code of the sprites of a Sprite pool is made once (for the first sprite) as a subroutine, and each other sprite runs it through an exchange
+    // of what the two have (see poolAnimationGroups): the picture tables, loaders and color tables are not made for each of them. The tests that decide that
+    // nothing is to be done (a hidden player, a picture that is still loaded) stay with each sprite, so a frame that has nothing to do costs what it did.
+    const subEndLabel = `${name}poolAnimEnd`;
+    const exitLabel = share && share.role === 'first' ? subEndLabel : animationsEndLabel;
+    const dispatch = borrows ? '' : playerData.animations.map((animation, animationIndex) => {
+      if (!animationIndex || !isUsed(animationIndex)) return '';
+      return `  if ${name}animation = ${animationIndex} then goto ${getAnimationStartLabel(animationIndex)}`;
+    }).join('\n') + '\n\n';
+    const units = borrows ? '' : playerData.animations.map((animation, animationIndex) => {
+      if (!isUsed(animationIndex)) return '';
+      const unitKey = `${name}animation${animationIndex}`;
+      poolRefs = inlineUnits ? POOL_REFS : null;
+      const payload = processAnimation(name, animation, animationIndex);
+      poolRefs = null;
+      // Same rationale as hiddenplayerHandler above: this label stays
+      // inline in bank 1 regardless of where the animation's  frames
+      // end up, so the dispatch conditions above (and this exit) never
+      // need a bank tag.
+      Blockly.BBasic.inlineGraphicsUnits = inlineUnits;
+      const wrapped = Blockly.BBasic.wrapRelocatableGraphics(unitKey, payload);
+      Blockly.BBasic.inlineGraphicsUnits = false;
+      return `${getAnimationStartLabel(animationIndex)}\n\n` + wrapped + `\n  goto ${exitLabel}`;
+    }).join('\n\n');
+    const tail = `\n\n${animationsEndLabel}` +
       (hasFlag ? [`\n  if !${hiddenFlagRef(Blockly, name)} then goto ${name}hiddenDone`,
         Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload), `${name}hiddenDone`].join('\n') : '');
+    const head = `  rem Animations for ${name}:\n\n`;
+    if (!share) return head + hiddenplayerHandler + colorSection + quickPast + dispatch + units + tail;
+    const subName = `_poolanim_${share.firstName}`;
+    const colorSubName = `_poolanimcolor_${share.firstName}`;
+    const bank = (subroutine) => Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(subroutine));
+    // (A subroutine's lines are indented again when it is put in the code: a line that starts in the first column (a label, an "end") is kept there with an "@".)
+    const asSubroutine = (text) => text.split('\n').map((line) => (line !== '' && !/^[\t ]/.test(line) ? `@${line}` : line));
+    const hostedBy = (member) => {
+      Blockly.BBasic.functionHostedSubroutines[member] = subName;
+      Blockly.BBasic.functionCallWrapperNames.add(member);
+    };
+    if (share.role === 'first') {
+      // The sprites of the pool run this code for their state in temp bytes (see POOL_REFS) that a short routine of each sprite fills and empties, and with the pointers
+      // of the sprite moved on by the bytes in temp6 (see utils/pool-pointer-retarget.js): no exchange of what the sprites have, except for what the code names that
+      // is not one of those (the flags that tell it is finished, say). The code is the units of the animations (called by the routine of the sprite, one for each
+      // picture) and the tables of the colors (a subroutine of its own, called first); with the routines of the sprites they are one family: they move to a bank
+      // together (see computeFunctionFamilies in hooks/rom.js), so the calls between them are plain ones and the main bank makes one call for a step.
+      Blockly.BBasic.subroutines[subName] = [`@${subName}_other`, ...asSubroutine(units + `\n\n${subEndLabel}`)].join('\n');
+      Blockly.BBasic.functionCallWrapperNames.add(subName);
+      if (colorSection) {
+        Blockly.BBasic.subroutines[colorSubName] = asSubroutine(colorSection).join('\n');
+        hostedBy(colorSubName);
+      }
+      const used = playerData.animations.map((animation, animationIndex) => (isUsed(animationIndex) ? animationIndex : -1)).filter((index) => index >= 0);
+      poolGroups.set(share.firstName, {
+        used,
+        hasNext: !!(this.animSkipPlayers && this.animSkipPlayers.has(name) && !this.animSkipConst.has(name)),
+        hasColor: !!colorSection,
+        colorLadder: !!colorSection && lastColorCount > 1,
+        hasOverride: !!(this.colorOverridePlayers && this.colorOverridePlayers.has(name) && this.useAnimationRowColors(name)),
+      });
+    }
+    // The routine of a sprite for one step of its animation (the first sprite is one of the group too).
+    const group = poolGroups.get(share.firstName);
+    const stepName = `_poolanimstep_${share.firstName}_${name}`;
+    if (!Blockly.BBasic.subroutines[stepName]) {
+      const resolve = (canonical) => this.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      const delta = 2 * (Number(name.slice(6)) - Number(share.firstName.slice(6)));
+      const override = group.hasOverride ? /^(.+)\{(\d)\}$/.exec(colorOverrideRef(Blockly, name)) : null;
+      const lines = (...list) => [' asm', ...list.map((line) => `  ${line}`), '@end'];
+      // What the sprites do not have the same in the shared code (the names it keeps) is exchanged with the first sprite around the call, as it was.
+      const codeNames = [Blockly.BBasic.subroutines[subName] || '', Blockly.BBasic.subroutines[colorSubName] || ''].join('\n').replace(/player\d+height/g, '');
+      const swapLines = delta ? Blockly.BBasic.poolSwapLines(Number(share.firstName.slice(6)), Number(name.slice(6)), `_anim`, codeNames) : [];
+      const swapName = `_poolanimswap_${share.firstName}_${name}`;
+      if (swapLines.length) {
+        Blockly.BBasic.subroutines[swapName] = ['asm', ...swapLines, '@end'].join('\n');
+        hostedBy(swapName);
+      }
+      const swapCall = swapLines.length ? [`  gosub ${swapName}`] : [];
+      const unitLabel = (index) => `.${share.firstName}animation${index}Start`;
+      const first = group.used[0];
+      const dispatch = group.used.slice(1).flatMap((index, at) => [`  cmp #${index}`, `  bne ${stepName}_n${at}`, `  jsr ${unitLabel(index)}`, `  jmp ${stepName}_done`, `@${stepName}_n${at}`]);
+      // (A label of a unit is in the shared code; the first one runs when the number is none of the others, as the code before it did.)
+      // (One animation: nothing to choose, so its number is not read.)
+      const dispatchLines = group.used.length === 1 ? [' asm', `  jsr ${unitLabel(first)}`, '@end'] : group.used.length ? [' asm', `  lda ${resolve(`${name}animation`)}`, ...dispatch, `  jsr ${unitLabel(first)}`, `@${stepName}_done`, '@end'] : [];
+      Blockly.BBasic.subroutines[stepName] = [
+        ...lines(`lda #${delta}`, 'sta temp6', `lda ${name}size`, 'sta temp4', `lda ${name}frame`, 'sta temp5',
+            ...(group.hasNext ? [`lda ${resolve(animNextVarName(name))}`, 'sta temp3'] : []),
+            ...(group.colorLadder ? [`lda ${name}realcolor`, 'sta temp2'] : []),
+            ...(override ? [`lda ${override[1]}`, `and #${1 << Number(override[2])}`, 'sta temp1'] : [])),
+        ...swapCall,
+        ...(group.hasColor ? [`  gosub ${colorSubName}`] : []),
+        ...dispatchLines,
+        ...swapCall,
+        ...lines('lda temp4', `sta ${name}size`, 'lda temp5', `sta ${name}frame`, ...(group.hasNext ? ['lda temp3', `sta ${resolve(animNextVarName(name))}`] : [])),
+      ].join('\n');
+      hostedBy(stepName);
+    }
+    return head + hiddenplayerHandler + quickPast + `  gosub ${stepName}${bank(stepName)}\n` + tail;
   };
 
   // The sprite that shows the right half of a player's wide animations (see utils/wide-sprite.js). Every frame it takes over
@@ -8944,13 +9207,13 @@ Blockly.BBasic.generateAnimations = function() {
       `  if ${name}size{6} then goto ${name}hiddenStart`,
       `  if ${name}frame <> 255 then goto ${name}animationsStart`,
       `${name}hiddenStart`,
-      `  ${name}size{7} = 0`,
+      ...hiddenBlankLines(name, animationsEndLabel),
       Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload),
       `  goto ${animationsEndLabel}\n`,
       `${name}animationsStart`,
     ] : [
       `  if ${name}frame <> 255 then goto ${name}animationsStart`,
-      ...(isDpcPlus ? [`  ${name}size{7} = 0`] : []),
+      ...hiddenBlankLines(name, animationsEndLabel),
       Blockly.BBasic.wrapRelocatableGraphics(`${name}default`, hiddenPayload),
       `  goto ${animationsEndLabel}\n`,
       `${name}animationsStart`,
@@ -8986,10 +9249,11 @@ Blockly.BBasic.generateAnimations = function() {
   const partners = this.widePartners || {};
   const partnerNames = new Set(Object.values(partners));
   // (Under the standard kernel the partner is the other hardware player, which is then not animated by itself.)
+  const sharing = this.poolAnimationGroups(playerAnimationsStorage);
   const hardwareCode = ['player0', 'player1'].map((player) => (partnerNames.has(player) ? '' :
     processAnimations(player, playerAnimationsStorage)));
   const extraCode = (this.dpcPlusExtraPlayers || []).filter((n) => !partnerNames.has(`player${n}`)).map((n) =>
-    processAnimations(`player${n}`, playerAnimationsStorage));
+    processAnimations(`player${n}`, playerAnimationsStorage, sharing.get(`player${n}`) || null));
   const partnerCode = Object.entries(partners).map(([owner, partner]) =>
     processWidePartner(partner, owner, playerAnimationsStorage));
   // A player whose picture has to be loaded again (its flag, bit 7 of its size byte, is clear) has its partner load its picture again too,

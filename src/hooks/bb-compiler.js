@@ -283,6 +283,46 @@ const parseSymbolmap = (symText) => {
   return symbolmap;
 };
 
+// The assembly with every bank given separate room in the output file (the origin of a bank in the file is moved up by 64 KB for each 4 KB
+// before it; the addresses the program sees do not change), so that a bank that is too full is measured instead of stopping the assembly at
+// the first one that runs into the next. The result is only read for its "bytes of ROM space left in bank N" lines and its symbol table.
+const spreadBanksInFile = (asm) => asm.replace(/^(\s*)(ORG)(\s+)\$([0-9A-Fa-f]+)/gim, (match, indent, word, gap, hex) => {
+  const value = parseInt(hex, 16);
+  // (The origins near the end of a bank page, where the bank switching code and the vectors go, are put 32 KB further on: the code of a bank that is over
+  // runs far past its 4 KB.)
+  const tail = (value & 0xFFF) >= 0xF00 ? 0x8000 : 0;
+  return `${indent}${word}${gap}$${(value + (value >> 12) * 0x10000 + tail).toString(16)}`;
+});
+
+// Assembles the spread version of a program that did not fit and returns what it measured (null when that did not assemble either):
+// {stdout, symbolmap}: the room left in every bank (below zero for a bank that is over) and the address of every label.
+const measureBanks = async (mainAsmContent, workDir, includes, log) => {
+  try {
+    const r = await runWasi(
+        'bb19/dasm.wasm',
+        ['main.asm', '-I.', '-I/bbinc/includes', '-f3', '-p20', '-smain.sym', '-omain.bin'],
+        '',
+        {'.': {...workDir, 'main.asm': spreadBanksInFile(mainAsmContent)}, '/bbinc': includes},
+        null,
+    );
+    const symText = r.dirs['.']['main.sym'];
+    const failed = parseDasmErrors(r.stdout);
+    if (failed.length || !symText || !/bytes of ROM space left in bank/.test(r.stdout)) {
+      const lines = spreadBanksInFile(mainAsmContent).split(String.fromCharCode(10));
+      if (log) {
+        log(`Measuring every bank did not work: ${failed.length ? `${failed[0].msg} (line ${failed[0].line}: ${lines.slice(Math.max(0, failed[0].line - 12), failed[0].line).join(' / ')})` :
+          !symText ? 'no symbol table' : 'no room reported'}.`);
+      }
+      return null;
+    }
+    if (log) log(`Measuring every bank took ${Math.round(r.elapsedMs)}ms.`);
+    return {stdout: r.stdout, symbolmap: parseSymbolmap(symText)};
+  } catch (e) {
+    if (log) log(`Measuring every bank did not work: ${e.message}`);
+    return null;
+  }
+};
+
 const assemble = async (mainAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
@@ -365,6 +405,7 @@ const assemble = async (mainAsmContent, workDir, log) => {
     // OTHER bank is too full", which look identical in the thrown error
     // message alone.
     err.dasmStdout = r.stdout;
+    if (errors.some((item) => /origin reverse-indexed|segment overflow/i.test(item.msg))) err.measured = await measureBanks(mainAsmContent, workDir, includes, log);
     throw err;
   }
   if (!output || !symText) {
@@ -378,6 +419,7 @@ const assemble = async (mainAsmContent, workDir, log) => {
     err.partialOutput = partialOutput;
     err.partialSymbolmap = partialSymbolmap;
     err.dasmStdout = r.stdout;
+    err.measured = await measureBanks(mainAsmContent, workDir, includes, log);
     throw err;
   }
   const symbolmap = parseSymbolmap(symText);
