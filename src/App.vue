@@ -2905,6 +2905,17 @@ export default {
   opacity: .75 !important;
 }
 
+/* The trash can is the same grey raster as the zoom buttons (media/sprites.png), so it gets the same black icon and the same three opacity steps: rest .25 and
+   lid open .5 (the mouse over it or a block dragged over it) are set by the lid animation in blocks/trashcan-size.js, the press .75 here (!important, because
+   the opacity of the group is set inline). */
+.blocklyTrash > image {
+  filter: brightness(0) !important;
+}
+
+.blocklyTrash:active {
+  opacity: .75 !important;
+}
+
 /* Same reasoning/values as .blocklyZoom above, now for the multiselect
    plugin's toggle icon (BlocklyComponent.vue's mounted()) sitting right
    next to the grid-snap icon (ActionEditor.vue's setupGridSnapZoomButton) -
@@ -3956,6 +3967,10 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 .dark-mode.v-application .blocklyZoom > image,
 .dark-mode.v-application .blocklyZoom > svg > image {
+  filter: brightness(0) invert(1) !important;
+}
+
+.dark-mode.v-application .blocklyTrash > image {
   filter: brightness(0) invert(1) !important;
 }
 

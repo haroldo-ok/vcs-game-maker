@@ -147,5 +147,21 @@ Blockly.Trashcan.prototype.position = function(...args) {
   if (!this.svgGroup) return;
   const scaledWidth = TRASHCAN_WIDTH * SCALE;
   this.left += (TRASHCAN_WIDTH - ZOOM_WIDTH / 2) - scaledWidth / 2;
+  // The icon is drawn at the top of the box Blockly keeps for it (60 high, the size of the unscaled icon), so its bottom is 28 above where the box ends: the box
+  // is moved down by that much, so that the icon is as far from the bottom of the canvas as the zoom buttons are from its right side. The zoom buttons are put
+  // above this box (the rectangle it reports is read after this runs), so they go down the same amount.
+  const boxHeight = TRASHCAN_BODY_HEIGHT + TRASHCAN_LID_HEIGHT;
+  this.top += boxHeight - boxHeight * SCALE;
   this.svgGroup.setAttribute('transform', `translate(${this.left},${this.top})`);
+};
+
+// Blockly draws the trash can at 0.4 opacity, 0.8 with the lid open (the mouse over it, or a block dragged over it), in steps while the lid moves (animateLid
+// sets the opacity of the group on every step). The zoom buttons rest at 0.25 and go to 0.5 under the mouse (see the .blocklyZoom rules in App.vue); the trash can
+// takes the same two values, with the lid closed and open, so that the lid animation is the fade between them. The press is a CSS rule (.blocklyTrash:active).
+const REST_OPACITY = 0.25;
+const OPEN_OPACITY = 0.5;
+const originalAnimateLid = Blockly.Trashcan.prototype.animateLid;
+Blockly.Trashcan.prototype.animateLid = function(...args) {
+  originalAnimateLid.apply(this, args);
+  if (this.svgGroup) this.svgGroup.style.opacity = String(REST_OPACITY + this.lidOpen * (OPEN_OPACITY - REST_OPACITY));
 };

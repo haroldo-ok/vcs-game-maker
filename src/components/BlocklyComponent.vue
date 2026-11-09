@@ -498,6 +498,9 @@ export default {
     options.plugins.blockDragger = SnappingBlockDragger;
 
     this.workspace = Blockly.inject(this.$refs['blocklyDiv'], options);
+    // Blockly puts the trash can before the block layer of the workspace, so the blocks are drawn over it; moved to the end, it is drawn over them.
+    const trashcanGroup = this.workspace.trashcan && this.workspace.trashcan.svgGroup;
+    if (trashcanGroup && trashcanGroup.parentNode) trashcanGroup.parentNode.appendChild(trashcanGroup);
     // Blockly keeps this many steps back (the app's setting, see hooks/undo-limit.js), also when the setting changes while it is open.
     this.workspace.MAX_UNDO = getUndoLimit();
     this.unwatchUndoLimit = this.$watch(() => getUndoLimit(), (limit) => {
