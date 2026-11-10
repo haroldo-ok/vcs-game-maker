@@ -8,7 +8,11 @@ import {playerCount} from '../utils/pxe';
 // the powerups of Bricks: the blocks inside a pool block say what to do with "pool sprite", and the build makes a copy of them for each sprite
 // of the pool (see utils/sprite-pool.js). A sprite is free while it is hidden.
 export const SPRITE_POOL_COLOUR = '#3f7f93';
-export const SPRITE_POOL_TYPES = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all', 'sprite_pool_full', 'sprite_pool_free'];
+export const SPRITE_POOL_TYPES = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all', 'sprite_pool_full', 'sprite_pool_free', 'sprite_pool_release_player'];
+// The pools are made by "Sprite pool ID" blocks (an id and the players it spans); the blocks that work on a pool name only its id.
+export const SPRITE_POOL_DEFINE = 'sprite_pool_define';
+// At most 4 pools, so the state kept for the pools fits in a byte (2 bits each, or a bit each) when that is needed.
+export const SPRITE_POOL_MAX_ID = 4;
 
 // The sprites a pool can span: Player 1 up to the last one the kernel has.
 const poolSpriteOptions = function() {
@@ -25,10 +29,42 @@ export const spriteOptionsWithPool = (extraOptions) => function() {
     ...(count > 2 ? [[PLAYER_ICON + ' Pool sprite', 'playerpool']] : []), ...extraOptions];
 };
 
+// The pools of a workspace: the id of each enabled "Sprite pool ID" block and the players it spans. When an id is given twice the first block counts (the build
+// does the same).
+const poolDefinitions = (workspace) => {
+  const pools = new Map();
+  (workspace ? workspace.getBlocksByType(SPRITE_POOL_DEFINE, true) : []).filter((block) => !block.isInsertionMarker() && block.isEnabled()).forEach((block) => {
+    const id = Number(block.getFieldValue('ID'));
+    const from = Number(block.getFieldValue('FROM'));
+    const to = Number(block.getFieldValue('TO'));
+    if (!pools.has(id)) pools.set(id, {id, range: [Math.min(from, to), Math.max(from, to)], block});
+  });
+  return pools;
+};
+
+// The pool id a block names: the Number block plugged into its id input (a constant, since the pools are made when the ROM is built), or null for any
+// other block. An empty input is pool 1.
+const poolIdOf = (block, name = 'ID') => {
+  const target = block.getInputTargetBlock(name);
+  if (!target) return 1;
+  return target.type === 'math_number' ? Number(target.getFieldValue('NUM')) : null;
+};
+
+const poolsSupported = () => {
+  const config = ((useConfigurationStorage() || {}).value || {});
+  return config.kernel === 'dpcplus';
+};
+
+// The players a block works on: the ones of its pool id, or null when no "Sprite pool ID" block has that id.
 const poolRange = (block) => {
-  const from = Number(block.getFieldValue('FROM'));
-  const to = Number(block.getFieldValue('TO'));
-  return [Math.min(from, to), Math.max(from, to)];
+  if (block.type === SPRITE_POOL_DEFINE) {
+    const from = Number(block.getFieldValue('FROM'));
+    const to = Number(block.getFieldValue('TO'));
+    return [Math.min(from, to), Math.max(from, to)];
+  }
+  const id = poolIdOf(block);
+  const pool = id === null ? null : poolDefinitions(block.workspace).get(id);
+  return pool ? pool.range : null;
 };
 
 // The sprites of the pool (players from to to) that the blocks inside a "spawn" or "for each" block name: the pool works on one sprite at a time through the
@@ -50,24 +86,53 @@ const namedPoolMembers = (block, from, to) => {
 // Two pools that are not the same range but share a sprite would hand the same sprite out twice.
 const poolWarning = (block) => {
   if (!block.workspace || block.workspace.isFlyout || block.isInsertionMarker()) return;
-  const [from, to] = poolRange(block);
   const text = [];
-  if (Number(block.getFieldValue('FROM')) > Number(block.getFieldValue('TO'))) text.push(`The pool starts after it ends: it is used as ${from} to ${to}.`);
-  const clash = block.workspace.getAllBlocks(false).filter((other) => other !== block && SPRITE_POOL_TYPES.includes(other.type) && !other.isInsertionMarker())
-      .map(poolRange).find(([otherFrom, otherTo]) => (otherFrom !== from || otherTo !== to) && otherFrom <= to && otherTo >= from);
-  if (clash) text.push(`Another pool (players ${clash[0]} to ${clash[1]}) shares a sprite with this one (players ${from} to ${to}): it could hand out the same sprite twice.`);
-  const named = namedPoolMembers(block, from, to);
-  if (named.length) text.push(`Blocks inside name ${named.map((n) => `Player ${n}`).join(' and ')}, a sprite of this pool: they are left out of the build. Use "pool sprite" in them, or put them outside the pool.`);
+  const range = poolRange(block);
+  if (!poolsSupported()) text.push('Sprite pools work on the DPC+ and PXE kernels, not on the standard kernel: this block is left out of the build.');
+  if (block.type === SPRITE_POOL_DEFINE) {
+    const [from, to] = range;
+    const id = Number(block.getFieldValue('ID'));
+    if (Number(block.getFieldValue('FROM')) > Number(block.getFieldValue('TO'))) text.push(`The pool starts after it ends: it is used as ${from} to ${to}.`);
+    const same = poolDefinitions(block.workspace).get(id);
+    if (same && same.block !== block) text.push(`Another Sprite pool ID block has the id ${id}: only the first one is used, this one is left out.`);
+    // Two pools that share a sprite would hand the same sprite out twice.
+    const clash = [...poolDefinitions(block.workspace).values()].find((other) => other.block !== block && other.id !== id && other.range[0] <= to && other.range[1] >= from);
+    if (clash) text.push(`Pool ${clash.id} (players ${clash.range[0]} to ${clash.range[1]}) shares a sprite with this one (players ${from} to ${to}): they could hand out the same sprite twice.`);
+  } else if (poolIdOf(block) === null) {
+    text.push('The pool id has to be a Number block: the pools are made when the ROM is built, so the id cannot change while the game runs. The block is left out of the build.');
+  } else if (!range) {
+    text.push(`No Sprite pool ID block has the id ${poolIdOf(block)}${poolIdOf(block) > SPRITE_POOL_MAX_ID ? ` (the pool ids are 1 to ${SPRITE_POOL_MAX_ID})` : ''}: this block is left out of the build.`);
+  } else if (block.type === 'sprite_pool_release_player') {
+    const player = Number(block.getFieldValue('PLAYER'));
+    if (player < range[0] || player > range[1]) text.push(`Player ${player} is not in pool ${poolIdOf(block)} (players ${range[0]} to ${range[1]}): the block is left out of the build.`);
+  } else {
+    const named = namedPoolMembers(block, range[0], range[1]);
+    if (named.length) text.push(`Blocks inside name ${named.map((n) => `Player ${n}`).join(' and ')}, a sprite of this pool: they are left out of the build. Use "pool sprite" in them, or put them outside the pool.`);
+  }
   block.setWarningText(text.length ? text.join(' ') : null);
 };
 
 Blockly.defineBlocksWithJsonArray([
   {
-    'type': 'sprite_pool_spawn',
-    'message0': `${PLAYER_ICON} Sprite pool: players %1 to %2 spawn in a free sprite`,
+    'type': 'sprite_pool_define',
+    'message0': `${PLAYER_ICON} Sprite pool ID %1: players %2 to %3`,
     'args0': [
+      {'type': 'field_number', 'name': 'ID', 'value': 1, 'min': 1, 'max': 4, 'precision': 1},
       {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
       {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+    'extensions': ['sprite_pool_warning'],
+    'tooltip': 'Makes a sprite pool: gives the players from the first to the last the id, so the other Sprite pool blocks only name the id. Put it once, anywhere ' +
+      '(System start is a good place); it does nothing while the game runs. Two pools should not share a player.',
+  },
+  {
+    'type': 'sprite_pool_spawn',
+    'message0': `${PLAYER_ICON} Sprite pool ID %1 spawn in a free sprite`,
+    'args0': [
+      {'type': 'input_value', 'name': 'ID', 'check': 'Number'},
     ],
     'message1': '%1',
     'args1': [{'type': 'input_statement', 'name': 'DO'}],
@@ -76,24 +141,23 @@ Blockly.defineBlocksWithJsonArray([
     'previousStatement': null,
     'nextStatement': null,
     'colour': SPRITE_POOL_COLOUR,
-    'extensions': ['sprite_pool_warning'],
+    'extensions': ['sprite_pool_warning', 'sprite_pool_id_shadow'],
     'tooltip': 'Takes the first free (hidden) sprite of the pool, shows it and runs the blocks inside with it as the "pool sprite" (choose that in a ' +
       'Player block\'s player list). Set its position and look with those blocks. When every sprite of the pool is in use the blocks under "if no sprite is ' +
       'free" run instead. The blocks inside are built once for each sprite of the pool. Hide the pool at the start of the game with "Release all sprites in pool".',
   },
   {
     'type': 'sprite_pool_each',
-    'message0': `${PLAYER_ICON} For each active sprite in pool: players %1 to %2`,
+    'message0': `${PLAYER_ICON} For each active sprite in pool ID %1`,
     'args0': [
-      {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
-      {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+      {'type': 'input_value', 'name': 'ID', 'check': 'Number'},
     ],
     'message1': '%1',
     'args1': [{'type': 'input_statement', 'name': 'DO'}],
     'previousStatement': null,
     'nextStatement': null,
     'colour': SPRITE_POOL_COLOUR,
-    'extensions': ['sprite_pool_warning'],
+    'extensions': ['sprite_pool_warning', 'sprite_pool_id_shadow'],
     'tooltip': 'Runs the blocks inside once for each sprite of the pool that is shown, with that sprite as the "pool sprite" (choose that in a ' +
       'Player block\'s player list). The blocks inside are built once for each sprite of the pool.',
   },
@@ -107,44 +171,69 @@ Blockly.defineBlocksWithJsonArray([
     'tooltip': 'Hides the pool sprite, so the pool can hand it out again. Only inside a Sprite pool block.',
   },
   {
-    'type': 'sprite_pool_release_all',
-    'message0': `${PLAYER_ICON} Release all sprites in pool: players %1 to %2, set x and y to 0 %3`,
+    'type': 'sprite_pool_release_player',
+    'message0': `${PLAYER_ICON} Release player %1 of pool ID %2, set x and y to 0 %3`,
     'args0': [
-      {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
-      {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+      {'type': 'field_dropdown', 'name': 'PLAYER', 'options': poolSpriteOptions},
+      {'type': 'input_value', 'name': 'ID', 'check': 'Number'},
       {'type': 'field_checkbox', 'name': 'ORIGIN', 'checked': false},
     ],
     'previousStatement': null,
     'nextStatement': null,
     'colour': SPRITE_POOL_COLOUR,
-    'extensions': ['sprite_pool_warning'],
+    'extensions': ['sprite_pool_warning', 'sprite_pool_id_shadow'],
+    'tooltip': 'Makes one sprite of the pool free again (it is hidden), from anywhere: a collision or any other block, not only inside a Sprite pool block. The pool can ' +
+      'hand it out again. The player has to be one of the players of the pool with that id.',
+  },
+  {
+    'type': 'sprite_pool_release_all',
+    'message0': `${PLAYER_ICON} Release all sprites in pool ID %1, set x and y to 0 %2`,
+    'args0': [
+      {'type': 'input_value', 'name': 'ID', 'check': 'Number'},
+      {'type': 'field_checkbox', 'name': 'ORIGIN', 'checked': false},
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': SPRITE_POOL_COLOUR,
+    'extensions': ['sprite_pool_warning', 'sprite_pool_id_shadow'],
     'tooltip': 'Hides every sprite of the pool, so all of them are free. Use it at the start of the game.',
   },
   {
     'type': 'sprite_pool_full',
-    'message0': `${PLAYER_ICON} Sprite pool: players %1 to %2 is full`,
+    'message0': `${PLAYER_ICON} Sprite pool ID %1 is full`,
     'args0': [
-      {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
-      {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+      {'type': 'input_value', 'name': 'ID', 'check': 'Number'},
     ],
     'output': 'Boolean',
     'colour': SPRITE_POOL_COLOUR,
-    'extensions': ['sprite_pool_warning'],
+    'extensions': ['sprite_pool_warning', 'sprite_pool_id_shadow'],
     'tooltip': 'True while every sprite of the pool is shown (none is free to spawn in).',
   },
   {
     'type': 'sprite_pool_free',
-    'message0': `${PLAYER_ICON} Sprite pool: players %1 to %2 has a free sprite`,
+    'message0': `${PLAYER_ICON} Sprite pool ID %1 has a free sprite`,
     'args0': [
-      {'type': 'field_dropdown', 'name': 'FROM', 'options': poolSpriteOptions},
-      {'type': 'field_dropdown', 'name': 'TO', 'options': poolSpriteOptions},
+      {'type': 'input_value', 'name': 'ID', 'check': 'Number'},
     ],
     'output': 'Boolean',
     'colour': SPRITE_POOL_COLOUR,
-    'extensions': ['sprite_pool_warning'],
+    'extensions': ['sprite_pool_warning', 'sprite_pool_id_shadow'],
     'tooltip': 'True while at least one sprite of the pool is hidden, free to spawn in. Plug it into an If block to spawn only when there is room.',
   },
 ]);
+
+// The id input of a block that names a pool starts with a Number block (1) in it, wherever the block comes from (the toolbox, its search, a copy): a block that a
+// saved project has gets the number block it was saved with in its place.
+Blockly.Extensions.register('sprite_pool_id_shadow', function() {
+  // eslint-disable-next-line no-invalid-this
+  const input = this.getInput('ID');
+  if (!input || !input.connection) return;
+  try {
+    input.connection.setShadowState({type: 'math_number', fields: {NUM: 1}});
+  } catch (e) {
+    // (the socket stays empty, which is pool 1)
+  }
+});
 
 Blockly.Extensions.register('sprite_pool_warning', function() {
   // eslint-disable-next-line no-invalid-this
@@ -173,7 +262,7 @@ const insidePoolBody = (block) => {
 // Whether the project has a block of the Sprite pool (the workspace the block is in, or the one a toolbox flyout is for).
 const projectUsesPool = (block) => {
   const workspace = block.workspace && (block.workspace.targetWorkspace || block.workspace);
-  return !!workspace && workspace.getAllBlocks(false).some((other) => SPRITE_POOL_TYPES.includes(other.type) && !other.isInsertionMarker());
+  return !!workspace && workspace.getAllBlocks(false).some((other) => (SPRITE_POOL_TYPES.includes(other.type) || other.type === SPRITE_POOL_DEFINE) && !other.isInsertionMarker());
 };
 const poolValueOffered = (value, block) => {
   if (!block) return false;
@@ -199,21 +288,23 @@ Blockly.FieldDropdown.prototype.doClassValidation_ = function(newValue) {
 const syncPoolRange = (block) => {
   if (!block.workspace || block.isInsertionMarker() || (typeof block.isDeadOrDying === 'function' && block.isDeadOrDying())) return;
   const multi = block.inputList.some((input) => input.fieldRow.some((field) => field instanceof Blockly.FieldDropdown && isMultiValue(field.getValue())));
-  const shown = block.getInput('POOLRANGE');
+  const shown = block.getInput('POOLID');
   if (multi && !shown) {
-    block.appendDummyInput('POOLRANGE').appendField(' pool players').appendField(new Blockly.FieldDropdown(poolSpriteOptions), 'POOLFROM')
-        .appendField('to').appendField(new Blockly.FieldDropdown(poolSpriteOptions), 'POOLTO');
-    const last = poolSpriteOptions().map((option) => option[1]).includes('3') ? '3' : null;
-    if (last) block.setFieldValue(last, 'POOLTO');
+    const input = block.appendValueInput('POOLID').setCheck('Number').appendField(' pool ID');
+    try {
+      input.connection.setShadowState({type: 'math_number', fields: {NUM: 1}});
+    } catch (e) {
+      // (the block still works with the socket empty: pool 1)
+    }
   } else if (!multi && shown) {
-    block.removeInput('POOLRANGE');
+    block.removeInput('POOLID');
   }
 };
 const rawUpdate = Blockly.FieldDropdown.prototype.doValueUpdate_;
 Blockly.FieldDropdown.prototype.doValueUpdate_ = function(newValue) {
   rawUpdate.call(this, newValue);
   const block = this.getSourceBlock();
-  if (block && block.inputList && block.inputList.length && (isMultiValue(newValue) || block.getInput('POOLRANGE'))) syncPoolRange(block);
+  if (block && block.inputList && block.inputList.length && (isMultiValue(newValue) || block.getInput('POOLID'))) syncPoolRange(block);
 };
 
 // The blocks the build puts in place of a pool (see utils/sprite-pool.js); they are never in the toolbox.

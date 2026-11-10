@@ -110,7 +110,7 @@ const withHeadlessWorkspace = (callback, xmlOverride) => {
       const tables = useDataTablesStorage().value;
       expandSceneBlocks(dom, tables && tables.dataTables, Blockly, (useConfigurationStorage() || {}).value || {});
       // The Sprite pool blocks become the blocks of a copy for each sprite of the pool.
-      expandSpritePools(dom, Blockly).forEach((note) => appendCompileLog(note, 'info'));
+      expandSpritePools(dom, Blockly, {supported: ((useConfigurationStorage() || {}).value || {}).kernel === 'dpcplus'}).forEach((note) => appendCompileLog(note, 'info'));
       // A Subroutine or Function that nothing calls is left out of the build, with the variables only it uses.
       removeUnusedDefinitions(dom);
     }

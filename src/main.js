@@ -15,6 +15,7 @@ import {migrateLegacyInertiaAccelerateBlocksInLocalStorage} from './hooks/migrat
 import {migrateLegacyJoystickBlocksInLocalStorage} from './hooks/migrate-joystick-blocks';
 import {migrateLegacyKeypadBlocksInLocalStorage} from './hooks/migrate-keypad-blocks';
 import {migrateRainbowRangeInLocalStorage} from './hooks/migrate-rainbow-range';
+import {migrateSpritePoolIdsInLocalStorage} from './hooks/migrate-sprite-pool-ids';
 import './registerServiceWorker';
 
 // Every link that leaves the app opens in a new tab, whatever markup it comes from, so following one never replaces the page the
@@ -77,6 +78,9 @@ migrateLegacyKeypadBlocksInLocalStorage();
 
 // The "colors from ... to" number fields of the rainbow colors blocks are inputs now (a Color or Number block can be plugged in): see that file.
 migrateRainbowRangeInLocalStorage();
+
+// The Sprite pool blocks name a pool by id (made by a "Sprite pool ID" block) instead of carrying the players: see that file.
+migrateSpritePoolIdsInLocalStorage();
 
 // Whether to restore the last saved project on startup is a user preference
 // (see the Options tab) rather than always-on - when disabled, every launch

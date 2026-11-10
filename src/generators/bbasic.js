@@ -7372,9 +7372,15 @@ end`);
     // there's no reason to pay for a bank jump just to run them.
     // With background rainbow colors in use, remember where this background's
     // row color table is so Stop can point the kernel back at it.
-    const colorTableSaveLines = (usePfColors && this.backgroundRainbowUsed) ?
-      ` ${Blockly.BBasic.superchipRwPairs[backgroundColorTableLoVarName()].write} = pfcolortable\n` +
-      ` ${Blockly.BBasic.superchipRwPairs[backgroundColorTableHiVarName()].write} = aux2\n` : '';
+    // (The two bytes are only there on the standard kernel, which has the color table pointer; DPC+ keeps the offset it last scrolled to instead, so a DPC+ project
+    // whose Player 0 has sprite colors, which makes the color table needed too, has nothing to save here.)
+    const colorTableLo = Blockly.BBasic.superchipRwPairs[backgroundColorTableLoVarName()];
+    const colorTableHi = Blockly.BBasic.superchipRwPairs[backgroundColorTableHiVarName()];
+    const colorTableSaveLines = (usePfColors && this.backgroundRainbowUsed && colorTableLo && colorTableHi) ?
+      ` ${colorTableLo.write} = pfcolortable
+` +
+      ` ${colorTableHi.write} = aux2
+` : '';
     // Points the kernel at this background's color table, scrolled to its
     // current row (the first one, or the row a pending "Set background scroll
     // to row" just put it at).

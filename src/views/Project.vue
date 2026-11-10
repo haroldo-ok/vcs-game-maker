@@ -578,6 +578,7 @@ import {migrateLegacyInertiaAccelerateBlocksInWorkspaceXml} from '../hooks/migra
 import {migrateLegacyJoystickBlocksInWorkspaceXml} from '../hooks/migrate-joystick-blocks';
 import {migrateLegacyKeypadBlocksInWorkspaceXml} from '../hooks/migrate-keypad-blocks';
 import {migrateRainbowRangeInWorkspaceXml} from '../hooks/migrate-rainbow-range';
+import {migrateSpritePoolIdsInWorkspaceXml} from '../hooks/migrate-sprite-pool-ids';
 import {getDateInfix} from '../utils/date';
 import {sanitizeForFilename} from '../utils/file';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
@@ -1444,6 +1445,8 @@ export default defineComponent({
       this.workspaceStorage = migrateLegacyKeypadBlocksInWorkspaceXml(this.workspaceStorage);
       // The rainbow colors blocks' "colors from ... to" number fields are inputs now: see hooks/migrate-rainbow-range.js.
       this.workspaceStorage = migrateRainbowRangeInWorkspaceXml(this.workspaceStorage);
+      // The Sprite pool blocks name a pool by id now: see hooks/migrate-sprite-pool-ids.js.
+      this.workspaceStorage = migrateSpritePoolIdsInWorkspaceXml(this.workspaceStorage);
 
       if (project['score-font']) {
         this.scoreFontStorage = {

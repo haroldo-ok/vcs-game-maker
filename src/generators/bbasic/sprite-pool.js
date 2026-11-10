@@ -345,7 +345,7 @@ export default (Blockly) => {
   };
 
   // The blocks that are only a way to ask for a pool, still there when the code is made from a workspace that was not expanded.
-  ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release', 'sprite_pool_release_all'].forEach((type) => {
+  ['sprite_pool_define', 'sprite_pool_release_player', 'sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release', 'sprite_pool_release_all'].forEach((type) => {
     Blockly.BBasic[type] = () => '';
   });
   Blockly.BBasic['sprite_pool_full'] = () => ['0', Blockly.BBasic.ORDER_ATOMIC];

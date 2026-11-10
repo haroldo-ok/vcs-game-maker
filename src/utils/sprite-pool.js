@@ -8,6 +8,8 @@
 const STATEMENTS = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all'];
 const VALUES = ['sprite_pool_full', 'sprite_pool_free'];
 const SELECTOR_TYPES = [...STATEMENTS, ...VALUES];
+// (Not a selector type: it names one sprite, so the build turns it into the hide of that sprite, see releasePlayer below.)
+const RELEASE_PLAYER = 'sprite_pool_release_player';
 const SELECTOR = SELECTOR_TYPES.map((type) => `block[type="${type}"]`).join(',');
 const MAX_PLAYER = 16;
 // Blocks that jump out of the blocks they are in: a pool with one of them in it is built as a copy of the blocks for each sprite instead.
@@ -27,8 +29,85 @@ const setVisible = (n, shown, origin = false) => `<block type="sprite_player_set
   `<value name="VALUE"><block type="logic_boolean"><field name="BOOL">${shown ? 'TRUE' : 'FALSE'}</field></block></value></block>`;
 
 // Returns the notes to show in the compile log.
-export const expandSpritePools = (dom, Blockly) => {
+export const expandSpritePools = (dom, Blockly, {supported = true} = {}) => {
   const warnings = [];
+  const parseXml = (xml) => Blockly.utils.xml.textToDom(`<xml xmlns="https://developers.google.com/blockly/xml">${xml}</xml>`).firstElementChild;
+  // The pools are named by id: each "Sprite pool ID" block says which players the id is, and the blocks that name an id get that range in the fields the rest of
+  // this works with (FROM and TO, POOLFROM and POOLTO). An id that no block defines leaves the blocks that name it out of the build.
+  const definitions = new Map();
+  [...dom.querySelectorAll('block[type="sprite_pool_define"]')].forEach((node) => {
+    if (node.getAttribute('disabled') !== 'true') {
+      const id = Number((fieldOf(node, 'ID') || {}).textContent || 1);
+      const from = Number((fieldOf(node, 'FROM') || {}).textContent || 1);
+      const to = Number((fieldOf(node, 'TO') || {}).textContent || from);
+      if (definitions.has(id)) warnings.push(`Sprite pool ID ${id} is given by more than one block: the first one is used.`);
+      else definitions.set(id, [Math.min(from, to), Math.max(from, to)]);
+    }
+  });
+  // The pool id a block names: the Number block in its id input (a shadow or a real one); 1 when the input is empty; null for another kind of block.
+  const idOf = (node, name) => {
+    const value = children(node, 'value').find((input) => input.getAttribute('name') === name);
+    const inner = value && [...value.children].find((child) => ['block', 'shadow'].includes(child.tagName));
+    if (!inner) return 1;
+    return inner.getAttribute('type') === 'math_number' ? Number((fieldOf(inner, 'NUM') || {}).textContent) : null;
+  };
+  const setRangeFields = (node, idName, fromName, toName, range) => {
+    const idField = children(node, 'value').find((input) => input.getAttribute('name') === idName);
+    const make = (name, value) => {
+      const field = node.ownerDocument.createElementNS(node.namespaceURI, 'field');
+      field.setAttribute('name', name);
+      field.textContent = String(value);
+      return field;
+    };
+    node.insertBefore(make(toName, range[1]), idField);
+    node.insertBefore(make(fromName, range[0]), idField);
+    node.removeChild(idField);
+  };
+  // Takes a statement block out and leaves the blocks that follow it where it was.
+  const takeOut = (node) => {
+    const next = children(node, 'next')[0];
+    const nextBlock = next && children(next, 'block')[0];
+    const parent = node.parentNode;
+    if (nextBlock) parent.replaceChild(nextBlock, node);
+    else if (parent.tagName === 'next') parent.parentNode.removeChild(parent);
+    else parent.removeChild(node);
+  };
+  const missingIds = new Set();
+  let badIds = 0;
+  [...dom.querySelectorAll('block')].forEach((node) => {
+    const type = node.getAttribute('type');
+    if (SELECTOR_TYPES.includes(type) && !fieldOf(node, 'FROM')) {
+      const id = !supported ? null : idOf(node, 'ID');
+      if (id !== null && definitions.has(id)) {
+        setRangeFields(node, 'ID', 'FROM', 'TO', definitions.get(id));
+      } else {
+        if (id !== null) missingIds.add(id);
+        else if (supported) badIds++;
+        // A block that gives a true or false answer says false, one that does something is taken out (with the blocks inside it; the blocks after it stay).
+        const parentTag = node.parentNode && node.parentNode.tagName;
+        if (VALUES.includes(type)) {
+          if (parentTag === 'value' || parentTag === 'shadow') node.parentNode.replaceChild(parseXml('<block type="logic_boolean"><field name="BOOL">FALSE</field></block>'), node);
+        } else {
+          takeOut(node);
+        }
+      }
+    }
+    const poolIdInput = children(node, 'value').find((input) => input.getAttribute('name') === 'POOLID');
+    if (poolIdInput) {
+      const id = !supported ? null : idOf(node, 'POOLID');
+      if (id !== null && definitions.has(id)) {
+        setRangeFields(node, 'POOLID', 'POOLFROM', 'POOLTO', definitions.get(id));
+      } else {
+        if (id !== null) missingIds.add(id);
+        node.removeChild(poolIdInput);
+      }
+    }
+  });
+  if (!supported) warnings.push('Sprite pools work on the DPC+ and PXE kernels, not on the standard kernel: the Sprite pool blocks are left out of the build.');
+  if (badIds) warnings.push(`${badIds} Sprite pool block${badIds === 1 ? ' has' : 's have'} a pool id that is not a Number block: left out of the build.`);
+  if (missingIds.size) warnings.push(`Sprite pool id ${[...missingIds].sort((a, b) => a - b).join(', ')} has no Sprite pool ID block: the blocks that name it are left out.`);
+  // The blocks that make the pools are not built.
+  [...dom.querySelectorAll('block[type="sprite_pool_define"]')].forEach(takeOut);
   let poolCount = 0;
   let poolTagCount = 0;
   const parse = (xml) => Blockly.utils.xml.textToDom(`<xml xmlns="https://developers.google.com/blockly/xml">${xml}</xml>`).firstElementChild;
@@ -55,6 +134,18 @@ export const expandSpritePools = (dom, Blockly) => {
       parent.removeChild(node);
     }
   };
+  // "Release player N of pool ID X": hides that sprite, so the pool can hand it out again. The player has to be in the pool, or the block is left out.
+  [...dom.querySelectorAll(`block[type="${RELEASE_PLAYER}"]`)].forEach((node) => {
+    const id = !supported ? null : idOf(node, 'ID');
+    const player = Number((fieldOf(node, 'PLAYER') || {}).textContent);
+    const range = id === null ? null : definitions.get(id);
+    if (range && player >= range[0] && player <= range[1]) {
+      replace(node, setVisible(player, false, (fieldOf(node, 'ORIGIN') || {}).textContent === 'TRUE'));
+    } else {
+      if (supported) warnings.push(`A Release player ${player} block names pool ${id === null ? '(not a Number block)' : id}, which does not have that player: left out of the build.`);
+      replace(node, null);
+    }
+  });
   const rangeOf = (node) => {
     const from = Number(((fieldOf(node, 'FROM') || {}).textContent) || 1);
     const to = Number(((fieldOf(node, 'TO') || {}).textContent) || from);

@@ -291,26 +291,54 @@
             </value>
         </block>
         {{#if spritePoolOn}}
-        <block type="sprite_pool_spawn">
+        <block type="sprite_pool_define">
+            <field name="ID">1</field>
             <field name="FROM">1</field>
             <field name="TO">3</field>
+        </block>
+        <block type="sprite_pool_spawn">
+            <value name="ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
         <block type="sprite_pool_each">
-            <field name="FROM">1</field>
-            <field name="TO">3</field>
+            <value name="ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
         <block type="sprite_pool_release"></block>
+        <block type="sprite_pool_release_player">
+            <field name="PLAYER">1</field>
+            <value name="ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
+        </block>
         <block type="sprite_pool_release_all">
-            <field name="FROM">1</field>
-            <field name="TO">3</field>
+            <value name="ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
         <block type="sprite_pool_full">
-            <field name="FROM">1</field>
-            <field name="TO">3</field>
+            <value name="ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
         <block type="sprite_pool_free">
-            <field name="FROM">1</field>
-            <field name="TO">3</field>
+            <value name="ID">
+                <shadow type="math_number">
+                    <field name="NUM">1</field>
+                </shadow>
+            </value>
         </block>
         {{/if}}
         <block type="sprite_player_size" />

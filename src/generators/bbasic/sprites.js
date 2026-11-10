@@ -3501,6 +3501,8 @@ ${flagsVar}{${bit}} = 1
     if (stepsNumber !== null) {
       const steps = Math.min(4, Math.max(1, Math.round(stepsNumber)));
       const divisor = Math.ceil(256 / (2 * steps + 1));
+      // (The divisor is never a power of two, so it is a real division: the routine for it has to be in the program, as it is for the steps worked out at run time.)
+      Blockly.BBasic.usesDivMul = true;
       return [` temp1 = rand / ${divisor}`, ` ${dirVar} = (${dirVar} + temp1 + ${maxAngle + 1 - steps}) & ${maxAngle}`, ...notStraight, ...hemisphereLines];
     }
     // A value worked out when the program runs: clamped to 1-4, then a random 0 to 2N from 16 steps scaled to 2N+1 values.
