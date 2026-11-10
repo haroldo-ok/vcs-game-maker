@@ -577,6 +577,7 @@ import {migrateLegacyBallFireBlocksInWorkspaceXml} from '../hooks/migrate-ball-f
 import {migrateLegacyInertiaAccelerateBlocksInWorkspaceXml} from '../hooks/migrate-inertia-accelerate-blocks';
 import {migrateLegacyJoystickBlocksInWorkspaceXml} from '../hooks/migrate-joystick-blocks';
 import {migrateLegacyKeypadBlocksInWorkspaceXml} from '../hooks/migrate-keypad-blocks';
+import {migrateRainbowRangeInWorkspaceXml} from '../hooks/migrate-rainbow-range';
 import {getDateInfix} from '../utils/date';
 import {sanitizeForFilename} from '../utils/file';
 import {resetMusicEditorActiveState} from '../hooks/music-editor-state';
@@ -1441,6 +1442,8 @@ export default defineComponent({
       // still has - see that function's comment in
       // hooks/migrate-keypad-blocks.js.
       this.workspaceStorage = migrateLegacyKeypadBlocksInWorkspaceXml(this.workspaceStorage);
+      // The rainbow colors blocks' "colors from ... to" number fields are inputs now: see hooks/migrate-rainbow-range.js.
+      this.workspaceStorage = migrateRainbowRangeInWorkspaceXml(this.workspaceStorage);
 
       if (project['score-font']) {
         this.scoreFontStorage = {

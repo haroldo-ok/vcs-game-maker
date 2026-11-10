@@ -40,6 +40,19 @@ export const hueOptions = () => [['any hue', HUE_ANY], ...HUE_NAMES.map((name, h
 // (every colorStep-th color value of it).
 export const RAINBOW_MAX_STEPS = 32;
 
+// A color value of the range from the block plugged into the input: a Color block or a Number block (a constant, since the table is made when the ROM is built).
+// The default when nothing is plugged in; null for any other block.
+export const rainbowRangeValue = (block, name, fallback) => {
+  const target = block.getInputTargetBlock(name);
+  if (!target) return fallback;
+  if (target.type === 'math_number') return Number(target.getFieldValue('NUM'));
+  if (target.type === 'color_get') return Number(target.getFieldValue('COLOR'));
+  return null;
+};
+
+// Whether both ends of the range are blocks that the table can be made from (the build warns of the ones that are not).
+export const rainbowRangeIsConstant = (block) => rainbowRangeValue(block, 'COLORFROM', 0) !== null && rainbowRangeValue(block, 'COLORTO', 255) !== null;
+
 export const rainbowRangeOf = (block) => {
   const hueFrom = Number(block.getFieldValue('HUEFROM'));
   const hueTo = Number(block.getFieldValue('HUETO'));
@@ -48,8 +61,8 @@ export const rainbowRangeOf = (block) => {
     const span = ((hueTo - hueFrom + 16) % 16) + 1;
     return span >= 16 ? null : {first: hueFrom, span};
   }
-  const from = Number(block.getFieldValue('COLORFROM'));
-  const to = Number(block.getFieldValue('COLORTO'));
+  const from = rainbowRangeValue(block, 'COLORFROM', 0);
+  const to = rainbowRangeValue(block, 'COLORTO', 255);
   if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
   const first = Math.max(0, Math.min(255, Math.round(from))) & 254;
   const last = Math.max(0, Math.min(255, Math.round(to))) & 254;

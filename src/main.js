@@ -14,6 +14,7 @@ import {migrateLegacyBallFireBlocksInLocalStorage} from './hooks/migrate-ball-fi
 import {migrateLegacyInertiaAccelerateBlocksInLocalStorage} from './hooks/migrate-inertia-accelerate-blocks';
 import {migrateLegacyJoystickBlocksInLocalStorage} from './hooks/migrate-joystick-blocks';
 import {migrateLegacyKeypadBlocksInLocalStorage} from './hooks/migrate-keypad-blocks';
+import {migrateRainbowRangeInLocalStorage} from './hooks/migrate-rainbow-range';
 import './registerServiceWorker';
 
 // Every link that leaves the app opens in a new tab, whatever markup it comes from, so following one never replaces the page the
@@ -73,6 +74,9 @@ migrateLegacyJoystickBlocksInLocalStorage();
 // function's comment, same "run before anything else reads the workspace"
 // timing as the migrations above.
 migrateLegacyKeypadBlocksInLocalStorage();
+
+// The "colors from ... to" number fields of the rainbow colors blocks are inputs now (a Color or Number block can be plugged in): see that file.
+migrateRainbowRangeInLocalStorage();
 
 // Whether to restore the last saved project on startup is a user preference
 // (see the Options tab) rather than always-on - when disabled, every launch

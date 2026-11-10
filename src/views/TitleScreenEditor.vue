@@ -59,7 +59,7 @@
                         <v-slider
                           v-model="heightMenuValue"
                           :min="1"
-                          :max="64"
+                          :max="TITLE_GRAPHIC_MAX_HEIGHT"
                           label="Height"
                           class="align-center"
                           style="width: 400px"
@@ -616,6 +616,7 @@
                                       :ref="pixelEditorRefKey(screen, card, frame)"
                                       :width="cardWidth(card)"
                                       :height="frame.pixels.length || 1"
+                                      :maxHeight="TITLE_GRAPHIC_MAX_HEIGHT"
                                       :aspectRatio="cardAspectRatio(card, frame.pixels.length)"
                                       v-model="frame.pixels"
                                       :fgColor="editorFgColor(card)"
@@ -867,6 +868,9 @@ import {useEditorZoom, ZOOM_LEVELS} from '../hooks/zoom';
 // wide card can be zoomed out small enough to see the whole thing at once
 // without scrolling.
 const TITLESCREEN_ZOOM_LEVELS = [0.25, ...ZOOM_LEVELS];
+// The most rows a title screen graphic can have: the kernel keeps the row of a frame and the number of lines in a byte (a graphic that has several frames needs the
+// start of its last frame to be row 255 or less, see the frame offsets in generators/bbasic/titlescreen.js). An imported image sets the height up to it.
+const TITLE_GRAPHIC_MAX_HEIGHT = 255;
 import {buildTitleScreenPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {clampFrameDuration} from '../utils/duration';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
@@ -1462,11 +1466,10 @@ export default defineComponent({
 
     // Converts one loaded image into a bitmap card's frame pixel format -
     // width fixed to this card's kernel width (48 or 96, see cardWidth),
-    // height auto-sized to the image's resolution (clamped 1-64, same
-    // range/rounding PixelEditor.vue's single-image import and
-    // PlayerEditor.vue's batch import both already use).
+    // height auto-sized to the image's resolution (clamped 1 to
+    // TITLE_GRAPHIC_MAX_HEIGHT rows, more than the 64 of a sprite frame).
     const imageToCardFramePixels = (img, width) => {
-      const targetHeight = Math.min(64, Math.max(1, Math.round(img.height)));
+      const targetHeight = Math.min(TITLE_GRAPHIC_MAX_HEIGHT, Math.max(1, Math.round(img.height)));
       const canvas = createResizedCanvas(img, width, targetHeight);
       return canvasToCardFramePixels(canvas, width);
     };
@@ -1631,7 +1634,7 @@ export default defineComponent({
             let nextId = getMaxId(keptFrames) + 1;
             const newFrames = frameIndexes.map((frameIndex) => {
               const sourceFrame = sheet.frames[frameIndex];
-              const targetHeight = Math.min(64, Math.max(1, Math.round(sourceFrame.h)));
+              const targetHeight = Math.min(TITLE_GRAPHIC_MAX_HEIGHT, Math.max(1, Math.round(sourceFrame.h)));
               const canvas = createCroppedResizedCanvas(
                   img, sourceFrame.x, sourceFrame.y, sourceFrame.w, sourceFrame.h, width, targetHeight);
               const pixels = canvasToCardFramePixels(canvas, width);
@@ -2025,7 +2028,7 @@ export default defineComponent({
     const handleUnifiedSetHeight = () => {
       const card = selectedGraphicCard.value;
       if (!card) return;
-      heightMenuValue.value = Math.max(1, Math.min(64, heightMenuValue.value || 0));
+      heightMenuValue.value = Math.max(1, Math.min(TITLE_GRAPHIC_MAX_HEIGHT, heightMenuValue.value || 0));
       const before = heightSnapshot(card);
       card.frames.forEach((frame) => {
         // Scaling the contents scales each row's color along with its pixels.
@@ -2054,7 +2057,7 @@ export default defineComponent({
       isScreenCollapsed, toggleScreenCollapsed,
       testingScreenId, buildInProgress, handleTestTitleScreen,
       screenDragAttrs, screenDragCardClass, screenDragHandleListeners, screenDragTargetListeners,
-      cardWidth, editorWidth, cardAspectRatio, cardHasRowColors, editorRowColors, editorFgColor, cardTypeLabel,
+      TITLE_GRAPHIC_MAX_HEIGHT, cardWidth, editorWidth, cardAspectRatio, cardHasRowColors, editorRowColors, editorFgColor, cardTypeLabel,
       addCardOptions, canAddCardType, maxCopies, maxCopiesForType, playerAnimationOptions, textCardOptions,
       handleAddCard, handleDeleteCard, handleToggleCardHidden, handleDuplicateCard, titleScrollStartOf, handleScrollStartInput,
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,

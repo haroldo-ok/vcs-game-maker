@@ -2,11 +2,12 @@ import * as Blockly from 'blockly/core';
 
 import {HUE_ANY, hueOptions} from '../generators/bbasic/rainbow-range';
 
-// The fields of the rainbow colors blocks that give the colors: the first and last color value of the range (0 to 255; the default 0 to 255 leaves the colors as
-// the plain rainbow makes them), then the hues a block of an older project had (HUEFROM and HUETO, shown only while one of them is not "any hue").
+// What the rainbow colors blocks have to give the colors: the first and last color value of the range (inputs that take a Color or a Number block, 0 to 255; the
+// default 0 to 255 leaves the colors as the plain rainbow makes them; the table is made when the ROM is built, so the blocks have to be constants), then the
+// hues a block of an older project had (HUEFROM and HUETO, shown only while one of them is not "any hue").
 export const rainbowRangeArgs = () => [
-  {'type': 'field_number', 'name': 'COLORFROM', 'value': 0, 'min': 0, 'max': 255, 'precision': 1},
-  {'type': 'field_number', 'name': 'COLORTO', 'value': 255, 'min': 0, 'max': 255, 'precision': 1},
+  {'type': 'input_value', 'name': 'COLORFROM', 'check': 'Number'},
+  {'type': 'input_value', 'name': 'COLORTO', 'check': 'Number'},
   {'type': 'field_label', 'name': 'HUELABEL', 'text': 'hues'},
   {'type': 'field_dropdown', 'name': 'HUEFROM', 'options': hueOptions},
   {'type': 'field_dropdown', 'name': 'HUETO', 'options': hueOptions},

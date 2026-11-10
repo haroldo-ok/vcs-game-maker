@@ -98,7 +98,7 @@ import spriteLock, {reserveLockDevVars, generateLockChecks} from './bbasic/sprit
 import {reservePfBoxDevVars, pfBoxSharingOf, generatePfHitChecks, boxModeLines} from './bbasic/pf-box-sub';
 import {reserveBoxDevVars, generateBoxChecks, pairKey, isPlayerName, boxHitFamilies} from './bbasic/sprite-box-width';
 import {planFlagPool, flagPoolVar, flagPoolBit, flagPoolPhaseMasks, flagPoolPhaseConflict, setFlagPhaseSource} from './bbasic/flag-pool';
-import {rainbowRangeOf, rainbowTableItems, sameRainbowRange, RAINBOW_PLAYFIELD_ROWS} from './bbasic/rainbow-range';
+import {rainbowRangeIsConstant, rainbowRangeOf, rainbowTableItems, sameRainbowRange, RAINBOW_PLAYFIELD_ROWS} from './bbasic/rainbow-range';
 import {placeKernelTables} from '../utils/bank-tables';
 import {overlapTargetsOf, overlapPairsOf, overlapFamilies, overlapSpriteFlagBits, reserveOverlapDevVars, generateOverlapChecks} from './bbasic/sprite-overlap';
 import {prepareTriggers, triggerFamilies, reserveTriggerDevVars} from './bbasic/triggers';
@@ -772,6 +772,7 @@ Blockly.BBasic.init = function(workspace) {
     workspace.getAllBlocks(false).filter((block) => block.isEnabled() && (block.type === 'sprite_player_rainbow_colors' || block.type === 'background_rainbow_colors'))
         .forEach((block) => {
           const name = block.type === 'background_rainbow_colors' ? 'background' : `player${block.getFieldValue('PLAYER')}`;
+          if (!rainbowRangeIsConstant(block)) appendCompileLog('A rainbow colors block has a "colors from ... to" block that is not a Color or a Number block: the table of colors is made when the ROM is built, so it needs a constant. The colors 0 to 255 are used.', 'warning');
           const range = rainbowRangeOf(block);
           if (!range) return;
           if (name !== 'background') range.rows = tallestRainbowRows;

@@ -133,6 +133,8 @@ export default {
     rowColors: {type: Array, default: null},
     name: {type: String, default: 'image'},
     allowChangingHeight: {type: Boolean, default: true},
+    // The most rows an imported image can set the height to (a sprite frame has 64, the title screen sets more).
+    maxHeight: {type: Number, default: 64},
     // Shows a one-click "Clear" button next to the Eraser/Pencil tools -
     // opt-in (default off) since most PixelEditor uses (sprite frames, the
     // score font, ...) already have their  way to start a frame over
@@ -1132,7 +1134,7 @@ export default {
             // instead of squeezing it into whatever height this frame
             // already happened to be, same range as the "Set height" slider.
             const targetHeight = this.allowChangingHeight ?
-              Math.min(64, Math.max(1, Math.round(img.height))) : this.editor.height;
+              Math.min(this.maxHeight, Math.max(1, Math.round(img.height))) : this.editor.height;
             const canvas = createResizedCanvas(img, this.editor.width, targetHeight);
 
             // Adapted from https://stackoverflow.com/a/667074/679240
