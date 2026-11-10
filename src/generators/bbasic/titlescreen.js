@@ -4,8 +4,8 @@ import {isPxe} from '../../utils/pxe';
 import {packTitleData} from '../../utils/title-data-pack';
 import {titlePlayerSizeCode} from '../../utils/title-player-size';
 import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
-  processTitleScreenStorageDefaults, processTitleScreenStorageForBuild, isCardAnimated, cardFrameHeight,
-  titleCardFrameCounterVarName, titleCardScrollOffsetVarName,
+  processTitleScreenStorageDefaults, processTitleScreenStorageForBuild, isCardAnimated, cardFrameHeight, resolveScrollStarts,
+  titleCardFrameCounterVarName, titleCardScrollOffsetVarName, titleCardWindowVarName,
   titleCardIndexVarName, titleCardColorIndexVarName, titleCardColorPageVarName, padTitleCardFrames, titleCardColorSplit,
   titleCardUniformAllowed, isUniformColorList,
   titleCardColorVarName, TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
@@ -137,10 +137,15 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     packRowToBytes(row, blockCount).forEach((byte, b) => blockRows[b].push(byte));
   });
 
+  // A graphic with a window height block has the number of lines in a byte (see windowVarValue).
+  const windowed = (Blockly.BBasic.titleWindowRefs || new Set()).has(ref) && windowHeight < frameHeight;
   const lines = [
-    `bmp_${key}_window = ${windowHeight}`,
+    `bmp_${key}_window = ${windowed && typeInfo.width === 48 ? 1 : windowHeight}`,
     `bmp_${key}_height = ${height}`,
   ];
+  if (windowed) {
+    lines.push(`bmp_${key}_win = ${Blockly.BBasic.nameDB_.getName(titleCardWindowVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}`);
+  }
 
   // bmp_${key}_index has to be a real, writable RAM byte - only declared
   // when this card actually needs one: either it's scrolling (window
@@ -325,6 +330,20 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     frameDurations: frames.map((f) => clampFrameDuration(f.duration)), frameOffsets, colorOffsets, colorPages, colorSplit};
 };
 
+// The lines that put each scrolling graphic at its starting scroll position (where its window is in the Title tab): written last in "Title screen start", so the blocks
+// there can still change it. An animated graphic keeps its scroll position in a separate byte that its frame is added to (see generateTitleScreenAnimationChecks).
+export const titleScrollStartLines = (Blockly) => {
+  const lines = [];
+  resolveScrollStarts().forEach((start, ref) => {
+    const key = Blockly.BBasic.titleScreenCardSlots && Blockly.BBasic.titleScreenCardSlots[ref];
+    if (!key) return;
+    const animated = Blockly.BBasic.titleScreenCardAnimations && Blockly.BBasic.titleScreenCardAnimations[ref];
+    lines.push(animated || (Blockly.BBasic.titleWindowRefs || new Set()).has(ref) ?
+      `${Blockly.BBasic.nameDB_.getName(titleCardScrollOffsetVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${start}` : `bmp_${key}_index = ${start}`);
+  });
+  return lines;
+};
+
 // The lines that put the Player 0 and Player 1 sprites where the Player card of a title screen says they start (its Start X and
 // Start Y fields; one that is empty is left alone) and how wide they are drawn and how many copies (its Size; one copy is left alone). Run last
 // in "Title screen start", so the card has the say over the blocks there.
@@ -404,6 +423,12 @@ export const resolveTitlePlayerSlots = () => {
   });
   return slots;
 };
+
+// What the window byte of a graphic that a "Set title screen graphic window height" block works on holds for a window of `rows` lines: the kernel of a 48 wide
+// graphic counts down to 0 (so rows less one) and the one of a 96x2 graphic compares with the number of lines. Such a graphic is made with "bmp_KEY_win" (the
+// byte the kernel reads in place of the number of lines it is made with) and, for a 48 wide one, a window of 1 line in the tables of its pointers: the pointers
+// are then worked out from the scroll position plus the window less one (see generateTitleScreenAnimationChecks).
+const windowVarValue = (key, rows) => (key.startsWith('96x2') ? rows : rows - 1);
 
 // The "player" minikernel's  data block - see public/bb19/titlescreen/
 // player_kernel.asm and the kernel doc's "Example 5" for the format
@@ -691,7 +716,9 @@ const assignKernelSlots = (screens, Blockly) => {
       if (slot > MAX_KERNEL_COPIES_PER_TYPE) return;
       const key = `${card.type}_${slot}`;
       usedKernelKeys.add(key);
-      if (Blockly.BBasic.titleShareSetup && card.type === '48x2' && !(Blockly.BBasic.titleBoxRefs || new Set()).has(`${screen.id}:${card.id}`)) {
+      // (A graphic with a window height block has a setup of its kind: the shared one has the number of lines in its numbers.)
+      if (Blockly.BBasic.titleShareSetup && card.type === '48x2' && !(Blockly.BBasic.titleBoxRefs || new Set()).has(`${screen.id}:${card.id}`) &&
+          !(Blockly.BBasic.titleWindowRefs || new Set()).has(`${screen.id}:${card.id}`)) {
         Blockly.BBasic.titleShareKeys.add(key);
       }
       layoutLines.push(` draw_${key}`);
@@ -718,6 +745,11 @@ const assignKernelSlots = (screens, Blockly) => {
         }
       }
       cardSlotsByRef[ref] = key;
+      // A graphic with a window height block starts with the window of the Title tab.
+      if ((Blockly.BBasic.titleWindowRefs || new Set()).has(ref) && Number(card.scrollWindow) > 0 && Number(card.scrollWindow) < frameHeight) {
+        Blockly.BBasic.titleScreenStartLines.push(`${Blockly.BBasic.nameDB_.getName(titleCardWindowVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${
+          windowVarValue(key, Number(card.scrollWindow))}`);
+      }
       // "Play animation once": the title screen starts with the graphic's once bit set and its frame counter at
       // the first frame, so every visit plays it through once.
       const startOnceIndex = card.playOnce && isCardAnimated(card) ?
@@ -1075,7 +1107,7 @@ const stepTableAsm = (Blockly, counterVar, limits, targets) => {
     `  bcc ${found}`, '  iny', `  bne ${loop}`, `@${found}`];
   targets.forEach((target, index) => {
     lines.push(`  lda _titlestep_${id}_v${index},y`);
-    if (target.add) lines.push('  clc', `  adc ${target.add}`);
+    [].concat(target.add || []).forEach((operand) => lines.push('  clc', `  adc ${operand}`));
     lines.push(`  sta ${target.variable}`);
   });
   lines.push(`  jmp ${past}`, `@${limitTable}`, `  .byte ${limits.join(', ')}`);
@@ -1134,11 +1166,12 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
   // What is worked out just before a page is drawn, for each page (see titlescreen_draw).
   const derivedLines = {};
   Blockly.BBasic.titleDerivedLines = derivedLines;
-  if (!refs.length) return '';
+  const windowRefs = Blockly.BBasic.titleWindowRefs || new Set();
+  if (!refs.length && !windowRefs.size) return '';
   const scrollTargetRefs = Blockly.BBasic.titleScreenScrollTargetRefs || new Set();
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-  return refs.map((ref) => {
+  const animatedCode = refs.map((ref) => {
     // frameOffsets[N] (see buildCardDataAsm) is frame N's ALREADY-computed
     // physical byte offset - a plain multiply of frameHeight before frame
     // dedup existed, but now possibly shared with an earlier, identical
@@ -1157,7 +1190,10 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
         'in all (the Duration of every frame added up), but an animation can last at most 255. ' +
         'Shorten the Duration of one or more of its frames.');
     }
-    const scrollTerm = scrollTargetRefs.has(ref) ? ` + ${resolveVar(titleCardScrollOffsetVarName(ref))}` : '';
+    // A graphic with a window height block: its pointers are made for a window of one line, so what the kernel takes off them is the scroll position plus the
+    // window less one (the window byte holds that for a 48 wide graphic, see windowVarValue).
+    const windowAdd = windowRefs.has(ref) && !key.startsWith('96x2') ? ` + ${resolveVar(titleCardWindowVarName(ref))}` : '';
+    const scrollTerm = scrollTargetRefs.has(ref) ? ` + ${resolveVar(titleCardScrollOffsetVarName(ref))}${windowAdd}` : '';
     const colorScrollTerm = colorSplit === 'page' ? '' : scrollTerm;
     // A faded graphic's color list is the one its fade is on, not what the frame says (the fade moves it, see below).
     const isFaded = !!(Blockly.BBasic.titleRowFadePlans || {})[ref];
@@ -1228,7 +1264,7 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
       if (frameIndex < frameDurations.length - 1) limits.push(sum + duration);
       return sum + duration;
     }, 0);
-    const scrollVarOf = (term) => (term ? term.replace(' + ', '') : null);
+    const scrollVarOf = (term) => (term ? term.split(' + ').filter(Boolean) : null);
     const stepTargets = [
       {lines: indexLines, variable: `bmp_${key}_index`, values: frameOffsets, add: scrollVarOf(scrollTerm), term: scrollTerm},
       // (A card that keeps its colors apart, see titleCardColorSplit, moves a second offset along with the picture's.)
@@ -1274,7 +1310,14 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
       });
     }
     return lines.join('\n');
-  }).join('\n\n') + '\n';
+  }).join('\n\n');
+  // A graphic with a window height block that does not play (one frame) has its index worked out from the scroll position and the window every pass too.
+  const staticCode = [...windowRefs].filter((ref) => !cardAnimationByRef[ref]).map((ref) => {
+    const key = Blockly.BBasic.titleScreenCardSlots && Blockly.BBasic.titleScreenCardSlots[ref];
+    if (!key) return '';
+    return ` bmp_${key}_index = ${resolveVar(titleCardScrollOffsetVarName(ref))}${key.startsWith('96x2') ? '' : ` + ${resolveVar(titleCardWindowVarName(ref))}`}`;
+  }).filter(Boolean).join('\n');
+  return [animatedCode, staticCode].filter(Boolean).join('\n\n') + '\n';
 };
 
 // The steps of the "Fade title screen graphic color" fades, one check for each graphic a block fades: the same steps as the Score and
@@ -1298,7 +1341,7 @@ const generateTitleColorFadeChecks = (Blockly) => {
   }).join('\n');
   if (!refs.length && !rowChecks) return '';
   if (refs.length && !Blockly.BBasic.buildFadeCheckAsm) return '';
-  return refs.map((ref, index) => {
+  const colorChecks = refs.map((ref, index) => {
     const constantPace = (Blockly.BBasic.titleFadeConstantPace || {})[ref];
     const asmLines = Blockly.BBasic.buildFadeCheckAsm({
       colorVar: resolve(titleCardColorVarName(ref)),
@@ -1309,7 +1352,10 @@ const generateTitleColorFadeChecks = (Blockly) => {
       tag: `titlecard${index}`,
     });
     return asmLines;
-  }).join('\n') + '\n' + (rowChecks ? rowChecks + '\n' : '');
+  }).join('\n');
+  // (No empty line in front of the steps of a multicolor graphic's fade when no single color fade is there: an empty line gets an "@" in the subroutine, which
+  // took the lines after it for labels and the build failed with "Unknown Mnemonic".)
+  return [colorChecks, rowChecks].filter(Boolean).join('\n') + '\n';
 };
 
 // Each Player sprites animation with more than one frame plays by itself: the same duration counter the
@@ -1737,7 +1783,7 @@ export default (Blockly) => {
     // every frame (same class of bug two independent writers of the same
     // register always risk - see collision.js's comment on a similar
     // fight elsewhere in this codebase).
-    const cardAnimation = Blockly.BBasic.titleScreenCardAnimations && Blockly.BBasic.titleScreenCardAnimations[ref];
+    const cardAnimation = (Blockly.BBasic.titleScreenCardAnimations && Blockly.BBasic.titleScreenCardAnimations[ref]) || (Blockly.BBasic.titleWindowRefs || new Set()).has(ref);
     if (cardAnimation) {
       const scrollVar = Blockly.BBasic.nameDB_.getName(
           titleCardScrollOffsetVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
@@ -1750,6 +1796,23 @@ export default (Blockly) => {
     return `bmp_${key}_index = ${value}\n`;
   };
 
+  // Changes how many lines a scrolling graphic draws (see windowVarValue): the scroll position follows so that the window stays inside the picture.
+  Blockly.BBasic['titlescreen_window_set'] = function(block) {
+    const ref = block.getFieldValue('CARD');
+    const key = Blockly.BBasic.titleScreenCardSlots && Blockly.BBasic.titleScreenCardSlots[ref];
+    if (!key || !(Blockly.BBasic.titleWindowRefs || new Set()).has(ref)) return 'rem No scrolling title screen graphic selected\n';
+    const card = processTitleScreenStorageForBuild(useTitleScreenStorage()).screens
+        .reduce((found, screen) => found || (screen.cards || []).find((candidate) => `${screen.id}:${candidate.id}` === ref), null);
+    if (!card) return 'rem No scrolling title screen graphic selected\n';
+    const frameHeight = cardFrameHeight(card);
+    const resolveVar = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const windowVar = resolveVar(titleCardWindowVarName(ref));
+    const scrollVar = resolveVar(titleCardScrollOffsetVarName(ref));
+    const value = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '1';
+    return ` temp1 = ${value}\n if temp1 = 0 then temp1 = 1\n if temp1 > ${frameHeight} then temp1 = ${frameHeight}\n` +
+      ` ${windowVar} = ${key.startsWith('96x2') ? 'temp1' : 'temp1 - 1'}\n temp2 = ${frameHeight} - temp1\n if ${scrollVar} > temp2 then ${scrollVar} = temp2\n`;
+  };
+
   Blockly.BBasic['titlescreen_scroll_by'] = function(block) {
     const ref = block.getFieldValue('CARD');
     const key = Blockly.BBasic.titleScreenCardSlots && Blockly.BBasic.titleScreenCardSlots[ref];
@@ -1758,7 +1821,8 @@ export default (Blockly) => {
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const amount = Blockly.BBasic.valueToCode(block, 'VALUE', Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const down = block.getFieldValue('DIRECTION') === 'down';
-    const cardAnimation = Blockly.BBasic.titleScreenCardAnimations && Blockly.BBasic.titleScreenCardAnimations[ref];
+    const windowed = (Blockly.BBasic.titleWindowRefs || new Set()).has(ref);
+    const cardAnimation = (Blockly.BBasic.titleScreenCardAnimations && Blockly.BBasic.titleScreenCardAnimations[ref]) || windowed;
     // Same target var as titlescreen_scroll_set (see its comment).
     const scrollVar = cardAnimation ? resolveVar(titleCardScrollOffsetVarName(ref)) : `bmp_${key}_index`;
     if (block.getFieldValue('STOP') !== 'TRUE') {
@@ -1782,9 +1846,16 @@ export default (Blockly) => {
         .reduce((found, screen) => found || (screen.cards || [])
             .find((candidate) => `${screen.id}:${candidate.id}` === ref), null);
     if (!card) return 'rem No scrolling title screen graphic selected\n';
-    const maxOffset = Math.max(0, cardFrameHeight(card) - (Number(card.scrollWindow) || 0));
+    let maxOffset = Math.max(0, cardFrameHeight(card) - (Number(card.scrollWindow) || 0));
+    // With a window height block the window is the byte's (see windowVarValue): the most the picture scrolls is its height less the window.
+    let maxLine = '';
+    if (windowed) {
+      const windowVar = resolveVar(titleCardWindowVarName(ref));
+      maxLine = ` temp3 = ${cardFrameHeight(card) - (key.startsWith('96x2') ? 0 : 1)} - ${windowVar}\n`;
+      maxOffset = 'temp3';
+    }
     // temp2 = rows left before the bottom (0 if already at or past it).
-    return ` temp1 = ${amount}\n temp2 = 0\n if ${scrollVar} < ${maxOffset} then temp2 = ${maxOffset} - ${scrollVar}\n` +
+    return `${maxLine} temp1 = ${amount}\n temp2 = 0\n if ${scrollVar} < ${maxOffset} then temp2 = ${maxOffset} - ${scrollVar}\n` +
       ` if temp1 < temp2 then ${scrollVar} = ${scrollVar} + temp1\n` +
       ` if temp1 >= temp2 then ${scrollVar} = ${maxOffset}\n${flagLine}`;
   };

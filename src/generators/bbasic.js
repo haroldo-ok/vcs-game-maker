@@ -56,7 +56,7 @@ import {bbTvSetting} from '../utils/tv-standard';
 import {keypadKeyVarName} from '../utils/keypad';
 import {clampFrameDuration} from '../utils/duration';
 import {isWideAnimation, splitWideRow} from '../utils/wide-sprite';
-import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStartLines, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar, TITLE_KERNEL_LOOP_FAMILY, titleKernelLoopVar, titleKernelLoopBit,
+import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStartLines, titleScrollStartLines, TITLE_KERNEL_ENDED_FAMILY, titleKernelEndedVar, TITLE_KERNEL_LOOP_FAMILY, titleKernelLoopVar, titleKernelLoopBit,
   titleKernelEndedBit, TITLE_CARD_HOLD_FAMILY, titleCardHoldVar, TITLE_BG_OVERRIDE_FAMILY,
   titleBgOverrideVar, titleBgOverrideBit, titleCardHoldBit, TITLE_CARD_ONCE_FAMILY, titleCardOnceVar,
   TITLE_CARD_REVERSE_FAMILY, titleCardReverseVar, titleCardReverseBit,
@@ -64,7 +64,7 @@ import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStart
   TITLE_CARD_FINISHED_FAMILY, titleCardFinishedVar, titleCardFinishedBit, titleCardFinishedLatchBit,
   titleCardOnceBit, TITLE_PLAYER_ONCE_FAMILY, titlePlayerOnceVar, titlePlayerOnceBit, titleScreensHaveTextCard} from './bbasic/titlescreen';
 import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageDefaults, processTitleScreenStorageForBuild,
-  titleCardScrollOffsetVarName, resolveTitleScreenCardsNeedingIndexRefs,
+  titleCardScrollOffsetVarName, resolveTitleScreenCardsNeedingIndexRefs, resolveScrollStarts, titleCardWindowVarName, titleScrollsHere,
   titleCardIndexVarName, titleCardColorIndexVarName, resolveColorSplitCardRefs,
   titleCardColorPageVarName, resolveColorPageCardRefs,
   titleScrollEdgeFlagSlots, planTitleRowFade, setTitleRowFadePlans, padTitleCardFrames, TITLE_SCREEN_KERNEL_TYPES, titleCardColorVarName, titleCardFadeTargetVarName, titleCardFadeTimerVarName, titleCardFadePaceVarName,
@@ -2234,9 +2234,22 @@ Blockly.BBasic.init = function(workspace) {
     // is stashed here (not just used locally) so registerTitleScreenSubroutine
     // and titlescreen_scroll_set's generator (both run later) know which
     // refs actually got one, without re-scanning the workspace themselves.
-    this.titleScreenScrollTargetRefs = new Set(workspace.getAllBlocks(false)
+    // (A graphic that starts scrolled down, by where its window is in the Title tab, has the byte too: its start is put in it.)
+    // A graphic that a "Set title screen graphic window height" block names has a byte for its window height and keeps its scroll position in its scroll byte too
+    // (its index is worked out from both, see generateTitleScreenAnimationChecks).
+    this.titleWindowRefs = new Set(workspace.getAllBlocks(false)
+        .filter((block) => block.type === 'titlescreen_window_set' && block.isEnabled() && !block.getInheritedDisabled() &&
+          GENERATED_ROOTS.includes(block.getRootBlock().type))
+        .map((block) => block.getFieldValue('CARD')).filter((ref) => existingCards.has(ref) && titleScrollsHere(ref)));
+    // (Not a multicolor graphic that is faded: the kernel reads its row colors by the offset of the fade alone, which has no room for the window, so the block does
+    // nothing there and the build says so.)
+    [...this.titleWindowRefs].filter((ref) => (this.titleRowFadePlans || {})[ref]).forEach((ref) => {
+      this.titleWindowRefs.delete(ref);
+      appendCompileLog(`A "Set title screen graphic window height" block does nothing on the graphic ${ref.split(':')[1]} of page ${ref.split(':')[0]}: its colors are faded.`, 'warning');
+    });
+    this.titleScreenScrollTargetRefs = new Set([...workspace.getAllBlocks(false)
         .filter((block) => block.type === 'titlescreen_scroll_set' || block.type === 'titlescreen_scroll_by')
-        .map((block) => block.getFieldValue('CARD')).filter((ref) => existingCards.has(ref)));
+        .map((block) => block.getFieldValue('CARD')).filter((ref) => existingCards.has(ref)), ...resolveScrollStarts().keys(), ...this.titleWindowRefs]);
     // Which "ref|edge" a "When title screen scroll reaches" block watches -
     // "Scroll title screen graphic" only sets the flags something watches.
     this.titleScrollEdgeWatches = new Set(workspace.getAllBlocks(false)
@@ -2247,6 +2260,12 @@ Blockly.BBasic.init = function(workspace) {
     this.titleScrollEdgeSlots = titleScrollEdgeFlagSlots(this.titleScrollEdgeWatches);
     new Set([...this.titleScrollEdgeSlots.values()].map((slot) => slot.varName)).forEach((varName) => {
       reserveTitleDevVar(varName, undefined, 'title screen scroll reached an edge, a bit for each "When title screen scroll reaches" block');
+    });
+    this.titleWindowRefs.forEach((ref) => {
+      reserveTitleDevVar(titleCardWindowVarName(ref), undefined, 'title screen graphic: window height (lines drawn, less one for a 48 wide graphic)');
+      if (!resolveAnimatedTitleScreenCardRefs().includes(ref)) {
+        reserveTitleDevVar(titleCardScrollOffsetVarName(ref), undefined, 'title screen graphic: scroll position (row of the picture at the top of the window)');
+      }
     });
     resolveAnimatedTitleScreenCardRefs().forEach((ref) => {
       reserveTitleDevVar(titleCardFrameCounterVarName(ref), undefined,
@@ -5655,7 +5674,7 @@ Blockly.BBasic.generateGameEvent = function(eventName,
   // The Start X and Start Y of the Player card of a title screen: put in after the blocks of "Title screen start", so the card has the say
   // (a block in "Title screen update" can still move the sprite from then on).
   if (this.titleScreenDrawUsed && eventName === 'title_start') {
-    const startLines = titlePlayerStartLines();
+    const startLines = [...titleScrollStartLines(Blockly), ...titlePlayerStartLines()];
     if (startLines.length) eventCode = eventCode + '\n' + startLines.join('\n') + '\n';
   }
   // The Titlescreen Kernel moves the sprites' positions around while it draws (it counts frames in missile0x, for

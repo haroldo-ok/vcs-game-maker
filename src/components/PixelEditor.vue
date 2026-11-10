@@ -23,8 +23,9 @@
               'editor-canvas-tool-shape': toggledTool === 'rectangle' || toggledTool === 'oval' ||
                 toggledTool === 'rect-select' || toggledTool === 'circle-select' || toggledTool === 'polygon-select',
               'editor-canvas-tool-move': toggledTool === 'move',
+              'editor-canvas-tool-window': windowCanMove,
             }"
-            @mousedown="(e) => { handleStrokeStart(); handleMouse(e); }"
+            @mousedown="(e) => { handleStrokeStart(); handleMouse(e); handleWindowDown(e); }"
             @mouseup="(e) => { strokeStart = null; handleMouse(e); }"
             @mouseenter="(e) => { handleMouse(e); handleHover(e); }"
             @mouseleave="handleMouseLeave"
@@ -36,7 +37,7 @@
             class="editor-canvas backdrop-canvas"
           />
           <canvas
-            v-if="showGrid || selection || polygonPreview || hoverCell || guideColumns"
+            v-if="showGrid || selection || polygonPreview || hoverCell || hasGuides"
             ref="gridOverlay"
             class="grid-overlay-canvas"
           />
@@ -146,6 +147,12 @@ export default {
     showGrid: {type: Boolean, default: false},
     // A vertical guide line every this many columns (0: none): where the screens of a playfield wider than the screen begin.
     guideColumns: {type: Number, default: 0},
+    // The rows a window shows at once (0: none): the rows outside the window dimmed, with a dashed line where it begins and ends. For a title screen graphic that
+    // scrolls (a window smaller than the picture): the rows the window shows when the title screen starts (see windowStart).
+    windowRows: {type: Number, default: 0},
+    // The first row of the window (the rows above it are dimmed too). With the Move tool and nothing selected, dragging inside the window moves it: the new
+    // first row is sent as "update:windowStart".
+    windowStart: {type: Number, default: 0},
     // Labels each cell with its  column index (0-based, matching the X
     // argument every "Background: pixel at X/Y" block already uses) at the
     // cell's center - opt-in separately from showGrid since it's only
@@ -218,9 +225,23 @@ export default {
       // handleMouse's 10ms debounce would feel noticeably laggy for
       // something meant to track the pointer in real time.
       hoverCell: null,
+      // The window being dragged with the Move tool: where in the window it was grabbed, and the first row last sent.
+      windowDrag: null,
     };
   },
   computed: {
+    // Whether the overlay canvas has guides to draw (the columns of a wide playfield, the window of a scrolling graphic).
+    hasGuides() {
+      return this.guideColumns > 0 || this.hasWindow;
+    },
+    // Whether a window smaller than the picture is shown.
+    hasWindow() {
+      return this.windowRows > 0 && this.windowRows < this.height;
+    },
+    // The Move tool drags the window when nothing is selected (with a selection it moves the selected pixels).
+    windowCanMove() {
+      return this.hasWindow && this.toggledTool === 'move' && !(this.selection && this.selection.size);
+    },
     rowBackdropKey() {
       return (this.rowBackdrop ? this.rowBackdrop.join() : '') + '|' + (this.rowColorsFine ? this.rowColorsFine.join() : '') + '|' +
         (this.rowBackdropFine ? this.rowBackdropFine.join() : '');
@@ -250,12 +271,13 @@ export default {
   mounted() {
     this.initEditor(this.value.length, this.value);
 
-    if (this.showGrid || this.selection || this.polygonPreview || this.hoverCell || this.guideColumns) this.setupGridOverlay();
+    if (this.showGrid || this.selection || this.polygonPreview || this.hoverCell || this.hasGuides) this.setupGridOverlay();
     this.setupBackdrop();
     window.addEventListener('mouseup', this.handleWindowMouseUp);
   },
   beforeDestroy() {
     window.removeEventListener('mouseup', this.handleWindowMouseUp);
+    this.handleWindowDragEnd();
     this.teardownGridOverlay();
     if (this.backdropObserver) this.backdropObserver.disconnect();
   },
@@ -307,6 +329,22 @@ export default {
         this.setPixels(this.getPixels(), false);
       }
     },
+    // The window of a scrolling graphic is drawn on the overlay canvas: it is mounted, drawn again or taken down as the window comes and goes.
+    windowStart() {
+      if (this.hasGuides) this.$nextTick(() => this.drawGridOverlay());
+    },
+    windowRows() {
+      if (this.hasGuides) {
+        this.$nextTick(() => {
+          if (!this.gridResizeObserver) this.setupGridOverlay();
+          else this.drawGridOverlay();
+        });
+      } else if (!(this.showGrid || this.selection || this.polygonPreview || this.hoverCell)) {
+        this.teardownGridOverlay();
+      } else {
+        this.$nextTick(() => this.drawGridOverlay());
+      }
+    },
     // The overlay canvas only exists in the DOM while showGrid, selection,
     // OR polygonPreview is truthy (see the template's  v-if) - the
     // ResizeObserver has to be (re)attached to whichever real element
@@ -316,7 +354,7 @@ export default {
     // showGrid off but an active selection (or in-progress polygon) still
     // needs it mounted.
     showGrid(value) {
-      if (value || this.selection || this.polygonPreview || this.hoverCell || this.guideColumns) {
+      if (value || this.selection || this.polygonPreview || this.hoverCell || this.hasGuides) {
         this.$nextTick(() => this.setupGridOverlay());
       } else {
         this.teardownGridOverlay();
@@ -326,7 +364,7 @@ export default {
     // other direction - a selection tool can make this go from null to a
     // real Set (or back) at any time, independent of showGrid.
     selection(value) {
-      if (value || this.showGrid || this.polygonPreview || this.hoverCell || this.guideColumns) {
+      if (value || this.showGrid || this.polygonPreview || this.hoverCell || this.hasGuides) {
         this.$nextTick(() => {
           if (!this.gridResizeObserver) this.setupGridOverlay();
           else this.drawGridOverlay();
@@ -338,7 +376,7 @@ export default {
     // Same overlay-lifecycle reasoning again, for the polygon tool's
     // in-progress vertex list (see PolygonSelect's onPreview callback).
     polygonPreview(value) {
-      if (value || this.showGrid || this.selection || this.hoverCell || this.guideColumns) {
+      if (value || this.showGrid || this.selection || this.hoverCell || this.hasGuides) {
         this.$nextTick(() => {
           if (!this.gridResizeObserver) this.setupGridOverlay();
           else this.drawGridOverlay();
@@ -354,7 +392,7 @@ export default {
     // the very first hover (or one starting after everything else that
     // keeps the overlay mounted has cleared) pays for a real setup.
     hoverCell(value) {
-      if (value || this.showGrid || this.selection || this.polygonPreview || this.guideColumns) {
+      if (value || this.showGrid || this.selection || this.polygonPreview || this.hasGuides) {
         this.$nextTick(() => {
           if (!this.gridResizeObserver) this.setupGridOverlay();
           else this.drawGridOverlay();
@@ -596,6 +634,30 @@ export default {
         ctx.setLineDash([]);
       }
 
+      // The window of a scrolling graphic: the rows outside it are dimmed, and a dashed line marks where it begins and ends.
+      if (this.windowRows > 0 && this.windowRows < rows) {
+        const first = Math.max(0, Math.min(rows - this.windowRows, Math.round(this.windowStart)));
+        const top = Math.round(first * cellHeight);
+        const bottom = Math.round((first + this.windowRows) * cellHeight);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+        ctx.fillRect(0, 0, cssWidth, top);
+        ctx.fillRect(0, bottom, cssWidth, cssHeight - bottom);
+        ctx.strokeStyle = 'rgba(255, 152, 0, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        if (first > 0) {
+          ctx.moveTo(0, top);
+          ctx.lineTo(cssWidth, top);
+        }
+        if (first + this.windowRows < rows) {
+          ctx.moveTo(0, bottom);
+          ctx.lineTo(cssWidth, bottom);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       // A semi-transparent fill over every selected cell, plus a solid
       // border wherever a selected cell's edge borders a NON-selected one
       // (or the canvas edge) - drawing the border per-edge like this
@@ -758,6 +820,34 @@ export default {
     // below, which still runs right after to resync Vue's  reactive
     // pixel state) - the release itself needs to happen synchronously, or
     // a mousemove landing before the debounce fires would still draw.
+    // The row of the picture under a mouse position (fractional, from the top of the canvas).
+    rowAtMouse(event) {
+      const box = this.$refs.editor.getBoundingClientRect();
+      return ((event.clientY - box.top) / box.height) * this.height;
+    },
+    // Starts dragging the window with the Move tool: only a press inside the window does, and the drag goes on outside the canvas too.
+    handleWindowDown(event) {
+      if (!this.windowCanMove || event.button !== 0) return;
+      const first = Math.max(0, Math.min(this.height - this.windowRows, Math.round(this.windowStart)));
+      const row = this.rowAtMouse(event);
+      if (row < first || row >= first + this.windowRows) return;
+      this.windowDrag = {grab: row - first, last: first};
+      window.addEventListener('mousemove', this.handleWindowDragMove);
+      window.addEventListener('mouseup', this.handleWindowDragEnd);
+    },
+    handleWindowDragMove(event) {
+      if (!this.windowDrag) return;
+      const first = Math.max(0, Math.min(this.height - this.windowRows, Math.round(this.rowAtMouse(event) - this.windowDrag.grab)));
+      if (first === this.windowDrag.last) return;
+      this.windowDrag.last = first;
+      this.$emit('update:windowStart', first);
+    },
+    handleWindowDragEnd() {
+      this.windowDrag = null;
+      window.removeEventListener('mousemove', this.handleWindowDragMove);
+      window.removeEventListener('mouseup', this.handleWindowDragEnd);
+    },
+
     handleMouseLeave(event) {
       // The release below is forced by leaving, and cancelStroke then rolls the drag back, so a
       // Move drag is not recorded as a finished move (see handleMoveRows).
@@ -1378,6 +1468,11 @@ export default {
 /* Move drags whatever's currently selected, wherever the pointer lands -
    the standard "move" cursor communicates that at a glance, no custom
    glyph needed. */
+/* The Move tool with nothing selected drags the window of a scrolling graphic. */
+.editor-canvas-tool-window {
+  cursor: grab;
+}
+
 .editor-canvas-tool-move {
   cursor: move;
 }

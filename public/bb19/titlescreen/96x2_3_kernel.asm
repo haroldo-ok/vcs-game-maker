@@ -5,7 +5,11 @@ draw_bmp_96x2_3
 	sec
 	sbc bmp_96x2_3_index
 	tay
+ ifconst bmp_96x2_3_win
+	sbc bmp_96x2_3_win	; the number of lines, in a byte (a graphic with a window height block; see windowVarValue in generators/bbasic/titlescreen.js)
+ else
 	sbc #bmp_96x2_3_window
+ endif
 	sta temp1
  else
 	ldy #(bmp_96x2_3_window-1)

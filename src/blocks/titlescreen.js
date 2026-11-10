@@ -101,6 +101,9 @@ export const isCardAnimated = (card) => !!(card.frames && card.frames.length > 1
 const sanitizeCardRef = (ref) => ref.replace(':', '_');
 export const titleCardFrameCounterVarName = (ref) => `titleCardFrame_${sanitizeCardRef(ref)}`;
 export const titleCardScrollOffsetVarName = (ref) => `titleCardScroll_${sanitizeCardRef(ref)}`;
+// The window height of a scrolling graphic that a "Set title screen graphic window height" block changes: the number of lines the kernel draws, less one for a 48
+// wide graphic (the kernel counts down to 0) and as it is for a 96x2 one (see windowVarValue in generators/bbasic/titlescreen.js).
+export const titleCardWindowVarName = (ref) => `titleCardWindow_${sanitizeCardRef(ref)}`;
 // bmp_${key}_index (generators/bbasic/titlescreen.js's  buildCardDataAsm) is
 // an alias for THIS dev var's resolved address, not a raw asm byte -
 // declared via reserveDevVar (like the two above) so it actually lands in
@@ -443,6 +446,33 @@ export const processTitleScreenStorageDefaults = (storage) => {
   return data;
 };
 
+// Where a scrolling graphic starts: the row of the picture at the top of its window when the title screen begins (the card's scrollStart, from 0 to the rows of the
+// picture less the window); 0 for a graphic that does not scroll.
+export const titleScrollStartOf = (card) => {
+  const windowRows = Number(card.scrollWindow) || 0;
+  const height = cardFrameHeight(card);
+  if (!(windowRows > 0 && windowRows < height)) return 0;
+  return Math.max(0, Math.min(height - windowRows, Math.round(Number(card.scrollStart) || 0)));
+};
+
+// Whether the graphic of a "screenId:cardId" ref scrolls (has a window smaller than its picture), which is what a window height block works on.
+export const titleScrollsHere = (ref) => {
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
+  return screens.some((screen) => (screen.cards || []).some((card) => `${screen.id}:${card.id}` === ref &&
+    Number(card.scrollWindow) > 0 && Number(card.scrollWindow) < cardFrameHeight(card)));
+};
+
+// The graphics that start scrolled down, as "screenId:cardId" refs with their starting row.
+export const resolveScrollStarts = () => {
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
+  const starts = new Map();
+  screens.forEach((screen) => (screen.cards || []).forEach((card) => {
+    const start = titleScrollStartOf(card);
+    if (start > 0) starts.set(`${screen.id}:${card.id}`, start);
+  }));
+  return starts;
+};
+
 // The title screens as they are compiled: the cards a card's eye button has hidden (card.hidden) are left out, so that they take no ROM, no kernel copy and no
 // variables, and a block that names one does nothing (as with a deleted one). The Title tab and the dropdowns of the blocks still see every card.
 export const processTitleScreenStorageForBuild = (storage) => {
@@ -762,6 +792,26 @@ Blockly.Blocks['titlescreen_scroll_set'] = {
       'keep playing back automatically by themselves schedule while this scrolls within whichever ' +
       'frame is currently showing. Only graphics with scrolling enabled (Title Screen tab) appear ' +
       'in the dropdown.');
+  },
+};
+
+Blockly.Blocks['titlescreen_window_set'] = {
+  init: function() {
+    this.appendValueInput('VALUE')
+        .setCheck('Number')
+        .appendField(`${TITLE_ICON} Set title screen graphic`)
+        .appendField(new Blockly.FieldDropdown(buildScrollableCardOptions), 'CARD')
+        .appendField('window height to');
+    this.appendDummyInput().appendField('rows');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(TITLESCREEN_COLOR);
+    this.setTooltip('Changes how many rows a scrolling Title Screen graphic shows at once (its window), while the title screen runs: 1 to the height of one ' +
+      'frame of the graphic. The window starts at the "Window height" set in the Title tab and keeps its top row where it is; if the new window would run ' +
+      'past the bottom of the picture, the scroll position moves up so that it does not. The graphics below on the page move up or down with it (a page shows ' +
+      'about 200 lines). Only graphics with a "Window height" set smaller than the picture (Title tab) appear in the dropdown. A graphic that has this block ' +
+      'takes a byte of memory and a few bytes of code more.');
   },
 };
 

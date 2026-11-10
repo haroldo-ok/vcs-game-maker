@@ -763,8 +763,18 @@ Hmval74
      .byte 240, 224, 208, 192, 176, 160, 144, 128, 96, 80, 64, 48, 32, 16, 1, 240
      .byte 224, 208, 192, 176, 160, 144, 128, 96, 80, 64, 48, 32, 16, 1, 240, 224, 208, 192
      .byte 176,160,144,128,16,1,240,224
-     
 
+
+     ; vcs-game-maker: the loop that sets the horizontal positions of the sprites (HorPosLoop, DivideLoop) counts cycles: its branches take one cycle more when they
+     ; cross a page, and every sprite would be put 3 color clocks to the right for each time round (the same weakness as the score loop below had). Where the code
+     ; before it (the size of the coprocessor program, the options) puts the loop across a page boundary, it is moved to the start of the next page: the padding is
+     ; here, before the routine, after the tables, where nothing runs.
+KSETUPSTART = *
+KSETUPLOOP = KSETUPSTART + (HorPosLoop - kernel_setup)
+KSETUPLOOPEND = KSETUPSTART + (HorPosLoopEnd - kernel_setup)
+     if (KSETUPLOOP / 256) != (KSETUPLOOPEND / 256)
+         ds (((KSETUPLOOP / 256) + 1) * 256) - KSETUPLOOP, 0
+     endif
 kernel_setup
      ;--position P0, top P1, M0, M1, BL
      ldx #0 ; first sprite displayed
@@ -798,6 +808,7 @@ DivideLoop
      sta WSYNC
      dex ;2
      bpl HorPosLoop ;4/5
+HorPosLoopEnd
 
      ldy player0x ; 7
      lda Hmval,y ; 11
@@ -979,6 +990,21 @@ SCOREPLACE5 = scoredata+48
      ldx #(>(SCOREPLACE2)) & $0F
      stx DF2HI
 
+     ; vcs-game-maker: with score bars the left bar's value has to be in PF1 before the first line of the score is drawn: the loop puts it there at the end of each line,
+     ; for the line that follows, and the first line has no line before it. A write in the first line itself (the one the loop makes, after the first pixels of the bar)
+     ; left the first line of the left bar without its first two pixels when the bars have the colors of the score lines, which move that write 3 cycles later. The
+     ; write is made at the end of the line before the first one instead (not before the right half of that line is drawn, so nothing shows there), in the time
+     ; of the fetcher 5 and temp1 setup, which is done before the WSYNC (the time before it is free); the timed instructions stay at the cycle they were (the RESP
+     ; strobes and the HMOVE).
+     ifconst pfscore
+     ldx #<(SCOREPLACE5)
+     stx DF5LOW
+     ldx #(>(SCOREPLACE5)) & $0F
+     stx DF5HI
+     LDY #7
+     sty temp1
+     endif
+
      sta WSYNC
      ldx #0
      STx GRP0
@@ -998,15 +1024,23 @@ SCOREPLACE5 = scoredata+48
      STY VDELP0
      STA RESP0
      STA RESP1
+     ifnconst pfscore
      sty temp1
+     endif
 
      STx NUSIZ0
      STx NUSIZ1
      STx VDELP1
+     ifconst pfscore
+     sleep 9
+     lda pfscore1
+     sta PF1
+     else
      ldx #<(SCOREPLACE5)
      stx DF5LOW
      ldx #(>(SCOREPLACE5)) & $0F
      stx DF5HI
+     endif
      STA.w HMOVE ; cycle 73 ?
 scoreloop
      lda #<DF6DATA ;59

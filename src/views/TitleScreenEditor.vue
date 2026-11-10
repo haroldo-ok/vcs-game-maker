@@ -547,13 +547,11 @@
                                 <span class="titlescreen-player-color-label">Fallback color</span>
                               </div>
                               <p class="v-messages theme--light v-messages__message titlescreen-player-hint">
-                                "Fallback color" is only used when the chosen animation doesn't have its
-                                per-row sprite colors (Options tab). "Start X" and "Start Y" set where each
-                                player begins when the title screen starts ("Start Y" counts down from the top of the window, inside its
-                                "Window height": a Y that is not smaller than the height puts the player below the window, where nothing is drawn), after the blocks of Title screen
-                                start have run (leave them empty to leave that to the blocks); move a player
-                                later with the normal "Player 0/1 set X/Y" blocks in Title screen update, and pick a starting frame with "Set title screen player sprite
-                                frame to" (Actions tab).
+                                "Fallback color" is used when the animation has no per-row sprite colors (Options tab). "Start X" and "Start Y" set
+                                where each player begins after the Title screen start blocks have run; leave them empty to leave that to the blocks.
+                                "Start Y" counts down from the top of the window, and a value at or above "Window height" puts the player below it,
+                                where nothing is drawn. Move a player later with the "Player 0/1 set X/Y" blocks in Title screen update, and pick a
+                                frame with "Set title screen player sprite frame to" (Actions tab).
                               </p>
                             </template>
 
@@ -562,7 +560,7 @@
                                 <v-text-field
                                   class="titlescreen-player-window-field"
                                   label="Window height (0 = no scrolling)"
-                                  title="How many rows show at once - leave at 0 (or at/above one frame's full height) to show the whole current frame with no scrolling. Once set smaller, use the Set title screen scroll position block (Actions tab) to scroll within whichever frame is currently showing."
+                                  title="How many rows show at once - leave at 0 (or at/above one frame's full height) to show the whole current frame with no scrolling. Once set smaller, the window shows in the picture: select the Move tool and drag it up or down to set where the scroll starts, and use the Set title screen scroll position block (Actions tab) to scroll within whichever frame is currently showing. The Set title screen graphic window height block (Title blocks) changes the number of rows while the title screen runs; this is the number it starts with."
                                   v-model.number="card.scrollWindow"
                                   type="number"
                                   min="0"
@@ -625,6 +623,9 @@
                                       :columnBackdrop="cardBackdrop(screen, card, frame)"
                                       :showClearButton="true"
                                       :showGrid="showPixelGrid"
+                                      :windowRows="Number(card.scrollWindow) || 0"
+                                      :windowStart="titleScrollStartOf(card)"
+                                      @update:windowStart="(start) => handleScrollStartInput(card, start)"
                                       :name="`${screen.name || 'titlescreen'}-${card.id}`"
                                       :hideToolbar="true"
                                       @input="() => handleFramePixelsInput(card, frame)"
@@ -870,7 +871,7 @@ import {buildTitleScreenPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {clampFrameDuration} from '../utils/duration';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
 import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE, MAX_PLAYER_CARDS, MAX_SCORE_CARDS,
-  blankTitleScreenPixels, migrateCardFrames, processTitleScreenStorageDefaults, cardFrameHeight,
+  blankTitleScreenPixels, migrateCardFrames, processTitleScreenStorageDefaults, cardFrameHeight, titleScrollStartOf,
   titleFrameBox} from '../blocks/titlescreen';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
 import {listTextStrings} from '../blocks/text-strings';
@@ -1158,6 +1159,12 @@ export default defineComponent({
     const handleToggleCardHidden = (card) => {
       if (card.hidden) instance.proxy.$delete(card, 'hidden');
       else instance.proxy.$set(card, 'hidden', true);
+      handleChildChange();
+    };
+    // Where a scrolling graphic starts (the first row of its window, moved with the Move tool in the picture): 0 is the top and needs no key.
+    const handleScrollStartInput = (card, start) => {
+      if (start > 0) instance.proxy.$set(card, 'scrollStart', start);
+      else instance.proxy.$delete(card, 'scrollStart');
       handleChildChange();
     };
     const handleDeleteCard = (screen, card) => {
@@ -2049,7 +2056,7 @@ export default defineComponent({
       screenDragAttrs, screenDragCardClass, screenDragHandleListeners, screenDragTargetListeners,
       cardWidth, editorWidth, cardAspectRatio, cardHasRowColors, editorRowColors, editorFgColor, cardTypeLabel,
       addCardOptions, canAddCardType, maxCopies, maxCopiesForType, playerAnimationOptions, textCardOptions,
-      handleAddCard, handleDeleteCard, handleToggleCardHidden, handleDuplicateCard,
+      handleAddCard, handleDeleteCard, handleToggleCardHidden, handleDuplicateCard, titleScrollStartOf, handleScrollStartInput,
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,
       handleClearBox,
       exportableScreen, handleExportTitleScreen, handleImportTitleScreen,

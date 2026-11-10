@@ -104,7 +104,11 @@ bmp_48x2_1_pointersetup
         bpl bmp_48x2_1_pointersetup
 
 
+ ifconst bmp_48x2_1_win
+	ldy bmp_48x2_1_win	; the number of lines less one, in a byte (a graphic with a window height block; see windowVarValue in generators/bbasic/titlescreen.js)
+ else
 	ldy #(bmp_48x2_1_window-1)
+ endif
 	sty aux2
 
 	iny

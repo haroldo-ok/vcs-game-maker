@@ -658,6 +658,49 @@ noshakescreen2
              lda pfscorecolor
              sta COLUPF
          endif
+         ; vcs-game-maker: with score bars the left bar's value has to be in PF1 before the first line of the score is drawn: the loop puts it there at the end of each
+         ; line, for the line that follows, and the first line (which the setup jumps into) has no line before it, so its left bar was not drawn at all. The value is
+         ; put in PF1 at the end of the line before it instead (not before the right half of that line is drawn, so nothing shows there). The time for it is made by
+         ; doing the pointer setup before the WSYNC (the time before it is free) and the NUSIZ, VDELP1 and HMP1 setup before the RESP strobes (where a delay was);
+         ; the RESP strobes and the HMOVE are at the same cycle as before.
+         ifconst pfscore
+         lda scorepointers+5
+         sta temp5
+         lda #>scoretable
+         sta scorepointers+1
+         sta scorepointers+3
+         sta scorepointers+5
+         sta WSYNC
+         ldx #0
+         STx GRP0
+         STx GRP1 ; seems to be needed because of vdel
+
+         sta temp2
+         sta temp4
+         sta temp6
+         LDA #$03
+         STA NUSIZ0
+         STA NUSIZ1
+         STA VDELP1
+         ifconst score5digits
+         LDA #$E0
+         else
+         LDA #$F0
+         endif
+         STA HMP1
+         LDY #7
+         STY VDELP0
+         sleep 2
+         STA RESP0
+         STA RESP1
+
+         sleep 10
+         lda (scorepointers),y
+         sta GRP0
+         lda pfscore1
+         sta PF1
+         STA HMOVE ; cycle 73 ?
+         else
          sta WSYNC
          ldx #0
          STx GRP0
@@ -693,6 +736,7 @@ noshakescreen2
          lda (scorepointers),y
          sta GRP0
          STA HMOVE ; cycle 73 ?
+         endif
          jmp beginscore
 
 
