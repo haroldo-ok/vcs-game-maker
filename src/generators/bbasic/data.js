@@ -2,7 +2,8 @@
 
 import {findDataTableById, dataTableSymbolName, processDataTablesStorageDefaults} from '../../blocks/data';
 import {functionCallDiscardVarName} from '../../blocks/function';
-import {useDataTablesStorage} from '../../hooks/project';
+import {useDataTablesStorage, useConfigurationStorage} from '../../hooks/project';
+import {isPxe} from '../../utils/pxe';
 
 // Auto-generated bB function name (see registerDataDispatchFunction below) -
 // resolved through nameDB_/PROCEDURE_CATEGORY_NAME the same way a real
@@ -235,9 +236,34 @@ const registerDataBitDispatchFunction = (Blockly) => {
 // (its  body references it by name, the same "calls" edge any other
 // family member creates), so both always relocate together, keeping the
 // bare call inside safe no matter which bank that turns out to be.
+// The PXE compiler has no functions ("function ... end" gives "extraneous end statement"), and the PXE kernel has no banks: the dispatches are plain subroutines that
+// work the same way, the table the id names read into the result with the same chain of tests. `into` is what the element goes to, and `tag` makes the labels
+// different from those of another dispatch.
+const pxeElementLines = (Blockly, into, tag) => {
+  const data = processDataTablesStorageDefaults(useDataTablesStorage());
+  // (The bank the tables of the project are put in, the one the code is: the primary bank, which is not bank 1 on every kernel.)
+  const bank = Blockly.BBasic.primaryBank();
+  const lines = [];
+  (data.dataTables || []).filter((table) => table.values && table.values.length).forEach((table, i) => {
+    Blockly.BBasic.trackDataTableBank(table.id, bank);
+    lines.push(` if temp1 <> ${table.id} then goto _pxedata_${tag}_${i}`, ` ${into} = ${dataTableSymbolName(table, bank)}[temp2]`, ` goto _pxedata_${tag}_end`, `@_pxedata_${tag}_${i}`);
+  });
+  lines.push(` ${into} = 0`, `@_pxedata_${tag}_end`);
+  return lines;
+};
+const usesPxe = () => isPxe((useConfigurationStorage() || {}).value || {});
+
 const registerDataDispatchCallWrapper = (Blockly) => {
-  const dispatchName = registerDataDispatchFunction(Blockly);
   const wrapperName = Blockly.BBasic.nameDB_.getName('_call_dataElementDispatch', Blockly.PROCEDURE_CATEGORY_NAME);
+  if (usesPxe()) {
+    if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
+    const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+    const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
+    const result = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    Blockly.BBasic.subroutines[wrapperName] = [` temp1 = ${arg1.read}`, ` temp2 = ${arg2.read}`, ...pxeElementLines(Blockly, result.write, 'element')].join('\n');
+    return wrapperName;
+  }
+  const dispatchName = registerDataDispatchFunction(Blockly);
   if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
   const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
   const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
@@ -251,8 +277,20 @@ const registerDataDispatchCallWrapper = (Blockly) => {
 // registerDataDispatchCallWrapper's  comment just above for why this
 // exists and how it ends up in the right relocation family.
 const registerDataBitDispatchCallWrapper = (Blockly) => {
-  const dispatchName = registerDataBitDispatchFunction(Blockly);
   const wrapperName = Blockly.BBasic.nameDB_.getName('_call_dataBitDispatch', Blockly.PROCEDURE_CATEGORY_NAME);
+  if (usesPxe()) {
+    if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
+    const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+    const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
+    const arg3 = Blockly.BBasic.superchipRwPairs[dataBitDispatchArg3VarName()];
+    const result = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    // (The element goes to temp4 and the shift of the bit down to place 0 is the loop of registerDataBitDispatchFunction.)
+    Blockly.BBasic.subroutines[wrapperName] = [` temp6 = ${arg3.read}`, ` temp1 = ${arg1.read}`, ` temp2 = ${arg2.read}`, ...pxeElementLines(Blockly, 'temp4', 'bit'),
+      '@_pxedata_bitshift', ' if temp6 = 0 then goto _pxedata_bitdone', ' temp4 = temp4 / 2', ' temp6 = temp6 - 1', ' goto _pxedata_bitshift', '@_pxedata_bitdone',
+      ' temp5 = (temp4 / 2) * 2', ' temp4 = temp4 - temp5', ` ${result.write} = temp4`].join('\n');
+    return wrapperName;
+  }
+  const dispatchName = registerDataBitDispatchFunction(Blockly);
   if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
   const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
   const arg2 = Blockly.BBasic.superchipRwPairs[dataDispatchArg2VarName()];
@@ -273,6 +311,15 @@ const registerDataSizeDispatchCallWrapper = (Blockly) => {
       DATA_SIZE_DISPATCH_FUNCTION_CANONICAL_NAME, Blockly.PROCEDURE_CATEGORY_NAME);
   const wrapperName = Blockly.BBasic.nameDB_.getName('_call_dataSizeDispatch', Blockly.PROCEDURE_CATEGORY_NAME);
   if (Blockly.BBasic.subroutines[wrapperName]) return wrapperName;
+  if (usesPxe()) {
+    const tables = (processDataTablesStorageDefaults(useDataTablesStorage()).dataTables || []).filter((table) => table.values && table.values.length);
+    const arg1 = Blockly.BBasic.superchipRwPairs[dataDispatchArg1VarName()];
+    const result = Blockly.BBasic.superchipRwPairs[functionCallDiscardVarName()];
+    Blockly.BBasic.subroutines[wrapperName] = [` temp1 = ${arg1.read}`, ` ${result.write} = 0`,
+      ...tables.flatMap((table, i) => [` if temp1 <> ${table.id} then goto _pxedata_size_${i}`, ` ${result.write} = ${Math.min(255, table.values.length)}`, ` goto _pxedata_size_end`, `@_pxedata_size_${i}`]),
+      '@_pxedata_size_end'].join('\n');
+    return wrapperName;
+  }
   const data = processDataTablesStorageDefaults(useDataTablesStorage());
   const lines = [];
   (data.dataTables || []).filter((table) => table.values && table.values.length).forEach((table, i) => {
