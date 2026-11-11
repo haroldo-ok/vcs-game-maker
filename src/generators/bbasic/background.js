@@ -13,7 +13,7 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
-  backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName,
+  backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName, backgroundShownVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName, backgroundScrollActiveVarName, backgroundColorBgVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
 import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset, pfColumnText, pfColumnOf, pfScrollColumns, pfMaxColumn, pfColumnBias} from '../../utils/playfield-coords';
@@ -3149,6 +3149,14 @@ export default (Blockly) => {
   // "Reset playfield scroll": the scroll goes back to the top row, as when a background is switched to.
   Blockly.BBasic[`background_scroll_reset`] = () => {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
+    // Where the scroll is not followed row by row (see backgroundScrollResetReloads in generators/bbasic.js), the background showing is loaded
+    // again: its rows from the start, and on the standard kernel the fine position (playfieldpos) as at the start (the row height, see
+    // startup.asm); the load puts the scroll's row variables back to 0.
+    if (Blockly.BBasic.backgroundScrollResetReloads) {
+      const shown = Blockly.BBasic.backgroundShownId != null ? Blockly.BBasic.backgroundShownId :
+        Blockly.BBasic.nameDB_.getName(backgroundShownVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      return ` newbackground = ${shown}\n` + (config.kernel === 'dpcplus' ? '' : ` playfieldpos = ${pfRowDivisorFor(config)}\n`);
+    }
     if (config.kernel !== 'dpcplus') return scrollToRowCode('0');
     // The tall scrolling of DPC+ (and PXE) follows its position in a byte for the picture (and one for each kind of colors a Background scroll colors
     // block moves by itself): a wrapping scroll starts a background-height in (the offset is the rows of the background) and a scroll that stops at its

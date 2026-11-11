@@ -29,7 +29,7 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks,
-  backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName,
+  backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName, backgroundShownVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName,
   backgroundScrollPacking, backgroundScrollActiveVarName, backgroundScrollSubRowVarName,
@@ -3472,6 +3472,16 @@ Blockly.BBasic.init = function(workspace) {
   // The pending starting row only matters when a background is taller than
   // the window (the only case where the scroll position can be set).
   this.backgroundScrollStartUsed = scrollSetRowUsed && this.backgroundScrollOverflowBackgrounds.length > 0;
+  // "Reset playfield scroll" where the scroll is not followed row by row (on the standard kernel no background is taller than the screen, so
+  // pfscroll turns the rows round in place; DPC+ and PXE without the tall scroll, see dpcPlusScroll): it loads the background showing again.
+  // With more than one background which one shows is kept in a byte, set when one is loaded (see generatedBackgrounds below).
+  const scrollResetUsed = workspace.getAllBlocks(false).some((block) => block.type === 'background_scroll_reset' && block.isEnabled());
+  this.backgroundScrollResetReloads = scrollResetUsed && includedBackgrounds.length > 0 &&
+    (dpcPlusScroll ? !this.dpcPlusScroll : !this.backgroundScrollOverflowBackgrounds.length);
+  this.backgroundShownId = this.backgroundScrollResetReloads && includedBackgrounds.length === 1 ? includedBackgrounds[0].id : null;
+  if (this.backgroundScrollResetReloads && includedBackgrounds.length > 1) {
+    reserveDevVar(backgroundShownVarName(), undefined, 'which background is showing (its id), for Reset playfield scroll');
+  }
   if (this.backgroundScrollStartUsed) {
     reserveDevVar(backgroundScrollStartVarName(), undefined,
         'a requested starting scroll row + 1 (0 = none), applied by the next background load');
@@ -4857,7 +4867,10 @@ Blockly.BBasic.finish = function(code) {
   const defaultPlayfieldColor = colorByteToBuildBBasic(0x0E);
   const defaultBackgroundColor = colorByteToBuildBBasic(0xC4);
   const generatedSystemDims = Blockly.BBasic.generateSystemDims();
-  const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
+  // (Which background is showing, for Reset playfield scroll: see backgroundScrollResetReloads.)
+  const generatedBackgrounds = (Blockly.BBasic.backgroundScrollResetReloads && Blockly.BBasic.backgroundShownId == null ?
+    ` ${Blockly.BBasic.nameDB_.getName(backgroundShownVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = newbackground\n` : '') +
+    Blockly.BBasic.generateBackgrounds();
   const generatedBackgroundColorOverride = Blockly.BBasic.generateBackgroundColorOverride();
   // Has to run after generateBackgrounds() (needs relocatableGraphicsUnits
   // populated with this build's  resolved background banks) and before
