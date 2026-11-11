@@ -286,13 +286,21 @@ export const OFFSET_AREA_VARS = {
   b1: 'offsetb1', m1: 'offsetm1', b2: 'offsetb2', m2: 'offsetm2', pixel: 'offsetpixel',
   mask: ['offsetmask0', 'offsetmask1', 'offsetmask2', 'offsetmask3'],
 };
+// The coprocessor (DPC+, not PXE) draws the circle block (see buildCircleArm).
+export const circleArmFits = (config) => config.kernel === 'dpcplus' && !config.pxe;
 // The inputs of a circle block that count (the ones the block's padding mode shows).
 const circleInputNames = (block) => ['X', 'Y', 'RADIUS', ...(block.getFieldValue('PADMODE') === 'EACH' ? ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'] : ['PADDING'])];
 const isPlainNumberBlock = (target) => !target || (target.type === 'math_number' && /^[0-9]+$/.test(String(target.getFieldValue('NUM'))));
-// The coprocessor (DPC+, not PXE) takes the circle block when the numbers it works out (the ones that are not plain numbers) fit in the six scratch
-// bytes that hold them till they are sent; with more of them the 6502 draws it, as on the other kernels.
-export const circleArmFits = (config, block) => config.kernel === 'dpcplus' && !config.pxe &&
-  circleInputNames(block).filter((name) => !isPlainNumberBlock(block.getInputTargetBlock(name))).length <= 6;
+const isLiveBlock = (block) => block.isEnabled() && !block.getInheritedDisabled();
+// The coprocessor call of a circle block is one shared routine when another circle block has the same operation and padding mode (each block puts its
+// numbers in the scratch bytes and calls it), or when more of its numbers are worked out than the six scratch bytes hold; a block that is the only one
+// of its kind has the call in line (plain numbers written as they are, which is smaller than a call to a routine used once).
+export const circleArmShared = (config, block) => circleArmFits(config) && (
+  circleInputNames(block).filter((name) => !isPlainNumberBlock(block.getInputTargetBlock(name))).length > 6 ||
+  (block.workspace ? block.workspace.getAllBlocks(false) : []).some((other) => other !== block && other.type === 'background_fill_circle' && isLiveBlock(other) &&
+    other.getFieldValue('OPERATION') === block.getFieldValue('OPERATION') && other.getFieldValue('PADMODE') === block.getFieldValue('PADMODE')));
+// The shared routine with a padding for each side also takes one of the numbers in the area block's last row byte.
+export const circleArmUsesLastRow = (config, block) => circleArmShared(config, block) && block.getFieldValue('PADMODE') === 'EACH';
 
 // The bytes the Playfield offset block of the coprocessor needs while its blocks run: the left and right column. The bytes the box test uses for
 // the position it tries are only used when the end of the frame runs, so they do the job when the project has them. Returns the names (null for the ones to reserve here).
@@ -677,7 +685,7 @@ export default (Blockly) => {
           lda(coords.x),
           topY === coords.y ? lda(coords.y) : /\+ 1$/.test(topY) ? [`lda ${coords.y}`, 'clc', 'adc #1'] : [`lda ${coords.y}`, 'sec', 'sbc #1'],
           // (The lines it covers are the height less one for missile 0 and one more for missile 1: measured against the hardware flag.)
-          coords.extraHeight < 0 ? [`lda ${coords.heightVar}`, `beq _fp_${sprite}_hz`, 'sec', 'sbc #1', `_fp_${sprite}_hz`] :
+          coords.extraHeight < 0 ? [`lda ${coords.heightVar}`, `beq _fp_${sprite}_hz`, 'sec', 'sbc #1', `@_fp_${sprite}_hz`] :
             coords.extraHeight > 0 ? [`lda ${coords.heightVar}`, 'clc', 'adc #1'] : lda(coords.heightVar), lda(coords.sizeBits), lda('temp5'), lda(`#${is16 ? 16 : 8}`), lda(`#${maxRow}`), lda(`#${coords.pfXOffset}`),
           lda(`#${findPixelRowInc}`)]}),
         `${col.write} = temp3`,
@@ -1792,69 +1800,69 @@ export default (Blockly) => {
   };
 
   // "Playfield set/clear/flip area centered at X Y width height": the corners are worked out from the center (the width and the height halved, the extra
-  // pixel of an even one to the right or below), held to the padding and to the playfield, and the area routine of the area block draws it. Only the
-  // scratch bytes and the area block's last row are used: the numbers of the block are worked out again where they are wanted (a number or a
-  // variable, not a block that picks a random one).
+  // pixel of an even one to the right or below), held to the padding and to the playfield, and the area routine of the area block draws it. The working out
+  // is one subroutine for each operation, which every such block calls after putting the center in the circle block's first two variables, the padding
+  // (left, right, top, bottom) in temp3 to temp6, the height in temp2 and the width in temp1 (in that order: a multiply or divide in a number uses temp1 and
+  // temp2). The area block's last row byte holds the half height and then the first row while it works.
   const fillCenteredArea = (block) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
     const maxColumn = pfMaxColumn(config);
     const last = Blockly.BBasic.superchipRwPairs[areaClearLeftVarName()];
-    if (!last) return '';
+    const [cx, cy] = circleVarNames().slice(0, 2).map((name) => Blockly.BBasic.superchipRwPairs[name]);
+    if (!last || !cx || !cy) return '';
     const operation = block.getFieldValue('OPERATION');
     const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
     const separate = block.getFieldValue('PADMODE') === 'EACH';
     const [padLeft, padRight, padTop, padBottom] = separate ? ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].map(arg) : Array(4).fill(arg('PADDING'));
-    const cx = arg('X1');
-    const cy = arg('Y1');
     const fillName = AREA_FILL_SUBROUTINES[operation];
     if (!Blockly.BBasic.subroutines[fillName]) {
       Blockly.BBasic.subroutines[fillName] = buildAreaFillBody(operation, maxRow, last, !!config.pxe);
     }
-    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(fillName));
-    const id = Blockly.BBasic.blockNumbers.next('rect');
-    const skip = `_rect_${id}_skip`;
+    const routine = `_pfrect_${operation}`;
+    if (!Blockly.BBasic.subroutines[routine]) {
+      const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getSubroutineBank(routine), Blockly.BBasic.getSubroutineBank(fillName));
+      Blockly.BBasic.subroutines[routine] = [
+        'if temp1 = 0 then return',
+        'if temp2 = 0 then return',
+        // The rows: the last (temp2) and the first (the last row byte), held to the padding (temp5 the top, temp6 the bottom).
+        `${last.write} = temp2 / 2`,
+        'temp2 = temp2 - 1',
+        `temp2 = temp2 - ${last.read}`,
+        `temp2 = ${cy.read} + temp2`,
+        `if temp2 < ${cy.read} then temp2 = 255`,
+        `if ${cy.read} < ${last.read} then ${last.write} = 0 else ${last.write} = ${cy.read} - ${last.read}`,
+        `if ${last.read} < temp5 then ${last.write} = temp5`,
+        `if temp6 > ${maxRow} then return`,
+        `temp6 = ${maxRow} - temp6`,
+        'if temp2 > temp6 then temp2 = temp6',
+        `if ${last.read} > temp2 then return`,
+        // the first row to temp5 and the last to the last row byte, as the area routine wants them
+        `temp5 = ${last.read}`,
+        `${last.write} = temp2`,
+        // The columns: the first (temp4) and the last (temp6), held to the padding (temp3 the left, temp4 the right).
+        'temp2 = temp1 / 2',
+        'temp1 = temp1 - 1',
+        'temp1 = temp1 - temp2',
+        `temp6 = ${cx.read} + temp1`,
+        `if temp6 < ${cx.read} then temp6 = 255`,
+        `if temp4 > ${maxColumn} then return`,
+        `temp4 = ${maxColumn} - temp4`,
+        'if temp6 > temp4 then temp6 = temp4',
+        `if ${cx.read} < temp2 then temp4 = 0 else temp4 = ${cx.read} - temp2`,
+        'if temp4 < temp3 then temp4 = temp3',
+        'if temp4 > temp6 then return',
+        `gosub ${fillName}${suffix}`,
+      ].join('\n');
+    }
     return [
-      // The rows: the first (temp5) and the last (the area block's last row); the center row is in temp4.
-      `temp4 = ${cy}`,
-      `temp1 = ${arg('HEIGHT')}`,
-      `if temp1 = 0 then goto ${skip}`,
-      'temp2 = temp1 / 2',
-      'temp5 = 0',
-      'if temp4 >= temp2 then temp5 = temp4 - temp2',
-      'temp3 = temp1 - 1',
-      'temp3 = temp3 - temp2',
-      'temp3 = temp4 + temp3',
-      'if temp3 < temp4 then temp3 = 255',
-      `temp1 = ${padTop}`,
-      'if temp5 < temp1 then temp5 = temp1',
-      `temp1 = ${padBottom}`,
-      `if temp1 > ${maxRow} then goto ${skip}`,
-      `temp1 = ${maxRow} - temp1`,
-      'if temp3 > temp1 then temp3 = temp1',
-      `if temp5 > temp3 then goto ${skip}`,
-      `${last.write} = temp3`,
-      // The columns: the first (temp4) and the last (temp6); the center column is in temp3 (free now).
-      `temp3 = ${cx}`,
+      `${cx.write} = ${arg('X1')}`,
+      `${cy.write} = ${arg('Y1')}`,
+      `temp3 = ${padLeft}`, `temp4 = ${padRight}`, `temp5 = ${padTop}`, `temp6 = ${padBottom}`,
+      `temp2 = ${arg('HEIGHT')}`,
       `temp1 = ${arg('WIDTH')}`,
-      `if temp1 = 0 then goto ${skip}`,
-      'temp2 = temp1 / 2',
-      'temp4 = 0',
-      'if temp3 >= temp2 then temp4 = temp3 - temp2',
-      'temp6 = temp1 - 1',
-      'temp6 = temp6 - temp2',
-      'temp6 = temp3 + temp6',
-      'if temp6 < temp3 then temp6 = 255',
-      `temp1 = ${padLeft}`,
-      'if temp4 < temp1 then temp4 = temp1',
-      `temp1 = ${padRight}`,
-      `if temp1 > ${maxColumn} then goto ${skip}`,
-      `temp1 = ${maxColumn} - temp1`,
-      'if temp6 > temp1 then temp6 = temp1',
-      `if temp4 > temp6 then goto ${skip}`,
-      `gosub ${fillName}${suffix}`,
-      `@ ${skip}`,
+      `gosub ${routine}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(routine))}`,
     ].join('\n') + '\n';
   };
 
@@ -1863,30 +1871,51 @@ export default (Blockly) => {
   // square of the row's distance from the center, found in a table of squares (so a radius is 15 at most: 15 * 15 is 225, the biggest square of a byte).
   // The row routine uses every scratch byte, so five variables keep what is needed between the rows: the center (two), the radius and the distance of
   // the row from the center (a nibble each, in one byte) and the padding of the four sides (a nibble each, in two bytes: 15 at most).
-  // The block's numbers go to the coprocessor in order: the center, the radius and the padding (the one number four times, or one for each side).
+  // The block's numbers go to the coprocessor in order: the center, the radius and the padding (the one number four times, or one for each side). Shared (see circleArmShared), the call is
+  // one routine for each operation and padding mode, which every circle block of it calls after putting its numbers in the scratch bytes: temp3 to temp6 the
+  // center, the radius and the padding (the left padding with one for each side), and with one for each side the right padding in the area block's last row
+  // byte, the top in temp2 and the bottom in temp1. (Worked out in that order: a multiply or divide in a number uses temp1 and temp2.)
   const buildCircleArm = (block, config) => {
     const groupRows = !!Blockly.BBasic.dpcPlusGroupFracVars;
     const maxRow = groupRows ? '191' : Blockly.BBasic.maxRowText(config);
     const arg = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
-    const setups = [];
-    let used = 0;
-    // A plain number is written as it is; the others are worked out into the next scratch byte, in the order the block has them.
-    const operandOf = (name) => {
-      const text = arg(name);
-      if (/^[0-9]+$/.test(String(text).trim())) return `#${Number(text)}`;
-      used++;
-      setups.push(`temp${used} = ${text}`);
-      return `temp${used}`;
-    };
     const separate = block.getFieldValue('PADMODE') === 'EACH';
-    const cx = operandOf('X');
-    const cy = operandOf('Y');
-    const radius = operandOf('RADIUS');
-    const [padLeft, padRight, padTop, padBottom] = separate ?
-      ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].map(operandOf) : Array(4).fill(operandOf('PADDING'));
+    const operation = block.getFieldValue('OPERATION');
     ensureArmProgram(Blockly, groupRows ? {inc: 0, maxRow: 0, clamp: true, groups: true} : undefined, 'c');
     Blockly.BBasic.pfBoxArm = true;
-    return [...setups, buildCircleArmCall({operation: block.getFieldValue('OPERATION'), cx, cy, radius, padLeft, padRight, padTop, padBottom, last: `#${maxRow}`})].join('\n') + '\n';
+    if (!circleArmShared(config, block)) {
+      // In line: a plain number is written as it is; the others are worked out into the next scratch byte, in the order the block has them.
+      const setups = [];
+      let used = 0;
+      const operandOf = (name) => {
+        const text = arg(name);
+        if (/^[0-9]+$/.test(String(text).trim())) return `#${Number(text)}`;
+        used++;
+        setups.push(`temp${used} = ${text}`);
+        return `temp${used}`;
+      };
+      const cx = operandOf('X');
+      const cy = operandOf('Y');
+      const radius = operandOf('RADIUS');
+      const [padLeft, padRight, padTop, padBottom] = separate ?
+        ['PAD_LEFT', 'PAD_RIGHT', 'PAD_TOP', 'PAD_BOTTOM'].map(operandOf) : Array(4).fill(operandOf('PADDING'));
+      return [...setups, buildCircleArmCall({operation, cx, cy, radius, padLeft, padRight, padTop, padBottom, last: `#${maxRow}`})].join('\n') + '\n';
+    }
+    const last = Blockly.BBasic.superchipRwPairs[areaClearLeftVarName()];
+    if (separate && !last) return '';
+    const routine = `_pfcirclearm_${operation}${separate ? '_each' : ''}`;
+    if (!Blockly.BBasic.subroutines[routine]) {
+      Blockly.BBasic.subroutines[routine] = buildCircleArmCall({operation, cx: 'temp3', cy: 'temp4', radius: 'temp5',
+        ...(separate ? {padLeft: 'temp6', padRight: last.read, padTop: 'temp2', padBottom: 'temp1'} :
+          {padLeft: 'temp6', padRight: 'temp6', padTop: 'temp6', padBottom: 'temp6'}),
+        last: `#${maxRow}`});
+    }
+    return [
+      `temp3 = ${arg('X')}`, `temp4 = ${arg('Y')}`, `temp5 = ${arg('RADIUS')}`,
+      ...(separate ? [`temp6 = ${arg('PAD_LEFT')}`, `${last.write} = ${arg('PAD_RIGHT')}`, `temp2 = ${arg('PAD_TOP')}`, `temp1 = ${arg('PAD_BOTTOM')}`] :
+        [`temp6 = ${arg('PADDING')}`]),
+      `gosub ${routine}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(routine))}`,
+    ].join('\n') + '\n';
   };
 
   const CIRCLE_RADIUS_MAX = 15;
@@ -1910,9 +1939,12 @@ export default (Blockly) => {
     if (!Blockly.BBasic.subroutines[fillName]) {
       Blockly.BBasic.subroutines[fillName] = buildAreaFillBody(operation, maxRow, last, !!config.pxe);
     }
-    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(fillName));
-    const id = Blockly.BBasic.blockNumbers.next('circle');
-    const label = (part) => `_circle_${id}_${part}`;
+    // The circle is one subroutine for each operation (set, clear, flip), which every circle block of it calls after putting the center and the radius in
+    // their variables and the padding (left, right, top, bottom) in temp3 to temp6 (inline a block was about 300 bytes, too many for the first bank of a
+    // full project). The rows below and above the center row are drawn by one row routine inside it, given the row in temp5.
+    const loopName = `_pfcircle_${operation}`;
+    const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getSubroutineBank(loopName), Blockly.BBasic.getSubroutineBank(fillName));
+    const label = (part) => `_pfcircle_${operation}_${part}`;
     const squares = Array.from({length: CIRCLE_RADIUS_MAX + 1}, (_, i) => i * i).join(',');
     // Two numbers (0 to 15 each) in a byte: the first the low nibble.
     const pack = (low, high, variable) => [
@@ -1921,63 +1953,69 @@ export default (Blockly) => {
       'temp2 = temp2 + temp2', 'temp2 = temp2 + temp2', 'temp2 = temp2 + temp2', 'temp2 = temp2 + temp2',
       `${variable.write} = temp1 + temp2`,
     ];
-    // One row of the circle: `below` is the row under the center row (else the one above). The half width comes from the table, the row and the
-    // columns are held to the padding, and a row with nothing left is not given to the area routine (it would put the corners in order).
-    const row = (below) => {
-      const skip = label(below ? 'belowskip' : 'aboveskip');
-      return [
-        `temp1 = ${rd.read} / 16`,
-        ...(below ? [`temp5 = ${cy.read} + temp1`] : [`if ${cy.read} < temp1 then goto ${skip}`, `temp5 = ${cy.read} - temp1`]),
-        `temp2 = ${rd.read} & 15`,
-        ['asm', `jmp ${label(below ? 'skipb' : 'skipa')}`, `@${label(below ? 'sqb' : 'sqa')}`, `.byte ${squares}`, `@${label(below ? 'skipb' : 'skipa')}`,
-          'ldx temp1', `lda ${label(below ? 'sqb' : 'sqa')},x`, 'sta temp1', 'ldx temp2', `lda ${label(below ? 'sqb' : 'sqa')},x`, 'sec', 'sbc temp1',
-          'sta temp1', 'ldx temp2', `@${label(below ? 'findb' : 'finda')}`, `lda ${label(below ? 'sqb' : 'sqa')},x`, 'cmp temp1',
-          `beq ${label(below ? 'foundb' : 'founda')}`, `bcc ${label(below ? 'foundb' : 'founda')}`, 'dex', `bne ${label(below ? 'findb' : 'finda')}`,
-          `@${label(below ? 'foundb' : 'founda')}`, 'stx temp3', '@end'].join('\n'),
-        `temp1 = ${padTB.read} & 15`,
-        `if temp5 < temp1 then goto ${skip}`,
-        `temp1 = ${padTB.read} / 16`,
-        `if temp1 > ${maxRow} then goto ${skip}`,
-        `temp1 = ${maxRow} - temp1`,
-        `if temp5 > temp1 then goto ${skip}`,
-        'temp4 = 0',
-        `if ${cx.read} >= temp3 then temp4 = ${cx.read} - temp3`,
-        `temp6 = ${cx.read} + temp3`,
-        `temp1 = ${padLR.read} & 15`,
-        'if temp4 < temp1 then temp4 = temp1',
-        `temp1 = ${padLR.read} / 16`,
-        `if temp1 > ${maxColumn} then goto ${skip}`,
-        `temp1 = ${maxColumn} - temp1`,
-        'if temp6 > temp1 then temp6 = temp1',
-        `if temp4 > temp6 then goto ${skip}`,
-        `${last.write} = temp5`,
-        `gosub ${fillName}${suffix}`,
-        `@ ${skip}`,
-      ];
-    };
-    return [
-      `temp1 = ${arg('X')}`,
-      `temp2 = ${arg('Y')}`,
-      `${cx.write} = temp1`,
-      `${cy.write} = temp2`,
-      `temp1 = ${arg('RADIUS')}`,
-      `if temp1 > ${CIRCLE_RADIUS_MAX} then temp1 = ${CIRCLE_RADIUS_MAX}`,
-      `${rd.write} = temp1`,
-      ...pack(padLeft, padRight, padLR),
-      ...pack(padTop, padBottom, padTB),
-      `@ ${label('loop')}`,
-      ...row(true),
-      // The row above the center row (the center row itself is drawn once).
-      `temp1 = ${rd.read} / 16`,
-      `if temp1 = 0 then goto ${label('next')}`,
-      ...row(false),
-      `@ ${label('next')}`,
+    // One row of the circle (the row in temp5): the half width comes from the table, the row and the columns are held to the padding, and a row with
+    // nothing left is not given to the area routine (it would put the corners in order).
+    const rowLines = [
+      `@ ${label('row')}`,
       `temp1 = ${rd.read} / 16`,
       `temp2 = ${rd.read} & 15`,
-      `if temp1 >= temp2 then goto ${label('done')}`,
-      `${rd.write} = ${rd.read} + 16`,
-      `goto ${label('loop')}`,
-      `@ ${label('done')}`,
+      ['asm', 'ldx temp1', `lda ${label('sq')},x`, 'sta temp1', 'ldx temp2', `lda ${label('sq')},x`, 'sec', 'sbc temp1',
+        'sta temp1', 'ldx temp2', `@${label('find')}`, `lda ${label('sq')},x`, 'cmp temp1',
+        `beq ${label('found')}`, `bcc ${label('found')}`, 'dex', `bne ${label('find')}`,
+        `@${label('found')}`, 'stx temp3', '@end'].join('\n'),
+      `temp1 = ${padTB.read} & 15`,
+      `if temp5 < temp1 then return`,
+      `temp1 = ${padTB.read} / 16`,
+      `if temp1 > ${maxRow} then return`,
+      `temp1 = ${maxRow} - temp1`,
+      `if temp5 > temp1 then return`,
+      'temp4 = 0',
+      `if ${cx.read} >= temp3 then temp4 = ${cx.read} - temp3`,
+      `temp6 = ${cx.read} + temp3`,
+      `temp1 = ${padLR.read} & 15`,
+      'if temp4 < temp1 then temp4 = temp1',
+      `temp1 = ${padLR.read} / 16`,
+      `if temp1 > ${maxColumn} then return`,
+      `temp1 = ${maxColumn} - temp1`,
+      'if temp6 > temp1 then temp6 = temp1',
+      `if temp4 > temp6 then return`,
+      `${last.write} = temp5`,
+      `gosub ${fillName}${suffix}`,
+      'return',
+    ];
+    if (!Blockly.BBasic.subroutines[loopName]) {
+      Blockly.BBasic.subroutines[loopName] = [
+        `if ${rd.read} > ${CIRCLE_RADIUS_MAX} then ${rd.write} = ${CIRCLE_RADIUS_MAX}`,
+        ...pack('temp3', 'temp4', padLR),
+        ...pack('temp5', 'temp6', padTB),
+        `@ ${label('loop')}`,
+        // the row below the center row (the center row itself at the start)
+        `temp1 = ${rd.read} / 16`,
+        `temp5 = ${cy.read} + temp1`,
+        `gosub ${label('row')}`,
+        // the row above it
+        `temp1 = ${rd.read} / 16`,
+        `if temp1 = 0 then goto ${label('next')}`,
+        `if ${cy.read} < temp1 then goto ${label('next')}`,
+        `temp5 = ${cy.read} - temp1`,
+        `gosub ${label('row')}`,
+        `@ ${label('next')}`,
+        `temp1 = ${rd.read} / 16`,
+        `temp2 = ${rd.read} & 15`,
+        `if temp1 >= temp2 then return`,
+        `${rd.write} = ${rd.read} + 16`,
+        `goto ${label('loop')}`,
+        ...rowLines,
+        ['asm', `@${label('sq')}`, `.byte ${squares}`, '@end'].join('\n'),
+      ].join('\n');
+    }
+    // (The radius is held to 15 in the routine.)
+    return [
+      `${cx.write} = ${arg('X')}`,
+      `${cy.write} = ${arg('Y')}`,
+      `${rd.write} = ${arg('RADIUS')}`,
+      `temp3 = ${padLeft}`, `temp4 = ${padRight}`, `temp5 = ${padTop}`, `temp6 = ${padBottom}`,
+      `gosub ${loopName}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(loopName))}`,
     ].join('\n') + '\n';
   };
 

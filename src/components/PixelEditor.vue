@@ -26,13 +26,13 @@
               'editor-canvas-tool-window': windowCanMove,
             }"
             @mousedown="(e) => { handleStrokeStart(); handleMouse(e); handleWindowDown(e); }"
-            @mouseup="(e) => { strokeStart = null; handleMouse(e); }"
+            @mouseup="(e) => { handleStrokeEnd(); handleMouse(e); }"
             @mouseenter="(e) => { handleMouse(e); handleHover(e); }"
             @mouseleave="handleMouseLeave"
             @mousemove="(e) => { handleMouse(e); handleHover(e); }"
           />
           <canvas
-            v-if="columnBackdrop || rowBackdrop || rowColorsFine"
+            v-if="columnBackdrop || rowBackdrop || rowColorsFine || cellColors"
             ref="backdropOverlay"
             class="editor-canvas backdrop-canvas"
           />
@@ -174,6 +174,16 @@ export default {
     // colors change at exactly the heights they have, in the middle of a picture row where that is where they change. Null for the usual one color a row.
     rowColorsFine: {type: Array, default: null},
     rowBackdropFine: {type: Array, default: null},
+    // The color each cell is shown in, over what the cell would be otherwise (null for a cell that is not changed): a list of rows of colors, one
+    // for each column. With twice as many rows as the picture, each cell is two halves, the top and the bottom one (the ball behind a title
+    // screen graphic, which can be on for the second line of a row and not the first).
+    cellColors: {type: Array, default: null},
+    // Whether the cellColors are drawn over the cells that are on too (the picture over the ball, painted in the title screen's Ball mode); without it
+    // they are only for the cells that are off (the ball behind the picture), so a cell just drawn shows as drawn whatever the list says.
+    cellColorsCover: {type: Boolean, default: false},
+    // The widths a row's cells may have (the title screen's ball: 1, 2, 4 or 8 cells), null for any: with it, the cells that are on in a row are
+    // one run of one of these widths, and a stroke that leaves a row otherwise is made to (see snapRowRuns).
+    rowRunWidths: {type: Array, default: null},
   },
   data() {
     return {
@@ -244,6 +254,15 @@ export default {
     windowCanMove() {
       return this.hasWindow && this.toggledTool === 'move' && !(this.selection && this.selection.size);
     },
+    // The colors as text, for the watchers below: an editor that makes these lists again on each render (the Title tab does) gives a new array
+    // each time with the same colors, and a watcher of the array itself repainted every cell of every frame's canvas on each stroke (slow with
+    // tall graphics and many frames).
+    columnBackdropKey() {
+      return this.columnBackdrop ? this.columnBackdrop.join() : '';
+    },
+    rowColorsKey() {
+      return this.rowColors ? this.rowColors.join() : '';
+    },
     rowBackdropKey() {
       return (this.rowBackdrop ? this.rowBackdrop.join() : '') + '|' + (this.rowColorsFine ? this.rowColorsFine.join() : '') + '|' +
         (this.rowBackdropFine ? this.rowBackdropFine.join() : '');
@@ -284,7 +303,14 @@ export default {
     if (this.backdropObserver) this.backdropObserver.disconnect();
   },
   watch: {
-    columnBackdrop() {
+    columnBackdropKey() {
+      this.$nextTick(() => this.setupBackdrop());
+    },
+    // (The list itself: the Title tab gives the same one until the picture's colors or the ball change, see ballCellColors there.)
+    cellColors() {
+      this.$nextTick(() => this.setupBackdrop());
+    },
+    cellColorsCover() {
       this.$nextTick(() => this.setupBackdrop());
     },
     rowBackdropKey() {
@@ -312,6 +338,19 @@ export default {
       const selectionTools = ['rect-select', 'circle-select', 'polygon-select', 'move'];
       if (selectionTools.includes(previousToolName) && !selectionTools.includes(toolName)) this.deselect();
     },
+    // A new drawing color (a single color title graphic whose color was picked): the drawing tools are made again with it, and the pixels that
+    // are on are drawn in it (without a step in the undo history, as for the row colors below). The tools only took the color they were made with.
+    fgColor() {
+      this.pencil = new Pencil(this.fgColor);
+      this.fill = new Bucket(this.fgColor);
+      this.line = new Line(this.fgColor);
+      this.rectangle = new Rectangle(this.fgColor);
+      this.oval = new Oval(this.fgColor);
+      if (this.editor) {
+        this.editor.tool = this.toolFor(this.toggledTool);
+        this.setPixels(this.getPixels(), false);
+      }
+    },
     // Recolor the existing pixels when the row colors change (e.g. the user
     // picks a new color in the strip) without disturbing the drawn shape.
     // logToHistory: false - same reasoning as handleMouse's recolor
@@ -326,10 +365,20 @@ export default {
     // reference re-pushed a history entry Rectangle/Line/Oval's
     // undo()-then-redraw preview didn't expect, leaving old preview
     // positions never actually erased (a "trail").
-    rowColors() {
-      if (this.editor) {
-        this.setPixels(this.getPixels(), false);
+    rowColorsKey() {
+      if (!this.editor) return;
+      const before = this.drawnRowColors;
+      const after = this.rowColors ? this.rowColors.slice() : null;
+      this.drawnRowColors = after;
+      if (!before || !after || before.length !== after.length) {
+        this.recolorRows(null);
+        return;
       }
+      const changed = [];
+      after.forEach((color, row) => {
+        if (color !== before[row]) changed.push(row);
+      });
+      if (changed.length) this.recolorRows(changed);
     },
     // The window of a scrolling graphic is drawn on the overlay canvas: it is mounted, drawn again or taken down as the window comes and goes.
     windowStart() {
@@ -533,39 +582,70 @@ export default {
       });
       canvas.width = this.width * Math.max(1, Math.ceil(Math.round(cssWidth * dpr) / this.width));
       canvas.height = heightUnit * Math.max(1, Math.ceil(Math.round(cssHeight * dpr) / heightUnit));
-      const ctx = canvas.getContext('2d');
-      const cellWidth = canvas.width / this.width;
-      const cellHeight = canvas.height / rows;
       // The whole picture is repainted here (off cells in their backdrop color, the others as they are),
       // so the drawing underneath, scaled a little differently, can't show through between cells.
-      this.editor.pixels.forEach((px) => {
-        if (!px.color || px.y < 0 || px.y >= rows) return;
-        const off = px.color === this.bgColor;
-        const color = (off && ((this.rowBackdrop && this.rowBackdrop[px.y]) || (this.columnBackdrop && this.columnBackdrop[px.x]))) ||
-          px.color;
-        // Edges rounded to whole pixels, so neighbouring cells meet without gaps or overlap.
-        const left = Math.round(px.x * cellWidth);
-        const top = Math.round(px.y * cellHeight);
-        const right = Math.round((px.x + 1) * cellWidth);
-        const bottom = Math.round((px.y + 1) * cellHeight);
-        const fine = off ? this.rowBackdropFine : this.rowColorsFine;
-        if (fine && fine.length && (off || px.color !== this.bgColor)) {
-          // Each row of colors that the cell is in, from the top of the cell to the bottom, for the part of the cell it covers.
-          const count = fine.length;
-          const first = Math.floor(px.y * count / rows);
-          const last = Math.ceil((px.y + 1) * count / rows) - 1;
-          for (let k = first; k <= last; k++) {
-            const partTop = Math.max(top, Math.round(k * canvas.height / count));
-            const partBottom = Math.min(bottom, Math.round((k + 1) * canvas.height / count));
-            if (partBottom <= partTop) continue;
-            ctx.fillStyle = fine[k];
+      this.backdropRows = rows;
+      const ctx = canvas.getContext('2d');
+      this.editor.pixels.forEach((px) => this.paintBackdropCell(ctx, canvas, px, rows));
+    },
+
+    // Paints the cells drawn by a stroke on the backdrop canvas, without the rest (a full repaint of a tall graphic for each move of the mouse
+    // was slow): only when the canvas has been painted whole at this number of rows, otherwise a full repaint is asked for.
+    paintBackdropCells(pixels) {
+      const canvas = this.$refs.backdropOverlay;
+      const rows = this.editor ? this.editor.height : 0;
+      if (!canvas || !this.editor || this.backdropRows !== rows || this.backdropFrame || pixels.length > rows * this.width / 4) {
+        this.scheduleBackdrop();
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      pixels.forEach((px) => this.paintBackdropCell(ctx, canvas, px, rows));
+    },
+
+    // One cell on the backdrop canvas: off in its backdrop color, on as it is drawn, or the colors given for it (cellColors, rowColorsFine...).
+    paintBackdropCell(ctx, canvas, px, rows) {
+      if (!px.color || px.y < 0 || px.y >= rows) return;
+      const cellWidth = canvas.width / this.width;
+      const cellHeight = canvas.height / rows;
+      const off = px.color === this.bgColor;
+      const color = (off && ((this.rowBackdrop && this.rowBackdrop[px.y]) || (this.columnBackdrop && this.columnBackdrop[px.x]))) ||
+        px.color;
+      // Edges rounded to whole pixels, so neighbouring cells meet without gaps or overlap.
+      const left = Math.round(px.x * cellWidth);
+      const top = Math.round(px.y * cellHeight);
+      const right = Math.round((px.x + 1) * cellWidth);
+      const bottom = Math.round((px.y + 1) * cellHeight);
+      // A cell given a color in cellColors, whole or in halves (a cell that is off, or any with cellColorsCover).
+      if (this.cellColors && (off || this.cellColorsCover)) {
+        const parts = Math.max(1, Math.round(this.cellColors.length / rows));
+        const partColors = Array.from({length: parts}, (_, k) => (this.cellColors[px.y * parts + k] || [])[px.x] || null);
+        if (partColors.some(Boolean)) {
+          partColors.forEach((partColor, k) => {
+            const partTop = top + Math.round((bottom - top) * k / parts);
+            const partBottom = top + Math.round((bottom - top) * (k + 1) / parts);
+            ctx.fillStyle = partColor || color;
             ctx.fillRect(left, partTop, right - left, partBottom - partTop);
-          }
+          });
           return;
         }
-        ctx.fillStyle = color;
-        ctx.fillRect(left, top, right - left, bottom - top);
-      });
+      }
+      const fine = off ? this.rowBackdropFine : this.rowColorsFine;
+      if (fine && fine.length && (off || px.color !== this.bgColor)) {
+        // Each row of colors that the cell is in, from the top of the cell to the bottom, for the part of the cell it covers.
+        const count = fine.length;
+        const first = Math.floor(px.y * count / rows);
+        const last = Math.ceil((px.y + 1) * count / rows) - 1;
+        for (let k = first; k <= last; k++) {
+          const partTop = Math.max(top, Math.round(k * canvas.height / count));
+          const partBottom = Math.min(bottom, Math.round((k + 1) * canvas.height / count));
+          if (partBottom <= partTop) continue;
+          ctx.fillStyle = fine[k];
+          ctx.fillRect(left, partTop, right - left, partBottom - partTop);
+        }
+        return;
+      }
+      ctx.fillStyle = color;
+      ctx.fillRect(left, top, right - left, bottom - top);
     },
 
     teardownGridOverlay() {
@@ -861,6 +941,55 @@ export default {
       this.hoverCell = null;
     },
 
+    // The mouse button let go on the canvas: the stroke is over (with rowRunWidths, its rows are made one run of a width allowed, once the tool
+    // has finished with the mouse up).
+    handleStrokeEnd() {
+      const start = this.strokeStart;
+      this.strokeStart = null;
+      if (this.rowRunWidths && start) setTimeout(() => this.snapRowRuns(start.pixels), 0);
+    },
+
+    // With rowRunWidths: each row a stroke changed (from the cells before it) gets one run of cells of a width allowed. A run that grew gets the
+    // next width up (the widest at the most), one that got smaller the next one down; it stays where it was on the side the stroke didn't move
+    // (the left, when both or neither moved). Done in the stroke's history entry, so one Undo takes both away.
+    snapRowRuns(before) {
+      if (!this.editor || !this.rowRunWidths || !this.rowRunWidths.length) return;
+      const after = this.getPixels();
+      if (isMatrixEqual(before, after)) return;
+      const widths = [...this.rowRunWidths].sort((a, b) => a - b);
+      const runOf = (row) => {
+        const on = (row || []).map((cell, x) => (cell ? x : -1)).filter((x) => x >= 0);
+        return on.length ? {left: on[0], right: on[on.length - 1]} : null;
+      };
+      const changes = [];
+      after.forEach((row, y) => {
+        const was = before[y] || [];
+        if (row.every((cell, x) => !!cell === !!was[x])) return;
+        const run = runOf(row);
+        if (!run) return;
+        const old = runOf(was);
+        const span = run.right - run.left + 1;
+        let width = span;
+        if (!widths.includes(span)) {
+          const grew = !old || span > old.right - old.left + 1;
+          width = grew ? (widths.find((w) => w >= span) || widths[widths.length - 1]) :
+            ([...widths].reverse().find((w) => w <= span) || widths[0]);
+        }
+        const fromRight = !!old && run.right === old.right && run.left !== old.left;
+        let left = fromRight ? run.right - width + 1 : run.left;
+        left = Math.max(0, Math.min(this.width - width, left));
+        row.forEach((cell, x) => {
+          const wanted = x >= left && x < left + width;
+          if (!!cell !== wanted) changes.push({x, y, color: wanted ? this.onColorForRow(y) : this.bgColor});
+        });
+      });
+      if (!changes.length) return;
+      // (In the stroke's entry: the history has one more, the stroke's, at its end.)
+      this.editor.set(changes, true);
+      this.editor.history.squash();
+      this.$emit('input', this.getPixels());
+    },
+
     // Snapshot taken the instant a mouse button goes down on the canvas
     // (before the library's mousedown listener runs the tool), so a stroke
     // that leaves the canvas can be rolled back to exactly this state - see
@@ -1091,12 +1220,24 @@ export default {
       // Done even when no pixel turned on or off: drawing over a pixel that
       // is already on (a stroke crossing a mirrored one) redraws it in the
       // draw color, which has to be put back to its row color too.
+      // (Only the cells that are on and not in their row's color: the others are right already, and drawing every cell of a tall picture
+      // again after each move of the mouse was slow.)
       // eslint-disable-next-line no-invalid-this
-      if (this.rowColors) {
-        // eslint-disable-next-line no-invalid-this
-        this.setPixels(pixels, false);
-      }
+      if (this.rowColors) this.recolorRows(null);
     }, 10),
+
+    // Draws the cells that are on again in their row's color, in the rows given (all of them for null), the ones not in it already.
+    recolorRows(rows) {
+      if (!this.editor) return;
+      const wanted = rows ? new Set(rows) : null;
+      const wrong = [];
+      this.editor.pixels.forEach((px) => {
+        if (!px.color || px.color === this.bgColor || (wanted && !wanted.has(px.y))) return;
+        const color = this.onColorForRow(px.y);
+        if (px.color !== color) wrong.push({x: px.x, y: px.y, color});
+      });
+      if (wrong.length) this.editor.set(wrong, false);
+    },
 
     // The color used for an "on" pixel on the given row.
     onColorForRow(y) {
@@ -1219,8 +1360,9 @@ export default {
         const {width, height} = this.editor;
         const inside = pixels.filter((pixel) =>
           pixel.x >= 0 && pixel.y >= 0 && pixel.x < width && pixel.y < height);
-        const result = set(this.mirrorPixels(inside, logToHistory), logToHistory);
-        if (this.columnBackdrop || this.rowBackdrop || this.rowColorsFine) this.scheduleBackdrop();
+        const drawn = this.mirrorPixels(inside, logToHistory);
+        const result = set(drawn, logToHistory);
+        if (this.columnBackdrop || this.rowBackdrop || this.rowColorsFine || this.cellColors) this.paintBackdropCells(drawn);
         return result;
       };
       // Not logged to the history: this is loading the image, not an edit, and as

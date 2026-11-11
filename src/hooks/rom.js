@@ -14,7 +14,7 @@ import VueCompositionApi, {ref} from '@vue/composition-api';
 import Blockly from 'blockly';
 import {fixFracIncs, flattenBanks, isPxe, pfBuffersOf, pfIsWide} from '../utils/pxe';
 import {legalizeForPxe} from '../utils/pxe-legalize';
-import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic} from './bb-compiler';
+import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic, getIncludeIdentifiers} from './bb-compiler';
 
 import '../blocks';
 import BlocklyBB, {RELOCATABLE_EVENT_NAMES, SYSTEM_VARIABLES} from '../generators/bbasic';
@@ -291,6 +291,31 @@ const cheapBankJumps = (compiled, config) => {
     return `${push}${load} jmp BS_goto`;
   });
   if (count) appendCompileLog(`${count} jumps to another bank take 24 cycles less.`);
+};
+
+// A 64K standard ROM (EF, 16 banks) returns from a routine that ends in RETURN (BS_return) to the bank in the high nibble of the return address, which a
+// call through BS_jsr sets to the bank it came from (bank - 1). The compiler calls the multiply and divide routines with a plain jsr from the bank they
+// are in, which pushes the real address: its nibble is not the bank (bank 1's code is at $1000, read as bank 2), and the routine went back into the
+// wrong bank (a crash in the 64K Bricks). Each such call pushes the return address with its bank in the nibble, as BS_jsr's callers do, and jumps to
+// the routine (A, X and Y as they were).
+const SAME_BANK_RETURN_ROUTINES = ['mul8', 'div8', 'mul16', 'div16'];
+const fixSameBankCalls64k = (compiled, config) => {
+  if (!config || config.kernel === 'dpcplus' || config.romSize !== '64k') return;
+  const bankLine = /^\.L\d+ ;;line \d+;;  bank (\d+)[ \t\r]*$/;
+  const call = new RegExp(`^[ \\t]+jsr[ \\t]+(${SAME_BANK_RETURN_ROUTINES.join('|')})[ \\t\\r]*$`);
+  let bank = 1;
+  let count = 0;
+  compiled.mainAsm = compiled.mainAsm.split('\n').map((line) => {
+    const marker = bankLine.exec(line);
+    if (marker) bank = Number(marker[1]);
+    const found = call.exec(line);
+    if (!found) return line;
+    count++;
+    const back = `_samebank64_${count}`;
+    return [' sta temp7', ` lda #(((>(${back}-1)) & $0F) | $${((bank - 1) << 4).toString(16).padStart(2, '0')})`, ' pha',
+      ` lda #<(${back}-1)`, ' pha', ' lda temp7', ` jmp ${found[1]}`, back].join('\n');
+  }).join('\n');
+  if (count) appendCompileLog(`${count} calls to the multiply and divide routine in its bank return there (64K ROM).`);
 };
 
 const dropUnusedDivMul = (compiled, siblingFiles) => {
@@ -1688,7 +1713,7 @@ export const buildRom = async () => {
     // routines that run a Sprite pool for each of its sprites too. A build that failed for another reason is not made again.)
     const familyKnobs = [];
     try {
-      for (const [used, off] of [['combinedChecksUsed', 'combineChecksOff'], ['poolStepsUsed', 'poolStepsOff']]) {
+      for (const [used, off] of [['combinedChecksUsed', 'combineChecksOff'], ['poolStepsUsed', 'poolStepsOff'], ['spillPoolUsed', 'spillPoolOff']]) {
         if (built || buildCancelRequested || !lastBuildFailedForFit || !BlocklyBB[used]) continue;
         familyKnobs.push(off);
         familyKnobs.forEach((knob) => {
@@ -1721,6 +1746,8 @@ export const buildRom = async () => {
 let lastBuildFailedForFit = false;
 const buildRomInner = async () => {
   lastBuildFailedForFit = false;
+  // (The names the kernels' assembly uses: the variables the spill may take from var0 to var8 must not be among them, see spillInternalVariables.)
+  BlocklyBB.kernelIdentifiers = await getIncludeIdentifiers().catch(() => null);
   const errorStorage = useErrorStorage();
   const configurationStorage = useConfigurationStorage();
   const relocatedThisBuild = [];
@@ -2047,6 +2074,7 @@ const buildRomInner = async () => {
       // (The compiler puts the bank of a data table in front of its name, with a bank of one "$10" (names of data tables start with an underscore): the PXE kernel has one bank, and no such address.)
       if (isPxe(configurationStorage.value)) compiled.mainAsm = legalizeForPxe(compiled.mainAsm.replace(/\$[0-9a-f]0(?=[g-z_])/gi, ''), BlocklyBB.pxeScratch, true);
       dropUnusedDivMul(compiled, siblingFiles);
+      fixSameBankCalls64k(compiled, configurationStorage.value);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       cheapBankJumps(compiled, configurationStorage.value);
@@ -3052,6 +3080,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       // (The compiler puts the bank of a data table in front of its name, with a bank of one "$10" (names of data tables start with an underscore): the PXE kernel has one bank, and no such address.)
       if (isPxe(configurationStorage.value)) compiled.mainAsm = legalizeForPxe(compiled.mainAsm.replace(/\$[0-9a-f]0(?=[g-z_])/gi, ''), BlocklyBB.pxeScratch, true);
       dropUnusedDivMul(compiled, siblingFiles);
+      fixSameBankCalls64k(compiled, configurationStorage.value);
       shareDpcPlusPlayerData(compiled, configurationStorage.value);
       resolveAnimationPictureTables(compiled);
       cheapBankJumps(compiled, configurationStorage.value);

@@ -240,39 +240,20 @@ char checkwrap(char a, char b)
 int checkswap(int a, int b)
 {
   signed int temp1;
-  char s1,s2;
-  s1=checkwrap(RIOT[player1y+a],RIOT[player1height+a]);
-  s2=checkwrap(RIOT[player1y+b],RIOT[player1height+b]);
-  temp1=s1-s2;
+  unsigned int hb=RIOT[player1height+b];
+  temp1=checkwrap(RIOT[player1y+a],RIOT[player1height+a])-checkwrap(RIOT[player1y+b],hb);
   // A sprite with no height draws nothing (the text kernel keeps one at the line of its row), so next to a sprite that has a height it takes no line
   // from it: it only has to be in order. Without this a text row put a sprite of no height within 5 lines of the paddle and the two took turns being left
   // out, the paddle drawn every other frame. (Only for that pair and only that close: sprites that all have no height, the unused ones that wait off the
   // picture, are put on one display line together as they always were, and farther apart the order is what it always was; leaving the rest of them on
   // lines of their own drew the paddle some pixels to the right of where it is.)
-  if ((!RIOT[player1height+a])!=(!RIOT[player1height+b]) && temp1<=5 && temp1>=-5)
+  if ((!RIOT[player1height+a])!=(!hb) && (unsigned)(temp1+5)<=10)
     return temp1>=0?SKIP:NOOVERLAP;
-  if (temp1>0)
-  { // larger is higher
-    if ((temp1-=5)>0)
-    {// not overlapping
-      if (temp1>RIOT[player1height+b])
-	return SKIP;
-      else return OVERLAP;
-    }
-    else
-      return OVERLAP;
-  }
-  else // largerXislower
-  {
-    if ((temp1=(temp1^0xFF)-5)>0)
-      return OVERLAP;
-    else
-    {//notoverlapping
-      if (temp1>RIOT[player1height+b])
-        return NOOVERLAP;
-      else return OVERLAP;
-    }
-  }
+  // The one higher on the screen more than 5 lines and its height away from the other: no overlap; anything else overlaps (the batari Basic sort's
+  // test, written shorter: for a lower or equal one it always came to OVERLAP, its value xor 255 less 5 being negative or more than 0).
+  if (temp1>5 && temp1-5>(signed int)hb)
+    return SKIP;
+  return OVERLAP;
 }
 
 // The y a sprite is put in order by: the one checkswap works with.
@@ -319,6 +300,14 @@ void on_off_flip(unsigned int loc, unsigned int fnmask)
 
 
 // main() is what gets called when you store 0xFF into DPC+ register CALLFUNCTION in your 6507 code.
+// The bit of playfield column i (0 to 31) in its byte: the first and third bytes of a row have their left column in bit 7, the second and fourth in bit 0.
+// (Worked out here instead of a table of 32 bytes: the program sits in bank 1 next to the kernel.)
+static unsigned int setbyte(unsigned int i)
+{
+  unsigned int s=i&7;
+  return (i&8)?(1u<<s):(0x80u>>s);
+}
+
 int main()
 {
 
@@ -329,11 +318,6 @@ int main()
   int temp3;
   int Gfxindex;
   unsigned char *HMdiv=(unsigned char *)(0xc00+0x1000);
-  static const unsigned char setbyte[32]=
-	{0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
-	 0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,
-	 0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01,
-	 0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80};
 
   fetcheraddr=flashdata+fetcher_address_table[0];
 
@@ -356,7 +340,7 @@ int main()
       pfpixel=queue+get32bitdff(C_function3>>3); // physical addy of xpos (pf)
       for (i=C_function2;i<=C_function1;++i)
       {
-        on_off_flip(i,setbyte[C_function3]);
+        on_off_flip(i,setbyte(C_function3));
       }
       return;
     }
@@ -365,14 +349,14 @@ int main()
       for (i=C_function3;i<=C_function1;++i)
       {
         pfpixel=queue+get32bitdff(i>>3); // physical addy of xpos (pf)
-        on_off_flip(C_function2,setbyte[i]);
+        on_off_flip(C_function2,setbyte(i));
       }
       return;
     }
     case 12: // pfpixel
     {
       pfpixel=queue+get32bitdff(C_function3>>3); // physical addy of xpos (pf)
-      on_off_flip(C_function2,setbyte[C_function3]);
+      on_off_flip(C_function2,setbyte(C_function3));
       return;
     }
     case 16: // zero-fill
@@ -410,7 +394,7 @@ int main()
     case 24: // pfread 
     {
       pfpixel=queue+get32bitdff(C_function1>>3); // physical addy of xpos (pf)
-      C_function[3]=(!(pfpixel[C_function2]&setbyte[C_function1]));
+      C_function[3]=(!(pfpixel[C_function2]&setbyte(C_function1)));
       return;
     }
     case 28: // pfclear
@@ -478,7 +462,8 @@ int main()
     int moving=spritesort[i];
     int key=sortkey(moving);
     int before=i-1;
-    while (before>=0 && sortkey(spritesort[before])>key && sortkey(spritesort[before])-key>RIOT[player1height+moving]+5)
+    int other;
+    while (before>=0 && (other=sortkey(spritesort[before]))>key && other-key>RIOT[player1height+moving]+5)
     {
       spritesort[before+1]=spritesort[before];
       before--;
@@ -595,12 +580,11 @@ int main()
     count++;
   }
   temp5=1;
-    copynybble(RIOT[score]);//+i
-    copynybble(RIOT[score] >> 4);
-    copynybble(RIOT[score2]);
-    copynybble(RIOT[score2] >> 4);
-    copynybble(RIOT[score3]);
-    copynybble(RIOT[score3] >> 4);
+  for (i=score;i<=score3;i++)
+  {
+    copynybble(RIOT[i]);
+    copynybble(RIOT[i] >> 4);
+  }
 
   return 0;
 }

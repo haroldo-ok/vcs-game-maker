@@ -321,6 +321,18 @@
                               >
                                 <v-icon>{{ card.hidden ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
                               </v-btn>
+                              <v-btn
+                                v-if="card.type === '48x2'"
+                                :title="ballModeOn(screen, card) ? 'Ball mode: painting the ball behind the picture. Click to draw the picture again' :
+                                  'Ball mode: paint the cells where the ball shows behind the picture (one place and width in a frame, on or off for each row)'"
+                                icon
+                                small
+                                :color="ballModeOn(screen, card) ? 'primary' : undefined"
+                                class="import-icon-btn titlescreen-icon-btn-size"
+                                @click.stop="() => toggleBallMode(screen, card)"
+                              >
+                                <v-icon>{{ ballModeOn(screen, card) ? 'mdi-circle' : 'mdi-circle-outline' }}</v-icon>
+                              </v-btn>
                               <v-menu
                                   v-if="card.frames"
                                   top
@@ -366,12 +378,12 @@
                               </v-menu>
 
                               <v-btn
-                                :title="canAddCardType(card.type) ? 'Duplicate this card' :
+                                :title="canAddCardType(card.type, screen) ? 'Duplicate this card' :
                                   'Duplicate this card (no copies of this kind of card are left)'"
                                 icon
                                 small
                                 class="import-icon-btn titlescreen-icon-btn-size"
-                                :disabled="!canAddCardType(card.type)"
+                                :disabled="!canAddCardType(card.type, screen)"
                                 @click.stop="() => handleDuplicateCard(screen, card)"
                               >
                                 <v-icon>mdi-content-duplicate</v-icon>
@@ -567,6 +579,8 @@
                                   :max="cardFrameHeight(card)"
                                   hide-details
                                   @change="handleChildChange"
+                                  @focus="() => handleWindowFieldFocus(screen, card, true)"
+                                  @blur="() => handleWindowFieldFocus(screen, card, false)"
                                 />
                               </div>
                               <p v-if="card.frames.length > 1" class="v-messages theme--light v-messages__message titlescreen-player-hint">
@@ -612,29 +626,35 @@
                                       step="1"
                                       @change="() => handleFrameDurationChange(frame)"
                                     />
+                                    <!-- (A separate canvas for Ball mode, with separate undo steps: one canvas for both put the picture into the
+                                         ball cells with an Undo just after the mode was turned on.) -->
                                     <pixel-editor
+                                      :key="ballModeOn(screen, card) ? 'ball' : 'picture'"
                                       :ref="pixelEditorRefKey(screen, card, frame)"
                                       :width="cardWidth(card)"
                                       :height="frame.pixels.length || 1"
                                       :maxHeight="TITLE_GRAPHIC_MAX_HEIGHT"
                                       :aspectRatio="cardAspectRatio(card, frame.pixels.length)"
-                                      v-model="frame.pixels"
-                                      :fgColor="editorFgColor(card)"
-                                      :rowColors="editorRowColors(card, frame)"
+                                      :value="ballModeOn(screen, card) ? (frame.ballPixels || null) : frame.pixels"
+                                      :fgColor="ballModeOn(screen, card) ? ballColorCss(screen, card, frame) : editorFgColor(card)"
+                                      :rowColors="ballModeOn(screen, card) ? null : editorRowColors(card, frame)"
                                       :columnBackdrop="cardBackdrop(screen, card, frame)"
+                                      :cellColors="ballCellColors(screen, card, frame)"
+                                      :cellColorsCover="ballModeOn(screen, card)"
+                                      :rowRunWidths="ballModeOn(screen, card) ? TITLE_BALL_WIDTHS : null"
                                       :showClearButton="true"
                                       :showGrid="showPixelGrid"
-                                      :windowRows="Number(card.scrollWindow) || 0"
+                                      :windowRows="windowPreviewShown(screen, card) ? (Number(card.scrollWindow) || 0) : 0"
                                       :windowStart="titleScrollStartOf(card)"
                                       @update:windowStart="(start) => handleScrollStartInput(card, start)"
                                       :name="`${screen.name || 'titlescreen'}-${card.id}`"
                                       :hideToolbar="true"
-                                      @input="() => handleFramePixelsInput(card, frame)"
-                                      @resize="() => handleFramePixelsInput(card, frame)"
-                                      @clear="() => handleClearCardColors(card)"
-                                      @clear-colors="() => handleClearCardColors(card)"
-                                      @move-rows="(move) => handleMoveRows(card, frame, move)"
-                                      @flip-rows="() => handleFlipRowColors(card, frame)"
+                                      @input="(value) => handleFrameEditorInput(screen, card, frame, value)"
+                                      @resize="() => { if (!ballModeOn(screen, card)) handleFramePixelsInput(card, frame); }"
+                                      @clear="() => { if (!ballModeOn(screen, card)) handleClearCardColors(card); }"
+                                      @clear-colors="() => { if (!ballModeOn(screen, card)) handleClearCardColors(card); }"
+                                      @move-rows="(move) => { if (!ballModeOn(screen, card)) handleMoveRows(card, frame, move); }"
+                                      @flip-rows="() => { if (!ballModeOn(screen, card)) handleFlipRowColors(card, frame); }"
                                       @activate="(editorInstance) => setActiveFrame(editorInstance, card.id, frame.id, screen.id)"
                                     >
                                       <template v-if="cardHasRowColors(card)" v-slot:sidebar>
@@ -673,6 +693,9 @@
                                             :title="`${cell.on ? 'Drawn in the picture background color' : 'Drawn in the page color'} - click to switch`"
                                             @click="() => handleToggleFrameBoxCell(screen, card, frame, cell)"
                                           />
+                                        </div>
+                                        <div v-if="card.type === '48x2' && (ballModeOn(screen, card) || ballCaption(card, frame))" class="titlescreen-ball-caption">
+                                          {{ ballCaption(card, frame) || 'No ball in this frame: paint the cells it shows behind.' }}
                                         </div>
                                       </template>
                                       <template v-slot:toolbar-end>
@@ -792,14 +815,14 @@
                       <v-list>
                         <v-list-item
                           v-for="option in addCardOptions"
-                          :key="option.type"
-                          :disabled="!canAddCardType(option.type)"
-                          @click="() => handleAddCard(screen, option.type)"
+                          :key="option.type + (option.singleColor ? '-single' : '')"
+                          :disabled="!canAddCardType(option.type, screen)"
+                          @click="() => handleAddCard(screen, option.type, option.singleColor)"
                         >
                           <v-list-item-title>
                             {{ option.label }}
-                            <span v-if="!canAddCardType(option.type)" class="titlescreen-add-limit-note">
-                              (max {{ maxCopiesForType(option.type) }} reached)
+                            <span v-if="!canAddCardType(option.type, screen)" class="titlescreen-add-limit-note">
+                              {{ option.type === 'player' ? '(one on each page)' : '(max ' + maxCopiesForType(option.type) + ' reached)' }}
                             </span>
                           </v-list-item-title>
                         </v-list-item>
@@ -875,9 +898,10 @@ import {buildTitleScreenPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {clampFrameDuration} from '../utils/duration';
 import {DEFAULT_ROW_COLOR, clearRowColors} from '../blocks/background';
 import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE, MAX_PLAYER_CARDS, MAX_SCORE_CARDS,
-  blankTitleScreenPixels, migrateCardFrames, processTitleScreenStorageDefaults, cardFrameHeight, titleScrollStartOf,
+  titleCardTypeInfo, isSingleColorDoubleLine, titleFrameBallLines, TITLE_BALL_WIDTHS, blankTitleScreenPixels, migrateCardFrames, processTitleScreenStorageDefaults, cardFrameHeight, titleScrollStartOf,
   titleFrameBox} from '../blocks/titlescreen';
 import {processPlayerAnimationsStorageDefaults} from '../generators/bbasic/sprites';
+import {usePixelTool} from '../hooks/pixel-tool';
 import {listTextStrings} from '../blocks/text-strings';
 import {appVersionField} from '../utils/app-version';
 import {TITLE_PLAYER_SIZE_OPTIONS, titlePlayerSizeCode} from '../utils/title-player-size';
@@ -1017,13 +1041,14 @@ export default defineComponent({
       const ratio = cardWidth(card) / (rowCount || 1);
       return ratio * CLOCK_TO_SCANLINE_RATIO / (isDoubleLine ? 2 : 1);
     };
-    const cardHasRowColors = (card) => !!(TITLE_SCREEN_KERNEL_TYPES[card.type] || {}).hasRowColors;
+    // (A single color 48x2 or 96x2 has one color, like 48x1: see titleCardTypeInfo.)
+    const cardHasRowColors = (card) => !!(titleCardTypeInfo(card) || {}).hasRowColors;
     const cardTypeLabel = (card) => {
       if (card.type === 'space') return 'Space';
       if (card.type === 'player') return 'Player sprites';
       if (card.type === 'score') return 'Score';
       if (card.type === 'text') return 'Text';
-      return card.type;
+      return isSingleColorDoubleLine(card) ? `${card.type} single color` : card.type;
     };
 
     // Same reasoning as BackgroundEditor.vue's  editorRowColors - without
@@ -1059,8 +1084,11 @@ export default defineComponent({
 
     const addCardOptions = [
       {type: '48x1', label: '48x1 image (single color, half-height pixels)'},
+      // (The single color ones use the kernel copies of 48x2 and 96x2: the eight of a size are shared with the graphics that have row colors.)
       {type: '48x2', label: '48x2 image (per-row color, square pixels)'},
+      {type: '48x2', singleColor: true, label: '48x2 image (single color, square pixels, one color byte)'},
       {type: '96x2', label: '96x2 image (per-row color, wider, more ROM)'},
+      {type: '96x2', singleColor: true, label: '96x2 image (single color, wider, one color byte)'},
       {type: 'player', label: 'Player sprites (existing Player 0/1 animations)'},
       {type: 'score', label: 'Score (the game\'s score)'},
       {type: 'space', label: 'Space (blank gap)'},
@@ -1073,7 +1101,7 @@ export default defineComponent({
     // generators/bbasic/titlescreen.js's  assignKernelSlots), not one
     // pool per page, so this counts cards on every page, not just the one
     // currently being edited. "player"/"score" have their, much smaller
-    // limits (MAX_PLAYER_CARDS/MAX_SCORE_CARDS - see their  comments in
+    // limits (MAX_PLAYER_CARDS, for each page, and MAX_SCORE_CARDS - see their  comments in
     // blocks/titlescreen.js) since there's only ever one of each minikernel
     // project-wide, not a numbered pool of 8.
     const countOfType = (type) => state.value.screens
@@ -1085,11 +1113,14 @@ export default defineComponent({
       return entries.length ? entries.map((entry) => ({text: entry.name || String(entry.text || '').split(String.fromCharCode(10))[0] || `Text ${entry.id}`, value: entry.id})) :
         [{text: 'No text on the Text tab', value: ''}];
     };
-    const canAddCardType = (type) => type === 'space' || countOfType(type) < maxCopiesForType(type);
+    // (A Player sprites card is one for each page: the kernel draws each page's with that page's numbers.)
+    const canAddCardType = (type, screen) => type === 'space' ||
+      (type === 'player' ? !!screen && screen.cards.filter((card) => card.type === 'player').length < MAX_PLAYER_CARDS :
+        countOfType(type) < maxCopiesForType(type));
     const maxCopies = MAX_KERNEL_COPIES_PER_TYPE;
 
-    const handleAddCard = (screen, type) => {
-      if (!canAddCardType(type)) return;
+    const handleAddCard = (screen, type, singleColor = false) => {
+      if (!canAddCardType(type, screen)) return;
       const maxId = getMaxId(screen.cards);
       const newCard = (() => {
         if (type === 'space') return {id: maxId + 1, type, lines: 10};
@@ -1104,15 +1135,17 @@ export default defineComponent({
           };
         }
         const pixels = blankTitleScreenPixels(TITLE_SCREEN_KERNEL_TYPES[type].width);
+        const oneColor = !!singleColor && TITLE_SCREEN_KERNEL_TYPES[type].doubleLine;
         return {
           id: maxId + 1,
           type,
+          ...(oneColor ? {singleColor: true} : {}),
           color: 0x0f,
           frames: [{
             id: 1,
             duration: 10,
             pixels,
-            rowColors: TITLE_SCREEN_KERNEL_TYPES[type].hasRowColors ?
+            rowColors: TITLE_SCREEN_KERNEL_TYPES[type].hasRowColors && !oneColor ?
               pixels.map(() => DEFAULT_ROW_COLOR) : undefined,
           }],
         };
@@ -1144,7 +1177,7 @@ export default defineComponent({
     // it, under a new id that is unique within the screen. The kernel has a fixed number of
     // copies of each kind of card, so it is only offered while one is left.
     const handleDuplicateCard = (screen, card) => {
-      if (!canAddCardType(card.type)) return;
+      if (!canAddCardType(card.type, screen)) return;
       const copy = JSON.parse(JSON.stringify(card));
       const idMap = insertCardAfter('titlecard', screen.cards, card, copy, {screenId: screen.id});
       if (idMap) cardsRenumbered(screen, idMap);
@@ -1331,8 +1364,12 @@ export default defineComponent({
     const handleClearCardColors = (card) => {
       recordFieldsChange([
         {owner: card, fields: ['color', 'background']},
-        ...card.frames.map((frame) => ({owner: frame, fields: ['rowColors', 'background']})),
+        ...card.frames.map((frame) => ({owner: frame, fields: ['rowColors', 'background', 'ballPixels']})),
       ], () => {
+        // The ball behind a 48x2 graphic goes too (its cells all off).
+        card.frames.forEach((frame) => {
+          if (frame.ballPixels) frame.ballPixels = frame.ballPixels.map((row) => (row || []).map(() => 0));
+        });
         if (cardHasRowColors(card)) {
           card.frames.forEach((frame) => {
             frame.rowColors = clearRowColors(frame.rowColors);
@@ -1367,9 +1404,94 @@ export default defineComponent({
       frame.rowColors = next;
     };
 
+    // The window of a scrolling graphic shows in its picture while its Window height field has focus, and while the Move tool is the tool
+    // (it is what that tool drags to set where the scroll starts).
+    const windowFieldFocusRef = ref(null);
+    const pixelTool = usePixelTool();
+    const handleWindowFieldFocus = (screen, card, focused) => {
+      const key = `${screen.id}:${card.id}`;
+      if (focused) windowFieldFocusRef.value = key;
+      else if (windowFieldFocusRef.value === key) windowFieldFocusRef.value = null;
+    };
+    const windowPreviewShown = (screen, card) => windowFieldFocusRef.value === `${screen.id}:${card.id}` || pixelTool.value === 'move';
+
     const handleFramePixelsInput = (card, frame) => {
       ensureRowColors(card, frame);
       handleChildChange();
+    };
+
+    // Ball mode (a 48x2 graphic): the canvas paints the cells of the ball behind the picture (frame.ballPixels, see titleFrameBall in
+    // blocks/titlescreen.js) instead of the picture. The ball has the color of the box behind the picture.
+    const ballModeRefs = ref({});
+    const ballModeOn = (screen, card) => card.type === '48x2' && !!ballModeRefs.value[`${screen.id}:${card.id}`];
+    const toggleBallMode = (screen, card) => {
+      const key = `${screen.id}:${card.id}`;
+      // Every frame gets its ball cells, as many rows as its picture (a frame added or made taller since gets them now).
+      card.frames.forEach((frame) => {
+        const height = (frame.pixels && frame.pixels.length) || 1;
+        const cells = Array.from({length: height}, (_, y) => Array.from({length: 48}, (__, x) =>
+          (frame.ballPixels && frame.ballPixels[y] && frame.ballPixels[y][x]) ? 1 : 0));
+        instance.proxy.$set(frame, 'ballPixels', cells);
+      });
+      ballModeRefs.value = {...ballModeRefs.value, [key]: !ballModeRefs.value[key]};
+      instance.proxy.$forceUpdate();
+    };
+    const handleFrameEditorInput = (screen, card, frame, value) => {
+      if (ballModeOn(screen, card)) {
+        instance.proxy.$set(frame, 'ballPixels', value);
+        handleChildChange();
+        return;
+      }
+      frame.pixels = value;
+      handleFramePixelsInput(card, frame);
+    };
+    const ballColorCss = (screen, card, frame) => {
+      const css = colorByteToCss(frameBoxColor(screen, card, frame) || 0);
+      return css === '#000000' ? '#010101' : css;
+    };
+    // What the canvas shows where the ball is. Out of Ball mode: the ball as the kernel draws it (see titleFrameBallLines), for the cells that are
+    // off (the canvas draws them over the picture's cells that are off only, so a pixel just drawn shows as drawn). In Ball mode: the picture's pixels, drawn over the cells painted (cellColorsCover: the picture
+    // is in front of the ball, as on the TV); the painted cells show in the ball's color where it is off. The list is made again only when what it
+    // is made from changes (the canvas draws all of it again when it gets a new one): out of Ball mode the ball cells, in it the picture.
+    const ballCellCache = new WeakMap();
+    const ballCellColors = (screen, card, frame) => {
+      if (card.type !== '48x2') return null;
+      const height = (frame.pixels && frame.pixels.length) || 1;
+      const painting = ballModeOn(screen, card);
+      const ballCss = ballColorCss(screen, card, frame);
+      const rowCss = editorRowColors(card, frame);
+      const inputs = painting ? [true, height, frame.pixels, rowCss ? rowCss.join() : editorFgColor(card)] :
+        [false, height, frame.ballPixels, ballCss];
+      const cached = ballCellCache.get(frame);
+      if (cached && cached.inputs.length === inputs.length && cached.inputs.every((value, index) => value === inputs[index])) return cached.value;
+      let value = null;
+      if (painting) {
+        const fg = editorFgColor(card);
+        value = Array.from({length: height}, (_, y) => Array.from({length: 48}, (__, x) =>
+          (frame.pixels[y] && frame.pixels[y][x] ? (rowCss && rowCss[y]) || fg : null)));
+      } else {
+        const ball = titleFrameBallLines(frame, height);
+        if (ball) {
+          value = [];
+          value = ball.rows.map((ballRow) =>
+            Array.from({length: 48}, (_, x) => (ballRow.on && x >= ballRow.x && x < ballRow.x + ballRow.width ? ballCss : null)));
+        }
+      }
+      ballCellCache.set(frame, {inputs, value});
+      return value;
+    };
+    // Where the frame's ball is, for the line under the canvas.
+    const ballLinesCache = new WeakMap();
+    const ballCaption = (card, frame) => {
+      const height = (frame.pixels && frame.pixels.length) || 1;
+      const cached = frame.ballPixels && ballLinesCache.get(frame.ballPixels);
+      const ball = cached && cached.height === height ? cached.ball : titleFrameBallLines(frame, height);
+      if (frame.ballPixels) ballLinesCache.set(frame.ballPixels, {height, ball});
+      if (!ball) return '';
+      return 'Ball: on for each row painted; its place and width (1, 2, 4 or 8) change for row 0, then rows 1-2, 3-4... ' +
+        '(Ball mode shows the cells as painted, the canvas without it the ball as drawn).' +
+        (ball.tooWide ? ' A pair of rows is painted wider than 8: the cells past 8 are left out.' : '') +
+        (ball.tooFar ? ' A step is more than 8 right or 7 left: the ball does not reach it (shown as drawn).' : '');
     };
 
     const setRowColors = (frame, colors) => {
@@ -2059,6 +2181,7 @@ export default defineComponent({
       screenDragAttrs, screenDragCardClass, screenDragHandleListeners, screenDragTargetListeners,
       TITLE_GRAPHIC_MAX_HEIGHT, cardWidth, editorWidth, cardAspectRatio, cardHasRowColors, editorRowColors, editorFgColor, cardTypeLabel,
       addCardOptions, canAddCardType, maxCopies, maxCopiesForType, playerAnimationOptions, textCardOptions,
+      ballModeOn, toggleBallMode, handleFrameEditorInput, ballColorCss, ballCellColors, ballCaption, TITLE_BALL_WIDTHS, handleWindowFieldFocus, windowPreviewShown,
       handleAddCard, handleDeleteCard, handleToggleCardHidden, handleDuplicateCard, titleScrollStartOf, handleScrollStartInput,
       showPictureBackgroundControls, frameBoxColor, frameBoxCells, handleSetFrameBoxColor, handleToggleFrameBoxCell, cardBackdrop, handleFitBox,
       handleClearBox,
@@ -2567,6 +2690,13 @@ export default defineComponent({
   height: 22px;
   margin-top: 4px;
   border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+/* Where the frame's ball is (Ball mode of a 48x2 graphic). */
+.titlescreen-ball-caption {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
 }
 
 .titlescreen-frame-box-cell {

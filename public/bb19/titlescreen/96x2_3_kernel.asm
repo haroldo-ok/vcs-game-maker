@@ -22,7 +22,11 @@ draw_bmp_96x2_3
 	sta NUSIZ1	;3=Player and Missile are drawn twice 32 clocks apart 
 	lda #0
 
+ ifconst bmp_96x2_3_onecolor
+	lda bmp_96x2_3_color
+ else
 	lda bmp_96x2_3_colors,y 	;4
+ endif
  ifconst bmp_96x2_3_fade
 	and bmp_96x2_3_fade
  endif
@@ -93,7 +97,11 @@ pfline_96x2_3_frame0
 	;sta WSYNC 	;=0
 	sta HMOVE	;3 - NORMAL HMOVE
 
+ ifconst bmp_96x2_3_onecolor
+	lda.w bmp_96x2_3_color	;4 - one color (a single color graphic)
+ else
 	lda bmp_96x2_3_colors-1,y 	;4 - get the title color early and store it for later
+ endif
  ifconst bmp_96x2_3_fade
         and bmp_96x2_3_fade
  else
@@ -125,7 +133,6 @@ pfline_96x2_3_frame0
 	sleep 2
 	stx COLUP1
 	stx COLUP0
-
 
 	sta HMOVE 	;3 - CYCLE 74 HMOVE 
 	sleep 2
@@ -211,7 +218,11 @@ pfline_96x2_3_frame1
 
 	sleep 8
 
+ ifconst bmp_96x2_3_onecolor
+	lda.w bmp_96x2_3_color	;4 - one color (a single color graphic)
+ else
 	lda bmp_96x2_3_colors-1,y 	;get the title color early and store it for later
+ endif
 	tax			;2
 
 	sleep 3

@@ -30,6 +30,97 @@ export const TITLE_SCREEN_KERNEL_TYPES = {
   '96x2': {width: 96, blockCount: 12, doubleLine: true, hasRowColors: true},
 };
 
+// A 48x2 or 96x2 graphic can be single color (card.singleColor, chosen when it is added): one color for the whole graphic, like 48x1, stored
+// in one byte instead of a byte for each row (the kernel copies of its type read that byte: bmp_<key>_onecolor). What a graphic is drawn with:
+// its type's numbers, without row colors when it is single color.
+export const isSingleColorDoubleLine = (card) => !!(card && card.singleColor && (TITLE_SCREEN_KERNEL_TYPES[card.type] || {}).doubleLine);
+export const titleCardTypeInfo = (card) => {
+  const typeInfo = card && TITLE_SCREEN_KERNEL_TYPES[card.type];
+  if (!typeInfo) return undefined;
+  return isSingleColorDoubleLine(card) ? {...typeInfo, hasRowColors: false, singleColor: true} : typeInfo;
+};
+// A graphic with one color for all of it (48x1, or a single color 48x2 or 96x2): the blocks that set or fade that color work on it.
+export const isSingleColorTitleCard = (card) => !!card && (card.type === '48x1' || isSingleColorDoubleLine(card));
+
+// The ball behind a 48x2 graphic, drawn on the Title tab's canvas (frame.ballPixels, the cells painted in its Ball mode). It has the playfield's
+// color (the box's) and is behind the picture, so it shows where the picture's pixels are off. The kernel (pf48x2_N_ball_loop in
+// 48x2_N_kernel.asm) turns it on or off for each row and sets its width (1, 2, 4 or 8 pixels) and moves it (at most 7 pixels left or 8 right)
+// for every two rows, all on the line before the row they are for, so the ball is on its rows' lines.
+// The width and x are set for row 0 (by the setup), then for the rows 1 and 2, 3 and 4... (one HMOVE for each pair); in a pair, the ball
+// starts at the leftmost painted cell and is as wide as the painted cells need (8 at the most). A pair with nothing painted moves the ball
+// toward the next pair that has some, so that one is reached sooner.
+export const TITLE_BALL_WIDTHS = [1, 2, 4, 8];
+// The rows of a frame of the ball as the kernel draws it, for the build and for the canvas: x0 (the column the ball is placed at) and, for
+// each row: on (ENABL), the group's x and width, and the bytes of its tables (en: ENABL, w: CTRLPF, hm: HMBL). Null with no painted cell.
+const ballGroupOf = (row) => (row === 0 ? 0 : Math.ceil(row / 2));
+export const titleFrameBallLines = (frame, height) => {
+  const painted = Array.from({length: height}, (_, y) => {
+    const row = (frame && frame.ballPixels && frame.ballPixels[y]) || [];
+    const cells = [];
+    row.forEach((cell, x) => {
+      if (cell) cells.push(x);
+    });
+    return cells.length ? {left: cells[0], right: cells[cells.length - 1]} : null;
+  });
+  if (!painted.some(Boolean)) return null;
+  const groupCount = ballGroupOf(height - 1) + 1;
+  // What each pair asks for: the leftmost painted cell and the width that covers the painted cells.
+  const asked = Array.from({length: groupCount}, () => null);
+  painted.forEach((cells, y) => {
+    if (!cells) return;
+    const group = ballGroupOf(y);
+    const was = asked[group];
+    asked[group] = was ? {left: Math.min(was.left, cells.left), right: Math.max(was.right, cells.right)} : {...cells};
+  });
+  const targets = asked.map((cells) => (cells ? {x: cells.left, span: cells.right - cells.left + 1} : null));
+  // (A pair with nothing painted goes toward the next one that has something, and keeps the width it has.)
+  for (let group = groupCount - 1, next = null; group >= 0; group--) {
+    if (targets[group]) next = targets[group];
+    else if (next) targets[group] = {x: next.x, span: 0};
+  }
+  let width = 1;
+  let x = targets[0] ? targets[0].x : 0;
+  const x0 = x;
+  const groups = targets.map((target, group) => {
+    let delta = 0;
+    if (target) {
+      if (target.span) width = TITLE_BALL_WIDTHS.find((candidate) => candidate >= target.span) || 8;
+      if (group > 0) delta = Math.max(-7, Math.min(8, target.x - x));
+    }
+    x += delta;
+    return {x, width, delta, reached: !target || target.x === x, span: target ? target.span : 0};
+  });
+  const ctrl = (w) => 1 | (TITLE_BALL_WIDTHS.indexOf(w) << 4);
+  // HMBL for a move (the HMOVE at the end of a line): 0 none, 1 to 7 that many pixels left, 8 to 15 the rest of 16 to the right.
+  const hm = (delta) => (delta < 0 ? -delta : delta > 0 ? 16 - delta : 0) << 4;
+  const rows = painted.map((cells, y) => {
+    const group = groups[ballGroupOf(y)];
+    // (The row read for a pair's width is the first of the pair, 0 for row 0; the move into a pair is read at the row two before its second.)
+    const widthGroup = y === 0 ? groups[0] : (y % 2 === 1 ? groups[ballGroupOf(y)] : groups[ballGroupOf(y - 1)]);
+    const moveGroup = y % 2 === 0 ? groups[ballGroupOf(y + 1)] : null;
+    return {on: !!cells, x: group.x, width: group.width, en: cells ? 2 : 0, w: ctrl(widthGroup.width), hm: moveGroup ? hm(moveGroup.delta) : 0};
+  });
+  return {x0, rows, groups, tooWide: asked.some((cells) => cells && cells.right - cells.left + 1 > 8),
+    tooFar: groups.some((group) => !group.reached)};
+};
+// Whether a graphic draws the ball (a 48x2 with a painted cell in a frame).
+export const titleCardHasBall = (card) => !!card && card.type === '48x2' && (card.frames || []).some((frame) =>
+  (frame.ballPixels || []).some((row) => (row || []).some(Boolean)));
+// The column the ball is placed at in each frame (a frame with no ball takes the first one's: its rows are all off).
+export const titleCardBallPlaces = (card) => {
+  const height = cardFrameHeight(card);
+  const balls = (card.frames || []).map((frame) => titleFrameBallLines(frame, height));
+  const first = balls.find(Boolean) || {x0: 0};
+  return balls.map((ball) => ({x: (ball || first).x0}));
+};
+// A graphic whose frames place the ball in different columns keeps the column in a byte that the animation sets (see
+// generateTitleScreenAnimationChecks); the others have it in the ROM.
+export const titleCardBallVaries = (card) => {
+  const places = titleCardBallPlaces(card);
+  return places.some((place) => place.x !== places[0].x);
+};
+export const titleCardBallXVarName = (ref) => `titleCardBallX_${sanitizeCardRef(ref)}`;
+
 // The kernel ships exactly 8 pre-built copies of each bitmap type (see
 // public/bb19/titlescreen/*_kernel.asm, numbered 1-8) - a 9th card of the
 // same type has no kernel variant left to use. This pool is shared across
@@ -40,12 +131,9 @@ export const TITLE_SCREEN_KERNEL_TYPES = {
 export const MAX_KERNEL_COPIES_PER_TYPE = 8;
 
 // The "player" minikernel (draws up to 2 real Player 0/1 hardware sprites
-// within a title screen) is a project-wide singleton, not a numbered pool
-// like the bitmap types above - see generators/bbasic/titlescreen.js's
-// assignKernelSlots/buildPlayerDataAsm for why (there's only ever one
-// draw_player_display routine and one set of bmp_player0/bmp_player1 data
-// project-wide). Enforced the same way as MAX_KERNEL_COPIES_PER_TYPE, in
-// TitleScreenEditor.vue's  canAddCardType.
+// within a title screen): one card on each page (not a numbered pool like the bitmap types above). Each page's card has
+// its data and a routine that sets its numbers for the kernel's one drawing loop (see generators/bbasic/titlescreen.js's
+// buildPlayerDataAsm and player_kernel.asm). Enforced in TitleScreenEditor.vue's canAddCardType, for each page.
 export const MAX_PLAYER_CARDS = 1;
 
 // Same project-wide singleton reasoning as MAX_PLAYER_CARDS above, for the
@@ -181,12 +269,15 @@ export const setTitleCompactColors = (on) => {
 export const isUniformColorList = (rows) => !!rows && rows.length > 0 && rows.every((color) => color === rows[0]);
 // Whether a graphic may store its row color lists that way: not one that is faded (its steps are offsets of whole lists).
 export const titleCardUniformAllowed = (card, ref) => {
-  const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
-  return compactColors && !!typeInfo && typeInfo.width === 48 && typeInfo.hasRowColors && !(ref && rowFadePlans[ref]);
+  const typeInfo = titleCardTypeInfo(card);
+  // (Not one with the ball: its loop reads every row's color, see draw_bmp_48x2_XB.)
+  return compactColors && !!typeInfo && typeInfo.width === 48 && typeInfo.hasRowColors && !(ref && rowFadePlans[ref]) && !titleCardHasBall(card);
 };
 
 export const titleCardColorSplit = (card, ref) => {
-  const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+  const typeInfo = titleCardTypeInfo(card);
+  // (A graphic with the ball keeps its frames whole: its loop reads the row colors with the picture's index, see pf48x2_N_ball_loop.)
+  if (titleCardHasBall(card)) return '';
   // A multicolor graphic that is faded has its color lists apart as well: the original one, and one for each step of the fade.
   if (ref && rowFadePlans[ref] && typeInfo && typeInfo.width === 48 && typeInfo.hasRowColors) return 'offset';
   if (!typeInfo || typeInfo.width !== 48 || !typeInfo.hasRowColors || !isCardAnimated(card)) return '';
@@ -325,6 +416,13 @@ export const titleFrameBox = (card, frame, pageColor) => ({
 
 // Every animated 48-wide graphic whose frames do not all have the same picture background, as
 // "screenId:cardId" refs: those need the background written as the animation moves from frame to frame.
+// Every graphic with the ball whose place or width differs between its frames, as "screenId:cardId" refs (two bytes each, see titleCardBallVaries).
+export const resolveBallVaryCardRefs = () => {
+  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
+  return screens.flatMap((screen) => (screen.cards || []).filter((card) => titleCardHasBall(card) && titleCardBallVaries(card))
+      .map((card) => `${screen.id}:${card.id}`));
+};
+
 export const resolveFrameBoxCardRefs = () => {
   const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const refs = [];
@@ -563,7 +661,7 @@ const buildCardOptions = (isWanted, emptyLabel) => () => {
       (screen.cards || []).forEach((card) => {
         if (!isWanted(card)) return;
         const screenLabel = screen.name || `Title Screen ${screen.id}`;
-        options.push([`${screenLabel} → ${card.type} (ID:${card.id})`, `${screen.id}:${card.id}`]);
+        options.push([`${screenLabel} → ${card.type}${isSingleColorDoubleLine(card) ? ' single color' : ''} (ID:${card.id})`, `${screen.id}:${card.id}`]);
       });
     });
     return options.length ? options : [[emptyLabel, '']];
@@ -574,14 +672,14 @@ const buildCardOptions = (isWanted, emptyLabel) => () => {
 };
 const buildBoxCardOptions = buildCardOptions(
     (card) => (TITLE_SCREEN_KERNEL_TYPES[card.type] || {}).width === 48, 'No 48-wide graphics');
-const buildColorCardOptions = buildCardOptions((card) => card.type === '48x1', 'No single-color (48x1) graphics');
-const buildFadeCardOptions = buildCardOptions((card) => card.type === '48x1' || card.type === '48x2',
-    'No single-color (48x1) or multicolor (48x2) graphics');
+const buildColorCardOptions = buildCardOptions(isSingleColorTitleCard, 'No single-color graphics');
+const buildFadeCardOptions = buildCardOptions((card) => isSingleColorTitleCard(card) || card.type === '48x2',
+    'No single-color or 48x2 graphics');
 const buildFrameCardOptions = buildCardOptions((card) => isCardAnimated(card), 'No graphics with more than one frame');
 
 [buildBoxCardOptions, buildColorCardOptions, buildFadeCardOptions, buildFrameCardOptions].forEach((builder) => cardOptions('titlecard', builder));
 
-// Changes a single-color (48x1) graphic's color while the title screen runs.
+// Changes a single-color graphic's color while the title screen runs (48x1, and a 48x2 or 96x2 that is single color).
 Blockly.Blocks['titlescreen_card_color_set'] = {
   init: function() {
     this.appendValueInput('VALUE')
@@ -593,14 +691,14 @@ Blockly.Blocks['titlescreen_card_color_set'] = {
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(TITLESCREEN_COLOR);
-    this.setTooltip('Changes the color of a single-color (48x1) Title Screen graphic while the title ' +
+    this.setTooltip('Changes the color of a single-color Title Screen graphic (48x1, or a single color 48x2 or 96x2) while the title ' +
       'screen is showing, for text that blinks or cycles colors. "Title screen start" sets it back to ' +
-      'the color chosen on the Title tab. Graphics with a color for every row (48x2, 96x2) keep ' +
+      'the color chosen on the Title tab. Graphics with a color for every row keep ' +
       'the colors drawn on the Title tab.');
   },
 };
 
-// Fades a single-color (48x1) graphic's color to another over some frames, the way the Score, Text and Background fades work.
+// Fades a single-color graphic's color (or a 48x2 graphic's row colors) to another over some frames, the way the Score, Text and Background fades work.
 Blockly.Blocks['titlescreen_card_color_fade'] = {
   init: function() {
     this.appendValueInput('VALUE')
@@ -619,7 +717,7 @@ Blockly.Blocks['titlescreen_card_color_fade'] = {
     this.setTooltip('Starts fading the color of a Title Screen graphic toward the given color over roughly that many ' +
       'frames: the same hue, with the brightness climbing or dropping from where it is. It only needs to run once, and ' +
       'keeps going by itself while the title screen shows. "Title screen start" sets the color back to the one chosen on ' +
-      'the Title tab. A multicolor (48x2) graphic fades every frame of its animation from the row colors of its first ' +
+      'the Title tab. A 48x2 graphic with a color for every row fades every frame of its animation from the row colors of its first ' +
       'frame, and needs a color from the color picker block and a number of frames typed in.');
   },
 };
@@ -762,7 +860,7 @@ const buildScrollableCardOptions = () => {
         const scrollWindow = Number(card.scrollWindow) || 0;
         if (!(scrollWindow > 0 && scrollWindow < height)) return;
         const screenLabel = screen.name || `Title Screen ${screen.id}`;
-        options.push([`${screenLabel} → ${card.type} (ID:${card.id})`, `${screen.id}:${card.id}`]);
+        options.push([`${screenLabel} → ${card.type}${isSingleColorDoubleLine(card) ? ' single color' : ''} (ID:${card.id})`, `${screen.id}:${card.id}`]);
       });
     });
     if (!options.length) return [['No scrolling graphics configured', '']];
@@ -898,7 +996,7 @@ Blockly.Blocks['titlescreen_player_frame_set'] = {
     this.setNextStatement(true, null);
     this.setColour(TITLESCREEN_COLOR);
     this.setTooltip('Jumps the player sprite of the Title tab to a frame of its chosen Player 0/1 animation ' +
-      '(0 = the first frame). An animation with several frames plays by itself on the title screen, using ' +
+      '(0 = the first frame; with a Player sprites card on several pages, the card of the page that is drawn). An animation with several frames plays by itself on the title screen, using ' +
       'the duration of each frame; this block only moves it to a frame, and it carries on from there: ' +
       '"loop" keeps playing round and round, "play once" plays to the last frame and stays there. ' +
       'An animation with one frame stays where it is. Position it with the normal ' +

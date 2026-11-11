@@ -18,9 +18,10 @@ const toggledTool = ref('pencil');
 
 export const usePixelTool = () => toggledTool;
 
-// The color the swatch in the graphic editor toolbar holds (a color byte, or null for none yet): the Pencil and Fill paint the rows of
-// a row color bar with it, and the Eyedropper sets it to the color it is clicked on. Drawing on the picture itself only draws pixels.
-const drawColor = ref(null);
+// The color the swatch in the graphic editor toolbar holds (a color byte): the Pencil and Fill paint the rows of a row color bar with it, and the
+// Eyedropper sets it to the color it is clicked on. Drawing on the picture itself only draws pixels. It starts as black, so the Pencil and Fill
+// paint the rows from the start (with none they did nothing).
+const drawColor = ref(0);
 
 export const useDrawColor = () => drawColor;
 

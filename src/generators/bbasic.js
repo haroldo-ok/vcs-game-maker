@@ -41,7 +41,7 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
 import {buildGroupRowsLoad, GROUP_ROWS_TABLE, ensureArmProgram} from './bbasic/offset-arm';
 import {chooseSpill, applySpill, remainingUses, mergeAdjacentReads} from './bbasic/spill';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
-  MAX_FUNCTION_ARGS} from '../blocks/function';
+  MAX_FUNCTION_ARGS, functionCallResultVarName, functionCallsOfStatement} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
 import {colorByteToBuildBBasic, scoreColorByteOf} from '../utils/palette';
@@ -63,11 +63,11 @@ import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStart
   TITLE_ANIMATE_FAMILY, titleAnimateVar,
   TITLE_CARD_FINISHED_FAMILY, titleCardFinishedVar, titleCardFinishedBit, titleCardFinishedLatchBit,
   titleCardOnceBit, TITLE_PLAYER_ONCE_FAMILY, titlePlayerOnceVar, titlePlayerOnceBit, titleScreensHaveTextCard} from './bbasic/titlescreen';
-import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageDefaults, processTitleScreenStorageForBuild,
+import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolveBallVaryCardRefs, titleCardBallXVarName, titleCardHasBall, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageDefaults, processTitleScreenStorageForBuild,
   titleCardScrollOffsetVarName, resolveTitleScreenCardsNeedingIndexRefs, resolveScrollStarts, titleCardWindowVarName, titleScrollsHere,
   titleCardIndexVarName, titleCardColorIndexVarName, resolveColorSplitCardRefs,
   titleCardColorPageVarName, resolveColorPageCardRefs,
-  titleScrollEdgeFlagSlots, planTitleRowFade, setTitleRowFadePlans, padTitleCardFrames, TITLE_SCREEN_KERNEL_TYPES, titleCardColorVarName, titleCardFadeTargetVarName, titleCardFadeTimerVarName, titleCardFadePaceVarName,
+  titleScrollEdgeFlagSlots, planTitleRowFade, setTitleRowFadePlans, padTitleCardFrames, TITLE_SCREEN_KERNEL_TYPES, isSingleColorTitleCard, titleCardColorVarName, titleCardFadeTargetVarName, titleCardFadeTimerVarName, titleCardFadePaceVarName,
   TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName} from '../blocks/titlescreen';
 import {registerDistanceAbsDiffSubroutine, registerKeypadPollSubroutine, generateJoystickDirection8Table,
@@ -1395,7 +1395,13 @@ Blockly.BBasic.init = function(workspace) {
   this.titleRowFadePlans = {};
   fadedRefs.forEach((ref) => {
     const entry = cardOf(ref);
-    if (!entry || entry.card.type !== '48x2' || this.titleRowFadePlans[ref]) return;
+    // (Not a graphic with the ball: its loop reads whole frames' row colors, see pf48x2_N_ball_loop.)
+    if (!entry || entry.card.type !== '48x2' || isSingleColorTitleCard(entry.card) || titleCardHasBall(entry.card) || this.titleRowFadePlans[ref]) {
+      if (entry && titleCardHasBall(entry.card) && !isSingleColorTitleCard(entry.card)) {
+        appendCompileLog(`A "Fade title screen graphic color" block does nothing on the graphic ${ref.split(':')[1]} of page ${ref.split(':')[0]}: it has the ball behind it.`, 'warning');
+      }
+      return;
+    }
     const block = fadeBlocks.find((candidate) => candidate.getFieldValue('CARD') === ref);
     const colorBlock = block && block.getInputTargetBlock('VALUE');
     const framesBlock = block && block.getInputTargetBlock('FRAMES');
@@ -1406,7 +1412,7 @@ Blockly.BBasic.init = function(workspace) {
       pace: Math.max(1, Math.floor(Number(framesBlock.getFieldValue('NUM')) / plan.stepCount))};
   });
   setTitleRowFadePlans(this.titleRowFadePlans);
-  this.titleFadeRefs = new Set(fadedRefs.filter((ref) => !this.titleRowFadePlans[ref] && (cardOf(ref) || {card: {}}).card.type === '48x1'));
+  this.titleFadeRefs = new Set(fadedRefs.filter((ref) => !this.titleRowFadePlans[ref] && isSingleColorTitleCard((cardOf(ref) || {}).card)));
   this.titleFadeConstantPace = {};
   this.titleFadeRefs.forEach((ref) => {
     const paces = fadeBlocks.filter((block) => block.getFieldValue('CARD') === ref).map((block) => {
@@ -1427,6 +1433,8 @@ Blockly.BBasic.init = function(workspace) {
      playerFrameBlocks.some((block) => Number(block.getFieldValue('PLAYER')) === playerIndex)));
   // Graphics whose frames have different picture backgrounds need those bytes in RAM as well.
   this.titleFrameBoxRefs = new Set(this.titleScreenDrawUsed ? resolveFrameBoxCardRefs() : []);
+  // Graphics whose ball is in other places or widths in their frames: two bytes each, set by the animation.
+  this.titleBallVaryRefs = new Set(this.titleScreenDrawUsed ? resolveBallVaryCardRefs() : []);
   this.titleBoxRefs = new Set(this.titleScreenDrawUsed ? [...targets('titlescreen_box_set'),
     ...targets('titlescreen_box_color_set'), ...this.titleFrameBoxRefs] : []);
   // A block can still name a graphic that has since been deleted (or no longer has several frames): such a
@@ -1559,6 +1567,15 @@ Blockly.BBasic.init = function(workspace) {
   // calls a function as a bare statement at all.
   this.functionCallStatementUsed = workspace.getAllBlocks(false)
       .some((block) => block.type === 'function_call_statement');
+  // The PXE compiler has no functions: a Function is a subroutine there and every call to one a gosub (see generators/bbasic/function.js), its arguments and its
+  // value through the same bytes as a bare statement call; a statement that calls two or more keeps each value in a separate byte (functionCallResultVarName).
+  this.functionCallsAsSubroutines = isPxe(useConfigurationStorage().value || {});
+  this.functionCallValueSlots = 0;
+  if (this.functionCallsAsSubroutines && workspace.getAllBlocks(false).some((block) => block.type === 'function_call' && block.isEnabled())) {
+    this.functionCallStatementUsed = true;
+    this.functionCallValueSlots = Math.max(0, ...workspace.getAllBlocks(false).filter((block) => !block.outputConnection)
+        .map((block) => functionCallsOfStatement(block).length).filter((count) => count > 1));
+  }
 
   // data_get_bit_by_id's  dynamic-TABLE_ID path (see generators/bbasic/
   // data.js) reuses that exact same discarded-return-value var, rather than
@@ -2248,6 +2265,13 @@ Blockly.BBasic.init = function(workspace) {
       this.titleWindowRefs.delete(ref);
       appendCompileLog(`A "Set title screen graphic window height" block does nothing on the graphic ${ref.split(':')[1]} of page ${ref.split(':')[0]}: its colors are faded.`, 'warning');
     });
+    // (Nor on a graphic with the ball: its loop counts the rows with the picture's index, see pf48x2_N_ball_loop.)
+    const titleCardOfRef = (ref) => processTitleScreenStorageForBuild(useTitleScreenStorage()).screens.flatMap((screen) =>
+      (screen.cards || []).map((card) => ({card, ref: `${screen.id}:${card.id}`}))).find((entry) => entry.ref === ref);
+    [...this.titleWindowRefs].filter((ref) => titleCardHasBall((titleCardOfRef(ref) || {}).card)).forEach((ref) => {
+      this.titleWindowRefs.delete(ref);
+      appendCompileLog(`A "Set title screen graphic window height" block does nothing on the graphic ${ref.split(':')[1]} of page ${ref.split(':')[0]}: it has the ball behind it.`, 'warning');
+    });
     this.titleScreenScrollTargetRefs = new Set([...workspace.getAllBlocks(false)
         .filter((block) => block.type === 'titlescreen_scroll_set' || block.type === 'titlescreen_scroll_by')
         .map((block) => block.getFieldValue('CARD')).filter((ref) => existingCards.has(ref)), ...resolveScrollStarts().keys(), ...this.titleWindowRefs]);
@@ -2359,6 +2383,9 @@ Blockly.BBasic.init = function(workspace) {
             `title screen Player ${playerIndex} sprite: duration-tick counter`);
       }
     });
+    this.titleBallVaryRefs.forEach((ref) => {
+      reserveTitleDevVar(titleCardBallXVarName(ref), undefined, 'title screen graphic: the column its ball is placed at (its frames have it in other places)');
+    });
     this.titleBoxRefs.forEach((ref) => {
       reserveTitleDevVar(titleCardBoxPf1VarName(ref), undefined, 'title screen picture background: playfield blocks 1-8 (PF1)');
       reserveTitleDevVar(titleCardBoxPf2VarName(ref), undefined, 'title screen picture background: playfield blocks 9-16 (PF2)');
@@ -2409,15 +2436,20 @@ Blockly.BBasic.init = function(workspace) {
   // one variable its scan needs.
   if (workspace.getAllBlocks(false).some((block) =>
     (block.type === 'background_area_clear' || block.type === 'background_fill_area' ||
-      (block.type === 'background_fill_circle' && !circleArmFits(useConfigurationStorage().value || {}, block))) &&
+      (block.type === 'background_fill_circle' && (!circleArmFits(useConfigurationStorage().value || {}) ||
+        circleArmUsesLastRow(useConfigurationStorage().value || {}, block)))) &&
     block.isEnabled() && !block.getInheritedDisabled())) {
     reserveDevVarRW(areaClearLeftVarName(), 'area clear check: the left column each row restarts from; the area fill block: its last row');
   }
 
-  // (Under DPC+ the coprocessor draws the circle: no variables, unless a block has more numbers to work out than the scratch bytes hold.)
+  // (Under DPC+ the coprocessor draws the circle: no variables.)
   if (workspace.getAllBlocks(false).some((block) => block.type === 'background_fill_circle' && block.isEnabled() && !block.getInheritedDisabled() &&
-    !circleArmFits(useConfigurationStorage().value || {}, block))) {
+    !circleArmFits(useConfigurationStorage().value || {}))) {
     circleVarNames().forEach((name) => reserveDevVarRW(name, 'the circle block: its center column and row, radius and the row it is drawing'));
+  } else if (workspace.getAllBlocks(false).some((block) => block.type === 'background_fill_area' && block.getFieldValue('MODE') === 'CENTER' &&
+    block.isEnabled() && !block.getInheritedDisabled())) {
+    // (A centered area block: the center, see fillCenteredArea in generators/bbasic/background.js.)
+    circleVarNames().slice(0, 2).forEach((name) => reserveDevVarRW(name, 'the centered area block: its center column and row'));
   }
 
   if (this.collisionPixelUsed) {
@@ -2478,6 +2510,10 @@ Blockly.BBasic.init = function(workspace) {
     for (let i = 1; i <= this.functionCallArgCount; i++) {
       reserveDevVarRW(functionCallArgVarName(i), `calling a Function as a bare statement passes argument ${i} through here`);
     }
+  }
+
+  for (let i = 1; i <= this.functionCallValueSlots; i++) {
+    reserveDevVarRW(functionCallResultVarName(i), `on PXE, the value of Function call ${i} of a statement that calls more than one`);
   }
 
   // Same bucket again, for function_param_get's  snapshot vars (see the
@@ -3702,11 +3738,36 @@ Blockly.BBasic.init = function(workspace) {
   // opposite end to the one the Display RAM blocks are meant for, and every use of one reads and writes the byte through a data fetcher.
   this.displayRamVars = new Map();
   Blockly.BBasic.displayRamVars = this.displayRamVars;
+  this.spillPoolUsed = false;
   // (PXE keeps no variables in the display memory: the 6502 can not reach it there.)
   if (this.spillPlan && config.kernel === 'dpcplus' && !isPxe(config) && !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127) {
+    // A variable of var0 to var8 (or of a freed sprite byte) that the plan sends to the display memory gives its byte to one of the letters' variables (not a run-once
+    // byte, which keeps its place at the end, nor one a Title Screen variable shares): the same number of variables stay in the RAM, and the ones that go are the
+    // ones the code uses least (see spillInternalVariables).
+    const sharedTargets = new Set(this.titleSharedSlots.map(({target}) => target));
+    const takeLetterVariable = () => {
+      for (let j = runOnceDefvarsStart - 1; j >= 0; j--) {
+        if (this.spillPlan.has(defvars[j]) || sharedTargets.has(defvars[j])) continue;
+        const [moved] = defvars.splice(j, 1);
+        runOnceDefvarsStart--;
+        return moved;
+      }
+      return null;
+    };
     [...this.spillPlan].forEach((name) => {
-      const i = defvars.indexOf(name);
       if (this.displayRamVars.size >= DISPLAY_RAM_VAR_CAPACITY) return;
+      // (Not a variable hosted in a Title Screen scratch byte: that byte is set back to 0 when gameplay starts.)
+      for (const pool of [this.dpcPlusVars, this.dpcPlusSpriteVars]) {
+        const p = pool.indexOf(name);
+        if (p === -1 || this.titleScratchHosted.includes(name)) continue;
+        const moved = takeLetterVariable();
+        if (moved === null) return;
+        pool[p] = moved;
+        this.spillPoolUsed = true;
+        this.displayRamVars.set(name, {area: 5 - Math.floor(this.displayRamVars.size / 128), byte: 127 - (this.displayRamVars.size % 128)});
+        return;
+      }
+      const i = defvars.indexOf(name);
       if (i === -1 && !spilledSystemVars.has(name)) return;
       if (i !== -1) defvars.splice(i, 1);
       const index = this.displayRamVars.size;
@@ -3784,7 +3845,13 @@ Blockly.BBasic.init = function(workspace) {
     if (defvars.length > availableLetters.length && this.spillProbe) {
       // A first look at the generated code (see workspaceToCode at the end of this file): it only needs the code, which does not depend
       // on which names have a slot, so what does not fit is left out here and noted.
-      this.spillProbeInfo = {over: defvars.length - availableLetters.length, names: defvars.slice(), userNames: [...this.userVarNames]};
+      // (pooled: the variables of var0 to var8 and of the freed sprite bytes, which the spill can choose too, giving their byte to one of the letters'. Not one a
+      // Title Screen scratch byte hosts, and not one the assembly of the kernels names, which the analysis of the generated code does not see: the score kernel's
+      // minikernel reads scorebkcolor in the middle of the kernel. Without the names of the kernels (the code made outside a build) none of them. A build that does not
+      // fit with them (each use of a variable in the display memory takes more bytes) is made again without them: spillPoolOff, see buildRom in hooks/rom.js.)
+      const kernelNames = this.kernelIdentifiers;
+      this.spillProbeInfo = {over: defvars.length - availableLetters.length, names: defvars.slice(), userNames: [...this.userVarNames],
+        pooled: kernelNames && !this.spillPoolOff ? [...this.dpcPlusVars, ...this.dpcPlusSpriteVars].filter((name) => !this.titleScratchHosted.includes(name) && !kernelNames.has(name)) : []};
       defvars.length = availableLetters.length;
     }
     if (defvars.length > availableLetters.length) {
@@ -9290,7 +9357,7 @@ Blockly.BBasic.generateAnimations = function() {
   return [...(partnerResets.length ? [partnerResets.join('\n')] : []), ...hardwareCode, ...extraCode, ...partnerCode].join('\n\n\n');
 };
 import background, {backgroundGetPixelDevVarsNeeded, registerBackgroundLineSubroutine,
-  reserveShakeScreenDevVar, circleArmFits, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, bgColorFlagBits, rainbowBackgroundBits, rainbowIdBits, BG_COLOR_FLAGS_FAMILY, BG_RAINBOW_ID_FAMILY, BG_COLOR_STEP_FAMILY, reserveBackgroundColorFlagsDevVar, bgColorFlagRef, generateShakeScreenChecks, dpcPlusScrollDivider} from './bbasic/background';
+  reserveShakeScreenDevVar, circleArmFits, circleArmUsesLastRow, reserveOffsetAreaDevVars, offsetArmSharedVars, offsetByteRange, bgColorFlagBits, rainbowBackgroundBits, rainbowIdBits, BG_COLOR_FLAGS_FAMILY, BG_RAINBOW_ID_FAMILY, BG_COLOR_STEP_FAMILY, reserveBackgroundColorFlagsDevVar, bgColorFlagRef, generateShakeScreenChecks, dpcPlusScrollDivider} from './bbasic/background';
 import bit from './bbasic/bit';
 import collision from './bbasic/collision';
 import color from './bbasic/color';
@@ -9497,23 +9564,62 @@ Blockly.BBasic.spillInternalVariables = function(workspace, probeCode) {
   // The Text Minikernel's hand-written asm reads these by name, which the text analysis cannot see.
   const readByAsm = new Set([textRow2ColorVarName, textBkColorVarName, textLinesBaseVarName, textLinesMaxVarName, textScrollCursorColorVarName,
     textEndIconColorVarName].map((varName) => this.nameDB_.getName(varName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)));
-  const internal = info.names.concat(this.spillableSystemVars(config))
+  const internal = [...new Set(info.names.concat(this.spillableSystemVars(config), info.pooled || []))]
       .filter((name) => !this.displayRamExcluded.has(name) && !readByAsm.has(name) && !this.isSlotHost(name));
   const userRoom = info.userNames.filter((name) => info.names.includes(name) && this.displayRamEligibleNames.has(name)).length;
   // Only as many as it takes: every use of a spilled variable costs code and cycles.
   const needed = Math.max(0, info.over - userRoom);
   // (Some of the variables that go there do not free a letter, so when the code still has too many, one more at a time is tried, then two, four.)
-  let extra = 0;
-  let plan;
-  let code;
-  for (;;) {
-    plan = chooseSpill(probeCode, internal, DISPLAY_RAM_VAR_CAPACITY - this.displayRamVars.size, true, 0, needed + extra);
-    if (!plan || plan.size < needed) throw tooMany;
+  // Then the smallest number between the last that did not fit and the one that did is looked for (halving the range): every variable in the display memory
+  // costs code and cycles, and the steps of 1, 2, 4, 8 can overshoot by several. The smallest found is kept for the next code of the same build (the build makes
+  // the code again many times while it places the banks) and tried first.
+  const capacity = DISPLAY_RAM_VAR_CAPACITY - this.displayRamVars.size;
+  const tryExtra = (n) => {
+    const tried = chooseSpill(probeCode, internal, capacity, true, 0, needed + n);
+    if (!tried || tried.size < needed) throw tooMany;
+    this.spillPlan = tried;
+    const made = this.generateOnce(workspace);
+    return {plan: tried, code: made, fits: !this.tooMany, full: tried.size >= needed + n};
+  };
+  const cacheKey = `${needed}|${internal.length}|${probeCode.length}`;
+  let best = null;
+  if (this.spillExtraCache && this.spillExtraCache.key === cacheKey) {
+    const cached = tryExtra(this.spillExtraCache.extra);
+    if (cached.fits) best = {...cached, extra: this.spillExtraCache.extra};
+  }
+  if (!best) {
+    let extra = 0;
+    let lastFailed = -1;
+    for (;;) {
+      const attempt = tryExtra(extra);
+      if (attempt.fits) {
+        best = {...attempt, extra};
+        break;
+      }
+      if (!attempt.full || extra >= 16) throw this.tooMany;
+      lastFailed = extra;
+      extra = extra ? extra * 2 : 1;
+    }
+    let low = lastFailed + 1;
+    let high = best.extra - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const attempt = tryExtra(middle);
+      if (attempt.fits) {
+        best = {...attempt, extra: middle};
+        high = middle - 1;
+      } else {
+        low = middle + 1;
+      }
+    }
+    this.spillExtraCache = {key: cacheKey, extra: best.extra};
+  }
+  // (The code of the plan kept: made again when another one was the last made.)
+  let {plan, code} = best;
+  if (this.spillPlan !== plan) {
     this.spillPlan = plan;
     code = this.generateOnce(workspace);
-    if (!this.tooMany) break;
-    if (plan.size < needed + extra || extra >= 16) throw this.tooMany;
-    extra = extra ? extra * 2 : 1;
+    if (this.tooMany) throw this.tooMany;
   }
   const slots = new Map([...this.displayRamVars].filter(([name]) => plan.has(name)));
   return applySpill(code, slots);

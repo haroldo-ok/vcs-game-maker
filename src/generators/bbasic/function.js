@@ -1,7 +1,7 @@
 'use strict';
 
 import {MAX_FUNCTION_ARGS, functionCallDiscardVarName, functionCallArgVarName,
-  functionParamVarName} from '../../blocks/function';
+  functionParamVarName, functionCallResultVarName, functionCallsOfStatement, statementOfValueBlock} from '../../blocks/function';
 import {useConfigurationStorage} from '../../hooks/project';
 
 export default (Blockly) => {
@@ -14,6 +14,28 @@ export default (Blockly) => {
   // here runs (init() always runs first), so this is a plain lookup, not a
   // fresh reservation.
   const resolveRW = (canonicalName) => Blockly.BBasic.superchipRwPairs[canonicalName];
+
+  // On PXE (the compiler there has no functions, Blockly.BBasic.functionCallsAsSubroutines) a Function is a plain subroutine: a call puts the arguments in temp1 to
+  // temp6 (where a Function finds them on every kernel), goes to it with gosub, and reads the value it left in functionCallDiscardVarName. The lines that set the
+  // arguments and call it: an argument that is a plain number or name goes straight to its scratch byte; the others are worked out first into the bytes of a
+  // bare statement call (working one out can use the scratch bytes: a multiply or divide uses temp1 and temp2).
+  const asSubroutines = () => !!Blockly.BBasic.functionCallsAsSubroutines;
+  // A call made inside a Function that reads its arguments again keeps that Function's argument bytes on the 6502 stack while the one it calls runs (it uses
+  // the same bytes): pushed after the arguments are set, taken back after the call. (On DPC+ the Function itself saves them with push and pull, the coprocessor's
+  // stack, which PXE does not have.)
+  const subroutineCallLines = (name, args, block) => {
+    const plain = (code) => /^\s*(\d+|\$[0-9a-fA-F]+|%[01]+|[A-Za-z_]\w*)\s*$/.test(code);
+    const worked = args.map((code, i) => (plain(code) ? null : `${resolveRW(functionCallArgVarName(i + 1)).write} = ${code}`)).filter(Boolean);
+    const loads = args.map((code, i) => `temp${i + 1} = ${plain(code) ? code.trim() : resolveRW(functionCallArgVarName(i + 1)).read}`);
+    let owner = block;
+    while (owner && owner.type !== 'function_define') owner = owner.getSurroundParent ? owner.getSurroundParent() : owner.getParent();
+    const ownerBody = owner && owner.getInputTargetBlock('DO');
+    const saves = ownerBody ? [...new Set(ownerBody.getDescendants(false).filter((b) => b.type === 'function_param_get')
+        .map((b) => Number(b.getFieldValue('INDEX'))))].sort((a, b) => a - b) : [];
+    const save = saves.length ? [' asm', ...saves.flatMap((i) => [` lda ${resolveRW(functionParamVarName(i)).read}`, ' pha']), '@end'] : [];
+    const restore = saves.length ? [' asm', ...saves.slice().reverse().flatMap((i) => [' pla', ` sta ${resolveRW(functionParamVarName(i)).write}`]), '@end'] : [];
+    return [...worked, ...loads, ...save, `gosub ${name}`, ...restore];
+  };
 
   // Lazily builds (once per compile, per distinct target function) a tiny bB
   // subroutine that does nothing but forward function_call_statement's
@@ -90,7 +112,7 @@ export default (Blockly) => {
     // again would find the argument of the one it called. On DPC+ a function that reads arguments puts the old values of the snapshot bytes it is about to
     // overwrite on the stack when it starts, and takes them off again before each return, when some function body anywhere calls a function.
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
-    const callsInsideFunctions = config.kernel === 'dpcplus' && usedIndices.length > 0 && !!Blockly.BBasic.functionCallsInsideFunctions;
+    const callsInsideFunctions = config.kernel === 'dpcplus' && !asSubroutines() && usedIndices.length > 0 && !!Blockly.BBasic.functionCallsInsideFunctions;
     Blockly.BBasic.functionParamSaves = Blockly.BBasic.functionParamSaves || {};
     Blockly.BBasic.functionParamSaves[name] = callsInsideFunctions ? usedIndices : [];
     const saveLines = callsInsideFunctions ? usedIndices.map((i) => `push ${resolveRW(functionParamVarName(i)).read}`).join('\n') : '';
@@ -104,6 +126,11 @@ export default (Blockly) => {
     const lastLine = code.split('\n').filter((line) => line.trim() !== '').pop() || '';
     if (callsInsideFunctions && !/^\s*return\b/.test(lastLine)) {
       code += '\n' + usedIndices.slice().reverse().map((i) => `pull ${resolveRW(functionParamVarName(i)).write}`).join('\n');
+    }
+    if (asSubroutines()) {
+      // (A body that ends without a Return gives 0, as the "return 0" every Function ends with on the other kernels.)
+      Blockly.BBasic.subroutines[name] = [snapshot, code, `${resolveRW(functionCallDiscardVarName()).write} = 0`].filter(Boolean).join('\n');
+      return '';
     }
     Blockly.BBasic.functions[name] = snapshot ? `${snapshot}\n${code}` : code;
     return '';
@@ -141,6 +168,7 @@ export default (Blockly) => {
     const ownerName = owner ? Blockly.BBasic.nameDB_.getName(owner.getFieldValue('NAME'), Blockly.PROCEDURE_CATEGORY_NAME) : null;
     const saved = (ownerName && Blockly.BBasic.functionParamSaves && Blockly.BBasic.functionParamSaves[ownerName]) || [];
     const restore = saved.slice().reverse().map((i) => `pull ${resolveRW(functionParamVarName(i)).write}\n`).join('');
+    if (asSubroutines()) return `temp6 = ${value}\n${restore}${resolveRW(functionCallDiscardVarName()).write} = temp6\nreturn\n`;
     return `temp6 = ${value}\n${restore}return temp6\n`;
   };
 
@@ -193,6 +221,14 @@ export default (Blockly) => {
   // call needs (or can use) the wrapper.
   Blockly.BBasic['function_call'] = function(block) {
     const {name, args} = resolveFunctionCallTarget(block);
+    if (asSubroutines()) {
+      // The lines go in front of the statement the call is in (see Blockly.BBasic.scrub_). When that statement calls more than one Function, each value is kept in a
+      // separate byte (the next call writes over the one they all leave it in).
+      const calls = functionCallsOfStatement(statementOfValueBlock(block));
+      const slot = calls.length > 1 && calls.indexOf(block) >= 0 ? resolveRW(functionCallResultVarName(calls.indexOf(block) + 1)) : null;
+      const value = resolveRW(functionCallDiscardVarName());
+      return [[...subroutineCallLines(name, args, block), ...(slot ? [`${slot.write} = ${value.read}`] : []), (slot || value).read].join('\n'), Blockly.BBasic.ORDER_ATOMIC];
+    }
     return [`${name}(${args.join(', ')})`, Blockly.BBasic.ORDER_FUNCTION_CALL];
   };
 
@@ -211,6 +247,7 @@ export default (Blockly) => {
   // with a single inline function call).
   Blockly.BBasic['function_call_statement'] = function(block) {
     const {name, args} = resolveFunctionCallTarget(block);
+    if (asSubroutines()) return subroutineCallLines(name, args, block).join('\n') + '\n';
     const wrapperName = registerFunctionCallWrapper(name);
     const assignments = args
         .map((argCode, i) => `${resolveRW(functionCallArgVarName(i + 1)).write} = ${argCode}`)

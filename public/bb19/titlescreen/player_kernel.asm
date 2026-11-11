@@ -12,7 +12,12 @@
 ; cycle-exact timing below - it's plain sequential setup code that runs
 ; once per call, well before the real per-scanline WSYNC loop begins.
 
-draw_player_display
+; What every page does after its routine has set its numbers (the line count in temp1, the heights less one and the pointers to the
+; pictures and colors, see buildPlayerDataAsm in generators/bbasic/titlescreen.js): position the sprites, set their size and keep
+; their y. The page's routine jumps here (a jsr would put one more return address on the stack, where TSpositionp0p1's "sta stack1,X"
+; writes). The page's numbers are set before the sprites are placed, so the setup ends a line earlier than with them after: one more
+; WSYNC keeps the first line of the sprites where it was.
+ MAC TITLE_PLAYER_BEGIN
 
 	jsr TSpositionp0p1
 
@@ -25,93 +30,28 @@ draw_player_display
 	lda player1size
 	sta NUSIZ1
 
-save_variables
 	lda player0y
 	sta temp2
 	lda player1y
 	sta temp3
 
-init_variables
-	lda #(bmp_player_window+1)
-	sta temp1 ; our line count
 	lda #1
 	sta VDELP0
 	lda #0
 	sta GRP1
 	sta GRP0
-	lda #(bmp_player0_height-1)
-	sta player0height
-	lda #(bmp_player1_height-1)
-	sta player1height
+	sta WSYNC
+ ENDM
 
-	lda #<bmp_player0
- ifconst bmp_player0_index
-	clc
-	adc bmp_player0_index
- endif
-	sta player0pointer
-	lda #>bmp_player0
- ifconst bmp_player0_index
-	adc #0
- endif
-	sta player0pointer+1
-
-	; (A player whose colors are the same in every frame has them once: they are not moved by the frame.)
-	lda #<bmp_color_player0
- ifconst bmp_player0_index
-  ifnconst bmp_player0_colorsame
-	clc
-	adc bmp_player0_index
-  endif
- endif
-	sta player0color
-	lda #>bmp_color_player0
- ifconst bmp_player0_index
-  ifnconst bmp_player0_colorsame
-	adc #0
-  endif
- endif
-	sta player0color+1
-
-
-	lda #<bmp_player1
- ifconst bmp_player1_index
-	clc
-	adc bmp_player1_index
- endif
-	sta player1pointer
-	lda #>bmp_player1
- ifconst bmp_player1_index
-	adc #0
- endif
-	sta player1pointer+1
-
-	; (A player whose colors are the same in every frame has them once: they are not moved by the frame.)
-	lda #<bmp_color_player1
- ifconst bmp_player1_index
-  ifnconst bmp_player1_colorsame
-	clc
-	adc bmp_player1_index
-  endif
- endif
-	sta player1color
-	lda #>bmp_color_player1
- ifconst bmp_player1_index
-  ifnconst bmp_player1_colorsame
-	adc #0
-  endif
- endif
-	sta player1color+1
-
-	lda #bmp_player_kernellines
-	sta temp4
+ ifconst title_player_k1
+draw_player_go_k1
+	TITLE_PLAYER_BEGIN
 	lda #0
 	; The first line reads (player1color),y before anything has set y, and it was left at $FF by the code above. With the
 	; color table in the wrong place, table + $FF is a bank switching address: reading it switched banks in the middle of
 	; the kernel and the frame ran for hundreds of scanlines (a green flicker, the sprites never drawn).
 	tay
-
-draw_players
+draw_players_k1
         sta WSYNC
         sta GRP1		;3
         lda (player1color),y	;5
@@ -120,27 +60,24 @@ draw_players
 
 	lda player0height	;3
 	dcp player0y		;5
-	bcc skipdrawP0		;2/3
+	bcc skipdrawP0_k1		;2/3
  	ldy player0y		;3
 	lda (player0pointer),y	;5+
-continueP0
+continueP0_k1
         sta GRP0		;3
 
         lax (player0color),y	;5+
 				;=29++
 
- REPEAT (bmp_player_kernellines-1)
-        sta WSYNC
- REPEND
 	lda player1height	;3
 	dcp player1y		;5
-	bcc skipdrawP1		;2/3
+	bcc skipdrawP1_k1		;2/3
  	ldy player1y		;3
 	lda (player1pointer),y	;5
-continueP1
+continueP1_k1
 
 	dec temp1		;5
-	bne draw_players	;2/3
+	bne draw_players_k1	;2/3
 	sta WSYNC
         sta GRP1		;3
         sta GRP0		;3
@@ -152,7 +89,7 @@ continueP1
 	sta REFP1
 	sta VDELP1
 
-restore_variables
+restore_variables_k1
 	lda temp2
 	sta player0y
 	lda temp3
@@ -160,16 +97,82 @@ restore_variables
 
 	rts
 
-skipdrawP0
+skipdrawP0_k1
 	lda #0		;2
 	tay		;2
-	jmp continueP0	;5
+	jmp continueP0_k1	;5
 
-skipdrawP1
+skipdrawP1_k1
 	lda #0		;2
 	tay		;2
-	jmp continueP1	;5
+	jmp continueP1_k1	;5
+ endif
 
+ ifconst title_player_k2
+draw_player_go_k2
+	TITLE_PLAYER_BEGIN
+	lda #0
+	; The first line reads (player1color),y before anything has set y, and it was left at $FF by the code above. With the
+	; color table in the wrong place, table + $FF is a bank switching address: reading it switched banks in the middle of
+	; the kernel and the frame ran for hundreds of scanlines (a green flicker, the sprites never drawn).
+	tay
+draw_players_k2
+        sta WSYNC
+        sta GRP1		;3
+        lda (player1color),y	;5
+	sta COLUP1		;3
+	stx COLUP0		;3
+
+	lda player0height	;3
+	dcp player0y		;5
+	bcc skipdrawP0_k2		;2/3
+ 	ldy player0y		;3
+	lda (player0pointer),y	;5+
+continueP0_k2
+        sta GRP0		;3
+
+        lax (player0color),y	;5+
+				;=29++
+
+        sta WSYNC
+	lda player1height	;3
+	dcp player1y		;5
+	bcc skipdrawP1_k2		;2/3
+ 	ldy player1y		;3
+	lda (player1pointer),y	;5
+continueP1_k2
+
+	dec temp1		;5
+	bne draw_players_k2	;2/3
+	sta WSYNC
+        sta GRP1		;3
+        sta GRP0		;3
+				;=8
+	lda #0
+	sta GRP0
+	sta GRP1
+	sta REFP0
+	sta REFP1
+	sta VDELP1
+
+restore_variables_k2
+	lda temp2
+	sta player0y
+	lda temp3
+	sta player1y
+
+	rts
+
+skipdrawP0_k2
+	lda #0		;2
+	tay		;2
+	jmp continueP0_k2	;5
+
+skipdrawP1_k2
+	lda #0		;2
+	tay		;2
+	jmp continueP1_k2	;5
+ endif
 
    if >. != >[.+$55]
       align 256

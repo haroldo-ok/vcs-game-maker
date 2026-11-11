@@ -2771,8 +2771,12 @@ ${originLines}`;
         if (/\b(player\d+|missile[01]|ball)y\b/.test(argument0)) {
           return `${varName} = ${argument0.trim()}\n`;
         }
-        // (A y worked out by a "Convert playfield row to sprite" block is meant for the sprite that is set: the height of that sprite, not the tallest's.)
-        const fromRow = (block.getInputTargetBlock('VALUE') || {}).type === 'background_pixel_to_sprite' && block.getInputTargetBlock('VALUE').getFieldValue('AXIS') === 'Y';
+        // (A y worked out by a "Convert playfield row to sprite" block is meant for the sprite that is set: the height of that sprite, not the tallest's.
+        // The Convert block may be inside the value, a row plus a few lines: a sprite put a few lines below a brick was the tallest sprite's height
+        // too high, under the top of the screen when that sprite is tall.)
+        const valueBlock = block.getInputTargetBlock('VALUE');
+        const fromRow = !!valueBlock && valueBlock.getDescendants(false)
+            .some((inner) => inner.type === 'background_pixel_to_sprite' && inner.getFieldValue('AXIS') === 'Y');
         const lines = Blockly.BBasic.dpcPlusSpriteLines(/^player\d+/.exec(varName)[0], fromRow);
         const literal = /^\s*(\d+)\s*$/.exec(argument0);
         if (literal) return `${varName} = ${Math.min(255, Math.max(0, 2 * Number(literal[1]) - lines))}\n`;
@@ -3606,7 +3610,7 @@ ${flagsVar}{${bit}} = 1
   // heading (bit 0: moving along x, bit 1: that is leftwards, bit 2: moving
   // along y, bit 3: that is upwards) and temp6 the neighboring column/row being
   // checked. No variables.
-  const buildPixelReflect = ({Blockly, name, resolveVar, hasFire, hasInertia, uid}) => {
+  const buildPixelReflect = ({Blockly, name, resolveVar, hasFire, hasInertia, uid, sprite = null}) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const maxRow = Blockly.BBasic.maxRowText(config);
@@ -3624,7 +3628,7 @@ ${flagsVar}{${bit}} = 1
     const fireDirVar = hasFire ? resolveVar(missileFireDirVarName(name)) : null;
     // Under DPC+ the coprocessor works the new heading out (function 100 of armprog.c: the same cells in the same order, about 900 cycles less): a Fire
     // heading only, on a playfield with one row height and no scrolling.
-    if (hasFire && !hasInertia && !(Blockly.BBasic.objectGravityUsedFor || new Set()).has(name) && config.kernel === 'dpcplus' && !config.pxe && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(config) &&
+    if (!sprite && hasFire && !hasInertia && !(Blockly.BBasic.objectGravityUsedFor || new Set()).has(name) && config.kernel === 'dpcplus' && !config.pxe && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(config) &&
         /^(ball|missile)/.test(name) && /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 && /^\d+$/.test(String(maxRow))) {
       ensureArmProgram(Blockly, undefined, 'p');
       Blockly.BBasic.pfBoxArm = true;
@@ -3635,6 +3639,7 @@ ${flagsVar}{${bit}} = 1
         ` ${fireDirVar} = temp3`,
       ];
     }
+    if (sprite) lines.push(` temp1 = ${sprite}size & 7`, ' temp2 = 8', ' if temp1 = 5 then temp2 = 16', ' if temp1 = 7 then temp2 = 32');
     const hasGravity = (Blockly.BBasic.objectGravityUsedFor || new Set()).has(name);
     const gravitySpeed = hasGravity ? Blockly.BBasic.superchipRwPairs[objectGravitySpeedVarName(name)] : null;
     const gravityHeading = hasFire && hasGravity;
@@ -3847,7 +3852,31 @@ ${flagsVar}{${bit}} = 1
           ` if !temp5{2} then goto ${label('flipboth')}`,
           ` goto ${label('flipy')}`);
     }
-    lines.push(...diagonalLines);
+    // Off a sprite (see bounceSpriteOf) the playfield cells are not looked at: the object came in by the side of the sprite's box it is least far into, counted
+    // on the sides it moves towards (a box it does not overlap along an axis is 0 far into it along that axis: it met that side). The same boxes as the Collided
+    // block's box test: x to x + width, y to y + height. A straight heading was turned above, as off the playfield.
+    const objectWidth = /^player/.test(name) ? 8 : 2;
+    const spriteLines = sprite ? [
+      lab('diagonal'),
+      ` if temp5{1} then goto ${label('sxleft')}`,
+      ` temp3 = ${name}x + ${objectWidth} - ${sprite}x`,
+      ` goto ${label('sxdone')}`,
+      lab('sxleft'),
+      ` temp3 = ${sprite}x + temp2 - ${name}x`,
+      lab('sxdone'),
+      ' if temp3 > 127 then temp3 = 0',
+      ` if temp5{3} then goto ${label('syup')}`,
+      ` temp4 = ${name}y + ${name}height - ${sprite}y`,
+      ` goto ${label('sydone')}`,
+      lab('syup'),
+      ` temp4 = ${sprite}y + ${sprite}height - ${name}y`,
+      lab('sydone'),
+      ' if temp4 > 127 then temp4 = 0',
+      ` if temp3 < temp4 then goto ${label('flipx')}`,
+      ` if temp4 < temp3 then goto ${label('flipy')}`,
+      ` goto ${label('flipboth')}`,
+    ] : null;
+    lines.push(...(spriteLines || diagonalLines));
     // --- apply the flips
     const fireFlipX = !hasFire ? [] : [
       ` ${fireDirVar} = ${steps} - ${fireDirVar}`,
@@ -3889,6 +3918,114 @@ ${flagsVar}{${bit}} = 1
     return lines;
   };
 
+  // The sprite a Bounce block bounces off: the player that a Collided test of the If the block is in (one of its "do" parts) names with the object
+  // (also inside an "and"), searched outward through the Ifs it is in. Null when there is none: the Bounce bounces off the playfield.
+  const bounceSpriteOf = (block, name) => {
+    const inCondition = (condition) => {
+      if (!condition) return null;
+      if (condition.type === 'collision_get') {
+        const first = condition.getFieldValue('VAR0');
+        const second = condition.getFieldValue('VAR1');
+        if (first === name && /^player([0-9]|1[0-6])$/.test(second)) return second;
+        if (second === name && /^player([0-9]|1[0-6])$/.test(first)) return first;
+        return null;
+      }
+      if (condition.type === 'logic_operation' && condition.getFieldValue('OP') === 'AND') {
+        return inCondition(condition.getInputTargetBlock('A')) || inCondition(condition.getInputTargetBlock('B'));
+      }
+      return null;
+    };
+    for (let node = block; node;) {
+      let top = node;
+      while (top.getPreviousBlock() && top.getPreviousBlock().getNextBlock() === top) top = top.getPreviousBlock();
+      const parent = top.getParent();
+      if (!parent) return null;
+      if (parent.type === 'controls_if') {
+        const input = parent.getInputWithBlock(top);
+        const match = input && /^DO(\d+)$/.exec(input.name);
+        const found = match ? inCondition(parent.getInputTargetBlock(`IF${match[1]}`)) : null;
+        if (found) return found;
+      }
+      node = parent;
+    }
+    return null;
+  };
+
+  // A Bounce off a sprite of an object with a Fire heading (no Inertia, no Gravity), in assembly: the stage code and the reflect of the bB version in about
+  // 150 bytes, one routine per object for all the sprites it bounces off. The Bounce block puts the sprite's x, y, height and size in temp1 to temp4 before the
+  // call. Stages as in the playfield version (bits 4-5 of the stage byte: 0 the first frame, 16 and 32 wait, 48 turns the heading at the hit right round).
+  // The first frame: a heading straight along y flips y, straight along x flips x, no heading (outside 0 to steps - 1) turns round; a diagonal one flips
+  // the axis whose side of the sprite's box the object is least far into, counted on the sides it moves towards (both when the two are the same).
+  // spread (the Bounce block's angle range with a number of steps, see spreadTurnLines): {steps, hemisphere}, done here on the first frame after the flip, from a
+  // random byte the Bounce block puts in temp5 (one routine for each object, number of steps and half).
+  const buildSpriteBounceAsm = (Blockly, name, dirVar, stagePair, spread = null) => {
+    const steps = (Blockly.BBasic.missileFire16UsedFor || new Set()).has(name) ? 16 : 8;
+    const half = steps / 2;
+    const table = steps === 16 ? DIRECTION16_STEPS : [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
+    // 0 straight along y, 255 straight along x, else bit 1 left and bit 3 up
+    const entries = table.map(([xStep, yStep]) => (xStep && yStep) ? (xStep > 0 ? 1 : 3) | (yStep > 0 ? 4 : 12) : (xStep ? 255 : 0));
+    const objectWidth = /^player/.test(name) ? 8 : 2;
+    const l = (part) => `_bspr_${name}${spread ? `_r${spread.steps}${spread.hemisphere}` : ''}_${part}`;
+    const max = steps - 1;
+    // (the test that leaves a heading in the half alone, then the number the heading is taken from to mirror it)
+    const halfTest = spread && {
+      TOP: [`lda ${dirVar}`, 'clc', `adc #${steps / 4}`, `and #${max}`, `cmp #${half}`, `bcc ${l('done')}`, `lda #${half + steps}`],
+      BOTTOM: [`lda ${dirVar}`, 'clc', `adc #${steps / 4}`, `and #${max}`, `cmp #${half}`, `bcs ${l('done')}`, `lda #${half + steps}`],
+      LEFT: [`lda ${dirVar}`, `cmp #${half + 1}`, `bcs ${l('done')}`, `lda #${steps}`],
+      RIGHT: [`lda ${dirVar}`, `cmp #${half}`, `bcc ${l('done')}`, `lda #${steps}`],
+    }[spread.hemisphere];
+    const spreadLines = !spread ? [] : [
+      // turned by 0 to 2N steps from N back: the random byte over 256 / (2N + 1), by subtracting
+      'pla', 'sta temp6', 'ldy #0',
+      `@${l('div')}`, `cmp #${Math.ceil(256 / (2 * spread.steps + 1))}`, `bcc ${l('divd')}`, `sbc #${Math.ceil(256 / (2 * spread.steps + 1))}`, 'iny', `bne ${l('div')}`,
+      `@${l('divd')}`, 'tya', 'clc', `adc ${dirVar}`, 'clc', `adc #${steps - spread.steps}`, `and #${max}`, `sta ${dirVar}`,
+      // never straight up, down, left or right: one step either way (bit 0 of the random byte)
+      `and #${steps / 4 - 1}`, `bne ${l('ok')}`, 'lda temp6', 'and #1', 'asl', 'clc', `adc ${dirVar}`, `adc #${max}`, `and #${max}`, `sta ${dirVar}`,
+      `@${l('ok')}`,
+      // the half it is kept in: a heading in the other half mirrored over the line between the halves
+      ...(halfTest ? [...halfTest, 'sec', `sbc ${dirVar}`, `and #${max}`, `sta ${dirVar}`] : []),
+    ];
+    // (Only the accumulator and Y, and the branches short or by a jmp: the PXE kernel's compiler makes some instructions longer.)
+    return [
+      'asm',
+      `lda ${stagePair.read}`, 'ora #64', `sta ${stagePair.write}`, 'and #48', `beq ${l('s1')}`, 'cmp #48', `bne ${l('s23')}`,
+      // the fourth frame: the heading at the hit turned right round
+      `lda ${stagePair.read}`, 'and #15', ...(spread ? ['clc', `adc #${half}`, `and #${max}`, `sta ${dirVar}`, `jmp ${l('done')}`] : [`jmp ${l('round')}`]),
+      // the second and third: the next stage
+      `@${l('s23')}`, `lda ${stagePair.read}`, 'clc', 'adc #16', `sta ${stagePair.write}`, `jmp ${l('done')}`,
+      // the first: the heading at the hit kept, and the stage after it
+      `@${l('s1')}`, ...(spread ? ['lda temp5', 'pha'] : []), `lda ${dirVar}`, 'and #15', 'ora #80', `sta ${stagePair.write}`,
+      `lda ${dirVar}`, `cmp #${steps}`, `bcc ${l('dirok')}`, `jmp ${l('both')}`,
+      `@${l('dirok')}`, `ldy ${dirVar}`, `lda ${l('tab')},y`, `bne ${l('notv')}`, `jmp ${l('flipy')}`,
+      `@${l('notv')}`, `bpl ${l('diag')}`, `jmp ${l('flipx')}`,
+      `@${l('diag')}`, 'sta temp5',
+      // the width of the sprite's box (8, 16 at double width, 32 at quad width)
+      'lda temp4', 'and #7', 'cmp #5', `bne ${l('w2')}`, 'lda #16', `bne ${l('wset')}`,
+      `@${l('w2')}`, 'cmp #7', `bne ${l('w8')}`, 'lda #32', `bne ${l('wset')}`,
+      `@${l('w8')}`, 'lda #8', `@${l('wset')}`, 'sta temp4',
+      // how far into the box along x (temp6) and along y (A); a box it is not inside along an axis is 0 far
+      'lda temp5', 'and #2', `bne ${l('xl')}`, `lda ${name}x`, 'clc', `adc #${objectWidth}`, 'sec', 'sbc temp1', `jmp ${l('xd')}`,
+      `@${l('xl')}`, 'lda temp1', 'clc', 'adc temp4', 'sec', `sbc ${name}x`,
+      `@${l('xd')}`, `bpl ${l('xp')}`, 'lda #0', `@${l('xp')}`, 'sta temp6',
+      'lda temp5', 'and #8', `bne ${l('yu')}`, `lda ${name}y`, 'clc', `adc ${name}height`, 'sec', 'sbc temp2', `jmp ${l('yd')}`,
+      `@${l('yu')}`, 'lda temp2', 'clc', 'adc temp3', 'sec', `sbc ${name}y`,
+      `@${l('yd')}`, `bpl ${l('yp')}`, 'lda #0', `@${l('yp')}`, 'cmp temp6', `bne ${l('ne')}`, `jmp ${l('both')}`,
+      `@${l('ne')}`, `bcs ${l('flipx')}`, `jmp ${l('flipy')}`,
+      // flip x: steps - heading (0 stays 0)
+      `@${l('flipx')}`, `lda #${steps}`, 'sec', `sbc ${dirVar}`, `cmp #${steps}`, `bne ${l('set')}`, 'lda #0', `beq ${l('set')}`,
+      // flip y: half - heading, or steps + half - heading above half
+      `@${l('flipy')}`, `lda ${dirVar}`, `cmp #${half + 1}`, `lda #${half}`, `bcc ${l('ysub')}`, `lda #${steps + half}`,
+      `@${l('ysub')}`, 'sec', `sbc ${dirVar}`, `jmp ${l('set')}`,
+      // both: turned right round
+      `@${l('both')}`, `lda ${dirVar}`,
+      `@${l('round')}`, 'clc', `adc #${half}`, `cmp #${steps}`, `bcc ${l('set')}`, `sbc #${steps}`,
+      `@${l('set')}`, `sta ${dirVar}`, ...spreadLines, `jmp ${l('done')}`,
+      `@${l('tab')}`, `.byte ${entries.join(',')}`,
+      `@${l('done')}`,
+      '@end',
+    ].join('\n');
+  };
+
   Blockly.BBasic['object_bounce'] = function(block) {
     const name = block.getFieldValue('OBJECT');
     const resolveVar = (canonicalName) =>
@@ -3907,11 +4044,35 @@ ${flagsVar}{${bit}} = 1
     const stagePair = Blockly.BBasic.superchipRwPairs[missileBounceStageVarName(name)];
     // The stage code is the same for every Bounce block of an object, so it lives
     // once in a shared subroutine (see stageName below) and the labels are fixed.
-    const stage1Label = `_bounce_${name}_s1`;
-    const stage2Label = `_bounce_${name}_s2`;
-    const stage3Label = `_bounce_${name}_s3`;
-    const stage4Label = `_bounce_${name}_s4`;
-    const doneLabel = `_bounce_${name}_done`;
+    // Bouncing off a sprite (see bounceSpriteOf): the assembly routine (buildSpriteBounceAsm), or with Inertia or Gravity a separate bB reflect and stage code, which look at the box of the sprite instead of the playfield.
+    // (A Bounce with a new angle sets the heading itself, so it keeps the playfield stage code it shares with the other Bounce blocks of the object.)
+    const bounceSprite = block.getFieldValue('EDGES') === 'TRUE' || block.getFieldValue('MANUAL') === 'TRUE' ? null : bounceSpriteOf(block, name);
+    const spriteSuffix = bounceSprite ? `_${bounceSprite}` : '';
+    const bounceGravity = (Blockly.BBasic.objectGravityUsedFor || new Set()).has(name);
+    if (bounceSprite && hasFire && !hasInertia && !bounceGravity) {
+      // The angle range in the routine when its steps are a number (one worked out at run time is done here, after the call, as before).
+      const spreadOn = block.getFieldValue('SPREAD') === 'TRUE';
+      const spreadStepsNumber = spreadOn ? literalNumber(Blockly.BBasic.valueToCode(block, 'SPREAD_STEPS', Blockly.BBasic.ORDER_NONE) || '1') : null;
+      const spread = spreadStepsNumber === null ? null : {steps: Math.min(4, Math.max(1, Math.round(spreadStepsNumber))), hemisphere: block.getFieldValue('HEMISPHERE') || 'ALL'};
+      const routine = `_bouncespr_${name}${spread ? `_r${spread.steps}${spread.hemisphere}` : ''}`;
+      if (!Blockly.BBasic.subroutines[routine]) {
+        Blockly.BBasic.subroutines[routine] = buildSpriteBounceAsm(Blockly, name, resolveVar(missileFireDirVarName(name)), stagePair, spread);
+      }
+      const routineSuffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(routine));
+      const turnLines = spread ? [] : spreadTurnLines(block, name, resolveVar, hasFire);
+      const skip = turnLines.length ? `_bouncespread_${name}_${Blockly.BBasic.blockNumbers.next(`bouncespread_${name}`)}_skip` : '';
+      return [
+        ` temp1 = ${bounceSprite}x`, ` temp2 = ${bounceSprite}y`, ` temp3 = ${bounceSprite}height`, ` temp4 = ${bounceSprite}size`,
+        ...(spread ? [' temp5 = rand'] : []),
+        ` gosub ${routine}${routineSuffix}`,
+        ...(turnLines.length ? [` if (${stagePair.read} & 48) <> 16 then goto ${skip}`, ...turnLines, `@ ${skip}`] : []),
+      ].join('\n') + '\n';
+    }
+    const stage1Label = `_bounce_${name}${spriteSuffix}_s1`;
+    const stage2Label = `_bounce_${name}${spriteSuffix}_s2`;
+    const stage3Label = `_bounce_${name}${spriteSuffix}_s3`;
+    const stage4Label = `_bounce_${name}${spriteSuffix}_s4`;
+    const doneLabel = `_bounce_${name}${spriteSuffix}_done`;
 
     const fireLines = {stage1: [], stage2: [], stage4: []};
     if (hasFire) {
@@ -4020,7 +4181,7 @@ ${flagsVar}{${bit}} = 1
     // The pixel-reflecting code is long, so it lives once per object in a
     // shared subroutine (relocatable like any other) and each Bounce block
     // just calls it - several Bounce blocks otherwise filled bank 1.
-    const reflectName = `_bouncepix_${name}`;
+    const reflectName = `_bouncepix_${name}${spriteSuffix}`;
     // Under DPC+ the coprocessor does the whole stage code (function 100 of armprog.c: the same stages and the same reflect), for a Fire heading without Inertia on a
     // playfield with one row height that does not scroll: the 6502 hands it the object's numbers and takes the heading and the stage byte back.
     const bounceConfig = useConfigurationStorage().value || {};
@@ -4032,7 +4193,7 @@ ${flagsVar}{${bit}} = 1
     const bounceFracInc = Blockly.BBasic.exactRowIncrement(bounceConfig, 1);
     const bounceRowInc = /^\d+$/.test(String(bounceRowDivisor)) && 256 % Number(bounceRowDivisor) === 0 ? 256 / Number(bounceRowDivisor) :
       (typeof bounceFracInc === 'number' ? bounceFracInc : null);
-    const bounceArm = hasFire && !hasInertia && bounceConfig.kernel === 'dpcplus' && !bounceConfig.pxe && !Blockly.BBasic.dpcPlusGroupFracVars &&
+    const bounceArm = !bounceSprite && hasFire && !hasInertia && bounceConfig.kernel === 'dpcplus' && !bounceConfig.pxe && !Blockly.BBasic.dpcPlusGroupFracVars &&
       !pfScrollColumns(bounceConfig) && /^(ball|missile)/.test(name) && bounceRowInc !== null &&
       /^\d+$/.test(String(bounceMaxRow)) && /^[A-Za-z_]\w*$/.test(String(bounceDirVar)) && /^[A-Za-z_]\w*$/.test(String(stagePair.read)) &&
       /^[A-Za-z_]\w*$/.test(String(stagePair.write));
@@ -4041,13 +4202,13 @@ ${flagsVar}{${bit}} = 1
     if (bounceArm) Blockly.BBasic.pfBoxArm = true;
     if (!bounceArm && !Blockly.BBasic.subroutines[reflectName]) {
       Blockly.BBasic.subroutines[reflectName] =
-        buildPixelReflect({Blockly, name, resolveVar, hasFire, hasInertia, uid: 'shared'})
+        buildPixelReflect({Blockly, name, resolveVar, hasFire, hasInertia, uid: bounceSprite ? `s_${bounceSprite}` : 'shared', sprite: bounceSprite})
             .map((line) => line.replace(/^ /, '')).join('\n');
     }
     // The stage subroutine can sit in a different bank than the Bounce block
     // calling it, so its call into the reflect routine is tagged relative to
     // the bank it is in.
-    const stageName = `_bouncestage_${name}`;
+    const stageName = `_bouncestage_${name}${spriteSuffix}`;
     const reflectSuffix = Blockly.BBasic.bankJumpSuffix(
         Blockly.BBasic.getSubroutineBank(stageName), Blockly.BBasic.getSubroutineBank(reflectName));
     const reflectCall = [` gosub ${reflectName}${reflectSuffix}`];

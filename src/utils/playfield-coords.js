@@ -50,10 +50,11 @@ export const playerPfXOffset = (config) => (config && config.kernel === 'dpcplus
 // object swept across a single lit playfield cell (column c): the ball touches it for ballx 17 + 4 * c to 20 + 4 * c (a ball w pixels wide from
 // w - 1 less), so its playfield column is (x - 17) / 4; a missile for missile0x 14 + 4 * c to 17 + 4 * c, so (x - 14) / 4. (Their first pixel is
 // the same for any width. Rows: the ball covers lines y and below, a missile lines y + 1 and below.)
-// (The PXE kernel keeps the numbers it had: it has not been measured.)
+// The PXE kernel draws them at the same pixels for the same x (measured 2026-11-10: a ball at ballx 40 and missile1 at 120 are drawn at pixels 39 and 119 on
+// both, on a playfield that starts at pixel 16 on both), so it has the same numbers. It had 20 for both before, the DPC+ number before DPC+ was measured
+// again: a ball going up a gap one column wide in Bricks was stopped by Check playfield in the column beside it, and never touched a lit pixel.
 export const missileBallPfXOffset = (config, name = 'ball') => {
   if (!config || config.kernel !== 'dpcplus') return MISSILE_BALL_PF_X_OFFSET;
-  if (config.pxe) return MISSILE_BALL_PF_X_OFFSET + 2;
   return /^missile/.test(name) ? 14 : 17;
 };
 

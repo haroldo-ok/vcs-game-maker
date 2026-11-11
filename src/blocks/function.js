@@ -61,6 +61,31 @@ export const functionCallArgVarName = (index) => `fnCallArg${index}`;
 // needs to read again.
 export const functionParamVarName = (index) => `fnParam${index}`;
 
+// On PXE a Function is a subroutine that leaves its value in functionCallDiscardVarName (see generators/bbasic/function.js). A statement whose numbers
+// call two or more Functions keeps each call's value in one of these until the statement uses them (the next call would write over the first).
+export const functionCallResultVarName = (index) => `fnCallValue${index}`;
+// The Function calls in the numbers of the statement a value block is part of (its value inputs, nested, not the statements inside it), in order.
+export const functionCallsOfStatement = (statement) => {
+  const calls = [];
+  const visit = (block) => {
+    block.inputList.forEach((input) => {
+      if (input.type !== Blockly.inputTypes.VALUE || !input.connection) return;
+      const child = input.connection.targetBlock();
+      if (!child || !child.isEnabled()) return;
+      visit(child);
+      if (child.type === 'function_call') calls.push(child);
+    });
+  };
+  if (statement) visit(statement);
+  return calls;
+};
+// The statement a value block is in: the first block above it that is not plugged into a value input.
+export const statementOfValueBlock = (block) => {
+  let node = block;
+  while (node && node.outputConnection && node.getParent()) node = node.getParent();
+  return node;
+};
+
 // Block for defining a native batari Basic "function" - a real,
 // value-returning callable (see generators/bbasic/function.js for the exact
 // "function <name> ... return <expr>" syntax this compiles to), distinct

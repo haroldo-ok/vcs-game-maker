@@ -234,6 +234,28 @@ const getIncludesManifest = async () => {
   return dpcPlusBankJump && banksw ? {...includes, 'includes/banksw.asm': withBankGoto(banksw)} : includes;
 };
 
+// Every name the assembly files of the kernels use (the include files, and the Text Minikernel's files, which are pasted in): a variable named there is read or
+// written by hand-written assembly that the generator's analysis of the code it makes does not see (the score kernel's minikernel reads scorebkcolor, for one).
+const KERNEL_TEXT_FILES = ['bb19/text-minikernel/text12a.asm', 'bb19/text-minikernel/text12b.asm', 'bb19/text-minikernel/text12DPCplus.asm'];
+let includeIdentifiersPromise = null;
+export const getIncludeIdentifiers = () => {
+  if (!includeIdentifiersPromise) {
+    includeIdentifiersPromise = Promise.all([getIncludesManifest(),
+      ...KERNEL_TEXT_FILES.map((file) => fetch(file).then((r) => (r.ok ? r.text() : '')).catch(() => ''))]).then(([includes, ...texts]) => {
+      const names = new Set();
+      const add = (text) => {
+        for (const m of String(text).matchAll(/[A-Za-z_]\w*/g)) names.add(m[0]);
+      };
+      Object.entries(includes).forEach(([file, text]) => {
+        if (/\.(asm|h|inc)(\.|$)/i.test(file)) add(text);
+      });
+      texts.forEach(add);
+      return names;
+    });
+  }
+  return includeIdentifiersPromise;
+};
+
 // `siblingFiles` are placed in the same directory as the compiled source
 // throughout every stage below - the same relationship real files have on
 // disk next to a .bas file - so a "inline text12a.asm" style directive (or
@@ -323,7 +345,321 @@ const measureBanks = async (mainAsmContent, workDir, includes, log) => {
   }
 };
 
+// The compiler makes "if <condition> then goto <label>" a branch over a jmp: "Bxx .skipLn", ".condpartm", "jmp <label>", ".skipLn" (5 bytes; 5 cycles
+// when it goes to the label, 3 when it does not). Where the label is in branch range, one branch with the opposite condition to the label does the same
+// (2 bytes; 3 cycles when it goes to the label, 2 when it does not). The addresses come from the symbol table of an assembly; the range is checked with a
+// margin (taking jmps out only brings labels closer, but an align or a page padding between could move them apart), and the program is assembled again:
+// when that does not work, the first one is kept. A ".condpartm" that anything else goes to (the second test of an "or") is left as it is.
+const OPPOSITE_BRANCH = {BEQ: 'BNE', BNE: 'BEQ', BCC: 'BCS', BCS: 'BCC', BMI: 'BPL', BPL: 'BMI', BVC: 'BVS', BVS: 'BVC'};
+const BRANCH_RANGE_MARGIN = 100;
+export const shortenBranchesOverJumps = (asm, symbolmap) => {
+  const lines = asm.split('\n');
+  // The address of a label: a global one by its name, a local one (".name") by the scoped name DASM lists ("0.name"), when only one scope has it.
+  const scoped = {};
+  Object.keys(symbolmap).forEach((key) => {
+    const m = /^\d+\.(.+)$/.exec(key);
+    if (m) scoped[m[1]] = scoped[m[1]] === undefined ? symbolmap[key] : null;
+  });
+  const addressOf = (label) => (label.startsWith('.') ? scoped[label.slice(1)] : symbolmap[label]);
+  const branch = /^\s+(BEQ|BNE|BCC|BCS|BMI|BPL|BVC|BVS)\s+\.(skipL\w+)\s*$/i;
+  const references = (name) => (asm.match(new RegExp(`\\.${name}\\b`, 'g')) || []).length;
+  let count = 0;
+  for (let i = 0; i + 3 < lines.length; i++) {
+    const b = branch.exec(lines[i]);
+    if (!b) continue;
+    const condpart = /^\.(condpart\d+)\s*$/.exec(lines[i + 1]);
+    const jump = /^\s+jmp\s+(\S+)\s*$/i.exec(lines[i + 2] || '');
+    if (!condpart || !jump) continue;
+    let k = i + 3;
+    while (k < lines.length && lines[k].trim() === '') k++;
+    if (k >= lines.length || lines[k].trim() !== `.${b[2]}`) continue;
+    if (references(condpart[1]) !== 1) continue;
+    const from = addressOf(`.${condpart[1]}`);
+    const to = addressOf(jump[1]);
+    if (typeof from !== 'number' || typeof to !== 'number') continue;
+    // (The new branch ends where .condpartm is now.)
+    if (Math.abs(to - from) > BRANCH_RANGE_MARGIN) continue;
+    lines[i] = `\t${OPPOSITE_BRANCH[b[1].toUpperCase()]} ${jump[1]}`;
+    lines[i + 2] = '';
+    count++;
+  }
+  return {asm: lines.join('\n'), count};
+};
+
+// Two more things the compiler's code for statements does that can go (only its code: the compiler writes its instructions with a tab, in capitals, and
+// nothing else in the program does, so the kernels and the asm blocks, where the cycles may be counted, are left alone):
+// - "LDA x", "CMP #0" before BEQ, BNE, BMI or BPL: the load has set the zero and negative flags the same way (the compare also sets the carry, which those
+//   branches do not look at, and the compiler sets the carry itself before an add or a subtract): 2 bytes, 2 cycles.
+// - "LDA v", "STA y", "LDA v": the second load gives A and the flags they have already: 2 bytes, 2 or 3 cycles. For a number always; for a byte only when it is
+//   in the RAM of the console ($80 to $FF), never a register of the chips or the cartridge (on DPC+ "rand" is a fetcher that gives the next number when read).
+// Lines between that are not instructions (blank lines, the compiler's line comments, its ".L" labels of statements, which nothing goes to) are passed over.
+const isPassedOver = (line) => line.trim() === '' || /^\s*;/.test(line) || /^\.L\d+ ;;line \d+;;/.test(line) || /^\.\s*$/.test(line);
+export const trimCompiledCode = (asm, symbolmap) => {
+  const lines = asm.split('\n');
+  const next = (i) => {
+    let k = i + 1; while (k < lines.length && isPassedOver(lines[k])) k++; return k;
+  };
+  const inRam = (operand) => /^#/.test(operand) || (/^\w+$/.test(operand) && typeof symbolmap[operand] === 'number' && symbolmap[operand] >= 0x80 && symbolmap[operand] <= 0xFF);
+  let compares = 0;
+  let loads = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const load = /^\tLDA (\S+)\s*$/.exec(lines[i]);
+    if (!load) continue;
+    const j = next(i);
+    if (j >= lines.length) break;
+    if (/^\tCMP #0\s*$/.test(lines[j]) && /^\s+(BEQ|BNE|BMI|BPL)\s/i.test(lines[next(j)] || '')) {
+      lines[j] = '';
+      compares++;
+      continue;
+    }
+    // (Over any number of stores: a number put in several bytes is loaded once.)
+    if (/^\tSTA \S+\s*$/.test(lines[j]) && inRam(load[1])) {
+      const again = new RegExp(`^\\tLDA ${load[1].replace(/[$#^.*+?()[\]{}|\\]/g, (c) => `\\${c}`)}\\s*$`);
+      let k = next(j);
+      while (k < lines.length) {
+        if (/^\tSTA \S+\s*$/.test(lines[k])) k = next(k);
+        else if (again.test(lines[k])) {
+          lines[k] = '';
+          loads++;
+          k = next(k);
+        } else break;
+      }
+    }
+  }
+  return {asm: lines.join('\n'), compares, loads};
+};
+
+// (A program that is too big for a bank is shortened too, with the addresses of the measuring assembly, which gives every bank its room: the bytes it saves can
+// make it fit without moving anything to another bank.)
+// DPC+: the variables in the display memory and the flag bytes there are read and written through data fetcher 6 (the generator's asm, two-space
+// indented): the pointer is set (low byte, high byte), DF6DATA read or DF6WRITE written, and a read is kept in temp5 or temp6. Followed line by line
+// (with the addresses of an assembly), the pointer and what the two scratch bytes hold are known between labels:
+// - a read of a byte that the scratch byte it goes to holds already (read before, not written since) is "lda tempN" instead: the same A and flags,
+//   3 cycles instead of 19;
+// - the high byte of the pointer is not set again when the pointer has it already (6 cycles), when A is loaded next anyway.
+// Anything else that could change them (a label something goes to, a call, a jump, a return, an assembler line it does not know) makes them unknown.
+const SCRATCH_BYTES = ['temp5', 'temp6'];
+const FETCHER_LINE = /^  \S/;
+export const trimDisplayMemoryAccess = (asm, symbolmap) => {
+  if (typeof symbolmap.DF6LOW !== 'number' || typeof symbolmap.DF6DATA !== 'number') return {asm, reads: 0, highs: 0, flags: 0};
+  const lines = asm.split('\n');
+  const valueOf = (expression) => {
+    const text = expression.trim();
+    let m = /^#<\(([A-Za-z_]\w*)\+(\d+)\)$/.exec(text);
+    if (m && typeof symbolmap[m[1]] === 'number') return (symbolmap[m[1]] + +m[2]) & 0xFF;
+    m = /^#\(>\(([A-Za-z_]\w*)\+(\d+)\)\)\s*&\s*\$0F$/i.exec(text);
+    if (m && typeof symbolmap[m[1]] === 'number') return ((symbolmap[m[1]] + +m[2]) >> 8) & 0x0F;
+    m = /^#(\$[0-9a-f]+|%[01]+|\d+)$/i.exec(text);
+    if (m) return m[1][0] === '$' ? parseInt(m[1].slice(1), 16) & 0xFF : m[1][0] === '%' ? parseInt(m[1].slice(1), 2) & 0xFF : +m[1] & 0xFF;
+    return null;
+  };
+  let lo = null;
+  let hi = null;
+  let reg = {a: null, x: null, y: null};
+  // what A holds when it is a byte of the display memory (its address), and what each scratch byte holds
+  let aHolds = null;
+  let holds = {temp5: null, temp6: null};
+  const forget = () => {
+    lo = null; hi = null; reg = {a: null, x: null, y: null}; aHolds = null; holds = {temp5: null, temp6: null};
+  };
+  const address = () => (lo !== null && hi !== null ? (hi << 8) | lo : null);
+  const step = () => {
+    if (lo === null) return;
+    lo = (lo + 1) & 0xFF;
+    if (lo === 0) hi = hi === null ? null : (hi + 1) & 0x0F;
+  };
+  const instructionOf = (line) => {
+    const text = line.replace(/;.*$/, '').trim();
+    const [op, ...rest] = text.split(/\s+/);
+    return {op: (op || '').toLowerCase(), operand: rest.join(' ')};
+  };
+  // The next line that is an instruction (passing over blank lines and the compiler's statement labels and comments).
+  const passedOver = (line) => line.trim() === '' || /^\s*;/.test(line) || /^\.L\d+ ;;line \d+;;/.test(line) || /^\.\s*$/.test(line);
+  const nextInstruction = (i) => {
+    let k = i + 1; while (k < lines.length && passedOver(lines[k])) k++; return k;
+  };
+  // After a read the pointer is on the next byte, and code after it may read that one without setting the pointer (adjacent bytes are read that way): a read is
+  // only left out when, from the line after it, the pointer is set before fetcher 6 is read or written (or a label or a call comes first, after which
+  // nothing counts on it).
+  const setsPointerFirst = (from) => {
+    for (let k = from + 1; k < lines.length; k++) {
+      if (passedOver(lines[k])) continue;
+      if (/^\S/.test(lines[k])) return true;
+      const {op, operand} = instructionOf(lines[k]);
+      if (/^DF6(DATA|WRITE)$/.test(operand)) return false;
+      if (/^st[axy]$/.test(op) && operand === 'DF6LOW') return true;
+      if (/^(jsr|jmp|rts|rti)$/.test(op)) return true;
+    }
+    return true;
+  };
+  let reads = 0;
+  let highs = 0;
+  let flags = 0;
+  // A store to the display memory keeps the flags around its pointer setting ("php" ... "plp", with only pha/pla, the pointer and the write between): only the
+  // zero and negative flags change in between (the loads and pla; the carry and the overflow flag are not touched). Left out when the next instruction sets
+  // those two without reading them (a load, a transfer, a compare, a calculation): 7 cycles and 2 bytes. Not before a label, a branch, a jump or a return.
+  const SETS_NZ = /^(lda|ldx|ldy|pla|tax|tay|txa|tya|tsx|and|ora|eor|adc|sbc|cmp|cpx|cpy|inx|iny|dex|dey)$/;
+  for (let i = 0; i < lines.length; i++) {
+    if (!FETCHER_LINE.test(lines[i]) || instructionOf(lines[i]).op !== 'php') continue;
+    let k = nextInstruction(i);
+    let ok = true;
+    while (k < lines.length && FETCHER_LINE.test(lines[k])) {
+      const {op, operand} = instructionOf(lines[k]);
+      if (op === 'plp') break;
+      const allowed = op === 'pha' || op === 'pla' || (op === 'lda' && /^#/.test(operand)) ||
+        (/^st[axy]$/.test(op) && /^DF6(LOW|HI|WRITE)$/.test(operand)) || (/^ld[xy]$/.test(op) && /^#/.test(operand));
+      if (!allowed) {
+        ok = false;
+        break;
+      }
+      k = nextInstruction(k);
+    }
+    if (!ok || k >= lines.length || instructionOf(lines[k]).op !== 'plp') continue;
+    const after = nextInstruction(k);
+    if (after >= lines.length || /^\S/.test(lines[after]) || !SETS_NZ.test(instructionOf(lines[after]).op)) continue;
+    lines[i] = '';
+    lines[k] = '';
+    flags++;
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (passedOver(line)) continue;
+    if (/^\S/.test(line)) {
+      forget();
+      continue;
+    }
+    const {op, operand} = instructionOf(line);
+    const target = operand.replace(/\s+/g, '');
+    // A read block of the generator: pointer low, pointer high, lda DF6DATA, sta tempN.
+    if (FETCHER_LINE.test(line) && op === 'lda' && /^#<\(/.test(operand)) {
+      const k1 = nextInstruction(i); const k2 = nextInstruction(k1); const k3 = nextInstruction(k2); const k4 = nextInstruction(k3); const k5 = nextInstruction(k4);
+      const i1 = instructionOf(lines[k1] || ''); const i2 = instructionOf(lines[k2] || ''); const i3 = instructionOf(lines[k3] || '');
+      const i4 = instructionOf(lines[k4] || ''); const i5 = instructionOf(lines[k5] || '');
+      const want = (valueOf(operand) !== null && i2.op === 'lda' && valueOf(i2.operand) !== null) ? (valueOf(i2.operand) << 8) | valueOf(operand) : null;
+      if (want !== null && [k1, k2, k3, k4, k5].every((k) => FETCHER_LINE.test(lines[k] || '')) &&
+          i1.op === 'sta' && i1.operand === 'DF6LOW' && i3.op === 'sta' && i3.operand === 'DF6HI' && i4.op === 'lda' && i4.operand === 'DF6DATA' &&
+          i5.op === 'sta' && SCRATCH_BYTES.includes(i5.operand) && holds[i5.operand] === want && setsPointerFirst(k5)) {
+        lines[i] = `  lda ${i5.operand}`;
+        [k1, k2, k3, k4, k5].forEach((k) => {
+          lines[k] = '';
+        });
+        reads++;
+        reg.a = null;
+        aHolds = want;
+        i = k5;
+        continue;
+      }
+    }
+    // The high byte of the pointer set to what it is already, with A loaded again next: left out.
+    if (FETCHER_LINE.test(line) && op === 'lda' && /^#\(>\(/.test(operand)) {
+      const k1 = nextInstruction(i); const k2 = nextInstruction(k1);
+      const i1 = instructionOf(lines[k1] || ''); const i2 = instructionOf(lines[k2] || '');
+      const value = valueOf(operand);
+      if (value !== null && hi === value && FETCHER_LINE.test(lines[k1] || '') && i1.op === 'sta' && i1.operand === 'DF6HI' &&
+          (i2.op === 'lda' || i2.op === 'pla') && !/,\s*a\b/i.test(i2.operand)) {
+        lines[i] = '';
+        lines[k1] = '';
+        highs++;
+        i = k1;
+        continue;
+      }
+    }
+    // Following the code.
+    const regOf = {lda: 'a', ldx: 'x', ldy: 'y'};
+    const storeOf = {sta: 'a', stx: 'x', sty: 'y'};
+    if (regOf[op]) {
+      reg[regOf[op]] = /^#/.test(operand) ? valueOf(operand) : null;
+      if (op === 'lda') aHolds = operand === 'DF6DATA' ? address() : (SCRATCH_BYTES.includes(operand) ? holds[operand] : null);
+      if (operand === 'DF6DATA') step();
+      continue;
+    }
+    if (storeOf[op]) {
+      const value = reg[storeOf[op]];
+      if (operand === 'DF6LOW') lo = value;
+      else if (operand === 'DF6HI') hi = value;
+      else if (operand === 'DF6WRITE') {
+        const at = address();
+        SCRATCH_BYTES.forEach((name) => {
+          if (holds[name] !== null && (at === null || holds[name] === at)) holds[name] = null;
+        });
+        step();
+      } else if (SCRATCH_BYTES.includes(target)) holds[target] = op === 'sta' ? aHolds : null;
+      else if (/^DF\d/.test(operand)) forget();
+      continue;
+    }
+    if (/^(inc|dec|asl|lsr|rol|ror)$/.test(op)) {
+      if (!operand || /^a$/i.test(operand)) {
+        reg.a = null; aHolds = null;
+      } else if (SCRATCH_BYTES.includes(target)) holds[target] = null;
+      else if (/^DF\d/.test(operand)) forget();
+      continue;
+    }
+    if (/^(adc|sbc|and|ora|eor|pla|txa|tya)$/.test(op)) {
+      reg.a = null; aHolds = null;
+      if (/^DF6DATA$/.test(operand)) step();
+      continue;
+    }
+    if (/^(tax|tsx|inx|dex)$/.test(op)) {
+      reg.x = null; continue;
+    }
+    if (/^(tay|iny|dey)$/.test(op)) {
+      reg.y = null; continue;
+    }
+    if (/^(cmp|cpx|cpy|bit|clc|sec|cld|sed|cli|sei|clv|nop|pha|php|plp|txs|bcc|bcs|beq|bne|bmi|bpl|bvc|bvs)$/.test(op)) {
+      if (/^DF6DATA$/.test(operand)) step();
+      continue;
+    }
+    // (a jsr, jmp, rts, a macro or an assembler line)
+    forget();
+  }
+  return {asm: lines.join('\n'), reads, highs, flags};
+};
+
+// The shorter code (shortenBranchesOverJumps and trimCompiledCode, with the addresses of an assembly) and a line for the log; null when nothing changes.
+const shorterCode = (asm, symbolmap) => {
+  const fetched = trimDisplayMemoryAccess(asm, symbolmap);
+  const trimmed = trimCompiledCode(fetched.asm, symbolmap);
+  const short = shortenBranchesOverJumps(trimmed.asm, symbolmap);
+  const bytes = short.count * 3 + trimmed.compares * 2 + trimmed.loads * 2 + fetched.reads * 13 + fetched.highs * 5 + fetched.flags * 2;
+  if (!bytes) return null;
+  const parts = [short.count ? `${short.count} "if ... then goto" tests are one branch instead of a branch and a jump` : '',
+    trimmed.compares ? `${trimmed.compares} compares with 0 after a load are left out` : '',
+    trimmed.loads ? `${trimmed.loads} loads of a value A already holds are left out` : '',
+    fetched.reads ? `${fetched.reads} reads of the display memory take the byte already read` : '',
+    fetched.highs ? `${fetched.highs} high bytes of the display memory pointer are not set again` : '',
+    fetched.flags ? `${fetched.flags} stores to the display memory do not keep flags nothing reads` : ''].filter(Boolean);
+  return {asm: short.asm, note: `${parts.join('; ')} (${bytes} bytes less)`};
+};
+
 const assemble = async (mainAsmContent, workDir, log) => {
+  let first;
+  try {
+    first = await assembleOnce(mainAsmContent, workDir, log);
+  } catch (e) {
+    const measured = e.measured && e.measured.symbolmap;
+    const shorter = measured ? shorterCode(mainAsmContent, measured) : null;
+    if (!shorter) throw e;
+    try {
+      const fitted = await assembleOnce(shorter.asm, workDir, null);
+      if (log) log(`${shorter.note}, which made the program fit.`);
+      return fitted;
+    } catch (e2) {
+      throw e;
+    }
+  }
+  const shorter = shorterCode(mainAsmContent, first.symbolmap);
+  if (!shorter) return first;
+  try {
+    const second = await assembleOnce(shorter.asm, workDir, null);
+    if (log) log(`${shorter.note}.`);
+    return second;
+  } catch (e) {
+    if (log) log(`The shorter code did not assemble (${e.message}); the program is kept as it was.`);
+    return first;
+  }
+};
+
+const assembleOnce = async (mainAsmContent, workDir, log) => {
   const includes = await getIncludesManifest();
   const r = await runWasi(
       'bb19/dasm.wasm',

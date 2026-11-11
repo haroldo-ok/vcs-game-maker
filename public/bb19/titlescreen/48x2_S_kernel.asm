@@ -67,7 +67,7 @@ title48x2_pointers
 	sta HMCLR
  ifconst title_uniform_48x2
 	and #1			; bit 0 of the color: set for a list of one color (see 48x2_X_kernel.asm)
-	sta temp6
+	sta stack2		; (not temp6: on the standard kernel that is scorepointers+11, the picture pointer of the sixth column)
  endif
 
 	lda titlescreencolor

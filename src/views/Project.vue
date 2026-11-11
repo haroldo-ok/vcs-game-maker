@@ -934,7 +934,9 @@ export default defineComponent({
           ...screen,
           cards: (screen.cards || []).map((card) => !card.frames ? card : ({
             ...card,
-            frames: card.frames.map((frame) => ({...frame, pixels: matrixToPlayfield(frame.pixels)})),
+            // (The ball cells a 48x2 graphic's frame has painted, as its pixels.)
+            frames: card.frames.map((frame) => ({...frame, pixels: matrixToPlayfield(frame.pixels),
+              ...(frame.ballPixels ? {ballPixels: matrixToPlayfield(frame.ballPixels)} : {})})),
           })),
         })),
       };
@@ -1487,7 +1489,8 @@ export default defineComponent({
             ...screen,
             cards: (screen.cards || []).map((card) => !card.frames ? card : ({
               ...card,
-              frames: card.frames.map((frame) => ({...frame, pixels: playfieldToMatrix(frame.pixels)})),
+              frames: card.frames.map((frame) => ({...frame, pixels: playfieldToMatrix(frame.pixels),
+                ...(typeof frame.ballPixels === 'string' ? {ballPixels: playfieldToMatrix(frame.ballPixels)} : {})})),
             })),
           })),
         };

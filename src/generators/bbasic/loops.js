@@ -220,6 +220,10 @@ export default (Blockly) => {
     const loopLabelName = labelName + 'loop';
     const endLabelName = labelName + 'end';
     const argument0 = Blockly.BBasic.valueToCode(block, 'BOOL', Blockly.BBasic.ORDER_NONE) || 'false';
+    // The lines a condition puts in front of itself (a Function call on PXE, a Data table read by an id worked out while the game runs, see Blockly.BBasic.scrub_)
+    // are taken here, before the body is made (its first statement would take them otherwise), and go after the start label: they run on every pass.
+    const conditionPreamble = Blockly.BBasic.pendingPreambleLines;
+    Blockly.BBasic.pendingPreambleLines = [];
     let branch = Blockly.BBasic.statementToCode(block, 'DO');
     branch = Blockly.BBasic.addLoopTrap(branch, block); // eslint-disable-line
 
@@ -234,6 +238,7 @@ export default (Blockly) => {
 
     return [
       '@' + startLabelName,
+      ...conditionPreamble,
       codeForCondition,
       '@' + loopLabelName,
       branch,

@@ -140,7 +140,7 @@ mk_48x2_8_on = 1
 
  MAC draw_player
 mk_player_on = 1
- jsr draw_player_display
+ jsr draw_player_display_{1}	; the page's routine (see player_kernel.asm)
  ENDM
 
  MAC draw_score

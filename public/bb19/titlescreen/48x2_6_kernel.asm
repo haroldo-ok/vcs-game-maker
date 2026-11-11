@@ -1,6 +1,12 @@
 
 draw_bmp_48x2_6
 
+ ; (With the ball the rows' colors are read a row later, see draw_bmp_48x2_XB: their pointer is a row on.)
+bmp_48x2_6_cshift SET 0
+ ifconst bmp_48x2_6_ball
+bmp_48x2_6_cshift SET 1
+ endif
+
  ifconst bmp_48x2_6_shared
   ; The shared setup (see 48x2_S_kernel.asm): the variables the card has go to temp3 to temp5 and its numbers follow the "jsr".
 bmp_48x2_6_dyn SET 0
@@ -58,10 +64,12 @@ bmp_48x2_6_dyn SET 1
 	.byte (bmp_48x2_6_window-1), bmp_48x2_6_pf1c, bmp_48x2_6_pf2c, bmp_48x2_6_bgc
  else
 
+ ; (A single color graphic has one color byte and no list of row colors: see generators/bbasic/titlescreen.js.)
+ ifnconst bmp_48x2_6_onecolor
  ifconst bmp_48x2_6_colorheight
-	lda #<(bmp_48x2_6_colors-1+bmp_48x2_6_colorheight-bmp_48x2_6_window)
+	lda #<(bmp_48x2_6_colors-1+bmp_48x2_6_cshift+bmp_48x2_6_colorheight-bmp_48x2_6_window)
  else
-	lda #<(bmp_48x2_6_colors-1+bmp_48x2_6_height-bmp_48x2_6_window)
+	lda #<(bmp_48x2_6_colors-1+bmp_48x2_6_cshift+bmp_48x2_6_height-bmp_48x2_6_window)
  endif
  ifconst bmp_48x2_6_colorindex
 	sec
@@ -74,9 +82,9 @@ bmp_48x2_6_dyn SET 1
  endif
 	sta aux5+0
  ifconst bmp_48x2_6_colorheight
-	lda #>(bmp_48x2_6_colors-1+bmp_48x2_6_colorheight-bmp_48x2_6_window)
+	lda #>(bmp_48x2_6_colors-1+bmp_48x2_6_cshift+bmp_48x2_6_colorheight-bmp_48x2_6_window)
  else
-	lda #>(bmp_48x2_6_colors-1+bmp_48x2_6_height-bmp_48x2_6_window)
+	lda #>(bmp_48x2_6_colors-1+bmp_48x2_6_cshift+bmp_48x2_6_height-bmp_48x2_6_window)
  endif
  ifconst title_uniform_48x2
   ifconst bmp_48x2_6_colorindex
@@ -88,6 +96,7 @@ bmp_48x2_6_dyn SET 1
 	adc bmp_48x2_6_colorpage
  endif
 	sta aux5+1
+ endif
 
         ldy #11
 bmp_48x2_6_pointersetup
@@ -111,16 +120,28 @@ bmp_48x2_6_pointersetup
  endif
 	sty aux2
 
+ ifconst bmp_48x2_6_onecolor
+	lda bmp_48x2_6_color
+ else
+  if bmp_48x2_6_cshift
+	lda (aux5),y		; (the pointer is a row on, see bmp_48x2_6_cshift)
+  else
 	iny
 	lda (aux5),y
 	dey
+  endif
+ endif
 
         sta COLUP0              ;3
         sta COLUP1              ;3
         sta HMCLR               ;3
  ifconst title_uniform_48x2
+  ifconst bmp_48x2_6_onecolor
+	lda #1			; one color: the loop that does not read row colors (see 48x2_X_kernel.asm)
+  else
 	and #1			; bit 0 of the color: set for a list of one color (see 48x2_X_kernel.asm)
-	sta temp6
+  endif
+	sta stack2		; (not temp6: on the standard kernel that is scorepointers+11, the picture pointer of the sixth column)
  endif
 
         lda titlescreencolor
@@ -148,7 +169,50 @@ bmp_48x2_6_pointersetup
   endif
         sta PF2
 
+ ifconst bmp_48x2_6_ball
+	; The ball behind the picture (see draw_bmp_48x2_XB): its place, the ball's line and position48; then the index of the top row (as the
+	; pictures' pointers: the height less one, less the frame's offset), the end of the rows, the first rows' width and the loop.
+	; The top row's ENABL, set on the line before it (draw_bmp_48x2_XB), and its fourth and third columns, which the loop reads from
+	; scorepointers (see pf48x2_6_ball_loop). (Read here, before the lines that are timed: on the line after position48 they put the graphic
+	; a line lower.)
+	lda #<(bmp_48x2_6_height-1)
+  ifconst bmp_48x2_6_index
+	sec
+	sbc bmp_48x2_6_index
+  endif
+	tay
+	lda bmp_48x2_6_ballen,y
+	sta stack2
+	lda bmp_48x2_6_04,y
+	sta scorepointers
+	lda bmp_48x2_6_03,y
+	sta scorepointers+2
+	lda bmp_48x2_6_ballx
+	sta missile0y
+	jsr draw_bmp_48x2_XB_place
+	lda #<(bmp_48x2_6_height-1)
+  ifconst bmp_48x2_6_index
+	sec
+	sbc bmp_48x2_6_index
+  endif
+	sta aux2
+	tay
+	lda bmp_48x2_6_ballw,y
+	sta CTRLPF
+	lda #<(bmp_48x2_6_height-bmp_48x2_6_window-1)
+  ifconst bmp_48x2_6_index
+	sec
+	sbc bmp_48x2_6_index
+  endif
+	sta missile0y
+	lda #<pf48x2_6_ball_loop
+	sta aux5
+	lda #>pf48x2_6_ball_loop
+	sta aux5+1
+	jmp draw_bmp_48x2_XB
+ else
  	jmp draw_bmp_48x2_X
+ endif
 	
  endif
 
@@ -160,4 +224,168 @@ bmp_48x2_6_values
         .word (bmp_48x2_6_03+#bmp_48x2_6_height-#bmp_48x2_6_window)
         .word (bmp_48x2_6_04+#bmp_48x2_6_height-#bmp_48x2_6_window)
         .word (bmp_48x2_6_05+#bmp_48x2_6_height-#bmp_48x2_6_window)
+ endif
+
+ ifconst bmp_48x2_6_ball
+; The ball's loop of this graphic (see draw_bmp_48x2_XB): two rows a pass, each row two lines; aux2 the row's index in the tables, missile0y
+; the index after the last row. The ball is on its rows' lines: what it has for a row (ENABL, and for a pair of rows the width, CTRLPF, and the
+; move, an HMOVE) is set on the line before the row, with the row's color. To have the time for it on those lines, the first line of a row
+; reads four columns (31 cycles before the picture's stores): its third and fourth are read on the line before into bytes of scorepointers
+; (the pointers are not used by this loop; scorepointers+0 and +2 for the pass's first row, +1 and +3 for its second); the second line reads
+; four too, with the next row's index (the tables at +1: a table is in one page with a byte after it, see the build), and the sixth column is
+; still in X. The test for the last row is on the first line of a row: the last row's second line is then drawn by a copy of it that ends the
+; loop (pf48x2_6_ball_lastA, _lastB, after a WSYNC, so the branch's time does not count; with the index of that row, as the next one
+; can be 255). The loop's jmp is on the first line of the second
+; row, so the lines before a row do not take it. The top row's ENABL is set before the loop (stack2), its third and fourth columns read by the
+; card's setup; the loop starts at pf48x2_6_ball_loop (cycle 10).
+; Free cycles on each line (the sleeps): the line before the pass's second row 3 (the pair's width and move are set there), before the next
+; pass 13, the two lines inside the rows 2 and 6; a single color graphic has 10 more on each line before a row.
+pf48x2_6_ball_lastA
+	iny				;2 (the row's index: the next one can be 255, past the table at +1)
+	sta WSYNC			;3
+	sleep 13
+	lda bmp_48x2_6_00,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_01,y		;4
+	sta GRP1			;3
+	lda bmp_48x2_6_02,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_03,y		;4
+	ldy scorepointers		;3 (X still has the sixth column)
+	sta GRP1			;3
+	sty GRP0			;3
+	stx GRP1			;3
+	sty GRP0			;3
+	jmp pf48x2_XB_done
+
+pf48x2_6_ball_next
+	; The second line of the pass's second row, then the line before the next pass's first row: its color and ENABL.
+	lda bmp_48x2_6_00+1,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_01+1,y		;4
+	sta GRP1			;3
+	lda bmp_48x2_6_02+1,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_03+1,y		;4
+	ldy scorepointers+1		;3 (X still has the sixth column)
+	sta GRP1			;3
+	sty GRP0			;3
+	stx GRP1			;3
+	sty GRP0			;3
+
+	ldy aux2			;3 (the next row)
+ ifconst bmp_48x2_6_onecolor
+	sleep 10			; (free: a single color graphic has no color to store)
+ else
+	lda bmp_48x2_6_colors,y		;4
+	sta COLUP1			;3
+	sta COLUP0			;3
+ endif
+	lda bmp_48x2_6_ballen,y		;4
+	sta ENABL			;3
+	sleep 13			; (free)
+
+pf48x2_6_ball_loop
+	; The pass's first row, its first line.
+	lda bmp_48x2_6_00,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_01,y		;4
+	sta GRP1			;3
+	lda bmp_48x2_6_02,y		;4
+	sta GRP0			;3
+	ldx bmp_48x2_6_05,y		;4
+	lda scorepointers+2		;3 (the third column, read on the line before)
+	ldy scorepointers		;3 (the fourth column, read on the line before)
+	sta GRP1			;3
+	sty GRP0			;3
+	stx GRP1			;3
+	sty GRP0			;3
+
+	dec aux2			;5
+	ldy aux2			;3 (the next row)
+	cpy missile0y			;3
+	beq pf48x2_6_ball_lastA		;2 (this row is the last)
+	lda bmp_48x2_6_04,y		;4
+	sta scorepointers+1		;3 (the next row's fourth column)
+	lda bmp_48x2_6_03,y		;4
+	sta scorepointers+3		;3 (and its third)
+	lda bmp_48x2_6_ballhm+1,y	;4 (this row's: the move for the HMOVE at the end of the next line)
+	sta HMBL			;3
+	sleep 2				; (free)
+
+	; Its second line, then the line before the second row: its color, ENABL, the pair's width and move.
+	lda bmp_48x2_6_00+1,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_01+1,y		;4
+	sta GRP1			;3
+	lda bmp_48x2_6_02+1,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_03+1,y		;4
+	ldy scorepointers		;3 (X still has the sixth column)
+	sta GRP1			;3
+	sty GRP0			;3
+	stx GRP1			;3
+	sty GRP0			;3
+
+	ldy aux2			;3 (the next row)
+ ifconst bmp_48x2_6_onecolor
+	sleep 10			; (free: a single color graphic has no color to store)
+ else
+	lda bmp_48x2_6_colors,y		;4
+	sta COLUP1			;3
+	sta COLUP0			;3
+ endif
+	lda bmp_48x2_6_ballen,y		;4
+	sta ENABL			;3
+	sta HMOVE			;3 (cycle 76: see draw_bmp_48x2_XB)
+	lda bmp_48x2_6_ballw,y		;4
+	sta CTRLPF			;3
+	sleep 3				; (free)
+
+	; The pass's second row, its first line.
+	lda bmp_48x2_6_00,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_01,y		;4
+	sta GRP1			;3
+	lda bmp_48x2_6_02,y		;4
+	sta GRP0			;3
+	ldx bmp_48x2_6_05,y		;4
+	lda scorepointers+3		;3 (the third column, read on the line before)
+	ldy scorepointers+1		;3 (the fourth column, read on the line before)
+	sta GRP1			;3
+	sty GRP0			;3
+	stx GRP1			;3
+	sty GRP0			;3
+
+	dec aux2			;5
+	ldy aux2			;3 (the next row)
+	cpy missile0y			;3
+	beq pf48x2_6_ball_lastB		;2 (this row is the last)
+	lda bmp_48x2_6_04,y		;4
+	sta scorepointers		;3 (the next row's fourth column)
+	lda bmp_48x2_6_03,y		;4
+	sta scorepointers+2		;3 (and its third)
+	sleep 6				; (free)
+	jmp pf48x2_6_ball_next		;3
+
+pf48x2_6_ball_lastB
+	iny				;2 (the row's index)
+	sta WSYNC			;3
+	sleep 13
+	lda bmp_48x2_6_00,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_01,y		;4
+	sta GRP1			;3
+	lda bmp_48x2_6_02,y		;4
+	sta GRP0			;3
+	lda bmp_48x2_6_03,y		;4
+	ldy scorepointers+1		;3 (X still has the sixth column)
+	sta GRP1			;3
+	sty GRP0			;3
+	stx GRP1			;3
+	sty GRP0			;3
+	jmp pf48x2_XB_done
+
+pf48x2_6_ball_end
+	jmp pf48x2_XB_done
  endif

@@ -3,14 +3,15 @@
 import {isPxe} from '../../utils/pxe';
 import {packTitleData} from '../../utils/title-data-pack';
 import {titlePlayerSizeCode} from '../../utils/title-player-size';
-import {TITLE_SCREEN_KERNEL_TYPES, MAX_KERNEL_COPIES_PER_TYPE,
+import {MAX_KERNEL_COPIES_PER_TYPE,
   processTitleScreenStorageDefaults, processTitleScreenStorageForBuild, isCardAnimated, cardFrameHeight, resolveScrollStarts,
   titleCardFrameCounterVarName, titleCardScrollOffsetVarName, titleCardWindowVarName,
   titleCardIndexVarName, titleCardColorIndexVarName, titleCardColorPageVarName, padTitleCardFrames, titleCardColorSplit,
   titleCardUniformAllowed, isUniformColorList,
   titleCardColorVarName, TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, titleFrameBox, titleCardFadeTargetVarName, titleCardFadeTimerVarName,
-  titleCardFadePaceVarName} from '../../blocks/titlescreen';
+  titleCardFadePaceVarName, titleCardTypeInfo, titleFrameBallLines, titleCardHasBall, titleCardBallPlaces, titleCardBallXVarName,
+} from '../../blocks/titlescreen';
 import {useTitleScreenStorage, usePlayerAnimationsStorage,
   useConfigurationStorage, appendCompileLog} from '../../hooks/project';
 import {processPlayerAnimationsStorageDefaults, ctrlpfShadowVarName} from './sprites';
@@ -61,8 +62,15 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
   const {frames, frameHeight} = padded;
   // A faded multicolor graphic uses the row colors of its first frame for every frame (the fade has one set of steps).
   const fadePlan = (Blockly.BBasic.titleRowFadePlans || {})[ref];
-  const paddedFrames = fadePlan ? padded.paddedFrames.map((frame) => ({...frame, colorRows: padded.paddedFrames[0].colorRows})) :
-    padded.paddedFrames;
+  // A graphic with the ball (see titleFrameBallLines) has three tables beside its picture, a byte for each row in the order of the picture's
+  // rows (ENABL, CTRLPF and HMBL): a frame's picture is stored again for other ball rows.
+  const hasBall = titleCardHasBall(card);
+  const noBall = Array.from({length: frameHeight}, () => ({en: 0, w: 1, hm: 0}));
+  const withBall = (list) => list.map((frame, index) => ({...frame,
+    ballRows: hasBall ? ((titleFrameBallLines(frames[index], frameHeight) || {}).rows || noBall) : null}));
+  const paddedFrames = withBall(fadePlan ? padded.paddedFrames.map((frame) => ({...frame, colorRows: padded.paddedFrames[0].colorRows})) :
+    padded.paddedFrames);
+  const ballKey = (frame) => (frame.ballRows ? '|' + JSON.stringify(frame.ballRows.map((row) => [row.en, row.w, row.hm])) : '');
   // Frames are all the first frame's height (padTitleCardFrames pads or cuts them); the dedup pass right below
   // compares frames by exactly what would be written to ROM.
   // Animation frames are frequently repeated (a held pose, a blank/off
@@ -90,8 +98,8 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     return physicalSlot * frameHeight;
   };
   const frameOffsets = paddedFrames.map((frame) => colorSplit ?
-    slotFor(uniquePictures, JSON.stringify(frame.pixelRows), frame) :
-    slotFor(uniqueFrames, JSON.stringify(frame.pixelRows) + '|' + JSON.stringify(frame.colorRows), frame));
+    slotFor(uniquePictures, JSON.stringify(frame.pixelRows) + ballKey(frame), frame) :
+    slotFor(uniqueFrames, JSON.stringify(frame.pixelRows) + '|' + JSON.stringify(frame.colorRows) + ballKey(frame), frame));
   // With more color lists than fit in the first 256 rows ('page'), the lists are stacked a page at a time as
   // many as fit: a list is found by its page number and its offset within that page.
   const colorsPerPage = colorSplit === 'page' ? Math.max(1, Math.floor(255 / frameHeight)) : 0;
@@ -250,10 +258,16 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     }
   }
 
-  if (!doubleLine) {
-    // 48x1 only - a single fixed color for the whole card (every frame,
+  if (!doubleLine || typeInfo.singleColor) {
+    // 48x1, and a single color 48x2 or 96x2 - a single fixed color for the whole card (every frame,
     // not per-frame - see cardFrameHeight's comment in
     // blocks/titlescreen.js for why), no per-row list.
+    // (The kernel copy of a single color 48x2 or 96x2 reads that byte instead of a row color list: bmp_<key>_onecolor. A 48x2 one draws with
+    // the loop that does not read row colors, pf48x2_U_loop in 48x2_X_kernel.asm.)
+    if (typeInfo.singleColor) {
+      lines.push(`bmp_${key}_onecolor = 1`);
+      if (typeInfo.width === 48) Blockly.BBasic.titleUniformUsed = true;
+    }
     if ((Blockly.BBasic.titleCardColorRefs || new Set()).has(ref)) {
       // A "Set title screen graphic color" block changes it: the kernel reads a RAM byte
       // instead of a ROM one, filled with the Title tab's color by Title screen start.
@@ -326,9 +340,45 @@ const buildCardDataAsm = (card, key, typeInfo, ref, Blockly, pageColor) => {
     );
   }
 
+  if (hasBall) {
+    Blockly.BBasic.titleBallUsed = true;
+    // (Read with (player0pointer),y in the loop, which takes a cycle more across a page: the table is kept in one.)
+    lines.push(
+        `   if >. != >[.+bmp_${key}_height]`,
+        '\talign 256',
+        '   endif',
+        `bmp_${key}_ball`,
+    );
+    // (The three tables, each in one page: the loop reads them with absolute addresses and a cycle more across a page would move the picture.)
+    [['ballen', 'en'], ['ballw', 'w'], ['ballhm', 'hm']].forEach(([name, field]) => lines.push(
+        `   if >. != >[.+bmp_${key}_height]`,
+        '\talign 256',
+        '   endif',
+        `bmp_${key}_${name}`,
+        ...[...pictureFrames.flatMap((frame) => frame.ballRows)].reverse().map((row) => `\tBYTE ${row[field]}`),
+        '',
+    ));
+    // The column it is placed at for the frame's top row: a RAM byte that the animation sets when its frames differ, else a byte in the ROM.
+    const place = titleCardBallPlaces(card)[0];
+    if ((Blockly.BBasic.titleBallVaryRefs || new Set()).has(ref)) {
+      const varName = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+      lines.push(`bmp_${key}_ballx = ${varName(titleCardBallXVarName(ref))}`);
+    } else {
+      lines.push(`bmp_${key}_ballx`, `\t.byte ${titleBallXByte(place.x)}`);
+    }
+  }
+
   return {code: lines.join('\n'), frameHeight, frameCount: frames.length,
     frameDurations: frames.map((f) => clampFrameDuration(f.duration)), frameOffsets, colorOffsets, colorPages, colorSplit};
 };
+
+// The ball's x for the kernel's placing of it (draw_bmp_48x2_XB) from its column in the picture (0 to 47): the screen pixel of the picture's
+// first column, less what the placing adds (measured in the emulator).
+const TITLE_BALL_X_BIAS = 59;
+// About the size of the ball's loop in a graphic's kernel copy (pf48x2_N_ball_loop) and its setup.
+const TITLE_BALL_LOOP_BYTES = 330;
+const titleBallXByte = (column) => Math.max(0, Math.min(159, TITLE_BALL_X_BIAS + column));
+
 
 // The lines that put each scrolling graphic at its starting scroll position (where its window is in the Title tab): written last in "Title screen start", so the blocks
 // there can still change it. An animated graphic keeps its scroll position in a separate byte that its frame is added to (see generateTitleScreenAnimationChecks).
@@ -347,29 +397,39 @@ export const titleScrollStartLines = (Blockly) => {
 // The lines that put the Player 0 and Player 1 sprites where the Player card of a title screen says they start (its Start X and
 // Start Y fields; one that is empty is left alone) and how wide they are drawn and how many copies (its Size; one copy is left alone). Run last
 // in "Title screen start", so the card has the say over the blocks there.
-export const titlePlayerStartLines = () => {
-  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
+export const titlePlayerCardStartLines = (card) => {
   const lines = [];
-  screens.forEach((screen) => (screen.cards || []).filter((card) => card.type === 'player').forEach((card) => {
-    [0, 1].forEach((player) => ['x', 'y'].forEach((axis) => {
-      const value = card[`player${player}${axis.toUpperCase()}`];
-      if (value === undefined || value === null || value === '' || !Number.isFinite(Number(value))) return;
-      const line = `player${player}${axis} = ${Math.max(0, Math.min(255, Math.round(Number(value))))}`;
-      if (!lines.includes(line)) lines.push(line);
-    }));
+  [0, 1].forEach((player) => ['x', 'y'].forEach((axis) => {
+    const value = card[`player${player}${axis.toUpperCase()}`];
+    if (value === undefined || value === null || value === '' || !Number.isFinite(Number(value))) return;
+    lines.push(`player${player}${axis} = ${Math.max(0, Math.min(255, Math.round(Number(value))))}`);
   }));
   // The TIA draws a sprite in two or three copies, or stretched to 2x (NUSIZ 5) or 4x (NUSIZ 7); the other bits of the size byte (the flip bit, a flag of the title
   // screen loop, the pause bit) stay as they are.
-  screens.forEach((screen) => (screen.cards || []).filter((card) => card.type === 'player').forEach((card) => {
-    [0, 1].forEach((player) => {
-      const code = titlePlayerSizeCode(card, player);
-      if (!code) return;
-      const nusiz = `$0${code}`;
-      const first = `player${player}size = player${player}size & $F8`;
-      if (!lines.includes(first)) lines.push(first, `player${player}size = player${player}size | ${nusiz}`);
-    });
-  }));
+  [0, 1].forEach((player) => {
+    const code = titlePlayerSizeCode(card, player);
+    if (!code) return;
+    lines.push(`player${player}size = player${player}size & $F8`, `player${player}size = player${player}size | $0${code}`);
+  });
   return lines;
+};
+// The pages that have a Player sprites card (one each: the first one of a page), in page order, as {screen, card}.
+const titlePlayerPages = (screens) => screens.map((screen) => ({screen, card: (screen.cards || []).find((card) => card.type === 'player')}))
+    .filter((page) => page.card);
+export const titlePlayerStartLines = () => {
+  const pages = titlePlayerPages(processTitleScreenStorageForBuild(useTitleScreenStorage()).screens);
+  // (With a Player card on several pages, a page's card is put in force when the page is drawn: see titlescreen_draw.)
+  return pages.length === 1 ? titlePlayerCardStartLines(pages[0].card) : [];
+};
+// Where the sprites of a Player card start when the card does not say: side by side and centered in the card's window (the vertical value
+// counts scanlines from the window's bottom, so a sprite as tall as the window sits at its height).
+const titlePlayerCenterLines = (card, heights) => {
+  const windowHeight = Math.max(1, Math.round(Number(card.windowHeight) || 50));
+  return [0, 1].flatMap((playerIndex) => {
+    const spriteHeight = Math.min(heights[playerIndex], windowHeight);
+    const y = spriteHeight + Math.floor((windowHeight - spriteHeight) / 2);
+    return [`player${playerIndex}x = ${playerIndex === 0 ? 64 : 92}`, `player${playerIndex}y = ${y}`];
+  });
 };
 
 // Resolves a "player" card's  player0Animation/player1Animation field
@@ -412,16 +472,23 @@ const resolvePlayerSlotFrames = (animationIndex) => {
 // The Player sprites card's two players as the build sees them: the height of a frame, how many frames the
 // chosen animation has and how long each lasts, or null for a project with no Player sprites card. An
 // animation with several frames plays by itself (see generateTitlePlayerChecks).
+// Each page can have a Player sprites card: pages lists them ({screenId, slots}), and the entries 0 and 1 are what the players need on any
+// page (the most frames: the frame counter and the frame offset of a player are one byte each, used by the page that is drawn).
 export const resolveTitlePlayerSlots = () => {
-  const {screens} = processTitleScreenStorageForBuild(useTitleScreenStorage());
-  const card = screens.flatMap((screen) => screen.cards || []).find((c) => c.type === 'player');
-  if (!card) return null;
-  const slots = {};
-  [0, 1].forEach((playerIndex) => {
-    const slot = resolvePlayerSlotFrames(playerIndex === 0 ? card.player0Animation : card.player1Animation);
-    slots[playerIndex] = {height: slot.height, frameCount: slot.frames.length, durations: slot.durations};
+  const pages = titlePlayerPages(processTitleScreenStorageForBuild(useTitleScreenStorage()).screens).map(({screen, card}) => {
+    const slots = {};
+    [0, 1].forEach((playerIndex) => {
+      const slot = resolvePlayerSlotFrames(playerIndex === 0 ? card.player0Animation : card.player1Animation);
+      slots[playerIndex] = {height: slot.height, frameCount: slot.frames.length, durations: slot.durations};
+    });
+    return {screenId: screen.id, slots};
   });
-  return slots;
+  if (!pages.length) return null;
+  const result = {pages};
+  [0, 1].forEach((playerIndex) => {
+    result[playerIndex] = {frameCount: Math.max(...pages.map((page) => page.slots[playerIndex].frameCount))};
+  });
+  return result;
 };
 
 // What the window byte of a graphic that a "Set title screen graphic window height" block works on holds for a window of `rows` lines: the kernel of a 48 wide
@@ -444,13 +511,18 @@ const windowVarValue = (key, rows) => (key.startsWith('96x2') ? rows : rows - 1)
 // selection (bmp_playerN_index) just offsets to a different frame's
 // height-row block, which independently follows this same bottom-to-top
 // convention.
-const buildPlayerDataAsm = (card, Blockly) => {
+// Each page with a Player card has its data, named with the page's id, and a routine that sets the page's numbers for the kernel
+// (draw_player_display_<page>) and goes on to the kernel's drawing (see player_kernel.asm).
+const buildPlayerDataAsm = (card, Blockly, pageId) => {
   const windowHeight = Math.max(1, Math.round(Number(card.windowHeight) || 50));
   const kernelLines = Number(card.kernelLines) === 2 ? 2 : 1;
-  const lines = [
-    `bmp_player_window = ${windowHeight}`,
-    `bmp_player_kernellines = ${kernelLines}`,
+  const lines = [];
+  const setup = [
+    `draw_player_display_${pageId}`,
+    `\tlda #(${windowHeight}+1)`,
+    '\tsta temp1 ; our line count',
   ];
+  const pointerLines = [];
   // Read back by the "Set title screen player sprite frame" block's
   // generator (see titlescreen_player_frame_set below) - it needs each
   // player's  per-frame height (baked in at compile time here) to turn a
@@ -464,29 +536,37 @@ const buildPlayerDataAsm = (card, Blockly) => {
     const fallbackColor = rawFallbackColor != null ? rawFallbackColor : 0x0e;
     const {height, frames, hasRowColors} = resolvePlayerSlotFrames(animationIndex);
     heights[playerIndex] = height;
-    // The kernel adds bmp_playerN_index to the frame's address when it exists: a RAM byte that the
+    // The frame's address is the picture's plus the player's frame offset when it has one: a RAM byte that the
     // checks (or the "Set title screen player sprite frame" block) write.
-    if ((Blockly.BBasic.titlePlayerIndexUsed || [])[playerIndex]) {
-      lines.push(`bmp_player${playerIndex}_index = ${Blockly.BBasic.nameDB_.getName(
-          titlePlayerIndexVarName(playerIndex), Blockly.Names.DEVELOPER_VARIABLE_TYPE)}`);
-    }
-    lines.push(`bmp_player${playerIndex}_height = ${height}`, `bmp_player${playerIndex}`);
+    const indexVar = (Blockly.BBasic.titlePlayerIndexUsed || [])[playerIndex] ?
+      Blockly.BBasic.nameDB_.getName(titlePlayerIndexVarName(playerIndex), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+    const picture = `bmp_player${playerIndex}_${pageId}`;
+    const colors = `bmp_color_player${playerIndex}_${pageId}`;
+    setup.push(`\tlda #${height - 1}`, `\tsta player${playerIndex}height`);
+    lines.push(picture);
     frames.forEach((rows) => {
       [...rows].reverse().forEach((row) => lines.push(`\tBYTE ${toBinaryByte(packRowToBytes(row.pixels, 1)[0])}`));
     });
     // The colors are stored once when every frame has the same ones (the kernel then does not move them by the frame).
     const colorsOf = (rows) => rows.map((row) => toColorHexByte(hasRowColors ? row.color : fallbackColor)).join(',');
     const sameColors = frames.length > 1 && frames.every((rows) => colorsOf(rows) === colorsOf(frames[0]));
-    if (sameColors) lines.push(`bmp_player${playerIndex}_colorsame = 1`);
-    lines.push('', `bmp_color_player${playerIndex}`);
+    // (A player whose colors are the same in every frame has them once: they are not moved by the frame.)
+    [[picture, `player${playerIndex}pointer`, true], [colors, `player${playerIndex}color`, !sameColors]].forEach(([table, pointer, moved]) => {
+      const add = indexVar && moved;
+      pointerLines.push(`\tlda #<${table}`, ...(add ? ['\tclc', `\tadc ${indexVar}`] : []), `\tsta ${pointer}`,
+          `\tlda #>${table}`, ...(add ? ['\tadc #0'] : []), `\tsta ${pointer}+1`);
+    });
+    lines.push('', colors);
     (sameColors ? [frames[0]] : frames).forEach((rows) => {
       [...rows].reverse().forEach((row) =>
         lines.push(`\tBYTE ${toColorHexByte(hasRowColors ? row.color : fallbackColor)}`));
     });
     lines.push('');
   });
+  // (A jump, not a call: see player_kernel.asm. The numbers set here are not touched by the positioning of the sprites there.)
+  setup.push(...pointerLines, `\tjmp draw_player_go_k${kernelLines}`, '');
 
-  return {code: lines.join('\n'), heights};
+  return {code: [...setup, ...lines].join('\n'), heights, kernelLines};
 };
 
 // The "score" minikernel's  digit table (miniscoretable, read directly
@@ -542,13 +622,13 @@ export const titleScreensHaveTextCard = () => {
 export const estimateTitleScreenGraphicsBytes = (storage) => {
   const {screens} = processTitleScreenStorageForBuild(storage);
   let bytes = 0;
-  let countedPlayerCard = false;
+  const countedPlayerPages = new Set();
   let countedScoreCard = false;
   const seenPictures = new Set();
   const seenColors = new Set();
   screens.forEach((screen) => {
     (screen.cards || []).forEach((card) => {
-      const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+      const typeInfo = titleCardTypeInfo(card);
       if (typeInfo) {
         // As buildCardDataAsm stores it: a picture that repeats (in a held frame, under other row colors, or in another graphic)
         // and a row color list that repeats are in the ROM once.
@@ -566,6 +646,8 @@ export const estimateTitleScreenGraphicsBytes = (storage) => {
           seenPictures.add(pictureSignature);
           bytes += pictureCount * frameHeight * typeInfo.blockCount;
         }
+        // (The ball's three tables, a byte each for each row stored, its column, and its loop in the kernel copy: see buildCardDataAsm.)
+        if (titleCardHasBall(card)) bytes += 3 * pictureCount * frameHeight + 1 + TITLE_BALL_LOOP_BYTES;
         if (typeInfo.hasRowColors) {
           const colorLists = distinct(paddedFrames.map(({colorRows}) => JSON.stringify(colorRows)));
           const colorCount = split ? colorLists.length : stored.length;
@@ -579,8 +661,8 @@ export const estimateTitleScreenGraphicsBytes = (storage) => {
         }
         return;
       }
-      if (card.type === 'player' && !countedPlayerCard) {
-        countedPlayerCard = true;
+      if (card.type === 'player' && !countedPlayerPages.has(screen.id)) {
+        countedPlayerPages.add(screen.id);
         [0, 1].forEach((playerIndex) => {
           const animationIndex = playerIndex === 0 ? card.player0Animation : card.player1Animation;
           const {height, frames, hasRowColors} = resolvePlayerSlotFrames(animationIndex);
@@ -610,6 +692,13 @@ export const estimateTitleScreenGraphicsBytes = (storage) => {
 // screens/cards can change which slot a card resolves to, which is fine
 // since every reference to it (layout line, data block, #ifconst guard) is
 // regenerated together every compile, never stored.
+// A page number that is not the id of a page.
+const titleNoPageId = (screens) => {
+  const ids = new Set(screens.map((screen) => Number(screen.id)));
+  let id = 0;
+  while (ids.has(id)) id++;
+  return id;
+};
 const assignKernelSlots = (screens, Blockly) => {
   // Lines Title screen start runs first: each runtime color back to the Title tab's color.
   Blockly.BBasic.titleScreenStartLines = [];
@@ -620,6 +709,7 @@ const assignKernelSlots = (screens, Blockly) => {
   // The 48x2 graphics that use the shared setup: the ones with a plain box (see 48x2_S_kernel.asm).
   Blockly.BBasic.titleShareKeys = new Set();
   Blockly.BBasic.titleUniformUsed = false;
+  Blockly.BBasic.titleBallUsed = false;
   Blockly.BBasic.titlePictureTables = new Map();
   Blockly.BBasic.titleColorTables = new Map();
   // One entry per screen: {id, backgroundColor, layoutMacroName, layoutLines}.
@@ -634,7 +724,9 @@ const assignKernelSlots = (screens, Blockly) => {
   // an error - the UI's  canAddCardType already refuses to add a second
   // one).
   let hasPlayerCard = false;
-  let playerHeights = null;
+  // The heights of the players of each page's card, by page id; the numbers of lines a row the cards use (a loop of the kernel for each).
+  const playerHeights = {};
+  const playerKernelLines = new Set();
   // Same project-wide singleton reasoning as hasPlayerCard above, for the
   // "score" minikernel (draw_score_display, layoutmacros.asm's
   // "draw_score" macro) - only one real "score" bB variable/display exists
@@ -671,22 +763,18 @@ const assignKernelSlots = (screens, Blockly) => {
         return;
       }
       if (card.type === 'player') {
-        if (hasPlayerCard) return;
-        hasPlayerCard = true;
-        layoutLines.push(' draw_player');
-        const {code, heights} = buildPlayerDataAsm(card, Blockly);
+        // (One for each page: the editor does not add a second one to a page, a second one in a file is left out.)
+        if (playerHeights[screen.id]) return;
+        layoutLines.push(` draw_player ${screen.id}`);
+        const {code, heights, kernelLines} = buildPlayerDataAsm(card, Blockly, screen.id);
         dataBlocks.push(code);
-        playerHeights = heights;
+        playerHeights[screen.id] = heights;
+        playerKernelLines.add(kernelLines);
         // Both sprites start on screen, side by side and centered in the card's window, until the project
-        // positions them with the Player X/Y blocks (the vertical value counts scanlines from the window's bottom,
-        // so a sprite as tall as the window sits at its height).
-        const windowHeight = Math.max(1, Math.round(Number(card.windowHeight) || 50));
-        [0, 1].forEach((playerIndex) => {
-          const spriteHeight = Math.min(heights[playerIndex], windowHeight);
-          const y = spriteHeight + Math.floor((windowHeight - spriteHeight) / 2);
-          Blockly.BBasic.titleScreenStartLines.push(
-              `player${playerIndex}x = ${playerIndex === 0 ? 64 : 92}`, `player${playerIndex}y = ${y}`);
-        });
+        // positions them with the Player X/Y blocks. (The first page's card: with cards on several pages, a page's card puts them
+        // there when the page is drawn after another one, see titlescreen_draw.)
+        if (!hasPlayerCard) Blockly.BBasic.titleScreenStartLines.push(...titlePlayerCenterLines(card, heights));
+        hasPlayerCard = true;
         cardSlotsByRef[`${screen.id}:${card.id}`] = 'player';
         return;
       }
@@ -705,7 +793,7 @@ const assignKernelSlots = (screens, Blockly) => {
         cardSlotsByRef[`${screen.id}:${card.id}`] = 'score';
         return;
       }
-      const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+      const typeInfo = titleCardTypeInfo(card);
       if (!typeInfo) return;
       const slot = (slotByType[card.type] || 0) + 1;
       slotByType[card.type] = slot;
@@ -717,7 +805,7 @@ const assignKernelSlots = (screens, Blockly) => {
       const key = `${card.type}_${slot}`;
       usedKernelKeys.add(key);
       // (A graphic with a window height block has a setup of its kind: the shared one has the number of lines in its numbers.)
-      if (Blockly.BBasic.titleShareSetup && card.type === '48x2' && !(Blockly.BBasic.titleBoxRefs || new Set()).has(`${screen.id}:${card.id}`) &&
+      if (Blockly.BBasic.titleShareSetup && card.type === '48x2' && !typeInfo.singleColor && !titleCardHasBall(card) && !(Blockly.BBasic.titleBoxRefs || new Set()).has(`${screen.id}:${card.id}`) &&
           !(Blockly.BBasic.titleWindowRefs || new Set()).has(`${screen.id}:${card.id}`)) {
         Blockly.BBasic.titleShareKeys.add(key);
       }
@@ -734,7 +822,7 @@ const assignKernelSlots = (screens, Blockly) => {
             `${varName(titleCardBoxPf2VarName(ref))} = ${startBox.pf2}`,
             `${varName(titleCardBoxColorVarName(ref))} = ${toColorHexByte(startBox.background)}`);
       }
-      if (!typeInfo.doubleLine && (Blockly.BBasic.titleCardColorRefs || new Set()).has(ref)) {
+      if (!typeInfo.hasRowColors && (Blockly.BBasic.titleCardColorRefs || new Set()).has(ref)) {
         const colorVar = Blockly.BBasic.nameDB_.getName(
             titleCardColorVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         Blockly.BBasic.titleScreenStartLines.push(`${colorVar} = ${toColorHexByte(card.color || 0)}`);
@@ -745,6 +833,11 @@ const assignKernelSlots = (screens, Blockly) => {
         }
       }
       cardSlotsByRef[ref] = key;
+      if ((Blockly.BBasic.titleBallVaryRefs || new Set()).has(ref)) {
+        const place = titleCardBallPlaces(card)[0];
+        const varName = (canonical) => Blockly.BBasic.nameDB_.getName(canonical, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        Blockly.BBasic.titleScreenStartLines.push(`${varName(titleCardBallXVarName(ref))} = ${titleBallXByte(place.x)}`);
+      }
       // A graphic with a window height block starts with the window of the Title tab.
       if ((Blockly.BBasic.titleWindowRefs || new Set()).has(ref) && Number(card.scrollWindow) > 0 && Number(card.scrollWindow) < frameHeight) {
         Blockly.BBasic.titleScreenStartLines.push(`${Blockly.BBasic.nameDB_.getName(titleCardWindowVarName(ref), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${
@@ -764,7 +857,8 @@ const assignKernelSlots = (screens, Blockly) => {
         const pageColor = Number(screen.backgroundColor) || 0;
         cardAnimationByRef[ref] = {key, frameHeight, frameCount, frameDurations, frameOffsets, colorOffsets, colorPages,
           colorSplit,
-          frameBoxes: card.frames.map((frame) => titleFrameBox(card, frame, pageColor))};
+          frameBoxes: card.frames.map((frame) => titleFrameBox(card, frame, pageColor)),
+          ballPlaces: titleCardHasBall(card) ? titleCardBallPlaces(card) : null};
       }
     });
 
@@ -776,7 +870,7 @@ const assignKernelSlots = (screens, Blockly) => {
       if (card.type === 'player') return total + Math.max(1, Math.round(Number(card.windowHeight) || 50)) + 4;
       if (card.type === 'score') return total + 12;
       if (card.type === 'text') return total + (screenHasTextCard ? textLines : 0);
-      const typeInfo = TITLE_SCREEN_KERNEL_TYPES[card.type];
+      const typeInfo = titleCardTypeInfo(card);
       return typeInfo ? total + padTitleCardFrames(card, typeInfo).frameHeight * (typeInfo.doubleLine ? 2 : 1) + 7 : total;
     }, 0) + (!screenHasTextCard && Blockly.BBasic.isTitleTextUsed() && Blockly.BBasic.titleUnderTextUsed ? textLines : 0);
     if (estimatedLines > 200 && !Blockly.BBasic.titleLayoutWarned.has(screen.id)) {
@@ -793,8 +887,15 @@ const assignKernelSlots = (screens, Blockly) => {
     });
   });
 
+  // With a Player card on several pages, the first page drawn after Title screen start puts its card's sprites in place too (no page was
+  // drawn before: the page number is one no page has).
+  const playerPageCount = Object.keys(playerHeights).length;
+  if (playerPageCount > 1 && Blockly.BBasic.titleScreenSelectedIdVarName) {
+    Blockly.BBasic.titleScreenStartLines.push(`${Blockly.BBasic.titleScreenSelectedIdVarName} = ${titleNoPageId(screens)}`);
+  }
+  Blockly.BBasic.titlePlayerKernelLines = playerKernelLines;
   return {usedKernelKeys, dataBlocks, screenPlans, cardSlotsByRef, cardAnimationByRef,
-    hasPlayerCard, playerHeights, hasScoreCard, hasTextCard};
+    hasPlayerCard, playerHeights: playerPageCount ? playerHeights : null, hasScoreCard, hasTextCard};
 };
 
 // The text under a page's graphics (see titletextkernel in text12a.asm), when the project uses the Text Minikernel too: called
@@ -884,7 +985,8 @@ const buildTitleTextCall = (Blockly) => {
 // is given these ticks more and the overscan as many less (the frame keeps its length): a page with a lot of graphics (the Bricks of Olympus
 // logo page, with the logo, its title and the torches) had less than the text needs left, and showed none.
 const TITLE_TEXT_EXTRA_TICKS = 12;
-const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard, bgVarName, textCall, shareSetup = false, shareKeys = null, uniformUsed = false) => {
+const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, playerKernelLines, hasScoreCard, bgVarName, textCall, shareSetup = false, shareKeys = null, uniformUsed = false,
+    ballUsed = false) => {
   const extraTicks = (textCall && textCall.length) || screenPlans.some((plan) => plan.hasTextCard) ? TITLE_TEXT_EXTRA_TICKS : 0;
   const lines = ['asm'];
 
@@ -988,6 +1090,8 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
   const sharedKeys = shareSetup ? [...usedKernelKeys].filter((key) => (shareKeys || new Set()).has(key)) : [];
   // A graphic with row colors of one color has them as one byte: the kernel then has a loop that does not read them (see 48x2_X_kernel.asm).
   if (uniformUsed && [...usedKernelKeys].some((key) => key.startsWith('48x2_'))) lines.push('@title_uniform_48x2 = 1');
+  // A 48x2 graphic with the ball behind it has its entry and loops (see draw_bmp_48x2_XB).
+  if (ballUsed && [...usedKernelKeys].some((key) => key.startsWith('48x2_'))) lines.push('@title_ball_48x2 = 1');
   if (sharedKeys.length) {
     sharedKeys.forEach((key) => lines.push(`@bmp_${key}_shared = 1`));
     lines.push('\tinclude "48x2_S_kernel.asm"', '');
@@ -1017,7 +1121,9 @@ const buildDriverAsm = (selectedIdVarName, screenPlans, usedKernelKeys, hasPlaye
   // mk_player_on guard the way the numbered bitmap kernels do (their
   // "used at all" state isn't known until layoutmacros.asm's  draw_TYPE_N
   // macro runs during assembly).
-  if (hasPlayerCard) {
+  // (playerKernelLines: the numbers of lines a row of the Player cards, null without one: a loop of the kernel for each.)
+  if (playerKernelLines) {
+    playerKernelLines.forEach((kernelLines) => lines.push(`@title_player_k${kernelLines} = 1`));
     lines.push('\tinclude "player_kernel.asm"', '');
   }
   if (hasScoreCard) {
@@ -1287,6 +1393,24 @@ const generateTitleScreenAnimationChecks = (Blockly, cardAnimationByRef) => {
         });
       });
     }
+    // The ball's place and width, when they differ between the frames, are written when a frame starts.
+    if ((Blockly.BBasic.titleBallVaryRefs || new Set()).has(ref) && cardAnimationByRef[ref].ballPlaces) {
+      const {ballPlaces} = cardAnimationByRef[ref];
+      const starts = [];
+      frameDurations.reduce((start, frameDuration) => {
+        starts.push(start);
+        return start + frameDuration;
+      }, 0);
+      [[titleCardBallXVarName, (place) => titleBallXByte(place.x)]]
+          .forEach(([varNameOf, value]) => {
+            const ballVar = resolveVar(varNameOf(ref));
+            if (starts.length >= TITLE_STEP_TABLE_MIN) {
+              lines.push(...startTableAsm(Blockly, counterVar, starts, ballVar, ballPlaces.map(value)));
+              return;
+            }
+            starts.forEach((start, frameIndex) => lines.push(` if ${counterVar} = ${start} then ${ballVar} = ${value(ballPlaces[frameIndex])}`));
+          });
+    }
     // A picture background that differs between the frames is written when a frame starts (so a block that
     // changes it in between lasts until the next frame).
     if ((Blockly.BBasic.titleFrameBoxRefs || new Set()).has(ref)) {
@@ -1360,13 +1484,17 @@ const generateTitleColorFadeChecks = (Blockly) => {
 
 // Each Player sprites animation with more than one frame plays by itself: the same duration counter the
 // picture cards use picks the frame, and bmp_playerN_index is its byte offset (frame * the frame's height).
+// With a Player card on several pages, a page's animations play while the page is the one drawn (the counter and the frame offset of a player are
+// shared by the pages).
 const generateTitlePlayerChecks = (Blockly) => {
   const slots = Blockly.BBasic.titlePlayerSlots;
   if (!slots) return '';
   const resolveVar = (canonicalName) =>
     Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-  return [0, 1].filter((playerIndex) => slots[playerIndex].frameCount > 1).map((playerIndex) => {
-    const {height, durations} = slots[playerIndex];
+  const selectedVar = Blockly.BBasic.titleScreenSelectedIdVarName;
+  const byPage = slots.pages.length > 1 && selectedVar;
+  return slots.pages.flatMap((page) => [0, 1].filter((playerIndex) => page.slots[playerIndex].frameCount > 1).map((playerIndex) => {
+    const {height, durations} = page.slots[playerIndex];
     const counterVar = resolveVar(titlePlayerFrameVarName(playerIndex));
     const indexVar = resolveVar(titlePlayerIndexVarName(playerIndex));
     const total = durations.reduce((sum, duration) => sum + duration, 0);
@@ -1391,8 +1519,10 @@ const generateTitlePlayerChecks = (Blockly) => {
     } else {
       limits.forEach((limit, index) => lines.push(` if ${counterVar} >= ${limit} then ${indexVar} = ${(index + 1) * height}`));
     }
-    return lines.join('\n');
-  }).join('\n\n') + '\n';
+    if (!byPage) return lines.join('\n');
+    const skip = `_titleplayer_${page.screenId}_${playerIndex}_skip`;
+    return [` if ${selectedVar} <> ${page.screenId} then goto ${skip}`, ...lines, `@ ${skip}`].join('\n');
+  })).join('\n\n') + '\n';
 };
 
 export const TITLE_SCREEN_SUBROUTINE_NAME = '_titlescreen_system';
@@ -1534,10 +1664,29 @@ export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
     ' include "dpcfix.asm"\n' +
     screenPlans.map((plan) => ` include "titlescreen_layout_${plan.id}.asm"\n`).join('') +
     '@end\n' +
-    buildDriverAsm(selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard, hasScoreCard,
+    buildDriverAsm(selectedIdVarName, screenPlans, usedKernelKeys, hasPlayerCard ? [...Blockly.BBasic.titlePlayerKernelLines] : null, hasScoreCard,
         Blockly.BBasic.titleBgUsed ?
           Blockly.BBasic.nameDB_.getName(TITLE_BG_COLOR_VAR_NAME, Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null,
-        buildTitleTextCall(Blockly), !!Blockly.BBasic.titleShareSetup, Blockly.BBasic.titleShareKeys, !!Blockly.BBasic.titleUniformUsed);
+        buildTitleTextCall(Blockly), !!Blockly.BBasic.titleShareSetup, Blockly.BBasic.titleShareKeys, !!Blockly.BBasic.titleUniformUsed,
+        !!Blockly.BBasic.titleBallUsed);
+};
+
+// With a Player card on several pages: when the page drawn is not the one drawn last, the page's Player card puts its sprites where they start
+// (its Start X and Y, centered without them, and its Size), as Title screen start does with one card.
+const titlePlayerPageSwitch = (Blockly, screenId) => {
+  const selectedVar = Blockly.BBasic.titleScreenSelectedIdVarName;
+  const heights = (Blockly.BBasic.titleScreenPlayerHeights || {})[screenId];
+  if (!selectedVar || !heights || Object.keys(Blockly.BBasic.titleScreenPlayerHeights).length < 2) return '';
+  const page = titlePlayerPages(processTitleScreenStorageForBuild(useTitleScreenStorage()).screens)
+      .find(({screen}) => String(screen.id) === String(screenId));
+  if (!page) return '';
+  const skip = `_titleplayerpage_${Blockly.BBasic.blockNumbers.next()}_same`;
+  // A card with no Size draws one copy: when the card of another page has a Size for that player, it is put back to one copy here.
+  const allPages = titlePlayerPages(processTitleScreenStorageForBuild(useTitleScreenStorage()).screens);
+  const oneCopy = [0, 1].filter((player) => !titlePlayerSizeCode(page.card, player) && allPages.some((other) => titlePlayerSizeCode(other.card, player)))
+      .map((player) => `player${player}size = player${player}size & $F8`);
+  return [`if ${selectedVar} = ${screenId} then goto ${skip}`, ...titlePlayerCenterLines(page.card, heights),
+    ...titlePlayerCardStartLines(page.card), ...oneCopy, `@ ${skip}`].join('\n') + '\n';
 };
 
 export default (Blockly) => {
@@ -1565,7 +1714,7 @@ export default (Blockly) => {
     const barsUsed = ((useConfigurationStorage() && useConfigurationStorage().value) || {}).kernel === 'dpcplus' &&
       block.workspace.getAllBlocks(false).some((other) => other.isEnabled() && /^score_bar_/.test(other.type));
     const callKernel = ` gosub ${TITLE_SCREEN_SUBROUTINE_NAME}${suffix}\n`;
-    let draw = `${selectPage}${derive}` + (barsUsed ?
+    let draw = `${titlePlayerPageSwitch(Blockly, screenId)}${selectPage}${derive}` + (barsUsed ?
       ' asm\n lda pfscore1\n pha\n lda pfscore2\n pha\n@end\n' + callKernel + ' asm\n pla\n sta pfscore2\n pla\n sta pfscore1\n@end\n' :
       callKernel);
     if (Blockly.BBasic.titleBgUsed) {
@@ -1898,14 +2047,26 @@ export default (Blockly) => {
 
   Blockly.BBasic['titlescreen_player_frame_set'] = function(block) {
     const playerIndex = block.getFieldValue('PLAYER');
-    const heights = Blockly.BBasic.titleScreenPlayerHeights;
-    const height = heights && heights[playerIndex];
+    const slots = Blockly.BBasic.titlePlayerSlots;
     // No "player" card configured anywhere in the project yet - same no-op
     // rem fallback as titlescreen_scroll_set's "nothing to reference"
     // guard above.
-    if (!height) return 'rem No title screen player sprite configured\n';
-    const slot = Blockly.BBasic.titlePlayerSlots && Blockly.BBasic.titlePlayerSlots[playerIndex];
-    if (slot && slot.frameCount > 1) {
+    if (!Blockly.BBasic.titleScreenPlayerHeights || !slots) return 'rem No title screen player sprite configured\n';
+    // With a Player card on several pages, the block works on the card of the page that is drawn.
+    const selectedVar = Blockly.BBasic.titleScreenSelectedIdVarName;
+    if (slots.pages.length > 1 && selectedVar) {
+      return slots.pages.map((page) => {
+        const skip = `_titleplayerframe_${Blockly.BBasic.blockNumbers.next()}_skip`;
+        return `if ${selectedVar} <> ${page.screenId} then goto ${skip}\n${playerFrameCode(block, playerIndex, page.slots[playerIndex], slots[playerIndex])}@ ${skip}\n`;
+      }).join('');
+    }
+    return playerFrameCode(block, playerIndex, slots.pages[0].slots[playerIndex], slots[playerIndex]);
+  };
+  // The code of the frame block for one page's card: slot is the player of that card, shared what the pages share (the "play once" bit).
+  const playerFrameCode = (block, playerIndex, pageSlot, shared) => {
+    const height = pageSlot.height;
+    const slot = {...pageSlot, once: shared.once};
+    if (slot.frameCount > 1) {
       // The animation plays by itself: jump its counter to where the frame starts, and it carries on from
       // there (the counter goes up before the frame is chosen, so it is set one tick early).
       const counterVar = Blockly.BBasic.nameDB_.getName(
