@@ -29,7 +29,8 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks,
-  backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName, backgroundShownVarName,
+  backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName, backgroundScrollTurnsVarName, backgroundScrollShiftVarName, dpcPlusPlainScrollVarName,
+  dpcPlusPlainColorScrollVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName,
   backgroundScrollPacking, backgroundScrollActiveVarName, backgroundScrollSubRowVarName,
@@ -3472,15 +3473,30 @@ Blockly.BBasic.init = function(workspace) {
   // The pending starting row only matters when a background is taller than
   // the window (the only case where the scroll position can be set).
   this.backgroundScrollStartUsed = scrollSetRowUsed && this.backgroundScrollOverflowBackgrounds.length > 0;
-  // "Reset playfield scroll" where the scroll is not followed row by row (on the standard kernel no background is taller than the screen, so
-  // pfscroll turns the rows round in place; DPC+ and PXE without the tall scroll, see dpcPlusScroll): it loads the background showing again.
-  // With more than one background which one shows is kept in a byte, set when one is loaded (see generatedBackgrounds below).
+  // "Reset playfield scroll" where nothing else follows the scroll row by row: on the standard kernel with no background taller than the screen
+  // (pfscroll turns the rows round in place) the scroll blocks count the rows it has turned, and on DPC+ and PXE without the tall scroll (see
+  // dpcPlusScroll; pfscroll turns the playfield memory round) how far it has turned it; the reset turns it back (see background_scroll_reset).
   const scrollResetUsed = workspace.getAllBlocks(false).some((block) => block.type === 'background_scroll_reset' && block.isEnabled());
-  this.backgroundScrollResetReloads = scrollResetUsed && includedBackgrounds.length > 0 &&
-    (dpcPlusScroll ? !this.dpcPlusScroll : !this.backgroundScrollOverflowBackgrounds.length);
-  this.backgroundShownId = this.backgroundScrollResetReloads && includedBackgrounds.length === 1 ? includedBackgrounds[0].id : null;
-  if (this.backgroundScrollResetReloads && includedBackgrounds.length > 1) {
-    reserveDevVar(backgroundShownVarName(), undefined, 'which background is showing (its id), for Reset playfield scroll');
+  this.backgroundScrollResetTurns = scrollResetUsed && !dpcPlusScroll && !this.backgroundScrollOverflowBackgrounds.length;
+  if (this.backgroundScrollResetTurns) {
+    reserveDevVar(backgroundScrollTurnsVarName(), undefined, 'the rows pfscroll has turned the playfield up, round its rows (for Reset playfield scroll)');
+  }
+  // The same for the sideways scroll of the standard kernel (pfscroll turns every row a pixel round): the pixels it has turned the rows left.
+  // With a background taller than the screen the reset loads the rows from the top of the background, which puts them back too.
+  this.backgroundScrollResetShift = scrollResetUsed && !dpcPlusScroll && !this.backgroundScrollOverflowBackgrounds.length &&
+    workspace.getAllBlocks(false).some((block) => block.type === 'background_scroll' && block.isEnabled() &&
+      ['left', 'right'].includes(block.getFieldValue('DIRECTION')));
+  if (this.backgroundScrollResetShift) {
+    reserveDevVar(backgroundScrollShiftVarName(), undefined, 'the pixels pfscroll has turned the rows left, round 32 (for Reset playfield scroll)');
+  }
+  this.dpcPlusPlainScrollReset = scrollResetUsed && dpcPlusScroll && !this.dpcPlusScroll;
+  this.dpcPlusPlainColorScrollUsed = this.dpcPlusPlainScrollReset && workspace.getAllBlocks(false).some((block) =>
+    block.type === 'background_scroll' && block.getFieldValue('COLORS_ONLY') === 'TRUE');
+  if (this.dpcPlusPlainScrollReset) {
+    reserveDevVar(dpcPlusPlainScrollVarName(), undefined, 'how far pfscroll has turned the playfield memory, round 256 (for Reset playfield scroll)');
+    if (this.dpcPlusPlainColorScrollUsed) {
+      reserveDevVar(dpcPlusPlainColorScrollVarName(), undefined, 'how far pfscroll has turned the color memory alone (for Reset playfield scroll)');
+    }
   }
   if (this.backgroundScrollStartUsed) {
     reserveDevVar(backgroundScrollStartVarName(), undefined,
@@ -4867,10 +4883,7 @@ Blockly.BBasic.finish = function(code) {
   const defaultPlayfieldColor = colorByteToBuildBBasic(0x0E);
   const defaultBackgroundColor = colorByteToBuildBBasic(0xC4);
   const generatedSystemDims = Blockly.BBasic.generateSystemDims();
-  // (Which background is showing, for Reset playfield scroll: see backgroundScrollResetReloads.)
-  const generatedBackgrounds = (Blockly.BBasic.backgroundScrollResetReloads && Blockly.BBasic.backgroundShownId == null ?
-    ` ${Blockly.BBasic.nameDB_.getName(backgroundShownVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = newbackground\n` : '') +
-    Blockly.BBasic.generateBackgrounds();
+  const generatedBackgrounds = Blockly.BBasic.generateBackgrounds();
   const generatedBackgroundColorOverride = Blockly.BBasic.generateBackgroundColorOverride();
   // Has to run after generateBackgrounds() (needs relocatableGraphicsUnits
   // populated with this build's  resolved background banks) and before

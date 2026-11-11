@@ -530,9 +530,18 @@ export const backgroundTransitionCountVarName = () => 'backgroundTransitionCount
 // for a project with a background taller than the visible window.
 export const backgroundScrollStartVarName = () => 'backgroundScrollStart';
 
-// Which background is showing (its id), for "Reset playfield scroll" where it loads that background again (see background_scroll_reset in
-// generators/bbasic/background.js): set when a background is loaded. Only for a project with more than one background.
-export const backgroundShownVarName = () => 'backgroundShown';
+// How many rows pfscroll has turned the playfield up, round its rows (0 to the rows less one), for "Reset playfield scroll" on the standard
+// kernel when no background is taller than the screen (pfscroll then turns the rows round in place): the scroll blocks count a row each time
+// pfscroll goes round one (up adds one, down takes one away) and the reset turns the rows back that many (see background_scroll_reset in
+// generators/bbasic/background.js).
+export const backgroundScrollTurnsVarName = () => 'backgroundScrollTurns';
+// How many pixels pfscroll has turned the rows left, round the 32 of a row (Left adds one, Right takes one away), for "Reset playfield scroll" on
+// the standard kernel: the reset turns them back (see background_scroll_reset).
+export const backgroundScrollShiftVarName = () => 'backgroundScrollShift';
+// How far pfscroll has turned the playfield memory of DPC+ and PXE (the sum of what it was given, round 256), for "Reset playfield scroll"
+// when the tall scroll is not used: one for the picture (with the colors that go with it) and one for the scroll blocks that move only the colors.
+export const dpcPlusPlainScrollVarName = () => '_dpcPlainScroll';
+export const dpcPlusPlainColorScrollVarName = () => '_dpcPlainColorScroll';
 
 // Holds the active background's index only for a project too big to pack it
 // into backgroundScrollRowVarName's high bits - see backgroundScrollPacking.
@@ -1719,9 +1728,8 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Puts the playfield back exactly as it was before it scrolled: the top row of the background at the top, as it is when a ` +
-      `background is switched to. With a background taller than the screen it is the same as "Set playfield scroll to row" 0; with one ` +
-      `that is not (it scrolls round in place) the background showing is loaded again, so pixels drawn on the playfield since are gone too. ` +
-      `Works whether it comes before or after a "Set background" block in the same event, and sprites that follow the scroll aren't moved.`,
+      `background is switched to (the same as "Set playfield scroll to row" 0), with the pixels drawn on the playfield since kept where ` +
+      `they were drawn. Works whether it comes before or after a "Set background" block in the same event, and sprites that follow the scroll aren't moved.`,
   },
   // Block for drawing the screen
   {

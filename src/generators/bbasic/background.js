@@ -13,7 +13,8 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
-  backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName, backgroundShownVarName,
+  backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName, backgroundScrollTurnsVarName, backgroundScrollShiftVarName,
+  dpcPlusPlainScrollVarName, dpcPlusPlainColorScrollVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName, backgroundScrollActiveVarName, backgroundColorBgVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
 import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset, pfColumnText, pfColumnOf, pfScrollColumns, pfMaxColumn, pfColumnBias} from '../../utils/playfield-coords';
@@ -21,6 +22,10 @@ import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOf
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps (28 rows of 6.857 lines), so those blocks use the nearest whole number of steps.
 const pfRowDivisorFor = (config) => Math.max(1, Math.round(exactRowDivisorFor(config)));
+// The routine that turns the playfield's rows for Reset playfield scroll (see pfTurnRoutine).
+const PF_TURN_SUBROUTINE_NAME = '_pfturn';
+// And the one that turns them sideways (see pfShiftRoutine).
+const PF_SHIFT_SUBROUTINE_NAME = '_pfshift';
 import {ctrlpfShadowVarName, spriteScrollFlagsVarName, spriteScrollActiveBit,
   missileBounceStageVarName,
   DIRECTION16_STEPS, backgroundRainbowActiveBit, backgroundRainbowLoadedBit, backgroundRainbowOffsetVarName,
@@ -2774,7 +2779,11 @@ export default (Blockly) => {
       };
       const colorsOnlyBlock = block.getFieldValue('COLORS_ONLY') === 'TRUE';
       if (!scroll) {
+        // (With a Reset playfield scroll block, how far the memory has been turned is counted: see dpcPlusPlainScrollReset.)
+        const turnVar = Blockly.BBasic.dpcPlusPlainScrollReset ? Blockly.BBasic.nameDB_.getName(
+            colorsOnlyBlock ? dpcPlusPlainColorScrollVarName() : dpcPlusPlainScrollVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
         return ` pfscroll ${DPC_PLUS_SCROLL_VALUE[direction]}${colorsOnlyBlock ? ' 4 4' : ''}\n` +
+          (turnVar ? ` ${turnVar} = ${turnVar} + ${DPC_PLUS_SCROLL_VALUE[direction]}\n` : '') +
           (colorsOnlyBlock ? '' : nudgeSprites(Math.abs(BACKGROUND_SCROLL_ROW_DELTA[direction])).map((line) => line + '\n').join(''));
       }
       // The playfield rows are cut thinner (see generateBackgrounds), so a step moves `fine` lines. The
@@ -2900,6 +2909,13 @@ export default (Blockly) => {
           block.getFieldValue('STOPATEDGE') === 'TRUE').join('\n') + '\n';
     }
     if (!Blockly.BBasic.backgroundScrollTracking || delta == null) {
+      // (With a Reset playfield scroll block, the pixels the rows are turned left are counted, round 32: see backgroundScrollResetShift.)
+      if (Blockly.BBasic.backgroundScrollResetShift && (direction === 'left' || direction === 'right')) {
+        const shift = Blockly.BBasic.nameDB_.getName(backgroundScrollShiftVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+        return [` pfscroll ${direction}`, direction === 'left' ?
+          [` ${shift} = ${shift} + 1`, ` if ${shift} >= 32 then ${shift} = 0`] :
+          [` ${shift} = ${shift} - 1`, ` if ${shift} >= 32 then ${shift} = 31`]].flat().join('\n') + '\n';
+      }
       if (!colorsOn) return `pfscroll ${direction}\n`;
       return [` pfscroll ${direction}`, ...colorRotationLines(Blockly.BBasic.blockNumbers.next('bgscroll'))].join('\n') + '\n';
     }
@@ -2950,6 +2966,15 @@ export default (Blockly) => {
           ` if ${rowVar} >= ${maxVar} then goto ${doneLabel}`);
       }
       lines.push(` pfscroll ${direction}`);
+      // (With a Reset playfield scroll block, the rows pfscroll has turned are counted: it goes round a row when playfieldpos wraps, to the row
+      // height going up and to 1 going down; see backgroundScrollResetTurns.)
+      if (Blockly.BBasic.backgroundScrollResetTurns) {
+        const turns = resolveVar(backgroundScrollTurnsVarName());
+        const pfRows = backgroundDataRows(config);
+        lines.push(...(delta < 0 ?
+          [` if playfieldpos = ${rowHeight} then ${turns} = ${turns} + 1`, ` if ${turns} >= ${pfRows} then ${turns} = 0`] :
+          [` if playfieldpos = 1 then ${turns} = ${turns} - 1`, ` if ${turns} >= ${pfRows} then ${turns} = ${pfRows - 1}`]));
+      }
       if (colorsOn) lines.push(...colorRotationLines(uid));
       // Real pfscroll moves by ONE SCANLINE per call, not one logical
       // playfield row (confirmed directly against pf_scrolling.asm - it
@@ -3121,6 +3146,47 @@ export default (Blockly) => {
   // resetting to the top. With no switch pending the load runs right here.
   // Does nothing without a background taller than the window, where there is
   // no position to set.
+  // Turns the playfield's rows up by temp1 / 4 rows (row i gets the row temp1 / 4 further down, round the rows), each row moved once: the rows
+  // are followed round in cycles (as many as the greatest common divisor of the two), the first row of a cycle kept on the stack. temp2 is the
+  // cycle's first row, temp3 the bytes still to put in place. With the Superchip the playfield is read at playfield and written 128 lower.
+  // About 50 cycles a row (12 rows: about 650 cycles).
+  const pfTurnRoutine = (pfRows) => {
+    const bytes = pfRows * 4;
+    const put = (offset, register) => `sta _pfturn_w${offset ? '+' + offset : ''},${register}`;
+    return ['asm',
+      ' ifconst superchip', '@_pfturn_w = playfield-128', ' else', '@_pfturn_w = playfield', ' endif',
+      'lda #0', 'sta temp2', `lda #${bytes}`, 'sta temp3',
+      '@_pfturn_cycle', 'ldx temp2',
+      ...[0, 1, 2, 3].flatMap((k) => [`lda playfield${k ? '+' + k : ''},x`, 'pha']),
+      '@_pfturn_next', 'txa', 'clc', 'adc temp1', `cmp #${bytes}`, 'bcc _pfturn_in', `sbc #${bytes}`,
+      '@_pfturn_in', 'cmp temp2', 'beq _pfturn_close', 'tay',
+      ...[0, 1, 2, 3].flatMap((k) => [`lda playfield${k ? '+' + k : ''},y`, put(k, 'x')]),
+      'tya', 'tax', 'lda temp3', 'sec', 'sbc #4', 'sta temp3', 'jmp _pfturn_next',
+      '@_pfturn_close',
+      ...[3, 2, 1, 0].flatMap((k) => ['pla', put(k, 'x')]),
+      'lda temp3', 'sec', 'sbc #4', 'sta temp3', 'beq _pfturn_done', 'lda temp2', 'clc', 'adc #4', 'sta temp2', 'jmp _pfturn_cycle',
+      '@_pfturn_done', '@end', ' return'].join('\n');
+  };
+  // Turns every row of the playfield temp1 pixels round (0 to 8), right with bit 0 of temp2 and left without it, after swapping the two halves
+  // of each row with bit 1 (16 pixels). A row's 4 bytes are worked on in temp3 to temp6; the single steps are the ones of pfscroll left and right
+  // (pf_scrolling.asm: in the order of the bytes on the screen the second and fourth bytes have their bits the other way round). About 70 cycles
+  // a row and 30 more for each step (12 rows, 8 steps: about 3700 cycles).
+  const pfShiftRoutine = (pfRows) => {
+    const put = (offset) => `sta _pfshift_w${offset ? '+' + offset : ''},x`;
+    return ['asm',
+      ' ifconst superchip', '@_pfshift_w = playfield-128', ' else', '@_pfshift_w = playfield', ' endif',
+      `ldx #${(pfRows - 1) * 4}`,
+      '@_pfshift_row', 'lda temp2', 'and #2', 'bne _pfshift_swap',
+      ...[0, 1, 2, 3].flatMap((k) => [`lda playfield${k ? '+' + k : ''},x`, `sta temp${3 + k}`]), 'jmp _pfshift_loaded',
+      '@_pfshift_swap',
+      ...[2, 3, 0, 1].flatMap((from, k) => [`lda playfield${from ? '+' + from : ''},x`, `sta temp${3 + k}`]),
+      '@_pfshift_loaded', 'ldy temp1', 'beq _pfshift_store', 'lda temp2', 'lsr', 'bcs _pfshift_right',
+      '@_pfshift_left', 'lda temp6', 'lsr', 'rol temp5', 'ror temp4', 'rol temp3', 'ror temp6', 'dey', 'bne _pfshift_left', 'jmp _pfshift_store',
+      '@_pfshift_right', 'lda temp3', 'lsr', 'rol temp4', 'ror temp5', 'rol temp6', 'ror temp3', 'dey', 'bne _pfshift_right',
+      '@_pfshift_store', ...[0, 1, 2, 3].flatMap((k) => [`lda temp${3 + k}`, put(k)]),
+      'txa', 'sec', 'sbc #4', 'tax', 'bcs _pfshift_row',
+      '@end', ' return'].join('\n');
+  };
   const scrollToRowCode = (row) => {
     if (!Blockly.BBasic.backgroundScrollStartUsed) return '';
     const resolveVar = (canonicalName) =>
@@ -3149,20 +3215,73 @@ export default (Blockly) => {
   // "Reset playfield scroll": the scroll goes back to the top row, as when a background is switched to.
   Blockly.BBasic[`background_scroll_reset`] = () => {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
-    // Where the scroll is not followed row by row (see backgroundScrollResetReloads in generators/bbasic.js), the background showing is loaded
-    // again: its rows from the start, and on the standard kernel the fine position (playfieldpos) as at the start (the row height, see
-    // startup.asm); the load puts the scroll's row variables back to 0.
-    if (Blockly.BBasic.backgroundScrollResetReloads) {
-      const shown = Blockly.BBasic.backgroundShownId != null ? Blockly.BBasic.backgroundShownId :
-        Blockly.BBasic.nameDB_.getName(backgroundShownVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-      return ` newbackground = ${shown}\n` + (config.kernel === 'dpcplus' ? '' : ` playfieldpos = ${pfRowDivisorFor(config)}\n`);
+    const resolveVar = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    // The standard kernel with no background taller than the screen: the rows pfscroll has turned up (counted by the scroll blocks, see
+    // backgroundScrollResetTurns) are turned back by the routine below, the fine position (playfieldpos) goes back to the row height it starts
+    // with (startup.asm), and what follows the scroll (its row, the row colors) back to the top.
+    if (Blockly.BBasic.backgroundScrollResetTurns) {
+      const turns = resolveVar(backgroundScrollTurnsVarName());
+      const pfRows = backgroundDataRows(config);
+      const uid = Blockly.BBasic.blockNumbers.next('bgscrollreset');
+      const done = `_bgscrollreset_${uid}_done`;
+      Blockly.BBasic.subroutines[PF_TURN_SUBROUTINE_NAME] = pfTurnRoutine(pfRows);
+      // Sideways: the rows were turned left by the count; turning them 32 less it further left puts them back. 16 of it is a swap of the
+      // two halves of each row, so at most 8 single steps are left (temp1: the steps, temp2: bit 0 right, bit 1 the swap; see pfShiftRoutine).
+      const sideways = [];
+      if (Blockly.BBasic.backgroundScrollResetShift) {
+        const shift = resolveVar(backgroundScrollShiftVarName());
+        const label = (name) => `_bgscrollreset_${uid}_${name}`;
+        Blockly.BBasic.subroutines[PF_SHIFT_SUBROUTINE_NAME] = pfShiftRoutine(pfRows);
+        sideways.push(
+            ` if ${shift} = 0 then goto ${label('hdone')}`,
+            ` temp3 = 32 - ${shift}`,
+            ' temp2 = 1',
+            ` if temp3 >= 24 then temp1 = 32 - temp3 : goto ${label('hgo')}`,
+            ' temp2 = 0',
+            ` if temp3 <= 8 then temp1 = temp3 : goto ${label('hgo')}`,
+            ' temp2 = 2',
+            ` if temp3 >= 16 then temp1 = temp3 - 16 : goto ${label('hgo')}`,
+            ' temp1 = 16 - temp3',
+            ' temp2 = 3',
+            `@ ${label('hgo')}`,
+            ` gosub ${PF_SHIFT_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(PF_SHIFT_SUBROUTINE_NAME))}`,
+            ` ${shift} = 0`,
+            `@ ${label('hdone')}`);
+      }
+      return [
+        ...sideways,
+        ` if ${turns} = 0 then goto ${done}`,
+        ` temp1 = ${pfRows} - ${turns}`,
+        ' temp1 = temp1 * 4',
+        ` gosub ${PF_TURN_SUBROUTINE_NAME}${Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(PF_TURN_SUBROUTINE_NAME))}`,
+        ` ${turns} = 0`,
+        `@ ${done}`,
+        ` playfieldpos = ${pfRowDivisorFor(config)}`,
+        ...(Blockly.BBasic.backgroundScrollTracking ? [` ${resolveVar(backgroundScrollRowVarName())} = 0`,
+          ` ${resolveVar(backgroundScrollSubRowVarName())} = 0`] : []),
+        ...(Blockly.BBasic.backgroundColorScrollUsed ? [` ${resolveVar(backgroundColorOffsetVarName())} = 0`,
+          Blockly.BBasic.backgroundColorScrollApplyLines()] : []),
+      ].join('\n') + '\n';
+    }
+    // PXE: the sideways scroll is its registers (PF_HOR_SCROLL_LO and HI, see pxe_pf_scroll in generators/bbasic/palette.js), put back to 0.
+    const pxeSideways = config.pxe ? ['asm', 'lda #0', 'sta PF_HOR_SCROLL_LO', 'sta PF_HOR_SCROLL_HI', '@end'].join('\n') + '\n' : '';
+    // DPC+ and PXE without the tall scroll: pfscroll turns the playfield memory back by what it was turned (see dpcPlusPlainScrollReset),
+    // the same queues as the scroll blocks (the picture with its colors, and the colors alone).
+    if (Blockly.BBasic.dpcPlusPlainScrollReset) {
+      const uid = Blockly.BBasic.blockNumbers.next('dpcscrollreset');
+      const kinds = [[dpcPlusPlainScrollVarName(), ''], ...(Blockly.BBasic.dpcPlusPlainColorScrollUsed ? [[dpcPlusPlainColorScrollVarName(), ' 4 4']] : [])];
+      return pxeSideways + kinds.map(([name, queues], index) => {
+        const turned = resolveVar(name);
+        const done = `_dpcscrollreset_${uid}_p${index}_done`;
+        return [` temp1 = 0 - ${turned}`, ` if temp1 = 0 then goto ${done}`, ` pfscroll temp1${queues}`, ` ${turned} = 0`, `@ ${done}`].join('\n');
+      }).join('\n') + '\n';
     }
     if (config.kernel !== 'dpcplus') return scrollToRowCode('0');
     // The tall scrolling of DPC+ (and PXE) follows its position in a byte for the picture (and one for each kind of colors a Background scroll colors
     // block moves by itself): a wrapping scroll starts a background-height in (the offset is the rows of the background) and a scroll that stops at its
     // ends at 0. Back to that: the queues are scrolled by what is left of the way (the other way round for 0), and the byte is put back.
     const scroll = Blockly.BBasic.dpcPlusScroll;
-    if (!scroll) return ' rem Reset playfield scroll needs a background taller than the screen (DPC+)' + '\n';
+    if (!scroll) return pxeSideways || ' rem Reset playfield scroll needs a background taller than the screen (DPC+)' + '\n';
     const rowsText = Blockly.BBasic.dpcPlusScrollRowsVar || scroll.rows;
     const colorOnly = Blockly.BBasic.dpcPlusColorOnlyScrollUsed || {};
     const sequences = [
@@ -3171,7 +3290,7 @@ export default (Blockly) => {
         ({queueSets: Blockly.BBasic.dpcPlusScrollQueues(config, kind === 'pf', kind === 'bk', true), offsetName})),
     ];
     const uid = Blockly.BBasic.blockNumbers.next('dpcscrollreset');
-    const lines = [];
+    const lines = pxeSideways ? [pxeSideways.trimEnd()] : [];
     sequences.forEach(({queueSets, offsetName}, index) => {
       const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const done = `_dpcscrollreset_${uid}_${index}_done`;
