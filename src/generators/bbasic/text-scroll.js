@@ -7,7 +7,7 @@
 // concern with its  dev vars, its  data tables, and its  per-frame
 // runtime check, that the "Show text" block generators just call into.
 
-import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStringsForBuild, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 import {bankSuffixedTableName} from '../../blocks/data';
 import {getStaticMessageLayout, staticMessageRegionEnd} from './text-minikernel-layout';
 
@@ -229,7 +229,7 @@ const encodeScrollableMessage = (text) => {
 // Position 0 is the reserved blank guard entry (see namedMessagePosition's
 // comment in text-minikernel.js).
 export const getNamedScrollLayout = () => {
-  const entries = listTextStrings();
+  const entries = listTextStringsForBuild();
   const staticLayout = getStaticMessageLayout();
   // glyphs: null here too - the guard entry's  offset (0) already points
   // at its static row, same as any other non-scrollable entry, so it never

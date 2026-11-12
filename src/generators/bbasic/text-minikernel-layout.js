@@ -10,7 +10,7 @@
 // between the two - text-scroll.js needs this same layout too, and a
 // module cycle is easy to get wrong across a bundler even when (as here)
 // every use is safely deferred to inside a function body.
-import {TEXT_MESSAGE_LENGTH, listTextStrings, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
+import {TEXT_MESSAGE_LENGTH, listTextStringsForBuild, resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 
 // Splits a "Wrap to line 2" message's text into its  separate rows - one
 // row per explicit line break (the Text tab's  multi-line field), each
@@ -63,7 +63,7 @@ export const splitMessageLines = (text, maxWidth) => {
 // same as text12b.asm's "textkernel2ndrow" block only ever draws row 2
 // from TextIndex+TEXT_MESSAGE_LENGTH when told to).
 export const getStaticMessageLayout = () => {
-  const entries = listTextStrings();
+  const entries = listTextStringsForBuild();
   const maxWidth = resolveTextMaxDisplayWidth();
   const layout = [{offset: 0, lineCount: 1, wrapToLine2: false}];
   let offset = TEXT_MESSAGE_LENGTH;

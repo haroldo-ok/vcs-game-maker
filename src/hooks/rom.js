@@ -535,7 +535,7 @@ const titleScreenOverflowHint = (e) => {
   // plain-text "text" paragraph and a separate bold summary - text stays
   // empty below, this is the one and only paragraph shown.
   const highlight = `This may be caused by the Title Screen's graphics data: every different picture and every different row color list ` +
-    `on every page is baked into ROM at once (one that repeats is stored once), and the title screen's bank (bank ${bank}) ` +
+    `on every page a "Draw title screen" block draws is baked into ROM at once (one that repeats is stored once), and the title screen's bank (bank ${bank}) ` +
     `${isEstimate ? 'is estimated to need at least' : 'is using'} <b>${usedBytes} of its ${totalBytes}</b> ` +
     `usable bytes${isEstimate ? ' (a real build can still fail even under this estimate)' : ''}.` +
     `${rowsClause} Try reducing animation frame counts, shrinking card heights, ` +
@@ -2920,9 +2920,13 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
     // in bank 3 instead of bank 2. gameover_start's exit already cross-
     // bank-jumps to wherever gameover_update ends up (still bank 1), the
     // same mechanism every other relocated event already relies on.
+    // The banks are the ones after the bank the program starts in (primaryBankFor): bank 2 and 3 on the standard kernel, 3 and 4 on DPC+,
+    // whose program starts in bank 2 (bank 1 is the DPC+ kernel's): in bank 2 the title screen shared its bank with the whole program
+    // there, and a big page did not fit.
     if (titleScreen) {
-      setRelocationBank('subroutineBanks', TITLE_SCREEN_SUBROUTINE_NAME, 2);
-      setRelocationBank('eventBanks', 'gameover_start', 3);
+      const primary = primaryBankFor(configurationStorage.value || {});
+      setRelocationBank('subroutineBanks', TITLE_SCREEN_SUBROUTINE_NAME, primary + 1);
+      setRelocationBank('eventBanks', 'gameover_start', primary + 2);
     }
     let code;
     // A title screen preview compiles the page it shows only: every page of the project goes into the one bank the preview gives the

@@ -571,11 +571,20 @@ export const resolveScrollStarts = () => {
   return starts;
 };
 
-// The title screens as they are compiled: the cards a card's eye button has hidden (card.hidden) are left out, so that they take no ROM, no kernel copy and no
-// variables, and a block that names one does nothing (as with a deleted one). The Title tab and the dropdowns of the blocks still see every card.
+// The pages some "Draw title screen" block of the code being built names (ids as strings), or null before any build: set by the generator's
+// init (see titleScreenDrawUsed in generators/bbasic.js) from the blocks that make code.
+let drawnTitleScreenIds = null;
+export const setDrawnTitleScreenIds = (ids) => {
+  drawnTitleScreenIds = ids ? new Set([...ids].map(String)) : null;
+};
+
+// The title screens as they are compiled: a page no "Draw title screen" block names is left out (it can not be shown), and so are the cards a
+// card's eye button has hidden (card.hidden), so that they take no ROM, no kernel copy and no variables, and a block that names one does nothing
+// (as with a deleted one). The Title tab and the dropdowns of the blocks still see every page and card.
 export const processTitleScreenStorageForBuild = (storage) => {
   const data = processTitleScreenStorageDefaults(storage);
-  return {...data, screens: data.screens.map((screen) => ({...screen, cards: (screen.cards || []).filter((card) => !card.hidden)}))};
+  const screens = drawnTitleScreenIds ? data.screens.filter((screen) => drawnTitleScreenIds.has(String(screen.id))) : data.screens;
+  return {...data, screens: screens.map((screen) => ({...screen, cards: (screen.cards || []).filter((card) => !card.hidden)}))};
 };
 
 // Every screen's  id/name, for the "Draw title screen" block's

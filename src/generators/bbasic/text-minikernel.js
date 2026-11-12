@@ -8,7 +8,7 @@ import {colorByteToBuildBBasic} from '../../utils/palette';
 import {fixedFreeVariable} from '../../utils/fixed-vars';
 import {resolveBlinkMask} from '../../utils/text-font';
 import {flagPoolVar} from './flag-pool';
-import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStrings,
+import {TEXT_MESSAGE_LENGTH, CHAR_TO_GLYPH, listTextStringsForBuild,
   resolveTextMaxDisplayWidth} from '../../blocks/text-strings';
 import {functionCallDiscardVarName} from '../../blocks/function';
 import {bankSuffixedTableName} from '../../blocks/data';
@@ -262,7 +262,7 @@ export const trackTextRow2OffsetUsage = (Blockly, bank) => {
 const ensureTextRow2Pairs = (Blockly) => {
   if (Blockly.BBasic.textRow2PairOffsets) return Blockly.BBasic.textRow2PairOffsets;
   const maxWidth = resolveTextMaxDisplayWidth();
-  const entries = [{text: ''}, ...listTextStrings()];
+  const entries = [{text: ''}, ...listTextStringsForBuild()];
   Blockly.BBasic.freeTypedMessages = Blockly.BBasic.freeTypedMessages || [];
   const messages = Blockly.BBasic.freeTypedMessages;
   const offsets = entries.map(({text}) => {
@@ -295,7 +295,7 @@ export default (Blockly) => {
   };
 
   // Every message defined on the Text tab occupies a FIXED table row, one
-  // more than its position in listTextStrings()'s  id-sorted order (row 0
+  // more than its position in listTextStringsForBuild()'s  id-sorted order (row 0
   // is reserved blank - see generateTextMinikernel() below) - not assigned
   // lazily as blocks happen to reference them. That's what makes "Show text
   // with ID" possible at all: its number is only known at runtime, so
@@ -307,7 +307,7 @@ export default (Blockly) => {
   // point: typing "2" always gets you the same message, whether or not it's
   // been dragged somewhere else on the Text tab since.
   const namedMessagePosition = (id) => {
-    const entries = listTextStrings();
+    const entries = listTextStringsForBuild();
     const index = entries.findIndex((entry) => `${entry.id}` === `${id}`);
     return index === -1 ? 0 : index + 1;
   };
@@ -331,7 +331,7 @@ export default (Blockly) => {
   // rule as encodeTextMessage would apply to a would-be single-row version
   // of this entry anyway.
   const namedMessageFirstLine = (id) => {
-    const entry = listTextStrings().find((candidate) => `${candidate.id}` === `${id}`);
+    const entry = listTextStringsForBuild().find((candidate) => `${candidate.id}` === `${id}`);
     if (!entry) return '';
     return splitMessageLines(entry.text, resolveTextMaxDisplayWidth())[0] || '';
   };
@@ -477,7 +477,7 @@ export default (Blockly) => {
     markTextMinikernelUsed();
     const row = block.getFieldValue('ROW');
     const id = block.getFieldValue('TEXT_ID');
-    const entry = listTextStrings().find((candidate) => `${candidate.id}` === `${id}`);
+    const entry = listTextStringsForBuild().find((candidate) => `${candidate.id}` === `${id}`);
     const maxWidth = resolveTextMaxDisplayWidth();
     const line = namedMessageFirstLine(id).toUpperCase().slice(0, maxWidth);
     const totalPad = maxWidth - line.length;
@@ -1152,7 +1152,7 @@ export default (Blockly) => {
   Blockly.BBasic.isTextRow2Used = function() {
     // An entry that wraps only counts when a block can show it: a project that never shows one has no use for the
     // second row (and for DPC+ its lines).
-    const wrapping = listTextStrings().filter((entry) => entry.wrapToLine2);
+    const wrapping = listTextStringsForBuild().filter((entry) => entry.wrapToLine2);
     const wrappingShown = wrapping.length && (this.textEntryShowBlocks || []).some((block) =>
       block.type === 'text_minikernel_show_by_id' ||
       wrapping.some((entry) => `${entry.id}` === `${block.textId}`));
@@ -1366,7 +1366,7 @@ export default (Blockly) => {
     const glyphRows = (glyphs) => chunk(glyphs, 16).map((row) => '  ' + row.join(', '));
 
     const maxWidth = resolveTextMaxDisplayWidth();
-    const staticEntries = [{text: '', justify: 'left'}, ...listTextStrings()];
+    const staticEntries = [{text: '', justify: 'left'}, ...listTextStringsForBuild()];
     // Always splits into as many rows as splitMessageLines needs, regardless
     // of "Wrap to line 2" - that toggle no longer decides whether row 2+
     // data EXISTS (see getStaticMessageLayout's  comment), only whether

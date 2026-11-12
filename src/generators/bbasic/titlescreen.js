@@ -1584,10 +1584,10 @@ export const titleBgOverrideBit = () => flagPoolBit(TITLE_BG_OVERRIDE_FAMILY, 0)
 // registerKeypadPollSubroutine (see its  comment): this has to run
 // before anything downstream reads Blockly.BBasic.subroutines back out, and
 // the resolved var name it needs is already available at that point.
-// Compiles EVERY screen currently in storage (not just ones some "Draw
-// title screen" block happens to reference right now) - same "always
-// compile every entry, not just referenced ones" convention Backgrounds/
-// Player animations already use.
+// Compiles every page some "Draw title screen" block draws (see
+// processTitleScreenStorageForBuild): a page no block draws can not be
+// shown and is left out, as backgrounds and player animations no block
+// uses are.
 export const registerTitleScreenSubroutine = (Blockly, {selectedIdVarName}) => {
   const titleScreen = processTitleScreenStorageForBuild(useTitleScreenStorage());
   const {usedKernelKeys, dataBlocks, screenPlans, cardSlotsByRef, cardAnimationByRef,

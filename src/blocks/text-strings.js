@@ -205,3 +205,18 @@ export const listTextStrings = () => {
     return [];
   }
 };
+
+// The messages the code being built can show (ids as strings), or null for every message: set by the generator's init (see
+// usedTextStringIds in generators/bbasic.js). Null when a block picks a message by a number (the number is a message's place in the
+// list, and any message can be the one).
+let builtTextStringIds = null;
+export const setBuiltTextStringIds = (ids) => {
+  builtTextStringIds = ids ? new Set([...ids].map(String)) : null;
+};
+
+// The messages as they are built: the ones some block or title text card shows, in the same order as listTextStrings (the Text tab and
+// the dropdowns still see every message).
+export const listTextStringsForBuild = () => {
+  const entries = listTextStrings();
+  return builtTextStringIds ? entries.filter((entry) => builtTextStringIds.has(String(entry.id))) : entries;
+};

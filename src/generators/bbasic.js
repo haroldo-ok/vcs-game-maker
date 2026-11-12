@@ -64,13 +64,14 @@ import {registerTitleScreenSubroutine, resolveTitlePlayerSlots, titlePlayerStart
   TITLE_ANIMATE_FAMILY, titleAnimateVar,
   TITLE_CARD_FINISHED_FAMILY, titleCardFinishedVar, titleCardFinishedBit, titleCardFinishedLatchBit,
   titleCardOnceBit, TITLE_PLAYER_ONCE_FAMILY, titlePlayerOnceVar, titlePlayerOnceBit, titleScreensHaveTextCard} from './bbasic/titlescreen';
-import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolveBallVaryCardRefs, titleCardBallXVarName, titleCardHasBall, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageDefaults, processTitleScreenStorageForBuild,
+import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resolveFrameBoxCardRefs, resolveBallVaryCardRefs, titleCardBallXVarName, titleCardHasBall, resolvePlayOnceCardRefs, titleCardFrameCounterVarName, processTitleScreenStorageForBuild,
   titleCardScrollOffsetVarName, resolveTitleScreenCardsNeedingIndexRefs, resolveScrollStarts, titleCardWindowVarName, titleScrollsHere,
   titleCardIndexVarName, titleCardColorIndexVarName, resolveColorSplitCardRefs,
   titleCardColorPageVarName, resolveColorPageCardRefs,
   titleScrollEdgeFlagSlots, planTitleRowFade, setTitleRowFadePlans, padTitleCardFrames, TITLE_SCREEN_KERNEL_TYPES, isSingleColorTitleCard, titleCardColorVarName, titleCardFadeTargetVarName, titleCardFadeTimerVarName, titleCardFadePaceVarName,
   TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
-  titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName} from '../blocks/titlescreen';
+  titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, setDrawnTitleScreenIds} from '../blocks/titlescreen';
+import {setBuiltTextStringIds} from '../blocks/text-strings';
 import {registerDistanceAbsDiffSubroutine, registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickDirection8DevVars, generateJoystickDirection8Checks,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
@@ -1364,11 +1365,27 @@ Blockly.BBasic.init = function(workspace) {
           .map((block) => block.getFieldValue('OPERATION')));
   this.backgroundLineUsed = this.backgroundLineOperationsUsed.size > 0;
 
-  // Whether any "Draw title screen" block exists at all - has to be known
-  // before reserveDevVar hands out user variable letters below (see
-  // titleScreenSelectedIdVarName's  reservation further down), same
-  // pattern as keypad0Used/keypad1Used just above.
-  this.titleScreenDrawUsed = !isPxe(useConfigurationStorage().value) && workspace.getAllBlocks(false).some((block) => block.type === 'titlescreen_draw' && block.isEnabled() && !block.getInheritedDisabled());
+  // The pages the "Draw title screen" blocks name: only these are built (a page no block draws can not be shown, so it takes no ROM; see
+  // processTitleScreenStorageForBuild). A block counts when it makes code: enabled, not under a disabled block, and in an event or routine.
+  // Whether there is one at all has to be known before reserveDevVar hands out user variable letters below (see
+  // titleScreenSelectedIdVarName's  reservation further down), same pattern as keypad0Used/keypad1Used just above.
+  const codeBlocks = (types) => workspace.getAllBlocks(false).filter((block) => types.includes(block.type) && block.isEnabled() &&
+    !block.getInheritedDisabled() && ['event_block', 'event_comment', 'subroutine_define', 'function_define'].includes(block.getRootBlock().type));
+  const drawnTitleScreenIds = new Set(isPxe(useConfigurationStorage().value) ? [] : codeBlocks(['titlescreen_draw'])
+      .map((block) => String(block.getFieldValue('SCREEN') || ''))
+      .filter((id) => id !== ''));
+  setDrawnTitleScreenIds(drawnTitleScreenIds);
+  this.titleScreenDrawUsed = drawnTitleScreenIds.size > 0 &&
+    processTitleScreenStorageForBuild(useTitleScreenStorage()).screens.length > 0;
+  // The Text tab messages that are built: the ones a "Show text" block names and the text cards of the title pages that are built; every
+  // message when a block picks one by a number (its place in the list of every message). See listTextStringsForBuild.
+  const textByNumber = codeBlocks(['text_minikernel_show_by_id', 'text_minikernel_show_by_id_row', 'text_minikernel_show_by_id_scroll']).length > 0;
+  setBuiltTextStringIds(textByNumber ? null : [
+    ...codeBlocks(['text_minikernel_show_named', 'text_minikernel_show_named_row', 'text_minikernel_show_named_scroll'])
+        .map((block) => block.getFieldValue('TEXT_ID')),
+    ...(this.titleScreenDrawUsed ? processTitleScreenStorageForBuild(useTitleScreenStorage()).screens.flatMap((screen) =>
+      (screen.cards || []).filter((card) => card.type === 'text').map((card) => card.textId)) : []),
+  ].filter((id) => id !== undefined && id !== null && id !== ''));
   // Whether any block sets or changes where a sprite is (or fires a missile or ball from a spot).
   this.spritePositionBlocksUsed = workspace.getAllBlocks(false).some((block) => block.isEnabled() &&
     ((/^sprite_(player|missile|ball)_(set|change)$/.test(block.type) &&
@@ -2238,7 +2255,7 @@ Blockly.BBasic.init = function(workspace) {
     // The page number only matters with more than one page: the shared routine
     // draws the only page there is without reading it (see buildDriverAsm in
     // generators/bbasic/titlescreen.js), so a project with one page skips the variable.
-    if (processTitleScreenStorageDefaults(useTitleScreenStorage()).screens.length > 1) {
+    if (processTitleScreenStorageForBuild(useTitleScreenStorage()).screens.length > 1) {
       this.titleScreenSelectedIdVarName = reserveTitleDevVar(
           'titleScreenSelectedId', undefined, 'Which Title Screen page to draw next');
     }
