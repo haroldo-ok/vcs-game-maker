@@ -505,12 +505,14 @@ int main()
   // fetcher setup
   //my_memset(queue+(dfhigh(3)<<8)+dflow(3),0,192);
   mask=0xFF; // the ones in bss start as whatever the RAM held, which showed in the first frame's player0
-  my_memset(queue+get32bitdf(3),0,192);
+  // The whole of each 256 byte buffer: the kernel can draw more lines than 192, and a sprite drawn over the last ones left them
+  // there after it moved away (192 bytes were cleared).
+  my_memset(queue+get32bitdf(3),0,256);
 
   //my_memset(queue+(dfhigh(1)<<8)+dflow(1),RIOT[COLUM1],192); // clear multiplexed sprites and fill colors
-  my_memset(queue+get32bitdf(1),RIOT[COLUM1],192); // clear multiplexed sprites and fill colors
+  my_memset(queue+get32bitdf(1),RIOT[COLUM1],256); // clear multiplexed sprites and fill colors
   //my_memset(queue+(dfhigh(0)<<8)+dflow(0)-1,RIOT[COLUM0],193); // fill COLUM0 colors
-  my_memset(queue+get32bitdf(0)-1,RIOT[COLUM0],193); // fill COLUM0 colors
+  my_memset(queue+get32bitdf(0)-1,RIOT[COLUM0],257); // fill COLUM0 colors
 
   // fill color from player0, wrapping if necessary...
   //my_memcpy(queue+(dfhigh(0)<<8)+dflow(0),
