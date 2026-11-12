@@ -12,12 +12,13 @@ import {effectiveBackgroundRows, backgroundDataRows, backgroundFadeTimerVarName,
   backgroundFadeFinishedBit, fadeActiveBit, backgroundFadeWatchKey,
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
-  backgroundScrollRowVarName, backgroundScrollRowMaxVarName, backgroundScrollSubRowVarName,
-  backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName, backgroundScrollTurnsVarName, backgroundScrollShiftVarName,
+  backgroundScrollRowVarName, backgroundScrollRowMaxVarName,
+  backgroundScrollEdgeFlagsVarName, BACKGROUND_SCROLL_EDGE_BITS, backgroundScrollStartVarName, backgroundScrollShiftVarName,
   dpcPlusPlainScrollVarName, dpcPlusPlainColorScrollVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName, backgroundScrollActiveVarName, backgroundColorBgVarName,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, backgroundColorOffsetVarName, dpcPlusPfresOf} from '../../blocks/background';
-import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset, pfColumnText, pfColumnOf, pfScrollColumns, pfMaxColumn, pfColumnBias} from '../../utils/playfield-coords';
+import {pfRowDivisorFor as exactRowDivisorFor, playerPfXOffset, missileBallPfXOffset, pfColumnText, pfColumnOf, pfScrollColumns, pfMaxColumn, pfColumnBias,
+  dpcPlusRowLinesFor} from '../../utils/playfield-coords';
 
 // batari Basic can only multiply and divide by whole numbers, and with DPC+ a row is not always a whole number of
 // y steps (28 rows of 6.857 lines), so those blocks use the nearest whole number of steps.
@@ -2769,22 +2770,27 @@ export default (Blockly) => {
       // The standard kernel's pfscroll moves two lines per call (four for the "2x" directions).
       const lineCount = Math.abs(BACKGROUND_SCROLL_ROW_DELTA[direction] || 1) * 2;
       // The sprites that "scroll with the playfield" move by the lines the picture moved: a DPC+ sprite's y counts lines from
-      // the top, so the picture moving up (scrolling "down") takes y down.
+      // the top, and Down moves the picture down the screen (Up up), so Down takes y up.
       const spriteScrollUsedFor = Blockly.BBasic.spriteScrollUsedFor || new Set();
       const nudgeSprites = (lines) => {
         if (!spriteScrollUsedFor.size) return [];
         const flagsVar = Blockly.BBasic.nameDB_.getName(spriteScrollFlagsVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE);
         return [...spriteScrollUsedFor].map((name) =>
-          ` if ${flagsVar}{${spriteScrollActiveBit(name)}} then ${name}y = ${name}y ${delta > 0 ? '-' : '+'} ${lines}`);
+          ` if ${flagsVar}{${spriteScrollActiveBit(name)}} then ${name}y = ${name}y ${delta > 0 ? '+' : '-'} ${lines}`);
       };
       const colorsOnlyBlock = block.getFieldValue('COLORS_ONLY') === 'TRUE';
       if (!scroll) {
-        // (With a Reset playfield scroll block, how far the memory has been turned is counted: see dpcPlusPlainScrollReset.)
-        const turnVar = Blockly.BBasic.dpcPlusPlainScrollReset ? Blockly.BBasic.nameDB_.getName(
+        // Without the tall scroll pfscroll turns the playfield memory a row of the playfield at a time (a row of the background), so the
+        // picture moves a row's lines. How far it has turned is counted (the row at the top: the position block, Reset playfield scroll; see
+        // dpcPlusPlainScrollCount).
+        const turnVar = Blockly.BBasic.dpcPlusPlainScrollCount ? Blockly.BBasic.nameDB_.getName(
             colorsOnlyBlock ? dpcPlusPlainColorScrollVarName() : dpcPlusPlainScrollVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE) : null;
+        const rowLines = Blockly.BBasic.dpcPlusRowLinesVar || Math.max(1, Math.round(dpcPlusRowLinesFor(dpcPlusConfig)));
+        const steps = Math.abs(BACKGROUND_SCROLL_ROW_DELTA[direction]);
         return ` pfscroll ${DPC_PLUS_SCROLL_VALUE[direction]}${colorsOnlyBlock ? ' 4 4' : ''}\n` +
           (turnVar ? ` ${turnVar} = ${turnVar} + ${DPC_PLUS_SCROLL_VALUE[direction]}\n` : '') +
-          (colorsOnlyBlock ? '' : nudgeSprites(Math.abs(BACKGROUND_SCROLL_ROW_DELTA[direction])).map((line) => line + '\n').join(''));
+          (colorsOnlyBlock ? '' : (steps === 1 ? nudgeSprites(rowLines) : [...nudgeSprites(rowLines), ...nudgeSprites(rowLines)])
+              .map((line) => line + '\n').join(''));
       }
       // The playfield rows are cut thinner (see generateBackgrounds), so a step moves `fine` lines. The
       // standard kernel moves two lines per frame (four for the "2x" directions), so a step is taken every
@@ -2817,10 +2823,10 @@ export default (Blockly) => {
       const stepRows = Math.max(1, Math.round(lineCount / scroll.fine));
       const divider = dpcPlusScrollDivider(direction, scroll.fine);
       const value = delta > 0 ? 256 - stepRows : stepRows;
-      // The playfield holds the background repeated over and over (see tileForDpcPlusScroll in
-      // generators/bbasic.js), the view starts one background-height in, and the offset variable follows how far
-      // it has moved, between 1 and one background-height. Moving past either end shows the same picture as
-      // a whole background-height further along, so the view jumps by that much and never runs out of picture.
+      // The playfield holds the background repeated over and over (see tileForDpcPlusScroll in generators/bbasic.js), and the offset
+      // variable is the thin row at the top of the view, from 0 to one background-height less one (Up takes it further down the
+      // background, Down back up). Moving past either end shows the same picture as a whole background-height further along, so the view
+      // jumps by that much and never runs out of picture.
       const uid = Blockly.BBasic.blockNumbers.next('dpcscroll');
       // A step is taken every `divider` times the block runs, counted by a byte kept for it (the frame counter would never match when the
       // block only runs on some frames, like inside "Every 2 frames").
@@ -2851,22 +2857,25 @@ export default (Blockly) => {
           lines.push(` ${offset} = ${offset} ${delta > 0 ? '-' : '+'} ${stepRows}`, `@ ${stepDone}`);
           return;
         }
-        // Stopping at the edge: the view is about to run past either end of the background.
+        // Stopping at the edge: Down stops at the top of the background, Up when the bottom of the screen reaches its bottom (limit, as a
+        // background that does not wrap).
         if (block.getFieldValue('STOPATEDGE') === 'TRUE') {
-          if (delta > 0) lines.push(` if ${offset} <= ${stepRows} then goto ${stepDone}`);
-          else if (rowsVar) lines.push(` temp1 = ${rowsVar} - ${stepRows}`, ` if ${offset} > temp1 then goto ${stepDone}`);
-          else lines.push(` if ${offset} > ${rows - stepRows} then goto ${stepDone}`);
+          const limitVar = Blockly.BBasic.dpcPlusScrollLimitVar;
+          if (delta > 0) lines.push(` if ${offset} < ${stepRows} then goto ${stepDone}`);
+          else if (limitVar) lines.push(` if ${limitVar} < ${stepRows} then goto ${stepDone}`, ` temp1 = ${limitVar} - ${stepRows}`, ` if ${offset} > temp1 then goto ${stepDone}`);
+          else if (scroll.limit < stepRows) lines.push(` goto ${stepDone}`);
+          else lines.push(` if ${offset} > ${scroll.limit - stepRows} then goto ${stepDone}`);
         }
         lines.push(...scrollLines(value));
         if (main) lines.push(...nudgeSprites(stepRows * scroll.fine));
         if (delta > 0) {
-          lines.push(` if ${offset} > ${stepRows} then ${offset} = ${offset} - ${stepRows} : goto ${stepDone}`,
+          lines.push(` if ${offset} >= ${stepRows} then ${offset} = ${offset} - ${stepRows} : goto ${stepDone}`,
               ` ${offset} = ${offset} + ${rowsText}`, ` ${offset} = ${offset} - ${stepRows}`, ...scrollLines(rowsText));
         } else {
           // The jump back is the number of rows the other way round (256 less them).
           const back = rowsVar ? 'temp1' : 256 - rows;
           lines.push(...(rowsVar ? [` temp1 = ${rowsVar} - ${stepRows}`] : []),
-              ` if ${offset} <= ${rowsVar ? 'temp1' : rows - stepRows} then ${offset} = ${offset} + ${stepRows} : goto ${stepDone}`,
+              ` if ${offset} < ${rowsVar ? 'temp1' : rows - stepRows} then ${offset} = ${offset} + ${stepRows} : goto ${stepDone}`,
               ` ${offset} = ${offset} + ${stepRows}`, ` ${offset} = ${offset} - ${rowsText}`,
               ...(rowsVar ? [` temp1 = 255 - ${rowsVar}`, ' temp1 = temp1 + 1'] : []), ...scrollLines(back));
         }
@@ -2930,20 +2939,21 @@ export default (Blockly) => {
     const configurationStorage = useConfigurationStorage();
     const config = (configurationStorage && configurationStorage.value) || {};
     const rowHeight = pfRowDivisorFor(config);
-    // rowVar tracks the live window's top row index into the full
-    // background, in the natural sense its name suggests - "down"/"down
-    // (2x)" increase it (reveal more of the background below), "up"/"up
-    // (2x)" decrease it (reveal more above), bounded at 0 and maxVar
-    // (pixels.length-visibleRows).
+    // rowVar is the background's row at the top of the playfield: Up moves the picture up the screen, so the row goes up by one each time
+    // pfscroll goes round a row (playfieldpos wraps to the row height); Down moves it down, the row going down by one when playfieldpos wraps
+    // to 1. A background as tall as the screen goes round its rows (the row from 0 to the rows less one); a taller one stops at 0 and its
+    // furthest row (the patch routine keeps it).
     const lines = [];
     const overflowUsed = (Blockly.BBasic.backgroundScrollOverflowBackgrounds || []).length > 0;
     const spriteScrollUsedFor = Blockly.BBasic.spriteScrollUsedFor || new Set();
+    // The sprites that follow the scroll move with the picture every call: pfscroll moves it a line of the playfield (2 scanlines) a call
+    // (2 for the "2x" directions), a y step of a player.
     const nudgeSprites = () => {
       if (!spriteScrollUsedFor.size) return;
       const flagsVar = resolveVar(spriteScrollFlagsVarName());
       spriteScrollUsedFor.forEach((name) => {
         const bit = spriteScrollActiveBit(name);
-        lines.push(` if ${flagsVar}{${bit}} then ${name}y = ${name}y ${delta < 0 ? '-' : '+'} 1`);
+        lines.push(` if ${flagsVar}{${bit}} then ${name}y = ${name}y ${delta < 0 ? '-' : '+'} ${Math.abs(delta)}`);
       });
     };
 
@@ -2958,53 +2968,33 @@ export default (Blockly) => {
     };
 
     if (!overflowUsed) {
-      // No background in the project is taller than the visible window -
-      // stock pfscroll's rotate-in-place is already correct and simplest.
+      // No background in the project is taller than the screen: pfscroll turns the rows round in place (see rowVar above). Stop at edge
+      // stops Up at the furthest row (the row's position is the top of it: playfieldpos at the row height) and Down when the call would go
+      // round a row past row 0.
+      const pfRows = backgroundDataRows(config);
+      const step = Math.abs(delta);
       if (stopAtEdge) {
-        lines.push(delta < 0 ?
-          ` if ${rowVar} <= 0 then goto ${doneLabel}` :
-          ` if ${rowVar} >= ${maxVar} then goto ${doneLabel}`);
+        const edgeOk = `_bgscroll_${uid}_edgeok`;
+        if (delta < 0) {
+          lines.push(` if playfieldpos < ${rowHeight} then goto ${edgeOk}`, ` if ${rowVar} >= ${maxVar} then goto ${doneLabel}`);
+        } else {
+          lines.push(` if playfieldpos <= ${rowHeight - step} then goto ${edgeOk}`, ` if ${rowVar} = 0 then goto ${doneLabel}`);
+        }
+        lines.push(`@ ${edgeOk}`);
       }
       lines.push(` pfscroll ${direction}`);
-      // (With a Reset playfield scroll block, the rows pfscroll has turned are counted: it goes round a row when playfieldpos wraps, to the row
-      // height going up and to 1 going down; see backgroundScrollResetTurns.)
-      if (Blockly.BBasic.backgroundScrollResetTurns) {
-        const turns = resolveVar(backgroundScrollTurnsVarName());
-        const pfRows = backgroundDataRows(config);
-        lines.push(...(delta < 0 ?
-          [` if playfieldpos = ${rowHeight} then ${turns} = ${turns} + 1`, ` if ${turns} >= ${pfRows} then ${turns} = 0`] :
-          [` if playfieldpos = 1 then ${turns} = ${turns} - 1`, ` if ${turns} >= ${pfRows} then ${turns} = ${pfRows - 1}`]));
-      }
       if (colorsOn) lines.push(...colorRotationLines(uid));
-      // Real pfscroll moves by ONE SCANLINE per call, not one logical
-      // playfield row (confirmed directly against pf_scrolling.asm - it
-      // only actually rotates a row once the kernel's internal
-      // "playfieldpos" accumulator reaches the configured row height,
-      // rowHeight above) - subRowVar is this block's parallel accumulator
-      // (not a read of that internal kernel counter, which resets
-      // ambiguously on both "just completed a row" and "the very first call
-      // ever" alike, making it unsafe to read back directly - see
-      // backgroundScrollSubRowVarName's comment in blocks/background.js) so
-      // rowVar only advances once a row has genuinely completed, not on
-      // every single scanline step. A real reported bug otherwise ("stop at
-      // edge" triggering ~rowHeight times too early, since rowVar used to
-      // advance a full step on every raw call).
-      const subRowVar = resolveVar(backgroundScrollSubRowVarName());
-      lines.push(` ${subRowVar} = ${subRowVar} + ${Math.abs(delta)}`);
-      lines.push(` if ${subRowVar} < ${rowHeight} then goto ${doneLabel}`);
-      lines.push(` ${subRowVar} = ${subRowVar} - ${rowHeight}`);
-      lines.push(` ${rowVar} = ${rowVar} ${delta < 0 ? '-' : '+'} 1`);
-      if (delta > 0) setEdgeFlag('bottom', `${rowVar} >= ${maxVar}`);
-      else setEdgeFlag('top', `${rowVar} = 0`);
-      // Nudges every sprite currently flagged (a RUNTIME bit, checked here
-      // every call, not a compile-time decision - see sprite_scroll_with_
-      // playfield_set's generator in generators/bbasic/sprites.js) to
-      // follow this same row move, one "if flag then nudge" line per NAME
-      // that has a "set/is scrolling with playfield" block anywhere in the
-      // project. Only runs once a row has actually completed (see above),
-      // matching rowVar's cadence - a flagged sprite tracks real rows
-      // scrolled, not raw scanline steps.
       nudgeSprites();
+      // A row: playfieldpos wrapped (to the row height going up, to 1 going down).
+      if (delta < 0) {
+        lines.push(` if playfieldpos <> ${rowHeight} then goto ${doneLabel}`, ` ${rowVar} = ${rowVar} + 1`,
+            ` if ${rowVar} >= ${pfRows} then ${rowVar} = 0`);
+        setEdgeFlag('bottom', `${rowVar} >= ${maxVar}`);
+      } else {
+        lines.push(` if playfieldpos <> 1 then goto ${doneLabel}`, ` ${rowVar} = ${rowVar} - 1`,
+            ` if ${rowVar} >= ${pfRows} then ${rowVar} = ${pfRows - 1}`);
+        setEdgeFlag('top', `${rowVar} = 0`);
+      }
     } else {
       // Some background in the project IS taller than the visible window.
       // Real pfscroll still rotates the live window (cheap, and it keeps the
@@ -3057,9 +3047,9 @@ export default (Blockly) => {
         lines.push(` if ${trVar} = 0 then goto ${normalLabel}`);
         lines.push(forward ? ` if ${trVar} >= 128 then goto ${doneLabel}` : ` if ${trVar} < 128 then goto ${doneLabel}`);
         lines.push(` pfscroll ${mechDirection}`);
+        nudgeSprites();
         lines.push(forward ? ` if playfieldpos <> ${rowHeight} then goto ${doneLabel}` : ` if playfieldpos <> 1 then goto ${doneLabel}`);
         Blockly.BBasic.backgroundScrollStepUsed = true;
-        nudgeSprites();
         lines.push(` temp5 = ${forward ? 252 : 253}`, gosubPatch, ` if temp6 = 0 then goto ${doneLabel}`);
         // The new background is showing: its row colors take over.
         if (colorsOn) {
@@ -3073,7 +3063,8 @@ export default (Blockly) => {
       }
       if (stopAtEdge) {
         if (forward) {
-          lines.push(` if playfieldpos > ${step} then goto ${edgeCheckedLabel}`);
+          // (Going up from the top of the furthest row would show what is past the bottom of the background: only that is stopped.)
+          lines.push(` if playfieldpos < ${rowHeight} then goto ${edgeCheckedLabel}`);
           loadMax();
           lines.push(` temp4 = ${rowVar} & ${rowMask}`);
           lines.push(` if temp4 >= temp6 then goto ${doneLabel}`);
@@ -3085,6 +3076,7 @@ export default (Blockly) => {
         lines.push(`@ ${edgeCheckedLabel}`);
       }
       lines.push(` pfscroll ${mechDirection}`);
+      nudgeSprites();
       // A row-step completed exactly when pfscroll wrapped playfieldpos:
       // forward it resets to rowHeight (a non-wrapping step always leaves it
       // lower), backward it resets to 1 (a non-wrapping step always leaves it
@@ -3097,7 +3089,6 @@ export default (Blockly) => {
       // follow when ticked, and the row that has come into view is copied into the window. Bit 0 of the mode is "forward", bit 1 "colors",
       // bit 2 "stop at the edge". It leaves temp6 as the furthest row (stop at the edge) or the number of rows (without), for the edge watch.
       Blockly.BBasic.backgroundScrollStepUsed = true;
-      nudgeSprites();
       lines.push(` temp5 = ${240 + (forward ? 1 : 0) + (colorsOn ? 2 : 0) + (stopAtEdge ? 4 : 0)}`);
       lines.push(gosubPatch);
       // Edge flags, from the row just stored.
@@ -3216,11 +3207,11 @@ export default (Blockly) => {
   Blockly.BBasic[`background_scroll_reset`] = () => {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};
     const resolveVar = (canonicalName) => Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    // The standard kernel with no background taller than the screen: the rows pfscroll has turned up (counted by the scroll blocks, see
-    // backgroundScrollResetTurns) are turned back by the routine below, the fine position (playfieldpos) goes back to the row height it starts
-    // with (startup.asm), and what follows the scroll (its row, the row colors) back to the top.
+    // The standard kernel with no background taller than the screen: the rows pfscroll has turned up (the row at the top, rowVar, see
+    // background_scroll) are turned back by the routine below, the fine position (playfieldpos) goes back to the row height it starts with
+    // (startup.asm), and the row colors back to the top.
     if (Blockly.BBasic.backgroundScrollResetTurns) {
-      const turns = resolveVar(backgroundScrollTurnsVarName());
+      const turns = resolveVar(backgroundScrollRowVarName());
       const pfRows = backgroundDataRows(config);
       const uid = Blockly.BBasic.blockNumbers.next('bgscrollreset');
       const done = `_bgscrollreset_${uid}_done`;
@@ -3257,8 +3248,6 @@ export default (Blockly) => {
         ` ${turns} = 0`,
         `@ ${done}`,
         ` playfieldpos = ${pfRowDivisorFor(config)}`,
-        ...(Blockly.BBasic.backgroundScrollTracking ? [` ${resolveVar(backgroundScrollRowVarName())} = 0`,
-          ` ${resolveVar(backgroundScrollSubRowVarName())} = 0`] : []),
         ...(Blockly.BBasic.backgroundColorScrollUsed ? [` ${resolveVar(backgroundColorOffsetVarName())} = 0`,
           Blockly.BBasic.backgroundColorScrollApplyLines()] : []),
       ].join('\n') + '\n';
@@ -3267,7 +3256,7 @@ export default (Blockly) => {
     const pxeSideways = config.pxe ? ['asm', 'lda #0', 'sta PF_HOR_SCROLL_LO', 'sta PF_HOR_SCROLL_HI', '@end'].join('\n') + '\n' : '';
     // DPC+ and PXE without the tall scroll: pfscroll turns the playfield memory back by what it was turned (see dpcPlusPlainScrollReset),
     // the same queues as the scroll blocks (the picture with its colors, and the colors alone).
-    if (Blockly.BBasic.dpcPlusPlainScrollReset) {
+    if (Blockly.BBasic.dpcPlusPlainScrollCount) {
       const uid = Blockly.BBasic.blockNumbers.next('dpcscrollreset');
       const kinds = [[dpcPlusPlainScrollVarName(), ''], ...(Blockly.BBasic.dpcPlusPlainColorScrollUsed ? [[dpcPlusPlainColorScrollVarName(), ' 4 4']] : [])];
       return pxeSideways + kinds.map(([name, queues], index) => {
@@ -3278,11 +3267,10 @@ export default (Blockly) => {
     }
     if (config.kernel !== 'dpcplus') return scrollToRowCode('0');
     // The tall scrolling of DPC+ (and PXE) follows its position in a byte for the picture (and one for each kind of colors a Background scroll colors
-    // block moves by itself): a wrapping scroll starts a background-height in (the offset is the rows of the background) and a scroll that stops at its
-    // ends at 0. Back to that: the queues are scrolled by what is left of the way (the other way round for 0), and the byte is put back.
+    // block moves by itself): the thin row at the top of the view, which is how far the memory is turned (see background_scroll). Back to 0: the
+    // queues are turned the rest of the way round, and the byte is put back.
     const scroll = Blockly.BBasic.dpcPlusScroll;
     if (!scroll) return pxeSideways || ' rem Reset playfield scroll needs a background taller than the screen (DPC+)' + '\n';
-    const rowsText = Blockly.BBasic.dpcPlusScrollRowsVar || scroll.rows;
     const colorOnly = Blockly.BBasic.dpcPlusColorOnlyScrollUsed || {};
     const sequences = [
       {queueSets: Blockly.BBasic.dpcPlusScrollQueues(config, !!scroll.pfColors && !colorOnly.pf, !!scroll.bkColors && !colorOnly.bk, false), offsetName: '_dpcScrollOffset'},
@@ -3294,8 +3282,8 @@ export default (Blockly) => {
     sequences.forEach(({queueSets, offsetName}, index) => {
       const offset = Blockly.BBasic.nameDB_.getName(offsetName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const done = `_dpcscrollreset_${uid}_${index}_done`;
-      lines.push(` temp1 = ${scroll.noWrap ? '0' : rowsText} - ${offset}`, ` if temp1 = 0 then goto ${done}`,
-          ...queueSets.map((queues) => ` pfscroll temp1${queues}`), ` ${offset} = ${scroll.noWrap ? '0' : rowsText}`, `@ ${done}`);
+      lines.push(` temp1 = 0 - ${offset}`, ` if temp1 = 0 then goto ${done}`,
+          ...queueSets.map((queues) => ` pfscroll temp1${queues}`), ` ${offset} = 0`, `@ ${done}`);
     });
     return lines.join('\n') + '\n';
   };
@@ -3318,15 +3306,19 @@ export default (Blockly) => {
   Blockly.BBasic[`background_scroll_position`] = function(block) {
     const resolveVar = (canonicalName) =>
       Blockly.BBasic.nameDB_.getName(canonicalName, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
-    // The tall scrolling of DPC+ and PXE (see background_scroll) keeps no row variable: the offset it follows starts one background height in and
-    // goes down by a row for a scroll down, so the row at the top is the height less it (a background that does not wrap, which starts at row 0,
-    // is its offset).
+    // The tall scrolling of DPC+ and PXE (see background_scroll) keeps the thin row at the top of the view: the background's row is it divided
+    // by the thin rows a row of the background is cut into (a variable when the backgrounds differ in it; not a power of two, the divide
+    // routine).
     const tall = Blockly.BBasic.dpcPlusScroll;
     if (tall) {
       const offset = resolveVar('_dpcScrollOffset');
-      if (tall.noWrap) return [offset, Blockly.BBasic.ORDER_ATOMIC];
-      return [`${Blockly.BBasic.dpcPlusScrollRowsVar || tall.rows} - ${offset}`, Blockly.BBasic.ORDER_SUBTRACTION];
+      const repeats = Blockly.BBasic.dpcPlusScrollRepeatsVar || tall.repeats;
+      if (repeats === 1) return [offset, Blockly.BBasic.ORDER_ATOMIC];
+      if (typeof repeats !== 'number' || (repeats & (repeats - 1))) Blockly.BBasic.usesDivMul = true;
+      return [`${offset} / ${repeats}`, Blockly.BBasic.ORDER_DIVISION];
     }
+    // DPC+ and PXE without the tall scroll: how far pfscroll has turned the memory is the row at the top (see dpcPlusPlainScrollCount).
+    if (Blockly.BBasic.dpcPlusPlainScrollCount) return [resolveVar(dpcPlusPlainScrollVarName()), Blockly.BBasic.ORDER_ATOMIC];
     const rowVar = resolveVar(backgroundScrollRowVarName());
     // In overflow mode the variable also carries the active background's
     // index in its high bits - see backgroundScrollPacking.

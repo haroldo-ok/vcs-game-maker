@@ -29,11 +29,11 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   backgroundGetPixelXVarName, backgroundGetPixelYVarName,
   collisionPixelColumnVarName, collisionPixelRowVarName, areaClearLeftVarName, circleVarNames,
   resolveBackgroundFadeFinishedWatches, hasBackgroundFadeActiveChecks,
-  backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName, backgroundScrollTurnsVarName, backgroundScrollShiftVarName, dpcPlusPlainScrollVarName,
+  backgroundScrollEdgeFlagsVarName, backgroundScrollStartVarName, backgroundScrollShiftVarName, dpcPlusPlainScrollVarName,
   dpcPlusPlainColorScrollVarName,
   backgroundScrollRowVarName, backgroundScrollRowMaxVarName,
   backgroundTransitionVarName, backgroundTransitionCountVarName,
-  backgroundScrollPacking, backgroundScrollActiveVarName, backgroundScrollSubRowVarName,
+  backgroundScrollPacking, backgroundScrollActiveVarName,
   backgroundsWithOverflowRows, backgroundDataRows, effectiveBackgroundRows, backgroundPfresOf, dpcPlusPfresOf, backgroundGroupPfres, backgroundHasGroups,
   backgroundColorRows, backgroundHasColorRows, colorsAtRows, colorsAtPixelRows,
   BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME, resolveUsedBackgroundIds,
@@ -3298,7 +3298,13 @@ Blockly.BBasic.init = function(workspace) {
       // What a background's rows are cut into: how many thin rows make up one of its rows, and how many rows it takes in all.
       this.dpcPlusScrollFor = (background) => {
         const repeats = backgroundLines(background) / fine;
-        return {...common, repeats, rows: background.pixels.length * repeats, ...groupScrollLayout(background, fine)};
+        const rows = background.pixels.length * repeats;
+        // The rows on screen, and so how far down the picture the top of the view goes before the bottom of the screen shows the top of
+        // the picture again (where Stop at edge stops).
+        const screenLines = Math.min(config.showScore === false ? 192 : DPC_PLUS_SCREEN_LINES,
+            Math.max(1, backgroundPfresOf(background, config)) * backgroundLines(background));
+        const windowRows = Math.ceil(screenLines / fine);
+        return {...common, repeats, rows, windowRows, limit: Math.max(0, rows - windowRows), ...groupScrollLayout(background, fine)};
       };
       this.dpcPlusScroll = this.dpcPlusScrollFor(includedBackgrounds[0]);
       break;
@@ -3342,6 +3348,8 @@ Blockly.BBasic.init = function(workspace) {
   this.dpcPlusRowLinesVar = null;
   this.dpcPlusRowMaxVar = null;
   this.dpcPlusScrollRowsVar = null;
+  this.dpcPlusScrollRepeatsVar = null;
+  this.dpcPlusScrollLimitVar = null;
   this.dpcPlusGeometries = [];
   if (config.kernel === 'dpcplus') {
     includedBackgrounds.forEach((background) => {
@@ -3369,6 +3377,17 @@ Blockly.BBasic.init = function(workspace) {
       if (this.dpcPlusScroll && new Set(includedBackgrounds.map((background) => dpcPlusScrollTravel(this.dpcPlusScrollFor(background)))).size > 1) {
         this.dpcPlusScrollRowsVar = reserveDevVar('_dpcScrollRows', undefined,
             'DPC+ playfield scroll: how many rows the background showing takes, which is how far a scroll wraps');
+      }
+      // (The scroll's thin rows in a row of the background, and how far down a wrapping scroll goes with Stop at edge, when the backgrounds
+      // differ in them: see background_scroll_position and background_scroll.)
+      if (this.dpcPlusScroll && new Set(includedBackgrounds.map((background) => this.dpcPlusScrollFor(background).repeats)).size > 1) {
+        this.dpcPlusScrollRepeatsVar = reserveDevVar('_dpcScrollRepeats', undefined,
+            'DPC+ playfield scroll: the thin rows of the scroll in a row of the background showing');
+      }
+      if (this.dpcPlusScroll && !this.dpcPlusScroll.noWrap &&
+          new Set(includedBackgrounds.map((background) => this.dpcPlusScrollFor(background).limit)).size > 1) {
+        this.dpcPlusScrollLimitVar = reserveDevVar('_dpcScrollLimit', undefined,
+            'DPC+ playfield scroll: how far down the background showing the view goes with Stop at edge');
       }
     }
   }
@@ -3404,6 +3423,8 @@ Blockly.BBasic.init = function(workspace) {
   Blockly.BBasic.dpcPlusRowLinesVar = this.dpcPlusRowLinesVar;
   Blockly.BBasic.dpcPlusRowMaxVar = this.dpcPlusRowMaxVar;
   Blockly.BBasic.dpcPlusScrollRowsVar = this.dpcPlusScrollRowsVar;
+  Blockly.BBasic.dpcPlusScrollRepeatsVar = this.dpcPlusScrollRepeatsVar;
+  Blockly.BBasic.dpcPlusScrollLimitVar = this.dpcPlusScrollLimitVar;
   Blockly.BBasic.dpcPlusGeometries = this.dpcPlusGeometries;
   Blockly.BBasic.dpcPlusScrollFor = this.dpcPlusScrollFor;
   Blockly.BBasic.dpcPlusScroll = this.dpcPlusScroll;
@@ -3423,7 +3444,7 @@ Blockly.BBasic.init = function(workspace) {
       reserveDevVar('_dpcBkColorScrollOffset', undefined, 'DPC+ background color rows scroll: how far they have moved');
     }
     reserveDevVar('_dpcScrollOffset', undefined,
-        'DPC+ playfield scroll: how far the view has moved, starting one background height in');
+        'DPC+ playfield scroll: the thin row at the top of the view (how far the playfield memory is turned)');
     // A Background scroll block that takes a step every few runs counts its runs in a byte kept for it.
     Blockly.BBasic.dpcPlusScrollCounters = {};
     workspace.getAllBlocks(false).forEach((block) => {
@@ -3456,8 +3477,6 @@ Blockly.BBasic.init = function(workspace) {
     if (!this.backgroundScrollOverflowBackgrounds.length) {
       reserveDevVar(backgroundScrollRowMaxVarName(), undefined,
           'the current background\'s furthest valid scroll row (its row count minus the visible rows)');
-      reserveDevVar(backgroundScrollSubRowVarName(), undefined,
-          'scanlines accumulated toward the next full row - see its comment in blocks/background.js');
     }
   }
   if (this.backgroundTransitionUsed && this.backgroundScrollOverflowBackgrounds.length) {
@@ -3478,9 +3497,6 @@ Blockly.BBasic.init = function(workspace) {
   // dpcPlusScroll; pfscroll turns the playfield memory round) how far it has turned it; the reset turns it back (see background_scroll_reset).
   const scrollResetUsed = workspace.getAllBlocks(false).some((block) => block.type === 'background_scroll_reset' && block.isEnabled());
   this.backgroundScrollResetTurns = scrollResetUsed && !dpcPlusScroll && !this.backgroundScrollOverflowBackgrounds.length;
-  if (this.backgroundScrollResetTurns) {
-    reserveDevVar(backgroundScrollTurnsVarName(), undefined, 'the rows pfscroll has turned the playfield up, round its rows (for Reset playfield scroll)');
-  }
   // The same for the sideways scroll of the standard kernel (pfscroll turns every row a pixel round): the pixels it has turned the rows left.
   // With a background taller than the screen the reset loads the rows from the top of the background, which puts them back too.
   this.backgroundScrollResetShift = scrollResetUsed && !dpcPlusScroll && !this.backgroundScrollOverflowBackgrounds.length &&
@@ -3490,9 +3506,11 @@ Blockly.BBasic.init = function(workspace) {
     reserveDevVar(backgroundScrollShiftVarName(), undefined, 'the pixels pfscroll has turned the rows left, round 32 (for Reset playfield scroll)');
   }
   this.dpcPlusPlainScrollReset = scrollResetUsed && dpcPlusScroll && !this.dpcPlusScroll;
-  this.dpcPlusPlainColorScrollUsed = this.dpcPlusPlainScrollReset && workspace.getAllBlocks(false).some((block) =>
+  // (The count is kept for the position block and the edges too: scrollTrackingFeatureUsed.)
+  this.dpcPlusPlainScrollCount = dpcPlusScroll && !this.dpcPlusScroll && this.backgroundScrollUsed && scrollTrackingFeatureUsed;
+  this.dpcPlusPlainColorScrollUsed = this.dpcPlusPlainScrollCount && workspace.getAllBlocks(false).some((block) =>
     block.type === 'background_scroll' && block.getFieldValue('COLORS_ONLY') === 'TRUE');
-  if (this.dpcPlusPlainScrollReset) {
+  if (this.dpcPlusPlainScrollCount) {
     reserveDevVar(dpcPlusPlainScrollVarName(), undefined, 'how far pfscroll has turned the playfield memory, round 256 (for Reset playfield scroll)');
     if (this.dpcPlusPlainColorScrollUsed) {
       reserveDevVar(dpcPlusPlainColorScrollVarName(), undefined, 'how far pfscroll has turned the color memory alone (for Reset playfield scroll)');
@@ -6310,7 +6328,9 @@ Blockly.BBasic.generateDpcPlusSpriteDefaults = function() {
       [this.dpcPlusRowDivVar, Math.max(1, Math.round(dpcPlusRowLinesFor(config) / 2))],
       [this.dpcPlusRowLinesVar, Math.max(1, Math.round(dpcPlusRowLinesFor(config)))],
       [this.dpcPlusRowMaxVar, Math.max(1, dpcPlusPfresOf(config) - 1) - 1],
-      [this.dpcPlusScrollRowsVar, this.dpcPlusScroll ? dpcPlusScrollTravel(this.dpcPlusScroll) : 0]]
+      [this.dpcPlusScrollRowsVar, this.dpcPlusScroll ? dpcPlusScrollTravel(this.dpcPlusScroll) : 0],
+      [this.dpcPlusScrollRepeatsVar, this.dpcPlusScroll ? this.dpcPlusScroll.repeats : 0],
+      [this.dpcPlusScrollLimitVar, this.dpcPlusScroll ? this.dpcPlusScroll.limit : 0]]
         .filter(([name]) => name).map(([name, value]) => ` ${name} = ${value}`),
     ...extraStarts,
   ].join('\n') + '\n';
@@ -7393,7 +7413,9 @@ end`);
       [this.dpcPlusRowDivVar, Math.max(1, Math.round(rowLines / 2))],
       [this.dpcPlusRowLinesVar, Math.max(1, Math.round(rowLines))],
       [this.dpcPlusRowMaxVar, Math.max(1, backgroundPfresOf(background, config) - 1) - 1],
-      [this.dpcPlusScrollRowsVar, scrollOf ? dpcPlusScrollTravel(scrollOf) : 0]]
+      [this.dpcPlusScrollRowsVar, scrollOf ? dpcPlusScrollTravel(scrollOf) : 0],
+      [this.dpcPlusScrollRepeatsVar, scrollOf ? scrollOf.repeats : 0],
+      [this.dpcPlusScrollLimitVar, scrollOf ? scrollOf.limit : 0]]
         .filter(([name]) => name).forEach(([name, value]) => payloadLines.push(` ${name} = ${value}`));
     if (storedTileRows < DPC_PLUS_SCROLL_ROWS) {
       const parts = `p${pfcolorsBlock ? 'c' : ''}${bkcolorsBlock ? 'b' : ''}`;
@@ -7416,11 +7438,16 @@ end`);
       const offsetVar = Blockly.BBasic.nameDB_.getName('_dpcScrollOffset', Blockly.Names.DEVELOPER_VARIABLE_TYPE);
       const colorOnly = Blockly.BBasic.dpcPlusColorOnlyScrollUsed || {};
       [['pf', '_dpcColorScrollOffset'], ['bk', '_dpcBkColorScrollOffset']].filter(([kind]) => colorOnly[kind]).forEach(([, name]) =>
-        payloadLines.push(` ${Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = ${scrollOf.noWrap ? 0 : scrollOf.rows}`));
-      // A no-wrap scroll starts at the top of the playfield memory, a wrapping one a background-height into it.
-      payloadLines.push(` ${offsetVar} = ${scrollOf.noWrap ? 0 : scrollOf.rows}`,
-          ...(scrollOf.noWrap ? [] : Blockly.BBasic.dpcPlusScrollQueues(config, scrollOf.pfColors, scrollOf.bkColors)
-              .map((queues) => ` pfscroll ${scrollOf.rows}${queues}`)));
+        payloadLines.push(` ${Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`));
+      // The view starts at the top of the playfield memory (the background repeated from there, see tileForDpcPlusScroll): row 0 at the top.
+      payloadLines.push(` ${offsetVar} = 0`);
+    }
+    // (What a scroll without the tall scroll has turned, for its position and Reset playfield scroll: the load starts the memory again.)
+    if (this.dpcPlusPlainScrollCount) {
+      payloadLines.push(` ${Blockly.BBasic.nameDB_.getName(dpcPlusPlainScrollVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`);
+      if (this.dpcPlusPlainColorScrollUsed) {
+        payloadLines.push(` ${Blockly.BBasic.nameDB_.getName(dpcPlusPlainColorScrollVarName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)} = 0`);
+      }
     }
     const payload = payloadLines.join('\n');
     // In overflow mode the background's index is stored in the row
@@ -7454,7 +7481,8 @@ end`);
             Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(BACKGROUND_SCROLL_PATCH_SUBROUTINE_NAME))}\n` :
         ` ${backgroundScrollRowVarName()} = 0\n` +
         ` ${backgroundScrollRowMaxVarName()} = ${Math.max(0, pixels.length - visibleRows)}\n` +
-        ` ${backgroundScrollSubRowVarName()} = 0\n`) : '';
+        ` playfieldpos = ${Math.max(1, Math.round(pfRowDivisorFor(config)))}\n` +
+        (this.backgroundScrollResetShift ? ` ${backgroundScrollShiftVarName()} = 0\n` : '')) : '';
     // Only the graphics payload itself is relocatable - the guard above and
     // the endLabel below stay inline in bank 1 no matter what, since a
     // conditional "goto" (like any goto) needs an explicit bank tag to cross

@@ -65,8 +65,10 @@ const pxeExpansionLines = (id, labels, parts, period, repeats, remainder, column
   ];
   lines.push('\tlda #0', '\tsta temp5');
   if (remainder > 0) lines.push(`\tlda #${(repeats * period) & 255}`, '\tsta temp4', ...repeat(remainder));
-  if (repeats > 1) {
-    lines.push(`\tlda #${(repeats - 1) * period}`, '\tsta temp4', `\tlda #${repeats - 1}`, '\tsta temp6', loop, ...repeat(period),
+  // The repeats from the last down to the second; with a remainder the first as well, as the remainder's write wrapped onto it.
+  const count = remainder > 0 ? repeats : repeats - 1;
+  if (count > 0) {
+    lines.push(`\tlda #${(repeats - 1) * period}`, '\tsta temp4', `\tlda #${count}`, '\tsta temp6', loop, ...repeat(period),
         '\tsec', '\tlda temp4', `\tsbc #${period}`, '\tsta temp4', '\tdec temp6', `\tbne ${loop}`);
   }
   if (parts.includes('p')) lines.push('\tlda #0', ...allColumns.map((column) => `\tsta PF_WRITE_OFFSET_${column}`));

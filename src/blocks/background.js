@@ -530,11 +530,6 @@ export const backgroundTransitionCountVarName = () => 'backgroundTransitionCount
 // for a project with a background taller than the visible window.
 export const backgroundScrollStartVarName = () => 'backgroundScrollStart';
 
-// How many rows pfscroll has turned the playfield up, round its rows (0 to the rows less one), for "Reset playfield scroll" on the standard
-// kernel when no background is taller than the screen (pfscroll then turns the rows round in place): the scroll blocks count a row each time
-// pfscroll goes round one (up adds one, down takes one away) and the reset turns the rows back that many (see background_scroll_reset in
-// generators/bbasic/background.js).
-export const backgroundScrollTurnsVarName = () => 'backgroundScrollTurns';
 // How many pixels pfscroll has turned the rows left, round the 32 of a row (Left adds one, Right takes one away), for "Reset playfield scroll" on
 // the standard kernel: the reset turns them back (see background_scroll_reset).
 export const backgroundScrollShiftVarName = () => 'backgroundScrollShift';
