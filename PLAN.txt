@@ -3,6 +3,7 @@ PLAN
 
 PART 1: OPEN ISSUES (cleaned 2026-11-06: the open items first, the done ones kept below)
 -------------------
+- DONE 2026-11-13 Web page: a link to the releases page on GitHub at the bottom of the Latest updates notes ("All releases on GitHub").
 - DONE 2026-11-12: the tiles feature labeled beta 0.5 in the app (the Options tab's "Keep backgrounds as tiles (tilemap, beta 0.5)" on DPC+ and standard, the Playfield tab's "Tiles (beta 0.5)" section header).
 - DONE 2026-11-12: Scene card: the offset chips were right under the Remove trigger button (a trigger's fields have no space below); now 12 pixels apart, also the hint line under an offset area's fields.
 - DONE 2026-11-12 Scene triggers: a "Trigger function/subroutine" checkbox on a selected trigger; when on, a dropdown on a row under it picks a Subroutine or a Function of the Blocks tab, and a Function shows a number field for each argument it reads. The trigger then calls it the frame it fires (also with no On trigger block in the project). Kept beside the values as the card's triggerCalls (utils/scene.js); the build puts a Call block (subroutine_call or function_call_statement with number arguments) inside the trigger_check block, run the frame it fires; a call to a block no longer on the Blocks tab is left out. Tested in the emulator (tests/projects/mktrigcall.cjs): a Subroutine and a Function with 2 arguments set the score on standard, DPC+ and PXE.

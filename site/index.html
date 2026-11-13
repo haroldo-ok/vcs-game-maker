@@ -394,6 +394,7 @@
       <p>DPC+ projects whose playfield rows are not a whole number of lines tall, such as 26, 28 or 32 rows, build again when a ball or a missile checks the playfield while it moves: the code for them left an assembly block open. The ball bounce and the pixel finder for those row heights run on the coprocessor too, which saves about 960 bytes of ROM, and the coprocessor program itself is about 170 bytes smaller and takes fewer cycles. When the ROM does not fit, the build places the pieces by how much room each bank has left, and the error says which bank is over. More variables can live in the display memory (including ones used in assembly), and a variable that is only set and never read is left out, so projects near the variable limit fit. The Set area block has two modes, from corner to corner or from the center with a width and a height. The console log has Clear and Save buttons. A new Harmony cart fix option in the compiler options (on by default) puts temp1=temp1 after each bank declaration of a DPC+ program.</p>
       <p><strong>Version 0.53.16</strong></p>
       <p>DPC+ paddles are drawn on the right line again: idle sprites with no height share one display line, and the no-height rule only applies next to a sprite with a height. The Convert playfield blocks hide their column input unless a DPC+ background gives its groups of columns separate rows.</p>
+      <p><a href="https://github.com/AbstractPolygon/vcs-game-maker-absply/releases">All releases on GitHub</a></p>
     </section>
 
     <footer>
