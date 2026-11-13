@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}" @click="deselectCard">
+    <v-card class="editor-container" :ripple="false" :style="{'--sticky-toolbar-offset': `${folderToolbarHeight}px`}"     @click="handleDeselectCards">
       <v-card-title>Playfield</v-card-title>
       <v-card-text class="tab-intro-section">
         <p class="v-messages theme--light v-messages__message background-intro-paragraph">
@@ -26,9 +26,19 @@
           />
         </div>
 
-        <graphic-editor-toolbar :active-editor="effectiveEditor" :card-columns.sync="cardColumns" card-columns-what="backgrounds" @height-hotkey="handleSetHeightHotkey">
-          <template v-slot:before-tools>
+        <graphic-editor-toolbar
+          :active-editor="effectiveEditor"
+          :card-columns.sync="cardColumns"
+          card-columns-what="backgrounds"
+          :stamp-on="tilemapOn ? stampOn : null"
+          :stamp-disabled="!tileSet.tiles.length"
+          @update:stampOn="setStampOn"
+          @height-hotkey="handleSetHeightHotkey"
+        >
+          <template v-slot:zoom>
             <editor-zoom v-model="zoom" />
+          </template>
+          <template v-slot:before-tools>
             <pixel-grid-toggle v-model="showPixelGrid" />
             <pixel-grid-toggle
               v-model="showPixelGridLabels"
@@ -38,6 +48,14 @@
               title-off="Show pixel coordinates (Shift+')"
               :disabled="!showPixelGrid"
               disabled-title="Turn on the pixel grid to show coordinates"
+            />
+            <pixel-grid-toggle
+              v-if="tilemapOn"
+              v-model="showTiles"
+              icon="mdi-view-grid-outline"
+              label="Tiles"
+              title-on="Hide the playfield tiles"
+              title-off="Show the playfield tiles: a box round each tile (8 pixels wide) with its number, the number the Set playfield tile block takes"
             />
           </template>
           <template v-slot:after-tools>
@@ -132,6 +150,149 @@
             <quick-color-palette v-model="selectedQuickColor" :active-editor="effectiveEditor" />
           </template>
         </graphic-editor-toolbar>
+        <div v-if="tilemapOn" class="tiles-section">
+          <!-- A line above (the toolbar's line is over the Quick colors when they show) and one under, like the Text tab's font editor. -->
+          <v-divider v-if="pfColorsEnabled || bkColorsEnabled" class="tiles-divider" />
+          <div class="option-section-header" @click="toggleTilesCollapsed(tilesEntry)">
+            <v-btn
+              icon
+              small
+              :title="isTilesCollapsed(tilesEntry) ? 'Expand this section' : 'Collapse this section'"
+            >
+              <v-icon>{{ isTilesCollapsed(tilesEntry) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
+            </v-btn>
+            <span class="text-subtitle-1">Tiles</span>
+          </div>
+          <div v-if="!isTilesCollapsed(tilesEntry)" class="option-section-content">
+            <p class="v-messages theme--light v-messages__message">
+              Tiles are 8 pixels wide and numbered in this order for the Set playfield tile block (the tiles the backgrounds have that are not here
+              follow them). To place a tile in a background, select the tile, turn on the Stamp tool (after the Pencil) and click the background card.
+              A background converted to tiles shows the number of each cell's tile: the Stamp sets a cell's tile, and drawing in a cell
+              changes its tile everywhere it is used.
+            </p>
+            <p v-if="tilesMessage" class="v-messages theme--light v-messages__message tiles-message">{{ tilesMessage }}</p>
+            <div class="tiles-controls">
+              <v-select
+                :items="tileRowOptions"
+                v-model="tileRows"
+                label="Tile rows"
+                dense
+                hide-details
+                :disabled="mappedBackgroundCount > 0"
+                :title="mappedBackgroundCount > 0 ? 'Convert the backgrounds back to pixels to change the rows of the tiles' : 'How many rows a tile has'"
+                class="tiles-rows-select"
+              />
+              <v-btn small text @click="handleAddTile" title="Add a tile">
+                <v-icon left small>mdi-plus</v-icon>Add tile
+              </v-btn>
+              <v-btn
+                small
+                text
+                title="Add the patterns found two or more times in the backgrounds as tiles (with no tiles yet, at the tile rows that take the fewest bytes)"
+                @click="handleCreateTiles"
+              >
+                <v-icon left small>mdi-auto-fix</v-icon>Create tiles from backgrounds
+              </v-btn>
+              <v-btn
+                small
+                text
+                title="Keep every background as tiles (a tile is added for each pattern no tile has): its pixels then follow its tiles"
+                @click="handleConvertToTileNumbers"
+              >
+                <v-icon left small>mdi-grid</v-icon>Convert backgrounds to tiles
+              </v-btn>
+              <v-btn
+                v-if="mappedBackgroundCount > 0"
+                small
+                text
+                title="Keep the backgrounds as pixels again (they look the same; the tiles stay)"
+                @click="handleConvertToPixels"
+              >
+                <v-icon left small>mdi-grid-off</v-icon>Back to pixels
+              </v-btn>
+            </div>
+            <!-- Cards like the backgrounds' below: click to select (Shift for a range, Ctrl to add one), drag the top strip to move them (their
+                 numbers follow the order), the corner buttons delete (with the same confirmation), copy and stamp the tile. -->
+            <div class="tiles-row">
+              <!-- One card a tile: the pixel editor's, with the ID and the corner buttons in it (as a frame of the Sprite tab). -->
+              <div
+                v-for="(tile, number) in tileSet.tiles"
+                :key="tile.id"
+                class="tile-card"
+                :class="[tileDragCardClass(number), {'tile-card-selected': selectedTileIds.includes(tile.id)}]"
+                :style="{width: tileWidth}"
+                v-on="tileDragTargetListeners(number)"
+                @click.stop="handleSelectTile(tile.id, $event)"
+              >
+                <pixel-editor
+                  :width="8"
+                  :height="tileRows"
+                  :aspectRatio="tileAspectRatio"
+                  :name="`tile ${number}`"
+                  :value="tile.pixels"
+                  fgColor="orange"
+                  :allowChangingHeight="false"
+                  :showClearButton="true"
+                  :hideToolbar="true"
+                  :showGrid="showPixelGrid"
+                  :showCellIds="showPixelGrid && showPixelGridLabels"
+                  @input="(pixels) => handleTileInput(tile, pixels)"
+                  @activate="(editorInstance) => setActiveEditor(editorInstance, `tile-${tile.id}`)"
+                >
+                  <template v-slot:toolbar-end>
+                    <v-btn
+                      icon
+                      small
+                      title="Copy this tile's image"
+                      class="player-icon-btn-size"
+                      @click="() => handleCopyTile(tile)"
+                    >
+                      <v-icon>mdi-content-copy</v-icon>
+                    </v-btn>
+                    <v-btn
+                      icon
+                      small
+                      :disabled="!copiedTilePixels"
+                      title="Paste the copied image onto this tile"
+                      class="player-icon-btn-size"
+                      @click="() => handlePasteTile(tile)"
+                    >
+                      <v-icon>mdi-content-paste</v-icon>
+                    </v-btn>
+                  </template>
+                  <template v-slot:badge>
+                    <div
+                      class="background-drag-handle"
+                      title="Drag to reorder"
+                      v-bind="tileDragAttrs(number)"
+                      v-on="tileDragHandleListeners(number)"
+                    />
+                    <div class="tile-id-badge" title="The number of this tile for the Set playfield tile block">ID:{{ number }}</div>
+                    <div class="tile-corner-toolbar">
+                      <confirm-delete-menu
+                        :title="tileDeleteQuestion(tile.id, 'tile')"
+                        :selected="tile.id === selectedTileId && selectedTileIds.includes(tile.id)"
+                        :activator-title="tileDeleteQuestion(tile.id, 'tile').replace('?', '')"
+                        icon-btn-class="player-icon-btn-size"
+                        @confirm="handleDeleteTile(tile)"
+                      />
+                      <v-btn
+                        icon
+                        small
+                        title="Duplicate this tile"
+                        class="titlescreen-play-btn player-icon-btn-size"
+                        @click.stop="() => handleDuplicateTile(tile)"
+                      >
+                        <v-icon>mdi-content-duplicate</v-icon>
+                      </v-btn>
+                    </div>
+                  </template>
+                </pixel-editor>
+              </div>
+            </div>
+          </div>
+          <v-divider class="tiles-divider" />
+        </div>
         <v-list
           class="background-list"
           :style="{gridTemplateColumns: cardColumns ? `repeat(auto-fill, calc(${editorWidth} + 24px))` : '100%'}"
@@ -148,7 +309,7 @@
                 class="background-card"
                 :class="[dragCardClass(index), {'background-card-selected': selectedCardIds.includes(background.id), 'background-card-open': !isCollapsed(background)}]"
                 v-on="dragTargetListeners(index)"
-                @click.stop="selectCard(background.id, $event)"
+                @click.stop="handleSelectBackgroundCard(background.id, $event)"
               >
                 <div
                   class="background-drag-handle"
@@ -449,6 +610,8 @@
                       :ref="pixelEditorRefKey(background)"
                       :width="pfWidth"
                       :guide-columns="pfWidth > 40 ? 40 : 0"
+                      :tile-grid="tileGridFor(background)"
+                      :stamp="stampFor()"
                       :height="background.pixels.length"
                       :aspectRatio="backgroundAspectRatio(background)"
                       :name="background.name || 'background'"
@@ -558,13 +721,15 @@ import PixelGridToggle from '../components/PixelGridToggle.vue';
 import PlayfieldColorStrip from '../components/PlayfieldColorStrip.vue';
 import QuickColorPalette from '../components/QuickColorPalette.vue';
 import {useBackgroundsStorage, useColorPaletteStorage, useConfigurationStorage,
-  usePixelGridOverlayStorage, usePixelGridLabelsStorage, useBackgroundCardColumnsStorage} from '../hooks/project';
+  usePixelGridOverlayStorage, usePixelGridLabelsStorage, useBackgroundCardColumnsStorage, useLastTilemap} from '../hooks/project';
 import {buildBackgroundPreviewRom, useBuildInProgress} from '../hooks/rom';
 import {useEditorZoom} from '../hooks/zoom';
 import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor, dpcPlusRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
-import {pfWidthOf} from '../utils/pxe';
+import {isPxe, pfWidthOf} from '../utils/pxe';
+import {DEFAULT_TILE_ROWS, planTilemap, tileAt, tileSetHeight} from '../generators/bbasic/pf-tiles';
+import {bestTileHeight, cellPixels, mapOfPixels, pixelsOfMap, repeatingTiles, samePixels, tileableBackgrounds} from '../utils/tilemap-edit';
 import {rowColorsForMove} from '../utils/row-color-move';
 import {CLOCK_ASPECT_PER_LINE_PAIR} from '../utils/pixel-aspect';
 import {backgroundColorRows, backgroundHasColorRows, colorsAtRows, DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
@@ -605,6 +770,8 @@ export default defineComponent({
     // How many pixels across the playfield is (40 on PXE when the project asks for the whole screen).
     const pfWidth = computed(() => pfWidthOf(configurationStorage.value));
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
+    // A tile's editor at the zoom of the backgrounds: its 8 pixels as wide as 8 columns of a background card.
+    const tileWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value * 8 / (pfWidth.value || 32))}px`);
     // See the template's comment on where this background pixel editor's
     // aspectRatio comes from - real playfield width (always 128px) over THIS
     // background's real total height (its row count, not
@@ -625,6 +792,222 @@ export default defineComponent({
     // controls the grid overlay's "X,Y" cell labels independently of the
     // grid lines themselves (showPixelGrid above).
     const showPixelGridLabels = usePixelGridLabelsStorage();
+    // The playfield tilemap (Options tab, DPC+ not PXE): the Tiles button shows each background's tiles and their numbers from the last build
+    // (see generators/bbasic/pf-tiles.js). A background whose rows the scrolling cuts into thin rows has its tiles on those rows: none shown.
+    const tilemapOn = computed(() => {
+      const config = configurationStorage.value || {};
+      return config.kernel === 'dpcplus' && !isPxe(config) && !!config.dpcPlusTilemap;
+    });
+    const showTiles = ref(false);
+    const lastTilemap = useLastTilemap();
+    // The Tiles section: the project's tiles (kept with the backgrounds, as tileSet: {height, tiles: [{id, pixels}]}), numbered in their order.
+    const tileRowOptions = Array.from({length: 8}, (_, i) => i + 1);
+    const tileSet = computed(() => {
+      const data = state.value || {};
+      return data.tileSet || {height: DEFAULT_TILE_ROWS, tiles: []};
+    });
+    // (The backgrounds kept as tile numbers are drawn again from their tiles.)
+    const saveTileSet = (next) => {
+      const data = state.value;
+      Vue.set(data, 'tileSet', next);
+      redrawMappedBackgrounds();
+      handleChildChange();
+    };
+    const redrawMappedBackgrounds = () => {
+      const {height, tiles} = state.value.tileSet || {};
+      (state.value.backgrounds || []).forEach((background) => {
+        if (background.tileMap) background.pixels = pixelsOfMap(background.tileMap, tileSetHeight({height}), tiles || [], background.pixels.length);
+      });
+    };
+    const nextTileId = (tiles) => Math.max(0, ...tiles.map((tile) => Number(tile.id) || 0)) + 1;
+    // What the last of the buttons below did.
+    const tilesMessage = ref('');
+    const mappedBackgroundCount = computed(() => ((state.value && state.value.backgrounds) || []).filter((background) => background.tileMap).length);
+    // The tile height for tiles made from the backgrounds: the section's when it has tiles, otherwise the one with the fewest bytes.
+    const heightForNewTiles = () => (tileSet.value.tiles.length ? tileRows.value : (bestTileHeight(state.value.backgrounds) || tileRows.value));
+    const handleCreateTiles = () => {
+      const height = heightForNewTiles();
+      const tiles = tileSet.value.tiles.slice();
+      const found = repeatingTiles(state.value.backgrounds, height, tiles);
+      found.forEach((pixels) => tiles.push({id: nextTileId(tiles), pixels}));
+      saveTileSet({...tileSet.value, height, tiles});
+      tilesMessage.value = found.length ?
+        `${found.length} tile${found.length === 1 ? '' : 's'} of ${height} row${height === 1 ? '' : 's'} added (the patterns found two or more times).` :
+        'No pattern is found two or more times that is not a tile already.';
+    };
+    const handleConvertToTileNumbers = () => {
+      const height = heightForNewTiles();
+      const tiles = tileSet.value.tiles.slice();
+      const before = tiles.length;
+      const addTile = (pixels) => {
+        const id = nextTileId(tiles);
+        tiles.push({id, pixels});
+        return id;
+      };
+      const backgrounds = tileableBackgrounds(state.value.backgrounds);
+      backgrounds.forEach((background) => Vue.set(background, 'tileMap', mapOfPixels(background.pixels, height, tiles, addTile)));
+      // (The numbers of the cells' tiles show.)
+      showTiles.value = true;
+      saveTileSet({...tileSet.value, height, tiles});
+      const skipped = (state.value.backgrounds || []).length - backgrounds.length;
+      tilesMessage.value = `${backgrounds.length} background${backgrounds.length === 1 ? '' : 's'} converted to tiles, ${tiles.length - before} tile${tiles.length - before === 1 ? '' : 's'} added` +
+        (skipped ? ` (${skipped} with separate rows for each column left as pixels).` : '.');
+      instance.proxy.$forceUpdate();
+    };
+    const handleConvertToPixels = () => {
+      (state.value.backgrounds || []).forEach((background) => Vue.delete(background, 'tileMap'));
+      tilesMessage.value = 'The backgrounds are kept as pixels again.';
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    // A pixel edit of a background kept as tile numbers: a cell the Stamp put the stamped tile in takes that tile; any other changed cell
+    // changes its tile (everywhere it is used). A new height maps the background again.
+    const handleMappedPixelsInput = (background, pixels) => {
+      const height = tileRows.value;
+      const tiles = tileSet.value.tiles.slice();
+      const addTile = (rows) => {
+        const id = nextTileId(tiles);
+        tiles.push({id, pixels: rows});
+        return id;
+      };
+      if (pixels.length !== background.pixels.length) {
+        background.tileMap = mapOfPixels(pixels, height, tiles, addTile);
+      } else {
+        const stamp = stampFor();
+        const stampId = stamp ? (tiles.find((tile) => tile.id === stampTileId.value) || tiles[0]).id : null;
+        const map = background.tileMap.map((cells) => cells.slice());
+        for (let cellRow = 0; cellRow < Math.ceil(pixels.length / height); cellRow++) {
+          if (!map[cellRow]) map[cellRow] = [null, null, null, null];
+          for (let column = 0; column < 4; column++) {
+            const now = cellPixels(pixels, cellRow, column, height);
+            if (samePixels(now, cellPixels(background.pixels, cellRow, column, height))) continue;
+            // (A cell of the last row can have fewer rows than a tile: only those are compared, and the tile keeps the rest.)
+            const rowsHere = Math.min(height, pixels.length - cellRow * height);
+            if (stamp && samePixels(now.slice(0, rowsHere), cellPixels(stamp.pixels, 0, 0, height).slice(0, rowsHere))) {
+              map[cellRow][column] = stampId;
+              continue;
+            }
+            const index = tiles.findIndex((tile) => tile.id === map[cellRow][column]);
+            if (index < 0) {
+              map[cellRow][column] = addTile(now);
+            } else {
+              tiles[index] = {...tiles[index], pixels: [...now.slice(0, rowsHere), ...cellPixels(tiles[index].pixels, 0, 0, height).slice(rowsHere)]};
+            }
+          }
+        }
+        background.tileMap = map;
+      }
+      background.pixels = pixels;
+      saveTileSet({...tileSet.value, tiles});
+    };
+    const blankRows = (rows) => Array.from({length: rows}, () => new Array(8).fill(0));
+    const tileRows = computed({
+      get: () => tileSetHeight(tileSet.value),
+      // Every tile is cut or padded with empty rows to the new height.
+      set: (rows) => saveTileSet({...tileSet.value, height: rows,
+        tiles: tileSet.value.tiles.map((tile) => ({...tile, pixels: [...(tile.pixels || []).slice(0, rows), ...blankRows(Math.max(0, rows - (tile.pixels || []).length))]}))}),
+    });
+    const handleAddTile = () => {
+      const id = Math.max(0, ...tileSet.value.tiles.map((tile) => Number(tile.id) || 0)) + 1;
+      saveTileSet({...tileSet.value, height: tileRows.value, tiles: [...tileSet.value.tiles, {id, pixels: blankRows(tileRows.value)}]});
+    };
+    // The tile cards are selected and moved as the background cards are (hooks/card-selection.js, hooks/drag-reorder.js); a tile's number is
+    // its place in the list, so nothing is renumbered.
+    const selectedTileId = ref(null);
+    const {selectedCardIds: selectedTileIds, selectCard: selectTile, deselectCard: deselectTile, idsToDelete: tileIdsToDelete,
+      deleteQuestion: tileDeleteQuestion, getSelectedIndices: getSelectedTileIndices} =
+      useCardSelection(() => tileSet.value.tiles.map((tile) => tile.id), selectedTileId);
+    const {dragAttrs: tileDragAttrs, dragCardClass: tileDragCardClass, dragHandleListeners: tileDragHandleListeners,
+      dragTargetListeners: tileDragTargetListeners} = useDragReorder(
+        () => tileSet.value.tiles,
+        (tiles) => saveTileSet({...tileSet.value, tiles}),
+        getSelectedTileIndices,
+        {sideBySide: true},
+    );
+    // The tile the Stamp tool places is the one selected last (the first tile until one is): selecting a background card with the Stamp on keeps it selected.
+    const handleSelectTile = (id, event) => {
+      deselectCard();
+      selectTile(id, event);
+      stampTileId.value = id;
+    };
+    const handleSelectBackgroundCard = (id, event) => {
+      if (!stampOn.value) deselectTile();
+      selectCard(id, event);
+    };
+    const handleDeselectCards = () => {
+      deselectCard();
+      deselectTile();
+    };
+    // Deletes the tile, or all the selected tiles when it is one of them.
+    // (A background kept as tile numbers shows a dash and an empty cell where a deleted tile was.)
+    const handleDeleteTile = (tile) => {
+      const doomed = tileIdsToDelete(tile.id);
+      if (doomed.includes(stampTileId.value)) stampTileId.value = null;
+      saveTileSet({...tileSet.value, tiles: tileSet.value.tiles.filter((other) => !doomed.includes(other.id))});
+      if (doomed.length > 1) deselectTile();
+    };
+    // Copy and paste of a tile's image (the rows it has; a pasted image is cut or padded to the tile's rows).
+    const copiedTilePixels = ref(null);
+    const handleCopyTile = (tile) => {
+      copiedTilePixels.value = JSON.parse(JSON.stringify(tile.pixels));
+    };
+    const handlePasteTile = (tile) => {
+      if (!copiedTilePixels.value) return;
+      const rows = tileRows.value;
+      const pixels = [...copiedTilePixels.value.slice(0, rows), ...blankRows(Math.max(0, rows - copiedTilePixels.value.length))];
+      handleTileInput(tile, JSON.parse(JSON.stringify(pixels)));
+    };
+    // A copy of the tile right after it.
+    const handleDuplicateTile = (tile) => {
+      const id = Math.max(0, ...tileSet.value.tiles.map((other) => Number(other.id) || 0)) + 1;
+      const tiles = tileSet.value.tiles.slice();
+      tiles.splice(tiles.indexOf(tile) + 1, 0, {id, pixels: JSON.parse(JSON.stringify(tile.pixels))});
+      saveTileSet({...tileSet.value, tiles});
+    };
+    const handleTileInput = (tile, pixels) => {
+      saveTileSet({...tileSet.value, tiles: tileSet.value.tiles.map((other) => (other === tile ? {...other, pixels} : other))});
+    };
+    // The Stamp tool of the toolbar, and the tile it places (its id).
+    const stampOn = ref(false);
+    const stampTileId = ref(null);
+    const setStampOn = (on) => {
+      stampOn.value = on;
+    };
+    const stampFor = () => {
+      if (!tilemapOn.value || !stampOn.value) return null;
+      const tiles = tileSet.value.tiles;
+      const tile = tiles.find((other) => other.id === stampTileId.value) || tiles[0];
+      return tile ? {rows: tileRows.value, pixels: tile.pixels} : null;
+    };
+    // A tile drawn in the shape it has on the playfield: 8 pixels of the playfield's width by the rows of a tile of the project's row height.
+    const tileAspectRatio = computed(() => {
+      const config = configurationStorage.value || {};
+      return (8 * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (tileRows.value * (dpcPlusRowLinesFor(config) / 2));
+    });
+    // The tiles of the backgrounds as they are now (no build needed): the section's tiles first, then the others as the build numbers them
+    // when it has every background (a background the build leaves out, or the scroll cuts into thin rows, can make its later numbers differ).
+    const tilemapNow = computed(() => {
+      if (!tilemapOn.value || !showTiles.value) return null;
+      const backgrounds = tileableBackgrounds((state.value && state.value.backgrounds) || []);
+      return planTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels, fill: background.pixels.length})), tileSet.value);
+    });
+    const tileGridFor = (background) => {
+      if (!tilemapOn.value || !showTiles.value) return null;
+      // A background kept as tile numbers: the numbers of its tiles in the section (a dash for one that was deleted).
+      if (background.tileMap) {
+        const numberOf = new Map(tileSet.value.tiles.map((tile, number) => [tile.id, number]));
+        return {rows: tileRows.value, numbers: background.tileMap.map((cells) => cells.map((id) => (numberOf.has(id) ? numberOf.get(id) : '-')))};
+      }
+      const plan = tilemapNow.value;
+      // (The last build cut a scrolling background into thin rows: its tiles are on those, none shown.)
+      const built = lastTilemap.value && lastTilemap.value.byId[String(background.id)];
+      if (!plan || (built && built.thin !== 1)) return null;
+      const cellRows = Math.ceil(background.pixels.length / plan.height);
+      return {rows: plan.height, numbers: Array.from({length: cellRows}, (_, row) => [0, 1, 2, 3].map((column) => {
+        const number = tileAt(plan, background.id, column, row);
+        return number === null ? '-' : number;
+      }))};
+    };
 
     // Same "armed color for direct-painting" reasoning as PlayerEditor.vue's
     // selectedQuickColor - v-model'd to the QuickColorPalette instance
@@ -895,6 +1278,8 @@ export default defineComponent({
     // alongside activeEditor above) purely for readability - it reads
     // selectedBackground, so it makes more sense sitting next to it.
     const effectiveEditor = computed(() => {
+      // A tile of the Tiles section that was clicked last.
+      if (activeEditor.value && String(activeBackgroundId.value).startsWith('tile-')) return activeEditor.value;
       if (activeEditor.value && selectedBackground.value && activeBackgroundId.value === selectedBackground.value.id) {
         return activeEditor.value;
       }
@@ -984,6 +1369,10 @@ export default defineComponent({
     // through).
     const handleBackgroundPixelsInput = (background, pixels) => {
       if (pixels.length !== background.pixels.length) background.customHeight = true;
+      if (tilemapOn.value && background.tileMap) {
+        handleMappedPixelsInput(background, pixels);
+        return;
+      }
       background.pixels = pixels;
       handleChildChange();
     };
@@ -992,6 +1381,8 @@ export default defineComponent({
     // collapseAll's  comment in hooks/collapse.js), not just ones never
     // expanded before.
     const {isCollapsed, toggleCollapsed, collapseAll, remapIds: remapCollapsedIds} = useCollapsedIds('background', true);
+    // The Tiles section opens or closes like the Text tab's font editor (one fixed entry under its name).
+    const {isCollapsed: isTilesCollapsed, toggleCollapsed: toggleTilesCollapsed} = useCollapsedIds('background-tiles');
     collapseAll();
 
     // Card reordering (see hooks/drag-reorder.js). .background-list is a CSS grid (see its comment: two or more cards can sit side by
@@ -1297,7 +1688,10 @@ export default defineComponent({
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
-      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
+      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, tilemapOn, showTiles, tileGridFor, isTilesCollapsed, toggleTilesCollapsed, tilesEntry: {id: 'tiles'}, tileRowOptions, tileSet, tileRows, handleAddTile,
+      tilesMessage, mappedBackgroundCount, handleCreateTiles, handleConvertToTileNumbers, handleConvertToPixels,
+      handleDeleteTile, handleDuplicateTile, copiedTilePixels, handleCopyTile, handlePasteTile, handleTileInput, selectedTileId, selectedTileIds, deselectTile, handleSelectTile, tileDeleteQuestion,
+      tileDragAttrs, tileDragCardClass, tileDragHandleListeners, tileDragTargetListeners, stampOn, setStampOn, stampFor, handleSelectBackgroundCard, handleDeselectCards, tileAspectRatio, tileWidth, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
       folderToolbar, folderToolbarHeight, folderToolbarPinned,
@@ -1313,6 +1707,87 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* The Tiles section: a plain chevron and title like the Text tab's font editor and the Options tab's sections. */
+.tiles-section {
+  margin-top: 8px;
+  margin-bottom: 16px;
+}
+
+/* The full width of the tab, as the toolbar's line. */
+.tiles-divider {
+  margin: 8px -16px;
+  max-width: none;
+}
+
+.option-section-header {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.option-section-content {
+  padding-left: 4px;
+}
+
+.tiles-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0 12px;
+}
+
+.tiles-message {
+  margin-top: 4px;
+}
+
+.tiles-rows-select {
+  flex: 0 0 140px;
+}
+
+.tiles-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* A tile is the pixel editor's card (width set from the zoom, at least the ID and the corner buttons), selected as a frame of the Sprite tab is. */
+.tile-card {
+  position: relative;
+  min-width: 112px;
+}
+
+.tile-card-selected >>> .v-card {
+  border-color: var(--v-primary-base, #1976d2) !important;
+  outline: 2px solid var(--v-primary-base, #1976d2) !important;
+}
+
+/* The ID as a frame's (PlayerEditor.vue's .frame-number-badge), the corner buttons as its .frame-corner-toolbar. */
+.tile-id-badge {
+  position: relative;
+  text-align: left;
+  font-size: 0.75rem;
+  font-family: monospace;
+  opacity: 0.75;
+  margin-top: -8px;
+  pointer-events: none;
+}
+
+.tile-corner-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+/* The picture under the corner buttons. */
+.tile-card >>> .editor-with-sidebar {
+  margin-top: 6px;
+}
+
 /* max-width is set inline from the zoom factor. */
 
 /* Vuetify sets overflow: hidden on list-item content/subtitle (for text

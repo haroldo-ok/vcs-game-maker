@@ -4,6 +4,7 @@ import {isInsideFunctionBody} from '../../utils/function-body';
 import {useConfigurationStorage} from '../../hooks/project';
 import {buildPxeOffsetBody, PXE_OFFSET_VARS, PXE_OFFSET_ROUTINE} from './offset-pxe';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
+import {TILE_SET_FUNCTION} from './pf-tiles';
 import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, buildCircleArmCall, ensureArmProgram, ARM_FIND_PIXEL_FUNCTION, buildPixArmCall} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
 import {EXTRA_PLAYER_NAME} from '../../utils/pxe';
@@ -926,6 +927,65 @@ export default (Blockly) => {
   Blockly.BBasic[`background_select`] = function(block) {
     const code = block.getFieldValue('VAR') || 0;
     return [code, Blockly.BBasic.ORDER_ATOMIC];
+  };
+
+  // One tile of the playfield tilemap (see bbasic/pf-tiles.js and armprog.c, functions 108 to 111). The playfield row is a row of the memory as
+  // the background was loaded: with the tall scroll each row is cut into thin rows (the scroll's repeats, a variable when the backgrounds differ) and
+  // the layout repeats every so many thin rows down the 255 (the background's rows, a variable when they differ; once without wrapping), so the
+  // tile goes into every repeat, each time into the tile that has that row (the row less its place in its tile). The scroll has turned the
+  // memory since the load by the tall scroll's offset or the plain scroll's count (pfscroll moves row x to x less what it is given), which is
+  // taken off. The tiles of background 0's description are used: every background has the same tiles.
+  let tileSetCount = 0;
+  Blockly.BBasic['background_tile_set'] = function(block) {
+    const plan = Blockly.BBasic.pfTilemap;
+    if (!plan) return 'rem Set playfield tile: the backgrounds are not kept as tiles (Options tab)\n';
+    const tall = Blockly.BBasic.dpcPlusScroll;
+    // (The scroll of groups of columns with separate rows has its tiles on the rows of each group: not done.)
+    if (tall && tall.groups) return 'rem Set playfield tile: not with groups of columns that scroll with separate rows\n';
+    const value = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    const devVar = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
+    const label = `_pftileset${++tileSetCount}`;
+    const height = plan.height;
+    const repeats = tall ? (Blockly.BBasic.dpcPlusScrollRepeatsVar || `#${tall.repeats}`) : null;
+    const period = tall && !tall.noWrap ? (Blockly.BBasic.dpcPlusScrollRowsVar || `#${tall.rows}`) : null;
+    const turned = tall ? devVar('_dpcScrollOffset') : (Blockly.BBasic.dpcPlusPlainScrollCount ? devVar(dpcPlusPlainScrollVarName()) : null);
+    return [
+      ` temp1 = ${value('COLUMN')}`,
+      ` temp2 = ${value('ROW')}`,
+      ` temp3 = ${value('TILE')}`,
+      ' asm',
+      // The thin row of the playfield row (the row times its thin rows).
+      ...(repeats ? [` ldx ${repeats}`, ' lda #0', `@${label}_mul`, ' clc', ' adc temp2', ' dex', ` bne ${label}_mul`, ' sta temp2'] : []),
+      `@${label}_copy`,
+      // The first row of the tile that has the row: the row less its place in the tile.
+      ...(height > 1 ? [
+        ' lda temp2',
+        `@${label}_mod`,
+        ` cmp #${height}`,
+        ` bcc ${label}_modded`,
+        ` sbc #${height}`,
+        ` jmp ${label}_mod`,
+        `@${label}_modded`,
+        ' sta temp4',
+        ' lda temp2',
+        ' sec',
+        ' sbc temp4',
+      ] : [' lda temp2']),
+      // Where the scroll has put it.
+      ...(turned ? [' sec', ` sbc ${turned}`] : []),
+      ' sta temp5',
+      ' lda #<C_function', ' sta DF0LOW', ' lda #(>C_function) & $0F', ' sta DF0HI',
+      ' lda temp1', ' and #3', ' clc', ` adc #${TILE_SET_FUNCTION}`, ' sta DF0WRITE',
+      ' lda #<_pftile_desc0', ' sta DF0WRITE',
+      ' lda #((>_pftile_desc0) & $0F) | (((>_pftile_desc0) / 2) & $70)', ' sta DF0WRITE',
+      ' lda temp3', ' sta DF0WRITE',
+      ' lda temp5', ' sta DF0WRITE',
+      ' lda #255', ' sta CALLFUNCTION',
+      // The next repeat of the layout, while it is in the 255 rows.
+      ...(period ? [' lda temp2', ' clc', ` adc ${period}`, ` bcs ${label}_done`, ' cmp #255', ` bcs ${label}_done`, ' sta temp2',
+        ` jmp ${label}_copy`, `@${label}_done`] : []),
+      '@end',
+    ].join('\n') + '\n';
   };
 
   Blockly.BBasic[`background_set`] = function(block) {

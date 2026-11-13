@@ -1714,6 +1714,23 @@ Blockly.defineBlocksWithJsonArray([
       `sprites that follow the scroll aren't moved. Use it right after switching backgrounds, or ` +
       `later to jump the view.`,
   },
+  // The playfield tilemap (DPC+, the Options tab's "Keep backgrounds as tiles"): one tile put in while the game runs.
+  {
+    'type': `background_tile_set`,
+    'message0': `${BACKGROUND_ICON} Set playfield tile at column %1 row %2 to tile %3`,
+    'args0': [
+      {'type': 'input_value', 'name': 'COLUMN', 'check': 'Number'},
+      {'type': 'input_value', 'name': 'ROW', 'check': 'Number'},
+      {'type': 'input_value', 'name': 'TILE', 'check': 'Number'},
+    ],
+    'inputsInline': true,
+    'previousStatement': null,
+    'nextStatement': null,
+    'colour': BACKGROUND_COLOR,
+    'tooltip': `Puts a tile in the playfield (DPC+ with "Keep backgrounds as tiles" on, Options tab): column 0 to 3 (each 8 pixels wide, from ` +
+      `the left), row the playfield row (the tile that has that row is replaced), tile its number (shown by the tile tool of the Playfield tab). ` +
+      `The tile numbers come from the backgrounds and can change when a background is edited. Collision and the pixel blocks see the new tile.`,
+  },
   // Back to the top row: the same as "Set playfield scroll to row" 0.
   {
     'type': `background_scroll_reset`,

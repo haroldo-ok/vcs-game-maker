@@ -143,6 +143,19 @@
                       :value="scene.background"
                       @change="(value) => handleBackground(scene, value)"
                     />
+                    <!-- The color behind a playfield with no background row colors: the playfield's, the one its card on the Playfield tab shows (every
+                         scene with that playfield uses it); unset, the color the screen has (black at the start). -->
+                    <div v-if="hasSolidBackgroundColor(scene)" class="scene-solid-color">
+                      <color-swatch-picker
+                        :value="solidBackgroundColor(scene)"
+                        :fallback-color="DEFAULT_SCENE_BACKGROUND_CSS"
+                        clear-label="Keep the current color"
+                        square
+                        title="Click to set the color behind the playfield (one color for all rows). It is the playfield's: its card on the Playfield tab has the same color, and every scene with this playfield uses it."
+                        @input="(byte) => handleSolidBackgroundColor(scene, byte)"
+                      />
+                      <span class="scene-solid-color-label">Background color</span>
+                    </div>
                   </div>
                 </v-card-text>
 
@@ -489,6 +502,7 @@
 </template>
 
 <script>
+import Vue from 'vue';
 import {computed, defineComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch} from '@vue/composition-api';
 import {max} from 'lodash';
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
@@ -543,6 +557,8 @@ const contrastingLabelColor = (cssColor) => {
 // playfield when the project uses them, and of the background behind it with DPC+ when it uses those; the cells of a playfield that has no row
 // colors are orange.
 const PLAYFIELD_COLOR = 'orange';
+// The color behind the picture when the playfield sets none (as drawScene paints it).
+const DEFAULT_SCENE_BACKGROUND_CSS = '#000000';
 const rowColorCss = (byte) => {
   const css = colorByteToCss(byte);
   return css === '#000000' ? '#010101' : css;
@@ -612,6 +628,23 @@ export default defineComponent({
     const tableIndex = (scene) => tables.value.indexOf(scene.table);
 
     const backgrounds = () => processBackgroundStorageDefaults(backgroundsStorage).backgrounds;
+    // The scene's playfield's color behind it (the Playfield card's "Background color"), shown for a playfield with no background row colors.
+    const sceneBackgroundOf = (scene) => (scene.background > 0 ? backgrounds().find(({id}) => id === scene.background) || null : null);
+    const hasSolidBackgroundColor = (scene) => {
+      const background = sceneBackgroundOf(scene);
+      return !!background && !backgroundRowColors(background, config()).bk;
+    };
+    const solidBackgroundColor = (scene) => {
+      const background = sceneBackgroundOf(scene);
+      return background && background.backgroundColor !== undefined ? background.backgroundColor : null;
+    };
+    const handleSolidBackgroundColor = (scene, byte) => {
+      const background = sceneBackgroundOf(scene);
+      if (!background) return;
+      Vue.set(background, 'backgroundColor', byte === undefined ? null : byte);
+      backgroundsStorage.value = backgroundsStorage.value;
+      redraw();
+    };
     const animations = () => processPlayerAnimationsStorageDefaults(animationsStorage).animations || [];
     const backgroundItems = computed(() => [{text: 'None', value: 0},
       ...backgrounds().map(({id, name}) => ({text: name || `Playfield ${id}`, value: id}))]);
@@ -1189,7 +1222,7 @@ export default defineComponent({
       const rowColorsOfBackground = background ? backgroundRowColors(background, cfg) : {pf: null, bk: null};
       const solidPf = solid('playfieldColor', !rowColorsOfBackground.pf);
       const solidBk = solid('backgroundColor', !rowColorsOfBackground.bk);
-      context.fillStyle = solidBk || '#000';
+      context.fillStyle = solidBk || DEFAULT_SCENE_BACKGROUND_CSS;
       context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_LINES);
       if (background && background.pixels && background.pixels.length) {
         // The rows and their height come from the playfield of the scene (its pfres), and the colors are the ones its card shows.
@@ -1594,6 +1627,7 @@ export default defineComponent({
       triggerByOpen, selectedTrigger, isTriggerSelected, selectTrigger, triggerKindItems, triggerSceneItems, triggerObjects, handleAddTrigger, handleRemoveTrigger,
       handleTriggerField, handleTriggerName, handleTriggerKind, handleTriggerScene, handleTriggerMask, TRIGGER_MOVE: SCENE_TRIGGER_MOVE,
       TRIGGER_LOAD: SCENE_TRIGGER_LOAD,
+      hasSolidBackgroundColor, solidBackgroundColor, handleSolidBackgroundColor, DEFAULT_SCENE_BACKGROUND_CSS,
       handleAddScene, handleRename, handleDeleteScene, handleBackground, handleAddObject, handleRemoveObject, handleField, handleColor,
       handleWidth, handleAnimation, handleFlag, handlePointerDown, handlePointerHover,
       COLOR_FLAG: SCENE_FLAG_COLOR, SIZE_FLAG: SCENE_FLAG_SIZE, ANIMATION_FLAG: SCENE_FLAG_ANIMATION, FLIPPED_FLAG: SCENE_FLAG_FLIPPED,
@@ -1716,6 +1750,20 @@ export default defineComponent({
 /* A closed card ends with the name row: 20px under its underline, as on the Playfield cards. */
 .scene-card-collapsed .scene-name-section {
   padding-bottom: 12px;
+}
+
+/* As the Playfield cards' solid colors: down to the line of the fields beside it. */
+.scene-solid-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  margin-top: 38px;
+}
+
+.scene-solid-color-label {
+  font-size: 1rem;
+  white-space: nowrap;
 }
 
 .scene-background-field {

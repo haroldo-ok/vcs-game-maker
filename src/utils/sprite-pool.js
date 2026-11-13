@@ -59,9 +59,10 @@ export const expandSpritePools = (dom, Blockly, {supported = true} = {}) => {
       field.textContent = String(value);
       return field;
     };
-    node.insertBefore(make(toName, range[1]), idField);
-    node.insertBefore(make(fromName, range[0]), idField);
-    node.removeChild(idField);
+    // (A block with no id input is pool 1, see idOf: the fields go at the end and there is no input to take out.)
+    node.insertBefore(make(toName, range[1]), idField || null);
+    node.insertBefore(make(fromName, range[0]), idField || null);
+    if (idField) node.removeChild(idField);
   };
   // Takes a statement block out and leaves the blocks that follow it where it was.
   const takeOut = (node) => {

@@ -19,7 +19,7 @@ static u load(volatile b8 *p,u r)
   return conv((p[r]<<24)|(p[256+r]<<16)|(p[512+r]<<8)|p[768+r]);
 }
 
-// Built in a program for each set of functions a project needs (see offset-arm.js and the files of the prog folder): with and without -DGROUPS, and with any of the six sets of functions left out: -DNOOFFSET (the Playfield offset block), -DNOBOX (the playfield box test), -DNOCIRCLE (the circle block), -DNOPIX (the pixel finding and the bounce of the ball and the missiles), -DNOFIRE (the movement of an object a Fire block launched with the playfield check on) and -DNOAUDIO (the DPC+ sound engine's waveform rebuild and volume mix)
+// Built in a program for each set of functions a project needs (see offset-arm.js and the files of the prog folder): with and without -DGROUPS, and with any of the six sets of functions left out: -DNOOFFSET (the Playfield offset block), -DNOBOX (the playfield box test), -DNOCIRCLE (the circle block), -DNOPIX (the pixel finding and the bounce of the ball and the missiles), -DNOFIRE (the movement of an object a Fire block launched with the playfield check on), -DNOAUDIO (the DPC+ sound engine's waveform rebuild and volume mix) and -DNOTILES (the playfield tilemap)
 // too) for a project with groups of columns that have separate rows, which is a good deal bigger.
 // The numbers of the project's rows, put in by the generator in place of these: rows of a line = line * K[0] / 256, the last row K[1],
 // whether a line is held to 191 first K[2], whether the groups of columns have separate rows K[3]. Then each group (column byte) has its
@@ -529,6 +529,54 @@ static void audiomix(void)
 }
 #endif
 
+#ifndef NOTILES
+// The playfield tilemap (generators/bbasic/pf-tiles.js): a background kept as tiles one column (8 pixels) wide, read from the ROM (an address is
+// given as the low byte and the high byte with the bank in its upper bits, as the sprite pointers are). A background's description: the address of its
+// map (low, high), of the tiles (low, high), the rows of a tile, the rows of the map, and the rows to fill (0: the map once; more: the map again from its
+// top, the scrolling memory). The map has 4 tile numbers a row (PF1L, PF2L, PF1R, PF2R); a tile is its rows' bytes one after the other, each as
+// drawn (its left pixel in bit 7): the PF2 columns (1 and 3) draw their bits the other way round, so a tile's bytes are reversed for them. (Nothing is
+// kept between calls: the program is in the ROM.)
+static const b8 *rom(u lo,u hi) { return (const b8 *)(0xC00+(hi<<8)+lo); }
+static u rev8(u v)
+{
+  v=((v>>1)&0x55)|((v&0x55)<<1);
+  v=((v>>2)&0x33)|((v&0x33)<<2);
+  return ((v>>4)|(v<<4))&0xFF;
+}
+
+// Function 106, a whole background: CF[1] and CF[2] = the address of its description.
+static void tilesload(volatile b8 *p)
+{
+  const b8 *d=rom(CF[1],CF[2]);
+  const b8 *map=rom(d[0],d[1]);
+  const b8 *tiles=rom(d[2],d[3]);
+  u h=d[4],maprows=d[5],total=d[6]?d[6]:maprows*h;
+  u c;
+  for (c=0;c<4;c++)
+  {
+    volatile b8 *dst=p+(c<<8);
+    u r,k=0,m=0;
+    for (r=0;r<total;r++)
+    {
+      u v=tiles[map[(m<<2)+c]*h+k];
+      dst[r]=(c&1)?rev8(v):v;
+      if (++k==h) { k=0; if (++m==maprows) m=0; }
+    }
+  }
+}
+
+// Functions 108 to 111, one tile in column 0 to 3: CF[1] and CF[2] = the address of a description with the tiles, CF[3] = the tile, CF[4] = the row of
+// the memory its first row goes in (the rows after it wrap round the 256 of the queue).
+static void tileset(volatile b8 *p,u column)
+{
+  const b8 *d=rom(CF[1],CF[2]);
+  const b8 *src=rom(d[2],d[3])+CF[3]*d[4];
+  volatile b8 *dst=p+(column<<8);
+  u k;
+  for (k=0;k<d[4];k++) dst[(CF[4]+k)&255]=(column&1)?rev8(src[k]):src[k];
+}
+#endif
+
 void __attribute__((section(".text.entry"))) run(void)
 {
   // The first column of the playfield: the address the kernel's first data fetcher has, in display memory (get32bitdff(0) of main.c).
@@ -554,6 +602,10 @@ void __attribute__((section(".text.entry"))) run(void)
 #ifndef NOAUDIO
   else if (op==104) audiowave();
   else if (op==105) audiomix();
+#endif
+#ifndef NOTILES
+  else if (op==106) tilesload(p);
+  else if (op>=108&&op<=111) tileset(p,op-108);
 #endif
   else
   {

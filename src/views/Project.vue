@@ -877,6 +877,11 @@ export default defineComponent({
           ...this.backgroundsStorage,
           backgrounds: this.backgroundsStorage.backgrounds
               .map((bkg) => ({...bkg, pixels: matrixToPlayfield(bkg.pixels)})),
+          // The Tiles section of the Playfield tab (the playfield tilemap): its tiles' pixels as text too.
+          ...(this.backgroundsStorage.tileSet ? {tileSet: {
+            ...this.backgroundsStorage.tileSet,
+            tiles: (this.backgroundsStorage.tileSet.tiles || []).map((tile) => ({...tile, pixels: matrixToPlayfield(tile.pixels)})),
+          }} : {}),
         };
 
       const preparePlayerSave = (playerStorage) => !playerStorage ? null :
@@ -1478,6 +1483,10 @@ export default defineComponent({
           ...project.backgrounds,
           backgrounds: project.backgrounds.backgrounds
               .map((bkg) => ({...bkg, pixels: playfieldToMatrix(bkg.pixels)})),
+          ...(project.backgrounds.tileSet ? {tileSet: {
+            ...project.backgrounds.tileSet,
+            tiles: (project.backgrounds.tileSet.tiles || []).map((tile) => ({...tile, pixels: playfieldToMatrix(tile.pixels)})),
+          }} : {}),
         };
         this.backgroundsStorage = backgrounds;
       }

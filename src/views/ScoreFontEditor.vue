@@ -86,8 +86,10 @@
       </p>
       <template>
         <graphic-editor-toolbar class="score-editor-toolbar-row" :active-editor="activeEditor" :show-color-swatch="false">
-          <template v-slot:before-tools>
+          <template v-slot:zoom>
             <editor-zoom v-model="zoom" class="score-editor-zoom" />
+          </template>
+          <template v-slot:before-tools>
             <pixel-grid-toggle v-model="showPixelGrid" />
           </template>
           <template v-slot:below-tools>

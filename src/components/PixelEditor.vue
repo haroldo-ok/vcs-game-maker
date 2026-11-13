@@ -25,7 +25,7 @@
               'editor-canvas-tool-move': toggledTool === 'move',
               'editor-canvas-tool-window': windowCanMove,
             }"
-            @mousedown="(e) => { handleStrokeStart(); handleMouse(e); handleWindowDown(e); }"
+            @mousedown="(e) => { handleStrokeStart(); handleMouse(e); handleWindowDown(e); handleStampDown(e); }"
             @mouseup="(e) => { handleStrokeEnd(); handleMouse(e); }"
             @mouseenter="(e) => { handleMouse(e); handleHover(e); }"
             @mouseleave="handleMouseLeave"
@@ -155,6 +155,12 @@ export default {
     // The first row of the window (the rows above it are dimmed too). With the Move tool and nothing selected, dragging inside the window moves it: the new
     // first row is sent as "update:windowStart".
     windowStart: {type: Number, default: 0},
+    // The tiles of the playfield tilemap (DPC+, see generators/bbasic/pf-tiles.js): {rows: the rows of a tile, numbers: for each tile row from the top,
+    // the tile number of each 8 columns}, drawn as a box round each tile with its number; null for none.
+    tileGrid: {type: Object, default: null},
+    // A tile to stamp (the Tiles section of the Playfield tab): {rows: the tile's rows, pixels: its rows of 8 pixels}. While it is set a click puts
+    // the tile into the cell under the mouse (8 columns by the tile's rows, from the top left) instead of drawing with the tool.
+    stamp: {type: Object, default: null},
     // Labels each cell with its  column index (0-based, matching the X
     // argument every "Background: pixel at X/Y" block already uses) at the
     // cell's center - opt-in separately from showGrid since it's only
@@ -244,7 +250,7 @@ export default {
   computed: {
     // Whether the overlay canvas has guides to draw (the columns of a wide playfield, the window of a scrolling graphic).
     hasGuides() {
-      return this.guideColumns > 0 || this.hasWindow;
+      return this.guideColumns > 0 || this.hasWindow || !!(this.tileGrid && this.tileGrid.numbers && this.tileGrid.numbers.length);
     },
     // Whether a window smaller than the picture is shown.
     hasWindow() {
@@ -329,7 +335,7 @@ export default {
     // frame B still drew with frame B's stale Pencil until Eraser was
     // clicked again there too - exactly the bug being fixed here.
     toggledTool(toolName, previousToolName) {
-      if (this.editor) this.editor.tool = this.toolFor(toolName);
+      if (this.editor) this.editor.tool = this.stamp ? this.noTool : this.toolFor(toolName);
       if (this.hoverCell && this.gridResizeObserver) this.$nextTick(() => this.drawGridOverlay());
       // Leaving the selection tools and Move for a drawing tool drops the
       // selection (and a half-made polygon). Moving between the selection tools
@@ -347,7 +353,7 @@ export default {
       this.rectangle = new Rectangle(this.fgColor);
       this.oval = new Oval(this.fgColor);
       if (this.editor) {
-        this.editor.tool = this.toolFor(this.toggledTool);
+        this.editor.tool = this.stamp ? this.noTool : this.toolFor(this.toggledTool);
         this.setPixels(this.getPixels(), false);
       }
     },
@@ -379,6 +385,23 @@ export default {
         if (color !== before[row]) changed.push(row);
       });
       if (changed.length) this.recolorRows(changed);
+    },
+    // A stamp takes the place of the drawing tool while it is set.
+    stamp() {
+      if (this.editor) this.editor.tool = this.stamp ? this.noTool : this.toolFor(this.toggledTool);
+    },
+    // The tiles are drawn on the overlay canvas too.
+    tileGrid() {
+      if (this.hasGuides) {
+        this.$nextTick(() => {
+          if (!this.gridResizeObserver) this.setupGridOverlay();
+          else this.drawGridOverlay();
+        });
+      } else if (!(this.showGrid || this.selection || this.polygonPreview || this.hoverCell)) {
+        this.teardownGridOverlay();
+      } else {
+        this.$nextTick(() => this.drawGridOverlay());
+      }
     },
     // The window of a scrolling graphic is drawn on the overlay canvas: it is mounted, drawn again or taken down as the window comes and goes.
     windowStart() {
@@ -716,6 +739,29 @@ export default {
         ctx.setLineDash([]);
       }
 
+      // The tiles: a box round each (8 columns by the tile's rows) with its number in the corner.
+      if (this.tileGrid && this.tileGrid.numbers && this.tileGrid.rows > 0) {
+        const tileRows = this.tileGrid.rows;
+        const fontSize = Math.max(9, Math.min(14, Math.round(Math.min(cellWidth * 8, cellHeight * tileRows) / 3)));
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textBaseline = 'top';
+        this.tileGrid.numbers.forEach((numbers, tileRow) => numbers.forEach((number, tileColumn) => {
+          const x = Math.round(tileColumn * 8 * cellWidth);
+          const y = Math.round(tileRow * tileRows * cellHeight);
+          if (y >= cssHeight || x >= cssWidth) return;
+          const w = Math.round(8 * cellWidth);
+          const h = Math.min(Math.round(tileRows * cellHeight), cssHeight - y);
+          ctx.strokeStyle = 'rgba(0, 188, 212, 0.95)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+          const text = String(number);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+          ctx.fillRect(x + 2, y + 2, ctx.measureText(text).width + 6, fontSize + 4);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(text, x + 5, y + 4);
+        }));
+      }
+
       // The window of a scrolling graphic: the rows outside it are dimmed, and a dashed line marks where it begins and ends.
       if (this.windowRows > 0 && this.windowRows < rows) {
         const first = Math.max(0, Math.min(rows - this.windowRows, Math.round(this.windowStart)));
@@ -906,6 +952,25 @@ export default {
     rowAtMouse(event) {
       const box = this.$refs.editor.getBoundingClientRect();
       return ((event.clientY - box.top) / box.height) * this.height;
+    },
+    // With a stamp: the tile goes into the cell under the mouse (8 columns by the tile's rows, counted from the top left), one step in the undo history.
+    handleStampDown(event) {
+      if (!this.stamp || !this.editor || event.button !== 0) return;
+      const box = this.$refs.editor.getBoundingClientRect();
+      const column = Math.floor(((event.clientX - box.left) / box.width) * this.width);
+      const row = Math.floor(this.rowAtMouse(event));
+      const rows = Math.max(1, this.stamp.rows);
+      const left = Math.floor(column / 8) * 8;
+      const top = Math.floor(row / rows) * rows;
+      if (left < 0 || top < 0 || left >= this.width || top >= this.height) return;
+      const pixels = this.getPixels();
+      for (let k = 0; k < rows && top + k < pixels.length; k++) {
+        for (let i = 0; i < 8 && left + i < pixels[top + k].length; i++) {
+          pixels[top + k][left + i] = ((this.stamp.pixels || [])[k] || [])[i] ? 1 : 0;
+        }
+      }
+      this.setPixels(pixels);
+      this.$emit('input', pixels);
     },
     // Starts dragging the window with the Move tool: only a press inside the window does, and the drag goes on outside the canvas too.
     handleWindowDown(event) {
@@ -1344,7 +1409,7 @@ export default {
       // freshly built/resized editor's underlying tool object silently
       // stayed Pencil even while Eraser showed selected on the shared
       // toolbar, until setTool() was called again to actually apply it.
-      const initialTool = this.toolFor(this.toggledTool);
+      const initialTool = this.stamp ? this.noTool : this.toolFor(this.toggledTool);
       this.editor = new PixelEditor(canvas, this.width, rowCount, initialTool, history);
       limitPixelHistory(this.editor.history);
       // Every tool draws through editor.set(), so mirror drawing hooks in here

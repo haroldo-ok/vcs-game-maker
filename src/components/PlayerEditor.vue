@@ -27,8 +27,10 @@
         </div>
 
         <graphic-editor-toolbar :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="animations" @height-hotkey="handleSetHeightHotkey">
-          <template v-slot:before-tools>
+          <template v-slot:zoom>
             <editor-zoom v-model="zoom" :levels="playerZoomLevels" />
+          </template>
+          <template v-slot:before-tools>
             <pixel-grid-toggle v-model="showPixelGrid" />
             <pixel-grid-toggle
               v-model="showPixelGridLabels"

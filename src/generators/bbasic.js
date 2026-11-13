@@ -19,7 +19,7 @@ import templateText from 'raw-loader!./bbasic.bb.hbs';
 import Handlebars from 'handlebars';
 import {sumBy, chunk} from 'lodash';
 
-import {appendCompileLog, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage,
+import {appendCompileLog, appendCompileLogOnce, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage,
   usePlayerAnimationsStorage, useSongsStorage, useTitleScreenStorage} from '../hooks/project';
 import {processSongsStorageDefaults} from '../blocks/music';
 import {getRelocationBanks} from '../hooks/relocation-banks';
@@ -45,7 +45,7 @@ import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName
   MAX_FUNCTION_ARGS, functionCallResultVarName, functionCallsOfStatement} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
 import {matrixToPlayfield} from '../utils/pixels';
-import {colorByteToBuildBBasic, scoreColorByteOf} from '../utils/palette';
+import {colorByteToBuildBBasic, scoreColorByteOf, tvColorByte} from '../utils/palette';
 import {CUSTOM_SCORE_FONT, SQUISH_SCORE_FONT, SQUISH_CUSTOM_SCORE_FONT,
   customScoreFontUsesExtraGlyphs, secondaryScoreFontName, dpcPlusSecondaryScoreFontBytes, dpcPlusScoreFontPointerLines,
   DPC_PLUS_SECONDARY_FONT_LABEL, DPC_PLUS_PRIMARY_FONT_LABEL, dpcPlusPrimaryScoreFontBytes} from '../utils/score-font';
@@ -72,6 +72,7 @@ import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resol
   TITLE_BG_COLOR_VAR_NAME, titleCardBoxColorVarName, titleCardBoxPf1VarName,
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, setDrawnTitleScreenIds} from '../blocks/titlescreen';
 import {setBuiltTextStringIds} from '../blocks/text-strings';
+import {planTilemap, tileLoadLines, tileDataLines, withoutTileData} from './bbasic/pf-tiles';
 import {registerDistanceAbsDiffSubroutine, registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickDirection8DevVars, generateJoystickDirection8Checks,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
@@ -296,6 +297,8 @@ const scoreDigitsOf = (config) => config.enableCycleScore ? 6 : config.scoreDigi
 const BG_FADE_CHECKS_NAME = '_bg_fade_checks';
 const ROW_FADE_CHECKS_NAME = '_row_fade_checks';
 const BACKGROUND_LOAD_NAME = '_background_load';
+// The playfield tilemap's tiles and maps (see bbasic/pf-tiles.js): data in a subroutine nothing calls, moved into the graphics bank after the compile.
+const PF_TILE_DATA_NAME = '_pftile_store';
 // The routines were written to be spliced in as they are; as a subroutine the code goes through
 // normalizeIndents, which wants labels marked with "@" and the closing "end" as "@end".
 const SPRITE_BOX_CHECKS_NAME = '_sprite_box_checks';
@@ -2874,6 +2877,9 @@ Blockly.BBasic.init = function(workspace) {
   this.pfBoxArmRows = false;
   // Set when a player's box test is done by the coprocessor (see armBox in generators/bbasic/pf-box.js).
   this.pfBoxArm = false;
+  // The playfield tilemap (see generators/bbasic/pf-tiles.js and generateBackgrounds): its plan, and whether the coprocessor's program has its functions.
+  this.pfTilemap = null;
+  this.pfTilesArm = false;
   // The fixed colors a Playfield set background / playfield color block gave under DPC+ with a color for each row (see background_set_color).
   this.bgColorOverrides = {COLUBK: new Set(), COLUPF: new Set()};
   reserveBackgroundColorFlagsDevVar(reserveDevVar, this.bgColorFlagBits, this.bgRainbowIdBits);
@@ -3272,7 +3278,7 @@ Blockly.BBasic.init = function(workspace) {
   // a plain pfscroll is all that's needed and nothing is reserved.
   const scrollTrackingFeatureUsed = workspace.getAllBlocks(false).some((block) =>
     block.type === 'background_scroll_position' || block.type === 'background_scroll_set_row' || block.type === 'background_scroll_reset' ||
-    block.type === 'background_scroll_edge_reached' ||
+    block.type === 'background_scroll_edge_reached' || block.type === 'background_tile_set' ||
     (block.type === 'background_scroll' && block.getFieldValue('STOPATEDGE') === 'TRUE')) ||
     this.spriteScrollUsedFor.size > 0;
   // Only when at least one background is actually taller than the live
@@ -3479,6 +3485,8 @@ Blockly.BBasic.init = function(workspace) {
     [];
   this.backgroundScrollPacking = this.backgroundScrollOverflowBackgrounds.length ?
     backgroundScrollPacking(includedBackgrounds) : null;
+  // The playfield tilemap (see generateBackgrounds): planned here, before the blocks are made, for the Set playfield tile block.
+  this.pfTilemap = this.planBackgroundTilemap(includedBackgrounds, config);
   this.backgroundScrollTracking = !dpcPlusScroll && (this.backgroundScrollOverflowBackgrounds.length > 0 ||
     (this.backgroundScrollUsed && scrollTrackingFeatureUsed));
   if (this.backgroundScrollTracking) {
@@ -4248,7 +4256,8 @@ Blockly.BBasic.getSubroutineNames = function() {
 // compiled size - same rationale as estimateEventSize/
 // estimateGraphicsUnitSize.
 Blockly.BBasic.estimateSubroutineSize = function(name) {
-  return (Blockly.BBasic.subroutines[name] || '').length;
+  // (Less the tiles of the playfield tilemap, which are moved out of the subroutine into the graphics bank: see bbasic/pf-tiles.js.)
+  return withoutTileData(Blockly.BBasic.subroutines[name] || '').length;
 };
 
 // Same idea as getSubroutineBank, for user-defined functions (see
@@ -7340,6 +7349,20 @@ Blockly.BBasic.generateBackgrounds = function() {
   // of a piece in the main bank for every background. (Where a background has scroll tracking or color scrolling the pieces call
   // other subroutines with a bank tag that depends on where the code is, so those keep the separate pieces.)
   const loadAsSubroutine = dpcPlusDrawsAllRows && !scrollTrackingUsed && !colorScroll && backgrounds.length > 0;
+  // The playfield tilemap (the Options tab's "Backgrounds as tiles", DPC+; see bbasic/pf-tiles.js): the backgrounds are cut into tiles, kept in the
+  // graphics bank, and the coprocessor builds a background's rows from them; a scrolling background's map repeats down the 255 rows the way its
+  // rows did. Each background's rows are the ones the "playfield:" statement would have loaded. (Not on PXE, whose playfield is written another way.)
+  const tilemap = this.pfTilemap;
+  if (tilemap) {
+    this.pfTilesArm = true;
+    ensureArmProgram(Blockly, undefined, 't');
+    // The data is a separate subroutine that nothing calls (after its return), moved into the graphics bank after the compile.
+    this.subroutines[PF_TILE_DATA_NAME] = asSubroutineBody([' return', ...tileDataLines(tilemap)].join('\n'));
+    appendCompileLogOnce(`The backgrounds are kept as tiles: ${tilemap.tiles.length} different tiles of ${tilemap.height} row${tilemap.height === 1 ? '' : 's'}, ` +
+      `${tilemap.bytes} bytes in the graphics bank (the rows took ${tilemap.rawBytes}).`, 'info');
+  } else if (dpcPlusDrawsAllRows && !isPxe(config) && config.dpcPlusTilemap) {
+    appendCompileLogOnce('The backgrounds could not be kept as tiles (more than 256 different tiles, or a background taller than the playfield memory): they are loaded as rows.', 'warning');
+  }
   const rainbowRestore = [];
   const loadCode = backgrounds.map((background, index) => {
     const {id, pixels: rawPixels} = background;
@@ -7389,7 +7412,7 @@ Blockly.BBasic.generateBackgrounds = function() {
     // visibleRows rows). Matches Scroll3A.bas's structure: its single
     // "playfield:" block is never directly executed (skipped via "goto
     // manualdraw") and is used purely as a backing data source.
-    const payloadLines = overflowUsed ? [] : [
+    const payloadLines = overflowUsed ? [] : (tilemap && tilemap.numbers.has(String(id))) ? tileLoadLines(tilemap, id) : [
       ' playfield:',
       convertPlayfield(matrixToPlayfield((dpcPlusDrawsAllRows ? pixels : pixels.slice(0, drawnRows)))),
       'end',
@@ -7435,8 +7458,9 @@ end`);
       [this.dpcPlusScrollLimitVar, scrollOf ? scrollOf.limit : 0]]
         .filter(([name]) => name).forEach(([name, value]) => payloadLines.push(` ${name} = ${value}`));
     if (storedTileRows < DPC_PLUS_SCROLL_ROWS) {
-      const parts = `p${pfcolorsBlock ? 'c' : ''}${bkcolorsBlock ? 'b' : ''}`;
-      payloadLines.push(dpcTileMarker(id, storedTileRows, DPC_PLUS_SCROLL_ROWS, parts));
+      // (With the tilemap the coprocessor fills the playfield rows itself: only the color rows are copied down.)
+      const parts = `${tilemap ? '' : 'p'}${pfcolorsBlock ? 'c' : ''}${bkcolorsBlock ? 'b' : ''}`;
+      if (parts) payloadLines.push(dpcTileMarker(id, storedTileRows, DPC_PLUS_SCROLL_ROWS, parts));
     }
     // DPC+ scrolling: start the view one background-height into the repeated rows (see background_scroll).
     // A background's color rows replace the rainbow's, so the rainbow loads its rows again.
@@ -7547,6 +7571,7 @@ end`);
       [` if temp6 <> ${code} then goto _rainbowrestore_${code}`, block.replace(/\n$/, ''), `_rainbowrestore_${code}`].join('\n'))].join('\n') + '\n');
   }
   if (!loadAsSubroutine) return loadCode;
+  // (With the row dictionary its routine follows the return: the loads call it with jsr, in the same bank wherever that is.)
   this.subroutines[BACKGROUND_LOAD_NAME] = asSubroutineBody(loadCode);
   return ` gosub ${BACKGROUND_LOAD_NAME}${Blockly.BBasic.bankJumpSuffix(
       Blockly.BBasic.primaryBank(), Blockly.BBasic.getSubroutineBank(BACKGROUND_LOAD_NAME))}`;
@@ -8354,6 +8379,22 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
     backgrounds.map(({pixels}) => buildTable(pixels)).join('\n\n');
 };
 
+// The playfield tilemap of the backgrounds (the Options tab's "Keep backgrounds as tiles", DPC+, not PXE; see bbasic/pf-tiles.js), or null: each
+// background's rows are the ones its "playfield:" statement would load (a scrolling one: one repeat of its layout over the 255 rows, which the
+// map repeats down). Not with backgrounds taller than the playfield on the standard kernel's scroll (not DPC+ anyway).
+Blockly.BBasic.planBackgroundTilemap = function(backgrounds, config) {
+  if (!config || config.kernel !== 'dpcplus' || isPxe(config) || !config.dpcPlusTilemap || this.backgroundScrollOverflowBackgrounds.length > 0) return null;
+  // (With the tiles of the Playfield tab's Tiles section first, numbered in their order.)
+  const tileSet = ((this.getBackgroundsData() || {}).tileSet) || null;
+  return planTilemap(backgrounds.map((background) => {
+    const scroll = this.dpcPlusScrollFor ? this.dpcPlusScrollFor(background) : null;
+    if (!scroll) return {id: background.id, pixels: background.pixels, fill: background.pixels.length};
+    const stored = dpcPlusStoredRows(scroll);
+    return {id: background.id, pixels: tileForDpcPlusScroll(background.pixels, null, scroll, null, stored).pixels, fill: DPC_PLUS_SCROLL_ROWS,
+      thin: scroll.groups ? 0 : scroll.repeats};
+  }), tileSet);
+};
+
 // Reads the stored data tables, applying defaults, or null if they can't
 // load.
 Blockly.BBasic.getDataTablesData = function() {
@@ -8702,8 +8743,9 @@ Blockly.BBasic.generateAnimations = function() {
     const sizeRef = poolRefs ? poolRefs.size : `${name}size`;
     // The sprite showing the right half of a wide player is colored like the player is.
     const colorOwner = slaveOf || name;
-    const defaultColor = colorOwner === 'player0' ? 0x40 : colorOwner === 'player1' ? 0x80 :
-      Number(colorOwner.slice(6)) * 3 % 16 * 16 + 14;
+    // (In the colors of the TV standard, as the player's color variable starts: on PAL the same byte is another color, see tvColorByte.)
+    const defaultColor = tvColorByte(colorOwner === 'player0' ? 0x40 : colorOwner === 'player1' ? 0x80 :
+      Number(colorOwner.slice(6)) * 3 % 16 * 16 + 14);
     const given = [defaultColor, ...[...(Blockly.BBasic.dpcPlusPlayerColors[colorOwner] || [])]
         .filter((color) => color !== defaultColor)];
     // A fade steps the brightness of the color the player has (so any hue the player is given) toward the target, and

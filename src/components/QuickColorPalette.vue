@@ -256,6 +256,7 @@ export default defineComponent({
 }
 
 .quick-color-swatch {
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
   cursor: pointer;

@@ -12,7 +12,16 @@
     :style="bleedStyle"
     @click.stop
   >
+    <!-- On a narrow window the controls and tools wrap between their sections (each a .get-group), never inside one, the lines starting under the
+         grid controls after the zoom (the "zoom" slot and the grid controls stay on the first line); a section that starts a line hides its divider (markLineStarts). -->
     <div class="graphic-editor-toolbar-row">
+      <div v-if="$slots.zoom" class="get-group get-zoom">
+        <slot name="zoom" />
+      </div>
+      <div ref="row" class="get-tool-sections">
+      <!-- The grid controls, Undo and Redo: never wrapped, the first line of the tools. -->
+      <div class="get-lead">
+      <div class="get-group">
       <slot name="before-tools" />
       <pixel-grid-toggle
         v-if="cardColumns !== null"
@@ -23,15 +32,22 @@
         :title-off="`Show the ${cardColumnsWhat} in several columns`"
         @input="(value) => $emit('update:cardColumns', value)"
       />
-      <v-divider class="get-outer-divider" vertical />
+      </div>
       <div class="get-tools">
+        <div class="get-group get-group-tools-first">
+        <v-divider class="get-outer-divider get-group-divider" vertical />
         <v-btn icon small :title="UNDO_TITLE" :disabled="!activeEditor && !hasPendingQuickColorUndo && !hasPendingCardUndo && !reorderCanUndo" @click="handleUndo">
           <v-icon>mdi-undo</v-icon>
         </v-btn>
         <v-btn icon small :title="REDO_TITLE" :disabled="!activeEditor && !reorderCanRedo" @click="handleRedo">
           <v-icon>mdi-redo</v-icon>
         </v-btn>
-        <v-divider class="get-inner-divider" vertical />
+        </div>
+      </div>
+      </div>
+      <div class="get-tools">
+        <div class="get-group get-group-tools">
+        <v-divider class="get-inner-divider get-group-divider" vertical />
         <v-menu v-if="showColorSwatch" offset-y :close-on-content-click="true">
           <template v-slot:activator="{on, attrs}">
             <div
@@ -56,7 +72,7 @@
             </div>
           </v-card>
         </v-menu>
-        <v-btn-toggle :value="activeTool" borderless>
+        <v-btn-toggle :value="stampOn ? 'stamp' : activeTool" borderless>
           <v-btn
             icon
             small
@@ -86,6 +102,17 @@
             @click="toggleTool('pencil')"
           >
             <v-icon>mdi-pencil</v-icon>
+          </v-btn>
+          <v-btn
+            v-if="stampOn !== null"
+            icon
+            small
+            title="Stamp: click a card to place the selected tile there (in the cell of 8 columns and the tile's rows under the mouse)"
+            value="stamp"
+            :disabled="stampDisabled"
+            @click="$emit('update:stampOn', !stampOn)"
+          >
+            <v-icon>mdi-stamper</v-icon>
           </v-btn>
           <v-btn
             icon
@@ -146,7 +173,9 @@
             </svg>
           </v-btn>
         </v-btn-toggle>
-        <v-divider class="get-inner-divider" vertical />
+        </div>
+        <div class="get-group get-group-tools">
+        <v-divider class="get-inner-divider get-group-divider" vertical />
         <!-- A separate v-btn-toggle, not more buttons inside the one above -
              v-btn-toggle only expects v-btn children, so a divider can't sit
              inside it. Bound to the exact same :value/@click as the one
@@ -154,7 +183,7 @@
              across both - Vuetify doesn't care which literal component
              instance a button lives in, only that its "value" matches
              this shared activeTool. -->
-        <v-btn-toggle :value="activeTool" borderless>
+        <v-btn-toggle :value="stampOn ? 'stamp' : activeTool" borderless>
           <v-btn
             icon
             small
@@ -192,7 +221,9 @@
             </svg>
           </v-btn>
         </v-btn-toggle>
-        <v-divider class="get-inner-divider" vertical />
+        </div>
+        <div class="get-group get-group-tools">
+        <v-divider class="get-inner-divider get-group-divider" vertical />
         <!-- Two independent on/off buttons (both on mirrors across both axes). -->
         <v-btn-toggle :value="mirrorModes" multiple borderless @change="setMirrorModes">
           <v-btn
@@ -220,7 +251,9 @@
         <v-btn icon small title="Flip vertically (Shift+V) - only the selected pixels when a selection is active" :disabled="!activeEditor" @click="() => activeEditor.flipVertical()">
           <v-icon>mdi-flip-vertical</v-icon>
         </v-btn>
-        <v-divider class="get-inner-divider" vertical />
+        </div>
+        <div class="get-group get-group-tools">
+        <v-divider class="get-inner-divider get-group-divider" vertical />
         <v-btn icon small title="Export to image (Shift+E)" :disabled="!activeEditor" @click="() => activeEditor.handleExportImage()">
           <v-icon>mdi-export</v-icon>
         </v-btn>
@@ -228,11 +261,13 @@
           <v-icon>mdi-import</v-icon>
         </v-btn>
         <slot name="extra-tools" />
+        </div>
       </div>
-      <template v-if="$slots['after-tools']">
-        <v-divider class="get-after-tools-divider" vertical />
+      <div v-if="$slots['after-tools']" class="get-group">
+        <v-divider class="get-after-tools-divider get-group-divider" vertical />
         <slot name="after-tools" />
-      </template>
+      </div>
+      </div>
     </div>
     <v-divider class="get-divider" :class="{'get-divider-last': !$slots['below-tools']}" />
     <slot name="below-tools" />
@@ -287,6 +322,10 @@ export default {
     // (the caller keeps it; use .sync), or null for a tab with no such toggle, and what the cards are called, for the tooltip.
     cardColumns: {type: Boolean, default: null},
     cardColumnsWhat: {type: String, default: 'cards'},
+    // The Stamp tool after the Pencil (the Playfield tab's tiles): whether it is on (the caller keeps it; use .sync), or null for no Stamp tool.
+    // Choosing another tool turns it off.
+    stampOn: {type: Boolean, default: null},
+    stampDisabled: {type: Boolean, default: false},
     // False for a tab whose graphics have no row colors to paint (the Score tab): the color swatch and the eyedropper that goes with it are left out.
     showColorSwatch: {type: Boolean, default: true},
     // The PixelEditor.vue instance the toolbar currently acts on - null
@@ -384,13 +423,35 @@ export default {
     // never has to worry about two tabs' hotkeys firing at once.
     window.addEventListener('keydown', this.handleToolHotkey);
     document.addEventListener('mousedown', this.handleOutsideMouseDown, true);
+    // (The row is measured again whenever its size changes: a narrower window, or a wrap.)
+    if (window.ResizeObserver && this.$refs.row) {
+      this.rowObserver = new ResizeObserver(() => this.markLineStarts());
+      this.rowObserver.observe(this.$refs.row);
+    }
+    this.markLineStarts();
+  },
+  updated() {
+    this.markLineStarts();
   },
   beforeDestroy() {
+    if (this.rowObserver) this.rowObserver.disconnect();
     if (this.scrollContainer) this.scrollContainer.removeEventListener('scroll', this.handleScroll);
     window.removeEventListener('keydown', this.handleToolHotkey);
     document.removeEventListener('mousedown', this.handleOutsideMouseDown, true);
   },
   methods: {
+    // A section that starts a line of the wrapped row (below the section before it) hides its divider (kept in its place, so hiding it can not
+    // change where the row wraps).
+    markLineStarts() {
+      const row = this.$refs.row;
+      if (!row) return;
+      let previous = null;
+      row.querySelectorAll('.get-group').forEach((group) => {
+        if (!group.offsetWidth) return;
+        group.classList.toggle('get-group-line-start', !!previous && group.offsetTop >= previous.offsetTop + previous.offsetHeight - 1);
+        previous = group;
+      });
+    },
     swatchCss(byte) {
       return colorByteToCss(byte);
     },
@@ -539,6 +600,11 @@ export default {
     },
     // Clicking the tool that is on turns it off: no tool is active then, and the row color bars open their palette again.
     toggleTool(tool) {
+      if (this.stampOn) {
+        this.$emit('update:stampOn', false);
+        this.setTool(tool);
+        return;
+      }
       this.setTool(this.activeTool === tool ? 'none' : tool);
     },
     // Tries the pending card deletion first (see hooks/card-delete-undo.js
@@ -646,7 +712,57 @@ export default {
 
 .graphic-editor-toolbar-row {
   display: flex;
+  align-items: flex-start;
+}
+
+/* The controls and tools beside the zoom (never under it), wrapping in their place: the first sections (the tab's grid controls, Undo and Redo) stay
+   on the first line, the tools wrap under them. */
+.get-tool-sections {
+  display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The grid controls with Undo and Redo, which stay together on the first line. */
+.get-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+/* One section of the row: it moves to the next line whole. (.get-tools is only a name for the sections of the standard tools.) */
+.get-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  /* Every line as tall as the tab's controls, so the tools of the first line sit level with them. */
+  min-height: 28px;
+}
+
+.get-tools {
+  display: contents;
+}
+
+/* gap (not per-button margins) is what actually guarantees every icon-to-
+   icon/icon-to-divider spacing in this row is identical - the individual
+   margin-left/right !important overrides this replaced had drifted into
+   different values per button through repeated one-off "nudge this one
+   button" tweaks, which is exactly what made the spacing visibly uneven
+   (confirmed as a real reported bug). A section gets 4px from the one before it the same way. */
+.get-group-tools-first,
+.get-group-tools {
+  gap: 4px;
+}
+
+.get-group-tools {
+  margin-left: 4px;
+}
+
+.get-group-line-start > .get-group-divider {
+  visibility: hidden;
 }
 
 /* "Soft Colors" (see App.vue's desaturate-app-colors class/comment) -
@@ -679,19 +795,7 @@ export default {
    dividers below since it's splitting two unrelated groups, not sub-groups
    within one. */
 .get-outer-divider {
-  margin: 0 4px;
-}
-
-/* gap (not per-button margins) is what actually guarantees every icon-to-
-   icon/icon-to-divider spacing in this row is identical - the individual
-   margin-left/right !important overrides this replaced had drifted into
-   different values per button through repeated one-off "nudge this one
-   button" tweaks, which is exactly what made the spacing visibly uneven
-   (confirmed as a real reported bug). */
-.get-tools {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  margin: 0 0 0 4px;
 }
 
 .get-tools >>> .v-btn {

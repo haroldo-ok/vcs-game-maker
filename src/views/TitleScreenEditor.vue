@@ -16,8 +16,10 @@
         </p>
 
         <graphic-editor-toolbar class="tight-under-intro" :active-editor="effectiveFrameEditor" :card-columns.sync="cardColumns" card-columns-what="title pages" @height-hotkey="handleSetHeightHotkey">
-          <template v-slot:before-tools>
+          <template v-slot:zoom>
             <editor-zoom v-model="zoom" :levels="titlescreenZoomLevels" />
+          </template>
+          <template v-slot:before-tools>
             <pixel-grid-toggle v-model="showPixelGrid" />
           </template>
           <template v-slot:after-tools>

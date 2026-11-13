@@ -6,6 +6,8 @@
 // workspace) and the blocks that had it get its id. Same shape as hooks/migrate-rainbow-range.js (workspace XML string in, string out), called from the same two
 // places: main.js's startup pass and Project.vue's "Open Project".
 const POOL_TYPES = ['sprite_pool_spawn', 'sprite_pool_each', 'sprite_pool_release_all', 'sprite_pool_full', 'sprite_pool_free'];
+// (And "Release player N of pool ID X", whose id was a field the same way: see the step for the id fields below.)
+const ID_FIELD_TYPES = [...POOL_TYPES, 'sprite_pool_release_player'];
 
 export const migrateSpritePoolIdsInWorkspaceXml = (workspaceXml) => {
   if (!workspaceXml || !workspaceXml.includes('sprite_pool_') && !workspaceXml.includes('POOLFROM')) return workspaceXml;
@@ -52,6 +54,17 @@ export const migrateSpritePoolIdsInWorkspaceXml = (workspaceXml) => {
     doc.querySelectorAll('block').forEach((block) => {
       if (POOL_TYPES.includes(block.getAttribute('type'))) convert(block, 'FROM', 'TO', 'ID');
       convert(block, 'POOLFROM', 'POOLTO', 'POOLID');
+    });
+    // Projects saved between the two (Bricks of Olympus 0.22) have the id as a field of the block (<field name="ID">2</field>): it becomes the
+    // Number input it is now, with the same id. (Left as a field, Blockly drops it when the project is loaded and the block names pool 1.)
+    doc.querySelectorAll('block').forEach((block) => {
+      [['ID', ID_FIELD_TYPES.includes(block.getAttribute('type'))], ['POOLID', true]].forEach(([name, wanted]) => {
+        const field = wanted && fieldOf(block, name);
+        if (!field) return;
+        const id = Math.max(1, Math.round(Number(field.textContent)) || 1);
+        block.replaceChild(idInput(name, id), field);
+        changed = true;
+      });
     });
     if (!changed) return workspaceXml;
     let y = 0;

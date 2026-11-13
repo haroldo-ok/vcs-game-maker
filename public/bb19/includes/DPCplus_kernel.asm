@@ -42,7 +42,25 @@ fufu
 
      VERTICAL_SYNC
 
-     lda #41+128;was 37 - do more w/c code
+     ; A PAL frame ("set tv pal" defines vblank_time 58, NTSC 43) is 50 lines longer than an NTSC one: the timers of the vertical
+     ; blank and the overscan count about 25 lines more each, so the picture keeps its place in the middle of the screen.
+     ifconst vblank_time
+       if vblank_time > 50
+DPC_TV_VBLANK SET 30
+DPC_TV_OVERSCAN SET 29
+         ; (One step more with the Text Minikernel, whose frame is a line shorter: 312 lines either way.)
+         ifconst TextIndex
+DPC_TV_OVERSCAN SET 30
+         endif
+       else
+DPC_TV_VBLANK SET 0
+DPC_TV_OVERSCAN SET 0
+       endif
+     else
+DPC_TV_VBLANK SET 0
+DPC_TV_OVERSCAN SET 0
+     endif
+     lda #41+128+DPC_TV_VBLANK;was 37 - do more w/c code
      sta TIM64T
 
      ; adjust for pfpos?
@@ -344,9 +362,9 @@ exit
      endif ; qtcontroller
      STA VBLANK
      ifconst scorepaddinglines
-     lda #OVERSCAN_LINES-(scorepaddinglines*76/64)
+     lda #OVERSCAN_LINES+DPC_TV_OVERSCAN-(scorepaddinglines*76/64)
      else
-     lda #OVERSCAN_LINES
+     lda #OVERSCAN_LINES+DPC_TV_OVERSCAN
      endif
      sta TIM64T
      sec

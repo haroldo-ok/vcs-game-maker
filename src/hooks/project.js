@@ -126,6 +126,10 @@ export const useErrorBannerHighlight = () => computed({
 // in red; see App.vue). Kept as a plain array of {text, level} entries so
 // each line can be colored independently ('error' red, anything else black).
 const compileLogRef = ref([]);
+// The playfield tilemap of the last build that succeeded (the tile numbers the Playfield tab's tile tool shows, see BackgroundEditor.vue):
+// {height: the rows of a tile, byId: {background id: {map: 4 tile numbers a tile row, mapRows, thin: thin rows a background row is cut into}}}, or null.
+const lastTilemapRef = ref(null);
+export const useLastTilemap = () => lastTilemapRef;
 export const useCompileLog = () => computed({
   get() {
     return compileLogRef.value;
@@ -147,6 +151,12 @@ export const clearCompileLog = () => {
 // uses (see App.vue's v-text vs v-html split on this same entry).
 export const appendCompileLog = (text, level = 'info', html = false) => {
   compileLogRef.value = [...compileLogRef.value, {text, level, html}];
+};
+
+// The same, unless the log already has that line (for a note from code that is made several times in one build).
+export const appendCompileLogOnce = (text, level = 'info') => {
+  if (compileLogRef.value.some((entry) => entry.text === text)) return;
+  appendCompileLog(text, level);
 };
 
 // Something imported needs the AtariVox (a song with an AtariVox instrument, a sound card of the AtariVox, a voice preset): it is turned on in the

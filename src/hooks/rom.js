@@ -4,6 +4,7 @@ import {superchipOn} from '../utils/superchip';
 import {shareIdenticalPlayerData} from '../utils/dpc-share-data';
 import {resolveDpcPictureTables, hasUnresolvedPictureTables, trimRedundantHeightLoads} from '../utils/dpc-picture-tables';
 import {expandDpcPlusTiles} from '../utils/dpc-tile';
+import {moveTilesToDisplayData} from '../generators/bbasic/pf-tiles';
 import {compactRainbowRestore} from '../utils/dpc-rainbow-restore';
 import {retargetPoolAnimationPointers} from '../utils/pool-pointer-retarget';
 import {shareDpcPlusPlayerSource, aliasSharedPlayerData} from '../utils/dpc-share-source';
@@ -49,7 +50,7 @@ import {calledNames} from '../utils/call-scan';
 import {useGeneratedBasic, markGeneratedFresh, setGeneratedCodeBuilder} from './generated';
 import {appendCompileLog, clearCompileLog, useBackgroundsStorage, useConfigurationStorage, useErrorStorage,
   useDataTablesStorage, usePlayerAnimationsStorage, useTextFontStorage, useTextStringsStorage, useTitleScreenStorage,
-  useWorkspaceStorage} from './project';
+  useWorkspaceStorage, useLastTilemap} from './project';
 import {getRelocationBanks, resetRelocationBanks, setRelocationBank,
   recordSuccessfulRelocationBanks, seedRelocationBanksFromLastSuccess} from './relocation-banks';
 import {markRomUpToDate, markRomOutdated, useRomOutdated, useHasCompiledRom,
@@ -215,6 +216,10 @@ const isOverflowError = (e) => /segment overflow|origin reverse-indexed|Unknown 
 // Frames with the same rows, on any players, are stored once (see utils/dpc-share-data.js).
 const shareDpcPlusPlayerData = (compiled, config) => {
   if (!config || config.kernel !== 'dpcplus') return;
+  // The tiles of the playfield tilemap go in the graphics bank (see generators/bbasic/pf-tiles.js).
+  const moved = moveTilesToDisplayData(compiled.mainAsm);
+  if (moved === null) appendCompileLog('The playfield tiles could not be put in the graphics bank: its end was not found.', 'error');
+  else compiled.mainAsm = moved;
   // The scrolling backgrounds keep one repeat of their rows, and the rest is copied in when they load.
   const tiles = expandDpcPlusTiles(compiled.mainAsm, isPxe(config), pfBuffersOf(config));
   compiled.mainAsm = tiles.asm;
@@ -2067,7 +2072,7 @@ const buildRomInner = async () => {
       Object.assign(siblingFiles, await getDpcPlusProgramSiblingFile((configurationStorage.value || {}).kernel, {
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
-        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm || !!BlocklyBB.dpcAudioArm,
+        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm || !!BlocklyBB.dpcAudioArm || !!BlocklyBB.pfTilesArm,
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
@@ -2082,7 +2087,7 @@ const buildRomInner = async () => {
       retargetPoolPointers(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
-      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm) patchArmProgramAddress(compiledResult);
+      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm || BlocklyBB.pfTilesArm) patchArmProgramAddress(compiledResult);
       // The ROM itself is fully compiled and valid at this point - a failure
       // from here on is the PREVIEW emulator's problem, not a compile error,
       // and must never be reported (or retried into) as one. In particular,
@@ -2106,6 +2111,12 @@ const buildRomInner = async () => {
 
       setCompiledRomBytes(compiledResult);
       markRomUpToDate();
+      // The tile numbers of this build, for the Playfield tab's tile tool.
+      const tilemap = BlocklyBB.pfTilemap;
+      useLastTilemap().value = tilemap ? {
+        height: tilemap.height,
+        byId: Object.fromEntries([...tilemap.numbers.entries()].map(([id, index]) => [id, tilemap.maps[index]])),
+      } : null;
       const bankSizeKey = bankSizeKeyFor(config);
       const capacity = computeRomCapacity(compiledResult, bankSizeKey === 'dpcplus' ? 1 : 0, bankSizeKey === 'dpcplus');
       const maxBanks = BANK_COUNT_BY_ROMSIZE[bankSizeKey];
@@ -3010,6 +3021,9 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         code = code.replace(/^(\s*set romsize )(\S+)(\r?)$/m,
             (full, prefix, value, cr) => `${prefix}16k${/SC$/i.test(value) ? 'SC' : ''}${cr}`);
       }
+      // The coprocessor program (the tilemap, the offset block, DPC+ sounds) goes in as its bytes, as in the build: left as the line that
+      // names it, the program was empty and the coprocessor stopped the preview on its first call (a black screen).
+      code = await fillArmProgram(code);
     } catch (e) {
       appendCompileLog('Failed to generate the preview bBasic code.', 'error');
       showError(errorStorage, `Error while generating ${name} preview code`, code, e);
@@ -3077,7 +3091,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
         math: !!(BlocklyBB.usesDivMulRoutine() && fastMathOn(configurationStorage.value || {})),
         rows: !!BlocklyBB.pfBoxArmRows,
         // (The playfield offset areas of a scene work on the coprocessor too.)
-        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm || !!BlocklyBB.dpcAudioArm,
+        offset: !!BlocklyBB.offsetArmUsed || !!BlocklyBB.pfBoxArm || !!BlocklyBB.dpcAudioArm || !!BlocklyBB.pfTilesArm,
         scoreFont: !!BlocklyBB.dpcPlusScoreFonts,
       }));
       const compiled = await compileBatariBasicToAsm(preprocessed, siblingFiles, log);
@@ -3092,7 +3106,7 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       retargetPoolPointers(compiled, configurationStorage.value);
       appendCompileLog('Assembling ROM...', 'stage');
       const compiledResult = await assembleBatariBasic(compiled.mainAsm, compiled.workDir, log);
-      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm) patchArmProgramAddress(compiledResult);
+      if (BlocklyBB.offsetArmUsed || BlocklyBB.pfBoxArm || BlocklyBB.dpcAudioArm || BlocklyBB.pfTilesArm) patchArmProgramAddress(compiledResult);
       try {
         withGopher2600((gopher2600) => {
           gopher2600.setAtariVoxRequired(false);

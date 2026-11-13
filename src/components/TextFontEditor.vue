@@ -15,8 +15,10 @@
         Edit the Text Minikernel's character set below. Each character is a fixed 4x5 pixel shape.
       </p>
       <graphic-editor-toolbar class="text-font-controls-row" :active-editor="activeEditor" :bleed="16" :show-color-swatch="false">
-        <template v-slot:before-tools>
+        <template v-slot:zoom>
           <editor-zoom v-model="zoom" :levels="textFontZoomLevels" class="text-font-zoom" />
+        </template>
+        <template v-slot:before-tools>
           <pixel-grid-toggle v-model="showPixelGrid" />
         </template>
         <template v-slot:after-tools>

@@ -65,6 +65,15 @@
             class="option-switch"
           />
           <v-checkbox
+            v-if="!configurationState.pxe"
+            v-model="configurationState.dpcPlusTilemap"
+            @change="handleChangeConfiguration"
+            label="Keep backgrounds as tiles (tilemap)"
+            hint="The build cuts every background into tiles one playfield column (8 pixels) wide, keeps each different tile once, and builds a background from its tiles when it is shown. Saves graphics ROM when backgrounds repeat parts; the coprocessor's program for it takes about 300 bytes of code. Collision, the offset block, the pixel blocks and scrolling work as before, and the Set playfield tile block can change a tile while the game runs."
+            persistent-hint
+            class="option-switch"
+          />
+          <v-checkbox
             v-model="configurationState.enableDpcPlusAudio"
             @change="handleChangeConfiguration"
             label="Play sound and music with the DPC+ sound chip"
@@ -522,6 +531,7 @@ const DEFAULT_CONFIGURATION = {
   dpcPlusSpriteMax: 9,
   enableDpcPlusPfColors: false,
   enableDpcPlusBkColors: false,
+  dpcPlusTilemap: false,
   enableDpcPlusAudio: true,
   showScore: true,
   enableScoreFade: false,
@@ -931,6 +941,7 @@ export default defineComponent({
       state.dpcPlusSpriteMax = DEFAULT_CONFIGURATION.dpcPlusSpriteMax;
       state.enableDpcPlusPfColors = DEFAULT_CONFIGURATION.enableDpcPlusPfColors;
       state.enableDpcPlusBkColors = DEFAULT_CONFIGURATION.enableDpcPlusBkColors;
+      state.dpcPlusTilemap = DEFAULT_CONFIGURATION.dpcPlusTilemap;
       state.enableDpcPlusAudio = DEFAULT_CONFIGURATION.enableDpcPlusAudio;
       state.showScore = DEFAULT_CONFIGURATION.showScore;
       state.enableScoreFade = DEFAULT_CONFIGURATION.enableScoreFade;

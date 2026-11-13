@@ -60,7 +60,9 @@ export default defineComponent({
 });
 </script>
 <style scoped>
+/* Never narrower in a flex row with too little room (a narrow window): the size stays as set. */
 .color-swatch-picker-dot {
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
   border-radius: 2px;
