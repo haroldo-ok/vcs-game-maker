@@ -7,6 +7,11 @@
 // in an array form, in a line of several statements, ...) is left where it is.
 
 const TABLES = ['PF1L', 'PF2L', 'PF1R', 'PF2R', 'PFCOLS', 'BKCOLS'];
+// The DPC+ stack's 256 bytes (STACKbegin to USERSTACK in DPCplusbB.h, after the tables) are a place too: area STACK_AREA, byte 0 the top of the stack.
+// They are given from the top down, as the pushes of the stack work up from its bottom (see displayRamSpillLayout in generators/bbasic.js).
+export const STACK_AREA = 6;
+// The address of a place (an area and a byte): the upper half of a table, or a byte of the stack.
+export const displayRamSlotAddress = ({area, byte}) => (area === STACK_AREA ? `STACKbegin+${byte}` : `${TABLES[area]}+${128 + byte}`);
 // The two bytes a read leaves its value in. The lines between the read and the line that uses it are only that line, so nothing else is
 // using them then.
 const SCRATCH = ['temp5', 'temp6'];
@@ -306,20 +311,20 @@ const LITERAL = /^(\d+|\$[0-9A-Fa-f]+|%[01]+)$/;
 // Setting the pointer again after a read or a write moved it on by one byte: only the low byte changes, unless the byte was the last
 // of the page (the carry went into the high byte).
 const resetLines = (indent, slot) => {
-  const address = `${TABLES[slot.area]}+${128 + slot.byte}`;
+  const address = displayRamSlotAddress(slot);
   return [`${indent}ldx #<(${address})`, `${indent}stx DF6LOW`,
     ...(slot.byte === 127 ? [`${indent}ldy #(>(${address})) & $0F`, `${indent}sty DF6HI`] : [])];
 };
 
 const pointerLines = (indent, {area, byte}) => {
-  const address = `${TABLES[area]}+${128 + byte}`;
+  const address = displayRamSlotAddress({area, byte});
   return [`${indent}lda #<(${address})`, `${indent}sta DF6LOW`, `${indent}lda #(>(${address})) & $0F`, `${indent}sta DF6HI`];
 };
 
 // The lines that set two data fetchers (a read one and a write one, so that reading does not move the one that writes) to the byte of a spilled name: the
 // exchange of two bytes (see exchangeLines) reads through the first and writes through the second.
 const fetcherPointerLines = (indent, {area, byte}, readFetcher, writeFetcher) => {
-  const address = `${TABLES[area]}+${128 + byte}`;
+  const address = displayRamSlotAddress({area, byte});
   return [`${indent}lda #<(${address})`, `${indent}sta DF${readFetcher}LOW`, `${indent}sta DF${writeFetcher}LOW`,
     `${indent}lda #(>(${address})) & $0F`, `${indent}sta DF${readFetcher}HI`, `${indent}sta DF${writeFetcher}HI`];
 };
@@ -463,7 +468,7 @@ export const applySpill = (code, slots) => {
         } else if (op === 'ldx' || op === 'ldy') {
           // (The register that is loaded sets the pointer: A, the other register and the carry are as they were.)
           const r = op.slice(2);
-          const address = `${TABLES[slot.area]}+${128 + slot.byte}`;
+          const address = displayRamSlotAddress(slot);
           const loadLines = [`${indent}ld${r} #<(${address})`, `${indent}st${r} DF6LOW`, `${indent}ld${r} #(>(${address})) & $0F`, `${indent}st${r} DF6HI`];
           out.push(...loadLines, `${indent}ld${r} DF6DATA`);
         } else if (ASM_READ_OPS.has(op)) {

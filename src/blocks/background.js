@@ -1728,7 +1728,7 @@ Blockly.defineBlocksWithJsonArray([
     'nextStatement': null,
     'colour': BACKGROUND_COLOR,
     'tooltip': `Puts a tile in the playfield (DPC+ with "Keep backgrounds as tiles" on, Options tab): column 0 to 3 (each 8 pixels wide, from ` +
-      `the left), row the playfield row (the tile that has that row is replaced), tile its number (shown by the tile tool of the Playfield tab). ` +
+      `the left; 0 to 7, each 4 pixels wide, with 4-pixel tiles), row the playfield row (the tile that has that row is replaced), tile its number (shown by the tile tool of the Playfield tab). ` +
       `The tile numbers come from the backgrounds and can change when a background is edited. Add 128 to a tile number for the tile flipped left ` +
       `to right (when there are 128 tiles or fewer). On the standard kernel a tile is kept for the column it is in (the numbers the Tiles button ` +
       `shows there), and adding 128 does not flip it. Collision and the pixel blocks see the new tile.`,

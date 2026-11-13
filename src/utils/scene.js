@@ -17,7 +17,9 @@ import {playerCount} from './pxe';
 //   touches it for the first time (and again only after it has left it) makes the trigger act for that one frame: kind 0 moves the sprite to X,Y
 //   (the numbers the X and Y blocks take), kind 1 sets up the scene whose ID is the target. Which sprites can trigger it is a mask of the objects
 //   (bit 0 Player 0 ... bit 9 Player 9, bit 10 Missile 0, bit 11 Missile 1, bit 12 Ball): the low 8 bits are the seventh value, the others the
-//   bits 1 to 5 of the eighth, whose bit 0 is the kind. The names of the triggers (for the "trigger fired" block) are kept beside the values.
+//   bits 1 to 5 of the eighth, whose bit 0 is the kind. The names of the triggers (for the "trigger fired" block) are kept beside the values,
+//   and so is what each trigger calls when it fires (triggerCalls: null, or {type: 'subroutine' or 'function', name, args: the numbers given to
+//   the arguments of a Function}).
 //
 //   object:  0 to 9 Player 0 to 9, 10 Missile 0, 11 Missile 1, 12 the Ball
 //   x, y:    what the sprite's X and Y blocks take (the same numbers as "Player 0 set X to"), 0 to 255
@@ -115,7 +117,17 @@ export const newSceneTrigger = (name, config) => ({
   targetY: 50,
   targetScene: 0,
   mask: triggerObjectsOf(config).reduce((mask, object) => mask | (1 << object), 0),
+  call: null,
 });
+
+// What a trigger calls when it fires, as the card keeps it (null: nothing).
+const triggerCallOf = (call) => (call && typeof call === 'object' ? {
+  type: call.type === 'function' ? 'function' : 'subroutine',
+  name: String(call.name || ''),
+  args: (Array.isArray(call.args) ? call.args : []).map((value) => clampByte(value)),
+} : null);
+// The calls of the triggers of a scene, as the card keeps them beside the values.
+export const triggerCallsOf = (triggers) => (triggers || []).map((trigger) => triggerCallOf(trigger.call));
 
 // The objects a trigger's list of sprites offers: every sprite the project has.
 export const triggerObjectsOf = (config) => availableSceneObjects(config).filter((object) => object <= SCENE_TRIGGER_OBJECT_LIMIT);
@@ -126,8 +138,8 @@ export const sceneHasTriggerExtra = (triggers) => (triggers || []).some((trigger
 
 export const isSceneTable = (table) => !!(table && table.scene);
 
-// The scene a Data table's values hold. names: the names of its triggers (kept beside the values).
-export const decodeScene = (values, names = []) => {
+// The scene a Data table's values hold. names: the names of its triggers, calls: what they call (both kept beside the values).
+export const decodeScene = (values, names = [], calls = []) => {
   const list = Array.isArray(values) ? values : [];
   const count = Math.min(Math.max(0, clampByte(list[2])), Math.floor((list.length - SCENE_RECORD_SIZE) / SCENE_RECORD_SIZE));
   const triggerCount = Math.min(Math.max(0, clampByte(list[3])),
@@ -148,6 +160,7 @@ export const decodeScene = (values, names = []) => {
       targetY: kind === SCENE_TRIGGER_MOVE ? clampByte(list[at + 5]) : 50,
       targetScene: kind === SCENE_TRIGGER_LOAD ? clampByte(list[at + 4]) : 0,
       mask: clampByte(list[at + 6]) | ((flags >> 1) & 31) << 8,
+      call: triggerCallOf(calls && calls[i]),
     });
   }
   const offsetCount = Math.min(Math.max(0, clampByte(list[4])),
@@ -214,6 +227,50 @@ export const encodeScene = ({background, objects, triggers = [], offsets = []}) 
 
 // The names of the triggers of a scene, as the card keeps them.
 export const triggerNamesOf = (triggers) => triggers.map((trigger) => trigger.name);
+
+const elementChildren = (node, tag) => [...node.children].filter((child) => child.tagName === tag);
+const fieldOf = (node, name) => {
+  const field = elementChildren(node, 'field').find((candidate) => candidate.getAttribute('name') === name);
+  return field ? field.textContent : '';
+};
+// What a trigger can call: the Subroutine and the Function blocks of the Blocks tab (not the turned off ones), and for each Function the number of
+// arguments it reads (its highest "Function argument"). workspace: the Blocks tab's XML, as text or as the DOM Blockly reads.
+export const triggerCallTargetsOf = (workspace) => {
+  const targets = {subroutines: [], functions: []};
+  let dom = workspace;
+  if (typeof workspace === 'string') {
+    if (!workspace || workspace === 'null') return targets;
+    dom = new DOMParser().parseFromString(workspace, 'text/xml').documentElement;
+  }
+  if (!dom || !dom.querySelectorAll || dom.getElementsByTagName('parsererror').length) return targets;
+  const on = (node) => node.getAttribute('disabled') !== 'true' && !node.getAttribute('disabled-reasons');
+  dom.querySelectorAll('block[type="subroutine_define"]').forEach((node) => {
+    const name = fieldOf(node, 'NAME');
+    if (name && on(node) && !targets.subroutines.includes(name)) targets.subroutines.push(name);
+  });
+  dom.querySelectorAll('block[type="function_define"]').forEach((node) => {
+    const name = fieldOf(node, 'NAME');
+    if (!name || !on(node) || targets.functions.some((fn) => fn.name === name)) return;
+    const params = [...node.querySelectorAll('block[type="function_param_get"]')].reduce((most, param) => Math.max(most, Number(fieldOf(param, 'INDEX')) || 0), 0);
+    targets.functions.push({name, params});
+  });
+  return targets;
+};
+// The block (as XML text) a trigger's call becomes, or '' when it calls nothing the Blocks tab has.
+const triggerCallXml = (call, targets) => {
+  if (!call || !call.name) return '';
+  if (call.type === 'subroutine') {
+    return targets.subroutines.includes(call.name) ? `<block type="subroutine_call"><field name="NAME">${xmlText(call.name)}</field></block>` : '';
+  }
+  const fn = targets.functions.find((candidate) => candidate.name === call.name);
+  if (!fn) return '';
+  const args = Array.from({length: fn.params}, (_, i) =>
+    `<value name="ARG${i + 1}"><block type="math_number"><field name="NUM">${clampByte((call.args || [])[i])}</field></block></value>`).join('');
+  return `<block type="function_call_statement"><field name="NAME">${xmlText(call.name)}</field>${args}</block>`;
+};
+// Whether a trigger of the scenes calls something the Blocks tab has (the triggers are then worked with no "On trigger" block in the project).
+const sceneTablesCallOnTrigger = (tables, targets) => (tables || []).some((table) => isSceneTable(table) &&
+  decodeScene(table.values, table.triggerNames, table.triggerCalls).triggers.some((trigger) => triggerCallXml(trigger.call, targets)));
 
 const number = (value) => `<shadow type="math_number"><field name="NUM">${Math.round(value)}</field></shadow>`;
 const chain = (blocks) => blocks.reduceRight((next, block) => (next ? block.replace(/<\/block>$/, `<next>${next}</next></block>`) : block), '');
@@ -284,23 +341,31 @@ const offsetBlocksXml = (offsets) => offsets.map((offset) => {
 
 // The "Gameplay update" event that works the triggers of the scenes (as XML text): every frame the fired bits are put back to 0, and then each
 // trigger is looked at (see generators/bbasic/triggers.js). What a trigger does by itself (moving the sprite that touched it, setting up a scene:
-// the kind it has on its card) is not worked yet: a trigger only fires, and the blocks of the project ("On trigger", "Trigger fired") act for it.
-// '' when no scene has a trigger.
-const xmlText = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-export const triggerEventXml = (tables, config = {}, withTriggers = true) => {
+// the kind it has on its card) is not worked yet: a trigger fires, calls the Subroutine or the Function its card names (targets: what the Blocks tab
+// has, see triggerCallTargetsOf), and the blocks of the project ("On trigger", "Trigger fired") act for it. '' when no scene has a trigger.
+/**
+ * @param {*} text
+ * @return {string} The text with the characters XML takes as markup escaped.
+ */
+function xmlText(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+export const triggerEventXml = (tables, config = {}, withTriggers = true, targets = {subroutines: [], functions: []}) => {
   const checks = [];
   const offsetBlocks = [];
   (tables || []).filter(isSceneTable).forEach((table) => {
-    const scene = decodeScene(table.values, table.triggerNames);
+    const scene = decodeScene(table.values, table.triggerNames, table.triggerCalls);
     const areas = offsetBlocksXml(scene.offsets);
     if (areas.length) offsetBlocks.push(`<block type="scene_active_if"><field name="SCENE">${table.id}</field><statement name="DO">${chain(areas)}</statement></block>`);
     if (!withTriggers) return;
     scene.triggers.forEach((trigger, index) => {
       const sprites = triggerSpritesOf(config, trigger.mask).map(sceneObjectName);
       if (!sprites.length) return;
+      const call = triggerCallXml(trigger.call, targets);
       checks.push(`<block type="trigger_check"><field name="KEY">${table.id}:${index}</field><field name="NAME">${xmlText(trigger.name)}</field>` +
         `<field name="SCENE">${table.id}</field><field name="SPRITES">${sprites.join(',')}</field><field name="LEFT">${trigger.left}</field>` +
-        `<field name="TOP">${trigger.top}</field><field name="WIDTH">${trigger.width}</field><field name="HEIGHT">${trigger.height}</field></block>`);
+        `<field name="TOP">${trigger.top}</field><field name="WIDTH">${trigger.width}</field><field name="HEIGHT">${trigger.height}</field>` +
+        (call ? `<statement name="DO">${call}</statement>` : '') + '</block>');
     });
   });
   if (!checks.length && !offsetBlocks.length) return '';
@@ -309,7 +374,6 @@ export const triggerEventXml = (tables, config = {}, withTriggers = true) => {
 };
 
 const parse = (xml, Blockly) => Blockly.utils.xml.textToDom(`<xml xmlns="https://developers.google.com/blockly/xml">${xml}</xml>`).firstElementChild;
-const elementChildren = (node, tag) => [...node.children].filter((child) => child.tagName === tag);
 const lastOfChain = (block) => {
   let current = block;
   for (;;) {
@@ -325,8 +389,10 @@ const lastOfChain = (block) => {
 // tables: the Data tables of the project.
 export const expandSceneBlocks = (dom, tables, Blockly, config = {}) => {
   const sceneTables = new Map((tables || []).filter(isSceneTable).map((table) => [`${table.id}`, table]));
-  // The triggers are only worked when a block of the project uses one ("On trigger", "Trigger fired").
-  const triggers = sceneTablesHaveTriggers(tables) && !!dom.querySelector('block[type^="trigger_on"], block[type^="trigger_fired"]');
+  // The triggers are only worked when a block of the project uses one ("On trigger", "Trigger fired"), or one calls a Subroutine or a Function.
+  const targets = triggerCallTargetsOf(dom);
+  const triggers = sceneTablesHaveTriggers(tables) &&
+    (!!dom.querySelector('block[type^="trigger_on"], block[type^="trigger_fired"]') || sceneTablesCallOnTrigger(tables, targets));
   // The offset areas of the scenes work whenever a scene is set up.
   const offsets = sceneTablesHaveOffsets(tables);
   const usesScenes = !!dom.querySelector('block[type="scene_set"], block[type="scene_set_by_id"]');
@@ -371,7 +437,7 @@ export const expandSceneBlocks = (dom, tables, Blockly, config = {}) => {
   });
   // The triggers of the scenes work from an event that is added for them.
   if ((triggers || offsets) && usesScenes) {
-    const eventXml = triggerEventXml(tables, config, triggers);
+    const eventXml = triggerEventXml(tables, config, triggers, targets);
     if (eventXml) dom.appendChild(parse(eventXml, Blockly));
   }
 };

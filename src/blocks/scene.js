@@ -91,6 +91,8 @@ Blockly.Blocks['trigger_check'] = {
         .appendField(new Blockly.FieldNumber(0, 0, 255, 1), 'TOP')
         .appendField(new Blockly.FieldNumber(1, 1, 255, 1), 'WIDTH')
         .appendField(new Blockly.FieldNumber(1, 1, 255, 1), 'HEIGHT');
+    // What the trigger calls when it fires (the Subroutine or the Function its card names).
+    this.appendStatementInput('DO');
     this.setPreviousStatement(true, null);
     this.setNextStatement(true, null);
     this.setColour(SCENE_COLOR);

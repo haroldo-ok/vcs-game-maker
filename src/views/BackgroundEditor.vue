@@ -58,7 +58,7 @@
               icon="mdi-view-grid-outline"
               label="Tiles"
               title-on="Hide the playfield tiles"
-              title-off="Show the playfield tiles: a box round each tile (8 pixels wide) with its number, the number the Set playfield tile block takes"
+              title-off="Show the playfield tiles: a box round each tile (8 pixels wide, or 4 with 4-pixel tiles) with its number, the number the Set playfield tile block takes"
             />
           </template>
           <template v-slot:after-tools>
@@ -164,7 +164,7 @@
             >
               <v-icon>{{ isTilesCollapsed(tilesEntry) ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
             </v-btn>
-            <span class="text-subtitle-1">Tiles</span>
+            <span class="text-subtitle-1">Tiles (beta 0.5)</span>
           </div>
           <div v-if="!isTilesCollapsed(tilesEntry)" class="option-section-content">
             <p class="v-messages theme--light v-messages__message">
@@ -224,6 +224,15 @@
                       hide-details
                       dense
                       class="make-tiles-replace"
+                    />
+                    <v-checkbox
+                      v-model="makeTilesNarrow"
+                      label="Try 4-pixel tiles"
+                      title="Also works out the tiles 4 pixels wide (8 to a row), and makes them so when they take fewer bytes than the tile width above"
+                      :disabled="makeTilesSizeLocked"
+                      hide-details
+                      dense
+                      class="make-tiles-narrow"
                     />
                     <p v-if="makeTilesSizeLocked" class="v-messages theme--light v-messages__message make-tiles-hint">
                       The tiles there are keep their size: tick Replace existing tiles to choose another.
@@ -793,7 +802,8 @@ import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor, dpcPlusRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
 import {isPxe, pfWidthOf} from '../utils/pxe';
-import {DEFAULT_TILE_ROWS, MAX_TILE_ROWS, planStandardTilemap, planTilemap, tileAt, tileSetHeight, tileSetWidth, TILE_FLIP_BIT, TILE_WIDTHS} from '../generators/bbasic/pf-tiles';
+import {DEFAULT_TILE_ROWS, MAX_TILE_ROWS, NARROW_ARM_EXTRA_BYTES, NARROW_TILE_WIDTH, planStandardTilemap, planTilemap, standardTileCodeBytes, tileAt, tileColumnsOf,
+  tileSetHeight, tileSetWidth, tileUnitOf, TILE_FLIP_BIT, TILE_WIDTHS} from '../generators/bbasic/pf-tiles';
 import {bestTileHeight, cellPixels, flipRows, mapOfPixels, pixelsOfMap, samePixels, tileableBackgrounds} from '../utils/tilemap-edit';
 import {rowColorsForMove} from '../utils/row-color-move';
 import {CLOCK_ASPECT_PER_LINE_PAIR} from '../utils/pixel-aspect';
@@ -934,6 +944,7 @@ export default defineComponent({
     const makeTilesReplace = ref(false);
     const makeTilesWidth = ref(8);
     const makeTilesHeight = ref('best');
+    const makeTilesNarrow = ref(false);
     const makeTilesHeightItems = [{text: 'Best (fewest bytes)', value: 'best'},
       ...Array.from({length: MAX_TILE_ROWS}, (_, i) => ({text: `${i + 1} row${i ? 's' : ''}`, value: i + 1}))];
     const makeTilesSizeLocked = computed(() => tileSet.value.tiles.length > 0 && !makeTilesReplace.value);
@@ -943,14 +954,41 @@ export default defineComponent({
       makeTilesHeight.value = tileSet.value.tiles.length ? tileRows.value : 'best';
       makeTilesVisible.value = true;
     };
+    // The bytes the backgrounds take as tiles of a width (4, or 8 for 8, 16 and 32: the build's tiles are 8 wide then) at a height (0: the one
+    // with the fewest), as the build of the kernel keeps them, with what its program takes more for 4-pixel tiles: {bytes, height}, or null.
+    const tileCostOf = (width, height) => {
+      const backgrounds = tileableBackgrounds(state.value.backgrounds);
+      const unit = width === NARROW_TILE_WIDTH ? NARROW_TILE_WIDTH : 8;
+      if (tilesStandard.value) {
+        const plan = planStandardTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels})), unit, height);
+        return plan ? {bytes: plan.bytes + standardTileCodeBytes(plan), height: plan.height} : null;
+      }
+      const plan = planTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels, fill: background.pixels.length})),
+          {width: unit, tiles: []}, height);
+      return plan ? {bytes: plan.bytes + (unit === NARROW_TILE_WIDTH ? NARROW_ARM_EXTRA_BYTES : 0), height: plan.height} : null;
+    };
     const handleMakeTiles = () => {
       const replace = makeTilesReplace.value || !tileSet.value.tiles.length;
-      const width = replace && TILE_WIDTHS.includes(makeTilesWidth.value) ? makeTilesWidth.value : tileWidthPx.value;
+      let width = replace && TILE_WIDTHS.includes(makeTilesWidth.value) ? makeTilesWidth.value : tileWidthPx.value;
       const chosen = Number(makeTilesHeight.value);
-      const height = !replace ? tileRows.value :
-        (chosen >= 1 && chosen <= MAX_TILE_ROWS ? chosen : (bestTileHeight(state.value.backgrounds) || DEFAULT_TILE_ROWS));
+      const fixedHeight = chosen >= 1 && chosen <= MAX_TILE_ROWS ? chosen : 0;
+      let height = !replace ? tileRows.value : (fixedHeight || (bestTileHeight(state.value.backgrounds) || DEFAULT_TILE_ROWS));
+      // Try 4-pixel tiles: made 4 pixels wide instead when that takes fewer bytes (at its best height when the height is Best).
+      let narrowNote = '';
+      if (replace && makeTilesNarrow.value && width !== NARROW_TILE_WIDTH) {
+        const wide = tileCostOf(width, fixedHeight);
+        const narrow = tileCostOf(NARROW_TILE_WIDTH, fixedHeight);
+        if (narrow && (!wide || narrow.bytes < wide.bytes)) {
+          narrowNote = ` 4-pixel tiles take about ${narrow.bytes} bytes, ${width}-pixel tiles ${wide ? wide.bytes : 'more'}: the tiles are 4 pixels wide.`;
+          width = NARROW_TILE_WIDTH;
+          height = narrow.height;
+        } else if (narrow) {
+          narrowNote = ` 4-pixel tiles would take about ${narrow.bytes} bytes, ${width}-pixel tiles ${wide.bytes}: the tiles are ${width} pixels wide.`;
+        }
+      }
       makeTilesVisible.value = false;
       handleConvertToTileNumbers(width, height, replace);
+      if (narrowNote) tilesMessage.value += narrowNote;
     };
     const handleConvertToTileNumbers = (width, height, replace) => {
       const beforeTiles = tileSnapshot();
@@ -1050,7 +1088,7 @@ export default defineComponent({
       recordTiles(before, `mapped-${background.id}`);
     };
     const blankRows = (rows) => Array.from({length: rows}, () => new Array(tileWidthPx.value).fill(0));
-    // How wide a tile of the section is (8, 16 or 32 pixels).
+    // How wide a tile of the section is (8, 16 or 32 pixels, or 4 for 4-pixel tiles).
     const tileWidthPx = computed(() => tileSetWidth(tileSet.value));
     const tileRows = computed({
       get: () => tileSetHeight(tileSet.value),
@@ -1155,7 +1193,9 @@ export default defineComponent({
     const tilemapNow = computed(() => {
       if (!tilemapOn.value || !showTiles.value) return null;
       const backgrounds = tileableBackgrounds((state.value && state.value.backgrounds) || []);
-      if (tilesStandard.value) return planStandardTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels})));
+      if (tilesStandard.value) {
+        return planStandardTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels})), tileUnitOf(tileSet.value));
+      }
       return planTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels, fill: background.pixels.length})), tileSet.value);
     });
     const tileGridFor = (background) => {
@@ -1176,11 +1216,14 @@ export default defineComponent({
       const built = lastTilemap.value && lastTilemap.value.byId[String(background.id)];
       if (!plan || (built && built.thin !== 1)) return null;
       const cellRows = Math.ceil(background.pixels.length / plan.height);
+      // (8 columns of 4 pixels with 4-pixel tiles.)
+      const columns = Array.from({length: tileColumnsOf(plan)}, (_, column) => column);
+      const width = 32 / columns.length;
       // No tiles yet (the Tiles section is empty): each cell a different number, counted along the rows.
       if (!tileSet.value.tiles.length) {
-        return {rows: plan.height, numbers: Array.from({length: cellRows}, (_, row) => [0, 1, 2, 3].map((column) => row * 4 + column))};
+        return {rows: plan.height, width, numbers: Array.from({length: cellRows}, (_, row) => columns.map((column) => row * columns.length + column))};
       }
-      return {rows: plan.height, numbers: Array.from({length: cellRows}, (_, row) => [0, 1, 2, 3].map((column) => {
+      return {rows: plan.height, width, numbers: Array.from({length: cellRows}, (_, row) => columns.map((column) => {
         const number = tileAt(plan, background.id, column, row);
         if (number === null) return '-';
         return plan.flipLayout && (number & TILE_FLIP_BIT) ? `${number & ~TILE_FLIP_BIT}\u2194` : number;
@@ -1906,7 +1949,7 @@ export default defineComponent({
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, tilemapOn, showTiles, tileGridFor, isTilesCollapsed, toggleTilesCollapsed, tilesEntry: {id: 'tiles'}, tileSet, tileRows, handleAddTile,
-      tilesMessage, mappedBackgroundCount, makeTilesVisible, makeTilesReplace, makeTilesWidth, makeTilesHeight, makeTilesHeightItems,
+      tilesMessage, mappedBackgroundCount, makeTilesVisible, makeTilesReplace, makeTilesWidth, makeTilesHeight, makeTilesHeightItems, makeTilesNarrow,
       makeTilesSizeLocked, openMakeTiles, handleMakeTiles, backToPixelsVisible, backToPixelsDeleteTiles, openBackToPixels, TILE_WIDTHS, MAX_TILE_ROWS, tileWidthPx, handleConvertToTileNumbers, handleConvertToPixels,
       handleDeleteTile, handleDuplicateTile, copiedTilePixels, handleCopyTile, handlePasteTile, handleTileInput, selectedTileId, selectedTileIds, deselectTile, handleSelectTile, tileDeleteQuestion,
       tileDragAttrs, tileDragCardClass, tileDragHandleListeners, tileDragTargetListeners, stampOn, setStampOn, stampFor, handleSelectBackgroundCard, handleDeselectCards, tileAspectRatio, tileCardStyle, tileZoom, tilesSheet, TILE_ZOOM_LEVELS, stampFlip, setStampFlip, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
@@ -1977,6 +2020,10 @@ export default defineComponent({
 .make-tiles-fields {
   display: flex;
   gap: 16px;
+}
+
+.make-tiles-narrow {
+  margin-top: 4px;
 }
 
 .make-tiles-replace {

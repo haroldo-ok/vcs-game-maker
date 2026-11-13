@@ -19,7 +19,7 @@ static u load(volatile b8 *p,u r)
   return conv((p[r]<<24)|(p[256+r]<<16)|(p[512+r]<<8)|p[768+r]);
 }
 
-// Built in a program for each set of functions a project needs (see offset-arm.js and the files of the prog folder): with and without -DGROUPS, and with any of the six sets of functions left out: -DNOOFFSET (the Playfield offset block), -DNOBOX (the playfield box test), -DNOCIRCLE (the circle block), -DNOPIX (the pixel finding and the bounce of the ball and the missiles), -DNOFIRE (the movement of an object a Fire block launched with the playfield check on), -DNOAUDIO (the DPC+ sound engine's waveform rebuild and volume mix) and -DNOTILES (the playfield tilemap)
+// Built in a program for each set of functions a project needs (see offset-arm.js and the files of the prog folder): with and without -DGROUPS, and with any of the six sets of functions left out: -DNOOFFSET (the Playfield offset block), -DNOBOX (the playfield box test), -DNOCIRCLE (the circle block), -DNOPIX (the pixel finding and the bounce of the ball and the missiles), -DNOFIRE (the movement of an object a Fire block launched with the playfield check on), -DNOAUDIO (the DPC+ sound engine's waveform rebuild and volume mix), -DNOTILES (the playfield tilemap), -DNONARROW (its 4-pixel tiles) and -DNORUNS (the backgrounds kept as runs)
 // too) for a project with groups of columns that have separate rows, which is a good deal bigger.
 // The numbers of the project's rows, put in by the generator in place of these: rows of a line = line * K[0] / 256, the last row K[1],
 // whether a line is held to 191 first K[2], whether the groups of columns have separate rows K[3]. Then each group (column byte) has its
@@ -288,9 +288,19 @@ static u pixel(volatile b8 *p,u c,u r)
 #endif
 
 #ifndef NOPIX
-// The column of an x (held to the playfield's 32) and the row of a line (held to the last row).
+// The column of an x (held to the playfield's 32) and the row of a line (held to the last row). The row is the line * inc / 256 (an inc of 0 is 256: rows of
+// one line, as with 192 rows, as 256 does not fit in the byte it is given in), or with div the line / inc (rows a whole number of lines that does not divide
+// 256, 3 or 6 lines for 64 or 32 rows: the 6502's division, which no inc gives for every line).
+static u rowat(u y,u inc,u div)
+{
+  u r=0;
+  y&=255;
+  if (!div||!inc) return (y*(inc?inc:256))>>8;
+  while (y>=inc) { y-=inc; r++; }
+  return r;
+}
 static u cellcol(u x,u off) { u c=((x-off)&255)>>2; return c>31?31:c; }
-static u cellrow(u y,u inc,u maxrow) { u r=((y&255)*inc)>>8; return r>maxrow?maxrow:r; }
+static u cellrow(u y,u inc,u maxrow,u div) { u r=rowat(y,inc,div); return r>maxrow?maxrow:r; }
 
 // The playfield pixel the ball or a missile has touched (the "Find playfield pixel collided with" block's routine of generators/bbasic/background.js) and
 // the direction it turns to on a bounce (the shared reflect routine of object_bounce in generators/bbasic/sprites.js), worked out here instead of
@@ -306,21 +316,22 @@ static u ystep(u dir,u steps) { return dir>=steps?0:YSTEP16[steps==16?dir:dir<<1
 static u more(u v,u last) { return v<last?v+1:v; }
 static u less(u v) { return v>0?v-1:v; }
 
-// C_function[1..9]: x, the top line, the height in lines (0 for none), the size bits ($30 mask), the direction, 8 or 16 directions, the last row,
+// C_function[1..9]: x, the top line, the height in lines (0 for none), the size bits ($30 mask), the direction, 8 or 16 directions (bit 7: the row is the line /
+// the increment, see rowat), the last row,
 // the column offset (x less this over 4 is the column), the row increment (a line * it / 256 is the row). Gives back the column and the row in [1] and [2].
 static void findpixel(volatile b8 *p)
 {
-  u x=CF[1],top=CF[2],height=CF[3],size=CF[4]&0x30,dir=CF[5],steps=CF[6],maxrow=CF[7],off=CF[8],inc=CF[9];
+  u x=CF[1],top=CF[2],height=CF[3],size=CF[4]&0x30,dir=CF[5],steps=CF[6]&0x7F,div=CF[6]&0x80,maxrow=CF[7],off=CF[8],inc=CF[9];
   u xs=xstep(dir,steps),ys=ystep(dir,steps);
   u col,right,row,bottom,cb,rb,w,t;
   col=cellcol(x,off);
   w=size==0?0:(size==0x10?1:(size==0x20?3:7));
   right=cellcol(x+w,off);
-  row=cellrow(top,inc,maxrow);
+  row=cellrow(top,inc,maxrow,div);
   bottom=row;
   if (height)
   {
-    t=(((top+height-1)&255)*inc)>>8;
+    t=rowat(top+height-1,inc,div);
     bottom=t>maxrow?maxrow:t;
     if (bottom<row) bottom=row;
   }
@@ -344,13 +355,13 @@ static void findpixel(volatile b8 *p)
 }
 
 // The whole of a Bounce block's frame (the stage code of object_bounce in generators/bbasic/sprites.js, with the reflect routine in it) for an object with a Fire
-// heading: C_function[1..10]: x, the top line, the direction, 8 or 16 directions, the last row, the column offset, the row increment, the stage byte, 1 for an object with Gravity and its fall speed. Gives back the
+// heading: C_function[1..10]: x, the top line, the direction, 8 or 16 directions (bit 7: the row is the line / the increment), the last row, the column offset, the row increment, the stage byte, 1 for an object with Gravity and its fall speed. Gives back the
 // direction and the stage byte in [1] and [2]. The first frame of a bounce turns the heading from the pixels around the cell the object is in: a straight vertical
 // heading flips the vertical, a straight horizontal one the horizontal, a diagonal one looks at the cells (stepping back out of the wall first when it is inside it)
 // and flips what they say was hit. The next ones wait, and the fourth gives up on the new heading and turns the old one right round.
 static void bouncepix(volatile b8 *p)
 {
-  u x=CF[1],top=CF[2],dir=CF[3],steps=CF[4],maxrow=CF[5],off=CF[6],inc=CF[7],stage=CF[8];
+  u x=CF[1],top=CF[2],dir=CF[3],steps=CF[4]&0x7F,div=CF[4]&0x80,maxrow=CF[5],off=CF[6],inc=CF[7],stage=CF[8];
   u half=steps>>1,col,row,t,xs,ys,left,up,mostly_y,flip,bcol,brow,mark=stage&48,grav=CF[9],gsp=CF[10];
   stage|=64;
   if (mark==16) { CF[1]=dir; CF[2]=(stage&207)|32; return; }
@@ -378,7 +389,7 @@ static void bouncepix(volatile b8 *p)
   {
     mostly_y=steps==16 && (dir==1||dir==7||dir==9||dir==15);
     col=cellcol(x,off);
-    row=cellrow(top,inc,maxrow);
+    row=cellrow(top,inc,maxrow,div);
     if (pixel(p,col,row))
     {
       // Inside a wall: the base is the cell just outside it, found by stepping back along the axis the object came in on.
@@ -386,8 +397,10 @@ static void bouncepix(volatile b8 *p)
       brow=up?more(row,maxrow):less(row);
       {
         // The pixel one step back along the heading says which way it came in: only the column changed, along x; only the row, along y.
-        u cx=(((x-off)&3)==(left?3:0));
-        if (cx) mostly_y=0;
+        // (Both or neither: the heading decides, as in the 6502's reflect.)
+        u cx=(((x-off)&3)==(left?3:0)),cy=rowat(top+(up?1:255),inc,div)!=row;
+        if (cx&&!cy) mostly_y=0;
+        else if (cy&&!cx) mostly_y=1;
       }
       {
         // (The cell with the row stepped back is tried first for a mostly vertical heading, the one with the column stepped back first otherwise.)
@@ -417,7 +430,8 @@ static void bouncepix(volatile b8 *p)
 #ifndef NOFIRE
 // The movement of an object a Fire block launched, for one frame (the "missilefire" code of generateMissileFireChecks in generators/bbasic/sprites.js, which
 // the 6502 does when this is not in the program): C_function[1..10]: x, y, the direction, the speed, the sixteenths kept (the halfway directions), the flags
-// (bit 0: 16 directions, bit 1: checks the playfield while it moves, bits 2 and 3: the top line is y + 1 (1) or y - 1 (2) for the cell it is in), the stage
+// (bit 0: 16 directions, bit 1: checks the playfield while it moves, bits 2 and 3: the top line is y + 1 (1) or y - 1 (2) for the cell it is in, bit 6: the
+// row is the line / the row increment, rows a whole number of lines that does not divide 256), the stage
 // byte of the Bounce (given back as it is), the column offset, the last
 // row, the row increment. Gives back x, y, the sixteenths kept and the stage byte in [1] to [4].
 // (Each step plus 2, for the tables are bytes: the coprocessor emulators have no signed loads.)
@@ -428,7 +442,10 @@ static const b8 DY16[16]={1,0,1,1,2,3,3,4,3,4,3,3,2,1,1,0};
 // 0 for a clear cell (or none), else 1 + a number of the lit cell: its column xor 8 times its row (different for neighbouring cells).
 static u lit(volatile b8 *p,u x,u y)
 {
-  u fl=CF[6],shift=(fl&4)?1:((fl&8)?255:0),col=((x-CF[8])&255)>>2,row=(((y+shift)&255)*CF[10])>>8;
+  u fl=CF[6],shift=(fl&4)?1:((fl&8)?255:0),inc=CF[10],col=((x-CF[8])&255)>>2,row=(y+shift)&255;
+  // (The row as rowat has it: an increment of 0 is 256, bit 6 divides.)
+  if ((fl&0x40)&&inc) { u r=0; while (row>=inc) { row-=inc; r++; } row=r; }
+  else row=(row*(inc?inc:256))>>8;
   if (col>31 || row>CF[9]) return 0;
   return pixel(p,col,row)?1+((col^(row<<3))&255):0;
 }
@@ -538,7 +555,8 @@ static void audiomix(void)
 // top, the scrolling memory). The map has 4 tile numbers a row (PF1L, PF2L, PF1R, PF2R); a tile is its rows' bytes one after the other, each as
 // drawn (its left pixel in bit 7): the PF2 columns (1 and 3) draw their bits the other way round, so a tile's bytes are reversed for them. With bit 7
 // of the rows of a tile set (flips), a tile number with bit 7 set is the tile of the low 7 bits flipped left to right: its bytes are reversed the other
-// way. (Nothing is kept between calls: the program is in the ROM.)
+// way. With bit 6 of it set the tiles are 4 pixels wide: the map has 8 tile numbers a row, a tile row is half a byte (two a byte, the first in the high
+// half; tile n's row k is half n*h+k), and a column byte is its two tiles side by side. (Nothing is kept between calls: the program is in the ROM.)
 static const b8 *rom(u lo,u hi) { return (const b8 *)(0xC00+(hi<<8)+lo); }
 static u rev8(u v)
 {
@@ -546,14 +564,38 @@ static u rev8(u v)
   v=((v>>2)&0x33)|((v&0x33)<<2);
   return ((v>>4)|(v<<4))&0xFF;
 }
+#ifndef NONARROW
+// (The 4-pixel tiles are in the programs with n, see build.sh: the others are the same as before them.)
+// Row k of the tile of map entry n of a description (a byte as drawn, its left pixel in bit 7; with 4-pixel tiles half a byte, its left pixel in
+// bit 3), flipped left to right when the entry says so.
+static u __attribute__((noinline)) tilerow(const b8 *d,u n,u k)
+{
+  const b8 *tiles=rom(d[2],d[3]);
+  u f=(d[4]&0x80)&&(n&0x80),i,v;
+  if (f) n&=0x7F;
+  i=n*(d[4]&0x3F)+k;
+  if (d[4]&0x40)
+  {
+    v=tiles[i>>1];
+    v=(i&1)?(v&15):(v>>4);
+    return f?(rev8(v)>>4):v;
+  }
+  v=tiles[i];
+  return f?rev8(v):v;
+}
+#endif
 
 // Function 106, a whole background: CF[1] and CF[2] = the address of its description.
 static void tilesload(volatile b8 *p)
 {
   const b8 *d=rom(CF[1],CF[2]);
   const b8 *map=rom(d[0],d[1]);
+#ifdef NONARROW
   const b8 *tiles=rom(d[2],d[3]);
   u h=d[4]&0x7F,flips=d[4]&0x80,maprows=d[5],total=d[6]?d[6]:maprows*h;
+#else
+  u h=d[4]&0x3F,narrow=d[4]&0x40,maprows=d[5],total=d[6]?d[6]:maprows*h;
+#endif
   u c;
   for (c=0;c<4;c++)
   {
@@ -561,26 +603,82 @@ static void tilesload(volatile b8 *p)
     u r,k=0,m=0;
     for (r=0;r<total;r++)
     {
+#ifdef NONARROW
       u n=map[(m<<2)+c],f=c&1,v;
       if (flips&&(n&0x80)) { n&=0x7F; f^=1; }
       v=tiles[n*h+k];
       dst[r]=f?rev8(v):v;
+#else
+      u v;
+      if (narrow)
+      {
+        const b8 *e=map+(m<<3)+(c<<1);
+        v=(tilerow(d,e[0],k)<<4)|tilerow(d,e[1],k);
+      }
+      else v=tilerow(d,map[(m<<2)+c],k);
+      dst[r]=(c&1)?rev8(v):v;
+#endif
       if (++k==h) { k=0; if (++m==maprows) m=0; }
     }
   }
 }
 
 // Functions 108 to 111, one tile in column 0 to 3: CF[1] and CF[2] = the address of a description with the tiles, CF[3] = the tile, CF[4] = the row of
-// the memory its first row goes in (the rows after it wrap round the 256 of the queue).
+// the memory its first row goes in (the rows after it wrap round the 256 of the queue); with 4-pixel tiles CF[5] = the half of the column (0 left, 1
+// right), the other half kept.
 static void tileset(volatile b8 *p,u column)
 {
   const b8 *d=rom(CF[1],CF[2]);
+#ifdef NONARROW
   u h=d[4]&0x7F,n=CF[3],f=column&1,k;
   const b8 *src;
   volatile b8 *dst=p+(column<<8);
   if ((d[4]&0x80)&&(n&0x80)) { n&=0x7F; f^=1; }
   src=rom(d[2],d[3])+n*h;
   for (k=0;k<h;k++) dst[(CF[4]+k)&255]=f?rev8(src[k]):src[k];
+#else
+  u h=d[4]&0x3F,keep=0,shift=0,k;
+  volatile b8 *dst=p+(column<<8);
+  if (d[4]&0x40)
+  {
+    if (CF[5]&1) keep=0xF0; else { keep=0x0F; shift=4; }
+    if (column&1) keep=rev8(keep);
+  }
+  for (k=0;k<h;k++)
+  {
+    volatile b8 *q=dst+((CF[4]+k)&255);
+    u v=tilerow(d,CF[3],k)<<shift;
+    *q=(*q&keep)|((column&1)?rev8(v):v);
+  }
+#endif
+}
+#endif
+
+#ifndef NORUNS
+// The backgrounds kept as runs (generators/bbasic/pf-tiles.js, planRuns), function 112: CF[1] and CF[2] = the address of a description (as the tilemap's
+// addresses are given): the address of the runs (low, high), the rows of the background, and the rows to fill (0: its rows once; more: its rows again from
+// the top, the scrolling memory). The runs are each column's (byte, count) pairs, one column after the other, the bytes as the queues have them.
+static const b8 *runrom(u lo,u hi) { return (const b8 *)(0xC00+(hi<<8)+lo); }
+static void runsload(volatile b8 *p)
+{
+  const b8 *d=runrom(CF[1],CF[2]);
+  const b8 *s=runrom(d[0],d[1]);
+  u rows=d[2],total=d[3]?d[3]:d[2],c;
+  for (c=0;c<4;c++)
+  {
+    volatile b8 *dst=p+(c<<8);
+    const b8 *start=s;
+    u r=0,k=0;
+    // (Each pass reads the column's runs to the end, so the next column starts after them; the rows past the ones to fill are not written.)
+    for (;;)
+    {
+      u v=s[0],n=s[1];
+      s+=2;
+      k+=n;
+      while (n--) { if (r<total) dst[r]=v; r++; }
+      if (k>=rows) { if (r>=total) break; s=start; k=0; }
+    }
+  }
 }
 #endif
 
@@ -609,6 +707,9 @@ void __attribute__((section(".text.entry"))) run(void)
 #ifndef NOAUDIO
   else if (op==104) audiowave();
   else if (op==105) audiomix();
+#endif
+#ifndef NORUNS
+  else if (op==112) runsload(p);
 #endif
 #ifndef NOTILES
   else if (op==106) tilesload(p);

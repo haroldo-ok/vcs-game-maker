@@ -40,7 +40,7 @@ import {DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, processBackgroundStorageDefault
   ROW_FADE_IDLE_STEP, rowFadeStartColor, multicolorFadeVarName,
   backgroundColorBgVarName, backgroundColorOffsetVarName, BACKGROUND_COLOR_SCROLL_SUBROUTINE_NAME, FADE_STEPS} from '../blocks/background';
 import {buildGroupRowsLoad, GROUP_ROWS_TABLE, ensureArmProgram} from './bbasic/offset-arm';
-import {chooseSpill, applySpill, remainingUses, mergeAdjacentReads} from './bbasic/spill';
+import {chooseSpill, applySpill, remainingUses, mergeAdjacentReads, displayRamSlotAddress, STACK_AREA} from './bbasic/spill';
 import {functionCallDiscardVarName, functionCallArgVarName, functionParamVarName,
   MAX_FUNCTION_ARGS, functionCallResultVarName, functionCallsOfStatement} from '../blocks/function';
 import {dataTableSymbolName, processDataTablesStorageDefaults} from '../blocks/data';
@@ -73,7 +73,8 @@ import {resolveAnimatedTitleScreenCardRefs, resolveAllTitleScreenCardRefs, resol
   titleCardBoxPf2VarName, titlePlayerIndexVarName, titlePlayerFrameVarName, setDrawnTitleScreenIds} from '../blocks/titlescreen';
 import {setBuiltTextStringIds} from '../blocks/text-strings';
 import {planTilemap, planStandardTilemap, standardScrollTileDataLines, standardScrollTileRowLines, standardTileLoadLines, standardTileRoutineLines,
-  STANDARD_SCROLL_TILE_CODE_BYTES, STANDARD_TILE_CALL_BYTES, STANDARD_TILE_CODE_BYTES, STANDARD_TILE_LOAD_NAME, STANDARD_PLAYFIELD_COPY_BYTES, tileLoadLines, tileDataLines, withoutTileData} from './bbasic/pf-tiles';
+  STANDARD_SCROLL_TILE_CODE_BYTES, STANDARD_TILE_CALL_BYTES, standardTileCodeBytes, STANDARD_TILE_LOAD_NAME, STANDARD_PLAYFIELD_COPY_BYTES, tileLoadLines, tileDataLines,
+  withoutTileData, NARROW_TILE_WIDTH, tileUnitOf, planRuns, runsLoadLines, runsDataLines, RUNS_ARM_BYTES, TILES_ARM_BYTES, NARROW_ARM_EXTRA_BYTES} from './bbasic/pf-tiles';
 import {registerDistanceAbsDiffSubroutine, registerKeypadPollSubroutine, generateJoystickDirection8Table,
   reserveJoystickDirection8DevVars, generateJoystickDirection8Checks,
   reserveJoystickButtonDevVars, reserveJoystickDoubleTapDevVars,
@@ -228,6 +229,8 @@ const MAX_EXTRA_READ_SCRATCH = 6;
 // and how many bytes of it there are for them: six areas of 128.
 const DISPLAY_RAM_VARIABLE_BLOCK_TYPES = ['variables_get', 'variables_set', 'math_change'];
 const DISPLAY_RAM_VAR_CAPACITY = 768;
+// The bytes of the DPC+ stack (USERSTACK - STACKbegin in DPCplusbB.h).
+const DPC_STACK_BYTES = 256;
 export const SUPERCHIP_VAR_END = 43;
 
 // DPC+'s own always-on bonus RAM pool - 9 plain zero-page bytes (var0-var8),
@@ -3598,6 +3601,14 @@ Blockly.BBasic.init = function(workspace) {
   // A variable the blocks only ever set to a plain number, and never read, change or pass on, is not kept: its setters make no code (see variables_set).
   const allUsedVariables = Blockly.Variables.allUsedVarModels(workspace);
   const readIds = new Set();
+  // The bit and nibble blocks pick a user variable in a dropdown (by its id, beside the built-in names: see generators/bbasic/bit.js), not in a variable
+  // field, so allUsedVarModels does not see it: a variable those blocks alone use is added here, and counted as read (a bit set keeps the other bits).
+  workspace.getAllBlocks(false).filter((block) => /^(bit|nibble)_(get|set)$/.test(block.type)).forEach((block) => {
+    const model = workspace.getVariableById(block.getFieldValue('VAR') || '');
+    if (!model) return;
+    if (!allUsedVariables.includes(model)) allUsedVariables.push(model);
+    readIds.add(model.getId());
+  });
   workspace.getAllBlocks(false).forEach((block) => {
     const literalSet = block.type === 'variables_set' && (() => {
       const target = block.getInputTargetBlock('VALUE');
@@ -3820,8 +3831,9 @@ Blockly.BBasic.init = function(workspace) {
   this.displayRamVars = new Map();
   Blockly.BBasic.displayRamVars = this.displayRamVars;
   this.spillPoolUsed = false;
+  this.displayRamSpillLayout(config, workspace);
   // (PXE keeps no variables in the display memory: the 6502 can not reach it there.)
-  if (this.spillPlan && config.kernel === 'dpcplus' && !isPxe(config) && !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127) {
+  if (this.spillPlan && this.displayRamSpillCapacity > 0) {
     // A variable of var0 to var8 (or of a freed sprite byte) that the plan sends to the display memory gives its byte to one of the letters' variables (not a run-once
     // byte, which keeps its place at the end, nor one a Title Screen variable shares): the same number of variables stay in the RAM, and the ones that go are the
     // ones the code uses least (see spillInternalVariables).
@@ -3836,7 +3848,7 @@ Blockly.BBasic.init = function(workspace) {
       return null;
     };
     [...this.spillPlan].forEach((name) => {
-      if (this.displayRamVars.size >= DISPLAY_RAM_VAR_CAPACITY) return;
+      if (this.displayRamVars.size >= this.displayRamSpillCapacity) return;
       // (Not a variable hosted in a Title Screen scratch byte: that byte is set back to 0 when gameplay starts.)
       for (const pool of [this.dpcPlusVars, this.dpcPlusSpriteVars]) {
         const p = pool.indexOf(name);
@@ -3845,26 +3857,25 @@ Blockly.BBasic.init = function(workspace) {
         if (moved === null) return;
         pool[p] = moved;
         this.spillPoolUsed = true;
-        this.displayRamVars.set(name, {area: 5 - Math.floor(this.displayRamVars.size / 128), byte: 127 - (this.displayRamVars.size % 128)});
+        this.displayRamVars.set(name, this.displayRamSlotOf(this.displayRamVars.size));
         return;
       }
       const i = defvars.indexOf(name);
       if (i === -1 && !spilledSystemVars.has(name)) return;
       if (i !== -1) defvars.splice(i, 1);
-      const index = this.displayRamVars.size;
-      this.displayRamVars.set(name, {area: 5 - Math.floor(index / 128), byte: 127 - (index % 128)});
+      this.displayRamVars.set(name, this.displayRamSlotOf(this.displayRamVars.size));
       if (i !== -1 && i < runOnceDefvarsStart) runOnceDefvarsStart--;
     });
   }
   // Only as many variables as the letters have no room for go in the display memory (a use of one costs code and cycles), the ones the
   // blocks use least first. (A variable that is used by a block that needs it in a letter never goes there: see displayRamEligibleNames.)
-  if (config.kernel === 'dpcplus' && !isPxe(config) && !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127) {
+  if (this.displayRamSpillCapacity > 0) {
     const candidates = defvars.map((name, i) => ({name, i}))
         .filter(({name}) => this.displayRamEligibleNames.has(name) && !this.titleSharedSlots.some(({target}) => target === name))
         .sort((a, b) => ((this.userVarUseCounts.get(a.name) || 0) - (this.userVarUseCounts.get(b.name) || 0)) || (b.i - a.i));
     let over = defvars.length - availableLetters.length;
     const moving = new Set();
-    for (let k = 0; k < candidates.length && over > 0 && this.displayRamVars.size + moving.size < DISPLAY_RAM_VAR_CAPACITY; k++) {
+    for (let k = 0; k < candidates.length && over > 0 && this.displayRamVars.size + moving.size < this.displayRamSpillCapacity; k++) {
       moving.add(candidates[k].name);
       over--;
     }
@@ -3872,8 +3883,7 @@ Blockly.BBasic.init = function(workspace) {
     for (let i = defvars.length - 1; i >= 0; i--) {
       if (!moving.has(defvars[i])) continue;
       const [name] = defvars.splice(i, 1);
-      const index = this.displayRamVars.size;
-      this.displayRamVars.set(name, {area: 5 - Math.floor(index / 128), byte: 127 - (index % 128)});
+      this.displayRamVars.set(name, this.displayRamSlotOf(this.displayRamVars.size));
       if (i < runOnceDefvarsStart) runOnceDefvarsStart--;
     }
   }
@@ -3912,7 +3922,7 @@ Blockly.BBasic.init = function(workspace) {
       sharedWith: sharedWithOf(name)}));
   // Where each variable that went in the display memory is, for the ROM capacity display (the same area and byte numbers the Display RAM blocks use).
   this.displayRamVarAssignments = [...this.displayRamVars].map(([name, {area, byte}]) =>
-    ({name, area, byte, slot: `Display RAM area ${area + 1}, byte ${byte}`, description: this.devVarDescriptions[name],
+    ({name, area, byte, slot: area === STACK_AREA ? `DPC+ stack byte ${byte}` : `Display RAM area ${area + 1}, byte ${byte}`, description: this.devVarDescriptions[name],
       isUserVariable: this.userVarNames.has(name), sharedWith: []}));
   this.dpcPlusVarsUsed = this.dpcPlusVars.length + this.dpcPlusSpriteVars.length;
   const dpcPlusVarsAvailableTotal = dpcPlusVarBudget + freedSpriteRam.length;
@@ -5190,7 +5200,9 @@ Blockly.BBasic.finish = function(code) {
     generatedBackgroundColorScrollTables,
     generatedSubroutines, generatedFunctions, generatedRelocatedEvents, generatedTextMinikernel,
     systemStartEvent, titleStartEvent, titleUpdateEvent, gamePlayStartEvent,
-    gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize, generatedTv, generatedScrollDefaults, generatedPlayerColorDefaults, generatedPlayerAnimationDefaults,
+    gameOverStartEvent, gameOverUpdateEvent, generatedProjectInfo, generatedConfiguration, generatedRomSize, generatedTv, generatedScrollDefaults,
+    // (With the starting colors of the sprites that share animation code, see generateAnimations.)
+    generatedPlayerColorDefaults: [generatedPlayerColorDefaults, ...(Blockly.BBasic.sharedColorStarts || [])].filter(Boolean).join('\n'), generatedPlayerAnimationDefaults,
     generatedFrameCounterTick, generatedBackdropDefaults, defaultPlayfieldColor, defaultBackgroundColor, defaultInitialBackgroundColor, defaultScoreColor, scoreBarColorInit, scoreBarColorFollow,
     defaultPlayer0Y, defaultPlayer1Y,
     generatedSystemDims,
@@ -5249,16 +5261,46 @@ Blockly.BBasic.finish = function(code) {
 Blockly.BBasic.generateDisplayRamVarClears = function() {
   const count = this.displayRamVars ? this.displayRamVars.size : 0;
   if (!count) return '';
-  const tables = ['PF1L', 'PF2L', 'PF1R', 'PF2R', 'PFCOLS', 'BKCOLS'];
+  // (The places of each area are bytes one after the other, see displayRamSlotOf: each area's are cleared from its lowest.)
+  const areas = new Map();
+  [...this.displayRamVars.values()].forEach(({area, byte}) => {
+    const range = areas.get(area) || {low: byte, high: byte};
+    areas.set(area, {low: Math.min(range.low, byte), high: Math.max(range.high, byte)});
+  });
   const lines = [];
-  for (let step = 0; step * 128 < count; step++) {
-    const bytes = Math.min(128, count - step * 128);
-    const table = tables[5 - step];
-    lines.push(' asm', ` lda #<(${table}+${128 - bytes + 128})`, ' sta DF6LOW', ` lda #(>(${table}+${128 - bytes + 128})) & $0F`, ' sta DF6HI',
-        'end', ` temp1 = ${bytes}`, `_displayramclear_${step}`, ' asm', ' ldx #0', ' stx DF6WRITE', 'end', ' temp1 = temp1 - 1',
+  [...areas].forEach(([area, {low, high}], step) => {
+    const address = displayRamSlotAddress({area, byte: low});
+    lines.push(' asm', ` lda #<(${address})`, ' sta DF6LOW', ` lda #(>(${address})) & $0F`, ' sta DF6HI',
+        'end', ` temp1 = ${high - low + 1}`, `_displayramclear_${step}`, ' asm', ' ldx #0', ' stx DF6WRITE', 'end', ' temp1 = temp1 - 1',
         ` if temp1 > 0 then goto _displayramclear_${step}`);
-  }
+  });
   return lines.join('\n') + '\n';
+};
+
+// Where variables can go in the display memory (DPC+, not PXE): first the DPC+ stack's 256 bytes, which no playfield or color row reaches, from its top
+// down, less a part at its bottom for the pushes (the build's: the Function arguments a function keeps while it calls another, a byte over the box test;
+// and the push, pull and keep safe blocks of the project); none of them when the project sets the stack's position itself (its pushes can then be
+// anywhere). Then, with at most 127 playfield rows and no scrolling background, the upper halves of the six tables (768 bytes).
+// Sets displayRamSpillCapacity and displayRamStackBytes.
+Blockly.BBasic.displayRamSpillLayout = function(config, workspace) {
+  this.displayRamStackBytes = 0;
+  this.displayRamTablesFree = false;
+  this.displayRamSpillCapacity = 0;
+  if (!config || config.kernel !== 'dpcplus' || isPxe(config)) return;
+  const blocks = workspace ? workspace.getAllBlocks(false).filter((block) => block.isEnabled()) : [];
+  const positioned = blocks.some((block) => block.type === 'variables_stack_position');
+  const pushes = blocks.filter((block) => /^variables_(push|keep_safe)$/.test(block.type)).length;
+  // (The build's pushes are a few bytes deep; each push block of the project may be inside another, so 8 for each, at least 32 in all.)
+  this.displayRamStackBytes = positioned ? 0 : Math.max(0, DPC_STACK_BYTES - Math.min(DPC_STACK_BYTES, 32 + pushes * 8));
+  this.displayRamTablesFree = !this.dpcPlusScroll && dpcPlusPfresOf(config) <= 127;
+  this.displayRamSpillCapacity = this.displayRamStackBytes + (this.displayRamTablesFree ? DISPLAY_RAM_VAR_CAPACITY : 0);
+};
+// The place of the variable number `index` in the display memory (see displayRamSpillLayout): the stack's bytes first, then the tables' from the last
+// table's top byte down.
+Blockly.BBasic.displayRamSlotOf = function(index) {
+  if (index < this.displayRamStackBytes) return {area: STACK_AREA, byte: index};
+  const rest = index - this.displayRamStackBytes;
+  return {area: 5 - Math.floor(rest / 128), byte: 127 - (rest % 128)};
 };
 
 // The NUSIZ line of a player 2 to 9 (16 on PXE): its copies and flip from its size byte, and the edge masking where a block asks for it.
@@ -7385,17 +7427,33 @@ Blockly.BBasic.generateBackgrounds = function() {
   if (tilemap && tilemap.standard) {
     // The standard kernel: the routine that builds a background from its tiles and the data, a subroutine each background's load calls.
     this.subroutines[STANDARD_TILE_LOAD_NAME] = asSubroutineBody(standardTileRoutineLines(tilemap, tilemap.writeBase, tilemap.memoryRows).join('\n'));
-    appendCompileLogOnce(`The backgrounds are kept as tiles: ${tilemap.tiles.length} different tiles of ${tilemap.height} row${tilemap.height === 1 ? '' : 's'}, ` +
+    appendCompileLogOnce(`The backgrounds are kept as tiles: ${tilemap.tiles.length} different ${narrowTilesNote(tilemap)}tiles of ${tilemap.height} row${tilemap.height === 1 ? '' : 's'}, ` +
       `${tilemap.tileBytes} bytes with the routine that builds them (the rows took ${tilemap.rowBytes}).`, 'info');
+  } else if (tilemap && tilemap.runs) {
+    // The backgrounds kept as runs: the coprocessor's run function and the data (moved into the graphics bank as the tiles' is).
+    this.pfTilesArm = true;
+    ensureArmProgram(Blockly, undefined, 'r');
+    this.subroutines[PF_TILE_DATA_NAME] = asSubroutineBody([' return', ...runsDataLines(tilemap)].join('\n'));
+    appendCompileLogOnce(`The backgrounds are kept as runs of rows: ${tilemap.bytes} bytes in the graphics bank and ${RUNS_ARM_BYTES} in the coprocessor's ` +
+      `program (the rows took ${tilemap.rawBytes}).`, 'info');
   } else if (tilemap) {
     this.pfTilesArm = true;
-    ensureArmProgram(Blockly, undefined, 't');
+    // (n: the program that also reads 4-pixel tiles.)
+    ensureArmProgram(Blockly, undefined, tilemap.unit === NARROW_TILE_WIDTH ? 'tn' : 't');
     // The data is a separate subroutine that nothing calls (after its return), moved into the graphics bank after the compile.
     this.subroutines[PF_TILE_DATA_NAME] = asSubroutineBody([' return', ...tileDataLines(tilemap)].join('\n'));
-    appendCompileLogOnce(`The backgrounds are kept as tiles: ${tilemap.tiles.length} different tiles of ${tilemap.height} row${tilemap.height === 1 ? '' : 's'}${tilemap.flips ? ' (some used flipped left to right)' : ''}, ` +
+    appendCompileLogOnce(`The backgrounds are kept as tiles: ${tilemap.tiles.length} different ${narrowTilesNote(tilemap)}tiles of ${tilemap.height} row${tilemap.height === 1 ? '' : 's'}${tilemap.flips ? ' (some used flipped left to right)' : ''}, ` +
       `${tilemap.bytes} bytes in the graphics bank (the rows took ${tilemap.rawBytes}).`, 'info');
+  } else if (this.pfTilemapDpcKept) {
+    const kept = this.pfTilemapDpcKept;
+    appendCompileLogOnce(`The backgrounds are loaded as rows, not tiles: with the coprocessor's part for them the tiles would take ${kept.tileBytes} bytes, ` +
+      `as rows ${kept.rowBytes}.${this.pfRunsKept ? ` As runs ${this.pfRunsKept.runBytes}.` : ''}`, 'info');
   } else if (dpcPlusDrawsAllRows && !isPxe(config) && config.dpcPlusTilemap) {
     appendCompileLogOnce('The backgrounds could not be kept as tiles (more than 256 different tiles, or a background taller than the playfield memory): they are loaded as rows.', 'warning');
+  } else if (this.pfRunsKept) {
+    const kept = this.pfRunsKept;
+    appendCompileLogOnce(`The backgrounds are not kept as runs: with the coprocessor's part for them they would take ${kept.runBytes} bytes, as rows ` +
+      `${kept.rowBytes}${kept.tileBytes !== null ? `, as tiles ${kept.tileBytes}` : ''}.`, 'info');
   } else if (!dpcPlusDrawsAllRows && config.dpcPlusTilemap && this.pfTilemapStandardKept) {
     appendCompileLogOnce(`The backgrounds are loaded as rows, not tiles: as tiles they would take ${this.pfTilemapStandardKept.tileBytes} bytes with the ` +
       `routine that builds them, as rows ${this.pfTilemapStandardKept.rowBytes}.`, 'info');
@@ -7450,7 +7508,8 @@ Blockly.BBasic.generateBackgrounds = function() {
     // "playfield:" block is never directly executed (skipped via "goto
     // manualdraw") and is used purely as a backing data source.
     const tileLoad = () => (tilemap.standard ? standardTileLoadLines(tilemap, id, Blockly.BBasic.bankJumpSuffix(
-        Blockly.BBasic.graphicsUnitBank(`background${id}`), Blockly.BBasic.getSubroutineBank(STANDARD_TILE_LOAD_NAME))) : tileLoadLines(tilemap, id));
+        Blockly.BBasic.graphicsUnitBank(`background${id}`), Blockly.BBasic.getSubroutineBank(STANDARD_TILE_LOAD_NAME))) :
+      tilemap.runs ? runsLoadLines(tilemap, id) : tileLoadLines(tilemap, id));
     const payloadLines = overflowUsed ? [] : (tilemap && tilemap.numbers.has(String(id))) ? tileLoad() : [
       ' playfield:',
       convertPlayfield(matrixToPlayfield((dpcPlusDrawsAllRows ? pixels : pixels.slice(0, drawnRows)))),
@@ -8082,12 +8141,14 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
   const scrollConfig = (configurationStorage && configurationStorage.value) || {};
   let tiles = null;
   if (scrollConfig.dpcPlusTilemap && !isPxe(scrollConfig) && scrollConfig.kernel !== 'dpcplus') {
-    const plan = planStandardTilemap(backgrounds.map(({id, pixels}) => ({id, pixels})));
+    // (Not 4-pixel tiles: a scroll step builds a row in the game's time, and a row of 4-pixel tiles takes about 150 cycles more, two lines, enough
+    // to start the picture late. The row routine reads a map row with Y, so a map is at most 256 tile numbers.)
+    const plan = this.bestStandardTilemap(backgrounds.map(({id, pixels}) => ({id, pixels})), () => STANDARD_SCROLL_TILE_CODE_BYTES, 256, false);
     const tileBytes = plan ? plan.bytes + STANDARD_SCROLL_TILE_CODE_BYTES : Infinity;
     const rowBytes = plan ? plan.rawBytes + backgrounds.length * STANDARD_PLAYFIELD_COPY_BYTES : 0;
     if (plan && tileBytes < rowBytes) {
       tiles = plan;
-      appendCompileLogOnce(`The backgrounds are kept as tiles: ${plan.tiles.length} different tiles of ${plan.height} row${plan.height === 1 ? '' : 's'}, ` +
+      appendCompileLogOnce(`The backgrounds are kept as tiles: ${plan.tiles.length} different ${narrowTilesNote(plan)}tiles of ${plan.height} row${plan.height === 1 ? '' : 's'}, ` +
         `${tileBytes} bytes with the routine that builds a row (the rows took ${rowBytes}).`, 'info');
     } else if (plan) {
       appendCompileLogOnce(`The backgrounds are loaded as rows, not tiles: as tiles they would take ${tileBytes} bytes with the routine ` +
@@ -8456,20 +8517,39 @@ Blockly.BBasic.generateBackgroundScrollPatch = function(backgrounds, visibleRows
     (tiles ? standardScrollTileDataLines(tiles).join('\n') : backgrounds.map(({pixels}) => buildTable(pixels)).join('\n\n'));
 };
 
+// The standard kernel's tiles of the backgrounds (planStandardTilemap): 8 pixels wide, or 4 when the Tiles section's tiles are (Playfield to tiles
+// made them so) and those take fewer bytes with their routines (codeBytes(plan)). mapLimit: the most tile numbers a map can have (0: any);
+// narrowAllowed false: 8 pixels wide only.
+Blockly.BBasic.bestStandardTilemap = function(backgrounds, codeBytes, mapLimit = 0, narrowAllowed = true) {
+  const fits = (plan) => !!plan && (!mapLimit || plan.maps.every(({map}) => map.length <= mapLimit));
+  const wide = planStandardTilemap(backgrounds);
+  const tileSet = ((this.getBackgroundsData() || {}).tileSet) || null;
+  const narrow = narrowAllowed && tileUnitOf(tileSet) === NARROW_TILE_WIDTH ? planStandardTilemap(backgrounds, NARROW_TILE_WIDTH) : null;
+  const cost = (plan) => plan.bytes + codeBytes(plan);
+  if (fits(narrow) && (!fits(wide) || cost(narrow) < cost(wide))) return narrow;
+  return fits(wide) ? wide : null;
+};
+// "4-pixel " for a plan of 4-pixel tiles (for the build log), otherwise ''.
+const narrowTilesNote = (plan) => (plan && plan.unit === NARROW_TILE_WIDTH ? '4-pixel ' : '');
+
 // The playfield tilemap of the backgrounds (the Options tab's "Keep backgrounds as tiles", DPC+, not PXE; see bbasic/pf-tiles.js), or null: each
 // background's rows are the ones its "playfield:" statement would load (a scrolling one: one repeat of its layout over the 255 rows, which the
 // map repeats down). Not with backgrounds taller than the playfield on the standard kernel's scroll (not DPC+ anyway).
 Blockly.BBasic.planBackgroundTilemap = function(backgrounds, config, withTileSet = true) {
   this.pfTilemapStandardKept = null;
-  if (!config || isPxe(config) || !config.dpcPlusTilemap || this.backgroundScrollOverflowBackgrounds.length > 0) return null;
+  this.pfTilemapDpcKept = null;
+  this.pfRunsKept = null;
+  // (Runs: DPC+ only, see below.)
+  const runsOn = !!config && config.kernel === 'dpcplus' && !!config.dpcPlusRuns;
+  if (!config || isPxe(config) || !(config.dpcPlusTilemap || runsOn) || this.backgroundScrollOverflowBackgrounds.length > 0) return null;
   if (config.kernel !== 'dpcplus') {
     // The standard kernel (see planStandardTilemap): the rows each background's load fills (as the "playfield:" statement), and the tiles only
     // when they and the routine take fewer bytes than the rows and their copies do.
     const memoryRows = (this.backgroundScrollUsed || this.backgroundScrollOverflowBackgrounds.length > 0) ?
       backgroundDataRows(config) : effectiveBackgroundRows(config);
-    const plan = planStandardTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels.slice(0, memoryRows)})));
+    const plan = this.bestStandardTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels.slice(0, memoryRows)})), standardTileCodeBytes);
     if (!plan) return null;
-    const tileBytes = plan.bytes + STANDARD_TILE_CODE_BYTES + backgrounds.length * STANDARD_TILE_CALL_BYTES;
+    const tileBytes = plan.bytes + standardTileCodeBytes(plan) + backgrounds.length * STANDARD_TILE_CALL_BYTES;
     const rowBytes = plan.rawBytes + backgrounds.length * STANDARD_PLAYFIELD_COPY_BYTES;
     if (tileBytes >= rowBytes) {
       this.pfTilemapStandardKept = {tileBytes, rowBytes};
@@ -8478,14 +8558,36 @@ Blockly.BBasic.planBackgroundTilemap = function(backgrounds, config, withTileSet
     return {...plan, memoryRows, writeBase: config.enableSuperchip ? 'playfield-128' : 'playfield', tileBytes, rowBytes};
   }
   // (With the tiles of the Playfield tab's Tiles section first, numbered in their order, when they are wanted.)
-  const tileSet = withTileSet ? (((this.getBackgroundsData() || {}).tileSet) || null) : null;
-  return planTilemap(backgrounds.map((background) => {
+  // (Without them the section's width still says whether the tiles are 4 pixels wide.)
+  const sectionTiles = ((this.getBackgroundsData() || {}).tileSet) || null;
+  const tileSet = withTileSet ? sectionTiles : (sectionTiles ? {width: sectionTiles.width, tiles: []} : null);
+  const rows = backgrounds.map((background) => {
     const scroll = this.dpcPlusScrollFor ? this.dpcPlusScrollFor(background) : null;
     if (!scroll) return {id: background.id, pixels: background.pixels, fill: background.pixels.length};
     const stored = dpcPlusStoredRows(scroll);
     return {id: background.id, pixels: tileForDpcPlusScroll(background.pixels, null, scroll, null, stored).pixels, fill: DPC_PLUS_SCROLL_ROWS,
       thin: scroll.groups ? 0 : scroll.repeats};
-  }), tileSet);
+  });
+  let tiles = config.dpcPlusTilemap ? planTilemap(rows, tileSet) : null;
+  const tileBytes = tiles ? tiles.bytes + TILES_ARM_BYTES + (tiles.unit === NARROW_TILE_WIDTH ? NARROW_ARM_EXTRA_BYTES : 0) : Infinity;
+  // The tiles only when they and their part of the coprocessor program take fewer bytes than the rows, as on the standard kernel; always with a Set
+  // playfield tile block, which places them.
+  if (tiles && !withTileSet && tileBytes >= tiles.rawBytes) {
+    this.pfTilemapDpcKept = {tileBytes, rowBytes: tiles.rawBytes};
+    tiles = null;
+  }
+  // The Options tab's "Keep backgrounds as runs" (see planRuns in bbasic/pf-tiles.js): the runs when they and their part of the coprocessor program take
+  // fewer bytes than the rows, and than the tiles with theirs. (Not with a Set playfield tile block, which places tiles.)
+  if (!runsOn || withTileSet) return tiles;
+  const runs = planRuns(rows);
+  if (!runs) return tiles;
+  const runBytes = runs.bytes + RUNS_ARM_BYTES;
+  if (runBytes < runs.rawBytes && runBytes < tileBytes) {
+    this.pfTilemapDpcKept = null;
+    return {...runs, runBytes};
+  }
+  this.pfRunsKept = {runBytes, rowBytes: runs.rawBytes, tileBytes: tiles ? tileBytes : null};
+  return tiles;
 };
 
 // Reads the stored data tables, applying defaults, or null if they can't
@@ -8769,9 +8871,9 @@ Blockly.BBasic.generateWidePartnerSync = function() {
 Blockly.BBasic.poolAnimationGroups = function(playerAnimationsStorage) {
   const sharing = new Map();
   const config = useConfigurationStorage().value || {};
-  if (config.kernel !== 'dpcplus' || isPxe(config) || !this.poolSwapPairs || !this.poolSwapPairs.length) return sharing;
+  if (config.kernel !== 'dpcplus' || isPxe(config)) return sharing;
   const byFirst = new Map();
-  this.poolSwapPairs.forEach(({first, second}) => {
+  (this.poolSwapPairs || []).forEach(({first, second}) => {
     if (first < 2) return;
     if (!byFirst.has(first)) byFirst.set(first, new Set());
     byFirst.get(first).add(second);
@@ -8791,6 +8893,23 @@ Blockly.BBasic.poolAnimationGroups = function(playerAnimationsStorage) {
     if (!others.size || [...others].some((n) => !(this.dpcPlusExtraPlayers || []).includes(n))) return;
     const first0 = signature(names[0]);
     if (names.some((name) => signature(name) !== first0)) return;
+    sharing.set(names[0], {role: 'first', firstName: names[0]});
+    names.slice(1).forEach((name) => sharing.set(name, {role: 'other', firstName: names[0]}));
+  });
+  // The other virtual sprites (Players 2 to 9) that play the same animations with the same settings, in a pool or not, share the code the same way: it is
+  // made once, for the first of them, and each of the others runs it with its state in the temp bytes (see generateAnimations), so the animation code, its
+  // picture tables and the color tables are not repeated for each of them.
+  const bySignature = new Map();
+  (this.dpcPlusExtraPlayers || []).filter((n) => n >= 2).forEach((n) => {
+    const name = `player${n}`;
+    if (sharing.has(name) || partners.has(name)) return;
+    const key = signature(name);
+    if (!bySignature.has(key)) bySignature.set(key, []);
+    bySignature.get(key).push(n);
+  });
+  bySignature.forEach((numbers) => {
+    if (numbers.length < 2) return;
+    const names = numbers.sort((x, y) => x - y).map((n) => `player${n}`);
     sharing.set(names[0], {role: 'first', firstName: names[0]});
     names.slice(1).forEach((name) => sharing.set(name, {role: 'other', firstName: names[0]}));
   });
@@ -8819,6 +8938,9 @@ Blockly.BBasic.generateAnimations = function() {
   // frame where it runs next (in and out), the color of its rows (read by the color tables), and the color override flag, masked (read once the pictures load).
   // Set while that code is made, null otherwise.
   const POOL_REFS = {size: 'temp4', frame: 'temp5', animnext: 'temp3', color: 'temp2', flag: 'temp1'};
+  // The sprites that share animation code start with their color variables at their default colors (the shared code picks the color table by that variable,
+  // where a sprite with code for itself falls back on its default): the lines that set them, at the start.
+  Blockly.BBasic.sharedColorStarts = [];
   let poolRefs = null;
   // How many colors the last color section was made for (a section of one color has no test on the color byte: see the routine of a pool sprite).
   let lastColorCount = 0;
@@ -8829,7 +8951,8 @@ Blockly.BBasic.generateAnimations = function() {
   // A solid color table per color the project gives the player (the default one first), the one matching the
   // player's color variable pointed at whenever the loaded flag is clear. The tables are as tall as the tallest
   // picture.
-  const colorSectionFor = (name, playerData, slaveOf) => {
+  // (members: the sprites that run the code made for `name`, see poolAnimationGroups: each starts with a different default color, which gets a table too.)
+  const colorSectionFor = (name, playerData, slaveOf, members = []) => {
     const rows = Math.max(1, ...playerData.animations.flatMap((animation) =>
       (animation ? animation.frames : []).map((frame) => frame.pixels.length))) * 2;
     const colorVar = poolRefs ? poolRefs.color : `${name}realcolor`;
@@ -8837,10 +8960,9 @@ Blockly.BBasic.generateAnimations = function() {
     // The sprite showing the right half of a wide player is colored like the player is.
     const colorOwner = slaveOf || name;
     // (In the colors of the TV standard, as the player's color variable starts: on PAL the same byte is another color, see tvColorByte.)
-    const defaultColor = tvColorByte(colorOwner === 'player0' ? 0x40 : colorOwner === 'player1' ? 0x80 :
-      Number(colorOwner.slice(6)) * 3 % 16 * 16 + 14);
-    const given = [defaultColor, ...[...(Blockly.BBasic.dpcPlusPlayerColors[colorOwner] || [])]
-        .filter((color) => color !== defaultColor)];
+    const defaultOf = (owner) => tvColorByte(owner === 'player0' ? 0x40 : owner === 'player1' ? 0x80 : Number(owner.slice(6)) * 3 % 16 * 16 + 14);
+    const defaultColor = defaultOf(colorOwner);
+    const given = [...new Set([defaultColor, ...members.map(defaultOf), ...[...(Blockly.BBasic.dpcPlusPlayerColors[colorOwner] || [])]])];
     // A fade steps the brightness of the color the player has (so any hue the player is given) toward the target, and
     // lands on the target, so every brightness of those hues and the target itself get a table too.
     const fades = [...(Blockly.BBasic.dpcPlusPlayerFades[colorOwner] || [])];
@@ -8849,6 +8971,7 @@ Blockly.BBasic.generateAnimations = function() {
           .flatMap((hue) => Array.from({length: 8}, (_, i) => hue | (i * 2))),
       ...fades])] : given;
     const hex = (byte) => '$' + byte.toString(16).toUpperCase().padStart(2, '0');
+    if (members.length > 1) members.forEach((member) => Blockly.BBasic.sharedColorStarts.push(` ${member}realcolor = ${hex(defaultOf(member))}`));
     const label = (i) => `${name}color${i}`;
     const endLabel = `${name}colorEnd`;
     lastColorCount = colors.length;
@@ -9307,7 +9430,9 @@ Blockly.BBasic.generateAnimations = function() {
     const inlineUnits = !!(share && share.role === 'first');
     Blockly.BBasic.inlineGraphicsUnits = inlineUnits;
     poolRefs = inlineUnits ? POOL_REFS : null;
-    const colorSection = !borrows && isDpcPlus && (!this.useAnimationRowColors(name) || this.colorOverridePlayers.has(name)) ? colorSectionFor(name, playerData) : '';
+    // (The code shared by a group has the default colors of all of them.)
+    const members = share ? [...sharing].filter(([, entry]) => entry.firstName === share.firstName).map(([member]) => member) : [];
+    const colorSection = !borrows && isDpcPlus && (!this.useAnimationRowColors(name) || this.colorOverridePlayers.has(name)) ? colorSectionFor(name, playerData, null, members) : '';
     Blockly.BBasic.inlineGraphicsUnits = false;
     poolRefs = null;
     // DPC+: a picture and its colors that are loaded stay as they are until the frame counter reaches the next picture (or the end of the
@@ -9766,7 +9891,7 @@ Blockly.BBasic.spillInternalVariables = function(workspace, probeCode) {
   const tooMany = this.tooMany;
   const config = (useConfigurationStorage().value) || {};
   const info = this.spillProbeInfo;
-  if (config.kernel !== 'dpcplus' || isPxe(config) || !info || this.dpcPlusScroll || dpcPlusPfresOf(config) > 127) throw tooMany;
+  if (config.kernel !== 'dpcplus' || isPxe(config) || !info || !(this.displayRamSpillCapacity > 0)) throw tooMany;
   // The Text Minikernel's hand-written asm reads these by name, which the text analysis cannot see.
   const readByAsm = new Set([textRow2ColorVarName, textBkColorVarName, textLinesBaseVarName, textLinesMaxVarName, textScrollCursorColorVarName,
     textEndIconColorVarName].map((varName) => this.nameDB_.getName(varName(), Blockly.Names.DEVELOPER_VARIABLE_TYPE)));
@@ -9779,7 +9904,7 @@ Blockly.BBasic.spillInternalVariables = function(workspace, probeCode) {
   // Then the smallest number between the last that did not fit and the one that did is looked for (halving the range): every variable in the display memory
   // costs code and cycles, and the steps of 1, 2, 4, 8 can overshoot by several. The smallest found is kept for the next code of the same build (the build makes
   // the code again many times while it places the banks) and tried first.
-  const capacity = DISPLAY_RAM_VAR_CAPACITY - this.displayRamVars.size;
+  const capacity = this.displayRamSpillCapacity - this.displayRamVars.size;
   const tryExtra = (n) => {
     const tried = chooseSpill(probeCode, internal, capacity, true, 0, needed + n);
     if (!tried || tried.size < needed) throw tooMany;

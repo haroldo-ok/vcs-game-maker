@@ -293,11 +293,10 @@ firstbreak
     ; instruction in this file already does.
     ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
     ; four writes that draw it come 2 cycles sooner.
-    ifconst score5digits
+    ; (6 score digits as well: the text was moved 5 clocks to the left to center it, see TEXTHMP0 above, and the writes come
+    ; 2 cycles sooner with it. With 5 cycles here the letters at places 5, 7, 9 and 11 were drawn wrong: HELLO WORLD! showed as
+    ; HELLD UOOLW!)
     sleep 3                 ; 5     (44)
-    else
-    sleep 5                 ; 7     (46)
-    endif
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (55) 5 -> [GRP1] ; 4 -> GRP0
@@ -360,11 +359,10 @@ endl1
     ; occurrence of this pattern (right after "ora right_text,x").
     ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
     ; four writes that draw it come 2 cycles sooner.
-    ifconst score5digits
+    ; (6 score digits as well: the text was moved 5 clocks to the left to center it, see TEXTHMP0 above, and the writes come
+    ; 2 cycles sooner with it. With 5 cycles here the letters at places 5, 7, 9 and 11 were drawn wrong: HELLO WORLD! showed as
+    ; HELLD UOOLW!)
     sleep 3                 ; 5     (44)
-    else
-    sleep 5                 ; 7     (46)
-    endif
     sty GRP1                ; 3     (49) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (52) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (55) 5 -> [GRP1] ; 4 -> GRP0
@@ -427,11 +425,10 @@ endl2
     ; occurrence of this pattern (right after "ora right_text,x").
     ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
     ; four writes that draw it come 2 cycles sooner.
-    ifconst score5digits
+    ; (6 score digits as well: the text was moved 5 clocks to the left to center it, see TEXTHMP0 above, and the writes come
+    ; 2 cycles sooner with it. With 5 cycles here the letters at places 5, 7, 9 and 11 were drawn wrong: HELLO WORLD! showed as
+    ; HELLD UOOLW!)
     sleep 3                 ; 5     (44)
-    else
-    sleep 5                 ; 7     (46)
-    endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
@@ -494,11 +491,10 @@ endl2
     ; occurrence of this pattern (right after "ora right_text,x").
     ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
     ; four writes that draw it come 2 cycles sooner.
-    ifconst score5digits
+    ; (6 score digits as well: the text was moved 5 clocks to the left to center it, see TEXTHMP0 above, and the writes come
+    ; 2 cycles sooner with it. With 5 cycles here the letters at places 5, 7, 9 and 11 were drawn wrong: HELLO WORLD! showed as
+    ; HELLD UOOLW!)
     sleep 3                 ; 5     (44)
-    else
-    sleep 5                 ; 7     (46)
-    endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0
@@ -561,11 +557,10 @@ endl2
     ; occurrence of this pattern (right after "ora right_text,x").
     ; vcs-game-maker: with 5 score digits the text stands 6 clocks (2 cycles) further to the left (see TEXTHMP0 above), so the
     ; four writes that draw it come 2 cycles sooner.
-    ifconst score5digits
+    ; (6 score digits as well: the text was moved 5 clocks to the left to center it, see TEXTHMP0 above, and the writes come
+    ; 2 cycles sooner with it. With 5 cycles here the letters at places 5, 7, 9 and 11 were drawn wrong: HELLO WORLD! showed as
+    ; HELLD UOOLW!)
     sleep 3                 ; 5     (44)
-    else
-    sleep 5                 ; 7     (46)
-    endif
     sty GRP1                ; 3     (45) 3 -> [GRP1] ; 2 -> GRP0
     stx GRP0                ; 3     (48) 4 -> [GRP0] ; 3 -> GRP1
     sta GRP1                ; 3     (51) 5 -> [GRP1] ; 4 -> GRP0

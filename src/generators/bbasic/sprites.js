@@ -1716,7 +1716,9 @@ export const generateMissileFireChecks = (Blockly) => {
     const fireArm = pfChecked && !!armConfig.enableFireCoprocessor && armConfig.kernel === 'dpcplus' && !armConfig.pxe && plainName(dirVar) &&
       (constSpeed !== undefined || plainName(speedVar)) && (!armStagePair || (plainName(armStagePair.read) && plainName(armStagePair.write))) &&
       (!armFracPair || (plainName(armFracPair.read) && plainName(armFracPair.write))) && !Blockly.BBasic.dpcPlusGroupFracVars && !pfScrollColumns(armConfig) &&
-      /^\d+$/.test(String(armRowDivisor)) && 256 % Number(armRowDivisor) === 0 && /^\d+$/.test(String(armMaxRow));
+      /^\d+$/.test(String(armRowDivisor)) && Number(armRowDivisor) < 256 && /^\d+$/.test(String(armMaxRow));
+    // (Rows a whole number of lines that does not divide 256: the lines, with bit 6 of the flags, and the coprocessor divides by them.)
+    const fireRowDiv = fireArm && 256 % Number(armRowDivisor) !== 0;
     const stretch = fireStretches(fireConfig, name, usedPfCheck) && (!pfChecked || fireArm);
 
     // Every "if dirVar = N then ..." line only ever conditions the ONE
@@ -1848,8 +1850,8 @@ export const generateMissileFireChecks = (Blockly) => {
       const topShift = /\+ 1$/.test(pfTopY(armConfig, name)) ? 4 : /- 1$/.test(pfTopY(armConfig, name)) ? 8 : 0;
       fireArmLines = buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.fire, read: 0, args: [
         [`lda ${name}x`], [`lda ${name}y`], [`lda ${dirVar}`], [constSpeed !== undefined ? `lda #${constSpeed}` : `lda ${speedVar}`],
-        [armFracPair ? `lda ${armFracPair.read}` : 'lda #0'], [`lda #${(is16 ? 1 : 0) + 2 + topShift}`], [armStagePair ? `lda ${armStagePair.read}` : 'lda #0'],
-        [`lda #${missileBallPfXOffset(armConfig, name)}`], [`lda #${armMaxRow}`], [`lda #${256 / Number(armRowDivisor)}`]],
+        [armFracPair ? `lda ${armFracPair.read}` : 'lda #0'], [`lda #${(is16 ? 1 : 0) + 2 + topShift + (fireRowDiv ? 64 : 0)}`], [armStagePair ? `lda ${armStagePair.read}` : 'lda #0'],
+        [`lda #${missileBallPfXOffset(armConfig, name)}`], [`lda #${armMaxRow}`], [`lda #${fireRowDiv ? Number(armRowDivisor) : (256 / Number(armRowDivisor)) & 255}`]],
       after: [`${name}x`, `${name}y`, ...(armFracPair ? [armFracPair.write] : ['']), ...(armStagePair ? [armStagePair.write] : [''])]}).split('\n').map((line) => (line === '@end' ? 'end' : ` ${line}`));
     }
     const throttleContinueLabel = `_missilefire_${name}_throttlecontinue`;
@@ -4191,8 +4193,10 @@ ${flagsVar}{${bit}} = 1
     // The row increment the coprocessor is given (a line * it / 256 is the row): 256 / the lines of a row when that is a whole number, else the one the
     // kernel and the 6502's conversions use for rows of a number of lines that is not a whole number (null when there is none: rows that differ by background).
     const bounceFracInc = Blockly.BBasic.exactRowIncrement(bounceConfig, 1);
+    // (Rows a whole number of lines that does not divide 256, 3 or 6 lines: the lines, and the coprocessor divides by them, see rowat in armprog.c.)
+    const bounceRowDiv = /^\d+$/.test(String(bounceRowDivisor)) && 256 % Number(bounceRowDivisor) !== 0 && Number(bounceRowDivisor) < 256 && bounceFracInc === null;
     const bounceRowInc = /^\d+$/.test(String(bounceRowDivisor)) && 256 % Number(bounceRowDivisor) === 0 ? 256 / Number(bounceRowDivisor) :
-      (typeof bounceFracInc === 'number' ? bounceFracInc : null);
+      bounceRowDiv ? Number(bounceRowDivisor) : (typeof bounceFracInc === 'number' ? bounceFracInc : null);
     const bounceArm = !bounceSprite && hasFire && !hasInertia && bounceConfig.kernel === 'dpcplus' && !bounceConfig.pxe && !Blockly.BBasic.dpcPlusGroupFracVars &&
       !pfScrollColumns(bounceConfig) && /^(ball|missile)/.test(name) && bounceRowInc !== null &&
       /^\d+$/.test(String(bounceMaxRow)) && /^[A-Za-z_]\w*$/.test(String(bounceDirVar)) && /^[A-Za-z_]\w*$/.test(String(stagePair.read)) &&
@@ -4250,8 +4254,8 @@ ${flagsVar}{${bit}} = 1
       const topLines = /\+ 1$/.test(topText) ? [`lda ${name}y`, 'clc', 'adc #1'] : /- 1$/.test(topText) ? [`lda ${name}y`, 'sec', 'sbc #1'] : [`lda ${name}y`];
       Blockly.BBasic.subroutines[stageName] = [
         ...buildPixArmCall({fn: ARM_FIND_PIXEL_FUNCTION.bounce, read: 2, args: [[`lda ${name}x`], topLines, [`lda ${bounceDirVar}`],
-          [`lda #${(Blockly.BBasic.missileFire16UsedFor || new Set()).has(name) ? 16 : 8}`], [`lda #${bounceMaxRow}`],
-          [`lda #${missileBallPfXOffset(bounceConfig, name)}`], [`lda #${bounceRowInc}`], [`lda ${stagePair.read}`],
+          [`lda #${((Blockly.BBasic.missileFire16UsedFor || new Set()).has(name) ? 16 : 8) | (bounceRowDiv ? 128 : 0)}`], [`lda #${bounceMaxRow}`],
+          [`lda #${missileBallPfXOffset(bounceConfig, name)}`], [`lda #${bounceRowInc & 255}`], [`lda ${stagePair.read}`],
           ...(armGravity ? [['lda #1'], [`lda ${armGravity.read}`]] : [['lda #0']])]}).split('\n'),
         `${bounceDirVar} = temp3`,
         `${stagePair.write} = temp4`,

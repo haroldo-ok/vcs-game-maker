@@ -61,7 +61,10 @@ export const collectDebugVariables = (variableUsage, symbolmap) => {
     const table = DISPLAY_RAM_TABLES[assignment.area];
     const start = table && symbolmap[table] !== undefined ? symbolmap[table] & 0x0FFF : (6 + assignment.area) * 256;
     if (!assignment.name || found.has(assignment.name) || assignment.area === undefined) return;
-    found.set(assignment.name, {name: assignment.name, address: DISPLAY_RAM_BASE + start + 128 + assignment.byte,
+    // (A byte of the DPC+ stack, area 6: from STACKbegin, with no half to skip.)
+    const stack = assignment.area === 6;
+    const stackStart = symbolmap.STACKbegin !== undefined ? symbolmap.STACKbegin & 0x0FFF : 12 * 256;
+    found.set(assignment.name, {name: assignment.name, address: DISPLAY_RAM_BASE + (stack ? stackStart + assignment.byte : start + 128 + assignment.byte),
       owner: assignment.isUserVariable ? 'user' : 'block'});
   });
   // In memory address order, which is the order the debug overlay and its variable list show them in.

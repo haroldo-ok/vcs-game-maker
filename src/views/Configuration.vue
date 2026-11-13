@@ -49,7 +49,7 @@
           <v-checkbox
             v-model="configurationState.dpcPlusTilemap"
             @change="handleChangeConfiguration"
-            label="Keep backgrounds as tiles (tilemap)"
+            label="Keep backgrounds as tiles (tilemap, beta 0.5)"
             hint="The build cuts every background into tiles one playfield column (8 pixels) wide, keeps each different tile once, and the 6502 builds a background from its tiles when it is shown (a load takes about twice the time of a plain one). Used only when it makes the ROM smaller: with several backgrounds that repeat parts. Collision, the pixel blocks and scrolling work as before, and the Set playfield tile block can change a tile while the game runs."
             persistent-hint
             class="option-switch"
@@ -76,8 +76,17 @@
             v-if="!configurationState.pxe"
             v-model="configurationState.dpcPlusTilemap"
             @change="handleChangeConfiguration"
-            label="Keep backgrounds as tiles (tilemap)"
-            hint="The build cuts every background into tiles one playfield column (8 pixels) wide, keeps each different tile once, and builds a background from its tiles when it is shown. Saves graphics ROM when backgrounds repeat parts; the coprocessor's program for it takes about 300 bytes of code. Collision, the offset block, the pixel blocks and scrolling work as before, and the Set playfield tile block can change a tile while the game runs."
+            label="Keep backgrounds as tiles (tilemap, beta 0.5)"
+            hint="The build cuts every background into tiles one playfield column (8 pixels) wide, keeps each different tile once, and builds a background from its tiles when it is shown. Used only when the tiles and their part of the coprocessor's program (about 430 bytes) take fewer bytes than the rows, which takes backgrounds that repeat parts, or when a Set playfield tile block places them. Collision, the offset block, the pixel blocks and scrolling work as before, and the Set playfield tile block can change a tile while the game runs."
+            persistent-hint
+            class="option-switch"
+          />
+          <v-checkbox
+            v-if="!configurationState.pxe"
+            v-model="configurationState.dpcPlusRuns"
+            @change="handleChangeConfiguration"
+            label="Keep backgrounds as runs"
+            hint="The build keeps each playfield column as runs of rows (a byte and how many rows it is for), and the coprocessor writes the rows from them when a background is shown. Used only when the runs and their part of the coprocessor's program (about 180 bytes) take fewer bytes than the rows, and than the tiles when those are on: tall backgrounds with flat stretches gain the most. Not with the Set playfield tile block, which needs tiles. Collision, the offset block, the pixel blocks and scrolling work as before."
             persistent-hint
             class="option-switch"
           />
@@ -549,6 +558,7 @@ const DEFAULT_CONFIGURATION = {
   enableDpcPlusPfColors: false,
   enableDpcPlusBkColors: false,
   dpcPlusTilemap: false,
+  dpcPlusRuns: false,
   enableDpcPlusAudio: true,
   showScore: true,
   enableScoreFade: false,
@@ -968,6 +978,7 @@ export default defineComponent({
       state.enableDpcPlusPfColors = DEFAULT_CONFIGURATION.enableDpcPlusPfColors;
       state.enableDpcPlusBkColors = DEFAULT_CONFIGURATION.enableDpcPlusBkColors;
       state.dpcPlusTilemap = DEFAULT_CONFIGURATION.dpcPlusTilemap;
+      state.dpcPlusRuns = DEFAULT_CONFIGURATION.dpcPlusRuns;
       state.enableDpcPlusAudio = DEFAULT_CONFIGURATION.enableDpcPlusAudio;
       state.showScore = DEFAULT_CONFIGURATION.showScore;
       state.enableScoreFade = DEFAULT_CONFIGURATION.enableScoreFade;

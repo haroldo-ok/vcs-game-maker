@@ -2113,7 +2113,8 @@ const buildRomInner = async () => {
       markRomUpToDate();
       // The tile numbers of this build, for the Playfield tab's tile tool.
       const tilemap = BlocklyBB.pfTilemap;
-      useLastTilemap().value = tilemap ? {
+      // (Not the runs: they have no tiles.)
+      useLastTilemap().value = tilemap && !tilemap.runs ? {
         height: tilemap.height,
         byId: Object.fromEntries([...tilemap.numbers.entries()].map(([id, index]) => [id, tilemap.maps[index]])),
       } : null;

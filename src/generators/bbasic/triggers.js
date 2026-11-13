@@ -291,8 +291,10 @@ export default (Blockly) => {
       lines.push(...geometry(name, miss), ` goto _trigger_${id}_in`, `@ ${miss}`);
     });
     // No sprite is in it: it can fire again. A sprite is in it: it fires if none was.
+    // (What it calls when it fires, from its card, runs then.)
+    const call = Blockly.BBasic.statementToCode(block, 'DO').replace(/\n$/, '');
     lines.push(` ${was} = 0`, ` goto _trigger_${id}_main_done`, `@ _trigger_${id}_in`, ` if ${was} then goto _trigger_${id}_main_done`,
-        ` ${was} = 1`, ` ${fired} = 1`, `@ _trigger_${id}_main_done`);
+        ` ${was} = 1`, ` ${fired} = 1`, ...(call ? [call] : []), `@ _trigger_${id}_main_done`);
     // The same for each sprite a block asks about by itself (a pool sprite): it fires for that sprite when the sprite comes into the rectangle.
     (Blockly.BBasic.triggerBy || []).forEach(({check, sprite}, pair) => {
       if (check.id !== block.id) return;

@@ -312,6 +312,37 @@
                             />
                           </div>
                         </template>
+                        <v-checkbox
+                          label="Trigger function/subroutine"
+                          title="When a sprite sets this trigger off, it calls a Subroutine or a Function of the Blocks tab"
+                          dense
+                          hide-details
+                          class="scene-check"
+                          :input-value="!!selectedTrigger(scene).call"
+                          @change="(value) => handleTriggerCallOn(scene, value)"
+                        />
+                        <template v-if="selectedTrigger(scene).call">
+                          <v-select
+                            label="Subroutine or function"
+                            outlined
+                            dense
+                            hide-details
+                            class="scene-select-field"
+                            no-data-text="No Subroutine or Function blocks on the Blocks tab"
+                            :items="triggerCallItems(selectedTrigger(scene).call)"
+                            :value="triggerCallValue(selectedTrigger(scene).call)"
+                            @change="(value) => handleTriggerCallTarget(scene, value)"
+                          />
+                          <div v-if="triggerCallParams(selectedTrigger(scene).call)" class="scene-number-row scene-call-args">
+                            <v-text-field
+                              v-for="i in triggerCallParams(selectedTrigger(scene).call)"
+                              v-bind:key="`arg-${i}`"
+                              :label="`Argument ${i}`" type="number" outlined dense hide-details class="scene-number-field"
+                              :value="(selectedTrigger(scene).call.args || [])[i - 1] || 0"
+                              @change="(value) => handleTriggerCallArg(scene, i - 1, value)"
+                            />
+                          </div>
+                        </template>
                         <v-btn text small class="plain-btn" @click.stop="handleRemoveTrigger(scene)">
                           <v-icon left small>mdi-minus</v-icon>
                           Remove trigger
@@ -497,7 +528,7 @@ import ConfirmDeleteMenu from '../components/ConfirmDeleteMenu.vue';
 import EditorZoom from '../components/EditorZoom.vue';
 import PixelGridToggle from '../components/PixelGridToggle.vue';
 import {useEditorZoom} from '../hooks/zoom';
-import {useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage,
+import {useWorkspaceStorage, useBackgroundsStorage, useConfigurationStorage, useDataTablesStorage, usePixelGridLabelsStorage, usePixelGridOverlayStorage,
   usePlayerAnimationsStorage, useSceneCardColumnsStorage} from '../hooks/project';
 import {processDataTablesStorageDefaults} from '../blocks/data';
 import {sceneObjectColour} from '../blocks/sprites';
@@ -520,7 +551,7 @@ import {
   SCENE_FLAG_ANIMATION, SCENE_FLAG_COLOR, SCENE_FLAG_FLIPPED, SCENE_FLAG_HEIGHT, SCENE_FLAG_HIDDEN, SCENE_FLAG_SIZE, SCENE_NO_ANIMATION,
   MISSILE_WIDTHS, sceneHasTriggerExtra, triggerObjectsOf, SCENE_TRIGGER_LOAD, SCENE_TRIGGER_MOVE, SCENE_SCREEN_LINES, SCENE_SCREEN_WIDTH, availableSceneObjects, decodeScene,
   SCENE_OFFSET_MASKS, encodeScene, isScenePlayer, isSceneTable, newSceneObject, newSceneOffset, newSceneTrigger, sceneObjectLabel, sceneValueFormats,
-  sceneValueNotes, triggerNamesOf,
+  sceneValueNotes, triggerNamesOf, triggerCallsOf, triggerCallTargetsOf,
 } from '../utils/scene';
 
 // White or black text, whichever has the higher contrast ratio (WCAG relative luminance) against the given CSS color: the same rule the
@@ -590,7 +621,7 @@ export default defineComponent({
     const showGridLabels = usePixelGridLabelsStorage();
     const cardColumns = useSceneCardColumnsStorage();
 
-    const scenes = computed(() => tables.value.filter(isSceneTable).map((table) => ({table, ...decodeScene(table.values, table.triggerNames)})));
+    const scenes = computed(() => tables.value.filter(isSceneTable).map((table) => ({table, ...decodeScene(table.values, table.triggerNames, table.triggerCalls)})));
     const instance = getCurrentInstance();
 
     // The cards are selected, collapsed and reordered the way the other tabs' are. The scenes are cards among the Data tab's
@@ -631,7 +662,8 @@ export default defineComponent({
     const redoStacks = {};
     const historyVersion = ref(0);
     const snapshotOf = (table) => ({name: table.name, values: table.values.slice(), valueFormats: (table.valueFormats || []).slice(),
-      valueNotes: (table.valueNotes || []).slice(), triggerNames: (table.triggerNames || []).slice()});
+      valueNotes: (table.valueNotes || []).slice(), triggerNames: (table.triggerNames || []).slice(),
+      triggerCalls: (table.triggerCalls || []).map((call) => (call ? {...call, args: (call.args || []).slice()} : null))});
     const stackOf = (stacks, id) => {
       if (!stacks[id]) stacks[id] = [];
       return stacks[id];
@@ -831,6 +863,7 @@ export default defineComponent({
             sceneHasTriggerExtra(scene.triggers) ? (scene.triggers || []).length : 0);
         table.valueNotes = sceneValueNotes(scene.objects, scene.triggers || [], scene.offsets || [], sceneHasTriggerExtra(scene.triggers));
         table.triggerNames = triggerNamesOf(scene.triggers || []);
+        table.triggerCalls = triggerCallsOf(scene.triggers || []);
       });
     };
     const withScene = (scene, change) => {
@@ -982,6 +1015,46 @@ export default defineComponent({
     const handleTriggerMask = (scene, object, on) => changeTrigger(scene, (trigger) => {
       trigger.mask = on ? trigger.mask | (1 << object) : trigger.mask & ~(1 << object);
     });
+    // What a trigger calls when it fires: a Subroutine or a Function of the Blocks tab (read from the blocks as they are saved), and the numbers
+    // given to the arguments the Function reads.
+    const workspaceStorage = useWorkspaceStorage();
+    const callTargets = computed(() => triggerCallTargetsOf(workspaceStorage.value || ''));
+    const callValueOf = (type, name) => `${type}:${name}`;
+    const triggerCallValue = (call) => (call && call.name ? callValueOf(call.type, call.name) : null);
+    const triggerCallItems = (call) => {
+      const {subroutines, functions} = callTargets.value;
+      const items = [];
+      if (subroutines.length) items.push({header: 'Subroutines'}, ...subroutines.map((name) => ({text: name, value: callValueOf('subroutine', name)})));
+      if (functions.length) items.push({header: 'Functions'}, ...functions.map(({name}) => ({text: name, value: callValueOf('function', name)})));
+      // (One the Blocks tab no longer has stays listed, so the choice shows; the build leaves it out.)
+      if (call && call.name && !items.some((item) => item.value === callValueOf(call.type, call.name))) {
+        items.push({text: `${call.name} (not on the Blocks tab)`, value: callValueOf(call.type, call.name)});
+      }
+      return items;
+    };
+    const triggerCallParams = (call) => {
+      if (!call || call.type !== 'function' || !call.name) return 0;
+      const fn = callTargets.value.functions.find((candidate) => candidate.name === call.name);
+      return fn ? fn.params : (call.args || []).length;
+    };
+    const handleTriggerCallOn = (scene, on) => changeTrigger(scene, (trigger) => {
+      const {subroutines, functions} = callTargets.value;
+      const first = subroutines.length ? {type: 'subroutine', name: subroutines[0]} : functions.length ? {type: 'function', name: functions[0].name} : {type: 'subroutine', name: ''};
+      trigger.call = on ? {...first, args: []} : null;
+    });
+    const handleTriggerCallTarget = (scene, value) => changeTrigger(scene, (trigger) => {
+      const text = String(value || '');
+      const at = text.indexOf(':');
+      const type = text.slice(0, at) === 'function' ? 'function' : 'subroutine';
+      trigger.call = {type, name: text.slice(at + 1), args: trigger.call && trigger.call.type === type ? (trigger.call.args || []).slice() : []};
+    });
+    const handleTriggerCallArg = (scene, index, value) => changeTrigger(scene, (trigger) => {
+      if (!trigger.call) return;
+      const args = (trigger.call.args || []).slice();
+      while (args.length < index) args.push(0);
+      args[index] = clampTo(value, 0, 255);
+      trigger.call = {...trigger.call, args};
+    });
 
     const handleAddScene = () => {
       let newId = 0;
@@ -999,6 +1072,7 @@ export default defineComponent({
           valueFormats: sceneValueFormats(0, 0, 0),
           valueNotes: sceneValueNotes([], [], []),
           triggerNames: [],
+          triggerCalls: [],
           columns: 8,
           scene: true,
         });
@@ -1591,6 +1665,7 @@ export default defineComponent({
       objectLabel, spriteColor, isPlayer, hasFlag, hasColor, freeObjects, widthItems, selectedSprite, isSelected, select,
       selectedOffset, isOffsetSelected, selectOffset, offsetDirectionItems, offsetFrameItems, handleAddOffset, handleRemoveOffset, handleOffsetField,
       handleOffsetDirection, handleOffsetWhole, handleOffsetMask, handleOffsetDelta,
+      triggerCallItems, triggerCallValue, triggerCallParams, handleTriggerCallOn, handleTriggerCallTarget, handleTriggerCallArg,
       triggerByOpen, selectedTrigger, isTriggerSelected, selectTrigger, triggerKindItems, triggerSceneItems, triggerObjects, handleAddTrigger, handleRemoveTrigger,
       handleTriggerField, handleTriggerName, handleTriggerKind, handleTriggerScene, handleTriggerMask, TRIGGER_MOVE: SCENE_TRIGGER_MOVE,
       TRIGGER_LOAD: SCENE_TRIGGER_LOAD,
@@ -1817,6 +1892,19 @@ export default defineComponent({
   max-width: 360px;
 }
 
+/* What follows a selected trigger's or offset area's fields (the offset chips, the hint line) is kept 12 pixels below its Remove button, as
+   the chips are from what follows them. */
+.scene-fields + .scene-chips,
+.scene-fields + .scene-empty {
+  margin-top: 12px;
+}
+
+/* The first field of a selected sprite, trigger or offset area (outlined: its label sits on its top border, above the box) is kept 18 pixels
+   below the chips, so its label is not right under them. */
+.scene-chips + .scene-fields {
+  margin-top: 18px;
+}
+
 .scene-number-row {
   display: flex;
   gap: 12px;
@@ -1849,6 +1937,15 @@ export default defineComponent({
 .scene-check-row {
   display: flex;
   gap: 24px;
+}
+
+/* A Function's arguments, three to a line. */
+.scene-call-args {
+  flex-wrap: wrap;
+}
+
+.scene-call-args .scene-number-field {
+  flex: 0 0 calc((100% - 24px) / 3);
 }
 
 .scene-check {

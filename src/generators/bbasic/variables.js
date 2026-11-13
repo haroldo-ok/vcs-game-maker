@@ -20,6 +20,7 @@ goog.require('Blockly.BBasic');
 import {useConfigurationStorage} from '../../hooks/project';
 import {dpcPlusPfresOf} from '../../blocks/background';
 import {isPxe} from '../../utils/pxe';
+import {displayRamSlotAddress} from './spill';
 
 export default (Blockly) => {
   Blockly.BBasic['variables_get'] = function(block) {
@@ -97,7 +98,7 @@ export default (Blockly) => {
   // A user variable that init() put in the display memory because the ordinary variable space ran out (see displayRamVars there):
   // where its byte is, or null for an ordinary one.
   const spilledVariable = (name) => (Blockly.BBasic.displayRamVars && Blockly.BBasic.displayRamVars.get(name)) || null;
-  const spillAddress = ({area, byte}) => `${DISPLAY_RAM_TABLES[area]}+${128 + byte}`;
+  const spillAddress = displayRamSlotAddress;
   // Why display memory variables are not there, or null when they are.
   const displayRamProblem = () => {
     const config = (useConfigurationStorage() && useConfigurationStorage().value) || {};

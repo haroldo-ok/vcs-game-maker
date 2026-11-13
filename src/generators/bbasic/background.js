@@ -4,7 +4,7 @@ import {isInsideFunctionBody} from '../../utils/function-body';
 import {useConfigurationStorage} from '../../hooks/project';
 import {buildPxeOffsetBody, PXE_OFFSET_VARS, PXE_OFFSET_ROUTINE} from './offset-pxe';
 import {flagPoolVar, flagPoolBit} from './flag-pool';
-import {STANDARD_TILE_LOAD_NAME, TILE_SET_FUNCTION} from './pf-tiles';
+import {NARROW_TILE_WIDTH, STANDARD_TILE_LOAD_NAME, TILE_SET_FUNCTION} from './pf-tiles';
 import {OFFSET_ARM_FUNCTION, buildOffsetArmCall, buildCircleArmCall, ensureArmProgram, ARM_FIND_PIXEL_FUNCTION, buildPixArmCall} from './offset-arm';
 import {fireObjectName} from '../../utils/fire-object';
 import {EXTRA_PLAYER_NAME} from '../../utils/pxe';
@@ -681,7 +681,10 @@ export default (Blockly) => {
     const config = useConfigurationStorage().value || {};
     // (The row increment it is given: see bounceFracInc in generators/bbasic/sprites.js.)
     const fracInc = Blockly.BBasic.exactRowIncrement(config, 1);
-    const findPixelRowInc = /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 ? 256 / Number(rowDivisor) : (typeof fracInc === 'number' ? fracInc : null);
+    // (Rows a whole number of lines that does not divide 256: the lines, and the coprocessor divides by them, see rowat in armprog.c.)
+    const findPixelRowDiv = /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) !== 0 && Number(rowDivisor) < 256 && fracInc === null;
+    const findPixelRowInc = /^\d+$/.test(String(rowDivisor)) && 256 % Number(rowDivisor) === 0 ? 256 / Number(rowDivisor) :
+      findPixelRowDiv ? Number(rowDivisor) : (typeof fracInc === 'number' ? fracInc : null);
     if (config.kernel === 'dpcplus' && !config.pxe && !groupRows && !pfScrollColumns(config) && coords.heightVar && coords.sizeBits &&
         findPixelRowInc !== null && /^\d+$/.test(String(maxRow))) {
       ensureArmProgram(Blockly, undefined, 'p');
@@ -693,8 +696,9 @@ export default (Blockly) => {
           topY === coords.y ? lda(coords.y) : /\+ 1$/.test(topY) ? [`lda ${coords.y}`, 'clc', 'adc #1'] : [`lda ${coords.y}`, 'sec', 'sbc #1'],
           // (The lines it covers are the height less one for missile 0 and one more for missile 1: measured against the hardware flag.)
           coords.extraHeight < 0 ? [`lda ${coords.heightVar}`, `beq _fp_${sprite}_hz`, 'sec', 'sbc #1', `@_fp_${sprite}_hz`] :
-            coords.extraHeight > 0 ? [`lda ${coords.heightVar}`, 'clc', 'adc #1'] : lda(coords.heightVar), lda(coords.sizeBits), lda('temp5'), lda(`#${is16 ? 16 : 8}`), lda(`#${maxRow}`), lda(`#${coords.pfXOffset}`),
-          lda(`#${findPixelRowInc}`)]}),
+            coords.extraHeight > 0 ? [`lda ${coords.heightVar}`, 'clc', 'adc #1'] : lda(coords.heightVar), lda(coords.sizeBits), lda('temp5'), lda(`#${(is16 ? 16 : 8) | (findPixelRowDiv ? 128 : 0)}`), lda(`#${maxRow}`), lda(`#${coords.pfXOffset}`),
+          // (A row increment of 256, rows of one line, is given as 0: armprog.c reads it as 256.)
+          lda(`#${findPixelRowInc & 255}`)]}),
         `${col.write} = temp3`,
         `${row.write} = temp4`,
       ].join('\n');
@@ -938,16 +942,18 @@ export default (Blockly) => {
   let tileSetCount = 0;
   Blockly.BBasic['background_tile_set'] = function(block) {
     const plan = Blockly.BBasic.pfTilemap;
-    if (!plan) return 'rem Set playfield tile: the backgrounds are not kept as tiles (Options tab)\n';
+    if (!plan || plan.runs) return 'rem Set playfield tile: the backgrounds are not kept as tiles (Options tab)\n';
     const tall = Blockly.BBasic.dpcPlusScroll;
     // (The scroll of groups of columns with separate rows has its tiles on the rows of each group: not done.)
     if (tall && tall.groups) return 'rem Set playfield tile: not with groups of columns that scroll with separate rows\n';
     const value = (name) => Blockly.BBasic.valueToCode(block, name, Blockly.BBasic.ORDER_ASSIGNMENT) || '0';
+    // (4-pixel tiles: 8 columns, two in each column byte.)
+    const narrow = plan.unit === NARROW_TILE_WIDTH;
     if (plan.standard) {
       // The standard kernel: the 6502 writes the tile's bytes into the playfield memory (see standardTileRoutineLines in pf-tiles.js). A tile number
       // is the standard build's, a tile kept for the column it was in, and goes into the column given as it is.
       const suffix = Blockly.BBasic.bankJumpSuffix(Blockly.BBasic.getCurrentBank(), Blockly.BBasic.getSubroutineBank(STANDARD_TILE_LOAD_NAME));
-      return [` temp1 = (${value('COLUMN')}) & 3`, ` temp2 = ${value('ROW')}`, ` temp3 = ${value('TILE')}`, ` gosub _pftile_stdset${suffix}`].join('\n') + '\n';
+      return [` temp1 = (${value('COLUMN')}) & ${narrow ? 7 : 3}`, ` temp2 = ${value('ROW')}`, ` temp3 = ${value('TILE')}`, ` gosub _pftile_stdset${suffix}`].join('\n') + '\n';
     }
     const devVar = (name) => Blockly.BBasic.nameDB_.getName(name, Blockly.Names.DEVELOPER_VARIABLE_TYPE);
     const label = `_pftileset${++tileSetCount}`;
@@ -981,11 +987,13 @@ export default (Blockly) => {
       ...(turned ? [' sec', ` sbc ${turned}`] : []),
       ' sta temp5',
       ' lda #<C_function', ' sta DF0LOW', ' lda #(>C_function) & $0F', ' sta DF0HI',
-      ' lda temp1', ' and #3', ' clc', ` adc #${TILE_SET_FUNCTION}`, ' sta DF0WRITE',
+      // (4-pixel tiles: the column byte is the column / 2, and its half the column's bit 0, written after the row.)
+      ' lda temp1', ...(narrow ? [' lsr'] : []), ' and #3', ' clc', ` adc #${TILE_SET_FUNCTION}`, ' sta DF0WRITE',
       ' lda #<_pftile_desc0', ' sta DF0WRITE',
       ' lda #((>_pftile_desc0) & $0F) | (((>_pftile_desc0) / 2) & $70)', ' sta DF0WRITE',
       ' lda temp3', ' sta DF0WRITE',
       ' lda temp5', ' sta DF0WRITE',
+      ...(narrow ? [' lda temp1', ' and #1', ' sta DF0WRITE'] : []),
       ' lda #255', ' sta CALLFUNCTION',
       // The next repeat of the layout, while it is in the 255 rows.
       ...(period ? [' lda temp2', ' clc', ` adc ${period}`, ` bcs ${label}_done`, ' cmp #255', ` bcs ${label}_done`, ' sta temp2',
