@@ -27,12 +27,15 @@
         </div>
 
         <graphic-editor-toolbar
+          ref="graphicToolbar"
           :active-editor="effectiveEditor"
           :card-columns.sync="cardColumns"
           card-columns-what="backgrounds"
           :stamp-on="tilemapOn ? stampOn : null"
+          :stamp-flip="stampFlip"
           :stamp-disabled="!tileSet.tiles.length"
           @update:stampOn="setStampOn"
+          @update:stampFlip="setStampFlip"
           @height-hotkey="handleSetHeightHotkey"
         >
           <template v-slot:zoom>
@@ -69,8 +72,8 @@
                     text
                     small
                     class="unified-toolbar-height-btn"
-                    title="Set height (H)"
-                    :disabled="!selectedBackground"
+                    :title="heightForTiles ? 'Set the height of all the tiles (H)' : 'Set height (H)'"
+                    :disabled="!selectedBackground && !heightForTiles"
                     v-bind="attrs"
                     v-on="on"
                     @click="openHeightMenu"
@@ -83,7 +86,7 @@
                   <v-list>
                     <v-list-item>
                       <v-list-item-content>
-                        <v-list-item-title>Set height for the selected background</v-list-item-title>
+                        <v-list-item-title>{{ heightForTiles ? 'Set height for all the tiles' : 'Set height for the selected background' }}</v-list-item-title>
                       </v-list-item-content>
                     </v-list-item>
                   </v-list>
@@ -97,7 +100,7 @@
                         <v-slider
                           v-model="heightMenuValue"
                           :min="1"
-                          :max="maxBackgroundRows"
+                          :max="heightForTiles ? MAX_TILE_ROWS : maxBackgroundRows"
                           label="Height"
                           class="align-center"
                           style="width: 400px"
@@ -150,7 +153,7 @@
             <quick-color-palette v-model="selectedQuickColor" :active-editor="effectiveEditor" />
           </template>
         </graphic-editor-toolbar>
-        <div v-if="tilemapOn" class="tiles-section">
+        <div v-if="tilemapOn" class="tiles-section" :style="{'--tiles-sticky-top': `${folderToolbarHeight + graphicToolbarHeight}px`}">
           <!-- A line above (the toolbar's line is over the Quick colors when they show) and one under, like the Text tab's font editor. -->
           <v-divider v-if="pfColorsEnabled || bkColorsEnabled" class="tiles-divider" />
           <div class="option-section-header" @click="toggleTilesCollapsed(tilesEntry)">
@@ -172,70 +175,129 @@
             </p>
             <p v-if="tilesMessage" class="v-messages theme--light v-messages__message tiles-message">{{ tilesMessage }}</p>
             <div class="tiles-controls">
-              <v-select
-                :items="tileRowOptions"
-                v-model="tileRows"
-                label="Tile rows"
-                dense
-                hide-details
-                :disabled="mappedBackgroundCount > 0"
-                :title="mappedBackgroundCount > 0 ? 'Convert the backgrounds back to pixels to change the rows of the tiles' : 'How many rows a tile has'"
-                class="tiles-rows-select"
-              />
-              <v-btn small text @click="handleAddTile" title="Add a tile">
+              <!-- The tiles' zoom, apart from the backgrounds' (the toolbar's). Below 100% the tiles are a sheet: no cards, IDs or buttons. -->
+              <editor-zoom v-model="tileZoom" :levels="TILE_ZOOM_LEVELS" />
+              <!-- The buttons 8 pixels apart, as the emulator panel's Select and Reset. -->
+              <div class="tiles-buttons">
+              <v-btn small text class="plain-btn" @click="handleAddTile" title="Add a tile">
                 <v-icon left small>mdi-plus</v-icon>Add tile
               </v-btn>
+              <!-- One step: every different pattern of the backgrounds becomes a tile (a pattern and its mirror image one tile; with no tiles yet
+                   at the height that takes the fewest bytes) and the backgrounds are kept as tiles. -->
               <v-btn
                 small
                 text
-                title="Add the patterns found two or more times in the backgrounds as tiles (with no tiles yet, at the tile rows that take the fewest bytes)"
-                @click="handleCreateTiles"
+                class="plain-btn"
+                title="Make tiles of the backgrounds' patterns (one for a pattern and its mirror image) and keep every background as tiles: its pixels then follow its tiles"
+                @click="openMakeTiles"
               >
-                <v-icon left small>mdi-auto-fix</v-icon>Create tiles from backgrounds
+                <v-icon left small>mdi-auto-fix</v-icon>Playfield to tiles
               </v-btn>
-              <v-btn
-                small
-                text
-                title="Keep every background as tiles (a tile is added for each pattern no tile has): its pixels then follow its tiles"
-                @click="handleConvertToTileNumbers"
-              >
-                <v-icon left small>mdi-grid</v-icon>Convert backgrounds to tiles
-              </v-btn>
+              <!-- Playfield to tiles: the size of the tiles first (a width the build can cut a row into, 8, 16 or 32; a height of 1 to 32 rows or
+                   the one with the fewest bytes), and whether they take the place of the tiles there are. Keeping them keeps their size. -->
+              <v-dialog v-model="makeTilesVisible" width="420">
+                <v-card>
+                  <v-card-title class="text-subtitle-1">Playfield to tiles</v-card-title>
+                  <v-card-text>
+                    <div class="make-tiles-fields">
+                      <v-select
+                        v-model="makeTilesWidth"
+                        :items="TILE_WIDTHS.map((value) => ({text: `${value} pixels`, value}))"
+                        label="Tile width"
+                        :disabled="makeTilesSizeLocked"
+                        hide-details
+                        dense
+                      />
+                      <v-select
+                        v-model="makeTilesHeight"
+                        :items="makeTilesHeightItems"
+                        label="Tile height"
+                        :disabled="makeTilesSizeLocked"
+                        hide-details
+                        dense
+                      />
+                    </div>
+                    <v-checkbox
+                      v-model="makeTilesReplace"
+                      label="Replace existing tiles"
+                      :disabled="!tileSet.tiles.length"
+                      hide-details
+                      dense
+                      class="make-tiles-replace"
+                    />
+                    <p v-if="makeTilesSizeLocked" class="v-messages theme--light v-messages__message make-tiles-hint">
+                      The tiles there are keep their size: tick Replace existing tiles to choose another.
+                    </p>
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer />
+                    <v-btn text @click="makeTilesVisible = false">Cancel</v-btn>
+                    <v-btn text @click="handleMakeTiles">Make tiles</v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-dialog>
               <v-btn
                 v-if="mappedBackgroundCount > 0"
                 small
                 text
-                title="Keep the backgrounds as pixels again (they look the same; the tiles stay)"
-                @click="handleConvertToPixels"
+                class="plain-btn"
+                title="Keep the backgrounds as pixels again (they look the same)"
+                @click="openBackToPixels"
               >
                 <v-icon left small>mdi-grid-off</v-icon>Back to pixels
               </v-btn>
+              <v-dialog v-model="backToPixelsVisible" width="420">
+                <v-card>
+                  <v-card-title class="text-subtitle-1">Back to pixels</v-card-title>
+                  <v-card-text>
+                    The backgrounds are kept as pixels again; they look the same.
+                    <v-checkbox
+                      v-model="backToPixelsDeleteTiles"
+                      label="Delete the tiles"
+                      hide-details
+                      dense
+                      class="make-tiles-replace"
+                    />
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer />
+                    <v-btn text @click="backToPixelsVisible = false">Cancel</v-btn>
+                    <v-btn text @click="handleConvertToPixels">Back to pixels</v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-dialog>
+              </div>
             </div>
             <!-- Cards like the backgrounds' below: click to select (Shift for a range, Ctrl to add one), drag the top strip to move them (their
-                 numbers follow the order), the corner buttons delete (with the same confirmation), copy and stamp the tile. -->
-            <div class="tiles-row">
+                 numbers follow the order), the corner buttons delete (with the same confirmation), copy and stamp the tile. Zoomed out below 100%
+                 they are a tile sheet: the pictures side by side with no cards, IDs or buttons (the number shows when the mouse is over one). -->
+            <div class="tiles-row" :class="{'tiles-sheet': tilesSheet}">
               <!-- One card a tile: the pixel editor's, with the ID and the corner buttons in it (as a frame of the Sprite tab). -->
               <div
                 v-for="(tile, number) in tileSet.tiles"
                 :key="tile.id"
                 class="tile-card"
                 :class="[tileDragCardClass(number), {'tile-card-selected': selectedTileIds.includes(tile.id)}]"
-                :style="{width: tileWidth}"
+                :style="tileCardStyle"
+                :title="tilesSheet ? `Tile ${number}` : undefined"
                 v-on="tileDragTargetListeners(number)"
                 @click.stop="handleSelectTile(tile.id, $event)"
               >
                 <pixel-editor
-                  :width="8"
+                  :key="`${tile.id}-${tileWidthPx}`"
+                  :width="tileWidthPx"
                   :height="tileRows"
                   :aspectRatio="tileAspectRatio"
                   :name="`tile ${number}`"
                   :value="tile.pixels"
                   fgColor="orange"
                   :allowChangingHeight="false"
-                  :showClearButton="true"
+                  :showClearButton="!tilesSheet"
+                  :noDrawing="stampOn"
+                  :outsideHistory="true"
                   :hideToolbar="true"
-                  :showGrid="showPixelGrid"
-                  :showCellIds="showPixelGrid && showPixelGridLabels"
+                  :showGrid="showPixelGrid && tileZoom >= 0.5"
+                  :showCellIds="showPixelGrid && showPixelGridLabels && !tilesSheet"
                   @input="(pixels) => handleTileInput(tile, pixels)"
                   @activate="(editorInstance) => setActiveEditor(editorInstance, `tile-${tile.id}`)"
                 >
@@ -261,6 +323,7 @@
                     </v-btn>
                   </template>
                   <template v-slot:badge>
+                    <template v-if="!tilesSheet">
                     <div
                       class="background-drag-handle"
                       title="Drag to reorder"
@@ -286,6 +349,7 @@
                         <v-icon>mdi-content-duplicate</v-icon>
                       </v-btn>
                     </div>
+                    </template>
                   </template>
                 </pixel-editor>
               </div>
@@ -626,6 +690,7 @@
                       :showGrid="showPixelGrid"
                       :showCellIds="showPixelGrid && showPixelGridLabels"
                       :hideToolbar="true"
+                      :outsideHistory="tilemapOn && !!background.tileMap"
                       @input="(pixels) => handleBackgroundPixelsInput(background, pixels)"
                       @clear="() => handleClearRowColors(background)"
                       @clear-colors="() => handleClearPlayfieldRowColors(background)"
@@ -728,8 +793,8 @@ import {colorByteToCss} from '../utils/palette';
 import {PF_COLUMN_WIDTH_PX, pfRowDivisorFor, backgroundRowLinesFor, dpcPlusRowLinesFor} from '../utils/playfield-coords';
 import {resizePixelMatrixHeight, scaleRowColors} from '../utils/pixels';
 import {isPxe, pfWidthOf} from '../utils/pxe';
-import {DEFAULT_TILE_ROWS, planTilemap, tileAt, tileSetHeight} from '../generators/bbasic/pf-tiles';
-import {bestTileHeight, cellPixels, mapOfPixels, pixelsOfMap, repeatingTiles, samePixels, tileableBackgrounds} from '../utils/tilemap-edit';
+import {DEFAULT_TILE_ROWS, MAX_TILE_ROWS, planStandardTilemap, planTilemap, tileAt, tileSetHeight, tileSetWidth, TILE_FLIP_BIT, TILE_WIDTHS} from '../generators/bbasic/pf-tiles';
+import {bestTileHeight, cellPixels, flipRows, mapOfPixels, pixelsOfMap, samePixels, tileableBackgrounds} from '../utils/tilemap-edit';
 import {rowColorsForMove} from '../utils/row-color-move';
 import {CLOCK_ASPECT_PER_LINE_PAIR} from '../utils/pixel-aspect';
 import {backgroundColorRows, backgroundHasColorRows, colorsAtRows, DEFAULT_BACKGROUNDS, DEFAULT_ROW_COLOR, DEFAULT_BK_ROW_COLOR, clearRowColors, backgroundDataRows, dpcPlusPfresOf,
@@ -737,6 +802,8 @@ import {backgroundColorRows, backgroundHasColorRows, colorsAtRows, DEFAULT_BACKG
 
 // Width of one background editor at 100% zoom.
 const EDITOR_BASE_WIDTH = 480;
+// The zoom stops of the Tiles section: further out than the tabs' (a tile is small), the sheet below 100%.
+const TILE_ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
 
 // A blank canvas (every pixel off), sized to whatever the current playfield
 // resolution is - not a fixed row count, since Superchip's pfres setting can
@@ -770,8 +837,15 @@ export default defineComponent({
     // How many pixels across the playfield is (40 on PXE when the project asks for the whole screen).
     const pfWidth = computed(() => pfWidthOf(configurationStorage.value));
     const editorWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value)}px`);
-    // A tile's editor at the zoom of the backgrounds: its 8 pixels as wide as 8 columns of a background card.
-    const tileWidth = computed(() => `${Math.round(EDITOR_BASE_WIDTH * zoom.value * 8 / (pfWidth.value || 32))}px`);
+    // The Tiles section's zoom (apart from the backgrounds', remembered as the tabs' are). At 100% a tile's picture is as wide as 8 columns of a background's
+    // picture at 100% (the card's width less its padding and border, 34 pixels). From 100% up it is in a card at least as wide as the ID and
+    // the corner buttons need (the picture in its middle); below it the tiles are a sheet: the pictures alone, side by side.
+    const tileZoom = useEditorZoom('background-tiles', 1, TILE_ZOOM_LEVELS);
+    const tilesSheet = computed(() => tileZoom.value < 1);
+    const tileCardStyle = computed(() => {
+      const canvas = Math.max(8, Math.round((EDITOR_BASE_WIDTH - 34) * tileZoom.value * tileWidthPx.value / (pfWidth.value || 32)));
+      return {'width': `${tilesSheet.value ? canvas : canvas + 34}px`, '--tile-canvas-width': `${canvas}px`};
+    });
     // See the template's comment on where this background pixel editor's
     // aspectRatio comes from - real playfield width (always 128px) over THIS
     // background's real total height (its row count, not
@@ -796,12 +870,13 @@ export default defineComponent({
     // (see generators/bbasic/pf-tiles.js). A background whose rows the scrolling cuts into thin rows has its tiles on those rows: none shown.
     const tilemapOn = computed(() => {
       const config = configurationStorage.value || {};
-      return config.kernel === 'dpcplus' && !isPxe(config) && !!config.dpcPlusTilemap;
+      return !isPxe(config) && !!config.dpcPlusTilemap;
     });
+    // The standard kernel keeps its tiles as the bytes of the playfield memory, a tile for the column it is in (see planStandardTilemap).
+    const tilesStandard = computed(() => (configurationStorage.value || {}).kernel !== 'dpcplus');
     const showTiles = ref(false);
     const lastTilemap = useLastTilemap();
     // The Tiles section: the project's tiles (kept with the backgrounds, as tileSet: {height, tiles: [{id, pixels}]}), numbered in their order.
-    const tileRowOptions = Array.from({length: 8}, (_, i) => i + 1);
     const tileSet = computed(() => {
       const data = state.value || {};
       return data.tileSet || {height: DEFAULT_TILE_ROWS, tiles: []};
@@ -814,30 +889,72 @@ export default defineComponent({
       handleChildChange();
     };
     const redrawMappedBackgrounds = () => {
-      const {height, tiles} = state.value.tileSet || {};
+      const set = state.value.tileSet || {};
       (state.value.backgrounds || []).forEach((background) => {
-        if (background.tileMap) background.pixels = pixelsOfMap(background.tileMap, tileSetHeight({height}), tiles || [], background.pixels.length);
+        if (background.tileMap) {
+          background.pixels = pixelsOfMap(background.tileMap, tileSetHeight(set), set.tiles || [], background.pixels.length, tileSetWidth(set));
+        }
       });
     };
     const nextTileId = (tiles) => Math.max(0, ...tiles.map((tile) => Number(tile.id) || 0)) + 1;
+    // Undo for the tiles: a change to them (drawing, adding, deleting, a copy, Playfield to tiles, Back to pixels, their height) or to a
+    // background kept as tiles reaches the others, so each is one step of the tab's history (hooks/reorder-history.js) that puts back the tiles
+    // and every background's tile map (and the pixels of those kept as tiles) as they were; their pixel editors keep no separate undo
+    // (outsideHistory). Steps to the same thing in a moment of each other (the strokes of a drawing) are one.
+    const tileSnapshot = () => structuredClone({tileSet: state.value.tileSet || null,
+      backgrounds: (state.value.backgrounds || []).map((background) => ({id: background.id, tileMap: background.tileMap || null,
+        pixels: background.tileMap ? background.pixels : null}))});
+    const restoreTileSnapshot = (snapshot) => {
+      const copy = structuredClone(snapshot);
+      if (copy.tileSet) Vue.set(state.value, 'tileSet', copy.tileSet);
+      else Vue.delete(state.value, 'tileSet');
+      copy.backgrounds.forEach(({id, tileMap, pixels}) => {
+        const background = (state.value.backgrounds || []).find((other) => other.id === id);
+        if (!background) return;
+        if (tileMap) {
+          Vue.set(background, 'tileMap', tileMap);
+          if (pixels) background.pixels = pixels;
+        } else {
+          Vue.delete(background, 'tileMap');
+        }
+      });
+      handleChildChange();
+      instance.proxy.$forceUpdate();
+    };
+    const recordTiles = (before, key) => {
+      const after = tileSnapshot();
+      recordReorder({key, undo: () => restoreTileSnapshot(before), redo: () => restoreTileSnapshot(after), isCurrent: () => true});
+    };
     // What the last of the buttons below did.
     const tilesMessage = ref('');
     const mappedBackgroundCount = computed(() => ((state.value && state.value.backgrounds) || []).filter((background) => background.tileMap).length);
-    // The tile height for tiles made from the backgrounds: the section's when it has tiles, otherwise the one with the fewest bytes.
-    const heightForNewTiles = () => (tileSet.value.tiles.length ? tileRows.value : (bestTileHeight(state.value.backgrounds) || tileRows.value));
-    const handleCreateTiles = () => {
-      const height = heightForNewTiles();
-      const tiles = tileSet.value.tiles.slice();
-      const found = repeatingTiles(state.value.backgrounds, height, tiles);
-      found.forEach((pixels) => tiles.push({id: nextTileId(tiles), pixels}));
-      saveTileSet({...tileSet.value, height, tiles});
-      tilesMessage.value = found.length ?
-        `${found.length} tile${found.length === 1 ? '' : 's'} of ${height} row${height === 1 ? '' : 's'} added (the patterns found two or more times).` :
-        'No pattern is found two or more times that is not a tile already.';
+    // The popup of Playfield to tiles: the width and height of the tiles (the height 'best': the one with the fewest bytes) and whether they
+    // take the place of the tiles there are (otherwise those are kept, with their size).
+    const makeTilesVisible = ref(false);
+    const makeTilesReplace = ref(false);
+    const makeTilesWidth = ref(8);
+    const makeTilesHeight = ref('best');
+    const makeTilesHeightItems = [{text: 'Best (fewest bytes)', value: 'best'},
+      ...Array.from({length: MAX_TILE_ROWS}, (_, i) => ({text: `${i + 1} row${i ? 's' : ''}`, value: i + 1}))];
+    const makeTilesSizeLocked = computed(() => tileSet.value.tiles.length > 0 && !makeTilesReplace.value);
+    const openMakeTiles = () => {
+      makeTilesReplace.value = false;
+      makeTilesWidth.value = tileWidthPx.value;
+      makeTilesHeight.value = tileSet.value.tiles.length ? tileRows.value : 'best';
+      makeTilesVisible.value = true;
     };
-    const handleConvertToTileNumbers = () => {
-      const height = heightForNewTiles();
-      const tiles = tileSet.value.tiles.slice();
+    const handleMakeTiles = () => {
+      const replace = makeTilesReplace.value || !tileSet.value.tiles.length;
+      const width = replace && TILE_WIDTHS.includes(makeTilesWidth.value) ? makeTilesWidth.value : tileWidthPx.value;
+      const chosen = Number(makeTilesHeight.value);
+      const height = !replace ? tileRows.value :
+        (chosen >= 1 && chosen <= MAX_TILE_ROWS ? chosen : (bestTileHeight(state.value.backgrounds) || DEFAULT_TILE_ROWS));
+      makeTilesVisible.value = false;
+      handleConvertToTileNumbers(width, height, replace);
+    };
+    const handleConvertToTileNumbers = (width, height, replace) => {
+      const beforeTiles = tileSnapshot();
+      const tiles = replace ? [] : tileSet.value.tiles.slice();
       const before = tiles.length;
       const addTile = (pixels) => {
         const id = nextTileId(tiles);
@@ -845,25 +962,52 @@ export default defineComponent({
         return id;
       };
       const backgrounds = tileableBackgrounds(state.value.backgrounds);
-      backgrounds.forEach((background) => Vue.set(background, 'tileMap', mapOfPixels(background.pixels, height, tiles, addTile)));
+      backgrounds.forEach((background) => Vue.set(background, 'tileMap', mapOfPixels(background.pixels, height, tiles, addTile, width)));
       // (The numbers of the cells' tiles show.)
       showTiles.value = true;
-      saveTileSet({...tileSet.value, height, tiles});
+      if (replace) stampTileId.value = null;
+      saveTileSet({...tileSet.value, height, width, tiles});
+      recordTiles(beforeTiles);
       const skipped = (state.value.backgrounds || []).length - backgrounds.length;
       tilesMessage.value = `${backgrounds.length} background${backgrounds.length === 1 ? '' : 's'} converted to tiles, ${tiles.length - before} tile${tiles.length - before === 1 ? '' : 's'} added` +
         (skipped ? ` (${skipped} with separate rows for each column left as pixels).` : '.');
       instance.proxy.$forceUpdate();
     };
+    // Back to pixels: the popup asks whether the tiles are deleted too.
+    const backToPixelsVisible = ref(false);
+    const backToPixelsDeleteTiles = ref(false);
+    const openBackToPixels = () => {
+      backToPixelsDeleteTiles.value = false;
+      backToPixelsVisible.value = true;
+    };
     const handleConvertToPixels = () => {
+      const before = tileSnapshot();
+      backToPixelsVisible.value = false;
       (state.value.backgrounds || []).forEach((background) => Vue.delete(background, 'tileMap'));
-      tilesMessage.value = 'The backgrounds are kept as pixels again.';
+      if (backToPixelsDeleteTiles.value) {
+        stampTileId.value = null;
+        deselectTile();
+        Vue.set(state.value, 'tileSet', {...tileSet.value, tiles: []});
+      }
+      tilesMessage.value = backToPixelsDeleteTiles.value ? 'The backgrounds are kept as pixels again, and the tiles are deleted.' :
+        'The backgrounds are kept as pixels again.';
       handleChildChange();
       instance.proxy.$forceUpdate();
+      recordTiles(before);
     };
     // A pixel edit of a background kept as tile numbers: a cell the Stamp put the stamped tile in takes that tile; any other changed cell
     // changes its tile (everywhere it is used). A new height maps the background again.
+    // What each converted background's editor showed after its last edit. A cell is changed by an edit where it differs from that, not from the
+    // background as it is kept: during a stroke the editor does not take in the background drawn again from its tiles (see PixelEditor's value
+    // watcher), so the other cells of a tile just drawn on still showed their old pixels there, and taken as edits put the tile back.
+    const shownMappedPixels = new Map();
     const handleMappedPixelsInput = (background, pixels) => {
+      const before = tileSnapshot();
       const height = tileRows.value;
+      const width = tileWidthPx.value;
+      const last = shownMappedPixels.get(background.id);
+      const shown = last && last.length === pixels.length ? last : background.pixels;
+      shownMappedPixels.set(background.id, pixels.map((row) => [...row]));
       const tiles = tileSet.value.tiles.slice();
       const addTile = (rows) => {
         const id = nextTileId(tiles);
@@ -871,27 +1015,31 @@ export default defineComponent({
         return id;
       };
       if (pixels.length !== background.pixels.length) {
-        background.tileMap = mapOfPixels(pixels, height, tiles, addTile);
+        background.tileMap = mapOfPixels(pixels, height, tiles, addTile, width);
       } else {
         const stamp = stampFor();
-        const stampId = stamp ? (tiles.find((tile) => tile.id === stampTileId.value) || tiles[0]).id : null;
         const map = background.tileMap.map((cells) => cells.slice());
         for (let cellRow = 0; cellRow < Math.ceil(pixels.length / height); cellRow++) {
-          if (!map[cellRow]) map[cellRow] = [null, null, null, null];
-          for (let column = 0; column < 4; column++) {
-            const now = cellPixels(pixels, cellRow, column, height);
-            if (samePixels(now, cellPixels(background.pixels, cellRow, column, height))) continue;
+          if (!map[cellRow]) map[cellRow] = new Array(32 / width).fill(null);
+          for (let column = 0; column < 32 / width; column++) {
+            const now = cellPixels(pixels, cellRow, column, height, width);
+            if (samePixels(now, cellPixels(shown, cellRow, column, height, width))) continue;
             // (A cell of the last row can have fewer rows than a tile: only those are compared, and the tile keeps the rest.)
             const rowsHere = Math.min(height, pixels.length - cellRow * height);
-            if (stamp && samePixels(now.slice(0, rowsHere), cellPixels(stamp.pixels, 0, 0, height).slice(0, rowsHere))) {
-              map[cellRow][column] = stampId;
+            if (stamp && samePixels(now.slice(0, rowsHere), cellPixels(stamp.pixels, 0, 0, height, width).slice(0, rowsHere))) {
+              map[cellRow][column] = stamp.id;
               continue;
             }
-            const index = tiles.findIndex((tile) => tile.id === map[cellRow][column]);
+            // (A cell with a tile flipped changes the tile with the cell's pixels flipped back.)
+            const cellId = map[cellRow][column];
+            const flipped = typeof cellId === 'number' && cellId < 0;
+            const index = tiles.findIndex((tile) => tile.id === (flipped ? -cellId : cellId));
             if (index < 0) {
               map[cellRow][column] = addTile(now);
             } else {
-              tiles[index] = {...tiles[index], pixels: [...now.slice(0, rowsHere), ...cellPixels(tiles[index].pixels, 0, 0, height).slice(rowsHere)]};
+              const old = cellPixels(tiles[index].pixels, 0, 0, height, width);
+              const merged = [...(flipped ? flipRows(now) : now).slice(0, rowsHere), ...old.slice(rowsHere)];
+              tiles[index] = {...tiles[index], pixels: merged};
             }
           }
         }
@@ -899,8 +1047,11 @@ export default defineComponent({
       }
       background.pixels = pixels;
       saveTileSet({...tileSet.value, tiles});
+      recordTiles(before, `mapped-${background.id}`);
     };
-    const blankRows = (rows) => Array.from({length: rows}, () => new Array(8).fill(0));
+    const blankRows = (rows) => Array.from({length: rows}, () => new Array(tileWidthPx.value).fill(0));
+    // How wide a tile of the section is (8, 16 or 32 pixels).
+    const tileWidthPx = computed(() => tileSetWidth(tileSet.value));
     const tileRows = computed({
       get: () => tileSetHeight(tileSet.value),
       // Every tile is cut or padded with empty rows to the new height.
@@ -908,8 +1059,10 @@ export default defineComponent({
         tiles: tileSet.value.tiles.map((tile) => ({...tile, pixels: [...(tile.pixels || []).slice(0, rows), ...blankRows(Math.max(0, rows - (tile.pixels || []).length))]}))}),
     });
     const handleAddTile = () => {
+      const before = tileSnapshot();
       const id = Math.max(0, ...tileSet.value.tiles.map((tile) => Number(tile.id) || 0)) + 1;
       saveTileSet({...tileSet.value, height: tileRows.value, tiles: [...tileSet.value.tiles, {id, pixels: blankRows(tileRows.value)}]});
+      recordTiles(before);
     };
     // The tile cards are selected and moved as the background cards are (hooks/card-selection.js, hooks/drag-reorder.js); a tile's number is
     // its place in the list, so nothing is renumbered.
@@ -941,10 +1094,12 @@ export default defineComponent({
     // Deletes the tile, or all the selected tiles when it is one of them.
     // (A background kept as tile numbers shows a dash and an empty cell where a deleted tile was.)
     const handleDeleteTile = (tile) => {
+      const before = tileSnapshot();
       const doomed = tileIdsToDelete(tile.id);
       if (doomed.includes(stampTileId.value)) stampTileId.value = null;
       saveTileSet({...tileSet.value, tiles: tileSet.value.tiles.filter((other) => !doomed.includes(other.id))});
       if (doomed.length > 1) deselectTile();
+      recordTiles(before);
     };
     // Copy and paste of a tile's image (the rows it has; a pasted image is cut or padded to the tile's rows).
     const copiedTilePixels = ref(null);
@@ -953,19 +1108,23 @@ export default defineComponent({
     };
     const handlePasteTile = (tile) => {
       if (!copiedTilePixels.value) return;
-      const rows = tileRows.value;
-      const pixels = [...copiedTilePixels.value.slice(0, rows), ...blankRows(Math.max(0, rows - copiedTilePixels.value.length))];
-      handleTileInput(tile, JSON.parse(JSON.stringify(pixels)));
+      // (Cut or padded to the tile's rows and width.)
+      handleTileInput(tile, cellPixels(copiedTilePixels.value, 0, 0, tileRows.value, tileWidthPx.value));
     };
     // A copy of the tile right after it.
     const handleDuplicateTile = (tile) => {
+      const before = tileSnapshot();
       const id = Math.max(0, ...tileSet.value.tiles.map((other) => Number(other.id) || 0)) + 1;
       const tiles = tileSet.value.tiles.slice();
       tiles.splice(tiles.indexOf(tile) + 1, 0, {id, pixels: JSON.parse(JSON.stringify(tile.pixels))});
       saveTileSet({...tileSet.value, tiles});
+      recordTiles(before);
     };
+    // (Matched by id: the tile objects are new after every change.)
     const handleTileInput = (tile, pixels) => {
-      saveTileSet({...tileSet.value, tiles: tileSet.value.tiles.map((other) => (other === tile ? {...other, pixels} : other))});
+      const before = tileSnapshot();
+      saveTileSet({...tileSet.value, tiles: tileSet.value.tiles.map((other) => (other.id === tile.id ? {...other, pixels} : other))});
+      recordTiles(before, `tile-${tile.id}`);
     };
     // The Stamp tool of the toolbar, and the tile it places (its id).
     const stampOn = ref(false);
@@ -973,22 +1132,30 @@ export default defineComponent({
     const setStampOn = (on) => {
       stampOn.value = on;
     };
+    // The Flip button beside it: the tile is placed flipped left to right (the build keeps it as the same tile, flipped).
+    const stampFlip = ref(false);
+    const setStampFlip = (on) => {
+      stampFlip.value = on;
+    };
     const stampFor = () => {
       if (!tilemapOn.value || !stampOn.value) return null;
       const tiles = tileSet.value.tiles;
       const tile = tiles.find((other) => other.id === stampTileId.value) || tiles[0];
-      return tile ? {rows: tileRows.value, pixels: tile.pixels} : null;
+      if (!tile) return null;
+      const pixels = cellPixels(tile.pixels || [], 0, 0, tileRows.value, tileWidthPx.value);
+      return {rows: tileRows.value, width: tileWidthPx.value, pixels: stampFlip.value ? flipRows(pixels) : pixels, id: stampFlip.value ? -tile.id : tile.id};
     };
-    // A tile drawn in the shape it has on the playfield: 8 pixels of the playfield's width by the rows of a tile of the project's row height.
+    // A tile drawn in the shape it has on the playfield: its pixels of the playfield's width by the rows of a tile of the project's row height.
     const tileAspectRatio = computed(() => {
       const config = configurationStorage.value || {};
-      return (8 * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (tileRows.value * (dpcPlusRowLinesFor(config) / 2));
+      return (tileWidthPx.value * PF_COLUMN_WIDTH_PX * CLOCK_ASPECT_PER_LINE_PAIR) / (tileRows.value * (dpcPlusRowLinesFor(config) / 2));
     });
     // The tiles of the backgrounds as they are now (no build needed): the section's tiles first, then the others as the build numbers them
     // when it has every background (a background the build leaves out, or the scroll cuts into thin rows, can make its later numbers differ).
     const tilemapNow = computed(() => {
       if (!tilemapOn.value || !showTiles.value) return null;
       const backgrounds = tileableBackgrounds((state.value && state.value.backgrounds) || []);
+      if (tilesStandard.value) return planStandardTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels})));
       return planTilemap(backgrounds.map((background) => ({id: background.id, pixels: background.pixels, fill: background.pixels.length})), tileSet.value);
     });
     const tileGridFor = (background) => {
@@ -996,16 +1163,27 @@ export default defineComponent({
       // A background kept as tile numbers: the numbers of its tiles in the section (a dash for one that was deleted).
       if (background.tileMap) {
         const numberOf = new Map(tileSet.value.tiles.map((tile, number) => [tile.id, number]));
-        return {rows: tileRows.value, numbers: background.tileMap.map((cells) => cells.map((id) => (numberOf.has(id) ? numberOf.get(id) : '-')))};
+        // (A tile flipped left to right: its number and an arrow.)
+        const label = (id) => {
+          const flipped = typeof id === 'number' && id < 0;
+          const number = numberOf.get(flipped ? -id : id);
+          return number === undefined ? '-' : `${number}${flipped ? '\u2194' : ''}`;
+        };
+        return {rows: tileRows.value, width: tileWidthPx.value, numbers: background.tileMap.map((cells) => cells.map(label))};
       }
       const plan = tilemapNow.value;
       // (The last build cut a scrolling background into thin rows: its tiles are on those, none shown.)
       const built = lastTilemap.value && lastTilemap.value.byId[String(background.id)];
       if (!plan || (built && built.thin !== 1)) return null;
       const cellRows = Math.ceil(background.pixels.length / plan.height);
+      // No tiles yet (the Tiles section is empty): each cell a different number, counted along the rows.
+      if (!tileSet.value.tiles.length) {
+        return {rows: plan.height, numbers: Array.from({length: cellRows}, (_, row) => [0, 1, 2, 3].map((column) => row * 4 + column))};
+      }
       return {rows: plan.height, numbers: Array.from({length: cellRows}, (_, row) => [0, 1, 2, 3].map((column) => {
         const number = tileAt(plan, background.id, column, row);
-        return number === null ? '-' : number;
+        if (number === null) return '-';
+        return plan.flipLayout && (number & TILE_FLIP_BIT) ? `${number & ~TILE_FLIP_BIT}\u2194` : number;
       }))};
     };
 
@@ -1295,7 +1473,14 @@ export default defineComponent({
     const heightMenuVisible = ref(false);
     const heightMenuValue = ref(0);
     const heightMenuScaleContents = ref(false);
+    // With a tile selected (the Tiles section), Set height sets the rows of every tile (1 to MAX_TILE_ROWS): the tiles all have the same height.
+    const heightForTiles = computed(() => tilemapOn.value && selectedTileId.value !== null && selectedTileIds.value.includes(selectedTileId.value));
     const openHeightMenu = () => {
+      if (heightForTiles.value) {
+        heightMenuValue.value = tileRows.value;
+        heightMenuScaleContents.value = false;
+        return;
+      }
       if (!selectedBackground.value) return;
       heightMenuValue.value = selectedBackground.value.pixels.length;
       heightMenuScaleContents.value = false;
@@ -1303,7 +1488,7 @@ export default defineComponent({
     // The "H" hotkey - see PlayerEditor.vue's handleSetHeightHotkey for
     // why this can't just call openHeightMenu alone.
     const handleSetHeightHotkey = () => {
-      if (!selectedBackground.value) return;
+      if (!selectedBackground.value && !heightForTiles.value) return;
       openHeightMenu();
       heightMenuVisible.value = true;
     };
@@ -1321,7 +1506,26 @@ export default defineComponent({
       handleChildChange();
       instance.proxy.$forceUpdate();
     };
+    // All the tiles to a height: each cut or padded with empty rows, or scaled. (Not while a background is kept as tile numbers: its cells are
+    // a tile's rows.) It can be undone.
+    const setTilesHeight = (rows) => {
+      if (mappedBackgroundCount.value > 0) {
+        tilesMessage.value = 'The tiles keep their height while a background is converted to tiles: Back to pixels first.';
+        return;
+      }
+      const before = tileSnapshot();
+      saveTileSet({...tileSet.value, height: rows, tiles: tileSet.value.tiles.map((tile) =>
+        ({...tile, pixels: resizePixelMatrixHeight(cellPixels(tile.pixels || [], 0, 0, tileRows.value, tileWidthPx.value), rows, tileWidthPx.value,
+            heightMenuScaleContents.value)}))});
+      recordTiles(before);
+    };
     const handleUnifiedSetHeight = () => {
+      if (heightForTiles.value) {
+        heightMenuValue.value = Math.max(1, Math.min(MAX_TILE_ROWS, Number(heightMenuValue.value) || 1));
+        if (heightMenuValue.value !== tileRows.value) setTilesHeight(heightMenuValue.value);
+        heightMenuVisible.value = false;
+        return;
+      }
       const background = selectedBackground.value;
       if (!background) return;
       heightMenuValue.value = Math.max(1, Math.min(maxBackgroundRows.value, heightMenuValue.value || 0));
@@ -1460,7 +1664,20 @@ export default defineComponent({
         folderToolbarObserver.observe(element, {box: 'border-box'});
       }
     });
+    // How tall the toolbar of the graphics is: the Tiles section sticks under it (and the folders above it) when the tab scrolls.
+    const graphicToolbarHeight = ref(0);
+    let graphicToolbarObserver = null;
+    onMounted(() => {
+      const toolbar = instance.proxy.$refs.graphicToolbar;
+      const element = toolbar && toolbar.$el;
+      if (!element || typeof ResizeObserver === 'undefined') return;
+      graphicToolbarObserver = new ResizeObserver(() => {
+        graphicToolbarHeight.value = pinnedHeight(element);
+      });
+      graphicToolbarObserver.observe(element, {box: 'border-box'});
+    });
     onBeforeUnmount(() => {
+      if (graphicToolbarObserver) graphicToolbarObserver.disconnect();
       if (folderToolbarObserver) folderToolbarObserver.disconnect();
       if (pinnedContainer) pinnedContainer.removeEventListener('scroll', updatePinned);
     });
@@ -1688,19 +1905,20 @@ export default defineComponent({
       testingId, buildInProgress, handleTestBackground,
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
-      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, tilemapOn, showTiles, tileGridFor, isTilesCollapsed, toggleTilesCollapsed, tilesEntry: {id: 'tiles'}, tileRowOptions, tileSet, tileRows, handleAddTile,
-      tilesMessage, mappedBackgroundCount, handleCreateTiles, handleConvertToTileNumbers, handleConvertToPixels,
+      DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, tilemapOn, showTiles, tileGridFor, isTilesCollapsed, toggleTilesCollapsed, tilesEntry: {id: 'tiles'}, tileSet, tileRows, handleAddTile,
+      tilesMessage, mappedBackgroundCount, makeTilesVisible, makeTilesReplace, makeTilesWidth, makeTilesHeight, makeTilesHeightItems,
+      makeTilesSizeLocked, openMakeTiles, handleMakeTiles, backToPixelsVisible, backToPixelsDeleteTiles, openBackToPixels, TILE_WIDTHS, MAX_TILE_ROWS, tileWidthPx, handleConvertToTileNumbers, handleConvertToPixels,
       handleDeleteTile, handleDuplicateTile, copiedTilePixels, handleCopyTile, handlePasteTile, handleTileInput, selectedTileId, selectedTileIds, deselectTile, handleSelectTile, tileDeleteQuestion,
-      tileDragAttrs, tileDragCardClass, tileDragHandleListeners, tileDragTargetListeners, stampOn, setStampOn, stampFor, handleSelectBackgroundCard, handleDeselectCards, tileAspectRatio, tileWidth, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
+      tileDragAttrs, tileDragCardClass, tileDragHandleListeners, tileDragTargetListeners, stampOn, setStampOn, stampFor, handleSelectBackgroundCard, handleDeselectCards, tileAspectRatio, tileCardStyle, tileZoom, tilesSheet, TILE_ZOOM_LEVELS, stampFlip, setStampFlip, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,
       dragAttrs, dragCardClass, dragHandleListeners, dragTargetListeners,
       visibleEntries, foldersOf, openFolderId, openFolder, refresh, handleAddFolder, handleDeleteFolder, handleDropCards, draggingCardIndex, cardHandleListeners,
-      folderToolbar, folderToolbarHeight, folderToolbarPinned,
+      folderToolbar, folderToolbarHeight, folderToolbarPinned, graphicToolbarHeight,
       copiedBackgroundRowColors, handleCopyBackgroundRowColors, handlePasteBackgroundRowColors,
       copiedBackgroundBkRowColors, handleCopyBackgroundBkRowColors, handlePasteBackgroundBkRowColors,
       copiedBackgroundData, handleCopyBackground, handlePasteBackground,
       activeEditor, setActiveEditor, selectedBackground,
       effectiveEditor, pixelEditorRefKey,
-      heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight,
+      heightMenuVisible, heightMenuValue, heightMenuScaleContents, openHeightMenu, handleUnifiedSetHeight, heightForTiles,
       handleSetHeightHotkey, kernelIsDpcPlus, maxBackgroundRows, defaultPfres, handleChangeBackgroundPfres,
       handleToggleGroupPfres, handleChangeGroupPfres, groupAspectRatio, groupPixels, groupColors, fineColors, handleGroupPixelsInput, handleClearGroupBackground, handleChangeColorRows, handleTypeColorRows, handleLeaveColorRows, pixelRowColors};
   },
@@ -1708,9 +1926,27 @@ export default defineComponent({
 </script>
 <style scoped>
 /* The Tiles section: a plain chevron and title like the Text tab's font editor and the Options tab's sections. */
+/* (No margin under it: the line it ends with is as far above the first card as the cards are from the sides, 16 pixels, as under the toolbar.)
+   Pinned under the toolbar when the tab scrolls, as the toolbar is under the folders (--tiles-sticky-top: their heights), with the tab's color
+   behind it (App.vue has the dark and subdued ones); its tiles scroll inside it past a third of the window, so the cards stay in view. */
 .tiles-section {
   margin-top: 8px;
-  margin-bottom: 16px;
+  position: sticky;
+  top: var(--tiles-sticky-top, 0px);
+  z-index: 1;
+  background-color: #fff;
+}
+
+.desaturate-app-colors .tiles-section {
+  background-color: #e1e1e1;
+}
+
+/* (The padding keeps a selected tile's outline, drawn 2 pixels outside it, inside the scrolling row: without it the row cut the outline off
+   on the edges the tile touches, the top for the first row of tiles, the sides for the first and last tile of a row.) */
+.tiles-section .tiles-row {
+  max-height: 33vh;
+  overflow-y: auto;
+  padding: 3px;
 }
 
 /* The full width of the tab, as the toolbar's line. */
@@ -1738,12 +1974,27 @@ export default defineComponent({
   margin: 8px 0 12px;
 }
 
-.tiles-message {
-  margin-top: 4px;
+.make-tiles-fields {
+  display: flex;
+  gap: 16px;
 }
 
-.tiles-rows-select {
-  flex: 0 0 140px;
+.make-tiles-replace {
+  margin-top: 16px;
+}
+
+.make-tiles-hint {
+  margin-top: 8px;
+}
+
+.tiles-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tiles-message {
+  margin-top: 4px;
 }
 
 .tiles-row {
@@ -1756,7 +2007,44 @@ export default defineComponent({
 /* A tile is the pixel editor's card (width set from the zoom, at least the ID and the corner buttons), selected as a frame of the Sprite tab is. */
 .tile-card {
   position: relative;
-  min-width: 112px;
+  min-width: 100px;
+}
+
+/* The tile sheet (the Tiles section's zoom below 100%): the pictures side by side, with no card, padding, ID or buttons. */
+.tiles-row.tiles-sheet {
+  gap: 0;
+}
+
+.tiles-sheet .tile-card {
+  min-width: 0;
+}
+
+.tiles-sheet .tile-card >>> .v-card {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.tiles-sheet .tile-card >>> .v-card__text {
+  padding: 0;
+}
+
+.tiles-sheet .tile-card >>> .editor-with-sidebar {
+  margin-top: 0;
+}
+
+/* The picture as wide as the zoom makes it (--tile-canvas-width), in the middle of a card the buttons keep wider. */
+.tile-card >>> .proportion-wrapper {
+  flex: 0 0 var(--tile-canvas-width);
+}
+
+.tile-card >>> .editor-with-sidebar {
+  justify-content: center;
+}
+
+/* Above the tiles beside it (in the sheet they touch, and a later tile was drawn over the outline). */
+.tile-card-selected {
+  z-index: 1;
 }
 
 .tile-card-selected >>> .v-card {
@@ -1775,12 +2063,12 @@ export default defineComponent({
   pointer-events: none;
 }
 
+/* (No gap: the delete icon is drawn narrower than its button, so the buttons side by side already have room between their icons.) */
 .tile-corner-toolbar {
   position: absolute;
   top: 8px;
   right: 8px;
   display: flex;
-  gap: 4px;
 }
 
 /* The picture under the corner buttons. */
@@ -2051,11 +2339,14 @@ export default defineComponent({
    stays here rather than moving into that shared component. */
 /* !important on width/min-width - see PlayerEditor.vue's identical rule for
    why (Vuetify's ".v-btn.v-size--small" default otherwise wins). */
+/* (padding !important too: Vuetify's small button padding, about 12 pixels a side, otherwise wins, which left 25 pixels of empty button
+   round the 16 pixel icon, so the toolbar wrapped it to a new line with room still to be seen; the -6 pixel margin that made up for part
+   of it is gone with it.) */
 .unified-toolbar-height-btn {
   width: auto !important;
   min-width: 0 !important;
-  margin-left: -6px !important;
-  padding: 0 2px;
+  margin-left: 0 !important;
+  padding: 0 4px !important;
   font-size: 0.75rem;
   color: rgba(0, 0, 0, 0.55);
   background-color: transparent !important;

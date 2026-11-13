@@ -45,6 +45,34 @@
         </div>
       </div>
       </div>
+      <!-- The tile tools (the Playfield tab with the tilemap on): Stamp places the selected tile, Flip places it flipped left to right. -->
+      <div v-if="stampOn !== null" class="get-tools">
+        <div class="get-group get-group-tools">
+        <v-divider class="get-inner-divider get-group-divider" vertical />
+        <v-btn-toggle :value="[stampOn && 'stamp', stampFlip && 'flip'].filter(Boolean)" multiple borderless>
+          <v-btn
+            icon
+            small
+            title="Stamp: click a card to place the selected tile there (in the cell of 8 columns and the tile's rows under the mouse)"
+            value="stamp"
+            :disabled="stampDisabled"
+            @click="$emit('update:stampOn', !stampOn)"
+          >
+            <v-icon>mdi-stamper</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            small
+            title="Flip the tile the Stamp places, left to right (X; the build keeps it as the same tile, flipped)"
+            value="flip"
+            :disabled="stampDisabled"
+            @click="$emit('update:stampFlip', !stampFlip)"
+          >
+            <v-icon>mdi-swap-horizontal</v-icon>
+          </v-btn>
+        </v-btn-toggle>
+        </div>
+      </div>
       <div class="get-tools">
         <div class="get-group get-group-tools">
         <v-divider class="get-inner-divider get-group-divider" vertical />
@@ -102,17 +130,6 @@
             @click="toggleTool('pencil')"
           >
             <v-icon>mdi-pencil</v-icon>
-          </v-btn>
-          <v-btn
-            v-if="stampOn !== null"
-            icon
-            small
-            title="Stamp: click a card to place the selected tile there (in the cell of 8 columns and the tile's rows under the mouse)"
-            value="stamp"
-            :disabled="stampDisabled"
-            @click="$emit('update:stampOn', !stampOn)"
-          >
-            <v-icon>mdi-stamper</v-icon>
           </v-btn>
           <v-btn
             icon
@@ -325,6 +342,8 @@ export default {
     // The Stamp tool after the Pencil (the Playfield tab's tiles): whether it is on (the caller keeps it; use .sync), or null for no Stamp tool.
     // Choosing another tool turns it off.
     stampOn: {type: Boolean, default: null},
+    // Whether the Stamp places its tile flipped left to right (use .sync).
+    stampFlip: {type: Boolean, default: false},
     stampDisabled: {type: Boolean, default: false},
     // False for a tab whose graphics have no row colors to paint (the Score tab): the color swatch and the eyedropper that goes with it are left out.
     showColorSwatch: {type: Boolean, default: true},
@@ -585,6 +604,13 @@ export default {
       if (key.toLowerCase() === 'h') {
         event.preventDefault();
         this.$emit('height-hotkey');
+        return;
+      }
+      // X: the tile Flip (only where the toolbar has the tile tools).
+      if (key.toLowerCase() === 'x' && !event.shiftKey && this.stampOn !== null) {
+        if (this.stampDisabled) return;
+        event.preventDefault();
+        this.$emit('update:stampFlip', !this.stampFlip);
         return;
       }
       const tool = TOOL_HOTKEYS[key.toLowerCase()];

@@ -215,7 +215,7 @@
                   <div v-if="!isSequenceCollapsed(song)" class="sequence-add-row">
                     <v-menu>
                       <template v-slot:activator="{ on, attrs }">
-                        <v-btn text small class="add-track-button" v-bind="attrs" v-on="on">
+                        <v-btn text small class="add-track-button plain-btn" v-bind="attrs" v-on="on">
                           <v-icon left small>mdi-plus</v-icon>
                           Add pattern
                         </v-btn>
@@ -448,7 +448,7 @@
                       </div>
                       </div>
 
-                      <v-btn text small class="add-track-button" @click="() => handleAddTrack(activePattern(song))">
+                      <v-btn text small class="add-track-button plain-btn" @click="() => handleAddTrack(activePattern(song))">
                         <v-icon left small>mdi-plus</v-icon>
                         Add instrument
                       </v-btn>

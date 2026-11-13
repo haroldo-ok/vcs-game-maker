@@ -189,6 +189,7 @@
   </v-card>
 </template>
 <script>
+import {cycleScoreOn as isCycleScoreOn} from '../utils/pxe';
 import {computed, defineComponent, ref, watch} from '@vue/composition-api';
 
 import ColorSwatchPicker from '../components/ColorSwatchPicker.vue';
@@ -483,12 +484,12 @@ export default defineComponent({
     // timing unchanged.
     // On: 5 digits, the standard and DPC+ kernels leave the leftmost digit blank (const score5digits); off (default): 6.
     // The cycle score (Options tab) always shows six digits, so the switch is off and cannot be turned on while it is on.
-    const cycleScoreOn = computed(() => !!(configurationStorage.value || {}).enableCycleScore);
+    const cycleScoreOn = computed(() => isCycleScoreOn(configurationStorage.value || {}));
     const fiveScoreDigits = computed({
       get() {
         const configuration = configurationStorage.value || {};
         // The cycle score always shows six digits.
-        return !configuration.enableCycleScore && configuration.scoreDigits === 5;
+        return !isCycleScoreOn(configuration) && configuration.scoreDigits === 5;
       },
       set(value) {
         configurationStorage.value = {

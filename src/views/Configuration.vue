@@ -46,6 +46,14 @@
             persistent-hint
             class="option-switch"
           />
+          <v-checkbox
+            v-model="configurationState.dpcPlusTilemap"
+            @change="handleChangeConfiguration"
+            label="Keep backgrounds as tiles (tilemap)"
+            hint="The build cuts every background into tiles one playfield column (8 pixels) wide, keeps each different tile once, and the 6502 builds a background from its tiles when it is shown (a load takes about twice the time of a plain one). Used only when it makes the ROM smaller: with several backgrounds that repeat parts. Collision, the pixel blocks and scrolling work as before, and the Set playfield tile block can change a tile while the game runs."
+            persistent-hint
+            class="option-switch"
+          />
         </template>
         <template v-else>
           <v-checkbox
@@ -328,7 +336,9 @@
           persistent-hint
           class="option-switch"
         />
+        <!-- (Not with PXE: its kernel has no cycle score.) -->
         <v-checkbox
+          v-if="!configurationState.pxe"
           v-model="configurationState.enableCycleScore"
           @change="handleToggleCycleScore"
           label="Show remaining CPU cycles as the score (cyclescore)"
@@ -399,6 +409,13 @@
           v-model="adaptiveFrameSkip"
           label="Adaptive frame skipping"
           hint="On a slower computer, the gopher2600 emulator draws only some of the frames it runs when it is close to falling behind, which leaves more time for emulating. Game speed and sound are unchanged."
+          persistent-hint
+          class="option-switch"
+        />
+        <v-checkbox
+          v-model="previewShowNames"
+          label="Show names in emulator previews"
+          hint="The previews of a sprite, a playfield or a scene show its name in a line of text under the picture. Turned off, the preview shows the picture alone."
           persistent-hint
           class="option-switch"
         />
@@ -561,6 +578,7 @@ const DEFAULT_CONFIGURATION = {
   avoxFileStart: 65,
   avoxFileEnd: 65,
   showVariableComments: false,
+  previewShowNames: true,
 };
 
 // Standard/DPC+ dropdown items for the new Kernel select - a plain, static
@@ -568,7 +586,7 @@ const DEFAULT_CONFIGURATION = {
 // unlike romSizeOptions below.
 const KERNEL_OPTIONS = [
   {text: 'Standard', value: 'standard'},
-  {text: 'DPC+ (beta 0.3)', value: 'dpcplus'},
+  {text: 'DPC+ (beta 1.2)', value: 'dpcplus'},
 ];
 
 export default defineComponent({
@@ -596,6 +614,14 @@ export default defineComponent({
     // keeps just the left toolbar hidden.
     if (hideSidebar.value && hideTopToolbar.value) hideTopToolbar.value = false;
     const darkMode = useDarkModeStorage();
+    // On unless turned off (a project saved before the option has none).
+    const previewShowNames = computed({
+      get: () => configurationState.value.previewShowNames !== false,
+      set: (value) => {
+        configurationState.value = {...configurationState.value, previewShowNames: !!value};
+        handleChangeConfiguration();
+      },
+    });
     const desaturateBlocklyColors = useDesaturateBlocklyColorsStorage();
     const colorblindMode = useColorblindModeStorage();
     const hideDescriptionText = useHideDescriptionTextStorage();
@@ -963,6 +989,7 @@ export default defineComponent({
       state.avoxFileStart = DEFAULT_CONFIGURATION.avoxFileStart;
       state.avoxFileEnd = DEFAULT_CONFIGURATION.avoxFileEnd;
       state.showVariableComments = DEFAULT_CONFIGURATION.showVariableComments;
+      state.previewShowNames = DEFAULT_CONFIGURATION.previewShowNames;
       configurationState.value = state;
 
       loadLastProject.value = false;
@@ -1010,7 +1037,7 @@ export default defineComponent({
       kernelOptions: KERNEL_OPTIONS,
       enableMissile0BlankLines,
       loadLastProject, showStartupTips, checkForUpdates, undoLimit, MIN_UNDO_LIMIT, MAX_UNDO_LIMIT,
-      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
+      muteBlocklySounds, adaptiveFrameSkip, emulatorSettings, previewShowNames, hideSidebar, hideTopToolbar, darkMode, desaturateBlocklyColors, colorblindMode,
       hideDescriptionText,
       hideToolbarLabels,
       stellaPathStorage, isElectron, handleBrowseForStella,

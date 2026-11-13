@@ -352,7 +352,7 @@
             @click="handleRefreshEmulator"
           >
             <v-icon left small>mdi-refresh</v-icon>
-            Refresh emulator
+            Refresh
           </v-btn>
           <div class="emulator-toolbar-icons">
             <v-btn
@@ -2775,6 +2775,22 @@ export default {
   z-index: 100001 !important;
 }
 
+/* The box the title tooltips show in (utils/title-tooltips.js): the look of a Vuetify tooltip, wrapped at 320 pixels. */
+.app-title-tooltip {
+  position: fixed;
+  z-index: 100002;
+  max-width: 320px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background-color: rgba(97, 97, 97, 0.95);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
 * {
   scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
   scrollbar-width: thin;
@@ -3695,10 +3711,11 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
   color: var(--v-primary-lighten1, #2196f3) !important;
 }
 
-/* The text buttons at the bottom of a popup (Cancel, Close, Clear...) and the emulator pane's Refresh,
-   Select and Reset buttons share one look: small, the theme's plain button background and text color,
-   no primary-blue text (hard to see in dark mode and with Subdued Colors). */
+/* The text buttons at the bottom of a popup (Cancel, Close, Clear...), the emulator pane's Refresh,
+   Select and Reset buttons and the small text buttons of the tabs (.plain-btn: Add tile, Add sprite, Add value...) share one look:
+   small, the theme's plain button background and text color, no primary-blue text (hard to see in dark mode and with Subdued Colors). */
 .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon),
+.plain-btn.v-btn,
 .emulator-select-button.v-btn,
 .emulator-reset-button.v-btn,
 .emulator-refresh-button.v-btn {
@@ -3713,6 +3730,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .v-card__actions .v-btn.v-btn--text.v-btn--disabled:not(.v-btn--icon),
+.plain-btn.v-btn.v-btn--disabled,
 .emulator-select-button.v-btn.v-btn--disabled,
 .emulator-reset-button.v-btn.v-btn--disabled,
 .emulator-refresh-button.v-btn.v-btn--disabled {
@@ -3721,6 +3739,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .dark-mode .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon),
+.dark-mode .plain-btn.v-btn,
 .dark-mode .emulator-select-button.v-btn,
 .dark-mode .emulator-reset-button.v-btn,
 .dark-mode .emulator-refresh-button.v-btn {
@@ -3730,6 +3749,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 }
 
 .dark-mode .v-card__actions .v-btn.v-btn--text.v-btn--disabled:not(.v-btn--icon),
+.dark-mode .plain-btn.v-btn.v-btn--disabled,
 .dark-mode .emulator-select-button.v-btn.v-btn--disabled,
 .dark-mode .emulator-reset-button.v-btn.v-btn--disabled,
 .dark-mode .emulator-refresh-button.v-btn.v-btn--disabled {
@@ -3739,6 +3759,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 /* Subdued Colors mutes every filled button the same way (see the rules for .v-btn--has-bg above). */
 .desaturate-app-colors .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon),
+.desaturate-app-colors .plain-btn.v-btn,
 .desaturate-app-colors .emulator-select-button.v-btn,
 .desaturate-app-colors .emulator-reset-button.v-btn,
 .desaturate-app-colors .emulator-refresh-button.v-btn {
@@ -3755,6 +3776,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* The tab area and the sticky toolbars above each editor: black like the
    sidebar (cards inside the tab stay #1e1e1e so they stand out). */
 .dark-mode.v-application .graphic-editor-toolbar,
+.dark-mode.v-application .tiles-section,
 .dark-mode.v-application .data-toolbar,
 .dark-mode.v-application .scene-toolbar,
 .dark-mode.v-application .generated-code-toolbar,
@@ -3781,6 +3803,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 
 /* With Subdued Palette the tab area is the same softer #1e1e1e as the rest. */
 .dark-mode.desaturate-app-colors.v-application .graphic-editor-toolbar,
+.dark-mode.desaturate-app-colors.v-application .tiles-section,
 .dark-mode.desaturate-app-colors.v-application .data-toolbar,
 .dark-mode.desaturate-app-colors.v-application .scene-toolbar,
 .dark-mode.desaturate-app-colors.v-application .generated-code-toolbar,
@@ -5062,6 +5085,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .reset-to-defaults-btn.v-btn:hover,
 .emulator-refresh-button.v-btn:hover,
 .palette-clear-btn.v-btn:hover,
+.plain-btn.v-btn:not(.v-btn--disabled):hover,
 .emulator-select-button.v-btn:hover,
 .emulator-reset-button.v-btn:hover {
   background-color: #e0e0e0 !important;
@@ -5074,6 +5098,7 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 .desaturate-app-colors .reset-to-defaults-btn.v-btn:hover,
 .desaturate-app-colors .emulator-refresh-button.v-btn:hover,
 .desaturate-app-colors .palette-clear-btn.v-btn:hover,
+.desaturate-app-colors .plain-btn.v-btn:not(.v-btn--disabled):hover,
 .desaturate-app-colors .emulator-select-button.v-btn:hover,
 .desaturate-app-colors .emulator-reset-button.v-btn:hover {
   background-color: #d0d0d0 !important;
@@ -5082,10 +5107,12 @@ input[type='checkbox']:not(:checked) ~ .v-input--switch__thumb {
 /* The dark theme's hover for the same buttons (the light greys above would wash out the white text). */
 .dark-mode .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon):not(.v-btn--disabled):hover,
 .dark-mode .emulator-refresh-button.v-btn:hover,
+.dark-mode .plain-btn.v-btn:not(.v-btn--disabled):hover,
 .dark-mode .emulator-select-button.v-btn:hover,
 .dark-mode .emulator-reset-button.v-btn:hover,
 .dark-mode.desaturate-app-colors .v-card__actions .v-btn.v-btn--text:not(.v-btn--icon):not(.v-btn--disabled):hover,
 .dark-mode.desaturate-app-colors .emulator-refresh-button.v-btn:hover,
+.dark-mode.desaturate-app-colors .plain-btn.v-btn:not(.v-btn--disabled):hover,
 .dark-mode.desaturate-app-colors .emulator-select-button.v-btn:hover,
 .dark-mode.desaturate-app-colors .emulator-reset-button.v-btn:hover {
   background-color: #3a3a3a !important;

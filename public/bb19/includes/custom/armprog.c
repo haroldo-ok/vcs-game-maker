@@ -37,7 +37,8 @@ static u valid(volatile b8 *p,u r)
 #endif
 
 // One offset over columns x1 to x2 (in order, in the playfield) and rows y1 to y2. grouped: the rows a group has are separate, and a row
-// is only offset in the columns of the groups that have it.
+// is only offset in the columns of the groups that have it. All left and all right (1, 2) wrap a pixel round its row; the alternate rows (0, 5)
+// carry the pixel that leaves a row into the next row (a belt).
 static void pass(volatile b8 *p,u dir,u x1,u x2,u y1,u y2,u grouped)
 {
   u t,r,e,old,c,pin,mask,hi,lo,left,m;
@@ -59,6 +60,7 @@ static void pass(volatile b8 *p,u dir,u x1,u x2,u y1,u y2,u grouped)
     else
     {
       left=dir==1||(dir==0&&!(r&1))||(dir==5&&(r&1));
+      if (dir==1||dir==2) pin=old&(left?hi:lo);  // all left, all right: the pixel wraps round the same row
       if (left) { t=((old<<1)&~lo)|(pin?lo:0); pin=old&hi; }
       else { t=((old>>1)&~hi)|(pin?hi:0); pin=old&lo; }
     }
@@ -534,8 +536,9 @@ static void audiomix(void)
 // given as the low byte and the high byte with the bank in its upper bits, as the sprite pointers are). A background's description: the address of its
 // map (low, high), of the tiles (low, high), the rows of a tile, the rows of the map, and the rows to fill (0: the map once; more: the map again from its
 // top, the scrolling memory). The map has 4 tile numbers a row (PF1L, PF2L, PF1R, PF2R); a tile is its rows' bytes one after the other, each as
-// drawn (its left pixel in bit 7): the PF2 columns (1 and 3) draw their bits the other way round, so a tile's bytes are reversed for them. (Nothing is
-// kept between calls: the program is in the ROM.)
+// drawn (its left pixel in bit 7): the PF2 columns (1 and 3) draw their bits the other way round, so a tile's bytes are reversed for them. With bit 7
+// of the rows of a tile set (flips), a tile number with bit 7 set is the tile of the low 7 bits flipped left to right: its bytes are reversed the other
+// way. (Nothing is kept between calls: the program is in the ROM.)
 static const b8 *rom(u lo,u hi) { return (const b8 *)(0xC00+(hi<<8)+lo); }
 static u rev8(u v)
 {
@@ -550,7 +553,7 @@ static void tilesload(volatile b8 *p)
   const b8 *d=rom(CF[1],CF[2]);
   const b8 *map=rom(d[0],d[1]);
   const b8 *tiles=rom(d[2],d[3]);
-  u h=d[4],maprows=d[5],total=d[6]?d[6]:maprows*h;
+  u h=d[4]&0x7F,flips=d[4]&0x80,maprows=d[5],total=d[6]?d[6]:maprows*h;
   u c;
   for (c=0;c<4;c++)
   {
@@ -558,8 +561,10 @@ static void tilesload(volatile b8 *p)
     u r,k=0,m=0;
     for (r=0;r<total;r++)
     {
-      u v=tiles[map[(m<<2)+c]*h+k];
-      dst[r]=(c&1)?rev8(v):v;
+      u n=map[(m<<2)+c],f=c&1,v;
+      if (flips&&(n&0x80)) { n&=0x7F; f^=1; }
+      v=tiles[n*h+k];
+      dst[r]=f?rev8(v):v;
       if (++k==h) { k=0; if (++m==maprows) m=0; }
     }
   }
@@ -570,10 +575,12 @@ static void tilesload(volatile b8 *p)
 static void tileset(volatile b8 *p,u column)
 {
   const b8 *d=rom(CF[1],CF[2]);
-  const b8 *src=rom(d[2],d[3])+CF[3]*d[4];
+  u h=d[4]&0x7F,n=CF[3],f=column&1,k;
+  const b8 *src;
   volatile b8 *dst=p+(column<<8);
-  u k;
-  for (k=0;k<d[4];k++) dst[(CF[4]+k)&255]=(column&1)?rev8(src[k]):src[k];
+  if ((d[4]&0x80)&&(n&0x80)) { n&=0x7F; f^=1; }
+  src=rom(d[2],d[3])+n*h;
+  for (k=0;k<h;k++) dst[(CF[4]+k)&255]=f?rev8(src[k]):src[k];
 }
 #endif
 

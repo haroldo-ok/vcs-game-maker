@@ -1959,11 +1959,14 @@ export default defineComponent({
    icon than every other icon button in this toolbar - confirmed directly as
    the real cause of a reported "looks too far to the right" gap before the
    divider that follows this slot. */
+/* (padding !important too: Vuetify's small button padding, about 12 pixels a side, otherwise wins, which left 25 pixels of empty button
+   round the 16 pixel icon, so the toolbar wrapped it to a new line with room still to be seen; the -6 pixel margin that made up for part
+   of it is gone with it.) */
 .unified-toolbar-height-btn {
   width: auto !important;
   min-width: 0 !important;
-  margin-left: -6px !important;
-  padding: 0 2px;
+  margin-left: 0 !important;
+  padding: 0 4px !important;
   font-size: 0.75rem;
   color: rgba(0, 0, 0, 0.55);
   background-color: transparent !important;

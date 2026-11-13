@@ -323,6 +323,7 @@
                   <v-btn
                     text
                     small
+                    class="plain-btn"
                     title="Removes the value cell last clicked into, or the table's last value if none has been"
                     :disabled="table.values.length <= 1"
                     @click="() => handleSubtractValue(table)"
@@ -333,6 +334,7 @@
                   <v-btn
                     text
                     small
+                    class="plain-btn"
                     :disabled="table.values.length >= maxValues"
                     @click="() => handleAddValue(table)"
                   >

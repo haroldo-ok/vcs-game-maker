@@ -13,7 +13,7 @@ import Vue from 'vue';
 import VueCompositionApi, {ref} from '@vue/composition-api';
 
 import Blockly from 'blockly';
-import {fixFracIncs, flattenBanks, isPxe, pfBuffersOf, pfIsWide} from '../utils/pxe';
+import {cycleScoreOn, fixFracIncs, flattenBanks, isPxe, pfBuffersOf, pfIsWide} from '../utils/pxe';
 import {legalizeForPxe} from '../utils/pxe-legalize';
 import {preprocessBatariBasic, compileBatariBasicToAsm, assembleBatariBasic, getIncludeIdentifiers} from './bb-compiler';
 
@@ -1910,7 +1910,7 @@ const buildRomInner = async () => {
       // back to Squish or to a different project).
       // A Squish score font on DPC+ shortens the score's loop (see utils/dpc-squish.js); with the score hidden there is nothing to shorten.
       const dpcPlusSquish = config.kernel === 'dpcplus' && (config.scoreFont === SQUISH_SCORE_FONT || config.scoreFont === SQUISH_CUSTOM_SCORE_FONT) &&
-        !config.enableCycleScore && !config.enableScanlinesDebug && ((configurationStorage.value || {}).showScore ?? true) !== false;
+        !cycleScoreOn(config) && !config.enableScanlinesDebug && ((configurationStorage.value || {}).showScore ?? true) !== false;
       const siblingFiles = textMinikernelActive ?
         {...(config.kernel === 'dpcplus' ? await getDpcPlusTextMinikernelSiblingFiles(BlocklyBB.isTextRow2Used(), !!BlocklyBB.textScrollCursorUsed,
             ((configurationStorage.value || {}).showScore ?? true) === false, dpcPlusSquish, textLineColorsOf(config)) : await getTextMinikernelSiblingFiles())} : {};
@@ -1967,12 +1967,12 @@ const buildRomInner = async () => {
       // with the standard kernel, extra glyphs included, and so do the Squish fonts (written as a plain table, with the kernel's score
       // loop shortened to match, see utils/dpc-squish.js). A secondary font is a separate table in another bank (see dpcPlusScoreFonts).
       const dpcPlusScore = config.kernel === 'dpcplus';
-      const effectiveScoreFont = (config.enableCycleScore || config.enableScanlinesDebug) ? null : config.scoreFont;
+      const effectiveScoreFont = (cycleScoreOn(config) || config.enableScanlinesDebug) ? null : config.scoreFont;
       if (!dpcPlusScore && effectiveScoreFont === SQUISH_SCORE_FONT && !scoreFontIsEdited(SQUISH_SCORE_FONT)) {
         if (!textMinikernelActive) siblingFiles['score_graphics.asm'] = await getExtendedScoreGraphics();
       } else {
         const scoreFontOverride = await buildScoreFontOverride(effectiveScoreFont,
-            (config.enableCycleScore || config.enableScanlinesDebug || dpcPlusScore) ? undefined : config.secondaryScoreFont,
+            (cycleScoreOn(config) || config.enableScanlinesDebug || dpcPlusScore) ? undefined : config.secondaryScoreFont,
             dpcPlusScore, !!BlocklyBB.dpcPlusMovedScoreFont);
         if (scoreFontOverride) siblingFiles['score_graphics.asm'] = scoreFontOverride;
       }
@@ -2764,6 +2764,9 @@ const previewNameBlockXml = (name) => {
   return `<block type="text_minikernel_show"><field name="TEXT">${escape(centered)}</field>`;
 };
 
+// The name line of a preview (the steps of its blocks), or none when the Options tab turns the names off.
+const previewNameSteps = (name) => ((useConfigurationStorage().value || {}).previewShowNames === false ? [] : [previewNameBlockXml(name)]);
+
 // Setting every preview needs: the 12-character row, and the score (which
 // the text replaces) left on.
 const PREVIEW_TEXT_CONFIG = {
@@ -2772,6 +2775,13 @@ const PREVIEW_TEXT_CONFIG = {
   // The debug displays that write numbers into the score.
   enableCycleScore: false,
   enableScanlinesDebug: false,
+};
+
+// The score of the Playfield, Scene and Sprite previews: left out, unless the project shows the remaining CPU cycles as the score (Options
+// tab), when the preview shows them too (not with PXE, whose kernel has no cycle score).
+const previewScoreConfig = () => {
+  const config = useConfigurationStorage().value || {};
+  return cycleScoreOn(config) ? {enableCycleScore: true, showScore: true} : {showScore: false};
 };
 
 export const buildBackgroundPreviewRom = (backgroundId, name) => {
@@ -2787,7 +2797,7 @@ export const buildBackgroundPreviewRom = (backgroundId, name) => {
     // The screen behind the playfield is black.
     ...(rowBackgroundColors ? [] : [`<block type="background_set_color"><field name="VAR">COLUBK</field><value name="VALUE">` +
       `<shadow type="math_number"><field name="NUM">0</field></shadow></value>`]),
-    previewNameBlockXml(name),
+    ...previewNameSteps(name),
     hide(0),
     hide(1),
   ];
@@ -2795,7 +2805,7 @@ export const buildBackgroundPreviewRom = (backgroundId, name) => {
   return buildPreviewRom({
     name: name ? `Background ${backgroundId} (${name})` : `Background ${backgroundId}`,
     // The score area is left out whether score fade is on or off, so the text row sits in the same place.
-    configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
+    configOverride: {...PREVIEW_TEXT_CONFIG, ...previewScoreConfig()},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +
       `<statement name="DO">${chain}</statement></block></xml>`,
@@ -2810,7 +2820,7 @@ export const buildScenePreviewRom = (table) => {
     `<field name="VAR">player${player}visibility</field><value name="VALUE"><shadow type="math_number">` +
     `<field name="NUM">0</field></shadow></value>`;
   // The name of the scene shows on the Text Minikernel's first line, as the previews of a playfield and of a sprite show theirs.
-  const steps = [previewNameBlockXml(table.name), hide(0), hide(1)];
+  const steps = [...previewNameSteps(table.name), hide(0), hide(1)];
   // The playfield offset areas of the scene move in the preview, as they do in a game (an event that works them while the scene is showing).
   const offsets = sceneTablesHaveOffsets([table]);
   const chain = steps.map((step) => step + '<next>').join('') + sceneBlocksXml(table, config, offsets) + steps.map(() => '</next></block>').join('');
@@ -2818,7 +2828,7 @@ export const buildScenePreviewRom = (table) => {
   return buildPreviewRom({
     name: `Scene ${table.id}${table.name ? ` (${table.name})` : ''}`,
     // The score area is left out, so the text row sits in the same place as in the other previews.
-    configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false},
+    configOverride: {...PREVIEW_TEXT_CONFIG, ...previewScoreConfig()},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +
       `<statement name="DO">${chain}</statement></block>${offsetEvent}</xml>`,
@@ -2862,7 +2872,7 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
     `<block type="background_set_color"><field name="VAR">COLUBK</field>${num(0)}`,
     // 0 = no background: the game loop would otherwise load background 1 on its first pass.
     `<block type="background_set">${num(0)}`,
-    previewNameBlockXml(name),
+    ...previewNameSteps(name),
     setPlayer(1, 'visibility', 0),
     // White unless the animation has row colors.
     ...(spriteColors ? [] : [setPlayer(0, 'realcolor', 0x0E)]),
@@ -2876,7 +2886,7 @@ export const buildPlayerAnimationPreviewRom = (animationIndex, centerX, height, 
   return buildPreviewRom({
     name: `Player animation ${animationIndex}`,
     // The score area is left out, as in the Background preview, so the text row sits in the same place on every kernel.
-    configOverride: {...PREVIEW_TEXT_CONFIG, showScore: false, previewAnimationOnly: animationIndex,
+    configOverride: {...PREVIEW_TEXT_CONFIG, ...previewScoreConfig(), previewAnimationOnly: animationIndex,
       ...(spriteColors ? {enablePlayer0SpriteColors: true, enablePlayer1SpriteColors: true} : {})},
     xml: `<xml xmlns="https://developers.google.com/blockly/xml">` +
       `<block type="event_block"><field name="EVENT">system_start</field>` +
@@ -2991,7 +3001,8 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
       // The score digits stay (the text sits beneath them) but are drawn in
       // black on the black score strip (scoreBkColor below), so they can't be seen. Plain string search,
       // a no-op if the template ever changes.
-      if (!titleScreen) {
+      // (Not the remaining CPU cycles, which show as the score.)
+      if (!titleScreen && !(configOverride && configOverride.enableCycleScore)) {
         code = code.replace(' pfscorecolor = scorecolor', ' scorecolor = 0' + String.fromCharCode(10) + ' pfscorecolor = scorecolor');
       }
       buildTvSpec = emulatorTvSpec(useConfigurationStorage().value || {});
@@ -3082,8 +3093,9 @@ const buildPreviewRom = async ({name, xml, titleScreen = false, configOverride =
           isPxe(configurationStorage.value) ? fixFracIncs(flattenBanks(sharedSource ? sharedSource.code : code), pfIsWide(configurationStorage.value), pfBuffersOf(configurationStorage.value), !!configurationStorage.value.pxeSeparateScroll) : (sharedSource ? sharedSource.code : code), log);
       appendCompileLog('Compiling to assembly...', 'stage');
       Object.assign(siblingFiles, await getDpcPlusAudioSiblingFiles(siblingFiles, BlocklyBB.dpcAudioFiles, BlocklyBB.dpcAudioMidLevel));
-      // A hidden score gives its scanlines to the picture (the Text Minikernel's score row stays, it draws the text).
-      if ((configurationStorage.value || {}).kernel === 'dpcplus' && ((configurationStorage.value || {}).showScore ?? true) === false &&
+      // A hidden score gives its scanlines to the picture (the Text Minikernel's score row stays, it draws the text). The preview's score, not
+      // the project's: a preview hides it whatever the project has (with the project's score on, the picture lost its bottom lines).
+      if ((configurationStorage.value || {}).kernel === 'dpcplus' && (previewShowScore ?? true) === false &&
         !BlocklyBB.isTextMinikernelActive()) {
         Object.assign(siblingFiles, await getDpcPlusNoScoreSiblingFiles(siblingFiles));
       }

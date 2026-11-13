@@ -3,9 +3,9 @@
 // The Playfield offset block on the PXE kernel. The DPC+ kernel does it with a program of the project on the coprocessor (offset-arm.js), and the
 // PXE ROM can not hold one, so the 6502 does it a cell at a time through the two functions the ARM program has: pfread (24) and pfpixel (12 sets, 13
 // clears). It moves the pixels as the coprocessor's pass() and columns() do (public/bb19/includes/custom/armprog.c):
-//   a row at a time (directions 0 alternate rows, 1 left, 2 right, 5 alternate the other way round): the pixel that leaves a row goes in at
-//     the next row of the order (from the bottom row up for left, from the top row down for the others), and the pixel the last row of the
-//     order sends out comes in at the first;
+//   a row at a time (directions 0 alternate rows, 1 left, 2 right, 5 alternate the other way round): all left and all right wrap the pixel
+//     that leaves a row round to its other end; with the alternate rows it goes in at the next row of the order (from the top row down), and
+//     the pixel the last row of the order sends out comes in at the first;
 //   a column at a time (3 up, 4 down, 6 alternate columns up and down, 7 down and up): the column turns round in the rows of the area.
 // Only a cell that changes is written. The routine takes the direction, the columns x1 to x2 and the rows y1 to y2 (in order, inside the
 // playfield) from the working bytes below.
@@ -154,6 +154,11 @@ export const buildPxeOffsetBody = (vars, maxRowText, maxColumn = 31) => {
     `lda ${v.pxoX1}`, `sta ${v.pxoC}`, 'jmp _pxo_pinread', '@_pxo_pinr', `lda ${v.pxoX2}`, `sta ${v.pxoC}`,
     '@_pxo_pinread', 'jsr _pxo_rd', `sta ${v.pxoPin}`,
     '@_pxo_row',
+    // all left and all right: the pixel that comes in is the one this row sends out (it wraps round the row)
+    `lda ${v.pxoDir}`, 'cmp #1', 'beq _pxo_wrapl', 'cmp #2', 'bne _pxo_nowrap',
+    `lda ${v.pxoX2}`, 'jmp _pxo_wrapc', '@_pxo_wrapl', `lda ${v.pxoX1}`,
+    '@_pxo_wrapc', `sta ${v.pxoC}`, `lda ${v.pxoR}`, `sta ${v.pxoY}`, 'jsr _pxo_rd', `sta ${v.pxoPin}`,
+    '@_pxo_nowrap',
     `lda ${v.pxoR}`, 'jsr _pxo_isleft', ...far('beq', '_pxo_rightrow'),
     ...rowLine('l', true),
     'jmp _pxo_rowdone',

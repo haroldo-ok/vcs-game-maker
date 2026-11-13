@@ -16,6 +16,7 @@ import {migrateLegacyJoystickBlocksInLocalStorage} from './hooks/migrate-joystic
 import {migrateLegacyKeypadBlocksInLocalStorage} from './hooks/migrate-keypad-blocks';
 import {migrateRainbowRangeInLocalStorage} from './hooks/migrate-rainbow-range';
 import {migrateSpritePoolIdsInLocalStorage} from './hooks/migrate-sprite-pool-ids';
+import {installTitleTooltips} from './utils/title-tooltips';
 import './registerServiceWorker';
 
 // Every link that leaves the app opens in a new tab, whatever markup it comes from, so following one never replaces the page the
@@ -98,6 +99,9 @@ if (!consumeSkipLoadLastProjectCheckOnce() && !useLoadLastProjectStorage().value
 Vue.config.productionTip = false;
 // Add unimported components to ignore list to prevent warnings.
 Vue.config.ignoredElements = ['field', 'block', 'category', 'xml', 'mutation', 'value', 'sep'];
+
+// The title tooltips wrap (see utils/title-tooltips.js).
+installTitleTooltips();
 
 new Vue({
   vuetify,

@@ -140,6 +140,20 @@ setloopfrac
      STx DF7FRACINC
      lda DF5FRACDATA ; priming read
      lda DF7FRACDATA ; priming read
+     ifconst dpccolorprime
+     ; Color rows of 2 scanlines: the color lists are read once every 2 scanlines, and one color a read is a step of 256, which their
+     ; FRACINC (a byte) holds as 255, so every color came a row late. A read now, before the picture, starts the fraction at 255: each
+     ; read of the picture then takes the next color (for up to 255 reads). Bit 0 the playfield colors, bit 1 the background colors.
+     lda dpccolorprime
+     lsr
+     bcc dpcprimepf
+     bit DF4FRACDATA
+dpcprimepf
+     lsr
+     bcc dpcprimebk
+     bit DF6FRACDATA
+dpcprimebk
+     endif
 
      ldx SpriteGfxIndex
      lda _NUSIZ1,x ; top NUSIZ/REFP

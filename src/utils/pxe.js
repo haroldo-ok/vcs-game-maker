@@ -2,6 +2,8 @@
 
 // The PXE kernel (config.pxe) runs a DPC+ program on an ARM program, and its sprite and color tables are laid out a little differently.
 export const isPxe = (config) => !!(config && config.kernel === 'dpcplus' && config.pxe);
+// The Options tab's "Show remaining CPU cycles as the score" (bB's cyclescore): left out with PXE, whose kernel has no cycle score.
+export const cycleScoreOn = (config) => !!(config && config.enableCycleScore) && !isPxe(config);
 
 // How many players the kernel has: Player 0 and 1 on the standard kernel, 10 on DPC+ (Players 2 to 9 are its virtual sprites), 17 on PXE
 // (Players 2 to 16). The numbers of a project's blocks can only be past 9 on PXE.

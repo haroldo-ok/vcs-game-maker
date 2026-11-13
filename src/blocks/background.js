@@ -768,9 +768,9 @@ Blockly.Blocks['background_offset'] = {
     this.setNextStatement(true);
     this.setColour(BACKGROUND_COLOR);
     this.setTooltip(`Moves the pixels of the playfield by one step in the chosen direction, so holes in a wall drift ` +
-        `along (the shield in Yars' Revenge). A pixel that leaves the end of a row carries on at the start of the next row ` +
-        `and one that leaves the last row comes back on the first, and "all up" and "all down" wrap the top and ` +
-        `the bottom. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
+        `along (the shield in Yars' Revenge). "all left" and "all right" wrap a pixel that leaves a row round to its other end, ` +
+        `and "all up" and "all down" wrap the top and the bottom of each column. With the alternate rows a pixel that leaves the end of a row ` +
+        `carries on at the start of the next row and one that leaves the last row comes back on the first. "alternate rows left and right" moves one row left, the next right, and so on, so the ` +
         `pixels run along the rows like a belt ("alternate rows right and left" starts the other way round: the first row ` +
         `of the playfield goes right, the next left). "alternate columns up and down" moves one column up, the next down, and so on, ` +
         `each column wrapping from the top to the bottom ("alternate columns down and up" starts the other way round: the first ` +
@@ -1729,7 +1729,9 @@ Blockly.defineBlocksWithJsonArray([
     'colour': BACKGROUND_COLOR,
     'tooltip': `Puts a tile in the playfield (DPC+ with "Keep backgrounds as tiles" on, Options tab): column 0 to 3 (each 8 pixels wide, from ` +
       `the left), row the playfield row (the tile that has that row is replaced), tile its number (shown by the tile tool of the Playfield tab). ` +
-      `The tile numbers come from the backgrounds and can change when a background is edited. Collision and the pixel blocks see the new tile.`,
+      `The tile numbers come from the backgrounds and can change when a background is edited. Add 128 to a tile number for the tile flipped left ` +
+      `to right (when there are 128 tiles or fewer). On the standard kernel a tile is kept for the column it is in (the numbers the Tiles button ` +
+      `shows there), and adding 128 does not flip it. Collision and the pixel blocks see the new tile.`,
   },
   // Back to the top row: the same as "Set playfield scroll to row" 0.
   {

@@ -3,7 +3,7 @@
 import {superchipOn} from '../../utils/superchip';
 import {dpcPlusScoreFontPointerLines} from '../../utils/score-font';
 import {useConfigurationStorage, appendCompileLog} from '../../hooks/project';
-import {isPxe} from '../../utils/pxe';
+import {cycleScoreOn, isPxe} from '../../utils/pxe';
 import {colorByteToBuildBBasic, scoreColorByteOf} from '../../utils/palette';
 import {pfRowDivisorFor} from '../../utils/playfield-coords';
 import {effectiveBackgroundRows} from '../../blocks/background';
@@ -143,7 +143,7 @@ export const pokeScoreLiteral = (value) => {
 // half's row-height*rows.
 export const generateScanlinesDebugScoreCode = (config) => {
   // (The cycle score writes the score every frame as well, so it is the one that shows when both are on.)
-  if (!config || !config.enableScanlinesDebug || config.enableCycleScore) return '';
+  if (!config || !config.enableScanlinesDebug || cycleScoreOn(config)) return '';
   const rows = superchipOn(config) ? effectiveBackgroundRows(config) : 12;
   const scanlines = 2 * pfRowDivisorFor(config) * rows;
   return pokeScoreLiteral(scanlines);

@@ -136,8 +136,8 @@ const buildToolboxXml = (enablePlayer0SpriteColors, enablePlayer1SpriteColors, k
     paletteOn: isPxe((useConfigurationStorage() || {}).value),
     // The Sprite pool blocks share the virtual sprites, which only the DPC+ and PXE kernels have.
     spritePoolOn: !!kernelIsDpcPlus || isPxe((useConfigurationStorage() || {}).value),
-    // The playfield tilemap (Options tab, DPC+ only, not PXE).
-    tilemapOn: !!kernelIsDpcPlus && !isPxe((useConfigurationStorage() || {}).value) && !!((useConfigurationStorage() || {}).value || {}).dpcPlusTilemap,
+    // The playfield tilemap (Options tab: DPC+ and the standard kernel, not PXE).
+    tilemapOn: !isPxe((useConfigurationStorage() || {}).value) && !!((useConfigurationStorage() || {}).value || {}).dpcPlusTilemap,
   });
 
 export default {

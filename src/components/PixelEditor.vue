@@ -2,7 +2,9 @@
   <v-card outlined @click="handleMouse" @mousedown="handleActivate" :ripple="false">
     <v-card-text>
       <slot name="badge" />
-      <div class="editor-with-sidebar">
+      <!-- Keyed: when the badge slot's elements come or go (the Tiles section's sheet hides them), an unkeyed div here was patched from one
+           of them and its canvas made again, while the editor kept drawing on the old one (an empty picture). -->
+      <div key="editor-body" class="editor-with-sidebar">
         <div v-if="$slots.sidebar" class="editor-sidebar">
           <slot name="sidebar" />
         </div>
@@ -15,15 +17,17 @@
             ref="editor"
             class="editor-canvas"
             :class="{
-              'editor-canvas-tool-pencil': toggledTool === 'pencil',
-              'editor-canvas-tool-eraser': toggledTool === 'eraser',
-              'editor-canvas-tool-fill': toggledTool === 'fill',
-              'editor-canvas-tool-eyedropper': toggledTool === 'eyedropper',
-              'editor-canvas-tool-line': toggledTool === 'line',
-              'editor-canvas-tool-shape': toggledTool === 'rectangle' || toggledTool === 'oval' ||
-                toggledTool === 'rect-select' || toggledTool === 'circle-select' || toggledTool === 'polygon-select',
-              'editor-canvas-tool-move': toggledTool === 'move',
-              'editor-canvas-tool-window': windowCanMove,
+              'editor-canvas-tool-pencil': cursorTool === 'pencil',
+              'editor-canvas-tool-eraser': cursorTool === 'eraser',
+              'editor-canvas-tool-fill': cursorTool === 'fill',
+              'editor-canvas-tool-eyedropper': cursorTool === 'eyedropper',
+              'editor-canvas-tool-line': cursorTool === 'line',
+              'editor-canvas-tool-shape': cursorTool === 'rectangle' || cursorTool === 'oval' ||
+                cursorTool === 'rect-select' || cursorTool === 'circle-select' || cursorTool === 'polygon-select',
+              'editor-canvas-tool-move': cursorTool === 'move',
+              'editor-canvas-tool-window': windowCanMove && cursorTool !== null,
+              'editor-canvas-tool-stamp': !!stamp,
+              'editor-canvas-no-drawing': noDrawing && !stamp,
             }"
             @mousedown="(e) => { handleStrokeStart(); handleMouse(e); handleWindowDown(e); handleStampDown(e); }"
             @mouseup="(e) => { handleStrokeEnd(); handleMouse(e); }"
@@ -156,11 +160,16 @@ export default {
     // first row is sent as "update:windowStart".
     windowStart: {type: Number, default: 0},
     // The tiles of the playfield tilemap (DPC+, see generators/bbasic/pf-tiles.js): {rows: the rows of a tile, numbers: for each tile row from the top,
-    // the tile number of each 8 columns}, drawn as a box round each tile with its number; null for none.
+    // the tile number of each 8 columns (or width columns, when given)}, drawn as a box round each tile with its number; null for none.
     tileGrid: {type: Object, default: null},
-    // A tile to stamp (the Tiles section of the Playfield tab): {rows: the tile's rows, pixels: its rows of 8 pixels}. While it is set a click puts
-    // the tile into the cell under the mouse (8 columns by the tile's rows, from the top left) instead of drawing with the tool.
+    // A tile to stamp (the Tiles section of the Playfield tab): {rows: the tile's rows, width: its columns (8 when not given), pixels: its rows}.
+    // While it is set a click puts the tile into the cell under the mouse (its columns by its rows, from the top left) instead of drawing.
     stamp: {type: Object, default: null},
+    // The editor's undo is not used: what it draws is undone through the tab's history (hooks/reorder-history.js), which the tab writes
+    // (the Tiles section's tiles and the backgrounds kept as tiles, whose changes reach each other).
+    outsideHistory: {type: Boolean, default: false},
+    // No drawing at all (a click only selects the card around it): the Tiles section's tiles while the Stamp is on.
+    noDrawing: {type: Boolean, default: false},
     // Labels each cell with its  column index (0-based, matching the X
     // argument every "Background: pixel at X/Y" block already uses) at the
     // cell's center - opt-in separately from showGrid since it's only
@@ -248,6 +257,10 @@ export default {
     };
   },
   computed: {
+    // The tool the cursor over the picture shows: none with a stamp (it places the tile) or with no drawing (a click selects the card).
+    cursorTool() {
+      return this.stamp || this.noDrawing ? null : this.toggledTool;
+    },
     // Whether the overlay canvas has guides to draw (the columns of a wide playfield, the window of a scrolling graphic).
     hasGuides() {
       return this.guideColumns > 0 || this.hasWindow || !!(this.tileGrid && this.tileGrid.numbers && this.tileGrid.numbers.length);
@@ -335,7 +348,7 @@ export default {
     // frame B still drew with frame B's stale Pencil until Eraser was
     // clicked again there too - exactly the bug being fixed here.
     toggledTool(toolName, previousToolName) {
-      if (this.editor) this.editor.tool = this.stamp ? this.noTool : this.toolFor(toolName);
+      if (this.editor) this.editor.tool = (this.stamp || this.noDrawing) ? this.noTool : this.toolFor(toolName);
       if (this.hoverCell && this.gridResizeObserver) this.$nextTick(() => this.drawGridOverlay());
       // Leaving the selection tools and Move for a drawing tool drops the
       // selection (and a half-made polygon). Moving between the selection tools
@@ -353,7 +366,7 @@ export default {
       this.rectangle = new Rectangle(this.fgColor);
       this.oval = new Oval(this.fgColor);
       if (this.editor) {
-        this.editor.tool = this.stamp ? this.noTool : this.toolFor(this.toggledTool);
+        this.editor.tool = (this.stamp || this.noDrawing) ? this.noTool : this.toolFor(this.toggledTool);
         this.setPixels(this.getPixels(), false);
       }
     },
@@ -386,9 +399,12 @@ export default {
       });
       if (changed.length) this.recolorRows(changed);
     },
-    // A stamp takes the place of the drawing tool while it is set.
+    // A stamp takes the place of the drawing tool while it is set, and no drawing leaves none.
     stamp() {
-      if (this.editor) this.editor.tool = this.stamp ? this.noTool : this.toolFor(this.toggledTool);
+      if (this.editor) this.editor.tool = (this.stamp || this.noDrawing) ? this.noTool : this.toolFor(this.toggledTool);
+    },
+    noDrawing() {
+      if (this.editor) this.editor.tool = (this.stamp || this.noDrawing) ? this.noTool : this.toolFor(this.toggledTool);
     },
     // The tiles are drawn on the overlay canvas too.
     tileGrid() {
@@ -742,20 +758,23 @@ export default {
       // The tiles: a box round each (8 columns by the tile's rows) with its number in the corner.
       if (this.tileGrid && this.tileGrid.numbers && this.tileGrid.rows > 0) {
         const tileRows = this.tileGrid.rows;
-        const fontSize = Math.max(9, Math.min(14, Math.round(Math.min(cellWidth * 8, cellHeight * tileRows) / 3)));
+        // (A tile 8 columns wide unless the grid says otherwise: the Tiles section's wider tiles.)
+        const tileColumns = this.tileGrid.width || 8;
+        const fontSize = Math.max(9, Math.min(14, Math.round(Math.min(cellWidth * tileColumns, cellHeight * tileRows) / 3)));
         ctx.font = `bold ${fontSize}px sans-serif`;
         ctx.textBaseline = 'top';
         this.tileGrid.numbers.forEach((numbers, tileRow) => numbers.forEach((number, tileColumn) => {
-          const x = Math.round(tileColumn * 8 * cellWidth);
+          const x = Math.round(tileColumn * tileColumns * cellWidth);
           const y = Math.round(tileRow * tileRows * cellHeight);
           if (y >= cssHeight || x >= cssWidth) return;
-          const w = Math.round(8 * cellWidth);
+          const w = Math.round(tileColumns * cellWidth);
           const h = Math.min(Math.round(tileRows * cellHeight), cssHeight - y);
           ctx.strokeStyle = 'rgba(0, 188, 212, 0.95)';
           ctx.lineWidth = 2;
           ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
           const text = String(number);
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+          // (A light box: the pixels under the number still show through.)
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
           ctx.fillRect(x + 2, y + 2, ctx.measureText(text).width + 6, fontSize + 4);
           ctx.fillStyle = '#ffffff';
           ctx.fillText(text, x + 5, y + 4);
@@ -862,7 +881,25 @@ export default {
       // visually lost under a selection's tint. A light, neutral
       // overlay (not the selection's blue) so it never looks like an
       // actual selection - just a cursor-following highlight.
-      if (this.hoverCell) {
+      // With a stamp, the tile as it would go in: its pixels in the cell under the mouse (8 columns by its rows, as handleStampDown places
+      // it), lit ones in the drawing color and the others dark, with a box round the cell.
+      if (this.hoverCell && this.stamp) {
+        const rows = Math.max(1, this.stamp.rows);
+        const wide = this.stamp.width || 8;
+        const left = Math.floor(this.hoverCell.x / wide) * wide;
+        const top = Math.floor(this.hoverCell.y / rows) * rows;
+        const shown = Math.min(rows, this.height - top);
+        for (let k = 0; k < shown; k++) {
+          for (let i = 0; i < wide && left + i < this.width; i++) {
+            ctx.fillStyle = ((this.stamp.pixels || [])[k] || [])[i] ? 'rgba(255, 165, 0, 0.85)' : 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect((left + i) * cellWidth, (top + k) * cellHeight, cellWidth, cellHeight);
+          }
+        }
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(left * cellWidth + 1, top * cellHeight + 1, Math.min(wide, this.width - left) * cellWidth - 2, shown * cellHeight - 2);
+      } else if (this.hoverCell && !this.noDrawing) {
+        // (No highlight with no drawing: a click there only selects the card.)
         // With mirror drawing on, the cells a draw tool would also change get
         // the same highlight.
         this.hoverCellsWithMirrors().forEach(({x: hx, y: hy}) => {
@@ -960,12 +997,13 @@ export default {
       const column = Math.floor(((event.clientX - box.left) / box.width) * this.width);
       const row = Math.floor(this.rowAtMouse(event));
       const rows = Math.max(1, this.stamp.rows);
-      const left = Math.floor(column / 8) * 8;
+      const wide = this.stamp.width || 8;
+      const left = Math.floor(column / wide) * wide;
       const top = Math.floor(row / rows) * rows;
       if (left < 0 || top < 0 || left >= this.width || top >= this.height) return;
       const pixels = this.getPixels();
       for (let k = 0; k < rows && top + k < pixels.length; k++) {
-        for (let i = 0; i < 8 && left + i < pixels[top + k].length; i++) {
+        for (let i = 0; i < wide && left + i < pixels[top + k].length; i++) {
           pixels[top + k][left + i] = ((this.stamp.pixels || [])[k] || [])[i] ? 1 : 0;
         }
       }
@@ -1061,7 +1099,7 @@ export default {
     // cancelStroke.
     handleStrokeStart() {
       if (!this.editor) return;
-      noteEdit();
+      if (!this.outsideHistory) noteEdit();
       // A new gesture ends whatever could still be redone.
       this.rowMoveRedo = [];
       this.strokeStart = {
@@ -1236,6 +1274,7 @@ export default {
     },
 
     undo() {
+      if (this.outsideHistory) return;
       const last = this.rowMoveUndo[this.rowMoveUndo.length - 1];
       const depth = this.editor.history.undoStack.length;
       this.editor.undo();
@@ -1251,6 +1290,7 @@ export default {
     },
 
     redo() {
+      if (this.outsideHistory) return;
       const next = this.rowMoveRedo[this.rowMoveRedo.length - 1];
       const depth = this.editor.history.undoStack.length;
       this.editor.redo();
@@ -1409,7 +1449,7 @@ export default {
       // freshly built/resized editor's underlying tool object silently
       // stayed Pencil even while Eraser showed selected on the shared
       // toolbar, until setTool() was called again to actually apply it.
-      const initialTool = this.stamp ? this.noTool : this.toolFor(this.toggledTool);
+      const initialTool = (this.stamp || this.noDrawing) ? this.noTool : this.toolFor(this.toggledTool);
       this.editor = new PixelEditor(canvas, this.width, rowCount, initialTool, history);
       limitPixelHistory(this.editor.history);
       // Every tool draws through editor.set(), so mirror drawing hooks in here
@@ -1642,6 +1682,16 @@ export default {
    points at the exact cell a click would affect, not just floats nearby -
    "crosshair" is the fallback for browsers that don't support custom cursor
    images at all. */
+/* A stamp places a tile at the cell under the mouse (the tile shows there as the mouse moves): no drawing tool's cursor. */
+.editor-canvas-tool-stamp {
+  cursor: pointer;
+}
+
+/* No drawing: a click only selects the card. */
+.editor-canvas-no-drawing {
+  cursor: pointer;
+}
+
 .editor-canvas-tool-pencil {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='white' stroke='black' stroke-width='1' d='M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z'/></svg>") 3 21, crosshair;
 }
