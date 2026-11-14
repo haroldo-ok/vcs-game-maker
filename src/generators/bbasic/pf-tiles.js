@@ -27,8 +27,10 @@ export const TILE_NARROW_BIT = 0x40;
 // What the coprocessor program that reads 4-pixel tiles takes more than the one that does not (armprog.c built with and without -DNONARROW).
 export const NARROW_ARM_EXTRA_BYTES = 178;
 export const TILE_SET_FUNCTION = 108;
-// The tallest tile (a tile is a column byte for each of its rows; the description keeps the rows in 7 bits, the eighth is the flips).
-export const MAX_TILE_ROWS = 32;
+// The tallest tile (a tile is a column byte for each of its rows; the description keeps the rows in 7 bits, the eighth is the flips). The 4-pixel tiles
+// use bit 6 of them as their flag (the programs with n read 6 bits), so those are 63 rows at most.
+export const MAX_TILE_ROWS = 127;
+export const MAX_NARROW_TILE_ROWS = 63;
 export const tileSetHeight = (tileSet) => Math.max(1, Math.min(MAX_TILE_ROWS, Math.round(Number(tileSet && tileSet.height) || DEFAULT_TILE_ROWS)));
 // The rows of a column queue.
 const QUEUE_ROWS = 256;
@@ -135,7 +137,7 @@ export const planTilemap = (backgrounds, tileSet = null, onlyHeight = 0) => {
   const fixedColumns = width <= 8 ? fixed.map((tile) => tile.pixels || []) :
     [...new Map(fixed.flatMap(columnsOf).map((pixels) => [[pixels, pixels.map((row) => [...row].reverse())]
         .map((rows) => JSON.stringify(rows.map((row) => row.map((v) => (v ? 1 : 0))))).sort()[0], pixels])).values()];
-  for (let height = 1; height <= MAX_TILE_ROWS; height++) {
+  for (let height = 1; height <= (unit === NARROW_TILE_WIDTH ? MAX_NARROW_TILE_ROWS : MAX_TILE_ROWS); height++) {
     if (fixedHeight && height !== fixedHeight) continue;
     // (On a tie the layout with flips, so the "Set playfield tile" block can place a tile flipped: its number plus TILE_FLIP_BIT.)
     for (const flips of [true, false]) {
@@ -376,7 +378,7 @@ export const planStandardTilemap = (backgrounds, unit = 8, onlyHeight = 0) => {
     thin: 1,
   }));
   let best = null;
-  for (let height = 1; height <= MAX_TILE_ROWS; height++) {
+  for (let height = 1; height <= (unit === NARROW_TILE_WIDTH ? MAX_NARROW_TILE_ROWS : MAX_TILE_ROWS); height++) {
     if (onlyHeight && height !== onlyHeight) continue;
     const layout = layoutFor(rowsOf, height, [], false, unit);
     // (A tile row is a byte of a plane, also with 4-pixel tiles; there are no descriptions.)

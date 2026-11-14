@@ -193,7 +193,7 @@
               >
                 <v-icon left small>mdi-auto-fix</v-icon>Playfield to tiles
               </v-btn>
-              <!-- Playfield to tiles: the size of the tiles first (a width the build can cut a row into, 8, 16 or 32; a height of 1 to 32 rows or
+              <!-- Playfield to tiles: the size of the tiles first (a width the build can cut a row into, 8, 16 or 32; a height of 1 to 127 rows or
                    the one with the fewest bytes), and whether they take the place of the tiles there are. Keeping them keeps their size. -->
               <v-dialog v-model="makeTilesVisible" width="420">
                 <v-card>

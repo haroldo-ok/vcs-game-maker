@@ -3,7 +3,8 @@ PLAN
 
 PART 1: OPEN ISSUES (cleaned 2026-11-06: the open items first, the done ones kept below)
 -------------------
-- DONE 2026-11-13 The "Try 4-pixel tiles" checkbox of the Playfield to tiles popup is hidden (showNarrowTilesOption in BackgroundEditor.vue) until the 4-pixel tiles are tested more; the code stays, nothing makes 4-pixel tiles from the UI. Version 0.53.20. Turn it on again after more testing (also the wiki and web page notes that mention them).
+- DONE 2026-11-13 Tiles up to 127 rows tall (was 32): MAX_TILE_ROWS 127 in pf-tiles.js (the description keeps the rows in 7 bits; the DPC+ programs without n read 7, so no new program build); the 4-pixel tiles stay at 63 rows (MAX_NARROW_TILE_ROWS: bit 6 is their flag). The Playfield to tiles popup and Set height offer up to 127. Tested on DPC+: a 160-row background as rows and as tiles of 80 rows, 600 frames the same (tests/projects/mktall127.cjs). Not run: the standard kernel at tall heights (its routine compares the height in 8 bits).
+- DONE 2026-11-13 The "Try 4-pixel tiles" checkbox of the Playfield to tiles popup is hidden (showNarrowTilesOption in BackgroundEditor.vue) until the 4-pixel tiles are tested more; the code stays, nothing makes 4-pixel tiles from the UI. Version 0.53.20 (0.53.21 has the 127 row tiles). Turn it on again after more testing (also the wiki and web page notes that mention them).
 - 2026-11-13 Release notes doc ("VCS Game Maker release notes", the docs connector): bring it up to 0.53.19 (it covers the changes since 0.53.17 as of 2026-11-12). Waiting: the docs connector is not in the session.
 - DONE 2026-11-13 Web page: a link to the releases page on GitHub at the bottom of the Latest updates notes ("All releases on GitHub").
 - DONE 2026-11-12: the tiles feature labeled beta 0.5 in the app (the Options tab's "Keep backgrounds as tiles (tilemap, beta 0.5)" on DPC+ and standard, the Playfield tab's "Tiles (beta 0.5)" section header).
