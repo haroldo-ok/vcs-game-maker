@@ -226,6 +226,7 @@
                       class="make-tiles-replace"
                     />
                     <v-checkbox
+                      v-if="showNarrowTilesOption"
                       v-model="makeTilesNarrow"
                       label="Try 4-pixel tiles"
                       title="Also works out the tiles 4 pixels wide (8 to a row), and makes them so when they take fewer bytes than the tile width above"
@@ -945,6 +946,8 @@ export default defineComponent({
     const makeTilesWidth = ref(8);
     const makeTilesHeight = ref('best');
     const makeTilesNarrow = ref(false);
+    // The 4-pixel tiles option is hidden until it has been tested more (makeTilesNarrow stays off).
+    const showNarrowTilesOption = false;
     const makeTilesHeightItems = [{text: 'Best (fewest bytes)', value: 'best'},
       ...Array.from({length: MAX_TILE_ROWS}, (_, i) => ({text: `${i + 1} row${i ? 's' : ''}`, value: i + 1}))];
     const makeTilesSizeLocked = computed(() => tileSet.value.tiles.length > 0 && !makeTilesReplace.value);
@@ -1949,7 +1952,7 @@ export default defineComponent({
       selectedQuickColor, quickColorPalette,
       handleRowColorsInput, handleMoveRows, handleFlipRowColors, handleClearRowColors, handleClearPlayfieldRowColors, handleClearBkRowColors, editorRowColors, editorBkRowColors, isCollapsed, toggleCollapsed,
       DEFAULT_BK_ROW_COLOR, zoom, showPixelGrid, showPixelGridLabels, tilemapOn, showTiles, tileGridFor, isTilesCollapsed, toggleTilesCollapsed, tilesEntry: {id: 'tiles'}, tileSet, tileRows, handleAddTile,
-      tilesMessage, mappedBackgroundCount, makeTilesVisible, makeTilesReplace, makeTilesWidth, makeTilesHeight, makeTilesHeightItems, makeTilesNarrow,
+      tilesMessage, mappedBackgroundCount, makeTilesVisible, makeTilesReplace, makeTilesWidth, makeTilesHeight, makeTilesHeightItems, makeTilesNarrow, showNarrowTilesOption,
       makeTilesSizeLocked, openMakeTiles, handleMakeTiles, backToPixelsVisible, backToPixelsDeleteTiles, openBackToPixels, TILE_WIDTHS, MAX_TILE_ROWS, tileWidthPx, handleConvertToTileNumbers, handleConvertToPixels,
       handleDeleteTile, handleDuplicateTile, copiedTilePixels, handleCopyTile, handlePasteTile, handleTileInput, selectedTileId, selectedTileIds, deselectTile, handleSelectTile, tileDeleteQuestion,
       tileDragAttrs, tileDragCardClass, tileDragHandleListeners, tileDragTargetListeners, stampOn, setStampOn, stampFor, handleSelectBackgroundCard, handleDeselectCards, tileAspectRatio, tileCardStyle, tileZoom, tilesSheet, TILE_ZOOM_LEVELS, stampFlip, setStampFlip, cardColumns, editorWidth, pfWidth, backgroundRows, pfColorsEnabled, bkColorsEnabled, handleBkRowColorsInput,

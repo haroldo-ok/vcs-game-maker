@@ -3,6 +3,8 @@ PLAN
 
 PART 1: OPEN ISSUES (cleaned 2026-11-06: the open items first, the done ones kept below)
 -------------------
+- DONE 2026-11-13 The "Try 4-pixel tiles" checkbox of the Playfield to tiles popup is hidden (showNarrowTilesOption in BackgroundEditor.vue) until the 4-pixel tiles are tested more; the code stays, nothing makes 4-pixel tiles from the UI. Version 0.53.20. Turn it on again after more testing (also the wiki and web page notes that mention them).
+- 2026-11-13 Release notes doc ("VCS Game Maker release notes", the docs connector): bring it up to 0.53.19 (it covers the changes since 0.53.17 as of 2026-11-12). Waiting: the docs connector is not in the session.
 - DONE 2026-11-13 Web page: a link to the releases page on GitHub at the bottom of the Latest updates notes ("All releases on GitHub").
 - DONE 2026-11-12: the tiles feature labeled beta 0.5 in the app (the Options tab's "Keep backgrounds as tiles (tilemap, beta 0.5)" on DPC+ and standard, the Playfield tab's "Tiles (beta 0.5)" section header).
 - DONE 2026-11-12: Scene card: the offset chips were right under the Remove trigger button (a trigger's fields have no space below); now 12 pixels apart, also the hint line under an offset area's fields.
